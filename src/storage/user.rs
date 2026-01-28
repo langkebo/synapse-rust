@@ -37,7 +37,7 @@ impl<'a> UserStorage<'a> {
     }
 
     pub async fn create_user(&self, user_id: &str, username: &str, password_hash: Option<&str>, is_admin: bool) -> Result<User, sqlx::Error> {
-        let now = chrono::Utc::now();
+        let now = chrono::Utc::now().timestamp();
         sqlx::query_as!(
             User,
             r#"

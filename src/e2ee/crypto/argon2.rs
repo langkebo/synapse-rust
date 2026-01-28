@@ -1,5 +1,6 @@
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::{SaltString, rand_core::OsRng};
+use argon2::Params;
 
 #[derive(Debug, Clone)]
 pub struct Argon2Params {
@@ -27,11 +28,17 @@ pub struct Argon2Kdf {
 
 impl Argon2Kdf {
     pub fn new(params: Argon2Params) -> Result<Self, super::CryptoError> {
+        let params_obj = Params::new(
+            params.m_cost,
+            params.t_cost,
+            params.p_cost,
+            Some(params.output_len)
+        ).map_err(|e| super::CryptoError::HashError(e.to_string()))?;
+        
         let algorithm = Argon2::new(
             argon2::Algorithm::Argon2id,
             argon2::Version::V0x13,
-            argon2::Params::new(params.m_cost, params.t_cost, params.p_cost, None)
-                .map_err(|e| super::CryptoError::HashError(e.to_string()))?,
+            params_obj,
         );
         Ok(Self { algorithm, params })
     }
@@ -53,7 +60,6 @@ impl Argon2Kdf {
     pub fn derive_key(&self, password: &str, salt: &[u8]) -> Result<Vec<u8>, super::CryptoError> {
         let mut output = vec![0u8; self.params.output_len];
         self.algorithm.hash_password_into(
-            self.algorithm.params(),
             password.as_bytes(),
             salt,
             &mut output

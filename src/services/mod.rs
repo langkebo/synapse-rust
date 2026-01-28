@@ -55,7 +55,7 @@ impl PresenceStorage {
     }
 
     pub async fn set_presence(&self, user_id: &str, presence: &str, status_msg: Option<&str>) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now();
+        let now = chrono::Utc::now().timestamp();
         sqlx::query!(
             r#"
             INSERT INTO presence (user_id, presence, status_msg, last_active_ts, created_ts, updated_ts)

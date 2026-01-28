@@ -34,7 +34,7 @@ impl<'a> RoomStorage<'a> {
         version: &str,
         is_public: bool,
     ) -> Result<Room, sqlx::Error> {
-        let now = chrono::Utc::now();
+        let now = chrono::Utc::now().timestamp();
         sqlx::query_as!(
             Room,
             r#"

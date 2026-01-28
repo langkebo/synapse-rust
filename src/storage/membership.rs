@@ -96,6 +96,7 @@ impl<'a> RoomMemberStorage<'a> {
     }
 
     pub async fn ban_member(&self, room_id: &str, user_id: &str, banned_by: &str, reason: Option<&str>) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
         sqlx::query!(
             r#"
             INSERT INTO room_memberships (room_id, user_id, membership, banned_by, ban_reason, ban_ts)
@@ -110,7 +111,7 @@ impl<'a> RoomMemberStorage<'a> {
             user_id,
             banned_by,
             reason,
-            chrono::Utc::now()
+            now
         ).execute(self.pool).await?;
         Ok(())
     }

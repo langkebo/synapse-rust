@@ -33,9 +33,9 @@ impl<'a> AccessTokenStorage<'a> {
         token: &str,
         user_id: &str,
         device_id: Option<&str>,
-        expiry_ts: Option<chrono::DateTime<chrono::Utc>>,
+        expiry_ts: Option<i64>,
     ) -> Result<AccessToken, sqlx::Error> {
-        let now = chrono::Utc::now();
+        let now = chrono::Utc::now().timestamp();
         sqlx::query_as!(
             AccessToken,
             r#"
@@ -106,9 +106,9 @@ impl<'a> AccessTokenStorage<'a> {
         token: &str,
         user_id: &str,
         device_id: Option<&str>,
-        expiry_ts: Option<chrono::DateTime<chrono::Utc>>,
+        expiry_ts: Option<i64>,
     ) -> Result<RefreshToken, sqlx::Error> {
-        let now = chrono::Utc::now();
+        let now = chrono::Utc::now().timestamp();
         sqlx::query_as!(
             RefreshToken,
             r#"

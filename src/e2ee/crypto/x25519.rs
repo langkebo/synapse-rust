@@ -1,4 +1,4 @@
-use x25519_dalek::{PublicKey, StaticSecret};
+use x25519_dalek::PublicKey;
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -40,7 +40,8 @@ pub struct X25519SecretKey {
 
 impl X25519SecretKey {
     pub fn generate() -> Self {
-        let secret = StaticSecret::new(OsRng);
+        let mut csprng = OsRng;
+        let secret = x25519_dalek::EphemeralSecret::random_from_rng(&mut csprng);
         Self {
             bytes: secret.to_bytes(),
         }
@@ -63,7 +64,8 @@ pub struct X25519KeyPair {
 
 impl X25519KeyPair {
     pub fn generate() -> Self {
-        let secret = StaticSecret::new(OsRng);
+        let mut csprng = OsRng;
+        let secret = x25519_dalek::EphemeralSecret::random_from_rng(&mut csprng);
         let public = PublicKey::from(&secret);
         Self {
             public: X25519PublicKey::from_bytes(public.to_bytes()),
@@ -76,8 +78,8 @@ impl X25519KeyPair {
     }
     
     pub fn diffie_hellman(&self, other_public: &X25519PublicKey) -> [u8; 32] {
-        let secret = StaticSecret::from(self.secret.as_bytes());
-        let public = PublicKey::from(other_public.as_bytes());
+        let secret = x25519_dalek::EphemeralSecret::from(self.secret.as_bytes().as_ref());
+        let public = x25519_dalek::PublicKey::from(other_public.as_bytes().as_ref());
         secret.diffie_hellman(&public).to_bytes()
     }
 }

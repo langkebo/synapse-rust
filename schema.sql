@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS room_memberships (
     reason TEXT,
     join_reason TEXT,
     banned_by TEXT,
+    ban_reason TEXT,
+    ban_ts BIGINT,
     PRIMARY KEY (room_id, user_id),
     FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
@@ -106,7 +108,7 @@ CREATE TABLE IF NOT EXISTS events (
     event_id TEXT NOT NULL PRIMARY KEY,
     room_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
-    event_type TEXT NOT NULL,
+    type TEXT NOT NULL,
     content TEXT NOT NULL,
     state_key TEXT,
     depth BIGINT NOT NULL DEFAULT 0,
@@ -116,6 +118,8 @@ CREATE TABLE IF NOT EXISTS events (
     status TEXT DEFAULT NULL,
     reference_image TEXT,
     origin TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    redacted BOOLEAN DEFAULT FALSE,
     FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );

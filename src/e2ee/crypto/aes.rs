@@ -1,4 +1,4 @@
-use aes_gcm::{Aes256Gcm, Key, Nonce, aead::{Aead, NewAead}};
+use aes_gcm::{Aes256Gcm, Key, Nonce, aead::Aead};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 

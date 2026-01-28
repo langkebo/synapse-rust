@@ -1,4 +1,5 @@
-use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signature, Signer, Verifier};
+use ed25519_dalek::{Signature, Signer, Verifier};
+use ed25519_dalek::ed25519::Error;
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -40,9 +41,10 @@ pub struct Ed25519SecretKey {
 
 impl Ed25519SecretKey {
     pub fn generate() -> Self {
-        let keypair = Keypair::generate(&mut OsRng);
+        let mut csprng = OsRng;
+        let keypair = ed25519_dalek::SigningKey::generate(&mut csprng);
         Self {
-            bytes: keypair.secret.to_bytes(),
+            bytes: keypair.to_bytes(),
         }
     }
     
@@ -52,6 +54,11 @@ impl Ed25519SecretKey {
     
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.bytes
+    }
+    
+    pub fn sign(&self, message: &[u8]) -> Result<Signature, Error> {
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(self.bytes.as_ref());
+        Ok(signing_key.sign(message))
     }
 }
 
@@ -63,10 +70,12 @@ pub struct Ed25519KeyPair {
 
 impl Ed25519KeyPair {
     pub fn generate() -> Self {
-        let keypair = Keypair::generate(&mut OsRng);
+        let mut csprng = OsRng;
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut csprng);
+        let verifying_key = signing_key.verifying_key();
         Self {
-            public: Ed25519PublicKey::from_bytes(keypair.public.to_bytes()),
-            secret: Ed25519SecretKey::from_bytes(keypair.secret.to_bytes()),
+            public: Ed25519PublicKey::from_bytes(verifying_key.to_bytes()),
+            secret: Ed25519SecretKey::from_bytes(signing_key.to_bytes()),
         }
     }
     
@@ -74,16 +83,14 @@ impl Ed25519KeyPair {
         &self.public
     }
     
-    pub fn sign(&self, message: &[u8]) -> Signature {
-        let secret = SecretKey::from_bytes(self.secret.as_bytes()).unwrap();
-        let public = PublicKey::from_bytes(self.public.as_bytes()).unwrap();
-        let keypair = Keypair { secret, public };
-        keypair.sign(message)
+    pub fn sign(&self, message: &[u8]) -> Result<Signature, Error> {
+        self.secret.sign(message)
     }
     
     pub fn verify(&self, message: &[u8], signature: &Signature) -> Result<(), super::CryptoError> {
-        let public = PublicKey::from_bytes(self.public.as_bytes()).unwrap();
-        public.verify(message, signature)
+        let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(self.public.as_bytes().as_ref())
+            .map_err(|_| super::CryptoError::SignatureVerificationFailed)?;
+        verifying_key.verify(message, signature)
             .map_err(|_| super::CryptoError::SignatureVerificationFailed)
     }
 }

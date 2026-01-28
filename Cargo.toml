@@ -21,7 +21,7 @@ tower-http = { version = "0.6", optional = true, features = ["fs", "cors", "trac
 hyper = "1"
 
 # Database
-sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json"] }
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "offline"] }
 deadpool = "0.12"
 deadpool-postgres = "0.12"
 
@@ -40,6 +40,12 @@ sha2 = "0.10"
 hmac = "0.12"
 base64 = "0.22"
 zeroize = "1"
+
+# E2EE Cryptography
+argon2 = "0.5"
+aes-gcm = "0.10"
+ed25519-dalek = { version = "2", features = ["serde"] }
+x25519-dalek = "2.0"
 
 # Configuration
 config = "0.14"
