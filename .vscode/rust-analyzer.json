@@ -1,0 +1,49 @@
+{
+    "rust-analyzer": {
+        "server": {
+            "path": "~/.vscode/extensions/rust-lang.rust-analyzer-0.3.2769/extension/server/rust-analyzer"
+        },
+        "check": {
+            "command": "clippy",
+            "extraArgs": ["--", "-W", "clippy::all"]
+        },
+        "cargo": {
+            "buildScripts": {
+                "overrideCommand": ["cargo", "check", "--message-format=json"]
+            },
+            "features": "all"
+        },
+        "procMacro": {
+            "enable": true
+        },
+        "inlayHints": {
+            "enable": true,
+            "typeHints": true,
+            "parameterHints": true,
+            "chainingHints": true
+        },
+        "lens": {
+            "enable": true,
+            "implementations": true,
+            "references": true
+        },
+        "completion": {
+            "addCallParenthesis": true,
+            "addAttributeCompletion": true
+        },
+        "imports": {
+            "granularity": {
+                "group": "module"
+            },
+            "merge": {
+                "glob": true
+            }
+        },
+        "updates": {
+            "prompt": true
+        },
+        "trace": {
+            "server": "off"
+        }
+    }
+}

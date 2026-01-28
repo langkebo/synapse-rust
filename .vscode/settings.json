@@ -1,0 +1,45 @@
+{
+    "rust-analyzer.server.path": "~/.vscode/extensions/rust-lang.rust-analyzer-0.3.2769/extension/server/rust-analyzer",
+    "rust-analyzer.checkOnSave.command": "clippy",
+    "rust-analyzer.cargo.buildScripts.overrideCommand": [
+        "cargo", "check", "--message-format=json"
+    ],
+    "rust-analyzer.procMacro.enable": true,
+    "rust-analyzer.cargo.features": "all",
+    "rust-analyzer.inlayHints.enable": true,
+    "rust-analyzer.inlayHints.typeHints": true,
+    "rust-analyzer.inlayHints.parameterHints": true,
+    "rust-analyzer.inlayHints.chainingHints": true,
+    "rust-analyzer.lens.enable": true,
+    "rust-analyzer.lens.implementations": true,
+    "rust-analyzer.lens.references": true,
+    "rust-analyzer.completion.addCallParenthesis": true,
+    "rust-analyzer.completion.addAttributeCompletion": true,
+    "rust-analyzer.imports.granularity.group": "module",
+    "rust-analyzer.imports.merge.glob": true,
+    "rust-analyzer.updates.prompt": true,
+    "rust-analyzer.trace.server": "off",
+    "[rust]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "rust-lang.rust-analyzer",
+        "editor.rulers": [
+            100
+        ],
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true
+    },
+    "files.associations": {
+        "*.rs": "rust"
+    },
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.fixAll": "explicit",
+        "source.organizeImports": "explicit"
+    },
+    "search.exclude": {
+        "**/target": true
+    },
+    "files.watcherExclude": {
+        "**/target/**": true
+    }
+}
