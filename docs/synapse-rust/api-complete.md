@@ -1000,9 +1000,786 @@ curl -X POST http://localhost:8008/_synapse/enhanced/voice/upload \
 
 ---
 
-## 四、Admin API
+## 四、E2EE API (End-to-End Encryption API)
 
-### 4.1 获取系统状态
+### 4.1 设备密钥管理
+
+#### 4.1.1 查询设备密钥
+
+**接口名称**：查询设备密钥  
+**请求方法**：POST  
+**URL 路径**：`/_matrix/client/v3/keys/query`  
+**认证**：是
+
+#### 请求参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| timeout | integer | 否 | 超时时间（毫秒） |
+| device_keys | object | 是 | 查询的设备密钥 |
+| token | string | 否 | 同步令牌 |
+
+#### 请求示例
+
+```json
+{
+  "timeout": 10000,
+  "device_keys": {
+    "@alice:server.com": ["DEVICE1", "DEVICE2"],
+    "@bob:server.com": ["*"]
+  },
+  "token": "s1234567890"
+}
+```
+
+#### 响应格式
+
+```json
+{
+  "device_keys": {
+    "@alice:server.com": {
+      "DEVICE1": {
+        "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+        "device_id": "DEVICE1",
+        "keys": {
+          "curve25519:DEVICE1": "base64_public_key",
+          "ed25519:DEVICE1": "base64_public_key"
+        },
+        "signatures": {
+          "@alice:server.com": {
+            "ed25519:DEVICE1": "base64_signature"
+          }
+        },
+        "user_id": "@alice:server.com",
+        "unsigned": {}
+      }
+    }
+  },
+  "failures": {}
+}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_BAD_JSON | 400 | JSON 格式错误 |
+
+#### 使用示例
+
+```bash
+curl -X POST http://localhost:8008/_matrix/client/v3/keys/query \
+  -H "Authorization: Bearer access_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_keys": {
+      "@alice:server.com": ["DEVICE1"]
+    }
+  }'
+```
+
+---
+
+#### 4.1.2 上传设备密钥
+
+**接口名称**：上传设备密钥  
+**请求方法**：POST  
+**URL 路径**：`/_matrix/client/v3/keys/upload`  
+**认证**：是
+
+#### 请求参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| device_keys | object | 否 | 设备密钥 |
+| one_time_keys | object | 否 | 一次性密钥 |
+
+#### 请求示例
+
+```json
+{
+  "device_keys": {
+    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+    "device_id": "DEVICE1",
+    "keys": {
+      "curve25519:DEVICE1": "base64_public_key",
+      "ed25519:DEVICE1": "base64_public_key"
+    },
+    "signatures": {
+      "@alice:server.com": {
+        "ed25519:DEVICE1": "base64_signature"
+      }
+    },
+    "user_id": "@alice:server.com"
+  },
+  "one_time_keys": {
+    "signed_curve25519:AAAAAQ": {
+      "key": "base64_public_key",
+      "signatures": {
+        "@alice:server.com": {
+          "ed25519:DEVICE1": "base64_signature"
+        }
+      }
+    }
+  }
+}
+```
+
+#### 响应格式
+
+```json
+{
+  "one_time_key_counts": {
+    "signed_curve25519": 50,
+    "curve25519": 20
+  }
+}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_BAD_JSON | 400 | JSON 格式错误 |
+
+#### 使用示例
+
+```bash
+curl -X POST http://localhost:8008/_matrix/client/v3/keys/upload \
+  -H "Authorization: Bearer access_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_keys": {
+      "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+      "device_id": "DEVICE1",
+      "keys": {
+        "curve25519:DEVICE1": "base64_public_key",
+        "ed25519:DEVICE1": "base64_public_key"
+      },
+      "user_id": "@alice:server.com"
+    }
+  }'
+```
+
+---
+
+#### 4.1.3 声明一次性密钥
+
+**接口名称**：声明一次性密钥  
+**请求方法**：POST  
+**URL 路径**：`/_matrix/client/v3/keys/claim`  
+**认证**：是
+
+#### 请求参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| timeout | integer | 否 | 超时时间（毫秒） |
+| one_time_keys | object | 是 | 要声明的一次性密钥 |
+
+#### 请求示例
+
+```json
+{
+  "timeout": 10000,
+  "one_time_keys": {
+    "@alice:server.com": {
+      "DEVICE1": "signed_curve25519"
+    }
+  }
+}
+```
+
+#### 响应格式
+
+```json
+{
+  "one_time_keys": {
+    "@alice:server.com": {
+      "DEVICE1": {
+        "signed_curve25519:AAAAAQ": {
+          "key": "base64_public_key",
+          "signatures": {
+            "@alice:server.com": {
+              "ed25519:DEVICE1": "base64_signature"
+            }
+          }
+        }
+      }
+    }
+  },
+  "failures": {}
+}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_BAD_JSON | 400 | JSON 格式错误 |
+
+#### 使用示例
+
+```bash
+curl -X POST http://localhost:8008/_matrix/client/v3/keys/claim \
+  -H "Authorization: Bearer access_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "one_time_keys": {
+      "@alice:server.com": {
+        "DEVICE1": "signed_curve25519"
+      }
+    }
+  }'
+```
+
+---
+
+#### 4.1.4 删除设备密钥
+
+**接口名称**：删除设备密钥  
+**请求方法**：DELETE  
+**URL 路径**：`/_matrix/client/v3/keys/{user_id}/{device_id}`  
+**认证**：是
+
+#### 路径参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| user_id | string | 是 | 用户 ID |
+| device_id | string | 是 | 设备 ID |
+
+#### 响应格式
+
+```json
+{}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_FORBIDDEN | 403 | 禁止删除 |
+
+#### 使用示例
+
+```bash
+curl -X DELETE http://localhost:8008/_matrix/client/v3/keys/@alice:server.com/DEVICE1 \
+  -H "Authorization: Bearer access_token_here"
+```
+
+---
+
+### 4.2 跨签名密钥管理
+
+#### 4.2.1 上传跨签名密钥
+
+**接口名称**：上传跨签名密钥  
+**请求方法**：POST  
+**URL 路径**：`/_matrix/client/v3/keys/device_signing/upload`  
+**认证**：是
+
+#### 请求参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| master_key | object | 是 | 主密钥 |
+| self_signing_key | object | 是 | 自签名密钥 |
+| user_signing_key | object | 是 | 用户签名密钥 |
+
+#### 请求示例
+
+```json
+{
+  "master_key": {
+    "user_id": "@alice:server.com",
+    "usage": ["master"],
+    "keys": {
+      "ed25519:MASTER": "base64_public_key"
+    },
+    "signatures": {}
+  },
+  "self_signing_key": {
+    "user_id": "@alice:server.com",
+    "usage": ["self_signing"],
+    "keys": {
+      "ed25519:SELF_SIGNING": "base64_public_key"
+    },
+    "signatures": {
+      "@alice:server.com": {
+        "ed25519:MASTER": "base64_signature"
+      }
+    }
+  },
+  "user_signing_key": {
+    "user_id": "@alice:server.com",
+    "usage": ["user_signing"],
+    "keys": {
+      "ed25519:USER_SIGNING": "base64_public_key"
+    },
+    "signatures": {
+      "@alice:server.com": {
+        "ed25519:MASTER": "base64_signature"
+      }
+    }
+  }
+}
+```
+
+#### 响应格式
+
+```json
+{}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_BAD_JSON | 400 | JSON 格式错误 |
+
+#### 使用示例
+
+```bash
+curl -X POST http://localhost:8008/_matrix/client/v3/keys/device_signing/upload \
+  -H "Authorization: Bearer access_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "master_key": {
+      "user_id": "@alice:server.com",
+      "usage": ["master"],
+      "keys": {
+        "ed25519:MASTER": "base64_public_key"
+      }
+    }
+  }'
+```
+
+---
+
+#### 4.2.2 上传签名
+
+**接口名称**：上传签名  
+**请求方法**：POST  
+**URL 路径**：`/_matrix/client/v3/keys/signatures/upload`  
+**认证**：是
+
+#### 请求参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| signatures | object | 是 | 签名数据 |
+
+#### 请求示例
+
+```json
+{
+  "@alice:server.com": {
+    "ed25519:DEVICE1": {
+      "user_id": "@alice:server.com",
+      "usage": ["self_signing"],
+      "keys": {
+        "ed25519:DEVICE1": "base64_public_key"
+      },
+      "signatures": {
+        "@alice:server.com": {
+          "ed25519:SELF_SIGNING": "base64_signature"
+        }
+      }
+    }
+  }
+}
+```
+
+#### 响应格式
+
+```json
+{
+  "failures": {}
+}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_BAD_JSON | 400 | JSON 格式错误 |
+
+#### 使用示例
+
+```bash
+curl -X POST http://localhost:8008/_matrix/client/v3/keys/signatures/upload \
+  -H "Authorization: Bearer access_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "@alice:server.com": {
+      "ed25519:DEVICE1": {
+        "user_id": "@alice:server.com",
+        "usage": ["self_signing"],
+        "keys": {
+          "ed25519:DEVICE1": "base64_public_key"
+        },
+        "signatures": {
+          "@alice:server.com": {
+            "ed25519:SELF_SIGNING": "base64_signature"
+          }
+        }
+      }
+    }
+  }'
+```
+
+---
+
+### 4.3 房间加密管理
+
+#### 4.3.1 启用房间加密
+
+**接口名称**：启用房间加密  
+**请求方法**：PUT  
+**URL 路径**：`/_matrix/client/v3/rooms/{room_id}/encryption`  
+**认证**：是
+
+#### 路径参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| room_id | string | 是 | 房间 ID |
+
+#### 请求参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| algorithm | string | 是 | 加密算法 |
+| rotation_period_ms | integer | 否 | 轮换周期（毫秒） |
+| rotation_period_msgs | integer | 否 | 轮换消息数 |
+
+#### 请求示例
+
+```json
+{
+  "algorithm": "m.megolm.v1.aes-sha2",
+  "rotation_period_ms": 604800000,
+  "rotation_period_msgs": 100
+}
+```
+
+#### 响应格式
+
+```json
+{}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_FORBIDDEN | 403 | 禁止操作 |
+| M_NOT_FOUND | 404 | 房间不存在 |
+
+#### 使用示例
+
+```bash
+curl -X PUT http://localhost:8008/_matrix/client/v3/rooms/!room_id:server.com/encryption \
+  -H "Authorization: Bearer access_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "algorithm": "m.megolm.v1.aes-sha2"
+  }'
+```
+
+---
+
+#### 4.3.2 禁用房间加密
+
+**接口名称**：禁用房间加密  
+**请求方法**：DELETE  
+**URL 路径**：`/_matrix/client/v3/rooms/{room_id}/encryption`  
+**认证**：是
+
+#### 路径参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| room_id | string | 是 | 房间 ID |
+
+#### 响应格式
+
+```json
+{}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_FORBIDDEN | 403 | 禁止操作 |
+| M_NOT_FOUND | 404 | 房间不存在 |
+
+#### 使用示例
+
+```bash
+curl -X DELETE http://localhost:8008/_matrix/client/v3/rooms/!room_id:server.com/encryption \
+  -H "Authorization: Bearer access_token_here"
+```
+
+---
+
+### 4.4 密钥备份管理
+
+#### 4.4.1 创建密钥备份
+
+**接口名称**：创建密钥备份  
+**请求方法**：POST  
+**URL 路径**：`/_matrix/client/v3/room_keys/version`  
+**认证**：是
+
+#### 请求参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| algorithm | string | 是 | 备份算法 |
+
+#### 请求示例
+
+```json
+{
+  "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2"
+}
+```
+
+#### 响应格式
+
+```json
+{
+  "version": "1",
+  "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+  "auth_data": {
+    "public_key": "base64_public_key",
+    "signatures": {
+      "@alice:server.com": {
+        "ed25519:DEVICE1": "base64_signature"
+      }
+    }
+  }
+}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_BAD_JSON | 400 | JSON 格式错误 |
+
+#### 使用示例
+
+```bash
+curl -X POST http://localhost:8008/_matrix/client/v3/room_keys/version \
+  -H "Authorization: Bearer access_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2"
+  }'
+```
+
+---
+
+#### 4.4.2 获取密钥备份
+
+**接口名称**：获取密钥备份  
+**请求方法**：GET  
+**URL 路径**：`/_matrix/client/v3/room_keys/version`  
+**认证**：是
+
+#### 响应格式
+
+```json
+{
+  "version": "1",
+  "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+  "auth_data": {
+    "public_key": "base64_public_key",
+    "signatures": {
+      "@alice:server.com": {
+        "ed25519:DEVICE1": "base64_signature"
+      }
+    }
+  },
+  "count": 100,
+  "etag": "etag_value"
+}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_NOT_FOUND | 404 | 备份不存在 |
+
+#### 使用示例
+
+```bash
+curl -X GET http://localhost:8008/_matrix/client/v3/room_keys/version \
+  -H "Authorization: Bearer access_token_here"
+```
+
+---
+
+#### 4.4.3 删除密钥备份
+
+**接口名称**：删除密钥备份  
+**请求方法**：DELETE  
+**URL 路径**：`/_matrix/client/v3/room_keys/version/{version}`  
+**认证**：是
+
+#### 路径参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| version | string | 是 | 备份版本 |
+
+#### 响应格式
+
+```json
+{}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_NOT_FOUND | 404 | 备份不存在 |
+
+#### 使用示例
+
+```bash
+curl -X DELETE http://localhost:8008/_matrix/client/v3/room_keys/version/1 \
+  -H "Authorization: Bearer access_token_here"
+```
+
+---
+
+#### 4.4.4 上传密钥备份数据
+
+**接口名称**：上传密钥备份数据  
+**请求方法**：PUT  
+**URL 路径**：`/_matrix/client/v3/room_keys/keys/{room_id}/sessions/{session_id}`  
+**认证**：是
+
+#### 路径参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| room_id | string | 是 | 房间 ID |
+| session_id | string | 是 | 会话 ID |
+
+#### 请求参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| first_message_index | integer | 是 | 首条消息索引 |
+| forwarded_count | integer | 是 | 转发计数 |
+| is_verified | boolean | 是 | 是否已验证 |
+| session_data | string | 是 | 会话数据（加密） |
+
+#### 请求示例
+
+```json
+{
+  "first_message_index": 0,
+  "forwarded_count": 0,
+  "is_verified": true,
+  "session_data": "base64_encrypted_data"
+}
+```
+
+#### 响应格式
+
+```json
+{
+  "etag": "etag_value",
+  "count": 1
+}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_BAD_JSON | 400 | JSON 格式错误 |
+
+#### 使用示例
+
+```bash
+curl -X PUT http://localhost:8008/_matrix/client/v3/room_keys/keys/!room_id:server.com/sessions/session123 \
+  -H "Authorization: Bearer access_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "first_message_index": 0,
+    "forwarded_count": 0,
+    "is_verified": true,
+    "session_data": "base64_encrypted_data"
+  }'
+```
+
+---
+
+#### 4.4.5 下载密钥备份数据
+
+**接口名称**：下载密钥备份数据  
+**请求方法**：GET  
+**URL 路径**：`/_matrix/client/v3/room_keys/keys/{room_id}/sessions/{session_id}`  
+**认证**：是
+
+#### 路径参数
+
+| 参数名 | 类型 | 必需 | 描述 |
+|--------|------|------|------|
+| room_id | string | 是 | 房间 ID |
+| session_id | string | 是 | 会话 ID |
+
+#### 响应格式
+
+```json
+{
+  "first_message_index": 0,
+  "forwarded_count": 0,
+  "is_verified": true,
+  "session_data": "base64_encrypted_data"
+}
+```
+
+#### 错误码
+
+| 错误码 | HTTP 状态码 | 描述 |
+|--------|------------|------|
+| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
+| M_NOT_FOUND | 404 | 备份数据不存在 |
+
+#### 使用示例
+
+```bash
+curl -X GET http://localhost:8008/_matrix/client/v3/room_keys/keys/!room_id:server.com/sessions/session123 \
+  -H "Authorization: Bearer access_token_here"
+```
+
+---
+
+## 五、Admin API
+
+### 5.1 获取系统状态
 
 **接口名称**：获取系统状态  
 **请求方法**：GET  
@@ -1040,7 +1817,7 @@ curl -X GET http://localhost:8008/_synapse/admin/v1/status \
 
 ---
 
-## 五、通用错误码
+## 六、通用错误码
 
 | 错误码 | HTTP 状态码 | 描述 |
 |--------|------------|------|
@@ -1060,16 +1837,18 @@ curl -X GET http://localhost:8008/_synapse/admin/v1/status \
 
 ---
 
-## 六、参考资料
+## 七、参考资料
 
 - [Matrix 客户端-服务器 API 规范](https://spec.matrix.org/v1.11/client-server-api/)
 - [Matrix 联邦 API 规范](https://spec.matrix.org/v1.11/server-server-api/)
+- [Matrix E2EE 规范](https://spec.matrix.org/v1.11/client-server-api/#end-to-end-encryption)
 - [Synapse 官方文档](https://element-hq.github.io/synapse/latest/)
 
 ---
 
-## 七、变更日志
+## 八、变更日志
 
 | 版本 | 日期 | 变更说明 |
 |------|------|----------|
+| 1.1.0 | 2026-01-28 | 添加 E2EE API 端点文档，包括设备密钥管理、跨签名密钥、房间加密和密钥备份 |
 | 1.0.0 | 2026-01-28 | 初始版本，定义完整 API 文档 |

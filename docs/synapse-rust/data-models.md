@@ -393,6 +393,115 @@
 - UNIQUE INDEX (ip_address)
 - INDEX (score)
 
+### 1.20 设备密钥表 (device_keys)
+
+| 字段名 | 类型 | 约束 | 描述 |
+|--------|------|--------|------|
+| id | BIGSERIAL | PRIMARY KEY | 自增 ID |
+| user_id | VARCHAR(255) | NOT NULL, FOREIGN KEY | 用户 ID |
+| device_id | VARCHAR(255) | NOT NULL, FOREIGN KEY | 设备 ID |
+| display_name | VARCHAR(255) | NULLABLE | 显示名称 |
+| algorithm | VARCHAR(50) | NOT NULL | 加密算法（ed25519, curve25519） |
+| key_id | VARCHAR(255) | NOT NULL | 密钥标识符 |
+| public_key | TEXT | NOT NULL | 公钥（Base64 编码） |
+| signature | JSONB | NOT NULL | 签名数据 |
+| created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | 创建时间 |
+| updated_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | 更新时间 |
+
+**索引**：
+- PRIMARY KEY (id)
+- UNIQUE INDEX (user_id, device_id, key_id)
+- INDEX (user_id)
+- INDEX (device_id)
+- INDEX (algorithm)
+- FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+- FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE
+
+### 1.21 跨签名密钥表 (cross_signing_keys)
+
+| 字段名 | 类型 | 约束 | 描述 |
+|--------|------|--------|------|
+| id | BIGSERIAL | PRIMARY KEY | 自增 ID |
+| user_id | VARCHAR(255) | NOT NULL, FOREIGN KEY | 用户 ID |
+| key_type | VARCHAR(50) | NOT NULL | 密钥类型（master, self_signing, user_signing） |
+| public_key | TEXT | NOT NULL | 公钥（Base64 编码） |
+| usage | JSONB | NOT NULL | 密钥用途数组 |
+| signatures | JSONB | NOT NULL | 签名数据 |
+| created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | 创建时间 |
+| updated_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | 更新时间 |
+
+**索引**：
+- PRIMARY KEY (id)
+- UNIQUE INDEX (user_id, key_type)
+- INDEX (user_id)
+- INDEX (key_type)
+- FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+
+### 1.22 Megolm 会话表 (megolm_sessions)
+
+| 字段名 | 类型 | 约束 | 描述 |
+|--------|------|--------|------|
+| id | BIGSERIAL | PRIMARY KEY | 自增 ID |
+| session_id | VARCHAR(255) | NOT NULL | 会话 ID |
+| room_id | VARCHAR(255) | NOT NULL, FOREIGN KEY | 房间 ID |
+| sender_key | VARCHAR(255) | NOT NULL | 发送方公钥 |
+| session_key | TEXT | NOT NULL | 会话密钥（加密存储） |
+| algorithm | VARCHAR(50) | NOT NULL | 加密算法 |
+| message_index | BIGINT | NOT NULL, DEFAULT 0 | 消息索引 |
+| created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | 创建时间 |
+| last_used_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | 最后使用时间 |
+| expires_at | TIMESTAMPTZ | NULLABLE | 过期时间 |
+
+**索引**：
+- PRIMARY KEY (id)
+- UNIQUE INDEX (room_id, sender_key, session_id)
+- INDEX (session_id)
+- INDEX (room_id)
+- INDEX (sender_key)
+- INDEX (expires_at)
+- FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
+
+### 1.23 密钥备份表 (key_backups)
+
+| 字段名 | 类型 | 约束 | 描述 |
+|--------|------|--------|------|
+| id | BIGSERIAL | PRIMARY KEY | 自增 ID |
+| user_id | VARCHAR(255) | NOT NULL, FOREIGN KEY | 用户 ID |
+| version | VARCHAR(255) | NOT NULL | 备份版本 |
+| algorithm | VARCHAR(50) | NOT NULL | 加密算法 |
+| auth_data | JSONB | NOT NULL | 认证数据 |
+| encrypted_data | JSONB | NOT NULL | 加密的备份数据 |
+| created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | 创建时间 |
+| updated_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | 更新时间 |
+
+**索引**：
+- PRIMARY KEY (id)
+- UNIQUE INDEX (user_id, version)
+- INDEX (user_id)
+- INDEX (version)
+- FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+
+### 1.24 事件签名表 (event_signatures)
+
+| 字段名 | 类型 | 约束 | 描述 |
+|--------|------|--------|------|
+| id | BIGSERIAL | PRIMARY KEY | 自增 ID |
+| event_id | VARCHAR(255) | NOT NULL | 事件 ID |
+| user_id | VARCHAR(255) | NOT NULL, FOREIGN KEY | 签名用户 ID |
+| device_id | VARCHAR(255) | NOT NULL, FOREIGN KEY | 签名设备 ID |
+| signature | TEXT | NOT NULL | 签名数据 |
+| key_id | VARCHAR(255) | NOT NULL | 签名密钥 ID |
+| created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | 创建时间 |
+
+**索引**：
+- PRIMARY KEY (id)
+- UNIQUE INDEX (event_id, user_id, device_id, key_id)
+- INDEX (event_id)
+- INDEX (user_id)
+- INDEX (device_id)
+- FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+- FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE
+
 ---
 
 ## 二、Rust 结构体定义
@@ -658,6 +767,89 @@ pub struct VoiceMessage {
 }
 ```
 
+### 2.16 DeviceKey 结构体
+
+```rust
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DeviceKey {
+    pub id: i64,
+    pub user_id: String,
+    pub device_id: String,
+    pub display_name: Option<String>,
+    pub algorithm: String,
+    pub key_id: String,
+    pub public_key: String,
+    pub signature: serde_json::Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+```
+
+### 2.17 CrossSigningKey 结构体
+
+```rust
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CrossSigningKey {
+    pub id: i64,
+    pub user_id: String,
+    pub key_type: String,
+    pub public_key: String,
+    pub usage: Vec<String>,
+    pub signatures: serde_json::Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+```
+
+### 2.18 MegolmSession 结构体
+
+```rust
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct MegolmSession {
+    pub id: i64,
+    pub session_id: String,
+    pub room_id: String,
+    pub sender_key: String,
+    pub session_key: String,
+    pub algorithm: String,
+    pub message_index: i64,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+```
+
+### 2.19 KeyBackup 结构体
+
+```rust
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct KeyBackup {
+    pub id: i64,
+    pub user_id: String,
+    pub version: String,
+    pub algorithm: String,
+    pub auth_data: serde_json::Value,
+    pub encrypted_data: serde_json::Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+```
+
+### 2.20 EventSignature 结构体
+
+```rust
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct EventSignature {
+    pub id: i64,
+    pub event_id: String,
+    pub user_id: String,
+    pub device_id: String,
+    pub signature: String,
+    pub key_id: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+```
+
 ---
 
 ## 三、关系映射
@@ -681,6 +873,10 @@ users (1) ─────── (N) private_sessions (as creator_id)
 users (1) ─────── (N) private_sessions (as participant_id)
 users (1) ─────── (N) private_messages
 users (1) ─────── (N) voice_messages
+users (1) ─────── (N) device_keys
+users (1) ─────── (N) cross_signing_keys
+users (1) ─────── (N) key_backups
+users (1) ─────── (N) event_signatures
 ```
 
 ### 3.2 房间关系
@@ -727,6 +923,11 @@ private_sessions (1) ─────── (N) session_keys
 - `voice_messages.message_id`：语音消息 ID 唯一索引
 - `ip_blocks.ip_address`：IP 地址唯一索引
 - `ip_reputation.ip_address`：IP 地址唯一索引
+- `device_keys(user_id, device_id, key_id)`：设备密钥唯一索引
+- `cross_signing_keys(user_id, key_type)`：跨签名密钥唯一索引
+- `megolm_sessions(room_id, sender_key, session_id)`：Megolm 会话唯一索引
+- `key_backups(user_id, version)`：密钥备份唯一索引
+- `event_signatures(event_id, user_id, device_id, key_id)`：事件签名唯一索引
 
 ### 4.4 复合索引
 
@@ -760,4 +961,5 @@ private_sessions (1) ─────── (N) session_keys
 
 | 版本 | 日期 | 变更说明 |
 |------|------|----------|
+| 1.1.0 | 2026-01-28 | 添加 E2EE 相关数据表，包括设备密钥表、跨签名密钥表、Megolm 会话表、密钥备份表和事件签名表 |
 | 1.0.0 | 2026-01-28 | 初始版本，定义数据模型文档 |

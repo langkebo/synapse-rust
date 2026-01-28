@@ -38,11 +38,11 @@ serde_with = "3.4"
 rand = "0.8"
 sha2 = "0.10"
 hmac = "0.12"
-base64 = "0.22"
+base64 = "0.21"
 zeroize = "1.7"
 
 # Configuration
-config = "0.14"
+config = "0.13"
 dotenvy = "0.15"
 
 # JWT
