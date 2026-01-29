@@ -1,0 +1,178 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 0 * * 0'
+
+jobs:
+  benchmark:
+    name: Run benchmarks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: release
+          default: true
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/release/deps/
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-
+
+      - name: Run benchmarks
+        run: |
+          cargo bench -- --output-format bencher | tee benchmark.txt
+
+      - name: Analyze results
+        run: |
+          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat benchmark.txt >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: 'cargo'
+          output-file-path: benchmark.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          comment-on-alert: true
+          alert-threshold: '10%'
+          fail-on-alert: true
+
+      - name: Store benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark.txt
+          retention-days: 30
+
+  performance-comparison:
+    name: Performance comparison
+    runs-on: ubuntu-latest
+    needs: benchmark
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download baseline results
+        uses: dawidd6/action-download-artifact@v3
+        if: github.event_name == 'pull_request'
+        with:
+          workflow: benchmark.yml
+          name: benchmark-results
+          path: baseline
+          check_artifacts: true
+          search_artifacts: true
+
+      - name: Compare results
+        run: |
+          if [ -f baseline/benchmark.txt ]; then
+            echo "## Performance Comparison" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Comparing with baseline..." >> $GITHUB_STEP_SUMMARY
+            diff baseline/benchmark.txt benchmark.txt || true
+          else
+            echo "No baseline found for comparison"
+          fi
+
+  check:
+    name: Code quality check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+
+      - name: Run cargo check
+        run: cargo check --all-features
+
+      - name: Run cargo fmt
+        run: cargo fmt --check
+
+      - name: Run cargo clippy
+        run: cargo clippy --all-features -- -D warnings
+
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+
+      - name: Run tests
+        run: cargo test --lib
+
+  benchmark-report:
+    name: Generate benchmark report
+    runs-on: ubuntu-latest
+    needs: benchmark
+    if: github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download benchmark results
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-results
+          path: reports
+
+      - name: Generate report
+        run: |
+          echo "# Synapse Rust Performance Benchmark Report" > reports/REPORT.md
+          echo "" >> reports/REPORT.md
+          echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> reports/REPORT.md
+          echo "**Commit:** ${{ github.sha }}" >> reports/REPORT.md
+          echo "" >> reports/REPORT.md
+          echo "## Results" >> reports/REPORT.md
+          echo "" >> reports/REPORT.md
+          cat reports/benchmark.txt >> reports/REPORT.md
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./reports

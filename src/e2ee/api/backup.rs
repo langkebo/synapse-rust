@@ -1,44 +1,41 @@
+use super::super::backup::{KeyBackupService, BackupKeyUploadRequest};
+use crate::error::ApiError;
 use axum::{
-    extract::{State, Path},
+    extract::{Path, State},
     Json,
 };
-use super::super::backup::{BackupKeyService, BackupUploadRequest};
 use std::sync::Arc;
-use crate::error::ApiError;
 
 pub async fn create_backup(
-    State(service): State<Arc<BackupKeyService>>,
+    State(service): State<Arc<KeyBackupService>>,
     Path(user_id): Path<String>,
     Json(request): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let algorithm = request["algorithm"].as_str().unwrap();
-    
-    let version = service.create_backup(&user_id, algorithm).await?;
-    
+    let auth_data = request.get("auth_data").cloned();
+
+    let version = service.create_backup(&user_id, algorithm, auth_data).await?;
+
     Ok(Json(serde_json::json!({
-        "version": version.version,
-        "algorithm": version.algorithm,
-        "auth_data": version.auth_data,
+        "version": version,
     })))
 }
 
 pub async fn get_backup(
-    State(service): State<Arc<BackupKeyService>>,
+    State(service): State<Arc<KeyBackupService>>,
     Path(user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let backup = service.get_backup(&user_id).await?;
-    
+    let backup = service.get_backup_version(&user_id).await?;
+
     Ok(Json(serde_json::json!({
         "version": backup.as_ref().map(|b| b.version.clone()),
         "algorithm": backup.as_ref().map(|b| b.algorithm.clone()),
         "auth_data": backup.as_ref().map(|b| b.auth_data.clone()),
-        "count": backup.as_ref().map(|b| b.count).unwrap_or(0),
-        "etag": backup.as_ref().map(|b| b.etag.clone()),
     })))
 }
 
 pub async fn delete_backup(
-    State(service): State<Arc<BackupKeyService>>,
+    State(service): State<Arc<KeyBackupService>>,
     Path((user_id, version)): Path<(String, String)>,
 ) -> Result<Json<()>, ApiError> {
     service.delete_backup(&user_id, &version).await?;
@@ -46,24 +43,45 @@ pub async fn delete_backup(
 }
 
 pub async fn upload_backup_keys(
-    State(service): State<Arc<BackupKeyService>>,
+    State(service): State<Arc<KeyBackupService>>,
     Path((user_id, room_id, session_id)): Path<(String, String, String)>,
-    Json(request): Json<BackupUploadRequest>,
+    Json(request): Json<BackupKeyUploadRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let response = service.upload_backup(&user_id, &room_id, &session_id, request).await?;
-    
+    let backup = service.get_backup_version(&user_id).await?
+        .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
+
+    service
+        .upload_backup_key(
+            &user_id,
+            &backup.version,
+            &room_id,
+            &session_id,
+            request.first_message_index,
+            request.forwarded_count,
+            request.is_verified,
+            &request.session_data,
+        )
+        .await?;
+
     Ok(Json(serde_json::json!({
-        "etag": response.etag,
-        "count": response.count,
+        "etag": format!("{:x}", chrono::Utc::now().timestamp()),
+        "count": 1,
     })))
 }
 
 pub async fn download_backup_keys(
-    State(service): State<Arc<BackupKeyService>>,
+    State(service): State<Arc<KeyBackupService>>,
     Path((user_id, room_id, session_id)): Path<(String, String, String)>,
-) -> Result<Json<BackupUploadRequest>, ApiError> {
-    let backup = service.download_backup(&user_id, &room_id, &session_id).await?
-        .ok_or_else(|| ApiError::NotFound("Backup data not found".to_string()))?;
-    
-    Ok(Json(backup))
+) -> Result<Json<BackupKeyUploadRequest>, ApiError> {
+    let backup = service
+        .get_backup_key(&user_id, &room_id, &session_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Backup data not found".to_string()))?;
+
+    Ok(Json(BackupKeyUploadRequest {
+        first_message_index: backup.first_message_index,
+        forwarded_count: backup.forwarded_count,
+        is_verified: backup.is_verified,
+        session_data: backup.session_data,
+    }))
 }

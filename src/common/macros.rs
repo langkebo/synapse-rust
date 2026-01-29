@@ -2,9 +2,7 @@
 macro_rules! impl_sqlx_types {
     ($type:ty) => {
         impl $type {
-            pub async fn from_db(
-                pool: &sqlx::PgPool,
-            ) -> Result<Option<Self>, sqlx::Error> {
+            pub async fn from_db(pool: &sqlx::PgPool) -> Result<Option<Self>, sqlx::Error> {
                 sqlx::query_as!(Self, "SELECT * FROM users WHERE active = true")
                     .fetch_optional(pool)
                     .await

@@ -1,10 +1,10 @@
+use super::super::cross_signing::{CrossSigningService, CrossSigningUpload};
+use crate::error::ApiError;
 use axum::{
-    extract::{State, Path},
+    extract::{Path, State},
     Json,
 };
-use super::super::cross_signing::{CrossSigningService, CrossSigningUpload};
 use std::sync::Arc;
-use crate::error::ApiError;
 
 pub async fn upload_cross_signing_keys(
     State(service): State<Arc<CrossSigningService>>,

@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS device_keys (
     id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL,
     device_id VARCHAR(255) NOT NULL,
-    display_name VARCHAR(255) NULLABLE,
+    display_name VARCHAR(255),
     algorithm VARCHAR(50) NOT NULL,
     key_id VARCHAR(255) NOT NULL,
     public_key TEXT NOT NULL,

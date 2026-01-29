@@ -1,15 +1,15 @@
+use crate::cache::*;
 use crate::common::*;
 use crate::storage::*;
-use crate::cache::*;
-use crate::services::*;
-use jsonwebtoken::{encode, Header, EncodingKey, DecodingKey, Validation};
-use std::sync::Arc;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{Duration, Utc};
+use jsonwebtoken::{encode, DecodingKey, EncodingKey, Header, Validation};
 use rand::RngCore;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use std::sync::Arc;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: String,
     pub user_id: String,
@@ -19,10 +19,12 @@ pub struct Claims {
     pub device_id: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct AuthService {
-    pub user_storage: UserStorage<'static>,
-    pub device_storage: DeviceStorage<'static>,
-    pub token_storage: AccessTokenStorage<'static>,
+    pub user_storage: UserStorage,
+    pub device_storage: DeviceStorage,
+    pub token_storage: AccessTokenStorage,
+    pub refresh_token_storage: RefreshTokenStorage,
     pub cache: Arc<CacheManager>,
     pub jwt_secret: Vec<u8>,
     pub token_expiry: i64,
@@ -32,7 +34,7 @@ pub struct AuthService {
 
 impl AuthService {
     pub fn new(
-        pool: &'static sqlx::PgPool,
+        pool: &Arc<sqlx::PgPool>,
         cache: Arc<CacheManager>,
         jwt_secret: &str,
         server_name: &str,
@@ -41,6 +43,7 @@ impl AuthService {
             user_storage: UserStorage::new(pool),
             device_storage: DeviceStorage::new(pool),
             token_storage: AccessTokenStorage::new(pool),
+            refresh_token_storage: RefreshTokenStorage::new(pool),
             cache,
             jwt_secret: jwt_secret.as_bytes().to_vec(),
             token_expiry: 24 * 60 * 60,
@@ -57,10 +60,15 @@ impl AuthService {
         _displayname: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
         if username.is_empty() || password.is_empty() {
-            return Err(ApiError::bad_request("Username and password are required".to_string()));
+            return Err(ApiError::bad_request(
+                "Username and password are required".to_string(),
+            ));
         }
 
-        let existing_user = self.user_storage.get_user_by_username(username).await
+        let existing_user = self
+            .user_storage
+            .get_user_by_username(username)
+            .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if existing_user.is_some() {
@@ -69,14 +77,21 @@ impl AuthService {
 
         let user_id = format!("@{}:{}", username, self.server_name);
         let password_hash = self.hash_password(password)?;
-        let user = self.user_storage.create_user(&user_id, username, Some(&password_hash), admin).await
+        let user = self
+            .user_storage
+            .create_user(&user_id, username, Some(&password_hash), admin)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to create user: {}", e)))?;
 
         let device_id = generate_token(16);
-        self.device_storage.create_device(&device_id, &user_id, None).await
+        self.device_storage
+            .create_device(&device_id, &user_id, None)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
 
-        let access_token = self.generate_access_token(&user_id, &device_id, user.admin).await?;
+        let access_token = self
+            .generate_access_token(&user_id, &device_id, user.admin.unwrap_or(false))
+            .await?;
         let refresh_token = self.generate_refresh_token(&user_id, &device_id).await?;
 
         Ok((user, access_token, refresh_token, device_id))
@@ -89,21 +104,24 @@ impl AuthService {
         device_id: Option<&str>,
         _initial_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
-        let user = self.user_storage.get_user_by_username(username).await
+        let user = self
+            .user_storage
+            .get_user_by_username(username)
+            .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         let user = match user {
             Some(u) => u,
-            None => return Err(ApiError::unauthorized("Invalid username or password".to_string())),
+            None => return Err(ApiError::unauthorized("Invalid credentials".to_string())),
         };
 
         let password_hash = match &user.password_hash {
             Some(h) => h,
-            None => return Err(ApiError::unauthorized("Invalid username or password".to_string())),
+            None => return Err(ApiError::unauthorized("Invalid credentials".to_string())),
         };
 
         if !self.verify_password(password, password_hash)? {
-            return Err(ApiError::unauthorized("Invalid username or password".to_string()));
+            return Err(ApiError::unauthorized("Invalid credentials".to_string()));
         }
 
         let device_id = match device_id {
@@ -111,63 +129,99 @@ impl AuthService {
             None => generate_token(16),
         };
 
-        if !self.device_storage.device_exists(&device_id).await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))? {
-            self.device_storage.create_device(&device_id, &user.user_id, None).await
+        if !self
+            .device_storage
+            .device_exists(&device_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        {
+            self.device_storage
+                .create_device(&device_id, &user.user_id, None)
+                .await
                 .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
         }
 
-        let access_token = self.generate_access_token(&user.user_id, &device_id, user.admin).await?;
-        let refresh_token = self.generate_refresh_token(&user.user_id, &device_id).await?;
+        let access_token = self
+            .generate_access_token(&user.user_id, &device_id, user.admin.unwrap_or(false))
+            .await?;
+        let refresh_token = self
+            .generate_refresh_token(&user.user_id, &device_id)
+            .await?;
 
         Ok((user, access_token, refresh_token, device_id))
     }
 
     pub async fn logout(&self, access_token: &str, device_id: Option<&str>) -> ApiResult<()> {
-        self.token_storage.delete_token(access_token).await
+        self.token_storage
+            .delete_token(access_token)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to delete token: {}", e)))?;
 
         if let Some(d_id) = device_id {
-            self.token_storage.delete_device_tokens(d_id).await
-                .map_err(|e| ApiError::internal(format!("Failed to delete device tokens: {}", e)))?;
+            self.token_storage
+                .delete_device_tokens(d_id)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to delete device tokens: {}", e))
+                })?;
         }
 
         Ok(())
     }
 
     pub async fn logout_all(&self, user_id: &str) -> ApiResult<()> {
-        self.token_storage.delete_user_tokens(user_id).await
+        self.token_storage
+            .delete_user_tokens(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to delete tokens: {}", e)))?;
 
-        self.device_storage.delete_user_devices(user_id).await
+        self.device_storage
+            .delete_user_devices(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to delete devices: {}", e)))?;
 
         Ok(())
     }
 
-    pub async fn refresh_token(&self, refresh_token: &str) -> ApiResult<(String, String)> {
-        let token_data = self.token_storage.get_refresh_token(refresh_token).await
+    pub async fn refresh_token(&self, refresh_token: &str) -> ApiResult<(String, String, String)> {
+        let token_data = self
+            .refresh_token_storage
+            .get_refresh_token(refresh_token)
+            .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         match token_data {
             Some(t) => {
-                if t.expired_ts.map_or(false, |ts| ts < Utc::now()) {
+                if t.expires_ts.map_or(false, |ts| ts < Utc::now().timestamp()) {
                     return Err(ApiError::unauthorized("Refresh token expired".to_string()));
                 }
 
-                let user = self.user_storage.get_user_by_id(&t.user_id).await
+                let user = self
+                    .user_storage
+                    .get_user_by_id(&t.user_id)
+                    .await
                     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
                 match user {
                     Some(u) => {
-                        let device_id = t.device_id.as_deref().unwrap_or("");
-                        let new_access_token = self.generate_access_token(&u.user_id, device_id, u.admin).await?;
-                        let new_refresh_token = self.generate_refresh_token(&u.user_id, device_id).await?;
+                        let device_id = t.device_id.unwrap_or_default();
+                        let new_access_token = self
+                            .generate_access_token(&u.user_id, &device_id, u.admin.unwrap_or(false))
+                            .await?;
+                        let new_refresh_token =
+                            self.generate_refresh_token(&u.user_id, &device_id).await?;
 
-                        self.token_storage.delete_refresh_token(refresh_token).await
-                            .map_err(|e| ApiError::internal(format!("Failed to delete old refresh token: {}", e)))?;
+                        self.refresh_token_storage
+                            .delete_refresh_token(refresh_token)
+                            .await
+                            .map_err(|e| {
+                                ApiError::internal(format!(
+                                    "Failed to delete old refresh token: {}",
+                                    e
+                                ))
+                            })?;
 
-                        Ok((new_access_token, new_refresh_token))
+                        Ok((new_access_token, new_refresh_token, device_id))
                     }
                     None => Err(ApiError::unauthorized("User not found".to_string())),
                 }
@@ -189,7 +243,10 @@ impl AuthService {
                     return Ok(None);
                 }
 
-                let user_exists = self.user_storage.user_exists(&claims.sub).await
+                let user_exists = self
+                    .user_storage
+                    .user_exists(&claims.sub)
+                    .await
                     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
                 if user_exists {
@@ -205,29 +262,44 @@ impl AuthService {
 
     pub async fn change_password(&self, user_id: &str, new_password: &str) -> ApiResult<()> {
         let password_hash = self.hash_password(new_password)?;
-        self.user_storage.update_password(user_id, &password_hash).await
+        self.user_storage
+            .update_password(user_id, &password_hash)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to update password: {}", e)))?;
 
-        self.token_storage.delete_user_tokens(user_id).await
+        self.token_storage
+            .delete_user_tokens(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to invalidate tokens: {}", e)))?;
 
         Ok(())
     }
 
     pub async fn deactivate_user(&self, user_id: &str) -> ApiResult<()> {
-        self.user_storage.deactivate_user(user_id).await
+        self.user_storage
+            .deactivate_user(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to deactivate user: {}", e)))?;
 
-        self.token_storage.delete_user_tokens(user_id).await
+        self.token_storage
+            .delete_user_tokens(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to delete tokens: {}", e)))?;
 
-        self.device_storage.delete_user_devices(user_id).await
+        self.device_storage
+            .delete_user_devices(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to delete devices: {}", e)))?;
 
         Ok(())
     }
 
-    async fn generate_access_token(&self, user_id: &str, device_id: &str, admin: bool) -> ApiResult<String> {
+    async fn generate_access_token(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        admin: bool,
+    ) -> ApiResult<String> {
         let now = Utc::now();
         let claims = Claims {
             sub: user_id.to_string(),
@@ -238,15 +310,22 @@ impl AuthService {
             device_id: Some(device_id.to_string()),
         };
 
-        encode(&Header::default(), &claims, &EncodingKey::from_secret(&self.jwt_secret))
-            .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))
+        encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(&self.jwt_secret),
+        )
+        .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))
     }
 
     async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String> {
         let token = generate_token(32);
         let expiry_ts = Utc::now() + Duration::seconds(self.refresh_token_expiry);
+        let expiry_timestamp = expiry_ts.timestamp();
 
-        self.token_storage.create_refresh_token(&token, user_id, Some(device_id), Some(expiry_ts)).await
+        self.refresh_token_storage
+            .create_refresh_token(&token, user_id, device_id, Some(expiry_timestamp))
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to store refresh token: {}", e)))?;
 
         Ok(token)
@@ -257,7 +336,8 @@ impl AuthService {
             token,
             &DecodingKey::from_secret(&self.jwt_secret),
             &Validation::default(),
-        ).map(|e| e.claims)
+        )
+        .map(|e| e.claims)
     }
 
     fn hash_password(&self, password: &str) -> Result<String, ApiError> {
@@ -269,7 +349,8 @@ impl AuthService {
         for _ in 0..10000 {
             let mut hasher = Sha256::new();
             hasher.update(&input);
-            hasher.finalize_into_reset(&mut output);
+            let result = hasher.finalize();
+            output.copy_from_slice(&result);
             input = output.to_vec();
         }
 
@@ -287,7 +368,11 @@ impl AuthService {
         }
     }
 
-    fn verify_sha256_password(&self, password: &str, password_hash: &str) -> Result<bool, ApiError> {
+    fn verify_sha256_password(
+        &self,
+        password: &str,
+        password_hash: &str,
+    ) -> Result<bool, ApiError> {
         let parts: Vec<&str> = password_hash.split('$').collect();
         if parts.len() >= 5 {
             let salt = parts[2];
@@ -300,7 +385,8 @@ impl AuthService {
             for _ in 0..iterations {
                 let mut hasher = Sha256::new();
                 hasher.update(&input);
-                hasher.finalize_into_reset(&mut hash);
+                let result = hasher.finalize();
+                hash.copy_from_slice(&result);
                 input = hash.to_vec();
             }
 
@@ -315,7 +401,7 @@ impl AuthService {
 }
 
 fn generate_token(length: usize) -> String {
-    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".as_ref();
     let mut rng = rand::thread_rng();
     let mut token = String::with_capacity(length);
     for _ in 0..length {
@@ -333,4 +419,89 @@ pub fn generate_room_id(server_name: &str) -> String {
 pub fn generate_event_id(server_name: &str) -> String {
     let token = generate_token(18);
     format!("${}", token)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_claims_struct() {
+        let claims = Claims {
+            sub: "@test:example.com".to_string(),
+            user_id: "@test:example.com".to_string(),
+            admin: false,
+            exp: 1234567890,
+            iat: 1234567890,
+            device_id: Some("DEVICE123".to_string()),
+        };
+        assert_eq!(claims.sub, "@test:example.com");
+        assert_eq!(claims.user_id, "@test:example.com");
+        assert!(!claims.admin);
+        assert!(claims.exp > claims.iat);
+    }
+
+    #[test]
+    fn test_claims_with_admin() {
+        let claims = Claims {
+            sub: "@admin:example.com".to_string(),
+            user_id: "@admin:example.com".to_string(),
+            admin: true,
+            exp: 1234567890,
+            iat: 1234567890,
+            device_id: None,
+        };
+        assert!(claims.admin);
+        assert!(claims.device_id.is_none());
+    }
+
+    #[test]
+    fn test_generate_token_length() {
+        for len in [8, 16, 32, 64] {
+            let token = generate_token(len);
+            assert_eq!(token.len(), len);
+        }
+    }
+
+    #[test]
+    fn test_generate_token_chars() {
+        let token = generate_token(100);
+        for c in token.chars() {
+            assert!(c.is_ascii_alphanumeric());
+        }
+    }
+
+    #[test]
+    fn test_generate_room_id_format() {
+        let room_id = generate_room_id("example.com");
+        assert!(room_id.starts_with('!'));
+        assert!(room_id.ends_with(":example.com"));
+        let parts: Vec<&str> = room_id.split(':').collect();
+        assert_eq!(parts.len(), 2);
+    }
+
+    #[test]
+    fn test_generate_event_id_format() {
+        let event_id = generate_event_id("example.com");
+        assert!(event_id.starts_with('$'));
+        let parts: Vec<&str> = event_id.split(':').collect();
+        assert_eq!(parts.len(), 1);
+    }
+
+    #[test]
+    fn test_claims_serialization() {
+        let claims = Claims {
+            sub: "@test:example.com".to_string(),
+            user_id: "@test:example.com".to_string(),
+            admin: false,
+            exp: 1234567890,
+            iat: 1234567890,
+            device_id: Some("DEVICE123".to_string()),
+        };
+        let json = serde_json::to_string(&claims).unwrap();
+        let deserialized: Claims = serde_json::from_str(&json).unwrap();
+        assert_eq!(claims.sub, deserialized.sub);
+        assert_eq!(claims.user_id, deserialized.user_id);
+        assert_eq!(claims.admin, deserialized.admin);
+    }
 }

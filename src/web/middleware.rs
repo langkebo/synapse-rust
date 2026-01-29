@@ -1,20 +1,18 @@
+use crate::cache::*;
+use crate::AppState;
+use axum::http::{HeaderMap, Request, StatusCode};
 use axum::{body::Body, response::Response};
-use axum::http::{Request, StatusCode, HeaderMap};
 use std::sync::Arc;
 use std::time::Instant;
-use crate::common::*;
-use crate::cache::*;
 
-pub async fn logging_middleware(
-    request: Request<Body>,
-    next: axum::middleware::Next,
-) -> Response {
+pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let start = Instant::now();
     let method = request.method().clone();
     let uri = request.uri().clone();
     let headers = request.headers().clone();
 
-    let user_id = headers.get("authorization")
+    let user_id = headers
+        .get("authorization")
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.to_string());
@@ -37,25 +35,27 @@ pub async fn logging_middleware(
     response
 }
 
-pub async fn cors_middleware(
-    request: Request<Body>,
-    next: axum::middleware::Next,
-) -> Response {
+pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let mut response = next.run(request).await;
-    
+
     let headers = response.headers_mut();
     headers.insert("Access-Control-Allow-Origin", "*".parse().unwrap());
-    headers.insert("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS".parse().unwrap());
-    headers.insert("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With".parse().unwrap());
+    headers.insert(
+        "Access-Control-Allow-Methods",
+        "GET, POST, PUT, DELETE, OPTIONS".parse().unwrap(),
+    );
+    headers.insert(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization, X-Requested-With"
+            .parse()
+            .unwrap(),
+    );
     headers.insert("Access-Control-Max-Age", "86400".parse().unwrap());
 
     response
 }
 
-pub async fn metrics_middleware(
-    request: Request<Body>,
-    next: axum::middleware::Next,
-) -> Response {
+pub async fn metrics_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let start = Instant::now();
     let method = request.method().clone();
     let path = request.uri().path().to_string();
@@ -70,7 +70,8 @@ pub async fn metrics_middleware(
 }
 
 pub fn extract_token(headers: &HeaderMap) -> Option<String> {
-    headers.get("authorization")
+    headers
+        .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.to_string())
@@ -81,7 +82,8 @@ pub async fn rate_limit_middleware(
     next: axum::middleware::Next,
     _cache: Arc<CacheManager>,
 ) -> Result<Response, StatusCode> {
-    let ip = request.headers()
+    let ip = request
+        .headers()
         .get("x-forwarded-for")
         .or(request.headers().get("x-real-ip"))
         .and_then(|v| v.to_str().ok())
@@ -103,7 +105,9 @@ pub async fn auth_middleware(
     if token.is_none() {
         return Ok(Response::builder()
             .status(StatusCode::UNAUTHORIZED)
-            .body(Body::from(r#"{"errcode": "UNAUTHORIZED", "error": "Missing access token"}"#))
+            .body(Body::from(
+                r#"{"errcode": "UNAUTHORIZED", "error": "Missing access token"}"#,
+            ))
             .unwrap());
     }
 

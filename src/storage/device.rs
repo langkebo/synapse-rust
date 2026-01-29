@@ -1,26 +1,27 @@
 use sqlx::{Pool, Postgres};
-use crate::common::*;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Device {
     pub device_id: String,
     pub user_id: String,
     pub display_name: Option<String>,
-    pub last_seen_ts: i64,
+    pub last_seen_ts: Option<i64>,
     pub last_seen_ip: Option<String>,
-    pub created_ts: i64,
+    pub created_ts: Option<i64>,
     pub ignored_user_list: Option<String>,
     pub appservice_id: Option<String>,
-    pub first_seen_ts: i64,
+    pub first_seen_ts: Option<i64>,
 }
 
-pub struct DeviceStorage<'a> {
-    pool: &'a Pool<Postgres>,
+#[derive(Clone)]
+pub struct DeviceStorage {
+    pub pool: Arc<Pool<Postgres>>,
 }
 
-impl<'a> DeviceStorage<'a> {
-    pub fn new(pool: &'a Pool<Postgres>) -> Self {
-        Self { pool }
+impl DeviceStorage {
+    pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
+        Self { pool: pool.clone() }
     }
 
     pub async fn create_device(
@@ -43,7 +44,7 @@ impl<'a> DeviceStorage<'a> {
             now,
             now,
             now
-        ).fetch_one(self.pool).await
+        ).fetch_one(&*self.pool).await
     }
 
     pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
@@ -53,7 +54,9 @@ impl<'a> DeviceStorage<'a> {
             SELECT * FROM devices WHERE device_id = $1
             "#,
             device_id
-        ).fetch_optional(self.pool).await
+        )
+        .fetch_optional(&*self.pool)
+        .await
     }
 
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
@@ -63,17 +66,25 @@ impl<'a> DeviceStorage<'a> {
             SELECT * FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC
             "#,
             user_id
-        ).fetch_all(self.pool).await
+        )
+        .fetch_all(&*self.pool)
+        .await
     }
 
-    pub async fn update_device_display_name(&self, device_id: &str, display_name: &str) -> Result<(), sqlx::Error> {
+    pub async fn update_device_display_name(
+        &self,
+        device_id: &str,
+        display_name: &str,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
             UPDATE devices SET display_name = $1 WHERE device_id = $2
             "#,
             display_name,
             device_id
-        ).execute(self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -85,7 +96,9 @@ impl<'a> DeviceStorage<'a> {
             "#,
             now,
             device_id
-        ).execute(self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -95,7 +108,9 @@ impl<'a> DeviceStorage<'a> {
             DELETE FROM devices WHERE device_id = $1
             "#,
             device_id
-        ).execute(self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -105,17 +120,21 @@ impl<'a> DeviceStorage<'a> {
             DELETE FROM devices WHERE user_id = $1
             "#,
             user_id
-        ).execute(self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
     pub async fn device_exists(&self, device_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
-            SELECT 1 FROM devices WHERE device_id = $1 LIMIT 1
+            SELECT 1 AS "exists" FROM devices WHERE device_id = $1 LIMIT 1
             "#,
             device_id
-        ).fetch_optional(self.pool).await?;
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
         Ok(result.is_some())
     }
 }

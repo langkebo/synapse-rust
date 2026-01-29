@@ -1,10 +1,13 @@
+use super::super::device_keys::{
+    DeviceKeyService, KeyClaimRequest, KeyClaimResponse, KeyQueryRequest, KeyQueryResponse,
+    KeyUploadRequest, KeyUploadResponse,
+};
+use crate::error::ApiError;
 use axum::{
-    extract::{State, Path},
+    extract::{Path, State},
     Json,
 };
-use super::super::device_keys::{DeviceKeyService, KeyQueryRequest, KeyUploadRequest, KeyClaimRequest};
 use std::sync::Arc;
-use crate::error::ApiError;
 
 pub async fn query_keys(
     State(service): State<Arc<DeviceKeyService>>,

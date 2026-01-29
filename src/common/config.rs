@@ -1,5 +1,7 @@
+use config::Config as ConfigBuilder;
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -9,6 +11,72 @@ pub struct Config {
     pub logging: LoggingConfig,
     pub federation: FederationConfig,
     pub security: SecurityConfig,
+}
+
+pub struct ConfigManager {
+    config: Arc<RwLock<Config>>,
+}
+
+impl ConfigManager {
+    pub fn new(config: Config) -> Self {
+        Self {
+            config: Arc::new(RwLock::new(config)),
+        }
+    }
+
+    pub fn get_server_name(&self) -> String {
+        let config = self.config.read().unwrap();
+        config.server.name.clone()
+    }
+
+    pub fn get_server_host(&self) -> String {
+        let config = self.config.read().unwrap();
+        config.server.host.clone()
+    }
+
+    pub fn get_server_port(&self) -> u16 {
+        let config = self.config.read().unwrap();
+        config.server.port
+    }
+
+    pub fn get_database_url(&self) -> String {
+        let config = self.config.read().unwrap();
+        format!(
+            "postgres://{}:{}@{}:{}/{}",
+            config.database.username,
+            config.database.password,
+            config.database.host,
+            config.database.port,
+            config.database.name
+        )
+    }
+
+    pub fn get_redis_url(&self) -> String {
+        let config = self.config.read().unwrap();
+        format!("redis://{}:{}", config.redis.host, config.redis.port)
+    }
+
+    pub fn get_config(&self) -> Config {
+        let config = self.config.read().unwrap();
+        config.clone()
+    }
+
+    pub fn update_config<F>(&self, f: F) -> Result<(), Box<dyn std::error::Error>>
+    where
+        F: FnOnce(&mut Config),
+    {
+        let mut config = self.config.write().unwrap();
+        f(&mut config);
+        Ok(())
+    }
+}
+
+impl Clone for ConfigManager {
+    fn clone(&self) -> Self {
+        Self {
+            config: Arc::clone(&self.config),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -81,11 +149,14 @@ pub struct SecurityConfig {
 }
 
 impl Config {
-    pub async fn load() -> Result<Self, config::ConfigError> {
-        let mut config = config::Config::new();
-        config.merge(config::File::with_name("config.yaml"))?;
-        config.merge(config::Environment::with_prefix("SYNAPSE"))?;
-        config.try_into()
+    pub async fn load() -> Result<Self, Box<dyn std::error::Error>> {
+        let config = ConfigBuilder::builder()
+            .add_source(config::File::with_name("config.yaml"))
+            .add_source(config::Environment::with_prefix("SYNAPSE"))
+            .build()?;
+
+        let config_values: Config = config.try_deserialize()?;
+        Ok(config_values)
     }
 
     pub fn database_url(&self) -> String {
@@ -101,5 +172,247 @@ impl Config {
 
     pub fn redis_url(&self) -> String {
         format!("redis://{}:{}", self.redis.host, self.redis.port)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_database_url() {
+        let config = Config {
+            server: ServerConfig {
+                name: "test".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 8000,
+                registration_shared_secret: None,
+                admin_contact: None,
+                max_upload_size: 1000000,
+                max_image_resolution: 1000000,
+                enable_registration: true,
+                enable_registration_captcha: false,
+                background_tasks_interval: 60,
+                expire_access_token: true,
+                expire_access_token_lifetime: 3600,
+                refresh_token_lifetime: 604800,
+                refresh_token_sliding_window_size: 1000,
+                session_duration: 86400,
+            },
+            database: DatabaseConfig {
+                host: "localhost".to_string(),
+                port: 5432,
+                username: "testuser".to_string(),
+                password: "testpass".to_string(),
+                name: "testdb".to_string(),
+                pool_size: 10,
+                max_size: 20,
+                min_idle: Some(5),
+                connection_timeout: 30,
+            },
+            redis: RedisConfig {
+                host: "localhost".to_string(),
+                port: 6379,
+                key_prefix: "test:".to_string(),
+                pool_size: 10,
+                enabled: true,
+            },
+            logging: LoggingConfig {
+                level: "info".to_string(),
+                format: "json".to_string(),
+                log_file: None,
+                log_dir: None,
+            },
+            federation: FederationConfig {
+                enabled: true,
+                allow_ingress: false,
+                server_name: "test.example.com".to_string(),
+                federation_port: 8448,
+                connection_pool_size: 10,
+                max_transaction_payload: 50000,
+                ca_file: None,
+                client_ca_file: None,
+            },
+            security: SecurityConfig {
+                secret: "test_secret".to_string(),
+                expiry_time: 3600,
+                refresh_token_expiry: 604800,
+                bcrypt_rounds: 12,
+            },
+        };
+
+        let url = config.database_url();
+        assert_eq!(url, "postgres://testuser:testpass@localhost:5432/testdb");
+    }
+
+    #[test]
+    fn test_config_redis_url() {
+        let config = Config {
+            server: ServerConfig {
+                name: "test".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 8000,
+                registration_shared_secret: None,
+                admin_contact: None,
+                max_upload_size: 1000000,
+                max_image_resolution: 1000000,
+                enable_registration: true,
+                enable_registration_captcha: false,
+                background_tasks_interval: 60,
+                expire_access_token: true,
+                expire_access_token_lifetime: 3600,
+                refresh_token_lifetime: 604800,
+                refresh_token_sliding_window_size: 1000,
+                session_duration: 86400,
+            },
+            database: DatabaseConfig {
+                host: "localhost".to_string(),
+                port: 5432,
+                username: "testuser".to_string(),
+                password: "testpass".to_string(),
+                name: "testdb".to_string(),
+                pool_size: 10,
+                max_size: 20,
+                min_idle: Some(5),
+                connection_timeout: 30,
+            },
+            redis: RedisConfig {
+                host: "redis.example.com".to_string(),
+                port: 6380,
+                key_prefix: "prod:".to_string(),
+                pool_size: 20,
+                enabled: true,
+            },
+            logging: LoggingConfig {
+                level: "info".to_string(),
+                format: "json".to_string(),
+                log_file: None,
+                log_dir: None,
+            },
+            federation: FederationConfig {
+                enabled: true,
+                allow_ingress: false,
+                server_name: "test.example.com".to_string(),
+                federation_port: 8448,
+                connection_pool_size: 10,
+                max_transaction_payload: 50000,
+                ca_file: None,
+                client_ca_file: None,
+            },
+            security: SecurityConfig {
+                secret: "test_secret".to_string(),
+                expiry_time: 3600,
+                refresh_token_expiry: 604800,
+                bcrypt_rounds: 12,
+            },
+        };
+
+        let url = config.redis_url();
+        assert_eq!(url, "redis://redis.example.com:6380");
+    }
+
+    #[test]
+    fn test_server_config_defaults() {
+        let config = ServerConfig {
+            name: "test".to_string(),
+            host: "0.0.0.0".to_string(),
+            port: 8080,
+            registration_shared_secret: Some("secret".to_string()),
+            admin_contact: Some("admin@example.com".to_string()),
+            max_upload_size: 50000000,
+            max_image_resolution: 8000000,
+            enable_registration: true,
+            enable_registration_captcha: true,
+            background_tasks_interval: 30,
+            expire_access_token: true,
+            expire_access_token_lifetime: 86400,
+            refresh_token_lifetime: 2592000,
+            refresh_token_sliding_window_size: 5000,
+            session_duration: 3600,
+        };
+
+        assert_eq!(config.name, "test");
+        assert_eq!(config.port, 8080);
+        assert!(config.enable_registration);
+        assert!(config.registration_shared_secret.is_some());
+    }
+
+    #[test]
+    fn test_database_config_defaults() {
+        let config = DatabaseConfig {
+            host: "db.example.com".to_string(),
+            port: 5432,
+            username: "synapse".to_string(),
+            password: "secure_password".to_string(),
+            name: "synapse".to_string(),
+            pool_size: 10,
+            max_size: 20,
+            min_idle: None,
+            connection_timeout: 60,
+        };
+
+        assert_eq!(config.host, "db.example.com");
+        assert_eq!(config.port, 5432);
+        assert!(config.min_idle.is_none());
+    }
+
+    #[test]
+    fn test_redis_config_defaults() {
+        let config = RedisConfig {
+            host: "127.0.0.1".to_string(),
+            port: 6379,
+            key_prefix: "synapse:".to_string(),
+            pool_size: 16,
+            enabled: true,
+        };
+
+        assert_eq!(config.host, "127.0.0.1");
+        assert_eq!(config.port, 6379);
+        assert!(config.enabled);
+    }
+
+    #[test]
+    fn test_logging_config_with_file() {
+        let config = LoggingConfig {
+            level: "debug".to_string(),
+            format: "text".to_string(),
+            log_file: Some("/var/log/synapse.log".to_string()),
+            log_dir: Some("/var/log".to_string()),
+        };
+
+        assert_eq!(config.level, "debug");
+        assert!(config.log_file.is_some());
+        assert!(config.log_dir.is_some());
+    }
+
+    #[test]
+    fn test_federation_config_defaults() {
+        let config = FederationConfig {
+            enabled: true,
+            allow_ingress: true,
+            server_name: "federation.example.com".to_string(),
+            federation_port: 8448,
+            connection_pool_size: 50,
+            max_transaction_payload: 100000,
+            ca_file: Some(PathBuf::from("/etc/synapse/ca.crt")),
+            client_ca_file: None,
+        };
+
+        assert!(config.enabled);
+        assert!(config.allow_ingress);
+        assert!(config.ca_file.is_some());
+    }
+
+    #[test]
+    fn test_security_config_defaults() {
+        let config = SecurityConfig {
+            secret: "very_secure_secret_key".to_string(),
+            expiry_time: 3600,
+            refresh_token_expiry: 604800,
+            bcrypt_rounds: 12,
+        };
+
+        assert!(config.secret.len() > 16);
+        assert_eq!(config.bcrypt_rounds, 12);
     }
 }

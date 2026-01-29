@@ -1,5 +1,5 @@
-use crate::services::*;
 use crate::common::*;
+use crate::services::*;
 
 pub struct RegistrationService<'a> {
     services: &'a ServiceContainer,
@@ -17,8 +17,11 @@ impl<'a> RegistrationService<'a> {
         admin: bool,
         displayname: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        let (user, access_token, refresh_token, device_id) = 
-            self.services.auth_service.register(username, password, admin, displayname).await?;
+        let (user, access_token, refresh_token, device_id) = self
+            .services
+            .auth_service
+            .register(username, password, admin, displayname)
+            .await?;
 
         Ok(serde_json::json!({
             "access_token": access_token,
@@ -41,8 +44,11 @@ impl<'a> RegistrationService<'a> {
         device_id: Option<&str>,
         initial_display_name: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        let (user, access_token, refresh_token, device_id) = 
-            self.services.auth_service.login(username, password, device_id, initial_display_name).await?;
+        let (user, access_token, refresh_token, device_id) = self
+            .services
+            .auth_service
+            .login(username, password, device_id, initial_display_name)
+            .await?;
 
         Ok(serde_json::json!({
             "access_token": access_token,
@@ -59,7 +65,10 @@ impl<'a> RegistrationService<'a> {
     }
 
     pub async fn change_password(&self, user_id: &str, new_password: &str) -> ApiResult<()> {
-        self.services.auth_service.change_password(user_id, new_password).await?;
+        self.services
+            .auth_service
+            .change_password(user_id, new_password)
+            .await?;
         Ok(())
     }
 
@@ -69,7 +78,11 @@ impl<'a> RegistrationService<'a> {
     }
 
     pub async fn get_profile(&self, user_id: &str) -> ApiResult<serde_json::Value> {
-        let user = self.services.user_storage.get_user_by_id(user_id).await
+        let user = self
+            .services
+            .user_storage
+            .get_user_by_id(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get user: {}", e)))?;
 
         match user {
@@ -78,19 +91,72 @@ impl<'a> RegistrationService<'a> {
                 "displayname": u.displayname,
                 "avatar_url": u.avatar_url
             })),
-            None => Err(ApiError::not_found("User not found".to_string()))
+            None => Err(ApiError::not_found("User not found".to_string())),
         }
     }
 
     pub async fn set_displayname(&self, user_id: &str, displayname: &str) -> ApiResult<()> {
-        self.services.user_storage.update_displayname(user_id, Some(displayname)).await
+        self.services
+            .user_storage
+            .update_displayname(user_id, Some(displayname))
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to update displayname: {}", e)))?;
         Ok(())
     }
 
     pub async fn set_avatar_url(&self, user_id: &str, avatar_url: &str) -> ApiResult<()> {
-        self.services.user_storage.update_avatar_url(user_id, Some(avatar_url)).await
+        self.services
+            .user_storage
+            .update_avatar_url(user_id, Some(avatar_url))
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to update avatar: {}", e)))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_registration_service_creation() {
+        let services = ServiceContainer::new();
+        let _registration_service = RegistrationService::new(&services);
+    }
+
+    #[test]
+    fn test_login_response_format() {
+        let services = ServiceContainer::new();
+        let registration_service = RegistrationService::new(&services);
+
+        let response = serde_json::json!({
+            "access_token": "test_token",
+            "refresh_token": "test_refresh",
+            "expires_in": 86400,
+            "device_id": "DEVICE123",
+            "user_id": "@test:example.com",
+            "well_known": {
+                "m.homeserver": {
+                    "base_url": "http://localhost:8008"
+                }
+            }
+        });
+
+        assert!(response.get("access_token").is_some());
+        assert!(response.get("refresh_token").is_some());
+        assert!(response.get("expires_in").is_some());
+        assert_eq!(response["expires_in"], 86400);
+    }
+
+    #[test]
+    fn test_profile_response_format() {
+        let profile = serde_json::json!({
+            "user_id": "@test:example.com",
+            "displayname": "Test User",
+            "avatar_url": "mxc://example.com/avatar"
+        });
+
+        assert_eq!(profile["user_id"], "@test:example.com");
+        assert_eq!(profile["displayname"], "Test User");
     }
 }

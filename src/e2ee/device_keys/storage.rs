@@ -1,18 +1,18 @@
 use super::models::*;
-use sqlx::{PgPool, Row};
-use uuid::Uuid;
-use chrono::Utc;
 use crate::error::ApiError;
+use sqlx::{PgPool, Row};
+use std::sync::Arc;
 
-pub struct DeviceKeyStorage<'a> {
-    pool: &'a PgPool,
+#[derive(Clone)]
+pub struct DeviceKeyStorage {
+    pub pool: Arc<PgPool>,
 }
 
-impl<'a> DeviceKeyStorage<'a> {
-    pub fn new(pool: &'a PgPool) -> Self {
-        Self { pool }
+impl DeviceKeyStorage {
+    pub fn new(pool: &Arc<PgPool>) -> Self {
+        Self { pool: pool.clone() }
     }
-    
+
     pub async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError> {
         sqlx::query(
             r#"
@@ -35,13 +35,18 @@ impl<'a> DeviceKeyStorage<'a> {
         .bind(&key.signatures)
         .bind(key.created_at)
         .bind(key.updated_at)
-        .execute(self.pool)
+        .execute(&*self.pool)
         .await?;
-        
+
         Ok(())
     }
-    
-    pub async fn get_device_key(&self, user_id: &str, device_id: &str, key_id: &str) -> Result<Option<DeviceKey>, ApiError> {
+
+    pub async fn get_device_key(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        key_id: &str,
+    ) -> Result<Option<DeviceKey>, ApiError> {
         let row = sqlx::query(
             r#"
             SELECT id, user_id, device_id, display_name, algorithm, key_id, public_key, signatures, created_at, updated_at
@@ -52,9 +57,9 @@ impl<'a> DeviceKeyStorage<'a> {
         .bind(user_id)
         .bind(device_id)
         .bind(key_id)
-        .fetch_optional(self.pool)
+        .fetch_optional(&*self.pool)
         .await?;
-        
+
         Ok(row.map(|row| DeviceKey {
             id: row.get("id"),
             user_id: row.get("user_id"),
@@ -68,8 +73,12 @@ impl<'a> DeviceKeyStorage<'a> {
             updated_at: row.get("updated_at"),
         }))
     }
-    
-    pub async fn get_device_keys(&self, user_id: &str, device_ids: &[String]) -> Result<Vec<DeviceKey>, ApiError> {
+
+    pub async fn get_device_keys(
+        &self,
+        user_id: &str,
+        device_ids: &[String],
+    ) -> Result<Vec<DeviceKey>, ApiError> {
         let rows = sqlx::query(
             r#"
             SELECT id, user_id, device_id, display_name, algorithm, key_id, public_key, signatures, created_at, updated_at
@@ -79,23 +88,26 @@ impl<'a> DeviceKeyStorage<'a> {
         )
         .bind(user_id)
         .bind(device_ids)
-        .fetch_all(self.pool)
+        .fetch_all(&*self.pool)
         .await?;
-        
-        Ok(rows.into_iter().map(|row| DeviceKey {
-            id: row.get("id"),
-            user_id: row.get("user_id"),
-            device_id: row.get("device_id"),
-            display_name: row.get("display_name"),
-            algorithm: row.get("algorithm"),
-            key_id: row.get("key_id"),
-            public_key: row.get("public_key"),
-            signatures: row.get("signatures"),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
-        }).collect())
+
+        Ok(rows
+            .into_iter()
+            .map(|row| DeviceKey {
+                id: row.get("id"),
+                user_id: row.get("user_id"),
+                device_id: row.get("device_id"),
+                display_name: row.get("display_name"),
+                algorithm: row.get("algorithm"),
+                key_id: row.get("key_id"),
+                public_key: row.get("public_key"),
+                signatures: row.get("signatures"),
+                created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
+            })
+            .collect())
     }
-    
+
     pub async fn get_all_device_keys(&self, user_id: &str) -> Result<Vec<DeviceKey>, ApiError> {
         let rows = sqlx::query(
             r#"
@@ -105,71 +117,89 @@ impl<'a> DeviceKeyStorage<'a> {
             "#
         )
         .bind(user_id)
-        .fetch_all(self.pool)
+        .fetch_all(&*self.pool)
         .await?;
-        
-        Ok(rows.into_iter().map(|row| DeviceKey {
-            id: row.get("id"),
-            user_id: row.get("user_id"),
-            device_id: row.get("device_id"),
-            display_name: row.get("display_name"),
-            algorithm: row.get("algorithm"),
-            key_id: row.get("key_id"),
-            public_key: row.get("public_key"),
-            signatures: row.get("signatures"),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
-        }).collect())
+
+        Ok(rows
+            .into_iter()
+            .map(|row| DeviceKey {
+                id: row.get("id"),
+                user_id: row.get("user_id"),
+                device_id: row.get("device_id"),
+                display_name: row.get("display_name"),
+                algorithm: row.get("algorithm"),
+                key_id: row.get("key_id"),
+                public_key: row.get("public_key"),
+                signatures: row.get("signatures"),
+                created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
+            })
+            .collect())
     }
-    
-    pub async fn delete_device_key(&self, user_id: &str, device_id: &str, key_id: &str) -> Result<(), ApiError> {
+
+    pub async fn delete_device_key(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        key_id: &str,
+    ) -> Result<(), ApiError> {
         sqlx::query(
             r#"
             DELETE FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND key_id = $3
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(device_id)
         .bind(key_id)
-        .execute(self.pool)
+        .execute(&*self.pool)
         .await?;
-        
+
         Ok(())
     }
-    
+
     pub async fn delete_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r#"
             DELETE FROM device_keys
             WHERE user_id = $1 AND device_id = $2
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(device_id)
-        .execute(self.pool)
+        .execute(&*self.pool)
         .await?;
-        
+
         Ok(())
     }
-    
-    pub async fn get_one_time_keys_count(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError> {
+
+    pub async fn get_one_time_keys_count(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<i64, ApiError> {
         let row = sqlx::query(
             r#"
             SELECT COUNT(*) as count
             FROM device_keys
-            WHERE user_id = $1 AND device_id = $2 AND algorithm LIKE 'signed_curve25519%'
-            "#
+            WHERE user_id = $1 AND device_id = $2 AND algorithm = ANY($3)
+            "#,
         )
         .bind(user_id)
         .bind(device_id)
-        .fetch_one(self.pool)
+        .bind(&vec!["signed_curve25519".to_string()])
+        .fetch_one(&*self.pool)
         .await?;
-        
+
         Ok(row.get("count"))
     }
-    
-    pub async fn claim_one_time_key(&self, user_id: &str, device_id: &str, algorithm: &str) -> Result<Option<DeviceKey>, ApiError> {
+
+    pub async fn claim_one_time_key(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        algorithm: &str,
+    ) -> Result<Option<DeviceKey>, ApiError> {
         let row = sqlx::query(
             r#"
             DELETE FROM device_keys
@@ -180,9 +210,9 @@ impl<'a> DeviceKeyStorage<'a> {
         .bind(user_id)
         .bind(device_id)
         .bind(algorithm)
-        .fetch_optional(self.pool)
+        .fetch_optional(&*self.pool)
         .await?;
-        
+
         Ok(row.map(|row| DeviceKey {
             id: row.get("id"),
             user_id: row.get("user_id"),

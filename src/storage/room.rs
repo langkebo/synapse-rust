@@ -1,5 +1,8 @@
 use sqlx::{Pool, Postgres};
-use crate::common::*;
+use std::sync::Arc;
+
+const DEFAULT_JOIN_RULE: &str = "invite";
+const DEFAULT_HISTORY_VISIBILITY: &str = "joined";
 
 #[derive(Debug, Clone)]
 pub struct Room {
@@ -14,16 +17,17 @@ pub struct Room {
     pub is_public: bool,
     pub member_count: i64,
     pub history_visibility: String,
-    pub creation_ts: chrono::DateTime<chrono::Utc>,
+    pub creation_ts: i64,
 }
 
-pub struct RoomStorage<'a> {
-    pool: &'a Pool<Postgres>,
+#[derive(Clone)]
+pub struct RoomStorage {
+    pub pool: Arc<Pool<Postgres>>,
 }
 
-impl<'a> RoomStorage<'a> {
-    pub fn new(pool: &'a Pool<Postgres>) -> Self {
-        Self { pool }
+impl RoomStorage {
+    pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
+        Self { pool: pool.clone() }
     }
 
     pub async fn create_room(
@@ -35,12 +39,12 @@ impl<'a> RoomStorage<'a> {
         is_public: bool,
     ) -> Result<Room, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        sqlx::query_as!(
-            Room,
+        let row = sqlx::query!(
             r#"
             INSERT INTO rooms (room_id, creator, join_rule, version, is_public, member_count, history_visibility, creation_ts)
             VALUES ($1, $2, $3, $4, $5, 1, 'joined', $6)
-            RETURNING *
+            RETURNING room_id, name, topic, canonical_alias, join_rule, creator, version,
+                      encryption, is_public, member_count, history_visibility, creation_ts
             "#,
             room_id,
             creator,
@@ -48,39 +52,110 @@ impl<'a> RoomStorage<'a> {
             version,
             is_public,
             now
-        ).fetch_one(self.pool).await
+        ).fetch_one(&*self.pool).await?;
+        Ok(Room {
+            room_id: row.room_id,
+            name: row.name,
+            topic: row.topic,
+            canonical_alias: row.canonical_alias,
+            join_rule: row
+                .join_rule
+                .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+            creator: row.creator,
+            version: row.version,
+            encryption: row.encryption,
+            is_public: row.is_public,
+            member_count: row.member_count.unwrap_or(0) as i64,
+            history_visibility: row
+                .history_visibility
+                .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
+            creation_ts: row.creation_ts,
+        })
     }
 
     pub async fn get_room(&self, room_id: &str) -> Result<Option<Room>, sqlx::Error> {
-        sqlx::query_as!(
-            Room,
+        let row = sqlx::query!(
             r#"
-            SELECT * FROM rooms WHERE room_id = $1
+            SELECT room_id, name, topic, canonical_alias, join_rule, creator, version,
+                  encryption, is_public, member_count, history_visibility, creation_ts
+            FROM rooms WHERE room_id = $1
             "#,
             room_id
-        ).fetch_optional(self.pool).await
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
+        if let Some(row) = row {
+            Ok(Some(Room {
+                room_id: row.room_id,
+                name: row.name,
+                topic: row.topic,
+                canonical_alias: row.canonical_alias,
+                join_rule: row
+                    .join_rule
+                    .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                creator: row.creator,
+                version: row.version,
+                encryption: row.encryption,
+                is_public: row.is_public,
+                member_count: row.member_count.unwrap_or(0) as i64,
+                history_visibility: row
+                    .history_visibility
+                    .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
+                creation_ts: row.creation_ts,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn room_exists(&self, room_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
-            SELECT 1 FROM rooms WHERE room_id = $1 LIMIT 1
+            SELECT 1 AS "exists" FROM rooms WHERE room_id = $1 LIMIT 1
             "#,
             room_id
-        ).fetch_optional(self.pool).await?;
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
         Ok(result.is_some())
     }
 
     pub async fn get_public_rooms(&self, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
-        sqlx::query_as!(
-            Room,
+        let rows = sqlx::query!(
             r#"
-            SELECT * FROM rooms WHERE is_public = TRUE
+            SELECT room_id, name, topic, canonical_alias, join_rule, creator, version,
+                  encryption, is_public, member_count, history_visibility, creation_ts
+            FROM rooms WHERE is_public = TRUE
             ORDER BY creation_ts DESC
             LIMIT $1
             "#,
             limit
-        ).fetch_all(self.pool).await
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|row| Room {
+                room_id: row.room_id.clone(),
+                name: row.name.clone(),
+                topic: row.topic.clone(),
+                canonical_alias: row.canonical_alias.clone(),
+                join_rule: row
+                    .join_rule
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                creator: row.creator.clone(),
+                version: row.version.clone(),
+                encryption: row.encryption.clone(),
+                is_public: row.is_public,
+                member_count: row.member_count.unwrap_or(0) as i64,
+                history_visibility: row
+                    .history_visibility
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
+                creation_ts: row.creation_ts,
+            })
+            .collect())
     }
 
     pub async fn get_user_rooms(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
@@ -89,7 +164,9 @@ impl<'a> RoomStorage<'a> {
             SELECT room_id FROM room_memberships WHERE user_id = $1 AND membership = 'join'
             "#,
             user_id
-        ).fetch_all(self.pool).await?;
+        )
+        .fetch_all(&*self.pool)
+        .await?;
         Ok(rows.iter().map(|r| r.room_id.clone()).collect())
     }
 
@@ -100,7 +177,9 @@ impl<'a> RoomStorage<'a> {
             "#,
             name,
             room_id
-        ).execute(self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -111,29 +190,43 @@ impl<'a> RoomStorage<'a> {
             "#,
             topic,
             room_id
-        ).execute(self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
-    pub async fn update_room_avatar(&self, room_id: &str, avatar_url: &str) -> Result<(), sqlx::Error> {
+    pub async fn update_room_avatar(
+        &self,
+        room_id: &str,
+        avatar_url: &str,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
             UPDATE rooms SET name = $1 WHERE room_id = $2
             "#,
             avatar_url,
             room_id
-        ).execute(self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
-    pub async fn update_canonical_alias(&self, room_id: &str, alias: &str) -> Result<(), sqlx::Error> {
+    pub async fn update_canonical_alias(
+        &self,
+        room_id: &str,
+        alias: &str,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
             UPDATE rooms SET canonical_alias = $1 WHERE room_id = $2
             "#,
             alias,
             room_id
-        ).execute(self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -143,7 +236,9 @@ impl<'a> RoomStorage<'a> {
             UPDATE rooms SET member_count = member_count + 1 WHERE room_id = $1
             "#,
             room_id
-        ).execute(self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -153,7 +248,9 @@ impl<'a> RoomStorage<'a> {
             UPDATE rooms SET member_count = member_count - 1 WHERE room_id = $1 AND member_count > 0
             "#,
             room_id
-        ).execute(self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -162,7 +259,126 @@ impl<'a> RoomStorage<'a> {
             r#"
             SELECT COUNT(*) as count FROM rooms
             "#
-        ).fetch_one(self.pool).await?;
+        )
+        .fetch_one(&*self.pool)
+        .await?;
         Ok(result.count.unwrap_or(0))
+    }
+
+    pub async fn set_room_visibility(
+        &self,
+        room_id: &str,
+        visibility: &str,
+    ) -> Result<(), sqlx::Error> {
+        let visibility_value = match visibility {
+            "public" => "public",
+            "private" => "private",
+            _ => "private",
+        };
+        sqlx::query!(
+            r#"
+            UPDATE rooms SET visibility = $1 WHERE room_id = $2
+            "#,
+            visibility_value,
+            room_id
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn set_room_alias(&self, room_id: &str, alias: &str) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            INSERT INTO room_aliases (room_id, alias) VALUES ($1, $2)
+            ON CONFLICT (room_id) DO UPDATE SET alias = EXCLUDED.alias
+            "#,
+            room_id,
+            alias
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn remove_room_alias(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            DELETE FROM room_aliases WHERE room_id = $1
+            "#,
+            room_id
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            DELETE FROM rooms WHERE room_id = $1
+            "#,
+            room_id
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_room_alias(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            SELECT alias FROM room_aliases WHERE room_id = $1
+            "#,
+            room_id
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.map(|r| r.alias))
+    }
+
+    pub async fn set_room_account_data(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            INSERT INTO room_account_data (room_id, event_type, content, created_ts)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (room_id, event_type) DO UPDATE SET content = EXCLUDED.content, created_ts = EXCLUDED.created_ts
+            "#,
+            room_id,
+            event_type,
+            content,
+            chrono::Utc::now()
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_read_marker(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        let now: i64 = chrono::Utc::now().timestamp();
+        sqlx::query(
+            r#"
+            INSERT INTO read_markers (room_id, user_id, event_id, created_ts)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (room_id, user_id) DO UPDATE SET event_id = EXCLUDED.event_id, created_ts = EXCLUDED.created_ts
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(event_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
     }
 }
