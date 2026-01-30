@@ -764,7 +764,7 @@ async fn delete_device(
 
 async fn delete_devices(
     State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    _auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let devices = body

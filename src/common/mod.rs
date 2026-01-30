@@ -23,7 +23,6 @@ pub use error::*;
 pub use error_context::*;
 pub use health::*;
 pub use logging::*;
-pub use macros::*;
 pub use metrics::*;
 pub use regex_cache::*;
 pub use task_queue::*;
