@@ -6,28 +6,28 @@ fn bench_vec_builder(c: &mut Criterion) {
 
     group.bench_function("with_capacity_10", |b| {
         b.iter(|| {
-            let builder = black_box(VecBuilder::new(10));
+            let builder = black_box(VecBuilder::<i32>::new(10));
             let _vec = builder.build();
         })
     });
 
     group.bench_function("with_capacity_100", |b| {
         b.iter(|| {
-            let builder = black_box(VecBuilder::new(100));
+            let builder = black_box(VecBuilder::<i32>::new(100));
             let _vec = builder.build();
         })
     });
 
     group.bench_function("with_capacity_1000", |b| {
         b.iter(|| {
-            let builder = black_box(VecBuilder::new(1000));
+            let builder = black_box(VecBuilder::<i32>::new(1000));
             let _vec = builder.build();
         })
     });
 
     group.bench_function("from_iter_100", |b| {
         b.iter(|| {
-            let builder = black_box(VecBuilder::new(100));
+            let builder = black_box(VecBuilder::<i32>::new(100));
             let _vec = builder.from_iter(0..100);
         })
     });

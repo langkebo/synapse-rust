@@ -31,7 +31,7 @@ fn bench_concurrency_controller(c: &mut Criterion) {
 
     group.bench_function("try_acquire_failure", |b| {
         let controller = ConcurrencyController::new(1, "test".to_string());
-        let _permit = controller.try_acquire().unwrap();
+        let _permit = controller.try_acquire();
         b.iter(|| {
             let controller = black_box(&controller);
             let _permit = controller.try_acquire();
