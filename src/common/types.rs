@@ -14,10 +14,6 @@ impl UserId {
             server_name: server_name.to_string(),
         }
     }
-
-    pub fn to_string(&self) -> String {
-        format!("@{}:{}", self.localpart, self.server_name)
-    }
 }
 
 impl fmt::Display for UserId {
@@ -39,10 +35,6 @@ impl RoomAlias {
             server_name: server_name.to_string(),
         }
     }
-
-    pub fn to_string(&self) -> String {
-        format!("#{}:{}", self.localpart, self.server_name)
-    }
 }
 
 impl fmt::Display for RoomAlias {
@@ -63,10 +55,6 @@ impl EventId {
             value: value.to_string(),
             server_name: server_name.to_string(),
         }
-    }
-
-    pub fn to_string(&self) -> String {
-        format!("${}", self.value)
     }
 }
 

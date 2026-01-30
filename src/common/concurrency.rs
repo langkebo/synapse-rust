@@ -103,25 +103,21 @@ impl Default for ConcurrencyLimiter {
 
 #[macro_export]
 macro_rules! with_concurrency_limit {
-    ($controller:expr, $block:block) => {
-        {
-            let permit = $controller.acquire().await;
-            $block
-        }
-    };
+    ($controller:expr, $block:block) => {{
+        let _permit = $controller.acquire().await;
+        $block
+    }};
 }
 
 #[macro_export]
 macro_rules! try_with_concurrency_limit {
-    ($controller:expr, $block:block) => {
-        {
-            if let Some(permit) = $controller.try_acquire().await {
-                Some($block)
-            } else {
-                None
-            }
+    ($controller:expr, $block:block) => {{
+        if let Some(_permit) = $controller.try_acquire().await {
+            Some($block)
+        } else {
+            None
         }
-    };
+    }};
 }
 
 #[cfg(test)]
@@ -192,9 +188,7 @@ mod tests {
     async fn test_with_concurrency_limit_macro() {
         let controller = ConcurrencyController::new(1, "test".to_string());
 
-        let result = with_concurrency_limit!(&controller, {
-            42
-        });
+        let result = with_concurrency_limit!(&controller, { 42 });
 
         assert_eq!(result, 42);
     }
@@ -203,17 +197,13 @@ mod tests {
     async fn test_try_with_concurrency_limit_macro() {
         let controller = ConcurrencyController::new(1, "test".to_string());
 
-        let result = try_with_concurrency_limit!(&controller, {
-            Some(42)
-        });
+        let result = try_with_concurrency_limit!(&controller, { Some(42) });
 
         assert_eq!(result, Some(Some(42)));
 
         let _permit = controller.acquire().await;
 
-        let result = try_with_concurrency_limit!(&controller, {
-            Some(42)
-        });
+        let result = try_with_concurrency_limit!(&controller, { Some(42) });
 
         assert_eq!(result, None);
     }

@@ -393,8 +393,16 @@ impl VoiceMessageStorage {
         start_date: chrono::NaiveDate,
         end_date: chrono::NaiveDate,
     ) -> Result<Vec<VoiceMessage>, sqlx::Error> {
-        let start_ts = start_date.and_hms(0, 0, 0).timestamp_millis();
-        let end_ts = end_date.and_hms(23, 59, 59).timestamp_millis();
+        let start_ts = start_date
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis();
+        let end_ts = end_date
+            .and_hms_opt(23, 59, 59)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis();
 
         let rows = sqlx::query(
             r#"

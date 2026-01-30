@@ -301,7 +301,7 @@ mod tests {
             let manager = CacheManager::new(config);
 
             let test_value = "test_value".to_string();
-            manager.set("test_key", &test_value, 60).await;
+            let _ = manager.set("test_key", &test_value, 60).await;
 
             let result: Option<String> = manager.get::<String>("test_key").await.unwrap();
             assert_eq!(result, Some(test_value));
@@ -316,10 +316,10 @@ mod tests {
             let manager = CacheManager::new(config);
 
             let test_value = "test_value".to_string();
-            manager.set("test_key", &test_value, 60).await;
+            let _ = manager.set("test_key", &test_value, 60).await;
             assert!(manager.get::<String>("test_key").await.unwrap().is_some());
 
-            manager.delete("test_key").await;
+            let _ = manager.delete("test_key").await;
             assert!(manager.get::<String>("test_key").await.unwrap().is_none());
         });
     }
