@@ -1,7 +1,7 @@
 use super::AppState;
 use axum::{
     extract::{Path, Query, State},
-    routing::{get, post, put},
+    routing::{get, post},
     Json, Router,
 };
 use serde_json::Value;
