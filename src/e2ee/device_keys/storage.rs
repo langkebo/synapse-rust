@@ -187,7 +187,7 @@ impl DeviceKeyStorage {
         )
         .bind(user_id)
         .bind(device_id)
-        .bind(&vec!["signed_curve25519".to_string()])
+        .bind(vec!["signed_curve25519".to_string()])
         .fetch_one(&*self.pool)
         .await?;
 

@@ -54,24 +54,26 @@ impl MegolmService {
         self.storage.create_session(&session).await?;
 
         let cache_key = format!("megolm_session:{}", session_id);
-        self.cache.set(&cache_key, &session, 600).await;
+        let _ = self.cache.set(&cache_key, &session, 600).await;
 
         Ok(session)
     }
 
     pub async fn load_session(&self, session_id: &str) -> Result<MegolmSession, ApiError> {
         let cache_key = format!("megolm_session:{}", session_id);
-        if let Some(session) = self.cache.get::<MegolmSession>(&cache_key).await {
+        if let Ok(Some(session)) = self.cache.get::<MegolmSession>(&cache_key).await {
             return Ok(session);
         }
 
+        // Cache miss - load from storage
         let session = self
             .storage
             .get_session(session_id)
             .await?
             .ok_or_else(|| ApiError::NotFound("Session not found".to_string()))?;
 
-        self.cache.set(&cache_key, &session, 600).await;
+        // Update cache with the loaded session
+        let _ = self.cache.set(&cache_key, &session, 600).await;
 
         Ok(session)
     }
@@ -101,12 +103,8 @@ impl MegolmService {
         let session_key = self.decrypt_session_key(&session.session_key)?;
 
         let cipher_key = Aes256GcmKey::from_bytes(session_key);
-        let nonce_obj = Aes256GcmNonce::from_bytes(
-            nonce
-                .try_into()
-                .map_err(|_| ApiError::DecryptionError("Invalid nonce length".to_string()))?,
-        )
-        .map_err(|e| ApiError::DecryptionError(e.to_string()))?;
+        let nonce_obj = Aes256GcmNonce::from_bytes(nonce)
+            .map_err(|_| ApiError::DecryptionError("Invalid nonce length".to_string()))?;
         let decrypted = Aes256GcmCipher::decrypt(&cipher_key, &nonce_obj, ciphertext)?;
 
         Ok(decrypted)
@@ -133,7 +131,7 @@ impl MegolmService {
 
         for user_id in user_ids {
             let cache_key = format!("megolm_session_key:{}:{}", user_id, session_id);
-            self.cache.set(&cache_key, &session_key, 600).await;
+            let _ = self.cache.set(&cache_key, &session_key, 600).await;
         }
 
         Ok(())
@@ -155,7 +153,7 @@ impl MegolmService {
 
     fn encrypt_session_key(&self, key: &Aes256GcmKey) -> Result<String, ApiError> {
         let cipher_key = Aes256GcmKey::from_bytes(self.encryption_key);
-        let encrypted = Aes256GcmCipher::encrypt(&cipher_key, key.as_bytes())?;
+        let encrypted = Aes256GcmCipher::encrypt(&cipher_key, &key.as_bytes()[..])?;
         let json = serde_json::to_string(&encrypted)
             .map_err(|e| CryptoError::EncryptionError(e.to_string()))?;
         Ok(base64::Engine::encode(

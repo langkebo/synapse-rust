@@ -484,7 +484,7 @@ impl VoiceService {
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if deleted {
-            let file_path = self.voice_path.join(format!("{}.*", message_id));
+            let _file_path = self.voice_path.join(format!("{}.*", message_id));
             if let Ok(entries) = std::fs::read_dir(&self.voice_path) {
                 for entry in entries.flatten() {
                     if let Some(file_name) = entry.file_name().to_str() {

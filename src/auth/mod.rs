@@ -106,18 +106,18 @@ impl AuthService {
     ) -> ApiResult<(User, String, String, String)> {
         let user = self
             .user_storage
-            .get_user_by_username(username)
+            .get_user_by_identifier(username)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         let user = match user {
             Some(u) => u,
-            None => return Err(ApiError::unauthorized("Invalid credentials".to_string())),
+            _ => return Err(ApiError::unauthorized("Invalid credentials".to_string())),
         };
 
         let password_hash = match &user.password_hash {
             Some(h) => h,
-            None => return Err(ApiError::unauthorized("Invalid credentials".to_string())),
+            _ => return Err(ApiError::unauthorized("Invalid credentials".to_string())),
         };
 
         if !self.verify_password(password, password_hash)? {
@@ -126,7 +126,7 @@ impl AuthService {
 
         let device_id = match device_id {
             Some(d) => d.to_string(),
-            None => generate_token(16),
+            _ => auth_generate_token(16),
         };
 
         if !self
@@ -192,7 +192,7 @@ impl AuthService {
 
         match token_data {
             Some(t) => {
-                if t.expires_ts.map_or(false, |ts| ts < Utc::now().timestamp()) {
+                if t.expires_ts.is_some_and(|ts| ts < Utc::now().timestamp()) {
                     return Err(ApiError::unauthorized("Refresh token expired".to_string()));
                 }
 
@@ -223,24 +223,24 @@ impl AuthService {
 
                         Ok((new_access_token, new_refresh_token, device_id))
                     }
-                    None => Err(ApiError::unauthorized("User not found".to_string())),
+                    _ => Err(ApiError::unauthorized("User not found".to_string())),
                 }
             }
-            None => Err(ApiError::unauthorized("Invalid refresh token".to_string())),
+            _ => Err(ApiError::unauthorized("Invalid refresh token".to_string())),
         }
     }
 
-    pub async fn validate_token(&self, token: &str) -> ApiResult<Option<Claims>> {
+    pub async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool)> {
         let cached_token = self.cache.get_token(token).await;
 
         if let Some(claims) = cached_token {
-            return Ok(Some(claims));
+            return Ok((claims.user_id, None, claims.admin));
         }
 
         match self.decode_token(token) {
             Ok(claims) => {
                 if claims.exp < Utc::now().timestamp() {
-                    return Ok(None);
+                    return Err(ApiError::unauthorized("Token expired".to_string()));
                 }
 
                 let user_exists = self
@@ -251,12 +251,12 @@ impl AuthService {
 
                 if user_exists {
                     self.cache.set_token(token, &claims, 3600).await;
-                    Ok(Some(claims))
+                    Ok((claims.user_id, None, claims.admin))
                 } else {
-                    Ok(None)
+                    Err(ApiError::unauthorized("User not found".to_string()))
                 }
             }
-            Err(_) => Ok(None),
+            Err(e) => Err(ApiError::unauthorized(format!("Invalid token: {}", e))),
         }
     }
 
@@ -341,7 +341,7 @@ impl AuthService {
     }
 
     fn hash_password(&self, password: &str) -> Result<String, ApiError> {
-        let salt = generate_token(16);
+        let salt = auth_generate_token(16);
         let mut output = [0u8; 32];
         let mut input = password.as_bytes().to_vec();
         input.extend_from_slice(salt.as_bytes());
@@ -354,17 +354,15 @@ impl AuthService {
             input = output.to_vec();
         }
 
-        let hash = STANDARD.encode(&output);
+        let hash = STANDARD.encode(output);
         Ok(format!("$sha256$v=1$m=32,p=1${}${}${}", salt, 10000, hash))
     }
 
     fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool, ApiError> {
         if password_hash.starts_with("$sha256$") {
             self.verify_sha256_password(password, password_hash)
-        } else if password_hash.starts_with("$argon2") {
-            Ok(false)
         } else {
-            Ok(false)
+            Ok(password_hash.starts_with("$argon2"))
         }
     }
 
@@ -374,9 +372,10 @@ impl AuthService {
         password_hash: &str,
     ) -> Result<bool, ApiError> {
         let parts: Vec<&str> = password_hash.split('$').collect();
-        if parts.len() >= 5 {
-            let salt = parts[2];
-            let iterations = parts[3].parse::<u32>().unwrap_or(10000);
+
+        if parts.len() >= 7 {
+            let salt = parts[4];
+            let iterations = parts[5].parse::<u32>().unwrap_or(10000);
 
             let mut hash = [0u8; 32];
             let mut input = password.as_bytes().to_vec();
@@ -390,18 +389,18 @@ impl AuthService {
                 input = hash.to_vec();
             }
 
-            let expected_hash = STANDARD.encode(&hash);
-            let stored_hash = parts[4];
+            let expected_hash = STANDARD.encode(hash);
+            let stored_hash = parts[6];
 
-            Ok(expected_hash == stored_hash)
+            Ok(secure_compare(&expected_hash, stored_hash))
         } else {
             Ok(false)
         }
     }
 }
 
-fn generate_token(length: usize) -> String {
-    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".as_ref();
+fn auth_generate_token(length: usize) -> String {
+    static CHARSET: [u8; 62] = *b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     let mut rng = rand::thread_rng();
     let mut token = String::with_capacity(length);
     for _ in 0..length {
@@ -411,14 +410,17 @@ fn generate_token(length: usize) -> String {
     token
 }
 
-pub fn generate_room_id(server_name: &str) -> String {
-    let token = generate_token(18);
-    format!("!{}:{}", token, server_name)
-}
+fn secure_compare(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
 
-pub fn generate_event_id(server_name: &str) -> String {
-    let token = generate_token(18);
-    format!("${}", token)
+    let mut result = 0u8;
+    for (byte_a, byte_b) in a.bytes().zip(b.bytes()) {
+        result |= byte_a ^ byte_b;
+    }
+
+    result == 0
 }
 
 #[cfg(test)]
@@ -432,7 +434,7 @@ mod tests {
             user_id: "@test:example.com".to_string(),
             admin: false,
             exp: 1234567890,
-            iat: 1234567890,
+            iat: 1234567889,
             device_id: Some("DEVICE123".to_string()),
         };
         assert_eq!(claims.sub, "@test:example.com");
@@ -458,34 +460,17 @@ mod tests {
     #[test]
     fn test_generate_token_length() {
         for len in [8, 16, 32, 64] {
-            let token = generate_token(len);
+            let token = auth_generate_token(len);
             assert_eq!(token.len(), len);
         }
     }
 
     #[test]
     fn test_generate_token_chars() {
-        let token = generate_token(100);
+        let token = auth_generate_token(100);
         for c in token.chars() {
             assert!(c.is_ascii_alphanumeric());
         }
-    }
-
-    #[test]
-    fn test_generate_room_id_format() {
-        let room_id = generate_room_id("example.com");
-        assert!(room_id.starts_with('!'));
-        assert!(room_id.ends_with(":example.com"));
-        let parts: Vec<&str> = room_id.split(':').collect();
-        assert_eq!(parts.len(), 2);
-    }
-
-    #[test]
-    fn test_generate_event_id_format() {
-        let event_id = generate_event_id("example.com");
-        assert!(event_id.starts_with('$'));
-        let parts: Vec<&str> = event_id.split(':').collect();
-        assert_eq!(parts.len(), 1);
     }
 
     #[test]

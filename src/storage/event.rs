@@ -33,6 +33,9 @@ pub struct StateEvent {
     pub status: Option<String>,
     pub reference_image: Option<String>,
     pub origin: String,
+    pub sender: Option<String>,
+    pub unsigned: Option<String>,
+    pub redacted: Option<bool>,
 }
 
 #[derive(Clone)]

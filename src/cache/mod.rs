@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+pub mod strategy;
+
+pub use strategy::{CacheKeyBuilder, CacheTtl};
+
 pub struct CacheConfig {
     pub max_capacity: u64,
     pub time_to_live: u64,
@@ -191,7 +195,10 @@ impl CacheManager {
         }
     }
 
-    pub async fn get<T: for<'de> Deserialize<'de>>(&self, key: &str) -> Result<Option<T>, ApiError> {
+    pub async fn get<T: for<'de> Deserialize<'de>>(
+        &self,
+        key: &str,
+    ) -> Result<Option<T>, ApiError> {
         let key = key.to_string();
         if self.use_redis {
             if let Some(redis) = &self.redis {
@@ -202,7 +209,8 @@ impl CacheManager {
                 }
             }
         }
-        Ok(self.local
+        Ok(self
+            .local
             .get_raw(&key)
             .and_then(|s| serde_json::from_str(&s).ok()))
     }
@@ -295,7 +303,7 @@ mod tests {
             let test_value = "test_value".to_string();
             manager.set("test_key", &test_value, 60).await;
 
-            let result: Option<String> = manager.get("test_key").await;
+            let result: Option<String> = manager.get::<String>("test_key").await.unwrap();
             assert_eq!(result, Some(test_value));
         });
     }
@@ -309,10 +317,10 @@ mod tests {
 
             let test_value = "test_value".to_string();
             manager.set("test_key", &test_value, 60).await;
-            assert!(manager.get::<String>("test_key").await.is_some());
+            assert!(manager.get::<String>("test_key").await.unwrap().is_some());
 
             manager.delete("test_key").await;
-            assert!(manager.get::<String>("test_key").await.is_none());
+            assert!(manager.get::<String>("test_key").await.unwrap().is_none());
         });
     }
 
@@ -323,7 +331,7 @@ mod tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            let result: Option<String> = manager.get("nonexistent").await;
+            let result: Option<String> = manager.get::<String>("nonexistent").await.unwrap();
             assert!(result.is_none());
         });
     }

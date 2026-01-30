@@ -1,17 +1,66 @@
 use sqlx::{Pool, Postgres};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+pub mod device;
+pub mod event;
+pub mod maintenance;
+pub mod membership;
+pub mod monitoring;
+pub mod private_chat;
+pub mod room;
+pub mod token;
+pub mod user;
+pub mod voice;
+
+pub use self::device::*;
+pub use self::event::*;
+pub use self::maintenance::*;
+pub use self::membership::*;
+pub use self::monitoring::{
+    ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor,
+    DuplicateEntry, ForeignKeyViolation, NullConstraintViolation, OrphanedRecord,
+    PerformanceMetrics, VacuumStats,
+};
+pub use self::private_chat::*;
+pub use self::private_chat::*;
+pub use self::private_chat::*;
+pub use self::private_chat::*;
+pub use self::room::*;
+pub use self::token::*;
+pub use self::user::*;
+pub use self::voice::*;
+pub use self::voice::*;
+pub use self::voice::*;
 
 pub struct Database {
     pub pool: Pool<Postgres>,
+    pub monitor: Arc<RwLock<DatabaseMonitor>>,
 }
 
 impl Database {
     pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
         let pool = sqlx::PgPool::connect(database_url).await?;
-        Ok(Self { pool })
+
+        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), 50)));
+
+        Ok(Self { pool, monitor })
     }
 
     pub fn pool(&self) -> &Pool<Postgres> {
         &self.pool
+    }
+
+    pub async fn health_check(&self) -> Result<DatabaseHealthStatus, sqlx::Error> {
+        self.monitor.write().await.get_full_health_status().await
+    }
+
+    pub async fn get_performance_metrics(&self) -> Result<PerformanceMetrics, sqlx::Error> {
+        self.monitor.write().await.get_performance_metrics().await
+    }
+
+    pub async fn verify_data_integrity(&self) -> Result<DataIntegrityReport, sqlx::Error> {
+        self.monitor.write().await.verify_data_integrity().await
     }
 }
 
@@ -114,7 +163,9 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
             encryption TEXT,
             is_flaged BOOLEAN DEFAULT FALSE,
             is_spotlight BOOLEAN DEFAULT FALSE,
-            deleted_ts BIGINT
+            deleted_ts BIGINT,
+            join_rule TEXT,
+            visibility TEXT
         )
     "#,
     )
@@ -155,7 +206,7 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS room_events (
-            event_id TEXT NOT NULL PRIMARY KEY,
+            event_id TEXT NOT NULL,
             room_id TEXT NOT NULL,
             user_id TEXT NOT NULL,
             event_type TEXT NOT NULL,
@@ -202,13 +253,13 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
     sqlx::query("ALTER TABLE room_memberships ADD COLUMN IF NOT EXISTS join_reason TEXT")
         .execute(pool)
         .await?;
-    sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS sender TEXT")
+    sqlx::query("ALTER TABLE room_events ADD COLUMN IF NOT EXISTS sender TEXT")
         .execute(pool)
         .await?;
-    sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS unsigned TEXT")
+    sqlx::query("ALTER TABLE room_events ADD COLUMN IF NOT EXISTS unsigned TEXT")
         .execute(pool)
         .await?;
-    sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS redacted BOOLEAN DEFAULT FALSE")
+    sqlx::query("ALTER TABLE room_events ADD COLUMN IF NOT EXISTS redacted BOOLEAN DEFAULT FALSE")
         .execute(pool)
         .await?;
 
@@ -222,7 +273,7 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
             status_from TEXT,
             created_ts BIGINT NOT NULL,
             updated_ts BIGINT NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(name) ON DELETE CASCADE
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     "#,
     )
@@ -238,7 +289,7 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
             added_by TEXT,
             created_ts BIGINT NOT NULL,
             PRIMARY KEY (user_id, room_id),
-            FOREIGN KEY (user_id) REFERENCES users(name) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
             FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
         )
     "#,
@@ -260,7 +311,7 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
             is_enabled BOOLEAN DEFAULT TRUE,
             is_user_created BOOLEAN DEFAULT FALSE,
             created_ts BIGINT NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(name) ON DELETE CASCADE
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     "#,
     )
@@ -274,7 +325,7 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
             user_id TEXT NOT NULL,
             rule_id TEXT NOT NULL,
             enable BOOLEAN DEFAULT TRUE,
-            FOREIGN KEY (user_id) REFERENCES users(name) ON DELETE CASCADE
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     "#,
     )
@@ -283,7 +334,7 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
 
     sqlx::query(
         r#"
-        CREATE TABLE IF NOT EXISTS痍
+        CREATE TABLE IF NOT EXISTS receipts (
             sender TEXT NOT NULL,
             sent_to TEXT NOT NULL,
             room_id TEXT NOT NULL,
@@ -291,8 +342,8 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
             sent_ts BIGINT NOT NULL,
             receipt_type TEXT NOT NULL,
             PRIMARY KEY (sent_to, sender, room_id),
-            FOREIGN KEY (sender) REFERENCES users(name) ON DELETE CASCADE,
-            FOREIGN KEY (sent_to) REFERENCES users(name) ON DELETE CASCADE,
+            FOREIGN KEY (sender) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (sent_to) REFERENCES users(user_id) ON DELETE CASCADE,
             FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
         )
     "#,
@@ -328,7 +379,7 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
             language TEXT,
             data TEXT,
             expiry_ts BIGINT,
-            FOREIGN KEY (user_id) REFERENCES users(name) ON DELETE CASCADE
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     "#,
     )
@@ -353,7 +404,7 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
             filter_id BIGINT NOT NULL,
             filter_definition TEXT NOT NULL,
             PRIMARY KEY (user_id, filter_id),
-            FOREIGN KEY (user_id) REFERENCES users(name) ON DELETE CASCADE
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     "#,
     )
@@ -394,39 +445,172 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
     .execute(pool)
     .await?;
 
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS friends (
+            user_id TEXT NOT NULL,
+            friend_id TEXT NOT NULL,
+            created_ts BIGINT NOT NULL,
+            note TEXT,
+            is_favorite BOOLEAN DEFAULT FALSE,
+            PRIMARY KEY (user_id, friend_id),
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (friend_id) REFERENCES users(user_id) ON DELETE CASCADE
+        )
+    "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS friend_requests (
+            id BIGSERIAL PRIMARY KEY,
+            requester_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            message TEXT,
+            created_ts BIGINT NOT NULL,
+            updated_ts BIGINT NOT NULL,
+            FOREIGN KEY (requester_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (target_id) REFERENCES users(user_id) ON DELETE CASCADE
+        )
+    "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS blocked_users (
+            user_id TEXT NOT NULL,
+            blocked_id TEXT NOT NULL,
+            reason TEXT,
+            created_ts BIGINT NOT NULL,
+            PRIMARY KEY (user_id, blocked_id),
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (blocked_id) REFERENCES users(user_id) ON DELETE CASCADE
+        )
+    "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS friend_categories (
+            id BIGSERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            color TEXT,
+            created_ts BIGINT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+        )
+    "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS security_events (
+            id BIGSERIAL PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'info',
+            user_id TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            details TEXT,
+            created_at BIGINT NOT NULL,
+            resolved BOOLEAN DEFAULT FALSE,
+            resolved_by TEXT,
+            resolved_ts BIGINT
+        )
+    "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS ip_blocks (
+            id BIGSERIAL PRIMARY KEY,
+            ip_address TEXT NOT NULL,
+            reason TEXT,
+            blocked_by TEXT NOT NULL,
+            blocked_at BIGINT NOT NULL,
+            expires_at BIGINT,
+            is_active BOOLEAN DEFAULT TRUE,
+            FOREIGN KEY (blocked_by) REFERENCES users(user_id) ON DELETE CASCADE
+        )
+    "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS ip_reputation (
+            ip_address TEXT NOT NULL PRIMARY KEY,
+            score INTEGER NOT NULL DEFAULT 50,
+            threat_level TEXT DEFAULT 'medium',
+            last_seen_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL,
+            report_count INTEGER DEFAULT 0,
+            whitelist BOOLEAN DEFAULT FALSE,
+            details JSONB
+        )
+    "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS database_performance_stats (
+            id BIGSERIAL PRIMARY KEY,
+            metric_type TEXT NOT NULL,
+            metric_name TEXT NOT NULL,
+            metric_value DOUBLE PRECISION NOT NULL,
+            collected_at BIGINT NOT NULL,
+            metadata JSONB
+        )
+    "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS database_health_history (
+            id BIGSERIAL PRIMARY KEY,
+            check_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            details JSONB,
+            checked_at BIGINT NOT NULL
+        )
+    "#,
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }
-
-pub mod device;
-pub mod event;
-pub mod membership;
-pub mod room;
-pub mod token;
-pub mod user;
-
-pub use device::*;
-pub use event::*;
-pub use membership::*;
-pub use room::*;
-pub use token::*;
-pub use user::*;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_database_struct_creation() {
-        let _ = Database {
-            pool: Pool::<Postgres>::builder().max_size(5).build(),
+    #[tokio::test]
+    #[ignore = "Requires running PostgreSQL server"]
+    async fn test_database_struct_creation() {
+        let pool = sqlx::PgPool::connect("postgres://test:test@localhost/test")
+            .await
+            .expect("Database connection failed - this test requires a running PostgreSQL server");
+        let _db = Database {
+            pool: pool.clone(),
+            monitor: Arc::new(RwLock::new(DatabaseMonitor::new(pool, 50))),
         };
-    }
-
-    #[test]
-    fn test_database_pool_method() {
-        let pool = Pool::<Postgres>::builder().max_size(5).build();
-        let db = Database { pool };
-        let _ = db.pool();
     }
 
     #[test]
@@ -492,7 +676,7 @@ mod tests {
             id: 1,
             token: "refresh_token_123".to_string(),
             user_id: "@test:example.com".to_string(),
-            device_id: "DEVICE123".to_string(),
+            device_id: Some("DEVICE123".to_string()),
             created_ts: 1234567890,
             expires_ts: Some(1235171490),
             invalidated_ts: None,
@@ -564,6 +748,8 @@ mod tests {
             joined_ts: Some(1234567890000),
             left_ts: None,
             reason: None,
+            ban_reason: None,
+            ban_ts: None,
         };
         assert_eq!(member.room_id, "!test:example.com");
         assert_eq!(member.user_id, "@test:example.com");

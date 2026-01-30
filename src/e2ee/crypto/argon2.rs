@@ -183,7 +183,7 @@ mod tests {
     fn test_argon2_derive_key_same_password_salt() {
         let kdf = Argon2Kdf::new(Argon2Params::default()).unwrap();
         let password = "password";
-        let salt = b"fixed_salt";
+        let salt = b"fixed_salt_12345678";
 
         let key1 = kdf.derive_key(password, salt).unwrap();
         let key2 = kdf.derive_key(password, salt).unwrap();
@@ -195,15 +195,15 @@ mod tests {
         let kdf = Argon2Kdf::new(Argon2Params::default()).unwrap();
         let password = "password";
 
-        let key1 = kdf.derive_key(password, b"salt1").unwrap();
-        let key2 = kdf.derive_key(password, b"salt2").unwrap();
+        let key1 = kdf.derive_key(password, b"salt1_12345678").unwrap();
+        let key2 = kdf.derive_key(password, b"salt2_12345678").unwrap();
         assert_ne!(key1, key2);
     }
 
     #[test]
     fn test_argon2_derive_key_different_passwords() {
         let kdf = Argon2Kdf::new(Argon2Params::default()).unwrap();
-        let salt = b"fixed_salt";
+        let salt = b"fixed_salt_12345678";
 
         let key1 = kdf.derive_key("password1", salt).unwrap();
         let key2 = kdf.derive_key("password2", salt).unwrap();
@@ -220,7 +220,7 @@ mod tests {
         };
         let kdf = Argon2Kdf::new(params).unwrap();
         let password = "password";
-        let salt = b"salt";
+        let salt = b"salt12345678";
 
         let key = kdf.derive_key(password, salt).unwrap();
         assert_eq!(key.len(), 64);

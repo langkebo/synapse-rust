@@ -33,7 +33,9 @@ impl DeviceKeyService {
                 let keys = if device_ids.contains(&"*".to_string()) {
                     self.storage.get_all_device_keys(user_id).await?
                 } else {
-                    self.storage.get_device_keys(user_id, device_ids.as_slice()).await?
+                    self.storage
+                        .get_device_keys(user_id, device_ids.as_slice())
+                        .await?
                 };
 
                 let mut user_keys = serde_json::Map::new();
@@ -92,7 +94,7 @@ impl DeviceKeyService {
                 self.storage.create_device_key(&key).await?;
 
                 let cache_key = format!("device_keys:{}:{}", user_id, device_id);
-                self.cache.set(&cache_key, &key, 300).await;
+                let _ = self.cache.set(&cache_key, &key, 300).await;
             }
         }
 

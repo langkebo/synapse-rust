@@ -1,7 +1,8 @@
 # 模块结构文档
 
-> **版本**：1.0.0  
+> **版本**：1.0.1  
 > **创建日期**：2026-01-28  
+> **更新日期**：2026-01-29  
 > **项目状态**：开发中  
 > **参考文档**：[Synapse 官方文档](https://element-hq.github.io/synapse/latest/)、[Matrix 规范](https://spec.matrix.org/)
 
@@ -15,62 +16,97 @@
 src/
 ├── lib.rs                    # 库入口，导出公共接口
 ├── main.rs                   # 二进制入口
+├── server.rs                 # 服务器启动配置
 ├── common/                   # 通用模块
 │   ├── mod.rs
 │   ├── error.rs             # 错误类型定义
 │   ├── config.rs            # 配置管理
-│   └── crypto.rs           # 加密工具
+│   ├── crypto.rs            # 加密工具
+│   ├── types.rs             # 通用类型定义
+│   ├── collections.rs       # 集合工具
+│   ├── concurrency.rs       # 并发工具
+│   ├── early_exit.rs        # 提前退出工具
+│   ├── health.rs            # 健康检查
+│   ├── macros.rs            # 宏定义
+│   ├── metrics.rs           # 指标收集
+│   ├── regex_cache.rs       # 正则缓存
+│   ├── task_queue.rs        # 任务队列
+│   └── tracing.rs           # 追踪工具
 ├── storage/                  # 存储层模块
 │   ├── mod.rs
-│   ├── user.rs             # 用户存储
-│   ├── device.rs           # 设备存储
-│   ├── token.rs           # 令牌存储
-│   ├── room.rs            # 房间存储
-│   ├── event.rs           # 事件存储
-│   ├── membership.rs       # 成员关系存储
-│   ├── presence.rs        # 在线状态存储
-│   ├── friend.rs         # 好友存储
-│   ├── private.rs         # 私聊存储
-│   └── voice.rs          # 语音消息存储
+│   ├── user.rs              # 用户存储
+│   ├── device.rs            # 设备存储
+│   ├── token.rs             # 令牌存储
+│   ├── room.rs              # 房间存储
+│   ├── event.rs             # 事件存储
+│   └── membership.rs        # 成员关系存储
 ├── cache/                    # 缓存层模块
-│   ├── mod.rs
-│   └── mod.rs              # 缓存管理器
+│   └── mod.rs               # 缓存管理器
 ├── auth/                     # 认证模块
+│   └── mod.rs               # 认证服务
+├── e2ee/                     # 端到端加密模块
 │   ├── mod.rs
-│   └── mod.rs              # 认证服务
+│   ├── crypto/              # 加密算法实现
+│   │   ├── mod.rs
+│   │   ├── aes.rs           # AES 加密
+│   │   ├── argon2.rs        # Argon2 哈希
+│   │   ├── ed25519.rs       # Ed25519 签名
+│   │   └── x25519.rs        # X25519 密钥交换
+│   ├── device_keys/         # 设备密钥管理
+│   │   ├── mod.rs
+│   │   ├── models.rs
+│   │   ├── service.rs
+│   │   └── storage.rs
+│   ├── megolm/              # Megolm 会话管理
+│   │   ├── mod.rs
+│   │   ├── models.rs
+│   │   ├── service.rs
+│   │   └── storage.rs
+│   ├── cross_signing/       # 跨签名管理
+│   │   ├── mod.rs
+│   │   ├── models.rs
+│   │   ├── service.rs
+│   │   └── storage.rs
+│   ├── signature/           # 签名管理
+│   │   ├── mod.rs
+│   │   ├── models.rs
+│   │   ├── service.rs
+│   │   └── storage.rs
+│   ├── backup/              # 密钥备份
+│   │   ├── mod.rs
+│   │   ├── models.rs
+│   │   ├── service.rs
+│   │   └── storage.rs
+│   └── api/                 # E2EE API
+│       ├── mod.rs
+│       ├── device_keys.rs
+│       ├── megolm.rs
+│       ├── cross_signing.rs
+│       └── backup.rs
 ├── services/                 # 服务层模块
 │   ├── mod.rs
-│   ├── registration.rs     # 注册服务
-│   ├── room_service.rs    # 房间服务
-│   ├── sync_service.rs    # 同步服务
-│   ├── media_service.rs   # 媒体服务
-│   ├── friend_service.rs  # 好友服务
-│   ├── private_chat.rs    # 私聊服务
-│   └── voice_service.rs   # 语音服务
+│   ├── registration_service.rs  # 注册服务
+│   ├── room_service.rs          # 房间服务
+│   ├── sync_service.rs          # 同步服务
+│   ├── media_service.rs         # 媒体服务
+│   ├── friend_service.rs        # 好友服务
+│   ├── private_chat_service.rs  # 私聊服务
+│   └── voice_service.rs         # 语音服务
 └── web/                      # Web 层模块
     ├── mod.rs
-    ├── routes/             # 路由定义
-    │   ├── mod.rs
-    │   ├── client.rs      # 客户端 API 路由
-    │   ├── admin.rs       # 管理 API 路由
-    │   ├── media.rs       # 媒体 API 路由
-    │   ├── friend.rs      # 好友 API 路由
-    │   ├── private.rs     # 私聊 API 路由
-    │   └── voice.rs      # 语音 API 路由
-    ├── middleware/         # 中间件
-    │   ├── mod.rs
-    │   ├── auth.rs       # 认证中间件
-    │   ├── logging.rs    # 日志中间件
-    │   ├── cors.rs       # CORS 中间件
-    │   └── rate_limit.rs # 速率限制中间件
-    └── handlers/          # 请求处理器
-        ├── mod.rs
-        ├── client.rs     # 客户端 API 处理器
-        ├── admin.rs      # 管理 API 处理器
-        ├── media.rs      # 媒体 API 处理器
-        ├── friend.rs     # 好友 API 处理器
-        ├── private.rs    # 私聊 API 处理器
-        └── voice.rs      # 语音 API 处理器
+    ├── middleware.rs        # 中间件
+    ├── streaming.rs         # 流式响应
+    └── routes/              # 路由定义
+        ├── mod.rs           # 路由聚合
+        ├── admin.rs         # 管理 API 路由
+        ├── client.rs        # 客户端 API 路由 (在 mod.rs 中)
+        ├── media.rs         # 媒体 API 路由
+        ├── friend.rs        # 好友 API 路由
+        ├── private_chat.rs  # 私聊 API 路由
+        ├── voice.rs         # 语音 API 路由
+        ├── e2ee_routes.rs   # E2EE API 路由
+        ├── federation.rs    # 联邦 API 路由
+        └── key_backup.rs    # 密钥备份路由
 ```
 
 ### 1.2 模块依赖关系
@@ -78,17 +114,25 @@ src/
 ```
 web/
   ├── routes/
-  ├── middleware/
-  └── handlers/
+  └── middleware/
       ↓
 services/
-  ├── registration.rs
+  ├── registration_service.rs
   ├── room_service.rs
   ├── sync_service.rs
   ├── media_service.rs
   ├── friend_service.rs
-  ├── private_chat.rs
+  ├── private_chat_service.rs
   └── voice_service.rs
+      ↓
+e2ee/
+  ├── crypto/
+  ├── device_keys/
+  ├── megolm/
+  ├── cross_signing/
+  ├── signature/
+  ├── backup/
+  └── api/
       ↓
 cache/
   └── mod.rs
@@ -99,16 +143,13 @@ storage/
   ├── token.rs
   ├── room.rs
   ├── event.rs
-  ├── membership.rs
-  ├── presence.rs
-  ├── friend.rs
-  ├── private.rs
-  └── voice.rs
+  └── membership.rs
       ↓
 common/
   ├── error.rs
   ├── config.rs
-  └── crypto.rs
+  ├── crypto.rs
+  └── types.rs
 ```
 
 ---
@@ -745,3 +786,4 @@ pub trait Cache {
 | 版本 | 日期 | 变更说明 |
 |------|------|----------|
 | 1.0.0 | 2026-01-28 | 初始版本，定义模块结构文档 |
+| 1.0.1 | 2026-01-29 | 更新模块结构以反映实际代码组织：<br>- 添加 server.rs 文件说明<br>- 扩展 common 模块（添加 types, collections, concurrency 等）<br>- 添加完整的 e2ee 模块结构（crypto, device_keys, megolm, cross_signing, signature, backup, api）<br>- 修正 services 模块文件名（registration.rs → registration_service.rs）<br>- 更新 web 模块结构（移除独立的 middleware/ 和 handlers/ 目录）<br>- 添加 streaming.rs 模块说明<br>- 添加 E2EE、联邦、密钥备份路由文件 |

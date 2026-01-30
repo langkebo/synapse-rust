@@ -63,17 +63,30 @@ impl ServiceContainer {
             server_name: server_name.to_string(),
         }
     }
+
+    #[cfg(test)]
+    pub fn new_test() -> Self {
+        let pool = Arc::new(
+            sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse")
+                .unwrap(),
+        );
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        Self::new(&pool, cache, "test_secret", "localhost")
+    }
 }
 
 #[derive(Clone)]
 pub struct PresenceStorage {
     pool: Arc<Pool<Postgres>>,
-    cache: Arc<CacheManager>,
+    _cache: Arc<CacheManager>,
 }
 
 impl PresenceStorage {
     pub fn new(pool: Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> Self {
-        Self { pool, cache }
+        Self {
+            pool,
+            _cache: cache,
+        }
     }
 
     pub async fn set_presence(

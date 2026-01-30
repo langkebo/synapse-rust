@@ -340,3 +340,36 @@ CREATE INDEX IF NOT EXISTS idx_private_sessions_user ON private_sessions(user_id
 CREATE INDEX IF NOT EXISTS idx_private_messages_session ON private_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_voice_messages_user_id ON voice_messages(user_id);
 CREATE INDEX IF NOT EXISTS idx_voice_messages_room_id ON voice_messages(room_id);
+
+CREATE TABLE IF NOT EXISTS security_events (
+    id BIGSERIAL PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    user_id TEXT,
+    ip_address TEXT,
+    user_agent TEXT,
+    details JSONB,
+    created_at BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ip_blocks (
+    id BIGSERIAL PRIMARY KEY,
+    ip_address TEXT UNIQUE NOT NULL,
+    reason TEXT,
+    blocked_at BIGINT NOT NULL,
+    expires_at BIGINT
+);
+
+CREATE TABLE IF NOT EXISTS ip_reputation (
+    id BIGSERIAL PRIMARY KEY,
+    ip_address TEXT UNIQUE NOT NULL,
+    score INTEGER DEFAULT 0,
+    last_seen_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    details JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_security_events_user_id ON security_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_security_events_created_at ON security_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_ip_blocks_blocked_at ON ip_blocks(blocked_at);
+CREATE INDEX IF NOT EXISTS idx_ip_reputation_score ON ip_reputation(score);
+

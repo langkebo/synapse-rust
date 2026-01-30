@@ -126,6 +126,22 @@ impl DeviceStorage {
         Ok(())
     }
 
+    pub async fn delete_devices_batch(&self, device_ids: &[String]) -> Result<u64, sqlx::Error> {
+        if device_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let query = format!(
+            "DELETE FROM devices WHERE device_id = ANY($1)"
+        );
+
+        sqlx::query(&query)
+            .bind(device_ids)
+            .execute(&*self.pool)
+            .await
+            .map(|result| result.rows_affected())
+    }
+
     pub async fn device_exists(&self, device_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"

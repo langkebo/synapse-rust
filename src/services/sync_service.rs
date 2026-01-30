@@ -14,8 +14,8 @@ impl<'a> SyncService<'a> {
     pub async fn sync(
         &self,
         user_id: &str,
-        timeout: u64,
-        full_state: bool,
+        _timeout: u64,
+        _full_state: bool,
         set_presence: &str,
     ) -> ApiResult<serde_json::Value> {
         self.services
@@ -98,7 +98,7 @@ impl<'a> SyncService<'a> {
         user_id: &str,
         from: &str,
         limit: i64,
-        dir: &str,
+        _dir: &str,
     ) -> ApiResult<serde_json::Value> {
         if !self
             .services
@@ -142,7 +142,7 @@ impl<'a> SyncService<'a> {
     pub async fn get_public_rooms(
         &self,
         limit: i64,
-        since: Option<&str>,
+        _since: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let rooms = self
             .services
@@ -176,9 +176,9 @@ impl<'a> SyncService<'a> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_sync_service_creation() {
-        let services = ServiceContainer::new();
+    #[tokio::test]
+    async fn test_sync_service_creation() {
+        let services = ServiceContainer::new_test();
         let _sync_service = SyncService::new(&services);
     }
 

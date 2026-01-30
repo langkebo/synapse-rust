@@ -109,7 +109,7 @@ impl CrossSigningService {
     pub async fn upload_key_signature(
         &self,
         user_id: &str,
-        key_id: &str,
+        _key_id: &str,
         signature: &serde_json::Value,
     ) -> Result<(), ApiError> {
         let key = self.storage.get_cross_signing_key(user_id, "master").await?;

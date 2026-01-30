@@ -7,7 +7,7 @@ use synapse_rust::concurrency::{ConcurrencyController, ConcurrencyLimiter};
 fn bench_concurrency_controller(c: &mut Criterion) {
     let controller = ConcurrencyController::new(10, "test".to_string());
 
-    let group = c.benchmark_group("concurrency_controller");
+    let mut group = c.benchmark_group("concurrency_controller");
 
     group.bench_function("new", |b| {
         b.iter(|| {
@@ -48,7 +48,7 @@ fn bench_concurrency_limiter(c: &mut Criterion) {
     limiter.add_controller("controller_2".to_string(), 20);
     limiter.add_controller("controller_3".to_string(), 30);
 
-    let group = c.benchmark_group("concurrency_limiter");
+    let mut group = c.benchmark_group("concurrency_limiter");
 
     group.bench_function("new", |b| {
         b.iter(|| {

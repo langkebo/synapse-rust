@@ -41,6 +41,11 @@ impl RegexCache {
         let cache = self.cache.read().unwrap();
         cache.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        let cache = self.cache.read().unwrap();
+        cache.is_empty()
+    }
 }
 
 impl Default for RegexCache {

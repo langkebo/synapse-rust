@@ -5,7 +5,7 @@ use synapse_rust::metrics::{Counter, Gauge, Histogram, MetricsCollector};
 fn bench_counter_operations(c: &mut Criterion) {
     let counter = Counter::new("test_counter".to_string());
 
-    let group = c.benchmark_group("counter");
+    let mut group = c.benchmark_group("counter");
 
     group.bench_function("new", |b| {
         b.iter(|| {
@@ -39,7 +39,7 @@ fn bench_counter_operations(c: &mut Criterion) {
 fn bench_gauge_operations(c: &mut Criterion) {
     let gauge = Gauge::new("test_gauge".to_string());
 
-    let group = c.benchmark_group("gauge");
+    let mut group = c.benchmark_group("gauge");
 
     group.bench_function("new", |b| {
         b.iter(|| {

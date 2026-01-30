@@ -336,7 +336,7 @@ impl<'a> RoomService<'a> {
         room_id: &str,
         from: i64,
         limit: i64,
-        direction: &str,
+        _direction: &str,
     ) -> ApiResult<serde_json::Value> {
         let events = self
             .services
@@ -502,7 +502,7 @@ mod tests {
         });
 
         assert_eq!(response["room_id"], room_id);
-        assert_eq!(response["room_alias"], room_alias);
+        assert_eq!(response["room_alias"], room_alias.unwrap_or(""));
     }
 
     #[test]

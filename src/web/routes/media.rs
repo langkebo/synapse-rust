@@ -1,48 +1,43 @@
 use super::AppState;
-use crate::cache::*;
-use crate::common::*;
-use crate::services::*;
+use crate::common::ApiError;
+use crate::services::MediaService;
+use crate::web::AuthenticatedUser;
 use axum::{
     extract::{Json, Path, Query, State},
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{get, post},
     Router,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::Arc;
 
-pub fn create_media_router(state: Arc<AppState>, media_path: std::path::PathBuf) -> Router {
+pub fn create_media_router(state: AppState, _media_path: std::path::PathBuf) -> Router {
     Router::new()
-        .route("/_matrix/media/r0/upload", post(upload_media))
         .route(
-            "/_matrix/media/r0/download/:server_name/:media_id",
+            "/_matrix/media/v3/upload/{server_name}/{media_id}",
+            post(upload_media),
+        )
+        .route(
+            "/_matrix/media/v3/download/{server_name}/{media_id}",
             get(download_media),
         )
-        .route("/_matrix/media/r0/preview_url", get(preview_url))
         .route(
-            "/_matrix/media/r0/thumbnail/:server_name/:media_id",
+            "/_matrix/media/v3/thumbnail/{server_name}/{media_id}",
             get(get_thumbnail),
         )
         .route("/_matrix/media/v1/config", get(media_config))
         .route("/_matrix/media/r1/upload", post(upload_media_v1))
         .route(
-            "/_matrix/media/r1/download/:server_name/:media_id",
+            "/_matrix/media/r1/download/{server_name}/{media_id}",
             get(download_media_v1),
         )
-        .with_state((state, media_path))
+        .with_state(state)
 }
 
 async fn upload_media(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = body
-        .get("access_token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::unauthorized("Missing access token".to_string()))?;
-    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
-
     let content = body
         .get("content")
         .and_then(|v| v.as_array())
@@ -53,50 +48,50 @@ async fn upload_media(
         .unwrap_or("application/octet-stream");
     let filename = body.get("filename").and_then(|v| v.as_str());
 
-    let media_service = MediaService::new(&state.services, std::path::PathBuf::from("media"));
-    media_service
-        .upload_media(
-            &user_id,
-            &content
-                .iter()
-                .map(|v| v.as_u64().unwrap_or(0) as u8)
-                .collect(),
-            content_type,
-            filename,
-        )
-        .await
+    let content_bytes: Vec<u8> = content
+        .iter()
+        .map(|v| v.as_u64().unwrap_or(0) as u8)
+        .collect();
+    let media_service = MediaService::new("media");
+    Ok(Json(
+        media_service
+            .upload_media(&auth_user.user_id, &content_bytes, content_type, filename)
+            .await?,
+    ))
 }
 
 async fn download_media(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let media_service = MediaService::new(&state.services, std::path::PathBuf::from("media"));
+    let media_service = MediaService::new("media");
 
     match media_service.download_media(&server_name, &media_id).await {
         Ok(content) => {
             let content_type = guess_content_type(&media_id);
-            (
-                [
-                    ("Content-Type", content_type),
-                    ("Content-Length", content.len().to_string()),
-                ],
-                content,
-            )
+            let headers = [
+                ("Content-Type".to_string(), content_type.to_string()),
+                ("Content-Length".to_string(), content.len().to_string()),
+            ];
+            (headers, content)
         }
-        Err(e) => (
-            [("Content-Type", "application/json")],
-            serde_json::to_vec(&json!({
-                "errcode": e.code,
-                "error": e.message
+        Err(e) => {
+            let error_body = serde_json::to_vec(&json!({
+                "errcode": e.code(),
+                "error": e.message()
             }))
-            .unwrap(),
-        ),
+            .unwrap();
+            let headers = [
+                ("Content-Type".to_string(), "application/json".to_string()),
+                ("Content-Length".to_string(), error_body.len().to_string()),
+            ];
+            (headers, error_body)
+        }
     }
 }
 
-async fn preview_url(
-    State(state): State<AppState>,
+async fn _preview_url(
+    State(_state): State<AppState>,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let url = params
@@ -112,38 +107,43 @@ async fn preview_url(
 }
 
 async fn get_thumbnail(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
 ) -> impl IntoResponse {
-    let width = params.get("width").and_then(|v| v.as_u64()).unwrap_or(800);
-    let height = params.get("height").and_then(|v| v.as_u64()).unwrap_or(600);
+    let width = params.get("width").and_then(|v| v.as_u64()).unwrap_or(800) as u32;
+    let height = params.get("height").and_then(|v| v.as_u64()).unwrap_or(600) as u32;
     let method = params
         .get("method")
         .and_then(|v| v.as_str())
         .unwrap_or("scale");
 
-    let media_service = MediaService::new(&state.services, std::path::PathBuf::from("media"));
+    let media_service = MediaService::new("media");
 
-    match media_service.get_thumbnail(&server_name, &media_id, width, height, method).await {
+    match media_service
+        .get_thumbnail(&server_name, &media_id, width, height, method)
+        .await
+    {
         Ok(content) => {
             let content_type = guess_content_type(&media_id);
-            (
-                [
-                    ("Content-Type", content_type),
-                    ("Content-Length", content.len().to_string()),
-                ],
-                content,
-            )
+            let headers = [
+                ("Content-Type".to_string(), content_type.to_string()),
+                ("Content-Length".to_string(), content.len().to_string()),
+            ];
+            (headers, content)
         }
-        Err(e) => (
-            [("Content-Type", "application/json")],
-            serde_json::to_vec(&json!({
-                "errcode": e.code,
-                "error": e.message
+        Err(e) => {
+            let error_body = serde_json::to_vec(&json!({
+                "errcode": e.code(),
+                "error": e.message()
             }))
-            .unwrap(),
-        ),
+            .unwrap();
+            let headers = [
+                ("Content-Type".to_string(), "application/json".to_string()),
+                ("Content-Length".to_string(), error_body.len().to_string()),
+            ];
+            (headers, error_body)
+        }
     }
 }
 
@@ -154,15 +154,10 @@ async fn media_config() -> Json<Value> {
 }
 
 async fn upload_media_v1(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = body
-        .get("access_token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::unauthorized("Missing access token".to_string()))?;
-    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
-
     let content = body
         .get("content")
         .and_then(|v| v.as_array())
@@ -173,45 +168,45 @@ async fn upload_media_v1(
         .unwrap_or("application/octet-stream");
     let filename = body.get("filename").and_then(|v| v.as_str());
 
-    let media_service = MediaService::new(&state.services, std::path::PathBuf::from("media"));
-    media_service
-        .upload_media(
-            &user_id,
-            &content
-                .iter()
-                .map(|v| v.as_u64().unwrap_or(0) as u8)
-                .collect(),
-            content_type,
-            filename,
-        )
-        .await
+    let content_bytes: Vec<u8> = content
+        .iter()
+        .map(|v| v.as_u64().unwrap_or(0) as u8)
+        .collect();
+    let media_service = MediaService::new("media");
+    Ok(Json(
+        media_service
+            .upload_media(&auth_user.user_id, &content_bytes, content_type, filename)
+            .await?,
+    ))
 }
 
 async fn download_media_v1(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let media_service = MediaService::new(&state.services, std::path::PathBuf::from("media"));
+    let media_service = MediaService::new("media");
 
     match media_service.download_media(&server_name, &media_id).await {
         Ok(content) => {
             let content_type = guess_content_type(&media_id);
-            (
-                [
-                    ("Content-Type", content_type),
-                    ("Content-Length", content.len().to_string()),
-                ],
-                content,
-            )
+            let headers = [
+                ("Content-Type", content_type.to_string()),
+                ("Content-Length", content.len().to_string()),
+            ];
+            (headers, content)
         }
-        Err(e) => (
-            [("Content-Type", "application/json")],
-            serde_json::to_vec(&json!({
-                "errcode": e.code,
-                "error": e.message
+        Err(e) => {
+            let error_body = serde_json::to_vec(&json!({
+                "errcode": e.code(),
+                "error": e.message()
             }))
-            .unwrap(),
-        ),
+            .unwrap();
+            let headers = [
+                ("Content-Type", "application/json".to_string()),
+                ("Content-Length", error_body.len().to_string()),
+            ];
+            (headers, error_body)
+        }
     }
 }
 

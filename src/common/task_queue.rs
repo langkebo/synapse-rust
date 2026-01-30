@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{mpsc, oneshot, Semaphore};
 use tokio::task::JoinHandle;
 
 pub type TaskId = u64;
@@ -31,7 +31,7 @@ pub struct TaskQueue {
 }
 
 pub trait TaskHandler: Send + 'static {
-    fn execute(&self) -> Pin<Box<dyn Future<Output = TaskResult> + Send>>;
+    fn execute(self: Box<Self>) -> Pin<Box<dyn Future<Output = TaskResult> + Send>>;
 }
 
 impl<F, Fut> TaskHandler for F
@@ -39,8 +39,8 @@ where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = TaskResult> + Send + 'static,
 {
-    fn execute(&self) -> Pin<Box<dyn Future<Output = TaskResult> + Send>> {
-        Box::pin((self)())
+    fn execute(self: Box<Self>) -> Pin<Box<dyn Future<Output = TaskResult> + Send>> {
+        Box::pin((*self)())
     }
 }
 
@@ -104,9 +104,10 @@ impl BackgroundTaskManager {
         }
     }
 
-    pub fn submit_task<F>(&self, name: String, task: F) -> Result<TaskId, String>
+    pub fn submit_task<F, Fut>(&self, name: String, task: F) -> Result<TaskId, String>
     where
-        F: FnOnce() -> TaskResult + Send + 'static,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = TaskResult> + Send + 'static,
     {
         let task_id = self
             .task_counter
@@ -114,14 +115,12 @@ impl BackgroundTaskManager {
         let name_clone = name.clone();
 
         self.task_queue
-            .submit(move || {
-                async move {
-                    let result = task();
-                    TaskResult {
-                        task_id,
-                        success: result.success,
-                        message: format!("Task '{}': {}", name_clone, result.message),
-                    }
+            .submit(move || async move {
+                let result = task().await;
+                TaskResult {
+                    task_id,
+                    success: result.success,
+                    message: format!("Task '{}': {}", name_clone, result.message),
                 }
             })
             .map_err(|e| format!("Failed to submit task '{}': {}", name, e))?;
@@ -173,7 +172,7 @@ mod tests {
 
         let (tx, rx) = oneshot::channel();
         queue
-            .submit(move || {
+            .submit(move || async move {
                 tx.send(()).unwrap();
                 TaskResult {
                     task_id: 1,
@@ -191,20 +190,24 @@ mod tests {
         let manager = BackgroundTaskManager::new(2);
 
         let task_id = manager
-            .submit_task("test_task".to_string(), || TaskResult {
-                task_id: 0,
-                success: true,
-                message: "Test task completed".to_string(),
+            .submit_task("test_task".to_string(), || async {
+                TaskResult {
+                    task_id: 0,
+                    success: true,
+                    message: "Test task completed".to_string(),
+                }
             })
             .unwrap();
 
         assert_eq!(task_id, 0);
 
         let task_id = manager
-            .submit_task("test_task_2".to_string(), || TaskResult {
-                task_id: 0,
-                success: false,
-                message: "Test task failed".to_string(),
+            .submit_task("test_task_2".to_string(), || async {
+                TaskResult {
+                    task_id: 0,
+                    success: false,
+                    message: "Test task failed".to_string(),
+                }
             })
             .unwrap();
 
@@ -217,10 +220,12 @@ mod tests {
 
         for i in 0..5 {
             manager
-                .submit_task(format!("task_{}", i), move || TaskResult {
-                    task_id: 0,
-                    success: true,
-                    message: format!("Task {} completed", i),
+                .submit_task(format!("task_{}", i), move || async move {
+                    TaskResult {
+                        task_id: 0,
+                        success: true,
+                        message: format!("Task {} completed", i),
+                    }
                 })
                 .unwrap();
         }

@@ -4,4 +4,4 @@ pub mod storage;
 
 pub use models::*;
 pub use service::*;
-pub use storage::*;
+pub use storage::SignatureStorage;

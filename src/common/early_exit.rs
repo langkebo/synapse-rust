@@ -6,12 +6,7 @@ pub trait EarlyExit {
     where
         Self: Sized + Future,
     {
-        async move {
-            match tokio::time::timeout(timeout, self).await {
-                Ok(result) => Some(result),
-                Err(_) => None,
-            }
-        }
+        async move { tokio::time::timeout(timeout, self).await.ok() }
     }
 
     fn with_deadline(
@@ -21,12 +16,7 @@ pub trait EarlyExit {
     where
         Self: Sized + Future,
     {
-        async move {
-            match tokio::time::timeout_at(deadline, self).await {
-                Ok(result) => Some(result),
-                Err(_) => None,
-            }
-        }
+        async move { tokio::time::timeout_at(deadline, self).await.ok() }
     }
 }
 
@@ -40,12 +30,8 @@ pub fn early_exit<T>(condition: bool, value: T) -> Option<T> {
     }
 }
 
-pub fn early_return<T, E>(condition: bool, error: E) -> Result<T, E> {
-    if condition {
-        Err(error)
-    } else {
-        Err(error)
-    }
+pub fn early_return<T, E>(_condition: bool, error: E) -> Result<T, E> {
+    Err(error)
 }
 
 pub fn early_continue<T>(condition: bool, value: T) -> Option<T> {
@@ -59,7 +45,7 @@ pub fn early_continue<T>(condition: bool, value: T) -> Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
+    use tokio::time::Instant;
 
     #[tokio::test]
     async fn test_early_exit_timeout() {

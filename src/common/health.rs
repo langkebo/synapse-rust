@@ -78,30 +78,28 @@ impl HealthCheck for CacheHealthCheck {
         let start = std::time::Instant::now();
 
         match self.cache.set("health_check", "ok", 10).await {
-            Ok(_) => {
-                match self.cache.get::<String>("health_check").await {
-                    Ok(Some(value)) if value == "ok" => CheckResult {
-                        status: "healthy".to_string(),
-                        message: "Cache connection successful".to_string(),
-                        duration_ms: start.elapsed().as_millis() as u64,
-                    },
-                    Ok(None) => CheckResult {
-                        status: "degraded".to_string(),
-                        message: "Cache read returned None".to_string(),
-                        duration_ms: start.elapsed().as_millis() as u64,
-                    },
-                    Ok(Some(_)) => CheckResult {
-                        status: "degraded".to_string(),
-                        message: "Cache value mismatch".to_string(),
-                        duration_ms: start.elapsed().as_millis() as u64,
-                    },
-                    Err(e) => CheckResult {
-                        status: "unhealthy".to_string(),
-                        message: format!("Cache read failed: {}", e),
-                        duration_ms: start.elapsed().as_millis() as u64,
-                    },
-                }
-            }
+            Ok(_) => match self.cache.get::<String>("health_check").await {
+                Ok(Some(value)) if value == "ok" => CheckResult {
+                    status: "healthy".to_string(),
+                    message: "Cache connection successful".to_string(),
+                    duration_ms: start.elapsed().as_millis() as u64,
+                },
+                Ok(None) => CheckResult {
+                    status: "degraded".to_string(),
+                    message: "Cache read returned None".to_string(),
+                    duration_ms: start.elapsed().as_millis() as u64,
+                },
+                Ok(Some(_)) => CheckResult {
+                    status: "degraded".to_string(),
+                    message: "Cache value mismatch".to_string(),
+                    duration_ms: start.elapsed().as_millis() as u64,
+                },
+                Err(e) => CheckResult {
+                    status: "unhealthy".to_string(),
+                    message: format!("Cache read failed: {}", e),
+                    duration_ms: start.elapsed().as_millis() as u64,
+                },
+            },
             Err(e) => CheckResult {
                 status: "unhealthy".to_string(),
                 message: format!("Cache write failed: {}", e),
@@ -207,12 +205,15 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Requires running PostgreSQL server"]
     async fn test_health_checker_add_check() {
         let mut checker = HealthChecker::default();
         let check = Box::new(DatabaseHealthCheck::new(
             sqlx::PgPool::connect("postgresql://test:test@localhost/test")
                 .await
-                .unwrap(),
+                .expect(
+                    "Database connection failed - this test requires a running PostgreSQL server",
+                ),
         ));
         checker.add_check(check);
         assert_eq!(checker.checks.len(), 1);

@@ -45,18 +45,20 @@ impl UserStorage {
         is_admin: bool,
     ) -> Result<User, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
+        let generation = now * 1000;
         sqlx::query_as!(
             User,
             r#"
-            INSERT INTO users (user_id, username, password_hash, admin, creation_ts)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO users (user_id, username, password_hash, admin, creation_ts, generation)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
             "#,
             user_id,
             username,
             password_hash,
             is_admin,
-            now
+            now,
+            generation
         )
         .fetch_one(&*self.pool)
         .await
@@ -84,6 +86,17 @@ impl UserStorage {
         )
         .fetch_optional(&*self.pool)
         .await
+    }
+
+    pub async fn get_user_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> Result<Option<User>, sqlx::Error> {
+        if identifier.starts_with('@') && identifier.contains(':') {
+            self.get_user_by_id(identifier).await
+        } else {
+            self.get_user_by_username(identifier).await
+        }
     }
 
     pub async fn get_all_users(&self, limit: i64) -> Result<Vec<User>, sqlx::Error> {
@@ -166,6 +179,19 @@ impl UserStorage {
             r#"
             UPDATE users SET deactivated = TRUE WHERE user_id = $1
             "#,
+            user_id
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE users SET admin = $1 WHERE user_id = $2
+            "#,
+            is_admin,
             user_id
         )
         .execute(&*self.pool)

@@ -1,11 +1,10 @@
+pub mod filter;
 pub mod middleware;
 pub mod routes;
 pub mod streaming;
 
-use crate::cache::*;
-use crate::common::*;
-
+pub use filter::*;
 pub use middleware::*;
-pub use routes::{admin, federation, media, AppState};
 pub use routes::*;
+pub use routes::{admin, federation, media, AppState, AuthenticatedUser};
 pub use streaming::*;

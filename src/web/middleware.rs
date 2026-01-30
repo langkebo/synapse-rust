@@ -100,7 +100,7 @@ pub async fn auth_middleware(
     next: axum::middleware::Next,
     _state: Arc<AppState>,
 ) -> Result<Response, StatusCode> {
-    let token = extract_token(&request.headers());
+    let token = extract_token(request.headers());
 
     if token.is_none() {
         return Ok(Response::builder()

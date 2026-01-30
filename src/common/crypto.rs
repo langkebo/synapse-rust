@@ -17,7 +17,7 @@ pub fn hash_password_with_salt(password: &str, salt: &str) -> String {
     hasher.update(password);
     hasher.update(salt);
     let result = hasher.finalize();
-    format!("sha256$v=1$m=32,p=1${}${}", salt, STANDARD.encode(&result))
+    format!("sha256$v=1$m=32,p=1${}${}", salt, STANDARD.encode(result))
 }
 
 pub fn verify_password(password: &str, password_hash: &str) -> Result<bool, String> {
@@ -63,20 +63,20 @@ pub fn verify_password_legacy(password: &str, password_hash: &str) -> bool {
 pub fn generate_token(length: usize) -> String {
     let mut bytes = vec![0u8; length];
     rand::thread_rng().fill_bytes(&mut bytes);
-    STANDARD.encode(&bytes)
+    STANDARD.encode(bytes)
 }
 
 pub fn generate_room_id(server_name: &str) -> String {
     let mut bytes = [0u8; 18];
     rand::thread_rng().fill_bytes(&mut bytes);
-    format!("!{}:{}", STANDARD.encode(&bytes), server_name)
+    format!("!{}:{}", STANDARD.encode(bytes), server_name)
 }
 
 pub fn generate_event_id(server_name: &str) -> String {
     let timestamp = chrono::Utc::now().timestamp_millis();
     let mut bytes = [0u8; 18];
     rand::thread_rng().fill_bytes(&mut bytes);
-    format!("${}${}:{}", timestamp, STANDARD.encode(&bytes), server_name)
+    format!("${}${}:{}", timestamp, STANDARD.encode(bytes), server_name)
 }
 
 pub fn generate_device_id() -> String {
@@ -84,7 +84,7 @@ pub fn generate_device_id() -> String {
     rand::thread_rng().fill_bytes(&mut bytes);
     format!(
         "DEVICE{}",
-        STANDARD.encode(&bytes).get(..10).unwrap_or("DEVICE0000")
+        STANDARD.encode(bytes).get(..10).unwrap_or("DEVICE0000")
     )
 }
 
@@ -109,7 +109,7 @@ pub fn hmac_sha256(key: impl AsRef<[u8]>, data: impl AsRef<[u8]>) -> Vec<u8> {
 }
 
 pub fn random_string(length: usize) -> String {
-    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    static CHARSET: [u8; 62] = *b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     let mut rng = rand::thread_rng();
     let result: String = (0..length)
         .map(|_| {

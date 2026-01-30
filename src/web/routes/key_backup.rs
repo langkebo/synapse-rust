@@ -5,46 +5,46 @@ use axum::{
     Json, Router,
 };
 use serde_json::Value;
-use std::sync::Arc;
 
-pub fn create_key_backup_router(_state: Arc<AppState>) -> Router {
+pub fn create_key_backup_router(state: AppState) -> Router {
     Router::new()
         .route(
             "/_matrix/client/r0/room_keys/version",
             post(create_backup_version),
         )
         .route(
-            "/_matrix/client/r0/room_keys/version/:version",
+            "/_matrix/client/r0/room_keys/version/{version}",
             get(get_backup_version),
         )
         .route(
-            "/_matrix/client/r0/room_keys/version/:version",
+            "/_matrix/client/r0/room_keys/version/{version}",
             put(update_backup_version),
         )
         .route(
-            "/_matrix/client/r0/room_keys/version/:version",
+            "/_matrix/client/r0/room_keys/version/{version}",
             delete(delete_backup_version),
         )
-        .route("/_matrix/client/r0/room_keys/:version", get(get_room_keys))
-        .route("/_matrix/client/r0/room_keys/:version", put(put_room_keys))
+        .route("/_matrix/client/r0/room_keys/{version}", get(get_room_keys))
+        .route("/_matrix/client/r0/room_keys/{version}", put(put_room_keys))
         .route(
-            "/_matrix/client/r0/room_keys/:version/keys",
+            "/_matrix/client/r0/room_keys/{version}/keys",
             post(put_room_keys_multi),
         )
         .route(
-            "/_matrix/client/r0/room_keys/:version/keys/:room_id",
+            "/_matrix/client/r0/room_keys/{version}/keys/{room_id}",
             get(get_room_key_by_id),
         )
         .route(
-            "/_matrix/client/r0/room_keys/:version/keys/:room_id/:session_id",
+            "/_matrix/client/r0/room_keys/{version}/keys/{room_id}/{session_id}",
             get(get_room_key),
         )
+        .with_state(state)
 }
 
 #[axum::debug_handler]
 async fn create_backup_version(
-    State(_state): State<Arc<AppState>>,
-    Json(body): Json<Value>,
+    State(_state): State<AppState>,
+    Json(_body): Json<Value>,
 ) -> Json<Value> {
     Json(serde_json::json!({
         "version": "1"
@@ -53,7 +53,7 @@ async fn create_backup_version(
 
 #[axum::debug_handler]
 async fn get_backup_version(
-    State(_state): State<Arc<AppState>>,
+    State(_state): State<AppState>,
     Path(version): Path<String>,
 ) -> Json<Value> {
     Json(serde_json::json!({
@@ -67,9 +67,9 @@ async fn get_backup_version(
 
 #[axum::debug_handler]
 async fn update_backup_version(
-    State(_state): State<Arc<AppState>>,
+    State(_state): State<AppState>,
     Path(version): Path<String>,
-    Json(body): Json<Value>,
+    Json(_body): Json<Value>,
 ) -> Json<Value> {
     Json(serde_json::json!({
         "version": version
@@ -78,7 +78,7 @@ async fn update_backup_version(
 
 #[axum::debug_handler]
 async fn delete_backup_version(
-    State(_state): State<Arc<AppState>>,
+    State(_state): State<AppState>,
     Path(version): Path<String>,
 ) -> Json<Value> {
     Json(serde_json::json!({
@@ -89,8 +89,8 @@ async fn delete_backup_version(
 
 #[axum::debug_handler]
 async fn get_room_keys(
-    State(_state): State<Arc<AppState>>,
-    Path(version): Path<String>,
+    State(_state): State<AppState>,
+    Path(_version): Path<String>,
 ) -> Json<Value> {
     Json(serde_json::json!({
         "rooms": {},
@@ -100,9 +100,9 @@ async fn get_room_keys(
 
 #[axum::debug_handler]
 async fn put_room_keys(
-    State(_state): State<Arc<AppState>>,
-    Path(version): Path<String>,
-    Json(body): Json<Value>,
+    State(_state): State<AppState>,
+    Path(_version): Path<String>,
+    Json(_body): Json<Value>,
 ) -> Json<Value> {
     Json(serde_json::json!({
         "count": 0,
@@ -112,9 +112,9 @@ async fn put_room_keys(
 
 #[axum::debug_handler]
 async fn put_room_keys_multi(
-    State(_state): State<Arc<AppState>>,
-    Path(version): Path<String>,
-    Json(body): Json<Value>,
+    State(_state): State<AppState>,
+    Path(_version): Path<String>,
+    Json(_body): Json<Value>,
 ) -> Json<Value> {
     Json(serde_json::json!({
         "count": 0,
@@ -124,8 +124,8 @@ async fn put_room_keys_multi(
 
 #[axum::debug_handler]
 async fn get_room_key_by_id(
-    State(_state): State<Arc<AppState>>,
-    Path((version, _room_id)): Path<(String, String)>,
+    State(_state): State<AppState>,
+    Path((_version, _room_id)): Path<(String, String)>,
 ) -> Json<Value> {
     Json(serde_json::json!({
         "rooms": {}
@@ -134,8 +134,8 @@ async fn get_room_key_by_id(
 
 #[axum::debug_handler]
 async fn get_room_key(
-    State(_state): State<Arc<AppState>>,
-    Path((version, _room_id, _session_id)): Path<(String, String, String)>,
+    State(_state): State<AppState>,
+    Path((_version, _room_id, _session_id)): Path<(String, String, String)>,
 ) -> Json<Value> {
     Json(serde_json::json!({
         "room_id": _room_id,

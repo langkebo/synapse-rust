@@ -46,8 +46,8 @@ impl SignatureService {
     pub async fn verify_event(
         &self,
         event_id: &str,
-        user_id: &str,
-        device_id: &str,
+        _user_id: &str,
+        _device_id: &str,
         signature: &str,
         public_key: &[u8; 32],
     ) -> Result<bool, ApiError> {

@@ -6,15 +6,17 @@ pub mod device_keys;
 pub mod megolm;
 pub mod signature;
 
-#[allow(ambiguous_glob_reexports)]
-pub use backup::*;
-#[allow(ambiguous_glob_reexports)]
+pub use backup::models::*;
+pub use backup::service::KeyBackupService;
 pub use cross_signing::*;
-#[allow(ambiguous_glob_reexports)]
-pub use crypto::*;
-#[allow(ambiguous_glob_reexports)]
-pub use device_keys::*;
-#[allow(ambiguous_glob_reexports)]
-pub use megolm::*;
-#[allow(ambiguous_glob_reexports)]
-pub use signature::*;
+pub use crypto::aes::*;
+pub use crypto::argon2::*;
+pub use crypto::ed25519::*;
+pub use crypto::x25519::*;
+pub use crypto::CryptoError;
+pub use device_keys::models::*;
+pub use device_keys::service::DeviceKeyService;
+pub use megolm::models::{EncryptedEvent, MegolmSession};
+pub use megolm::service::MegolmService;
+pub use signature::EventSignature;
+pub use signature::SignatureService;

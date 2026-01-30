@@ -88,7 +88,7 @@ impl StreamingResponse {
         for line in data.lines() {
             sse_data.push_str(&format!("data: {}\n", line));
         }
-        sse_data.push_str("\n");
+        sse_data.push('\n');
 
         let mut headers = HeaderMap::new();
         headers.insert(header::CONTENT_TYPE, "text/event-stream".parse().unwrap());
@@ -155,13 +155,16 @@ mod tests {
         let response =
             StreamingResponse::sse("test_event".to_string(), "test data".to_string(), Some(1));
 
-        let (status, headers, _) = response.into_response().into_parts();
-        assert_eq!(status, StatusCode::OK);
+        let (parts, _) = response.into_response().into_parts();
+        assert_eq!(parts.status, StatusCode::OK);
         assert_eq!(
-            headers.get(header::CONTENT_TYPE).unwrap(),
+            parts.headers.get(header::CONTENT_TYPE).unwrap(),
             "text/event-stream"
         );
-        assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-cache");
+        assert_eq!(
+            parts.headers.get(header::CACHE_CONTROL).unwrap(),
+            "no-cache"
+        );
     }
 
     #[tokio::test]
@@ -169,9 +172,12 @@ mod tests {
         let data = b"Hello, World!".to_vec();
         let response = StreamingResponse::bytes(data, "text/plain").unwrap();
 
-        let (status, headers, _) = response.into_response().into_parts();
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(headers.get(header::CONTENT_TYPE).unwrap(), "text/plain");
+        let (parts, _) = response.into_response().into_parts();
+        assert_eq!(parts.status, StatusCode::OK);
+        assert_eq!(
+            parts.headers.get(header::CONTENT_TYPE).unwrap(),
+            "text/plain"
+        );
     }
 
     #[tokio::test]
@@ -179,7 +185,7 @@ mod tests {
         let items = vec!["item1".to_string(), "item2".to_string()];
         let response = StreamingResponse::chunked(items, "text/plain");
 
-        let (status, headers, _) = response.into_response().into_parts();
-        assert_eq!(status, StatusCode::OK);
+        let (parts, _) = response.into_response().into_parts();
+        assert_eq!(parts.status, StatusCode::OK);
     }
 }

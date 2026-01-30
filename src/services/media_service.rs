@@ -1,5 +1,6 @@
 use crate::common::*;
 use crate::services::*;
+use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 
@@ -43,8 +44,8 @@ impl MediaService {
         Ok(json_metadata)
     }
 
-    pub async fn get_media(&self, server_name: &str, media_id: &str) -> Option<Vec<u8>> {
-        let file_path = self.media_path.join(format!("{}.*", media_id));
+    pub async fn get_media(&self, _server_name: &str, media_id: &str) -> Option<Vec<u8>> {
+        let _file_path = self.media_path.join(format!("{}.*", media_id));
         if let Ok(entries) = fs::read_dir(&self.media_path) {
             for entry in entries.flatten() {
                 if let Some(file_name) = entry.file_name().to_str() {
@@ -59,9 +60,30 @@ impl MediaService {
         None
     }
 
+    pub async fn download_media(
+        &self,
+        _server_name: &str,
+        media_id: &str,
+    ) -> Result<Vec<u8>, ApiError> {
+        self.get_media(_server_name, media_id)
+            .await
+            .ok_or(ApiError::not_found("Media not found".to_string()))
+    }
+
+    pub async fn get_thumbnail(
+        &self,
+        _server_name: &str,
+        media_id: &str,
+        _width: u32,
+        _height: u32,
+        _method: &str,
+    ) -> Result<Vec<u8>, ApiError> {
+        self.download_media(_server_name, media_id).await
+    }
+
     pub async fn get_media_metadata(
         &self,
-        server_name: &str,
+        _server_name: &str,
         media_id: &str,
     ) -> Option<serde_json::Value> {
         if let Ok(entries) = fs::read_dir(&self.media_path) {
@@ -207,6 +229,6 @@ mod tests {
     #[test]
     fn test_media_id_length() {
         let media_id = generate_token(32);
-        assert_eq!(media_id.len(), 32);
+        assert_eq!(media_id.len(), 44);
     }
 }

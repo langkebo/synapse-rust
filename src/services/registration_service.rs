@@ -91,7 +91,7 @@ impl<'a> RegistrationService<'a> {
                 "displayname": u.displayname,
                 "avatar_url": u.avatar_url
             })),
-            None => Err(ApiError::not_found("User not found".to_string())),
+            _ => Err(ApiError::not_found("User not found".to_string())),
         }
     }
 
@@ -112,23 +112,35 @@ impl<'a> RegistrationService<'a> {
             .map_err(|e| ApiError::internal(format!("Failed to update avatar: {}", e)))?;
         Ok(())
     }
+
+    pub async fn update_user_profile(
+        &self,
+        user_id: &str,
+        displayname: Option<&str>,
+        avatar_url: Option<&str>,
+    ) -> ApiResult<()> {
+        if let Some(name) = displayname {
+            self.set_displayname(user_id, name).await?;
+        }
+        if let Some(url) = avatar_url {
+            self.set_avatar_url(user_id, url).await?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_registration_service_creation() {
-        let services = ServiceContainer::new();
+    #[tokio::test]
+    async fn test_registration_service_creation() {
+        let services = ServiceContainer::new_test();
         let _registration_service = RegistrationService::new(&services);
     }
 
     #[test]
     fn test_login_response_format() {
-        let services = ServiceContainer::new();
-        let registration_service = RegistrationService::new(&services);
-
         let response = serde_json::json!({
             "access_token": "test_token",
             "refresh_token": "test_refresh",

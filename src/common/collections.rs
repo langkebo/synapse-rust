@@ -1,12 +1,17 @@
 use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
 
 pub struct VecBuilder<T> {
     capacity: usize,
+    _phantom: PhantomData<T>,
 }
 
 impl<T> VecBuilder<T> {
     pub fn new(capacity: usize) -> Self {
-        Self { capacity }
+        Self {
+            capacity,
+            _phantom: PhantomData,
+        }
     }
 
     pub fn build(&self) -> Vec<T> {
@@ -23,11 +28,17 @@ impl<T> VecBuilder<T> {
 
 pub struct HashMapBuilder<K, V> {
     capacity: usize,
+    _phantom_key: PhantomData<K>,
+    _phantom_value: PhantomData<V>,
 }
 
 impl<K, V> HashMapBuilder<K, V> {
     pub fn new(capacity: usize) -> Self {
-        Self { capacity }
+        Self {
+            capacity,
+            _phantom_key: PhantomData,
+            _phantom_value: PhantomData,
+        }
     }
 
     pub fn build(&self) -> HashMap<K, V> {
@@ -45,11 +56,15 @@ impl<K, V> HashMapBuilder<K, V> {
 
 pub struct HashSetBuilder<T> {
     capacity: usize,
+    _phantom: PhantomData<T>,
 }
 
 impl<T> HashSetBuilder<T> {
     pub fn new(capacity: usize) -> Self {
-        Self { capacity }
+        Self {
+            capacity,
+            _phantom: PhantomData,
+        }
     }
 
     pub fn build(&self) -> HashSet<T>
@@ -107,7 +122,7 @@ mod tests {
     fn test_hashmap_builder() {
         let builder = HashMapBuilder::new(10);
         let map: HashMap<String, i32> = builder.build();
-        assert_eq!(map.capacity(), 10);
+        assert!(map.capacity() >= 10);
         assert_eq!(map.len(), 0);
     }
 
@@ -129,7 +144,7 @@ mod tests {
     fn test_hashset_builder() {
         let builder = HashSetBuilder::new(10);
         let set: HashSet<i32> = builder.build();
-        assert_eq!(set.capacity(), 10);
+        assert!(set.capacity() >= 10);
         assert_eq!(set.len(), 0);
     }
 
@@ -151,12 +166,12 @@ mod tests {
     #[test]
     fn test_hashmap_with_capacity() {
         let map: HashMap<String, i32> = hashmap_with_capacity(20);
-        assert_eq!(map.capacity(), 20);
+        assert!(map.capacity() >= 20);
     }
 
     #[test]
     fn test_hashset_with_capacity() {
         let set: HashSet<i32> = hashset_with_capacity(20);
-        assert_eq!(set.capacity(), 20);
+        assert!(set.capacity() >= 20);
     }
 }

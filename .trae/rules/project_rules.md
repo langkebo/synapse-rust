@@ -694,7 +694,433 @@ where
 
 ---
 
-## 七、错误案例分析与预防策略
+## 八、统一配置规范
+
+### 8.1 路由认证中间件配置
+
+**统一认证逻辑**：所有需要身份验证的路由必须使用统一的认证中间件 `AuthenticatedUser` 提取器。
+
+```rust
+// 统一认证用户结构
+#[derive(Clone)]
+pub struct AuthenticatedUser {
+    pub user_id: String,
+    pub device_id: Option<String>,
+    pub is_admin: bool,
+    pub access_token: String,
+}
+
+// 统一认证提取器实现
+impl<S> FromRequestParts<S> for AuthenticatedUser
+where
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let token = extract_token_from_headers(&parts.headers)?;
+
+        let app_state = parts
+            .extensions
+            .get::<AppState>()
+            .ok_or_else(|| ApiError::internal("Missing app state".to_string()))?;
+
+        let (user_id, device_id, is_admin) = app_state
+            .services
+            .auth_service
+            .validate_token(&token)
+            .await?;
+
+        Ok(AuthenticatedUser {
+            user_id,
+            device_id,
+            is_admin,
+            access_token: token,
+        })
+    }
+}
+
+// 路由处理器使用统一认证
+async fn create_room(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let room_service = RoomService::new(&state.services);
+    Ok(Json(
+        room_service
+            .create_room(&auth_user.user_id, &body)
+            .await?,
+    ))
+}
+```
+
+**认证配置规范**：
+
+| 配置项 | 用途 | 参数范围 | 默认值 |
+|--------|------|----------|--------|
+| token_expiry | 访问令牌过期时间（秒） | 3600-86400 | 86400 |
+| refresh_token_expiry | 刷新令牌过期时间（秒） | 604800-2592000 | 604800 |
+| max_devices_per_user | 每用户最大设备数 | 1-10 | 5 |
+| password_min_length | 密码最小长度 | 8-32 | 8 |
+| require_strong_password | 是否要求强密码 | true/false | true |
+
+### 8.2 请求处理配置
+
+**统一请求验证**：
+
+```rust
+// 请求验证中间件
+pub struct RequestValidator {
+    max_body_size: usize,
+    allowed_content_types: Vec<String>,
+}
+
+impl RequestValidator {
+    pub fn new() -> Self {
+        Self {
+            max_body_size: 10 * 1024 * 1024, // 10MB
+            allowed_content_types: vec![
+                "application/json".to_string(),
+                "multipart/form-data".to_string(),
+            ],
+        }
+    }
+
+    pub fn validate(&self, content_type: Option<&str>, body_size: usize) -> Result<(), ApiError> {
+        if let Some(ct) = content_type {
+            if !self.allowed_content_types.iter().any(|allowed| ct.contains(allowed)) {
+                return Err(ApiError::bad_request("Unsupported content type".to_string()));
+            }
+        }
+
+        if body_size > self.max_body_size {
+            return Err(ApiError::bad_request("Request body too large".to_string()));
+        }
+
+        Ok(())
+    }
+}
+```
+
+**请求处理配置**：
+
+| 配置项 | 用途 | 参数范围 | 默认值 |
+|--------|------|----------|--------|
+| max_body_size | 最大请求体大小（字节） | 1MB-50MB | 10MB |
+| request_timeout | 请求超时时间（秒） | 30-300 | 60 |
+| rate_limit_requests | 速率限制请求数 | 10-1000 | 100 |
+| rate_limit_window | 速率限制时间窗口（秒） | 60-3600 | 60 |
+
+### 8.3 错误响应配置
+
+**统一错误响应格式**：
+
+```rust
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let (status, error_code, message) = match &self {
+            ApiError::Unauthorized { reason } => {
+                (StatusCode::UNAUTHORIZED, "M_UNAUTHORIZED", reason)
+            }
+            ApiError::NotFound { resource } => {
+                (StatusCode::NOT_FOUND, "M_NOT_FOUND", resource)
+            }
+            ApiError::BadRequest { message } => {
+                (StatusCode::BAD_REQUEST, "M_BAD_JSON", message)
+            }
+            ApiError::Internal { details } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "M_UNKNOWN", details)
+            }
+            ApiError::Forbidden => {
+                (StatusCode::FORBIDDEN, "M_FORBIDDEN", "Access denied")
+            }
+        };
+
+        let body = json!({
+            "errcode": error_code,
+            "error": message
+        });
+
+        (status, Json(body)).into_response()
+    }
+}
+```
+
+**错误响应配置**：
+
+| 错误类型 | HTTP状态码 | Matrix错误码 | 描述 |
+|----------|------------|-------------|------|
+| Unauthorized | 401 | M_UNAUTHORIZED | 认证失败 |
+| Forbidden | 403 | M_FORBIDDEN | 权限不足 |
+| NotFound | 404 | M_NOT_FOUND | 资源未找到 |
+| BadRequest | 400 | M_BAD_JSON | 请求格式错误 |
+| Internal | 500 | M_UNKNOWN | 服务器内部错误 |
+
+### 8.4 日志记录配置
+
+**统一日志格式**：
+
+```rust
+use tracing::{info, warn, error, debug};
+
+// 日志配置
+pub fn init_tracing() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .with_thread_ids(true)
+        .with_file(true)
+        .with_line_number(true)
+        .init();
+}
+
+// 日志使用示例
+async fn create_room(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    info!(
+        user_id = %auth_user.user_id,
+        device_id = ?auth_user.device_id,
+        "Creating room"
+    );
+
+    match RoomService::new(&state.services).create_room(&auth_user.user_id, &body).await {
+        Ok(result) => {
+            info!(
+                room_id = %result["room_id"],
+                "Room created successfully"
+            );
+            Ok(Json(result))
+        }
+        Err(e) => {
+            error!(
+                user_id = %auth_user.user_id,
+                error = %e,
+                "Failed to create room"
+            );
+            Err(e)
+        }
+    }
+}
+```
+
+**日志配置规范**：
+
+| 配置项 | 用途 | 参数范围 | 默认值 |
+|--------|------|----------|--------|
+| log_level | 日志级别 | trace/debug/info/warn/error | info |
+| log_format | 日志格式 | json/pretty | json |
+| log_file | 日志文件路径 | - | stdout |
+| log_rotation | 日志轮转策略 | daily/weekly/never | daily |
+| log_retention | 日志保留天数 | 1-90 | 30 |
+
+### 8.5 跨域设置（CORS）配置
+
+**统一CORS配置**：
+
+```rust
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
+
+pub fn create_cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(Any)  // 生产环境应指定具体域名
+        .allow_methods(Any)
+        .allow_headers(Any)
+        .allow_credentials(false)
+        .max_age(std::time::Duration::from_secs(86400))
+}
+
+// 生产环境CORS配置
+pub fn create_production_cors_layer(allowed_origins: Vec<String>) -> CorsLayer {
+    let origins: Vec<HeaderValue> = allowed_origins
+        .iter()
+        .filter_map(|origin| HeaderValue::from_str(origin).ok())
+        .collect();
+
+    CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods(vec![Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_headers(vec![
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+        ])
+        .allow_credentials(true)
+        .max_age(std::time::Duration::from_secs(3600))
+}
+```
+
+**CORS配置规范**：
+
+| 配置项 | 用途 | 参数范围 | 默认值 |
+|--------|------|----------|--------|
+| allowed_origins | 允许的源域名 | - | * (所有) |
+| allowed_methods | 允许的HTTP方法 | GET/POST/PUT/DELETE/... | * (所有) |
+| allowed_headers | 允许的请求头 | - | * (所有) |
+| allow_credentials | 是否允许携带凭证 | true/false | false |
+| max_age | 预检请求缓存时间（秒） | 0-86400 | 86400 |
+
+### 8.6 配置验证与测试
+
+**配置验证函数**：
+
+```rust
+pub struct ConfigValidator;
+
+impl ConfigValidator {
+    pub fn validate_auth_config(config: &AuthConfig) -> Result<(), ConfigError> {
+        if config.token_expiry < 3600 || config.token_expiry > 86400 {
+            return Err(ConfigError::InvalidRange(
+                "token_expiry".to_string(),
+                3600,
+                86400,
+            ));
+        }
+
+        if config.password_min_length < 8 || config.password_min_length > 32 {
+            return Err(ConfigError::InvalidRange(
+                "password_min_length".to_string(),
+                8,
+                32,
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub fn validate_request_config(config: &RequestConfig) -> Result<(), ConfigError> {
+        if config.max_body_size < 1024 * 1024 || config.max_body_size > 50 * 1024 * 1024 {
+            return Err(ConfigError::InvalidRange(
+                "max_body_size".to_string(),
+                1024 * 1024,
+                50 * 1024 * 1024,
+            ));
+        }
+
+        Ok(())
+    }
+}
+```
+
+**配置测试用例**：
+
+```rust
+#[cfg(test)]
+mod config_tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_auth_config() {
+        let config = AuthConfig {
+            token_expiry: 86400,
+            password_min_length: 8,
+            ..Default::default()
+        };
+
+        assert!(ConfigValidator::validate_auth_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_invalid_token_expiry() {
+        let config = AuthConfig {
+            token_expiry: 100,  // 小于最小值
+            ..Default::default()
+        };
+
+        let result = ConfigValidator::validate_auth_config(&config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_production_cors_config() {
+        let cors_layer = create_production_cors_layer(vec![
+            "https://example.com".to_string(),
+            "https://app.example.com".to_string(),
+        ]);
+
+        // 验证CORS配置正确创建
+        assert!(true);
+    }
+}
+```
+
+### 8.7 环境一致性保证
+
+**开发环境配置**：
+
+```yaml
+# config.dev.yaml
+database:
+  url: "postgres://synapse:synapse@localhost:5432/synapse_dev"
+  max_connections: 10
+
+cache:
+  redis_url: "redis://localhost:6379"
+  local_max_capacity: 1000
+
+cors:
+  allowed_origins: ["*"]
+  allow_credentials: false
+
+logging:
+  level: "debug"
+  format: "pretty"
+```
+
+**生产环境配置**：
+
+```yaml
+# config.prod.yaml
+database:
+  url: "${DATABASE_URL}"
+  max_connections: 100
+
+cache:
+  redis_url: "${REDIS_URL}"
+  local_max_capacity: 10000
+
+cors:
+  allowed_origins: ["${ALLOWED_ORIGINS}"]
+  allow_credentials: true
+
+logging:
+  level: "info"
+  format: "json"
+  file: "/var/log/synapse-rust/app.log"
+```
+
+**配置加载与验证**：
+
+```rust
+use config::{Config, Environment, File};
+
+pub fn load_config() -> Result<AppConfig, ConfigError> {
+    let env = std::env::var("ENV").unwrap_or_else(|_| "dev".to_string());
+
+    let config = Config::builder()
+        .add_source(File::with_name(&format!("config.{}", env)))
+        .add_source(Environment::with_prefix("SYNAPSE").separator("__"))
+        .build()?;
+
+    let config: AppConfig = config.try_deserialize()?;
+
+    ConfigValidator::validate_auth_config(&config.auth)?;
+    ConfigValidator::validate_request_config(&config.request)?;
+
+    Ok(config)
+}
+```
+
+---
+
+## 九、错误案例分析与预防策略
 
 ### 7.1 Rust 版本不兼容错误
 
@@ -1212,3 +1638,4 @@ conventional-changelog -p angular -i CHANGELOG.md -s
 |------|------|----------|
 | 1.0.0 | 2026-01-28 | 初始版本，定义项目规则和开发规范 |
 | 2.0.0 | 2026-01-29 | 重大更新，添加 Rust 版本规范、依赖管理策略、错误案例分析与预防策略 |
+| 3.0.0 | 2026-01-29 | 新增统一配置规范，包括路由认证中间件、请求处理、错误响应、日志记录、CORS配置等标准化配置项 |

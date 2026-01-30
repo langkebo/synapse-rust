@@ -1,68 +1,68 @@
-use crate::cache::*;
 use crate::common::*;
-use crate::services::*;
 use crate::web::routes::AppState;
 use axum::{
     extract::{Json, Path, State},
     routing::{get, post, put},
     Router,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::Arc;
 
-pub fn create_federation_router(state: Arc<AppState>) -> Router {
+pub fn create_federation_router(state: AppState) -> Router {
     Router::new()
         .route("/_matrix/federation/v1/version", get(federation_version))
         .route("/_matrix/federation/v1", get(federation_discovery))
-        .route("/_matrix/federation/v1/send/:txn_id", put(send_transaction))
         .route(
-            "/_matrix/federation/v1/make_join/:room_id/:user_id",
+            "/_matrix/federation/v1/send/{txn_id}",
+            put(send_transaction),
+        )
+        .route(
+            "/_matrix/federation/v1/make_join/{room_id}/{user_id}",
             get(make_join),
         )
         .route(
-            "/_matrix/federation/v1/make_leave/:room_id/:user_id",
+            "/_matrix/federation/v1/make_leave/{room_id}/{user_id}",
             get(make_leave),
         )
         .route(
-            "/_matrix/federation/v1/send_join/:room_id/:event_id",
+            "/_matrix/federation/v1/send_join/{room_id}/{event_id}",
             put(send_join),
         )
         .route(
-            "/_matrix/federation/v1/send_leave/:room_id/:event_id",
+            "/_matrix/federation/v1/send_leave/{room_id}/{event_id}",
             put(send_leave),
         )
         .route(
-            "/_matrix/federation/v1/invite/:room_id/:event_id",
+            "/_matrix/federation/v1/invite/{room_id}/{event_id}",
             put(invite),
         )
         .route(
-            "/_matrix/federation/v1/get_missing_events/:room_id",
+            "/_matrix/federation/v1/get_missing_events/{room_id}",
             post(get_missing_events),
         )
         .route(
-            "/_matrix/federation/v1/get_event_auth/:room_id/:event_id",
+            "/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}",
             get(get_event_auth),
         )
-        .route("/_matrix/federation/v1/state/:room_id", get(get_state))
+        .route("/_matrix/federation/v1/state/{room_id}", get(get_state))
+        .route("/_matrix/federation/v1/event/{event_id}", get(get_event))
         .route(
-            "/_matrix/federation/v1/state_ids/:room_id",
+            "/_matrix/federation/v1/state_ids/{room_id}",
             get(get_state_ids),
         )
         .route(
-            "/_matrix/federation/v1/query/directory/room/:room_id",
+            "/_matrix/federation/v1/query/directory/room/{room_id}",
             get(room_directory_query),
         )
         .route(
-            "/_matrix/federation/v1/query/profile/:user_id",
+            "/_matrix/federation/v1/query/profile/{user_id}",
             get(profile_query),
         )
-        .route("/_matrix/federation/v1/backfill/:room_id", get(backfill))
+        .route("/_matrix/federation/v1/backfill/{room_id}", get(backfill))
         .route("/_matrix/federation/v1/keys/claim", post(keys_claim))
         .route("/_matrix/federation/v1/keys/upload", post(keys_upload))
         .route("/_matrix/federation/v2/server", get(server_key))
         .route(
-            "/_matrix/federation/v2/query/:server_name/:key_id",
+            "/_matrix/federation/v2/query/{server_name}/{key_id}",
             get(key_query),
         )
         .route("/_matrix/federation/v2/key/clone", post(key_clone))
@@ -95,11 +95,11 @@ async fn federation_discovery() -> Json<Value> {
 }
 
 async fn send_transaction(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(txn_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let origin = body
+    let _origin = body
         .get("origin")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
@@ -124,7 +124,7 @@ async fn send_transaction(
     ::tracing::info!(
         "Received transaction {} from {} with {} PDUs",
         txn_id,
-        origin,
+        _origin,
         pdus.len()
     );
 
@@ -207,7 +207,7 @@ async fn make_leave(
 }
 
 async fn send_join(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -229,7 +229,7 @@ async fn send_join(
 }
 
 async fn send_leave(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -251,11 +251,11 @@ async fn send_leave(
 }
 
 async fn invite(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let origin = body
+    let _origin = body
         .get("origin")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
@@ -268,23 +268,20 @@ async fn invite(
 }
 
 async fn get_missing_events(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let earliest_events = body
+    let _earliest_events = body
         .get("earliest_events")
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("earliest_events required".to_string()))?;
-    let latest_events = body
+    let _latest_events = body
         .get("latest_events")
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("latest_events required".to_string()))?;
 
-    ::tracing::info!(
-        "Getting missing events for room {}",
-        room_id
-    );
+    ::tracing::info!("Getting missing events for room {}", room_id);
 
     Ok(Json(json!({
         "events": [],
@@ -293,7 +290,7 @@ async fn get_missing_events(
 }
 
 async fn get_event_auth(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     ::tracing::info!("Getting event auth for room {} event {}", room_id, event_id);
@@ -301,6 +298,31 @@ async fn get_event_auth(
     Ok(Json(json!({
         "auth_chain": []
     })))
+}
+
+async fn get_event(
+    State(state): State<AppState>,
+    Path(event_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let event = state
+        .services
+        .event_storage
+        .get_event(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?;
+
+    match event {
+        Some(e) => Ok(Json(json!({
+            "event_id": e.event_id,
+            "type": e.event_type,
+            "sender": e.user_id,
+            "content": serde_json::from_str(&e.content).unwrap_or(json!({})),
+            "state_key": e.state_key,
+            "origin_server_ts": e.origin_server_ts,
+            "room_id": e.room_id
+        }))),
+        None => Err(ApiError::not_found("Event not found".to_string())),
+    }
 }
 
 async fn get_state(
@@ -343,10 +365,7 @@ async fn get_state_ids(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
 
-    let state_ids: Vec<String> = events
-        .iter()
-        .map(|e| e.event_id.clone())
-        .collect();
+    let state_ids: Vec<String> = events.iter().map(|e| e.event_id.clone()).collect();
 
     Ok(Json(json!({
         "state_ids": state_ids
@@ -354,7 +373,7 @@ async fn get_state_ids(
 }
 
 async fn room_directory_query(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
@@ -364,7 +383,7 @@ async fn room_directory_query(
 }
 
 async fn profile_query(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
@@ -375,24 +394,17 @@ async fn profile_query(
 }
 
 async fn backfill(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = body
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(10);
+    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
     let events = body
         .get("v")
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("v required".to_string()))?;
 
-    ::tracing::info!(
-        "Backfilling room {} with {} events",
-        room_id,
-        events.len()
-    );
+    ::tracing::info!("Backfilling room {} with {} events", room_id, events.len());
 
     Ok(Json(json!({
         "origin": "localhost",
@@ -402,8 +414,8 @@ async fn backfill(
 }
 
 async fn keys_claim(
-    State(state): State<AppState>,
-    Json(body): Json<Value>,
+    State(_state): State<AppState>,
+    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ::tracing::info!("Processing keys claim request");
 
@@ -413,8 +425,8 @@ async fn keys_claim(
 }
 
 async fn keys_upload(
-    State(state): State<AppState>,
-    Json(body): Json<Value>,
+    State(_state): State<AppState>,
+    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ::tracing::info!("Processing keys upload request");
 
@@ -436,9 +448,7 @@ async fn server_key() -> Json<Value> {
     }))
 }
 
-async fn key_query(
-    Path((server_name, key_id)): Path<(String, String)>,
-) -> Json<Value> {
+async fn key_query(Path((server_name, key_id)): Path<(String, String)>) -> Json<Value> {
     Json(json!({
         "server_name": server_name,
         "key_id": key_id,
@@ -449,15 +459,15 @@ async fn key_query(
     }))
 }
 
-async fn key_clone(Json(body): Json<Value>) -> Json<Value> {
+async fn key_clone(Json(_body): Json<Value>) -> Json<Value> {
     Json(json!({
         "success": true
     }))
 }
 
 async fn user_keys_query(
-    State(state): State<AppState>,
-    Json(body): Json<Value>,
+    State(_state): State<AppState>,
+    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ::tracing::info!("Processing user keys query");
 

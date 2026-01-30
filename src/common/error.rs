@@ -12,8 +12,8 @@ pub enum ApiError {
     #[error("Bad request: {0}")]
     BadRequest(String),
 
-    #[error("Unauthorized")]
-    Unauthorized,
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
 
     #[error("Forbidden: {0}")]
     Forbidden(String),
@@ -60,8 +60,8 @@ impl ApiError {
         Self::BadRequest(message.into())
     }
 
-    pub fn unauthorized() -> Self {
-        Self::Unauthorized
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self::Unauthorized(message.into())
     }
 
     pub fn forbidden(message: impl Into<String>) -> Self {
@@ -103,17 +103,37 @@ impl ApiError {
     pub fn crypto(message: impl Into<String>) -> Self {
         Self::Crypto(message.into())
     }
+
+    pub fn code(&self) -> &str {
+        match self {
+            ApiError::BadRequest(_) => "M_BAD_JSON",
+            ApiError::Unauthorized(_) => "M_UNAUTHORIZED",
+            ApiError::Forbidden(_) => "M_FORBIDDEN",
+            ApiError::NotFound(_) => "M_NOT_FOUND",
+            ApiError::Conflict(_) => "M_USER_IN_USE",
+            ApiError::RateLimited => "M_LIMIT_EXCEEDED",
+            ApiError::Internal(_) => "M_INTERNAL_ERROR",
+            ApiError::Database(_) => "M_DB_ERROR",
+            ApiError::Cache(_) => "M_CACHE_ERROR",
+            ApiError::Authentication(_) => "M_AUTH_FAILED",
+            ApiError::Validation(_) => "M_VALIDATION_FAILED",
+            ApiError::InvalidInput(_) => "M_INVALID_INPUT",
+            ApiError::DecryptionError(_) => "M_DECRYPTION_FAILED",
+            ApiError::EncryptionError(_) => "M_ENCRYPTION_FAILED",
+            ApiError::Crypto(_) => "M_CRYPTO_ERROR",
+        }
+    }
+
+    pub fn message(&self) -> String {
+        self.to_string()
+    }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, errcode, error) = match self {
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "M_BAD_JSON", msg),
-            ApiError::Unauthorized => (
-                StatusCode::UNAUTHORIZED,
-                "M_UNAUTHORIZED",
-                "Unauthorized".to_string(),
-            ),
+            ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "M_UNAUTHORIZED", msg),
             ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, "M_FORBIDDEN", msg),
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "M_NOT_FOUND", msg),
             ApiError::Conflict(msg) => (StatusCode::CONFLICT, "M_USER_IN_USE", msg),
@@ -242,7 +262,7 @@ mod tests {
     fn test_api_error_variants() {
         let errors = vec![
             ApiError::BadRequest("test".to_string()),
-            ApiError::Unauthorized,
+            ApiError::Unauthorized("unauthorized".to_string()),
             ApiError::Forbidden("forbidden".to_string()),
             ApiError::NotFound("not found".to_string()),
             ApiError::Conflict("conflict".to_string()),
@@ -269,7 +289,10 @@ mod tests {
             ApiError::bad_request("test"),
             ApiError::BadRequest(_)
         ));
-        assert!(matches!(ApiError::unauthorized(), ApiError::Unauthorized));
+        assert!(matches!(
+            ApiError::unauthorized("unauthorized"),
+            ApiError::Unauthorized(_)
+        ));
         assert!(matches!(
             ApiError::forbidden("test"),
             ApiError::Forbidden(_)
@@ -303,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_into_response_unauthorized() {
-        let error = ApiError::unauthorized();
+        let error = ApiError::unauthorized("unauthorized");
         let response = error.into_response();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
@@ -367,16 +390,15 @@ mod tests {
 
     #[test]
     fn test_from_serde_json_error() {
-        let json_error = serde_json::Error::from(serde_json::error::Error::io_error(
-            std::io::Error::new(std::io::ErrorKind::Other, "test"),
-        ));
+        let json_error = serde_json::from_str::<serde_json::Value>("invalid json").unwrap_err();
         let api_error: ApiError = json_error.into();
         assert!(matches!(api_error, ApiError::BadRequest(_)));
     }
 
     #[test]
     fn test_from_utf8_error() {
-        let utf8_error = std::string::FromUtf8Error { utf8_error: None };
+        let invalid_utf8 = vec![0xFF, 0xFE, 0xFD];
+        let utf8_error = String::from_utf8(invalid_utf8).unwrap_err();
         let api_error: ApiError = utf8_error.into();
         assert!(matches!(api_error, ApiError::Validation(_)));
     }

@@ -11,7 +11,7 @@ pub async fn enable_encryption(
     Path(room_id): Path<String>,
     Json(request): Json<serde_json::Value>,
 ) -> Result<Json<()>, ApiError> {
-    let algorithm = request["algorithm"].as_str().unwrap();
+    let _algorithm = request["algorithm"].as_str().unwrap();
     let sender_key = request["sender_key"].as_str().unwrap();
 
     service.create_session(&room_id, sender_key).await?;

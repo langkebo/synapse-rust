@@ -1,3 +1,4 @@
+use crate::e2ee::crypto::CryptoError;
 use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 use generic_array::GenericArray;
 use rand::Rng;
@@ -25,7 +26,7 @@ impl Aes256GcmKey {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Aes256GcmNonce {
     bytes: [u8; 12],
 }
@@ -37,10 +38,10 @@ impl Aes256GcmNonce {
         Self { bytes }
     }
 
-    pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self, super::CryptoError> {
+    pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self, CryptoError> {
         let bytes = bytes.as_ref();
         if bytes.len() != 12 {
-            return Err(super::CryptoError::InvalidKeyLength);
+            return Err(CryptoError::InvalidKeyLength);
         }
         let mut arr = [0u8; 12];
         arr.copy_from_slice(bytes);
@@ -81,7 +82,7 @@ impl AsRef<[u8]> for Aes256GcmCiphertext {
 pub struct Aes256GcmCipher;
 
 impl Aes256GcmCipher {
-    pub fn encrypt(key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, super::CryptoError> {
+    pub fn encrypt(key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let nonce = Aes256GcmNonce::generate();
         let cipher_key = GenericArray::<u8, U32>::from_slice(key.as_bytes());
         let cipher = Aes256Gcm::new(cipher_key);
@@ -89,7 +90,7 @@ impl Aes256GcmCipher {
 
         let ciphertext = cipher
             .encrypt(nonce_bytes, plaintext)
-            .map_err(|e| super::CryptoError::EncryptionError(e.to_string()))?;
+            .map_err(|e: aes_gcm::aead::Error| CryptoError::EncryptionError(e.to_string()))?;
 
         let mut result = Vec::with_capacity(nonce.as_bytes().len() + ciphertext.len());
         result.extend_from_slice(nonce.as_bytes());
@@ -101,14 +102,14 @@ impl Aes256GcmCipher {
         key: &Aes256GcmKey,
         nonce: &Aes256GcmNonce,
         encrypted: &[u8],
-    ) -> Result<Vec<u8>, super::CryptoError> {
+    ) -> Result<Vec<u8>, CryptoError> {
         let cipher_key = GenericArray::<u8, U32>::from_slice(key.as_bytes());
         let cipher = Aes256Gcm::new(cipher_key);
         let nonce_bytes = Nonce::from_slice(nonce.as_bytes());
 
         let plaintext = cipher
             .decrypt(nonce_bytes, encrypted)
-            .map_err(|e| super::CryptoError::DecryptionError(e.to_string()))?;
+            .map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
 
         Ok(plaintext)
     }
@@ -278,7 +279,7 @@ mod tests {
         let encrypted = Aes256GcmCipher::encrypt(&key, &plaintext).unwrap();
         assert_eq!(encrypted.len(), 12 + 10000);
 
-        let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12].try_into().unwrap());
+        let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
         let ciphertext = &encrypted[12..];
 
         let decrypted = Aes256GcmCipher::decrypt(&key, &nonce, ciphertext).unwrap();

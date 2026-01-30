@@ -7,7 +7,7 @@ fn bench_cache_operations(c: &mut Criterion) {
     let key = "test_key";
     let value = "test_value".to_string();
 
-    let group = c.benchmark_group("cache_operations");
+    let mut group = c.benchmark_group("cache_operations");
 
     group.bench_with_input(
         BenchmarkId::new("set", "write"),
@@ -58,7 +58,7 @@ fn bench_regex_cache(c: &mut Criterion) {
     let pattern = r"\d{3}-\d{3}-\d{4}";
     let text = "123-456-7890";
 
-    let group = c.benchmark_group("regex_cache");
+    let mut group = c.benchmark_group("regex_cache");
 
     group.bench_with_input(
         BenchmarkId::new("compile", "first_time"),

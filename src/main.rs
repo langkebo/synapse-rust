@@ -4,12 +4,14 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let env_filter = EnvFilter::new(
-        std::env::var("RUST_LOG")
-            .unwrap_or_else(|_| "info,synapse_rust=debug,tower_http=debug".to_string()),
-    );
+    let env_filter = EnvFilter::builder()
+        .parse(
+            std::env::var("RUST_LOG")
+                .unwrap_or_else(|_| "info,synapse_rust=debug,tower_http=debug".to_string()),
+        )
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
-    fmt()
+    tracing_subscriber::fmt()
         .with_env_filter(env_filter)
         .with_timer(fmt::time::uptime())
         .init();
@@ -17,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url = env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse".to_string());
     let server_name = env::var("SERVER_NAME").unwrap_or_else(|_| "localhost".to_string());
-    let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|| {
+    let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| {
         use rand::RngCore;
         let mut secret = [0u8; 64];
         rand::thread_rng().fill_bytes(&mut secret);
@@ -35,15 +37,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Host: {}:{}", host, port);
     tracing::info!("Media path: {}", media_path);
 
-    synapse_rust::start_server(
+    let address = format!("{}:{}", host, port).parse::<std::net::SocketAddr>()?;
+    let server = synapse_rust::SynapseServer::new(
         &database_url,
         &server_name,
         &jwt_secret,
-        &host,
-        port,
-        &media_path,
+        address,
+        std::path::PathBuf::from(media_path),
     )
     .await?;
+
+    server.run().await?;
 
     Ok(())
 }

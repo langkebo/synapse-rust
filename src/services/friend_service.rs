@@ -223,7 +223,7 @@ impl FriendStorage {
             .execute(&*self.pool)
             .await?;
 
-            self.add_friend(&user_id, &r.sender_id).await?;
+            self.add_friend(user_id, &r.sender_id).await?;
             self.add_friend(&r.sender_id, user_id).await?;
         }
         Ok(())
@@ -268,6 +268,85 @@ impl FriendStorage {
             user_id, name, color, now
         ).fetch_one(&*self.pool).await?;
         Ok(result.id)
+    }
+
+    pub async fn update_category(
+        &self,
+        category_id: i64,
+        name: Option<&str>,
+        color: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        if let Some(name) = name {
+            sqlx::query!(
+                "UPDATE friend_categories SET name = $1 WHERE id = $2",
+                name,
+                category_id
+            )
+            .execute(&*self.pool)
+            .await?;
+        }
+        if let Some(color) = color {
+            sqlx::query!(
+                "UPDATE friend_categories SET color = $1 WHERE id = $2",
+                color,
+                category_id
+            )
+            .execute(&*self.pool)
+            .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn update_category_by_name(
+        &self,
+        user_id: &str,
+        category_name: &str,
+        new_name: Option<&str>,
+        new_color: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        if let Some(name) = new_name {
+            sqlx::query!(
+                "UPDATE friend_categories SET name = $1 WHERE user_id = $2 AND name = $3",
+                name,
+                user_id,
+                category_name
+            )
+            .execute(&*self.pool)
+            .await?;
+        }
+        if let Some(color) = new_color {
+            sqlx::query!(
+                "UPDATE friend_categories SET color = $1 WHERE user_id = $2 AND name = $3",
+                color,
+                user_id,
+                category_name
+            )
+            .execute(&*self.pool)
+            .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn delete_category(&self, category_id: i64) -> Result<(), sqlx::Error> {
+        sqlx::query!("DELETE FROM friend_categories WHERE id = $1", category_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_category_by_name(
+        &self,
+        user_id: &str,
+        category_name: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "DELETE FROM friend_categories WHERE user_id = $1 AND name = $2",
+            user_id,
+            category_name
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn block_user(

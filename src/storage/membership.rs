@@ -1,3 +1,4 @@
+use crate::common::crypto::generate_event_id;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -21,6 +22,8 @@ pub struct RoomMember {
     pub joined_ts: Option<i64>,
     pub left_ts: Option<i64>,
     pub reason: Option<String>,
+    pub ban_reason: Option<String>,
+    pub ban_ts: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -41,22 +44,32 @@ impl RoomMemberStorage {
         display_name: Option<&str>,
         join_reason: Option<&str>,
     ) -> Result<RoomMember, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let event_id = format!("${}", generate_event_id("localhost"));
+        let sender = user_id;
+
         sqlx::query_as!(
             RoomMember,
             r#"
-            INSERT INTO room_memberships (room_id, user_id, display_name, membership, join_reason)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO room_memberships (room_id, user_id, sender, membership, event_id, event_type, display_name, join_reason, updated_ts, joined_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (room_id, user_id) DO UPDATE SET
                 display_name = EXCLUDED.display_name,
                 membership = EXCLUDED.membership,
-                join_reason = EXCLUDED.join_reason
+                join_reason = EXCLUDED.join_reason,
+                updated_ts = EXCLUDED.updated_ts
             RETURNING *
             "#,
             room_id,
             user_id,
-            display_name,
+            sender,
             membership,
-            join_reason
+            event_id,
+            "m.room.member",
+            display_name,
+            join_reason,
+            now,
+            now
         )
         .fetch_one(&*self.pool)
         .await

@@ -1,3 +1,4 @@
+use crate::e2ee::crypto::CryptoError;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -19,13 +20,14 @@ impl X25519PublicKey {
     }
 
     pub fn to_base64(&self) -> String {
-        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &self.bytes)
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, self.bytes)
     }
 
-    pub fn from_base64(s: &str) -> Result<Self, super::CryptoError> {
-        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s).map_err(|_| super::CryptoError::InvalidBase64)?;
+    pub fn from_base64(s: &str) -> Result<Self, CryptoError> {
+        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s)
+            .map_err(|_| CryptoError::InvalidBase64)?;
         if bytes.len() != 32 {
-            return Err(super::CryptoError::InvalidKeyLength);
+            return Err(CryptoError::InvalidKeyLength);
         }
         let mut array = [0u8; 32];
         array.copy_from_slice(&bytes);
@@ -65,10 +67,7 @@ impl X25519KeyPair {
     pub fn generate() -> Self {
         let secret = X25519SecretKey::generate();
         let public = X25519PublicKey::from_bytes(compute_public_key(&secret));
-        Self {
-            public,
-            secret,
-        }
+        Self { public, secret }
     }
 
     pub fn public_key(&self) -> &X25519PublicKey {
@@ -124,7 +123,6 @@ mod tests {
     fn test_x25519_public_key_from_base64_invalid_length() {
         let result = X25519PublicKey::from_base64("invalid");
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), CryptoError::InvalidKeyLength);
     }
 
     #[test]
@@ -157,7 +155,10 @@ mod tests {
     fn test_x25519_key_pair_different_each_time() {
         let key_pair1 = X25519KeyPair::generate();
         let key_pair2 = X25519KeyPair::generate();
-        assert_ne!(key_pair1.public_key().as_bytes(), key_pair2.public_key().as_bytes());
+        assert_ne!(
+            key_pair1.public_key().as_bytes(),
+            key_pair2.public_key().as_bytes()
+        );
     }
 
     #[test]

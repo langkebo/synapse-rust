@@ -26,7 +26,9 @@ impl PrivateChatStorage {
                 unread_count INT DEFAULT 0
             )
             "#
-        ).execute(&*self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
 
         sqlx::query!(
             r#"
@@ -41,7 +43,9 @@ impl PrivateChatStorage {
                 created_ts BIGINT NOT NULL
             )
             "#
-        ).execute(&*self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
 
         sqlx::query!(
             r#"
@@ -53,7 +57,9 @@ impl PrivateChatStorage {
                 created_ts BIGINT NOT NULL
             )
             "#
-        ).execute(&*self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
 
         Ok(())
     }
@@ -71,8 +77,13 @@ impl PrivateChatStorage {
             INSERT INTO private_sessions (session_id, user_id_1, user_id_2, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $4)
             "#,
-            session_id, user_id_1, user_id_2, now
-        ).execute(&*self.pool).await?;
+            session_id,
+            user_id_1,
+            user_id_2,
+            now
+        )
+        .execute(&*self.pool)
+        .await?;
 
         Ok(session_id)
     }
@@ -87,8 +98,11 @@ impl PrivateChatStorage {
             SELECT session_id FROM private_sessions
             WHERE (user_id_1 = $1 AND user_id_2 = $2) OR (user_id_1 = $2 AND user_id_2 = $1)
             "#,
-            user_id_1, user_id_2
-        ).fetch_optional(&*self.pool).await?;
+            user_id_1,
+            user_id_2
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
         if let Some(row) = existing {
             return Ok(row.session_id);
@@ -108,14 +122,21 @@ impl PrivateChatStorage {
         )
         .bind(user_id)
         .fetch_all(&*self.pool).await?;
-        Ok(rows.iter().map(|r| SessionInfo {
-            session_id: r.0.clone(),
-            other_user: if r.1 == user_id { r.2.clone() } else { r.1.clone() },
-            created_ts: r.3,
-            updated_ts: r.4,
-            last_message_ts: r.5,
-            unread_count: r.6,
-        }).collect())
+        Ok(rows
+            .iter()
+            .map(|r| SessionInfo {
+                session_id: r.0.clone(),
+                other_user: if r.1 == user_id {
+                    r.2.clone()
+                } else {
+                    r.1.clone()
+                },
+                created_ts: r.3,
+                updated_ts: r.4,
+                last_message_ts: r.5,
+                unread_count: r.6,
+            })
+            .collect())
     }
 
     pub async fn send_message(
@@ -140,8 +161,11 @@ impl PrivateChatStorage {
             r#"
             UPDATE private_sessions SET updated_ts = $1, last_message_ts = $1 WHERE session_id = $2
             "#,
-            now, session_id
-        ).execute(&*self.pool).await?;
+            now,
+            session_id
+        )
+        .execute(&*self.pool)
+        .await?;
 
         Ok(result.id)
     }
@@ -183,16 +207,19 @@ impl PrivateChatStorage {
             rows
         };
 
-        Ok(query.iter().map(|r| MessageInfo {
-            id: r.0,
-            session_id: r.1.clone(),
-            sender_id: r.2.clone(),
-            message_type: r.3.clone(),
-            content: r.4.clone(),
-            encrypted_content: r.5.clone(),
-            read_by_receiver: r.6,
-            created_ts: r.7,
-        }).collect())
+        Ok(query
+            .iter()
+            .map(|r| MessageInfo {
+                id: r.0,
+                session_id: r.1.clone(),
+                sender_id: r.2.clone(),
+                message_type: r.3.clone(),
+                content: r.4.clone(),
+                encrypted_content: r.5.clone(),
+                read_by_receiver: r.6,
+                created_ts: r.7,
+            })
+            .collect())
     }
 
     pub async fn mark_as_read(&self, session_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
@@ -201,15 +228,35 @@ impl PrivateChatStorage {
             UPDATE private_messages SET read_by_receiver = TRUE
             WHERE session_id = $1 AND sender_id != $2 AND read_by_receiver = FALSE
             "#,
-            session_id, user_id
-        ).execute(&*self.pool).await?;
+            session_id,
+            user_id
+        )
+        .execute(&*self.pool)
+        .await?;
 
         sqlx::query!(
             r#"UPDATE private_sessions SET unread_count = 0 WHERE session_id = $1"#,
             session_id
-        ).execute(&*self.pool).await?;
+        )
+        .execute(&*self.pool)
+        .await?;
 
         Ok(())
+    }
+
+    pub async fn get_unread_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            SELECT COALESCE(SUM(unread_count), 0) as total_unread
+            FROM private_sessions
+            WHERE user_id_1 = $1 OR user_id_2 = $1
+            "#,
+            user_id
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(result.total_unread.unwrap_or(0) as i64)
     }
 
     pub async fn search_messages(
@@ -234,16 +281,20 @@ impl PrivateChatStorage {
         .bind(user_id)
         .bind(search_pattern)
         .bind(limit)
-        .fetch_all(&*self.pool).await?;
-        Ok(rows.iter().map(|r| SearchResult {
-            message_id: r.0,
-            session_id: r.1.clone(),
-            sender_id: r.2.clone(),
-            message_type: r.3.clone(),
-            content: r.4.clone(),
-            other_user: r.6.clone(),
-            created_ts: r.5,
-        }).collect())
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| SearchResult {
+                message_id: r.0,
+                session_id: r.1.clone(),
+                sender_id: r.2.clone(),
+                message_type: r.3.clone(),
+                content: r.4.clone(),
+                other_user: r.6.clone(),
+                created_ts: r.5,
+            })
+            .collect())
     }
 
     pub async fn delete_session(&self, session_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
@@ -251,16 +302,29 @@ impl PrivateChatStorage {
             r#"SELECT user_id_1, user_id_2 FROM private_sessions WHERE session_id = $1"#,
         )
         .bind(session_id)
-        .fetch_optional(&*self.pool).await?;
+        .fetch_optional(&*self.pool)
+        .await?;
 
         if let Some(s) = session {
             if s.0 == user_id || s.1 == user_id {
-                sqlx::query!(r#"DELETE FROM private_messages WHERE session_id = $1"#, session_id)
-                    .execute(&*self.pool).await?;
-                sqlx::query!(r#"DELETE FROM session_keys WHERE session_id = $1"#, session_id)
-                    .execute(&*self.pool).await?;
-                sqlx::query!(r#"DELETE FROM private_sessions WHERE session_id = $1"#, session_id)
-                    .execute(&*self.pool).await?;
+                sqlx::query!(
+                    r#"DELETE FROM private_messages WHERE session_id = $1"#,
+                    session_id
+                )
+                .execute(&*self.pool)
+                .await?;
+                sqlx::query!(
+                    r#"DELETE FROM session_keys WHERE session_id = $1"#,
+                    session_id
+                )
+                .execute(&*self.pool)
+                .await?;
+                sqlx::query!(
+                    r#"DELETE FROM private_sessions WHERE session_id = $1"#,
+                    session_id
+                )
+                .execute(&*self.pool)
+                .await?;
             }
         }
         Ok(())
@@ -318,11 +382,16 @@ impl<'a> PrivateChatService<'a> {
         user_id: &str,
         other_user_id: &str,
     ) -> ApiResult<serde_json::Value> {
-        let session_id = self.chat_storage.get_or_create_session(user_id, other_user_id).await
+        let session_id = self
+            .chat_storage
+            .get_or_create_session(user_id, other_user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         let registration_service = RegistrationService::new(self.services);
-        let other_profile = registration_service.get_profile(other_user_id).await
+        let other_profile = registration_service
+            .get_profile(other_user_id)
+            .await
             .unwrap_or(json!({ "user_id": other_user_id }));
 
         Ok(json!({
@@ -333,25 +402,34 @@ impl<'a> PrivateChatService<'a> {
     }
 
     pub async fn get_sessions(&self, user_id: &str) -> ApiResult<serde_json::Value> {
-        let sessions = self.chat_storage.get_user_sessions(user_id).await
+        let sessions = self
+            .chat_storage
+            .get_user_sessions(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         let mut session_list = Vec::new();
         let registration_service = RegistrationService::new(self.services);
 
         for session in sessions {
-            let profile = registration_service.get_profile(&session.other_user).await
+            let profile = registration_service
+                .get_profile(&session.other_user)
+                .await
                 .unwrap_or(json!({ "user_id": session.other_user }));
 
-            let last_message = self.chat_storage
-                .get_session_messages(&session.session_id, 1, None).await
+            let last_message = self
+                .chat_storage
+                .get_session_messages(&session.session_id, 1, None)
+                .await
                 .ok()
                 .and_then(|mut msgs| msgs.pop())
-                .map(|m| json!({
-                    "content": m.content,
-                    "sender_id": m.sender_id,
-                    "created_ts": m.created_ts
-                }));
+                .map(|m| {
+                    json!({
+                        "content": m.content,
+                        "sender_id": m.sender_id,
+                        "created_ts": m.created_ts
+                    })
+                });
 
             session_list.push(json!({
                 "session_id": session.session_id,
@@ -377,10 +455,17 @@ impl<'a> PrivateChatService<'a> {
         content: &serde_json::Value,
         encrypted: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        let message_id = self.chat_storage.send_message(
-            session_id, user_id, message_type,
-            &content.to_string(), encrypted
-        ).await.map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let message_id = self
+            .chat_storage
+            .send_message(
+                session_id,
+                user_id,
+                message_type,
+                &content.to_string(),
+                encrypted,
+            )
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         Ok(json!({
             "message_id": format!("pm_{}", message_id),
@@ -391,24 +476,32 @@ impl<'a> PrivateChatService<'a> {
 
     pub async fn get_messages(
         &self,
-        user_id: &str,
+        _user_id: &str,
         session_id: &str,
         limit: i64,
         before: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let before_ts = before.and_then(|s| s.parse().ok());
-        let messages = self.chat_storage.get_session_messages(session_id, limit, before_ts).await
+        let messages = self
+            .chat_storage
+            .get_session_messages(session_id, limit, before_ts)
+            .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        let message_list: Vec<serde_json::Value> = messages.iter().map(|m| json!({
-            "message_id": format!("pm_{}", m.id),
-            "sender_id": m.sender_id,
-            "message_type": m.message_type,
-            "content": serde_json::from_str(&m.content).unwrap_or(json!({})),
-            "encrypted_content": m.encrypted_content,
-            "read_by_receiver": m.read_by_receiver,
-            "created_ts": m.created_ts
-        })).collect();
+        let message_list: Vec<serde_json::Value> = messages
+            .iter()
+            .map(|m| {
+                json!({
+                    "message_id": format!("pm_{}", m.id),
+                    "sender_id": m.sender_id,
+                    "message_type": m.message_type,
+                    "content": serde_json::from_str(&m.content).unwrap_or(json!({})),
+                    "encrypted_content": m.encrypted_content,
+                    "read_by_receiver": m.read_by_receiver,
+                    "created_ts": m.created_ts
+                })
+            })
+            .collect();
 
         Ok(json!({
             "messages": message_list,
@@ -417,7 +510,9 @@ impl<'a> PrivateChatService<'a> {
     }
 
     pub async fn mark_session_read(&self, user_id: &str, session_id: &str) -> ApiResult<()> {
-        self.chat_storage.mark_as_read(session_id, user_id).await
+        self.chat_storage
+            .mark_as_read(session_id, user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
         Ok(())
     }
@@ -428,18 +523,26 @@ impl<'a> PrivateChatService<'a> {
         query: &str,
         limit: i64,
     ) -> ApiResult<serde_json::Value> {
-        let results = self.chat_storage.search_messages(user_id, query, limit).await
+        let results = self
+            .chat_storage
+            .search_messages(user_id, query, limit)
+            .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        let result_list: Vec<serde_json::Value> = results.iter().map(|r| json!({
-            "message_id": format!("pm_{}", r.message_id),
-            "session_id": r.session_id,
-            "sender_id": r.sender_id,
-            "message_type": r.message_type,
-            "content": r.content,
-            "other_user": r.other_user,
-            "created_ts": r.created_ts
-        })).collect();
+        let result_list: Vec<serde_json::Value> = results
+            .iter()
+            .map(|r| {
+                json!({
+                    "message_id": format!("pm_{}", r.message_id),
+                    "session_id": r.session_id,
+                    "sender_id": r.sender_id,
+                    "message_type": r.message_type,
+                    "content": r.content,
+                    "other_user": r.other_user,
+                    "created_ts": r.created_ts
+                })
+            })
+            .collect();
 
         Ok(json!({
             "results": result_list,
@@ -449,8 +552,17 @@ impl<'a> PrivateChatService<'a> {
     }
 
     pub async fn delete_session(&self, user_id: &str, session_id: &str) -> ApiResult<()> {
-        self.chat_storage.delete_session(session_id, user_id).await
+        self.chat_storage
+            .delete_session(session_id, user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
         Ok(())
+    }
+
+    pub async fn get_unread_count(&self, user_id: &str) -> ApiResult<i64> {
+        self.chat_storage
+            .get_unread_count(user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))
     }
 }
