@@ -1,8 +1,7 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use std::collections::HashMap;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::sync::Arc;
-use tokio::sync::Semaphore;
 use synapse_rust::concurrency::{ConcurrencyController, ConcurrencyLimiter};
+use tokio::sync::Semaphore;
 
 fn bench_concurrency_controller(c: &mut Criterion) {
     let controller = ConcurrencyController::new(10, "test".to_string());
@@ -76,7 +75,7 @@ fn bench_concurrency_limiter(c: &mut Criterion) {
 fn bench_semaphore_operations(c: &mut Criterion) {
     let semaphore = Arc::new(Semaphore::new(10));
 
-    let group = c.benchmark_group("semaphore");
+    let mut group = c.benchmark_group("semaphore");
 
     group.bench_function("new", |b| {
         b.iter(|| {

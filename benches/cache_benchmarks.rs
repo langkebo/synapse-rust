@@ -99,7 +99,7 @@ fn bench_regex_cache_patterns(c: &mut Criterion) {
         r"(?:http|https)://[^\s]+",
     ];
 
-    let group = c.benchmark_group("regex_cache_patterns");
+    let mut group = c.benchmark_group("regex_cache_patterns");
 
     group.bench_function("compile_multiple", |b| {
         b.iter(|| {

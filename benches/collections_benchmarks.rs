@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use synapse_rust::collections::{HashMapBuilder, HashSetBuilder, VecBuilder};
 
 fn bench_vec_builder(c: &mut Criterion) {
@@ -82,7 +82,7 @@ fn bench_hashmap_builder(c: &mut Criterion) {
 }
 
 fn bench_hashset_builder(c: &mut Criterion) {
-    let group = c.benchmark_group("hashset_builder");
+    let mut group = c.benchmark_group("hashset_builder");
 
     group.bench_function("with_capacity_10", |b| {
         b.iter(|| {

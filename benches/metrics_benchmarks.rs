@@ -1,5 +1,4 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use std::collections::HashMap;
 use synapse_rust::metrics::{Counter, Gauge, Histogram, MetricsCollector};
 
 fn bench_counter_operations(c: &mut Criterion) {
@@ -78,7 +77,7 @@ fn bench_gauge_operations(c: &mut Criterion) {
 fn bench_histogram_operations(c: &mut Criterion) {
     let histogram = Histogram::new("test_histogram".to_string());
 
-    let group = c.benchmark_group("histogram");
+    let mut group = c.benchmark_group("histogram");
 
     group.bench_function("new", |b| {
         b.iter(|| {
@@ -117,7 +116,7 @@ fn bench_histogram_operations(c: &mut Criterion) {
 fn bench_metrics_collector(c: &mut Criterion) {
     let collector = MetricsCollector::new();
 
-    let group = c.benchmark_group("metrics_collector");
+    let mut group = c.benchmark_group("metrics_collector");
 
     group.bench_function("new", |b| {
         b.iter(|| {

@@ -4,6 +4,9 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinHandle;
 
+#[cfg(test)]
+use tokio::sync::oneshot;
+
 pub type TaskId = u64;
 
 pub enum TaskPriority {

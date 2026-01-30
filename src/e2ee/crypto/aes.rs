@@ -234,7 +234,7 @@ mod tests {
         let ciphertext = &encrypted[12..];
 
         let wrong_nonce = Aes256GcmNonce::generate();
-        let _ = Aes256GcmCipher::decrypt(&key, &wrong_nonce, ciphertext);
+        let result = Aes256GcmCipher::decrypt(&key, &wrong_nonce, ciphertext);
         assert!(result.is_err());
     }
 
