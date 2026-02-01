@@ -94,7 +94,7 @@ async fn federation_discovery() -> Json<Value> {
 }
 
 async fn send_transaction(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(txn_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -103,9 +103,10 @@ async fn send_transaction(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
     let pdus = body
-        .get("pdu")
+        .get("pdus") // Matrix spec uses 'pdus'
+        .or_else(|| body.get("pdu")) // Fallback to 'pdu'
         .and_then(|v| v.as_array())
-        .ok_or_else(|| ApiError::bad_request("PDU required".to_string()))?;
+        .ok_or_else(|| ApiError::bad_request("PDUs required".to_string()))?;
 
     let mut results = Vec::new();
 
@@ -113,22 +114,57 @@ async fn send_transaction(
         let event_id = pdu
             .get("event_id")
             .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        results.push(json!({
-            "event_id": event_id,
-            "success": true
-        }));
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("${}", crate::common::crypto::generate_event_id(_origin)));
+
+        let room_id = pdu.get("room_id").and_then(|v| v.as_str()).unwrap_or("");
+        let user_id = pdu.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+        let event_type = pdu.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let content = pdu.get("content").cloned().unwrap_or(json!({}));
+        let state_key = pdu
+            .get("state_key")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let origin_server_ts = pdu
+            .get("origin_server_ts")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        let params = crate::storage::event::CreateEventParams {
+            event_id: event_id.clone(),
+            room_id: room_id.to_string(),
+            user_id: user_id.to_string(),
+            event_type: event_type.to_string(),
+            content,
+            state_key,
+            origin_server_ts,
+        };
+
+        match state.services.event_storage.create_event(params).await {
+            Ok(_) => {
+                results.push(json!({
+                    "event_id": event_id,
+                    "success": true
+                }));
+            }
+            Err(e) => {
+                ::tracing::error!("Failed to persist PDU {}: {}", event_id, e);
+                results.push(json!({
+                    "event_id": event_id,
+                    "error": e.to_string()
+                }));
+            }
+        }
     }
 
     ::tracing::info!(
-        "Received transaction {} from {} with {} PDUs",
+        "Processed transaction {} from {} with {} PDUs",
         txn_id,
         _origin,
         pdus.len()
     );
 
     Ok(Json(json!({
-        "txn_id": txn_id,
         "results": results
     })))
 }
@@ -206,7 +242,7 @@ async fn make_leave(
 }
 
 async fn send_join(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -215,8 +251,43 @@ async fn send_join(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
 
+    let event = body
+        .get("event")
+        .ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
+    let user_id = event.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+    let content = event.get("content").cloned().unwrap_or(json!({}));
+    let display_name = content.get("displayname").and_then(|v| v.as_str());
+
+    // 1. Persist the event
+    let params = crate::storage::event::CreateEventParams {
+        event_id: event_id.clone(),
+        room_id: room_id.clone(),
+        user_id: user_id.to_string(),
+        event_type: "m.room.member".to_string(),
+        content: content.clone(),
+        state_key: Some(user_id.to_string()),
+        origin_server_ts: event
+            .get("origin_server_ts")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0),
+    };
+    state
+        .services
+        .event_storage
+        .create_event(params)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to persist join event: {}", e)))?;
+
+    // 2. Update membership
+    state
+        .services
+        .member_storage
+        .add_member(&room_id, user_id, "join", display_name, None)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to update membership: {}", e)))?;
+
     ::tracing::info!(
-        "Processing join for room {} event {} from {}",
+        "Processed join for room {} event {} from {}",
         room_id,
         event_id,
         origin
@@ -228,7 +299,7 @@ async fn send_join(
 }
 
 async fn send_leave(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -237,8 +308,41 @@ async fn send_leave(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
 
+    let event = body
+        .get("event")
+        .ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
+    let user_id = event.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+
+    // 1. Persist the event
+    let params = crate::storage::event::CreateEventParams {
+        event_id: event_id.clone(),
+        room_id: room_id.clone(),
+        user_id: user_id.to_string(),
+        event_type: "m.room.member".to_string(),
+        content: event.get("content").cloned().unwrap_or(json!({})),
+        state_key: Some(user_id.to_string()),
+        origin_server_ts: event
+            .get("origin_server_ts")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0),
+    };
+    state
+        .services
+        .event_storage
+        .create_event(params)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to persist leave event: {}", e)))?;
+
+    // 2. Update membership
+    state
+        .services
+        .member_storage
+        .add_member(&room_id, user_id, "leave", None, None)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to update membership: {}", e)))?;
+
     ::tracing::info!(
-        "Processing leave for room {} event {} from {}",
+        "Processed leave for room {} event {} from {}",
         room_id,
         event_id,
         origin
@@ -267,7 +371,7 @@ async fn invite(
 }
 
 async fn get_missing_events(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -279,23 +383,61 @@ async fn get_missing_events(
         .get("latest_events")
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("latest_events required".to_string()))?;
+    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
 
-    ::tracing::info!("Getting missing events for room {}", room_id);
+    let events = state
+        .services
+        .event_storage
+        .get_room_events(&room_id, limit)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get missing events: {}", e)))?;
+
+    let events_json: Vec<Value> = events
+        .into_iter()
+        .map(|e| {
+            json!({
+                "event_id": e.event_id,
+                "type": e.event_type,
+                "sender": e.user_id,
+                "content": e.content,
+                "room_id": e.room_id,
+                "origin_server_ts": e.origin_server_ts
+            })
+        })
+        .collect();
 
     Ok(Json(json!({
-        "events": [],
-        "limit": 10
+        "events": events_json
     })))
 }
 
 async fn get_event_auth(
-    State(_state): State<AppState>,
-    Path((room_id, event_id)): Path<(String, String)>,
+    State(state): State<AppState>,
+    Path((room_id, _event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    ::tracing::info!("Getting event auth for room {} event {}", room_id, event_id);
+    let auth_events = state
+        .services
+        .event_storage
+        .get_state_events(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get auth events: {}", e)))?;
+
+    let auth_chain: Vec<Value> = auth_events
+        .into_iter()
+        .map(|e| {
+            json!({
+                "event_id": e.event_id,
+                "type": e.event_type,
+                "sender": e.user_id,
+                "content": e.content,
+                "state_key": e.state_key,
+                "origin_server_ts": e.origin_server_ts
+            })
+        })
+        .collect();
 
     Ok(Json(json!({
-        "auth_chain": []
+        "auth_chain": auth_chain
     })))
 }
 
@@ -413,27 +555,39 @@ async fn backfill(
 }
 
 async fn keys_claim(
-    State(_state): State<AppState>,
-    Json(_body): Json<Value>,
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ::tracing::info!("Processing keys claim request");
+    let request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
+        .map_err(|e| ApiError::bad_request(format!("Invalid claim request: {}", e)))?;
+
+    let response = state
+        .services
+        .device_keys_service
+        .claim_keys(request)
+        .await?;
 
     Ok(Json(json!({
-        "one_time_keys": {}
+        "one_time_keys": response.one_time_keys,
+        "failures": response.failures
     })))
 }
 
 async fn keys_upload(
-    State(_state): State<AppState>,
-    Json(_body): Json<Value>,
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ::tracing::info!("Processing keys upload request");
+    let request: crate::e2ee::device_keys::KeyUploadRequest = serde_json::from_value(body)
+        .map_err(|e| ApiError::bad_request(format!("Invalid upload request: {}", e)))?;
+
+    let response = state
+        .services
+        .device_keys_service
+        .upload_keys(request)
+        .await?;
 
     Ok(Json(json!({
-        "one_time_key_counts": {
-            "curve25519": 0,
-            "signed_curve25519": 0
-        }
+        "one_time_key_counts": response.one_time_key_counts
     })))
 }
 
