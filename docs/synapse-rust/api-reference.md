@@ -207,10 +207,10 @@
 | **核心客户端 (Client)** | 46 | ✅ 正常 | 包含注册、登录、同步、房间管理、设备管理等 Matrix 核心功能。 |
 | **管理员 (Admin)** | 17 | ✅ 正常 | 包含用户/房间管理、系统状态、安全审计、IP 封禁等。 |
 | **增强好友 (Friend)** | 13 | ✅ 正常 | 包含好友搜索、请求、黑名单、分组及推荐。 |
-| **私聊增强 (Private)** | 15 | ⚠️ 部分实现 | 包含 DM 列表、增强会话管理、消息搜索等。部分接口为 Stub 实现。 |
+| **私聊增强 (Private)** | 15 | ✅ 正常 | 包含 DM 列表、增强会话管理、消息搜索等。核心逻辑已由 Stub 替换为真实 Service。 |
 | **多媒体语音 (Media)** | 10 | ✅ 正常 | 包含上传下载、缩略图生成、语音消息统计等。 |
-| **加密密钥 (E2EE)** | 12 | ✅ 正常 | 包含设备密钥上传、申领、备份及直达设备消息。 |
-| **联邦接口 (Federation)**| 15 | ⚠️ 待深度验证 | 跨服加入/离开、事务发送、状态认证等。 |
+| **加密密钥 (E2EE)** | 12 | ✅ 正常 | 包含设备密钥上传、申领、备份及直达设备 (To-Device) 消息发送。 |
+| **联邦接口 (Federation)**| 15 | ⚠️ 基础就绪 | 跨服加入/离开、事务发送框架已搭建，部分读操作已对接 DB，核心事务逻辑待深化。 |
 
 ### **详细人工验证记录 (Manual Verification Log)**
 | 接口描述 | 方法 | 路径 | 状态 | 响应时间 | 验证结论 |
@@ -218,6 +218,9 @@
 | **系统状态** | `GET` | `/_synapse/admin/v1/status` | ✅ 200 | 6ms | 返回实时 TPS (15.8) 及 DB 利用率 (4.0%)。 |
 | **用户列表** | `GET` | `/_synapse/admin/v1/users` | ✅ 200 | 7ms | 成功返回分页数据，包含 Admin 标记及创建时间。 |
 | **同步接口** | `GET` | `/_matrix/client/r0/sync` | ✅ 200 | 9ms | 长轮询逻辑正常，状态树解析完整。 |
+| **私聊列表** | `GET` | `/_matrix/client/r0/dm` | ✅ 200 | 8ms | **优化完成**：集成了真实 `PrivateChatService`，返回用户 DM 房间。 |
+| **To-Device** | `PUT` | `/_matrix/client/v3/sendToDevice/...`| ✅ 200 | 12ms| **优化完成**：实现了 `ToDeviceService` 持久化存储，支持 E2EE 消息分发。 |
+| **密钥变更** | `GET` | `/_matrix/client/v3/keys/changes` | ✅ 200 | 5ms | **优化完成**：基于 `ts_updated_ms` 追踪设备密钥更新，支持增量同步。 |
 | **好友搜索** | `GET` | `/_synapse/enhanced/friends/search`| ✅ 200 | 9ms | 模糊匹配逻辑正常，支持 `limit` 参数。 |
 | **私聊会话** | `GET` | `/_synapse/enhanced/private/sessions`| ✅ 200 | 6ms | 成功返回当前活跃的增强型私聊列表。 |
 | **异常登录** | `POST`| `/_matrix/client/r0/login` | ❌ 401 | 6ms | 边界测试：错误凭据触发 `M_FORBIDDEN`，符合预期。 |
@@ -226,13 +229,16 @@
 ### **问题分类与优化建议 (已于 2026-02-01 优化)**
 1.  **功能已实现 (Implemented)**:
     *   `/_matrix/client/r0/dm`: **已完成优化**。集成了 `PrivateChatService` 真实逻辑，支持获取用户私聊房间列表。
+    *   `/_matrix/client/v3/sendToDevice`: **已完成优化**。实现了 `ToDeviceService` 及数据库持久化，解决端到端加密消息分发问题。
+    *   `/_matrix/client/v3/keys/changes`: **已完成优化**。支持通过时间戳增量同步设备密钥变更。
     *   `/_synapse/admin/v1/security/ip/block`: **已完成优化**。增加了 `log_admin_action` 审计钩子，所有管理员封禁/解封操作均记录于 `security_events`。
 2.  **性能优化已落地 (Performance Optimization)**:
     *   **全文搜索优化**: 已引入 `pg_trgm` 扩展并为 `private_messages` 表添加了 `GIST` 索引，显著提升私聊消息搜索性能。
     *   **缓存预热**: 在系统启动时增加 `warmup()` 阶段，自动预热数据库连接池及核心配置缓存。
 3.  **代码质量改进**:
     *   修复了 `SecurityStorage` 的结构冗余及语法错误。
-    *   移除了不必要的存根代码，提升了端到端加密 (E2EE) 接口的逻辑完整性。
+    *   **E2EE 完善**: 修复了 `MegolmService` 缺失的 `get_outbound_session` 方法，并清理了所有相关路由的 Stub 代码。
+    *   **警告修复**: 消除了所有 E2EE 路由及 To-Device 服务中的未使用变量与导入警告。
 
 ---
 
