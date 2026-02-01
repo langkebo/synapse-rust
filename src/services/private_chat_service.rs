@@ -990,7 +990,11 @@ mod tests {
                 create_test_message(&pool, "session_1", "@alice:example.com", "Hello Bob!").await;
 
             let services = ServiceContainer::new_test();
-            let chat_service = PrivateChatService::new(&services, &Arc::new(pool.clone()));
+            let chat_service = PrivateChatService::new(
+                &services,
+                &Arc::new(pool.clone()),
+                services.search_service.clone(),
+            );
 
             let result = chat_service
                 .delete_message("@alice:example.com", &message_id.to_string())
@@ -1029,7 +1033,11 @@ mod tests {
                 create_test_message(&pool, "session_1", "@alice:example.com", "Hello Bob!").await;
 
             let services = ServiceContainer::new_test();
-            let chat_service = PrivateChatService::new(&services, &Arc::new(pool.clone()));
+            let chat_service = PrivateChatService::new(
+                &services,
+                &Arc::new(pool.clone()),
+                services.search_service.clone(),
+            );
 
             let result = chat_service
                 .delete_message("@bob:example.com", &message_id.to_string())
@@ -1070,7 +1078,11 @@ mod tests {
             create_test_user(&pool, "@alice:example.com", "alice").await;
 
             let services = ServiceContainer::new_test();
-            let chat_service = PrivateChatService::new(&services, &Arc::new(pool.clone()));
+            let chat_service = PrivateChatService::new(
+                &services,
+                &Arc::new(pool.clone()),
+                services.search_service.clone(),
+            );
 
             let result = chat_service
                 .delete_message("@alice:example.com", "invalid_id")
@@ -1101,7 +1113,11 @@ mod tests {
             create_test_user(&pool, "@alice:example.com", "alice").await;
 
             let services = ServiceContainer::new_test();
-            let chat_service = PrivateChatService::new(&services, &Arc::new(pool.clone()));
+            let chat_service = PrivateChatService::new(
+                &services,
+                &Arc::new(pool.clone()),
+                services.search_service.clone(),
+            );
 
             let result = chat_service
                 .delete_message("@alice:example.com", "999999")
