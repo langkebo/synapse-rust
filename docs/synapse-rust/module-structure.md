@@ -173,7 +173,7 @@ Common 模块提供项目通用的类型、工具和配置，被所有其他模�
 
 **示例代码**：
 ```rust
-#[derive(Debug, thiserror::Error)]
+# [derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("Bad request: {0}")]
     BadRequest(String),
@@ -205,7 +205,7 @@ pub enum ApiError {
 
 **示例代码**：
 ```rust
-#[derive(Debug, serde::Deserialize)]
+# [derive(Debug, serde::Deserialize)]
 pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
@@ -213,7 +213,7 @@ pub struct Config {
     pub jwt: JwtConfig,
 }
 
-#[derive(Debug, serde::Deserialize)]
+# [derive(Debug, serde::Deserialize)]
 pub struct ServerConfig {
     pub name: String,
     pub host: String,
@@ -274,7 +274,7 @@ Storage 模块负责所有数据库操作，提供类型安全的 SQL 查询接�
 
 **示例代码**：
 ```rust
-#[derive(Debug, Clone, sqlx::FromRow)]
+# [derive(Debug, Clone, sqlx::FromRow)]
 pub struct User {
     pub user_id: String,
     pub username: String,
@@ -734,7 +734,7 @@ pub async fn register(
 ### 8.1 Storage Trait
 
 ```rust
-#[async_trait]
+# [async_trait]
 pub trait Storage<'a> {
     type Error;
     
@@ -748,7 +748,7 @@ pub trait Storage<'a> {
 ### 8.2 Service Trait
 
 ```rust
-#[async_trait]
+# [async_trait]
 pub trait Service {
     type Request;
     type Response;
@@ -761,7 +761,7 @@ pub trait Service {
 ### 8.3 Cache Trait
 
 ```rust
-#[async_trait]
+# [async_trait]
 pub trait Cache {
     async fn get(&self, key: &str) -> Option<String>;
     async fn set(&self, key: &str, value: &str, ttl: Option<u64>);

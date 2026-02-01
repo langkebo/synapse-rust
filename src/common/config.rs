@@ -1,5 +1,6 @@
 use config::Config as ConfigBuilder;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
@@ -12,12 +13,98 @@ pub struct Config {
     pub federation: FederationConfig,
     pub security: SecurityConfig,
     pub search: SearchConfig,
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SearchConfig {
     pub elasticsearch_url: String,
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RateLimitConfig {
+    #[serde(default = "default_rate_limit_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub default: RateLimitRule,
+    #[serde(default)]
+    pub endpoints: Vec<RateLimitEndpointRule>,
+    #[serde(default)]
+    pub ip_header_priority: Vec<String>,
+    #[serde(default)]
+    pub include_headers: bool,
+    #[serde(default)]
+    pub exempt_paths: Vec<String>,
+    #[serde(default)]
+    pub exempt_path_prefixes: Vec<String>,
+    #[serde(default)]
+    pub endpoint_aliases: HashMap<String, String>,
+}
+
+fn default_rate_limit_enabled() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RateLimitRule {
+    #[serde(default = "default_rate_limit_per_second")]
+    pub per_second: u32,
+    #[serde(default = "default_rate_limit_burst_size")]
+    pub burst_size: u32,
+}
+
+fn default_rate_limit_per_second() -> u32 {
+    10
+}
+
+fn default_rate_limit_burst_size() -> u32 {
+    20
+}
+
+impl Default for RateLimitRule {
+    fn default() -> Self {
+        Self {
+            per_second: default_rate_limit_per_second(),
+            burst_size: default_rate_limit_burst_size(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RateLimitEndpointRule {
+    pub path: String,
+    #[serde(default)]
+    pub match_type: RateLimitMatchType,
+    pub rule: RateLimitRule,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RateLimitMatchType {
+    #[default]
+    Exact,
+    Prefix,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_rate_limit_enabled(),
+            default: RateLimitRule::default(),
+            endpoints: Vec::new(),
+            ip_header_priority: vec![
+                "x-forwarded-for".to_string(),
+                "x-real-ip".to_string(),
+                "forwarded".to_string(),
+            ],
+            include_headers: true,
+            exempt_paths: vec!["/".to_string(), "/_matrix/client/versions".to_string()],
+            exempt_path_prefixes: Vec::new(),
+            endpoint_aliases: HashMap::new(),
+        }
+    }
 }
 
 pub struct ConfigManager {
@@ -260,6 +347,7 @@ mod tests {
                 elasticsearch_url: "http://localhost:9200".to_string(),
                 enabled: false,
             },
+            rate_limit: RateLimitConfig::default(),
         };
 
         let url = config.database_url();
@@ -331,6 +419,7 @@ mod tests {
                 elasticsearch_url: "http://localhost:9200".to_string(),
                 enabled: false,
             },
+            rate_limit: RateLimitConfig::default(),
         };
 
         let url = config.redis_url();

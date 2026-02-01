@@ -1020,7 +1020,7 @@ pub async fn create_users_batch(&self, users: Vec<CreateUserRequest>) -> Result<
 
 ```rust
 // 1. 添加详细的日志记录
-#[instrument(skip(self, pool))]
+# [instrument(skip(self, pool))]
 pub async fn get_user(&self, user_id: &str) -> Result<Option<User>, ApiError> {
     debug!("Fetching user from database: {}", user_id);
     
@@ -1200,7 +1200,7 @@ pub async fn metrics_handler(State(metrics): State<Arc<Metrics>>) -> Response {
 
 ```rust
 // 1. 实现全面的健康检查
-#[derive(Serialize)]
+# [derive(Serialize)]
 pub struct HealthCheckResponse {
     pub status: String,
     pub version: String,
@@ -1210,7 +1210,7 @@ pub struct HealthCheckResponse {
     pub memory_usage: MemoryUsage,
 }
 
-#[derive(Serialize)]
+# [derive(Serialize)]
 pub struct DatabaseHealth {
     pub status: String,
     pub connections: u32,
@@ -1218,7 +1218,7 @@ pub struct DatabaseHealth {
     pub pool_size: u32,
 }
 
-#[derive(Serialize)]
+# [derive(Serialize)]
 pub struct CacheHealth {
     pub status: String,
     pub hit_rate: f64,
@@ -1334,7 +1334,7 @@ pub async fn health_check_handler(
 
 ```rust
 // 1. 添加全面的单元测试
-#[cfg(test)]
+# [cfg(test)]
 mod tests {
     use super::*;
     
@@ -1358,7 +1358,7 @@ mod tests {
 }
 
 // 2. 添加全面的基准测试
-#[cfg(test)]
+# [cfg(test)]
 mod benchmarks {
     use super::*;
     use criterion::{black_box, criterion_group, criterion_main, Criterion};
@@ -1439,7 +1439,7 @@ mod benchmarks {
 
 ```rust
 // 1. 添加全面的 API 集成测试
-#[tokio::test]
+# [tokio::test]
 async fn test_register_user() {
     let app = create_test_app();
     
@@ -1464,7 +1464,7 @@ async fn test_register_user() {
 }
 
 // 2. 添加端到端测试
-#[tokio::test]
+# [tokio::test]
 async fn test_user_registration_flow() {
     let app = create_test_app();
     
@@ -1705,7 +1705,7 @@ jobs:
 // 1. 增强配置验证
 use serde::{Deserialize, Validate};
 
-#[derive(Debug, Clone, Deserialize, Validate)]
+# [derive(Debug, Clone, Deserialize, Validate)]
 pub struct ServerConfig {
     #[validate(length(min = 1, max = 255))]
     pub name: String,
@@ -1721,8 +1721,8 @@ pub struct ServerConfig {
 }
 
 // 2. 添加配置文档
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
+# [derive(Debug, Clone, Deserialize)]
+# [serde(default)]
 pub struct Config {
     /// Server configuration
     /// 

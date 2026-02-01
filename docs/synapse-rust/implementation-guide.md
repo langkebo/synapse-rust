@@ -324,7 +324,7 @@ pub async fn wait_for_event_or_timeout(&self, event_id: &str, timeout: Duration)
 
 **示例**：
 ```rust
-#[async_trait]
+# [async_trait]
 pub trait Storage<'a> {
     type Entity;
     type Error;
@@ -339,7 +339,7 @@ pub struct UserStorage<'a> {
     pool: &'a PgPool,
 }
 
-#[async_trait]
+# [async_trait]
 impl<'a> Storage<'a> for UserStorage<'a> {
     type Entity = User;
     type Error = sqlx::Error;
@@ -390,7 +390,7 @@ impl<'a> Storage<'a> for UserStorage<'a> {
 
 **示例**：
 ```rust
-#[async_trait]
+# [async_trait]
 pub trait Storage<'a> {
     type Entity;
     type Error;
@@ -402,7 +402,7 @@ pub struct UserStorage<'a> {
     pool: &'a PgPool,
 }
 
-#[async_trait]
+# [async_trait]
 impl<'a> Storage<'a> for UserStorage<'a> {
     type Entity = User;
     type Error = sqlx::Error;
@@ -808,7 +808,7 @@ impl LargeData {
 
 **示例**：
 ```rust
-#[cfg(test)]
+# [cfg(test)]
 mod tests {
     use super::*;
     
@@ -827,7 +827,7 @@ mod tests {
 
 **示例**：
 ```rust
-#[tokio::test]
+# [tokio::test]
 async fn test_get_user() {
     let pool = create_test_pool().await;
     let storage = UserStorage::new(&pool);
@@ -845,7 +845,7 @@ async fn test_get_user() {
 
 **示例**：
 ```rust
-#[tokio::test]
+# [tokio::test]
 async fn test_register_user() {
     let app = create_test_app();
     

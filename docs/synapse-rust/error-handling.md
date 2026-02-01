@@ -14,7 +14,7 @@
 `ApiError` 是项目的统一错误类型，所有公共 API 都使用此错误类型。
 
 ```rust
-#[derive(Debug, thiserror::Error)]
+# [derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("Bad request: {0}")]
     BadRequest(String),
@@ -270,7 +270,7 @@ pub async fn get_user(&self, user_id: &str) -> Result<User, ApiError> {
 ```rust
 use tracing::{instrument, error};
 
-#[instrument(skip(self))]
+# [instrument(skip(self))]
 pub async fn get_user(&self, user_id: &str) -> Result<User, ApiError> {
     debug!(user_id, "Getting user");
     
@@ -356,7 +356,7 @@ pub async fn create_user(&self, username: &str, password: &str) -> Result<User> 
 为特定场景定义自定义错误类型。
 
 ```rust
-#[derive(Debug, thiserror::Error)]
+# [derive(Debug, thiserror::Error)]
 pub enum AuthError {
     #[error("Invalid credentials")]
     InvalidCredentials,
@@ -414,7 +414,7 @@ pub async fn get_user_with_retry(&self, user_id: &str) -> Result<User, ApiError>
 测试错误处理逻辑。
 
 ```rust
-#[cfg(test)]
+# [cfg(test)]
 mod tests {
     use super::*;
     
@@ -439,7 +439,7 @@ mod tests {
 测试 API 错误响应。
 
 ```rust
-#[tokio::test]
+# [tokio::test]
 async fn test_get_user_not_found() {
     let app = create_test_app();
     

@@ -38,6 +38,38 @@ redis:
   pool_size: 20
   enabled: true
 
+rate_limit:
+  enabled: true
+  default:
+    per_second: 10
+    burst_size: 20
+  endpoints:
+    - path: "/_matrix/client/r0/login"
+      match_type: exact
+      rule:
+        per_second: 1
+        burst_size: 5
+    - path: "/_matrix/client/r0/register"
+      match_type: exact
+      rule:
+        per_second: 1
+        burst_size: 3
+    - path: "/_matrix/media/"
+      match_type: prefix
+      rule:
+        per_second: 2
+        burst_size: 10
+  ip_header_priority:
+    - "x-forwarded-for"
+    - "x-real-ip"
+    - "forwarded"
+  include_headers: true
+  exempt_paths:
+    - "/"
+    - "/_matrix/client/versions"
+  exempt_path_prefixes: []
+  endpoint_aliases: {}
+
 logging:
   level: "info"
   format: "json" # 改为 JSON 格式以便 Prometheus/Grafana 解析

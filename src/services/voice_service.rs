@@ -298,35 +298,19 @@ impl VoiceStorage {
         .execute(&*self.pool)
         .await?;
 
-        // 2) Update Redis cache (Incremental update)
-        let cache_key = format!("voice_stats:{}", user_id);
-        if let Ok(Some(mut stats_list)) = self.cache.get::<Vec<UserVoiceStats>>(&cache_key).await {
-            let date_str = today.to_string();
-            let mut found = false;
-            for stats in &mut stats_list {
-                if stats.date == date_str {
-                    stats.total_duration_ms += duration_delta as i32;
-                    stats.total_file_size += size_delta;
-                    stats.message_count += 1;
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
-                stats_list.insert(
-                    0,
-                    UserVoiceStats {
-                        user_id: user_id.to_string(),
-                        date: date_str,
-                        total_duration_ms: duration_delta as i32,
-                        total_file_size: size_delta,
-                        message_count: 1,
-                    },
-                );
-            }
-            // Update cache with 1 hour TTL
-            let _ = self.cache.set(&cache_key, stats_list, 3600).await;
-        }
+        // 2) Update Redis cache
+        // Strategy: Invalidate the main list cache to force re-fetch from DB on next read.
+        // This avoids the expensive read-modify-write cycle of the full JSON list.
+        // Also update a daily incremental counter for fast access to today's stats.
+        let list_cache_key = format!("voice_stats:{}", user_id);
+        let _ = self.cache.delete(&list_cache_key).await;
+
+        // Use Redis Hash for today's stats (Fast write)
+        let daily_key = format!("voice_stats_daily:{}:{}", user_id, today);
+        let _ = self.cache.hincrby(&daily_key, "total_duration_ms", duration_delta).await;
+        let _ = self.cache.hincrby(&daily_key, "total_file_size", size_delta).await;
+        let _ = self.cache.hincrby(&daily_key, "message_count", 1).await;
+        let _ = self.cache.expire(&daily_key, 86400 * 2).await; // 2 days TTL
 
         Ok(())
     }

@@ -1235,7 +1235,7 @@ pub async fn query_keys(
 
 **审计日志**：
 ```rust
-#[derive(Debug, Serialize)]
+# [derive(Debug, Serialize)]
 pub struct E2EEAuditLog {
     pub timestamp: DateTime<Utc>,
     pub user_id: String,
@@ -1247,7 +1247,7 @@ pub struct E2EEAuditLog {
     pub user_agent: String,
 }
 
-#[derive(Debug, Serialize)]
+# [derive(Debug, Serialize)]
 pub enum E2EEAction {
     KeyUpload,
     KeyQuery,
@@ -1260,7 +1260,7 @@ pub enum E2EEAction {
     BackupDownload,
 }
 
-#[derive(Debug, Serialize)]
+# [derive(Debug, Serialize)]
 pub enum AuditResult {
     Success,
     Failure(String),
@@ -1537,7 +1537,7 @@ impl E2EEFederationService {
 
 **密钥管理测试**：
 ```rust
-#[cfg(test)]
+# [cfg(test)]
 mod tests {
     use super::*;
 
@@ -1591,7 +1591,7 @@ mod tests {
 
 **E2EE 流程测试**：
 ```rust
-#[tokio::test]
+# [tokio::test]
 async fn test_e2ee_message_flow() {
     let alice = create_test_user("alice").await;
     let bob = create_test_user("bob").await;
@@ -1623,7 +1623,7 @@ async fn test_e2ee_message_flow() {
 
 **加密性能测试**：
 ```rust
-#[tokio::test]
+# [tokio::test]
 async fn test_encryption_performance() {
     let service = create_test_encryption_service().await;
     let session = service.create_session("!room:example.com")

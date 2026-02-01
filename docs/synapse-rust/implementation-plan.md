@@ -1104,7 +1104,7 @@ use tracing::{instrument, span, Level};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use opentelemetry::trace::TracerProvider;
 
-#[instrument(skip(self, pool))]
+# [instrument(skip(self, pool))]
 pub async fn get_user(&self, user_id: &str) -> Result<Option<User>, ApiError> {
     let span = span!(Level::INFO, "get_user", user_id);
     let _enter = span.enter();
@@ -1252,7 +1252,7 @@ pub async fn metrics_handler(State(metrics): State<Arc<Metrics>>) -> Response {
 ```rust
 use serde::Serialize;
 
-#[derive(Serialize)]
+# [derive(Serialize)]
 pub struct HealthCheckResponse {
     pub status: String,
     pub version: String,
@@ -1261,14 +1261,14 @@ pub struct HealthCheckResponse {
     pub uptime_seconds: u64,
 }
 
-#[derive(Serialize)]
+# [derive(Serialize)]
 pub struct DatabaseHealth {
     pub status: String,
     pub connections: u32,
     pub latency_ms: u64,
 }
 
-#[derive(Serialize)]
+# [derive(Serialize)]
 pub struct CacheHealth {
     pub status: String,
     pub hit_rate: f64,
@@ -1433,7 +1433,7 @@ pub fn init_logging() {
 
 **代码示例**：
 ```rust
-#[cfg(test)]
+# [cfg(test)]
 mod benchmarks {
     use super::*;
     use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
@@ -1509,7 +1509,7 @@ mod benchmarks {
 
 **代码示例**：
 ```rust
-#[tokio::test]
+# [tokio::test]
 async fn benchmark_api_endpoints() {
     let app = create_test_app();
     let client = reqwest::Client::new();

@@ -20,6 +20,7 @@ use crate::cache::*;
 use crate::common::*;
 use crate::services::*;
 use crate::storage::CreateEventParams;
+use crate::web::middleware::rate_limit_middleware;
 use axum::{
     extract::{FromRequestParts, Json, Path, Query, State},
     http::{request::Parts, HeaderMap},
@@ -219,6 +220,10 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_admin_router(state.clone()))
         .merge(create_federation_router(state.clone()))
         .layer(CompressionLayer::new())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit_middleware,
+        ))
         .with_state(state)
 }
 

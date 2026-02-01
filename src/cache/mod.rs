@@ -2,6 +2,7 @@ use crate::auth::Claims;
 use crate::common::ApiError;
 use moka::sync::Cache;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -119,12 +120,119 @@ impl RedisCache {
                 .ok();
         }
     }
+
+    pub async fn hincrby(
+        &self,
+        key: &str,
+        field: &str,
+        delta: i64,
+    ) -> Result<i64, redis::RedisError> {
+        let client = self.client.lock().await;
+        let mut conn = client.get_multiplexed_async_connection().await?;
+        redis::cmd("HINCRBY")
+            .arg(key)
+            .arg(field)
+            .arg(delta)
+            .query_async(&mut conn)
+            .await
+    }
+
+    pub async fn hgetall(&self, key: &str) -> Result<HashMap<String, String>, redis::RedisError> {
+        let client = self.client.lock().await;
+        let mut conn = client.get_multiplexed_async_connection().await?;
+        redis::cmd("HGETALL").arg(key).query_async(&mut conn).await
+    }
+
+    pub async fn expire(&self, key: &str, ttl: u64) {
+        let client = self.client.lock().await;
+        if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
+            redis::cmd("EXPIRE")
+                .arg(key)
+                .arg(ttl as i64)
+                .query_async::<()>(&mut conn)
+                .await
+                .ok();
+        }
+    }
+
+    pub async fn token_bucket_take(
+        &self,
+        key: &str,
+        now_ms: u64,
+        rate_per_second: u32,
+        burst_size: u32,
+        ttl_seconds: u64,
+    ) -> Result<RateLimitDecision, redis::RedisError> {
+        let client = self.client.lock().await;
+        let mut conn = client.get_multiplexed_async_connection().await?;
+        let script = redis::Script::new(
+            r#"
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local rate = tonumber(ARGV[2])
+local burst = tonumber(ARGV[3])
+local ttl = tonumber(ARGV[4])
+
+local data = redis.call("HMGET", key, "tokens", "ts")
+local tokens = tonumber(data[1])
+local ts = tonumber(data[2])
+if tokens == nil then
+  tokens = burst
+  ts = now
+end
+
+local delta_ms = now - ts
+if delta_ms < 0 then
+  delta_ms = 0
+end
+
+local refill = (delta_ms / 1000.0) * rate
+tokens = math.min(burst, tokens + refill)
+
+local allowed = 0
+local retry_after = 0
+if tokens >= 1 then
+  allowed = 1
+  tokens = tokens - 1
+else
+  allowed = 0
+  local needed = 1 - tokens
+  if rate > 0 then
+    retry_after = math.ceil(needed / rate)
+  else
+    retry_after = 60
+  end
+end
+
+redis.call("HSET", key, "tokens", tokens, "ts", now)
+redis.call("EXPIRE", key, ttl)
+local remaining = math.floor(tokens)
+return {allowed, retry_after, remaining}
+            "#,
+        );
+
+        let (allowed, retry_after_seconds, remaining) = script
+            .key(key)
+            .arg(now_ms as i64)
+            .arg(rate_per_second as i64)
+            .arg(burst_size as i64)
+            .arg(ttl_seconds as i64)
+            .invoke_async::<(i64, i64, i64)>(&mut conn)
+            .await?;
+
+        Ok(RateLimitDecision {
+            allowed: allowed != 0,
+            retry_after_seconds: retry_after_seconds.max(0) as u64,
+            remaining: remaining.max(0) as u32,
+        })
+    }
 }
 
 pub struct CacheManager {
     local: LocalCache,
     redis: Option<Arc<RedisCache>>,
     use_redis: bool,
+    rate_limit_local: Arc<parking_lot::Mutex<HashMap<String, LocalRateLimitState>>>,
 }
 
 impl CacheManager {
@@ -133,6 +241,7 @@ impl CacheManager {
             local: LocalCache::new(&config),
             redis: None,
             use_redis: false,
+            rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
         }
     }
 
@@ -145,6 +254,7 @@ impl CacheManager {
                 local: LocalCache::new(&config),
                 redis: Some(Arc::new(redis_cache)),
                 use_redis: true,
+                rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             }),
             Err(e) => {
                 tracing::warn!("Failed to connect to Redis: {}, using local cache only", e);
@@ -152,6 +262,7 @@ impl CacheManager {
                     local: LocalCache::new(&config),
                     redis: None,
                     use_redis: false,
+                    rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
                 })
             }
         }
@@ -226,6 +337,110 @@ impl CacheManager {
         }
         Ok(())
     }
+
+    pub async fn hincrby(&self, key: &str, field: &str, delta: i64) -> Result<i64, ApiError> {
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                return redis
+                    .hincrby(key, field, delta)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Redis error: {}", e)));
+            }
+        }
+        Ok(0) // Local cache doesn't support HINCRBY yet, just return 0 or implement later
+    }
+
+    pub async fn hgetall(&self, key: &str) -> Result<HashMap<String, String>, ApiError> {
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                return redis
+                    .hgetall(key)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Redis error: {}", e)));
+            }
+        }
+        Ok(HashMap::new())
+    }
+
+    pub async fn expire(&self, key: &str, ttl: u64) {
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                redis.expire(key, ttl).await;
+            }
+        }
+    }
+
+    pub async fn rate_limit_token_bucket_take(
+        &self,
+        key: &str,
+        rate_per_second: u32,
+        burst_size: u32,
+    ) -> Result<RateLimitDecision, ApiError> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_millis() as u64;
+
+        let ttl_seconds = {
+            let rate = rate_per_second.max(1) as u64;
+            let burst = burst_size.max(1) as u64;
+            (burst.saturating_mul(2).saturating_div(rate)).max(60)
+        };
+
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                return Ok(redis
+                    .token_bucket_take(key, now_ms, rate_per_second, burst_size, ttl_seconds)
+                    .await?);
+            }
+        }
+
+        let mut map = self.rate_limit_local.lock();
+        let state = map.get(key).copied().unwrap_or(LocalRateLimitState {
+            tokens: burst_size as f64,
+            last_ms: now_ms,
+        });
+
+        let delta_ms = now_ms.saturating_sub(state.last_ms);
+        let refill = (delta_ms as f64 / 1000.0) * (rate_per_second as f64);
+        let mut tokens = (state.tokens + refill).min(burst_size as f64);
+        let allowed = tokens >= 1.0;
+        let retry_after_seconds = if allowed || rate_per_second == 0 {
+            0
+        } else {
+            ((1.0 - tokens) / (rate_per_second as f64)).ceil().max(1.0) as u64
+        };
+        if allowed {
+            tokens -= 1.0;
+        }
+
+        map.insert(
+            key.to_string(),
+            LocalRateLimitState {
+                tokens,
+                last_ms: now_ms,
+            },
+        );
+
+        Ok(RateLimitDecision {
+            allowed,
+            retry_after_seconds,
+            remaining: tokens.floor().max(0.0) as u32,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RateLimitDecision {
+    pub allowed: bool,
+    pub retry_after_seconds: u64,
+    pub remaining: u32,
+}
+
+#[derive(Clone, Copy)]
+struct LocalRateLimitState {
+    tokens: f64,
+    last_ms: u64,
 }
 
 #[cfg(test)]

@@ -230,7 +230,7 @@ use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ed25519PublicKey {
     bytes: [u8; 32],
 }
@@ -260,7 +260,7 @@ impl Ed25519PublicKey {
     }
 }
 
-#[derive(Debug, Zeroize)]
+# [derive(Debug, Zeroize)]
 pub struct Ed25519SecretKey {
     bytes: [u8; 32],
 }
@@ -282,7 +282,7 @@ impl Ed25519SecretKey {
     }
 }
 
-#[derive(Debug)]
+# [derive(Debug)]
 pub struct Ed25519KeyPair {
     public: Ed25519PublicKey,
     secret: Ed25519SecretKey,
@@ -315,7 +315,7 @@ impl Ed25519KeyPair {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+# [derive(Debug, thiserror::Error)]
 pub enum CryptoError {
     #[error("Invalid base64 encoding")]
     InvalidBase64,
@@ -343,7 +343,7 @@ use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct X25519PublicKey {
     bytes: [u8; 32],
 }
@@ -373,7 +373,7 @@ impl X25519PublicKey {
     }
 }
 
-#[derive(Debug, Zeroize)]
+# [derive(Debug, Zeroize)]
 pub struct X25519SecretKey {
     bytes: [u8; 32],
 }
@@ -395,7 +395,7 @@ impl X25519SecretKey {
     }
 }
 
-#[derive(Debug)]
+# [derive(Debug)]
 pub struct X25519KeyPair {
     public: X25519PublicKey,
     secret: X25519SecretKey,
@@ -434,7 +434,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Aes256GcmKey {
     bytes: [u8; 32],
 }
@@ -455,7 +455,7 @@ impl Aes256GcmKey {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Aes256GcmNonce {
     bytes: [u8; 12],
 }
@@ -476,7 +476,7 @@ impl Aes256GcmNonce {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Aes256GcmCiphertext {
     nonce: Aes256GcmNonce,
     ciphertext: Vec<u8>,
@@ -537,7 +537,7 @@ use argon2::password_hash::{SaltString, rand_core::OsRng};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Argon2Params {
     pub t_cost: u32,
     pub m_cost: u32,
@@ -613,7 +613,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceKey {
     pub id: Uuid,
     pub user_id: String,
@@ -627,7 +627,7 @@ pub struct DeviceKey {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceKeys {
     pub user_id: String,
     pub device_id: String,
@@ -637,37 +637,37 @@ pub struct DeviceKeys {
     pub unsigned: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyQueryRequest {
     pub timeout: Option<u64>,
     pub device_keys: serde_json::Value,
     pub token: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyQueryResponse {
     pub device_keys: serde_json::Value,
     pub failures: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyUploadRequest {
     pub device_keys: Option<DeviceKeys>,
     pub one_time_keys: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyUploadResponse {
     pub one_time_key_counts: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyClaimRequest {
     pub timeout: Option<u64>,
     pub one_time_keys: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyClaimResponse {
     pub one_time_keys: serde_json::Value,
     pub failures: serde_json::Value,
@@ -1001,7 +1001,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrossSigningKey {
     pub id: Uuid,
     pub user_id: String,
@@ -1013,7 +1013,7 @@ pub struct CrossSigningKey {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrossSigningKeys {
     pub user_id: String,
     pub master_key: String,
@@ -1023,7 +1023,7 @@ pub struct CrossSigningKeys {
     pub user_signing_signature: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrossSigningUpload {
     pub master_key: serde_json::Value,
     pub self_signing_key: serde_json::Value,
@@ -1265,7 +1265,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MegolmSession {
     pub id: Uuid,
     pub session_id: String,
@@ -1279,7 +1279,7 @@ pub struct MegolmSession {
     pub expires_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+# [derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncryptedEvent {
     pub room_id: String,
     pub event_id: String,
@@ -1655,7 +1655,7 @@ pub fn e2ee_routes() -> Router {
 use synapse_rust::e2ee::device_keys::*;
 use synapse_rust::crypto::*;
 
-#[tokio::test]
+# [tokio::test]
 async fn test_device_key_generation() {
     let keypair = Ed25519KeyPair::generate();
     assert!(!keypair.public_key().as_bytes().is_empty());
@@ -1665,7 +1665,7 @@ async fn test_device_key_generation() {
     assert!(keypair.verify(message, &signature).is_ok());
 }
 
-#[tokio::test]
+# [tokio::test]
 async fn test_device_key_storage() {
     let pool = create_test_pool().await;
     let storage = DeviceKeyStorage::new(&pool);
@@ -1690,7 +1690,7 @@ async fn test_device_key_storage() {
     assert_eq!(retrieved.unwrap().device_id, "DEVICE1");
 }
 
-#[tokio::test]
+# [tokio::test]
 async fn test_device_key_service() {
     let pool = create_test_pool().await;
     let cache = Arc::new(CacheManager::new());
@@ -1724,7 +1724,7 @@ async fn test_device_key_service() {
 use synapse_rust::e2ee::*;
 use synapse_rust::crypto::*;
 
-#[tokio::test]
+# [tokio::test]
 async fn test_e2ee_message_flow() {
     let pool = create_test_pool().await;
     let cache = Arc::new(CacheManager::new());

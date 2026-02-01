@@ -156,6 +156,7 @@ impl ServiceContainer {
                 elasticsearch_url: "http://localhost:9200".to_string(),
                 enabled: false,
             },
+            rate_limit: RateLimitConfig::default(),
         };
         Self::new(&pool, cache, config)
     }

@@ -55,7 +55,11 @@ impl SynapseServer {
         let db_init_service = DatabaseInitService::new(pool.clone());
         db_init_service.initialize().await?;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = if config.redis.enabled {
+            Arc::new(CacheManager::with_redis(&config.redis_url(), CacheConfig::default()).await?)
+        } else {
+            Arc::new(CacheManager::new(CacheConfig::default()))
+        };
         let services = ServiceContainer::new(&pool, cache.clone(), config.clone());
         let app_state = Arc::new(AppState::new(services, cache.clone()));
 

@@ -355,7 +355,7 @@ use sqlx::{Pool, Postgres};
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+# [derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DeviceKey {
     pub id: i64,
     pub user_id: String,
@@ -494,7 +494,7 @@ pub struct OlmEncryptionService {
 use axum::{extract::State, Json, response::Json};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+# [derive(Debug, Deserialize)]
 pub struct QueryKeysRequest {
     pub timeout: Option<i64>,
     pub device_keys: Option<bool>,
@@ -516,7 +516,7 @@ pub async fn query_keys(
 
 ### 4.2 密钥上传端点
 ```rust
-#[derive(Debug, Deserialize)]
+# [derive(Debug, Deserialize)]
 pub struct UploadKeysRequest {
     pub device_keys: Vec<DeviceKey>,
 }
@@ -578,7 +578,7 @@ pub async fn upload_keys(
 
 ### 1.1 密钥管理测试
 ```rust
-#[cfg(test)]
+# [cfg(test)]
 mod tests {
     use super::*;
     
@@ -610,7 +610,7 @@ mod tests {
 
 ### 1.2 加密服务测试
 ```rust
-#[tokio::test]
+# [tokio::test]
 async fn test_encrypt_decrypt_message() {
     let message = "Hello, World!";
     let recipient_keys = vec!["key1", "key2"];
@@ -626,7 +626,7 @@ async fn test_encrypt_decrypt_message() {
 
 ### 2.1 API 端点测试
 ```rust
-#[tokio::test]
+# [tokio::test]
 async fn test_query_keys_endpoint() {
     let app = create_test_app();
     
@@ -645,7 +645,7 @@ async fn test_query_keys_endpoint() {
 
 ### 2.2 端到端加密测试
 ```rust
-#[tokio::test]
+# [tokio::test]
 async fn test_e2ee_flow() {
     let app = create_test_app();
     
@@ -1216,7 +1216,7 @@ pub async fn upload_multiple_device_keys(
 
 **自定义错误类型**：
 ```rust
-#[derive(Debug, thiserror::Error)]
+# [derive(Debug, thiserror::Error)]
 pub enum EncryptionError {
     #[error("Key not found: {0}")]
     KeyNotFound(String),
@@ -1263,7 +1263,7 @@ pub async fn encrypt_message(
 
 **单元测试**：
 ```rust
-#[cfg(test)]
+# [cfg(test)]
 mod tests {
     use super::*;
     
@@ -1289,7 +1289,7 @@ mod tests {
 
 **集成测试**：
 ```rust
-#[tokio::test]
+# [tokio::test]
 async fn test_upload_and_query_keys() {
     let app = create_test_app();
     

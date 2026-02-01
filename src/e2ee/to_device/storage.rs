@@ -1,7 +1,7 @@
+use crate::error::ApiError;
+use serde_json::Value;
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
-use serde_json::Value;
-use crate::error::ApiError;
 
 #[derive(Clone)]
 pub struct ToDeviceStorage {
@@ -25,7 +25,7 @@ impl ToDeviceStorage {
             r#"
             INSERT INTO to_device_messages (user_id, device_id, message_type, content, created_ts)
             VALUES ($1, $2, $3, $4, $5)
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(device_id)
@@ -50,7 +50,7 @@ impl ToDeviceStorage {
             FROM to_device_messages
             WHERE user_id = $1 AND device_id = $2
             ORDER BY created_ts ASC
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(device_id)
@@ -76,7 +76,7 @@ impl ToDeviceStorage {
             r#"
             DELETE FROM to_device_messages
             WHERE id = ANY($1)
-            "#
+            "#,
         )
         .bind(ids)
         .execute(&*self.pool)

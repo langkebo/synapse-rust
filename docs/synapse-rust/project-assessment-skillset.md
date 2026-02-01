@@ -802,7 +802,7 @@ cargo llvm-cov --html
 ### 3.2 评估执行脚本
 
 ```bash
-#!/bin/bash
+# !/bin/bash
 # Synapse Rust 项目评估脚本
 
 set -e
