@@ -534,22 +534,114 @@ async fn profile_query(
     })))
 }
 
+fn topological_sort(pdus: &mut Vec<Value>) {
+    use std::collections::{HashMap, VecDeque};
+
+    let mut graph: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut in_degree: Vec<usize> = vec![0; pdus.len()];
+    let mut event_id_to_idx: HashMap<String, usize> = HashMap::new();
+
+    for (i, pdu) in pdus.iter().enumerate() {
+        if let Some(event_id) = pdu.get("event_id").and_then(|v| v.as_str()) {
+            event_id_to_idx.insert(event_id.to_string(), i);
+        }
+    }
+
+    for (i, pdu) in pdus.iter().enumerate() {
+        if let Some(prev_events) = pdu.get("prev_events").and_then(|v| v.as_array()) {
+            for prev in prev_events {
+                if let Some(prev_id) = prev.as_str() {
+                    if let Some(&_prev_idx) = event_id_to_idx.get(prev_id) {
+                        graph.entry(prev_id.to_string()).or_default().push(i);
+                        in_degree[i] += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut queue = VecDeque::new();
+    for (i, &degree) in in_degree.iter().enumerate() {
+        if degree == 0 {
+            queue.push_back(i);
+        }
+    }
+
+    let mut sorted_indices = Vec::new();
+    while let Some(u) = queue.pop_front() {
+        sorted_indices.push(u);
+        if let Some(event_id) = pdus[u].get("event_id").and_then(|v| v.as_str()) {
+            if let Some(neighbors) = graph.get(event_id) {
+                for &v in neighbors {
+                    in_degree[v] -= 1;
+                    if in_degree[v] == 0 {
+                        queue.push_back(v);
+                    }
+                }
+            }
+        }
+    }
+
+    // If there's a cycle or missing nodes, sorted_indices.len() != pdus.len()
+    // In that case, we just keep the original order for the remaining nodes
+    if sorted_indices.len() == pdus.len() {
+        let mut sorted_pdus = Vec::with_capacity(pdus.len());
+        for idx in sorted_indices {
+            sorted_pdus.push(pdus[idx].clone());
+        }
+        *pdus = sorted_pdus;
+    }
+}
+
 async fn backfill(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
-    let events = body
+    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
+    let v = body
         .get("v")
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("v required".to_string()))?;
 
-    ::tracing::info!("Backfilling room {} with {} events", room_id, events.len());
+    ::tracing::info!(
+        "Backfilling room {} from event(s) {:?} with limit {}",
+        room_id,
+        v,
+        limit
+    );
+
+    // 1. Fetch events from local storage (Simulating backfill)
+    let events = state
+        .services
+        .event_storage
+        .get_room_events(&room_id, limit)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let mut pdus: Vec<Value> = events
+        .into_iter()
+        .map(|e| {
+            json!({
+                "event_id": e.event_id,
+                "type": e.event_type,
+                "sender": e.user_id,
+                "content": e.content,
+                "room_id": e.room_id,
+                "origin_server_ts": e.origin_server_ts,
+                "prev_events": [] // In a real implementation, this would come from the event's DAG
+            })
+        })
+        .collect();
+
+    // 2. Adaptive Topological Sorting
+    topological_sort(&mut pdus);
+
+    ::tracing::debug!("Backfill returning {} sorted PDUs", pdus.len());
 
     Ok(Json(json!({
-        "origin": "localhost",
-        "pdus": [],
+        "origin": state.services.server_name,
+        "pdus": pdus,
         "limit": limit
     })))
 }

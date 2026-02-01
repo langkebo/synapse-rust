@@ -48,11 +48,15 @@ pub struct VoiceMessageUploadParams {
 #[derive(Clone)]
 pub struct VoiceStorage {
     pool: Arc<sqlx::PgPool>,
+    cache: Arc<CacheManager>,
 }
 
 impl VoiceStorage {
-    pub fn new(pool: &Arc<sqlx::PgPool>) -> Self {
-        Self { pool: pool.clone() }
+    pub fn new(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Self {
+        Self {
+            pool: pool.clone(),
+            cache,
+        }
     }
 
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
@@ -286,8 +290,44 @@ impl VoiceStorage {
                 total_file_size = voice_usage_stats.total_file_size + EXCLUDED.total_file_size,
                 message_count = voice_usage_stats.message_count + 1
             "#,
-            user_id, today, duration_delta, size_delta
-        ).execute(&*self.pool).await?;
+            user_id,
+            today,
+            duration_delta,
+            size_delta
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // 2) Update Redis cache (Incremental update)
+        let cache_key = format!("voice_stats:{}", user_id);
+        if let Ok(Some(mut stats_list)) = self.cache.get::<Vec<UserVoiceStats>>(&cache_key).await {
+            let date_str = today.to_string();
+            let mut found = false;
+            for stats in &mut stats_list {
+                if stats.date == date_str {
+                    stats.total_duration_ms += duration_delta as i32;
+                    stats.total_file_size += size_delta;
+                    stats.message_count += 1;
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                stats_list.insert(
+                    0,
+                    UserVoiceStats {
+                        user_id: user_id.to_string(),
+                        date: date_str,
+                        total_duration_ms: duration_delta as i32,
+                        total_file_size: size_delta,
+                        message_count: 1,
+                    },
+                );
+            }
+            // Update cache with 1 hour TTL
+            let _ = self.cache.set(&cache_key, stats_list, 3600).await;
+        }
+
         Ok(())
     }
 
@@ -297,6 +337,15 @@ impl VoiceStorage {
         start_date: Option<&str>,
         end_date: Option<&str>,
     ) -> Result<Vec<UserVoiceStats>, sqlx::Error> {
+        let cache_key = format!("voice_stats:{}", user_id);
+
+        // 1) Try cache first (if no date filters)
+        if start_date.is_none() && end_date.is_none() {
+            if let Ok(Some(stats)) = self.cache.get::<Vec<UserVoiceStats>>(&cache_key).await {
+                return Ok(stats);
+            }
+        }
+
         let query = if let (Some(start), Some(end)) = (start_date, end_date) {
             let rows: Vec<(String, chrono::NaiveDate, i64, i64, i32)> = sqlx::query_as(
                 r#"
@@ -327,7 +376,7 @@ impl VoiceStorage {
             rows
         };
 
-        Ok(query
+        let stats_result: Vec<UserVoiceStats> = query
             .iter()
             .map(|r| UserVoiceStats {
                 user_id: r.0.clone(),
@@ -336,7 +385,14 @@ impl VoiceStorage {
                 total_file_size: r.3,
                 message_count: r.4,
             })
-            .collect())
+            .collect();
+
+        // 2) Cache the results if no date filters
+        if start_date.is_none() && end_date.is_none() {
+            let _ = self.cache.set(&cache_key, stats_result.clone(), 3600).await;
+        }
+
+        Ok(stats_result)
     }
 
     pub async fn get_all_user_stats(&self, limit: i64) -> Result<Vec<UserVoiceStats>, sqlx::Error> {
@@ -393,26 +449,45 @@ pub struct UserVoiceStats {
 #[derive(Clone)]
 pub struct VoiceService {
     pool: Arc<sqlx::PgPool>,
+    cache: Arc<CacheManager>,
     voice_path: PathBuf,
 }
 
 impl VoiceService {
-    pub fn new(pool: &Arc<sqlx::PgPool>, voice_path: &str) -> Self {
+    pub fn new(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>, voice_path: &str) -> Self {
         let path = PathBuf::from(voice_path);
         if !path.exists() {
             std::fs::create_dir_all(&path).ok();
         }
         Self {
             pool: pool.clone(),
+            cache,
             voice_path: path,
         }
+    }
+
+    pub async fn warmup(&self) -> ApiResult<()> {
+        let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
+        // Warm up stats for active users (e.g., top 100 users by activity)
+        let active_users = voice_storage
+            .get_all_user_stats(100)
+            .await
+            .map_err(|e| ApiError::internal(format!("Warmup failed: {}", e)))?;
+
+        for user_stats in active_users {
+            let _ = voice_storage
+                .get_user_stats(&user_stats.user_id, None, None)
+                .await;
+        }
+        ::tracing::info!("Voice service cache warmup completed");
+        Ok(())
     }
 
     pub async fn save_voice_message(
         &self,
         params: VoiceMessageUploadParams,
     ) -> ApiResult<serde_json::Value> {
-        let voice_storage = VoiceStorage::new(&self.pool);
+        let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
         let message_id = format!("vm_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
         let extension = self.get_extension_from_content_type(&params.content_type);
         let file_name = format!("{}.{}", message_id, extension);
@@ -450,7 +525,7 @@ impl VoiceService {
         &self,
         message_id: &str,
     ) -> ApiResult<Option<(Vec<u8>, String)>> {
-        let voice_storage = VoiceStorage::new(&self.pool);
+        let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
         let message = voice_storage
             .get_voice_message(message_id)
             .await
@@ -465,7 +540,7 @@ impl VoiceService {
     }
 
     pub async fn delete_voice_message(&self, user_id: &str, message_id: &str) -> ApiResult<bool> {
-        let voice_storage = VoiceStorage::new(&self.pool);
+        let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
         let deleted = voice_storage
             .delete_voice_message(message_id, user_id)
             .await
@@ -492,7 +567,7 @@ impl VoiceService {
         limit: i64,
         offset: i64,
     ) -> ApiResult<serde_json::Value> {
-        let voice_storage = VoiceStorage::new(&self.pool);
+        let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
         let messages = voice_storage
             .get_user_voice_messages(user_id, limit, offset)
             .await
@@ -525,7 +600,7 @@ impl VoiceService {
         start_date: Option<&str>,
         end_date: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        let voice_storage = VoiceStorage::new(&self.pool);
+        let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
         let stats = voice_storage
             .get_user_stats(user_id, start_date, end_date)
             .await
@@ -549,7 +624,7 @@ impl VoiceService {
         room_id: &str,
         limit: i64,
     ) -> ApiResult<serde_json::Value> {
-        let voice_storage = VoiceStorage::new(&self.pool);
+        let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
         let messages = voice_storage
             .get_room_voice_messages(room_id, limit)
             .await

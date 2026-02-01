@@ -27,6 +27,7 @@ pub struct ServiceContainer {
     pub backup_service: KeyBackupService,
     pub to_device_service: ToDeviceService,
     pub voice_service: VoiceService,
+    pub search_service: Arc<crate::services::search_service::SearchService>,
     pub media_service: MediaService,
     pub cache: Arc<CacheManager>,
     pub server_name: String,
@@ -54,7 +55,11 @@ impl ServiceContainer {
         let to_device_storage = crate::e2ee::to_device::ToDeviceStorage::new(pool);
         let to_device_service = ToDeviceService::new(to_device_storage);
         let presence_service = PresenceStorage::new(presence_pool.clone(), cache.clone());
-        let voice_service = VoiceService::new(pool, "/tmp/synapse_voice");
+        let voice_service = VoiceService::new(pool, cache.clone(), "/tmp/synapse_voice");
+        let search_service = Arc::new(crate::services::search_service::SearchService::new(
+            &config.search.elasticsearch_url,
+            config.search.enabled,
+        ));
         let media_service = MediaService::new("media");
 
         Self {
@@ -73,6 +78,7 @@ impl ServiceContainer {
             backup_service,
             to_device_service,
             voice_service,
+            search_service,
             media_service,
             cache,
             server_name: config.server.name.clone(),
@@ -145,6 +151,10 @@ impl ServiceContainer {
                 expiry_time: 3600,
                 refresh_token_expiry: 604800,
                 bcrypt_rounds: 12,
+            },
+            search: SearchConfig {
+                elasticsearch_url: "http://localhost:9200".to_string(),
+                enabled: false,
             },
         };
         Self::new(&pool, cache, config)
@@ -256,6 +266,7 @@ pub mod media_service;
 pub mod private_chat_service;
 pub mod registration_service;
 pub mod room_service;
+pub mod search_service;
 pub mod sync_service;
 pub mod voice_service;
 

@@ -56,7 +56,11 @@ pub fn create_private_chat_router(_state: AppState) -> Router<AppState> {
 async fn get_dm_rooms(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Json<Value> {
     let pool = state.services.user_storage.pool.clone();
     let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(&service_container, &pool);
+    let private_chat_service = PrivateChatService::new(
+        &service_container,
+        &pool,
+        state.services.search_service.clone(),
+    );
 
     match private_chat_service.get_sessions(&auth_user.user_id).await {
         Ok(result) => Json(result),
@@ -101,7 +105,11 @@ async fn get_unread_notifications(
 async fn get_sessions(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Json<Value> {
     let pool = state.services.user_storage.pool.clone();
     let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(&service_container, &pool);
+    let private_chat_service = PrivateChatService::new(
+        &service_container,
+        &pool,
+        state.services.search_service.clone(),
+    );
 
     match private_chat_service.get_sessions(&auth_user.user_id).await {
         Ok(result) => Json(result),
@@ -120,7 +128,11 @@ async fn create_session(
 ) -> Json<Value> {
     let pool = state.services.user_storage.pool.clone();
     let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(&service_container, &pool);
+    let private_chat_service = PrivateChatService::new(
+        &service_container,
+        &pool,
+        state.services.search_service.clone(),
+    );
 
     let other_user_id = body
         .get("other_user_id")
@@ -158,7 +170,7 @@ async fn delete_session(
 ) -> Json<Value> {
     let pool = state.services.user_storage.pool.clone();
     let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(&service_container, &pool);
+    let private_chat_service = PrivateChatService::new(&service_container, &pool, state.services.search_service.clone());
 
     match private_chat_service
         .delete_session(&auth_user.user_id, &session_id)
@@ -179,7 +191,7 @@ async fn get_session_messages(
 ) -> Json<Value> {
     let pool = state.services.user_storage.pool.clone();
     let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(&service_container, &pool);
+    let private_chat_service = PrivateChatService::new(&service_container, &pool, state.services.search_service.clone());
 
     match private_chat_service
         .get_messages(&auth_user.user_id, &session_id, 50, None)
@@ -202,7 +214,7 @@ async fn send_session_message(
 ) -> Json<Value> {
     let pool = state.services.user_storage.pool.clone();
     let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(&service_container, &pool);
+    let private_chat_service = PrivateChatService::new(&service_container, &pool, state.services.search_service.clone());
 
     let message_type = body
         .get("message_type")
@@ -237,7 +249,7 @@ async fn delete_message(
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let pool = state.services.user_storage.pool.clone();
     let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(&service_container, &pool);
+    let private_chat_service = PrivateChatService::new(&service_container, &pool, state.services.search_service.clone());
 
     match private_chat_service
         .delete_message(&auth_user.user_id, &message_id)
@@ -256,7 +268,7 @@ async fn mark_message_read(
 ) -> Json<Value> {
     let pool = state.services.user_storage.pool.clone();
     let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(&service_container, &pool);
+    let private_chat_service = PrivateChatService::new(&service_container, &pool, state.services.search_service.clone());
 
     match private_chat_service
         .mark_session_read(&auth_user.user_id, &message_id)
@@ -276,7 +288,7 @@ async fn get_unread_count(
 ) -> Json<Value> {
     let pool = state.services.user_storage.pool.clone();
     let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(&service_container, &pool);
+    let private_chat_service = PrivateChatService::new(&service_container, &pool, state.services.search_service.clone());
 
     match private_chat_service
         .get_unread_count(&auth_user.user_id)
@@ -300,7 +312,7 @@ async fn search_messages(
 ) -> Json<Value> {
     let pool = state.services.user_storage.pool.clone();
     let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(&service_container, &pool);
+    let private_chat_service = PrivateChatService::new(&service_container, &pool, state.services.search_service.clone());
 
     let query = body.get("query").and_then(|v| v.as_str()).unwrap_or("");
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(50);

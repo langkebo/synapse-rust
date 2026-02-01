@@ -11,6 +11,13 @@ pub struct Config {
     pub logging: LoggingConfig,
     pub federation: FederationConfig,
     pub security: SecurityConfig,
+    pub search: SearchConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SearchConfig {
+    pub elasticsearch_url: String,
+    pub enabled: bool,
 }
 
 pub struct ConfigManager {
@@ -249,6 +256,10 @@ mod tests {
                 refresh_token_expiry: 604800,
                 bcrypt_rounds: 12,
             },
+            search: SearchConfig {
+                elasticsearch_url: "http://localhost:9200".to_string(),
+                enabled: false,
+            },
         };
 
         let url = config.database_url();
@@ -315,6 +326,10 @@ mod tests {
                 expiry_time: 3600,
                 refresh_token_expiry: 604800,
                 bcrypt_rounds: 12,
+            },
+            search: SearchConfig {
+                elasticsearch_url: "http://localhost:9200".to_string(),
+                enabled: false,
             },
         };
 

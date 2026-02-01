@@ -483,13 +483,19 @@ pub struct SearchResult {
 pub struct PrivateChatService<'a> {
     services: &'a ServiceContainer,
     chat_storage: PrivateChatStorage,
+    search_service: Arc<crate::services::search_service::SearchService>,
 }
 
 impl<'a> PrivateChatService<'a> {
-    pub fn new(services: &'a ServiceContainer, pool: &Arc<sqlx::PgPool>) -> Self {
+    pub fn new(
+        services: &'a ServiceContainer,
+        pool: &Arc<sqlx::PgPool>,
+        search_service: Arc<crate::services::search_service::SearchService>,
+    ) -> Self {
         Self {
             services,
             chat_storage: PrivateChatStorage::new(pool),
+            search_service,
         }
     }
 
@@ -598,22 +604,27 @@ impl<'a> PrivateChatService<'a> {
         content: &serde_json::Value,
         encrypted: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
+        let content_str = content.to_string();
         let message_id = self
             .chat_storage
-            .send_message(
-                session_id,
-                user_id,
-                message_type,
-                &content.to_string(),
-                encrypted,
-            )
+            .send_message(session_id, user_id, message_type, &content_str, encrypted)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        let created_ts = chrono::Utc::now().timestamp();
+
+        // Dual-write to Elasticsearch
+        if self.search_service.is_enabled() {
+            let _ = self
+                .search_service
+                .index_message(message_id, session_id, user_id, &content_str, created_ts)
+                .await;
+        }
 
         Ok(json!({
             "message_id": format!("pm_{}", message_id),
             "session_id": session_id,
-            "created_ts": chrono::Utc::now().timestamp_millis()
+            "created_ts": created_ts * 1000
         }))
     }
 
@@ -666,6 +677,26 @@ impl<'a> PrivateChatService<'a> {
         query: &str,
         limit: i64,
     ) -> ApiResult<serde_json::Value> {
+        // Dynamic Routing: Use ES if enabled, fallback to PG
+        if self.search_service.is_enabled() {
+            match self
+                .search_service
+                .search_messages(user_id, query, limit)
+                .await
+            {
+                Ok(results) => {
+                    return Ok(json!({
+                        "results": results,
+                        "count": results.len(),
+                        "query": query
+                    }))
+                }
+                Err(e) => {
+                    ::tracing::warn!("Elasticsearch search failed, falling back to PG: {}", e);
+                }
+            }
+        }
+
         let results = self
             .chat_storage
             .search_messages(user_id, query, limit)
