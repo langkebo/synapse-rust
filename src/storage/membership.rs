@@ -133,6 +133,18 @@ impl RoomMemberStorage {
         Ok(())
     }
 
+    pub async fn remove_all_members(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            DELETE FROM room_memberships WHERE room_id = $1
+            "#,
+        )
+        .bind(room_id)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn ban_member(
         &self,
         room_id: &str,
@@ -171,25 +183,27 @@ impl RoomMemberStorage {
     }
 
     pub async fn get_joined_rooms(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows = sqlx::query!(
+        let rows: Vec<String> = sqlx::query_scalar::<_, String>(
             r#"
             SELECT room_id FROM room_memberships WHERE user_id = $1 AND membership = 'join'
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_all(&*self.pool)
         .await?;
-        Ok(rows.iter().map(|r| r.room_id.clone()).collect())
+        Ok(rows)
     }
 
     pub async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(
+        let result = sqlx::query_scalar::<_, i32>(
             r#"
             SELECT 1 AS "exists" FROM room_memberships WHERE room_id = $1 AND user_id = $2 AND membership = 'join' LIMIT 1
             "#,
-            room_id,
-            user_id
-        ).fetch_optional(&*self.pool).await?;
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await?;
         Ok(result.is_some())
     }
 
@@ -250,16 +264,15 @@ impl RoomMemberStorage {
         user_id_1: &str,
         user_id_2: &str,
     ) -> Result<bool, sqlx::Error> {
-        let rooms1: Vec<String> = sqlx::query!(
+        let rooms1: Vec<String> = sqlx::query_scalar::<_, String>(
             r#"
             SELECT room_id FROM room_memberships WHERE user_id = $1 AND membership = 'join'
             "#,
-            user_id_1
         )
+        .bind(user_id_1)
         .fetch_all(&*self.pool)
         .await?
-        .iter()
-        .map(|r| r.room_id.clone())
+        .into_iter()
         .collect();
 
         if rooms1.is_empty() {

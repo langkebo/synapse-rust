@@ -253,9 +253,10 @@ async fn register(
     let admin = body.get("admin").and_then(|v| v.as_bool()).unwrap_or(false);
     let displayname = body.get("displayname").and_then(|v| v.as_str());
 
-    let registration_service = RegistrationService::new(&state.services);
     Ok(Json(
-        registration_service
+        state
+            .services
+            .registration_service
             .register_user(username, password, admin, displayname)
             .await?,
     ))
@@ -370,10 +371,21 @@ async fn refresh_token(
     })))
 }
 
-async fn whoami(auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
+async fn whoami(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let profile = state
+        .services
+        .user_storage
+        .get_user_profile(&auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
     Ok(Json(json!({
         "user_id": auth_user.user_id,
-        "displayname": None::<String>,
+        "displayname": profile.as_ref().and_then(|p| p.displayname.clone()),
+        "avatar_url": profile.as_ref().and_then(|p| p.avatar_url.clone()),
         "admin": auth_user.is_admin
     })))
 }
@@ -383,8 +395,13 @@ async fn get_profile(
     _auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let registration_service = RegistrationService::new(&state.services);
-    Ok(Json(registration_service.get_profile(&user_id).await?))
+    Ok(Json(
+        state
+            .services
+            .registration_service
+            .get_profile(&user_id)
+            .await?,
+    ))
 }
 
 async fn update_displayname(
@@ -402,8 +419,9 @@ async fn update_displayname(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Displayname required".to_string()))?;
 
-    let registration_service = RegistrationService::new(&state.services);
-    registration_service
+    state
+        .services
+        .registration_service
         .update_user_profile(&user_id, Some(displayname), None)
         .await?;
     Ok(Json(json!({})))
@@ -424,8 +442,9 @@ async fn update_avatar(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Avatar URL required".to_string()))?;
 
-    let registration_service = RegistrationService::new(&state.services);
-    registration_service
+    state
+        .services
+        .registration_service
         .update_user_profile(&user_id, None, Some(avatar_url))
         .await?;
     Ok(Json(json!({})))
@@ -441,8 +460,9 @@ async fn change_password(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("New password required".to_string()))?;
 
-    let registration_service = RegistrationService::new(&state.services);
-    registration_service
+    state
+        .services
+        .registration_service
         .change_password(&auth_user.user_id, new_password)
         .await?;
 
@@ -454,8 +474,9 @@ async fn deactivate_account(
     auth_user: AuthenticatedUser,
     Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let registration_service = RegistrationService::new(&state.services);
-    registration_service
+    state
+        .services
+        .registration_service
         .deactivate_account(&auth_user.user_id)
         .await?;
     Ok(Json(json!({})))
@@ -482,9 +503,10 @@ async fn sync(
         .and_then(|v| v.as_str())
         .unwrap_or("online");
 
-    let sync_service = SyncService::new(&state.services);
     Ok(Json(
-        sync_service
+        state
+            .services
+            .sync_service
             .sync(&user_id, timeout, full_state, set_presence)
             .await?,
     ))
@@ -504,9 +526,10 @@ async fn get_messages(
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
 
-    let room_service = RoomService::new(&state.services);
     Ok(Json(
-        room_service
+        state
+            .services
+            .room_service
             .get_room_messages(&room_id, from as i64, limit as i64, direction)
             .await?,
     ))
@@ -526,9 +549,10 @@ async fn send_message(
         .get("body")
         .ok_or_else(|| ApiError::bad_request("Message body required".to_string()))?;
 
-    let room_service = RoomService::new(&state.services);
     Ok(Json(
-        room_service
+        state
+            .services
+            .room_service
             .send_message(&room_id, &auth_user.user_id, msgtype, content)
             .await?,
     ))
@@ -542,8 +566,11 @@ async fn join_room(
     let token = extract_token_from_headers(&headers)?;
     let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
 
-    let room_service = RoomService::new(&state.services);
-    room_service.join_room(&room_id, &user_id).await?;
+    state
+        .services
+        .room_service
+        .join_room(&room_id, &user_id)
+        .await?;
     Ok(Json(json!({})))
 }
 
@@ -552,8 +579,9 @@ async fn leave_room(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_service = RoomService::new(&state.services);
-    room_service
+    state
+        .services
+        .room_service
         .leave_room(&room_id, &auth_user.user_id)
         .await?;
     Ok(Json(json!({})))
@@ -567,8 +595,11 @@ async fn get_room_members(
     let token = extract_token_from_headers(&headers)?;
     let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
 
-    let room_service = RoomService::new(&state.services);
-    let members = room_service.get_room_members(&room_id, &user_id).await?;
+    let members = state
+        .services
+        .room_service
+        .get_room_members(&room_id, &user_id)
+        .await?;
     Ok(Json(members))
 }
 
@@ -583,8 +614,9 @@ async fn invite_user(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
 
-    let room_service = RoomService::new(&state.services);
-    room_service
+    state
+        .services
+        .room_service
         .invite_user(&room_id, &auth_user.user_id, invitee)
         .await?;
     Ok(Json(json!({})))
@@ -599,6 +631,14 @@ async fn create_room(
     let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     let visibility = body.get("visibility").and_then(|v| v.as_str());
+    if let Some(v) = visibility {
+        if v != "public" && v != "private" {
+            return Err(ApiError::bad_request(
+                "Visibility must be 'public' or 'private'".to_string(),
+            ));
+        }
+    }
+
     let room_alias = body.get("room_alias_name").and_then(|v| v.as_str());
     let name = body.get("name").and_then(|v| v.as_str());
     let topic = body.get("topic").and_then(|v| v.as_str());
@@ -619,8 +659,13 @@ async fn create_room(
         ..Default::default()
     };
 
-    let room_service = RoomService::new(&state.services);
-    Ok(Json(room_service.create_room(&user_id, config).await?))
+    Ok(Json(
+        state
+            .services
+            .room_service
+            .create_room(&user_id, config)
+            .await?,
+    ))
 }
 
 async fn get_room(
@@ -628,19 +673,19 @@ async fn get_room(
     _auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_service = RoomService::new(&state.services);
-    Ok(Json(room_service.get_room(&room_id).await?))
+    Ok(Json(state.services.room_service.get_room(&room_id).await?))
 }
 
 async fn delete_room(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path(_room_id): Path<String>,
+    Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     if !auth_user.is_admin {
         return Err(ApiError::forbidden("Admin access required".to_string()));
     }
 
+    state.services.room_service.delete_room(&room_id).await?;
     Ok(Json(json!({})))
 }
 
@@ -652,8 +697,13 @@ async fn get_public_rooms(
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
     let _since = params.get("since").and_then(|v| v.as_str());
 
-    let room_service = RoomService::new(&state.services);
-    Ok(Json(room_service.get_public_rooms(limit as i64).await?))
+    Ok(Json(
+        state
+            .services
+            .room_service
+            .get_public_rooms(limit as i64)
+            .await?,
+    ))
 }
 
 #[axum::debug_handler]
@@ -663,6 +713,14 @@ async fn create_public_room(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let visibility = body.get("visibility").and_then(|v| v.as_str());
+    if let Some(v) = visibility {
+        if v != "public" && v != "private" {
+            return Err(ApiError::bad_request(
+                "Visibility must be 'public' or 'private'".to_string(),
+            ));
+        }
+    }
+
     let room_alias = body.get("room_alias_name").and_then(|v| v.as_str());
     let name = body.get("name").and_then(|v| v.as_str());
     let topic = body.get("topic").and_then(|v| v.as_str());
@@ -683,9 +741,12 @@ async fn create_public_room(
         ..Default::default()
     };
 
-    let room_service = RoomService::new(&state.services);
     Ok(Json(
-        room_service.create_room(&auth_user.user_id, config).await?,
+        state
+            .services
+            .room_service
+            .create_room(&auth_user.user_id, config)
+            .await?,
     ))
 }
 
@@ -698,8 +759,11 @@ async fn get_user_rooms(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let room_service = RoomService::new(&state.services);
-    let rooms = room_service.get_joined_rooms(&user_id).await?;
+    let rooms = state
+        .services
+        .room_service
+        .get_joined_rooms(&user_id)
+        .await?;
 
     Ok(Json(json!({
         "joined_rooms": rooms

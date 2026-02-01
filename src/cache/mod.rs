@@ -1,14 +1,19 @@
 use crate::auth::Claims;
 use crate::common::ApiError;
+use deadpool_redis::{Config, Pool, Runtime};
 use moka::sync::Cache;
+use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::time::Duration;
+use tokio::time::timeout;
 
 pub mod strategy;
 
 pub use strategy::{CacheKeyBuilder, CacheTtl};
+
+const REDIS_TIMEOUT: Duration = Duration::from_millis(200);
 
 pub struct CacheConfig {
     pub max_capacity: u64,
@@ -63,61 +68,54 @@ impl LocalCache {
 }
 
 pub struct RedisCache {
-    client: Arc<Mutex<redis::Client>>,
+    pool: Pool,
 }
 
 impl RedisCache {
     pub async fn new(conn_str: &str) -> Result<Self, redis::RedisError> {
-        let client = redis::Client::open(conn_str)?;
-        Ok(Self {
-            client: Arc::new(Mutex::new(client)),
-        })
+        let cfg = Config::from_url(conn_str);
+        let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
+            redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Pool creation failed",
+                e.to_string(),
+            ))
+        })?;
+        Ok(Self { pool })
     }
 
     pub async fn get(&self, key: &str) -> Option<String> {
-        let client = self.client.lock().await;
-        if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
-            if let Ok(val) = redis::cmd("GET")
-                .arg(key)
-                .query_async::<String>(&mut conn)
-                .await
-            {
-                return Some(val);
+        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await;
+        if let Ok(Ok(mut conn)) = conn_result {
+            let cmd_result = timeout(REDIS_TIMEOUT, conn.get::<_, Option<String>>(key)).await;
+            if let Ok(Ok(val)) = cmd_result {
+                return val;
             }
         }
         None
     }
 
     pub async fn set(&self, key: &str, value: &str, ttl: u64) {
-        let client = self.client.lock().await;
-        if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
+        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await;
+        if let Ok(Ok(mut conn)) = conn_result {
             if ttl > 0 {
-                redis::cmd("SETEX")
-                    .arg(key)
-                    .arg(ttl as i64)
-                    .arg(value)
-                    .query_async::<()>(&mut conn)
+                let _: Result<(), _> = timeout(REDIS_TIMEOUT, conn.set_ex(key, value, ttl))
                     .await
-                    .ok();
+                    .unwrap_or(Ok(()));
             } else {
-                redis::cmd("SET")
-                    .arg(key)
-                    .arg(value)
-                    .query_async::<()>(&mut conn)
+                let _: Result<(), _> = timeout(REDIS_TIMEOUT, conn.set(key, value))
                     .await
-                    .ok();
+                    .unwrap_or(Ok(()));
             }
         }
     }
 
     pub async fn delete(&self, key: &str) {
-        let client = self.client.lock().await;
-        if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
-            redis::cmd("DEL")
-                .arg(key)
-                .query_async::<()>(&mut conn)
+        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await;
+        if let Ok(Ok(mut conn)) = conn_result {
+            let _: Result<(), _> = timeout(REDIS_TIMEOUT, conn.del(key))
                 .await
-                .ok();
+                .unwrap_or(Ok(()));
         }
     }
 
@@ -127,31 +125,52 @@ impl RedisCache {
         field: &str,
         delta: i64,
     ) -> Result<i64, redis::RedisError> {
-        let client = self.client.lock().await;
-        let mut conn = client.get_multiplexed_async_connection().await?;
-        redis::cmd("HINCRBY")
-            .arg(key)
-            .arg(field)
-            .arg(delta)
-            .query_async(&mut conn)
+        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await.map_err(|_| {
+            redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
+        })?;
+
+        let mut conn = conn_result.map_err(|e| {
+            redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Redis pool exhaustion",
+                e.to_string(),
+            ))
+        })?;
+
+        timeout(REDIS_TIMEOUT, conn.hincr(key, field, delta))
             .await
+            .map_err(|_| {
+                redis::RedisError::from((redis::ErrorKind::IoError, "Redis command timeout"))
+            })?
     }
 
     pub async fn hgetall(&self, key: &str) -> Result<HashMap<String, String>, redis::RedisError> {
-        let client = self.client.lock().await;
-        let mut conn = client.get_multiplexed_async_connection().await?;
-        redis::cmd("HGETALL").arg(key).query_async(&mut conn).await
+        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await.map_err(|_| {
+            redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
+        })?;
+
+        let mut conn = conn_result.map_err(|e| {
+            redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Redis pool exhaustion",
+                e.to_string(),
+            ))
+        })?;
+
+        timeout(REDIS_TIMEOUT, conn.hgetall(key))
+            .await
+            .map_err(|_| {
+                redis::RedisError::from((redis::ErrorKind::IoError, "Redis command timeout"))
+            })?
     }
 
     pub async fn expire(&self, key: &str, ttl: u64) {
-        let client = self.client.lock().await;
-        if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
-            redis::cmd("EXPIRE")
-                .arg(key)
-                .arg(ttl as i64)
-                .query_async::<()>(&mut conn)
-                .await
-                .ok();
+        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await;
+        if let Ok(Ok(mut conn)) = conn_result {
+            let _: Result<(), redis::RedisError> =
+                timeout(REDIS_TIMEOUT, conn.expire(key, ttl as i64))
+                    .await
+                    .unwrap_or(Ok(()));
         }
     }
 
@@ -163,8 +182,18 @@ impl RedisCache {
         burst_size: u32,
         ttl_seconds: u64,
     ) -> Result<RateLimitDecision, redis::RedisError> {
-        let client = self.client.lock().await;
-        let mut conn = client.get_multiplexed_async_connection().await?;
+        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await.map_err(|_| {
+            redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
+        })?;
+
+        let mut conn = conn_result.map_err(|e| {
+            redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Redis pool exhaustion",
+                e.to_string(),
+            ))
+        })?;
+
         let script = redis::Script::new(
             r#"
 local key = KEYS[1]
@@ -211,14 +240,22 @@ return {allowed, retry_after, remaining}
             "#,
         );
 
-        let (allowed, retry_after_seconds, remaining) = script
-            .key(key)
-            .arg(now_ms as i64)
-            .arg(rate_per_second as i64)
-            .arg(burst_size as i64)
-            .arg(ttl_seconds as i64)
-            .invoke_async::<(i64, i64, i64)>(&mut conn)
-            .await?;
+        let cmd_result = timeout(
+            REDIS_TIMEOUT,
+            script
+                .key(key)
+                .arg(now_ms as i64)
+                .arg(rate_per_second as i64)
+                .arg(burst_size as i64)
+                .arg(ttl_seconds as i64)
+                .invoke_async::<(i64, i64, i64)>(&mut conn),
+        )
+        .await
+        .map_err(|_| {
+            redis::RedisError::from((redis::ErrorKind::IoError, "Redis script timeout"))
+        })?;
+
+        let (allowed, retry_after_seconds, remaining) = cmd_result?;
 
         Ok(RateLimitDecision {
             allowed: allowed != 0,

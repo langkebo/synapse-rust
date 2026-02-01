@@ -28,7 +28,7 @@ impl ScheduledTasks {
             last_performance_metrics: Arc::new(RwLock::new(None)),
             last_integrity_report: Arc::new(RwLock::new(None)),
             last_maintenance_report: Arc::new(RwLock::new(None)),
-            health_check_interval: Duration::from_secs(60),
+            health_check_interval: Duration::from_secs(10),
             performance_check_interval: Duration::from_secs(300),
             integrity_check_interval: Duration::from_secs(3600),
             maintenance_interval: Duration::from_secs(86400),

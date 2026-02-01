@@ -144,12 +144,12 @@ impl DeviceStorage {
     }
 
     pub async fn device_exists(&self, device_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(
+        let result = sqlx::query_scalar::<_, i32>(
             r#"
             SELECT 1 AS "exists" FROM devices WHERE device_id = $1 LIMIT 1
             "#,
-            device_id
         )
+        .bind(device_id)
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.is_some())

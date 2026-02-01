@@ -425,29 +425,35 @@ impl SecurityStorage {
 }
 
 #[axum::debug_handler]
-async fn get_security_events(_admin: AdminUser, State(state): State<AppState>) -> Json<Value> {
+async fn get_security_events(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
     let events = security_storage
         .get_security_events(100)
         .await
-        .unwrap_or_else(|_| vec![]);
-    Json(json!({
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    Ok(Json(json!({
         "events": events,
         "total": events.len()
-    }))
+    })))
 }
 
 #[axum::debug_handler]
-async fn get_ip_blocks(_admin: AdminUser, State(state): State<AppState>) -> Json<Value> {
+async fn get_ip_blocks(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
     let blocked_ips = security_storage
         .get_blocked_ips()
         .await
-        .unwrap_or_else(|_| vec![]);
-    Json(json!({
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    Ok(Json(json!({
         "blocked_ips": blocked_ips,
         "total": blocked_ips.len()
-    }))
+    })))
 }
 
 #[axum::debug_handler]
@@ -455,7 +461,7 @@ async fn block_ip(
     admin: AdminUser,
     State(state): State<AppState>,
     Json(body): Json<BlockIpBody>,
-) -> Json<Value> {
+) -> Result<Json<Value>, ApiError> {
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
 
     // Log admin action
@@ -474,20 +480,15 @@ async fn block_ip(
             .map(|dt| dt.naive_utc())
     });
 
-    let result = security_storage
+    security_storage
         .block_ip(&body.ip_address, body.reason.as_deref(), expires_at)
-        .await;
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to block IP: {}", e)))?;
 
-    match result {
-        Ok(_) => Json(json!({
-            "success": true,
-            "ip_address": body.ip_address
-        })),
-        Err(e) => Json(json!({
-            "success": false,
-            "error": format!("Failed to block IP: {}", e)
-        })),
-    }
+    Ok(Json(json!({
+        "success": true,
+        "ip_address": body.ip_address
+    })))
 }
 
 #[axum::debug_handler]
@@ -495,7 +496,7 @@ async fn unblock_ip(
     admin: AdminUser,
     State(state): State<AppState>,
     Json(body): Json<UnblockIpBody>,
-) -> Json<Value> {
+) -> Result<Json<Value>, ApiError> {
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
 
     // Log admin action
@@ -503,19 +504,16 @@ async fn unblock_ip(
         .log_admin_action(&admin.user_id, "unblock_ip", Some(&body.ip_address), None)
         .await;
 
-    let result = security_storage.unblock_ip(&body.ip_address).await;
+    let unblocked = security_storage
+        .unblock_ip(&body.ip_address)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to unblock IP: {}", e)))?;
 
-    match result {
-        Ok(unblocked) => Json(json!({
-            "success": unblocked,
-            "ip_address": body.ip_address,
-            "message": if unblocked { "IP unblocked" } else { "IP was not blocked" }
-        })),
-        Err(e) => Json(json!({
-            "success": false,
-            "error": format!("Failed to unblock IP: {}", e)
-        })),
-    }
+    Ok(Json(json!({
+        "success": unblocked,
+        "ip_address": body.ip_address,
+        "message": if unblocked { "IP unblocked" } else { "IP was not blocked" }
+    })))
 }
 
 #[axum::debug_handler]
@@ -523,20 +521,20 @@ async fn get_ip_reputation(
     _admin: AdminUser,
     State(state): State<AppState>,
     Path(ip): Path<String>,
-) -> Json<Value> {
+) -> Result<Json<Value>, ApiError> {
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
     let reputation = security_storage
         .get_ip_reputation(&ip)
         .await
-        .unwrap_or(None);
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     match reputation {
-        Some(rep) => Json(rep),
-        _ => Json(json!({
+        Some(rep) => Ok(Json(rep)),
+        _ => Ok(Json(json!({
             "ip_address": ip,
             "score": 0,
             "message": "No reputation data available"
-        })),
+        }))),
     }
 }
 
@@ -569,11 +567,14 @@ async fn get_status(
 }
 
 #[axum::debug_handler]
-async fn get_server_version(_admin: AdminUser, State(_state): State<AppState>) -> Json<Value> {
-    Json(serde_json::json!({
+async fn get_server_version(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(serde_json::json!({
         "version": "1.0.0",
         "python_version": "3.9.0"
-    }))
+    })))
 }
 
 #[axum::debug_handler]
@@ -593,9 +594,16 @@ async fn get_users(
         .unwrap_or(0)
         .clamp(0, i64::MAX);
 
+    let cache_key = format!("admin:users:limit={}:offset={}", limit, offset);
+
+    // 1. Try Cache
+    if let Ok(Some(cached_data)) = state.cache.get::<Value>(&cache_key).await {
+        return Ok(Json(cached_data));
+    }
+
     tracing::info!(
         target: "admin_api",
-        "Admin user list request: limit={}, offset={}",
+        "Admin user list request (DB): limit={}, offset={}",
         limit,
         offset
     );
@@ -618,7 +626,7 @@ async fn get_users(
     let duration_ms = start.elapsed().as_millis();
     tracing::info!(
         target: "admin_api",
-        "Admin user list completed: returned {} users, total={}, duration_ms={}",
+        "Admin user list completed (DB): returned {} users, total={}, duration_ms={}",
         users.len(),
         total,
         duration_ms
@@ -640,10 +648,15 @@ async fn get_users(
         })
         .collect();
 
-    Ok(Json(serde_json::json!({
+    let response = serde_json::json!({
         "users": user_list,
         "total": total
-    })))
+    });
+
+    // 3. Save to Cache (TTL 5 minutes)
+    let _ = state.cache.set(&cache_key, response.clone(), 300).await;
+
+    Ok(Json(response))
 }
 
 #[axum::debug_handler]
@@ -733,9 +746,16 @@ async fn get_rooms(
         .unwrap_or(0)
         .clamp(0, i64::MAX);
 
+    let cache_key = format!("admin:rooms:limit={}:offset={}", limit, offset);
+
+    // 1. Try Cache
+    if let Ok(Some(cached_data)) = state.cache.get::<Value>(&cache_key).await {
+        return Ok(Json(cached_data));
+    }
+
     tracing::info!(
         target: "admin_api",
-        "Admin room list request: limit={}, offset={}",
+        "Admin room list request (DB): limit={}, offset={}",
         limit,
         offset
     );
@@ -758,7 +778,7 @@ async fn get_rooms(
     let duration_ms = start.elapsed().as_millis();
     tracing::info!(
         target: "admin_api",
-        "Admin room list completed: returned {} rooms, total={}, duration_ms={}",
+        "Admin room list completed (DB): returned {} rooms, total={}, duration_ms={}",
         rooms_with_members.len(),
         total,
         duration_ms
@@ -779,10 +799,15 @@ async fn get_rooms(
         })
         .collect();
 
-    Ok(Json(serde_json::json!({
+    let response = serde_json::json!({
         "rooms": room_list,
         "total": total
-    })))
+    });
+
+    // 3. Save to Cache (TTL 5 minutes)
+    let _ = state.cache.set(&cache_key, response.clone(), 300).await;
+
+    Ok(Json(response))
 }
 
 #[axum::debug_handler]
@@ -832,25 +857,65 @@ async fn delete_room(
 #[axum::debug_handler]
 async fn purge_history(
     _admin: AdminUser,
-    State(_state): State<AppState>,
-    Json(_body): Json<Value>,
-) -> Json<Value> {
-    Json(serde_json::json!({
-        "success": true
-    }))
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let room_id = body
+        .get("room_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
+    let timestamp = body
+        .get("purge_up_to_ts")
+        .and_then(|v| v.as_i64())
+        .unwrap_or_else(|| {
+            chrono::Utc::now().timestamp_millis() - (30 * 24 * 60 * 60 * 1000) // Default 30 days
+        });
+
+    let deleted_count = state
+        .services
+        .event_storage
+        .delete_events_before(room_id, timestamp)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to purge history: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "deleted_events": deleted_count
+    })))
 }
 
 #[axum::debug_handler]
 async fn shutdown_room(
     _admin: AdminUser,
-    State(_state): State<AppState>,
-    Json(_body): Json<Value>,
-) -> Json<Value> {
-    Json(serde_json::json!({
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let room_id = body
+        .get("room_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
+
+    // 1. Mark room as shutdown in DB
+    state
+        .services
+        .room_storage
+        .shutdown_room(room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to shutdown room: {}", e)))?;
+
+    // 2. Kick all members
+    state
+        .services
+        .member_storage
+        .remove_all_members(room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
         "kicked_users": [],
         "failed_to_kick_users": [],
         "closed_room": true
-    }))
+    })))
 }
 
 #[axum::debug_handler]

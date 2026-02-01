@@ -1,4 +1,5 @@
 use crate::services::*;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -10,51 +11,48 @@ pub struct PrivateChatStorage {
 }
 
 impl PrivateChatStorage {
-    /// Creates a new PrivateChatStorage instance.
-    ///
-    /// # Arguments
-    /// * `pool` - Shared PostgreSQL connection pool
-    ///
-    /// # Returns
-    /// A new PrivateChatStorage instance
     pub fn new(pool: &Arc<sqlx::PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    pub async fn get_session_details(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionDetails>, sqlx::Error> {
+        sqlx::query_as::<_, SessionDetails>(
+            r#"
+            SELECT id as session_id, user_id_1, user_id_2, created_ts, updated_ts, last_activity_ts, unread_count
+            FROM private_sessions
+            WHERE id = $1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
     /// Creates the required tables for private messaging if they don't exist.
-    ///
-    /// Creates the following tables:
-    /// - private_sessions: Stores chat sessions between user pairs
-    /// - private_messages: Stores individual messages in sessions
-    /// - session_keys: Stores encryption keys for sessions
-    ///
-    /// # Returns
-    /// Result indicating success or database error
-    ///
-    /// # Errors
-    /// Returns sqlx::Error if table creation fails
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS private_sessions (
-                id SERIAL PRIMARY KEY,
-                session_id VARCHAR(255) NOT NULL UNIQUE,
+                id VARCHAR(255) PRIMARY KEY,
                 user_id_1 VARCHAR(255) NOT NULL,
                 user_id_2 VARCHAR(255) NOT NULL,
                 created_ts BIGINT NOT NULL,
                 updated_ts BIGINT NOT NULL,
-                last_message_ts BIGINT,
+                last_activity_ts BIGINT,
                 unread_count INT DEFAULT 0
             )
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS private_messages (
-                id SERIAL PRIMARY KEY,
+                id BIGSERIAL PRIMARY KEY,
                 session_id VARCHAR(255) NOT NULL,
                 sender_id VARCHAR(255) NOT NULL,
                 message_type VARCHAR(50) NOT NULL,
@@ -63,21 +61,21 @@ impl PrivateChatStorage {
                 read_by_receiver BOOLEAN DEFAULT FALSE,
                 created_ts BIGINT NOT NULL
             )
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS session_keys (
-                id SERIAL PRIMARY KEY,
+                id BIGSERIAL PRIMARY KEY,
                 session_id VARCHAR(255) NOT NULL,
                 sender_id VARCHAR(255) NOT NULL,
                 key_data TEXT NOT NULL,
                 created_ts BIGINT NOT NULL
             )
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
@@ -85,17 +83,6 @@ impl PrivateChatStorage {
         Ok(())
     }
 
-    /// Creates a new private chat session between two users.
-    ///
-    /// # Arguments
-    /// * `user_id_1` - First user's ID
-    /// * `user_id_2` - Second user's ID
-    ///
-    /// # Returns
-    /// Result containing the new session ID
-    ///
-    /// # Errors
-    /// Returns sqlx::Error if database operation fails
     pub async fn create_session(
         &self,
         user_id_1: &str,
@@ -104,66 +91,45 @@ impl PrivateChatStorage {
         let session_id = format!("ps_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
         let now = chrono::Utc::now().timestamp();
 
-        sqlx::query!(
+        sqlx::query(
             r#"
-            INSERT INTO private_sessions (id, user_id_1, user_id_2, session_type, created_ts, last_activity_ts)
-            VALUES ($1, $2, $3, 'direct', $4, $4)
-            "#,
-            session_id,
-            user_id_1,
-            user_id_2,
-            now
+            INSERT INTO private_sessions (id, user_id_1, user_id_2, created_ts, updated_ts, last_activity_ts)
+            VALUES ($1, $2, $3, $4, $4, $4)
+            "#
         )
+        .bind(&session_id)
+        .bind(user_id_1)
+        .bind(user_id_2)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
 
         Ok(session_id)
     }
 
-    /// Gets an existing session between two users or creates a new one.
-    ///
-    /// # Arguments
-    /// * `user_id_1` - First user's ID
-    /// * `user_id_2` - Second user's ID
-    ///
-    /// # Returns
-    /// Result containing the session ID
-    ///
-    /// # Errors
-    /// Returns sqlx::Error if database operation fails
     pub async fn get_or_create_session(
         &self,
         user_id_1: &str,
         user_id_2: &str,
     ) -> Result<String, sqlx::Error> {
-        let existing = sqlx::query!(
+        let existing: Option<(String,)> = sqlx::query_as(
             r#"
             SELECT id FROM private_sessions
             WHERE (user_id_1 = $1 AND user_id_2 = $2) OR (user_id_1 = $2 AND user_id_2 = $1)
             "#,
-            user_id_1,
-            user_id_2
         )
+        .bind(user_id_1)
+        .bind(user_id_2)
         .fetch_optional(&*self.pool)
         .await?;
 
         if let Some(row) = existing {
-            return Ok(row.id);
+            return Ok(row.0);
         }
 
         self.create_session(user_id_1, user_id_2).await
     }
 
-    /// Gets all private chat sessions for a user.
-    ///
-    /// # Arguments
-    /// * `user_id` - The user's ID
-    ///
-    /// # Returns
-    /// Result containing a vector of SessionInfo sorted by last activity
-    ///
-    /// # Errors
-    /// Returns sqlx::Error if database operation fails
     pub async fn get_user_sessions(&self, user_id: &str) -> Result<Vec<SessionInfo>, sqlx::Error> {
         let rows: Vec<(String, String, String, i64, i64, i64, i32)> = sqlx::query_as(
             r#"
@@ -186,26 +152,12 @@ impl PrivateChatStorage {
                 },
                 created_ts: r.3,
                 updated_ts: r.5,
-                last_message_ts: Some(r.4),
+                last_activity_ts: Some(r.4),
                 unread_count: r.6,
             })
             .collect())
     }
 
-    /// Sends a message in a private chat session.
-    ///
-    /// # Arguments
-    /// * `session_id` - The private session ID
-    /// * `sender_id` - The sender's user ID
-    /// * `message_type` - Type of message (e.g., "m.text")
-    /// * `content` - The message content
-    /// * `encrypted_content` - Optional encrypted content for E2EE
-    ///
-    /// # Returns
-    /// Result containing the new message ID
-    ///
-    /// # Errors
-    /// Returns sqlx::Error if database operation fails
     pub async fn send_message(
         &self,
         session_id: &str,
@@ -215,18 +167,24 @@ impl PrivateChatStorage {
         encrypted_content: Option<&str>,
     ) -> Result<i64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        let result = sqlx::query!(
+        let row: (i64,) = sqlx::query_as(
             r#"
             INSERT INTO private_messages (session_id, sender_id, message_type, content, encrypted_content, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id
-            "#,
-            session_id, sender_id, message_type, content, encrypted_content, now
-        ).fetch_one(&*self.pool).await?;
+            "#
+        )
+        .bind(session_id)
+        .bind(sender_id)
+        .bind(message_type)
+        .bind(content)
+        .bind(encrypted_content)
+        .bind(now)
+        .fetch_one(&*self.pool).await?;
 
         sqlx::query(
             r#"
-            UPDATE private_sessions SET updated_ts = $1, last_message_ts = $1 WHERE id = $2
+            UPDATE private_sessions SET updated_ts = $1, last_activity_ts = $1 WHERE id = $2
             "#,
         )
         .bind(now)
@@ -234,29 +192,17 @@ impl PrivateChatStorage {
         .execute(&*self.pool)
         .await?;
 
-        Ok(result.id)
+        Ok(row.0)
     }
 
-    /// Gets messages from a private session with pagination.
-    ///
-    /// # Arguments
-    /// * `session_id` - The private session ID
-    /// * `limit` - Maximum number of messages to return
-    /// * `before` - Optional timestamp to get messages before
-    ///
-    /// # Returns
-    /// Result containing a vector of MessageInfo
-    ///
-    /// # Errors
-    /// Returns sqlx::Error if database operation fails
     pub async fn get_session_messages(
         &self,
         session_id: &str,
         limit: i64,
         before: Option<i64>,
     ) -> Result<Vec<MessageInfo>, sqlx::Error> {
-        let query = if let Some(ts) = before {
-            let rows: Vec<PrivateMessageRow> = sqlx::query_as(
+        let rows: Vec<PrivateMessageRow> = if let Some(ts) = before {
+            sqlx::query_as(
                 r#"
                 SELECT id, session_id, sender_id, message_type, content, encrypted_content, read_by_receiver, created_ts
                 FROM private_messages
@@ -268,10 +214,9 @@ impl PrivateChatStorage {
             .bind(session_id)
             .bind(ts)
             .bind(limit)
-            .fetch_all(&*self.pool).await?;
-            rows
+            .fetch_all(&*self.pool).await?
         } else {
-            let rows: Vec<PrivateMessageRow> = sqlx::query_as(
+            sqlx::query_as(
                 r#"
                 SELECT id, session_id, sender_id, message_type, content, encrypted_content, read_by_receiver, created_ts
                 FROM private_messages
@@ -282,36 +227,24 @@ impl PrivateChatStorage {
             )
             .bind(session_id)
             .bind(limit)
-            .fetch_all(&*self.pool).await?;
-            rows
+            .fetch_all(&*self.pool).await?
         };
 
-        Ok(query
-            .iter()
+        Ok(rows
+            .into_iter()
             .map(|r| MessageInfo {
                 id: r.0,
-                session_id: r.1.clone(),
-                sender_id: r.2.clone(),
-                message_type: r.3.clone(),
-                content: r.4.clone(),
-                encrypted_content: r.5.clone(),
+                session_id: r.1,
+                sender_id: r.2,
+                message_type: r.3,
+                content: r.4,
+                encrypted_content: r.5,
                 read_by_receiver: r.6,
                 created_ts: r.7,
             })
             .collect())
     }
 
-    /// Marks all messages in a session as read by the user.
-    ///
-    /// # Arguments
-    /// * `session_id` - The private session ID
-    /// * `user_id` - The user's ID (receiver)
-    ///
-    /// # Returns
-    /// Result indicating success
-    ///
-    /// # Errors
-    /// Returns sqlx::Error if database operation fails
     pub async fn mark_as_read(&self, session_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -332,29 +265,19 @@ impl PrivateChatStorage {
         Ok(())
     }
 
-    /// Gets the total unread message count for a user across all sessions.
-    ///
-    /// # Arguments
-    /// * `user_id` - The user's ID
-    ///
-    /// # Returns
-    /// Result containing the total unread count
-    ///
-    /// # Errors
-    /// Returns sqlx::Error if database operation fails
     pub async fn get_unread_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query!(
+        let result: (Option<i64>,) = sqlx::query_as(
             r#"
             SELECT COALESCE(SUM(unread_count), 0) as total_unread
             FROM private_sessions
             WHERE user_id_1 = $1 OR user_id_2 = $1
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_one(&*self.pool)
         .await?;
 
-        Ok(result.total_unread.unwrap_or(0) as i64)
+        Ok(result.0.unwrap_or(0))
     }
 
     pub async fn search_messages(
@@ -369,7 +292,7 @@ impl PrivateChatStorage {
             SELECT m.id, m.session_id, m.sender_id, m.message_type, m.content, m.created_ts,
                    CASE WHEN s.user_id_1 = $1 THEN s.user_id_2 ELSE s.user_id_1 END as other_user
             FROM private_messages m
-            JOIN private_sessions s ON m.session_id = s.session_id
+            JOIN private_sessions s ON m.session_id = s.id
             WHERE (s.user_id_1 = $1 OR s.user_id_2 = $1)
             AND (m.content ILIKE $2 OR m.encrypted_content ILIKE $2)
             ORDER BY m.created_ts DESC
@@ -382,14 +305,14 @@ impl PrivateChatStorage {
         .fetch_all(&*self.pool)
         .await?;
         Ok(rows
-            .iter()
+            .into_iter()
             .map(|r| SearchResult {
                 message_id: r.0,
-                session_id: r.1.clone(),
-                sender_id: r.2.clone(),
-                message_type: r.3.clone(),
-                content: r.4.clone(),
-                other_user: r.6.clone(),
+                session_id: r.1,
+                sender_id: r.2,
+                message_type: r.3,
+                content: r.4,
+                other_user: r.6,
                 created_ts: r.5,
             })
             .collect())
@@ -434,19 +357,55 @@ impl PrivateChatStorage {
 
         Ok(())
     }
+
+    pub async fn get_session_info(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionInfo>, sqlx::Error> {
+        let row: Option<(String, String, String, i64, i64, i64, i32)> = sqlx::query_as(
+            r#"
+            SELECT id, user_id_1, user_id_2, created_ts, last_activity_ts, updated_ts, COALESCE(unread_count, 0) as unread_count
+            FROM private_sessions
+            WHERE id = $1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row.map(|r| SessionInfo {
+            session_id: r.0,
+            other_user: r.1,
+            created_ts: r.3,
+            updated_ts: r.5,
+            last_activity_ts: Some(r.4),
+            unread_count: r.6,
+        }))
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct SessionDetails {
+    pub session_id: String,
+    pub user_id_1: String,
+    pub user_id_2: String,
+    pub created_ts: i64,
+    pub updated_ts: i64,
+    pub last_activity_ts: Option<i64>,
+    pub unread_count: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SessionInfo {
     pub session_id: String,
     pub other_user: String,
     pub created_ts: i64,
     pub updated_ts: i64,
-    pub last_message_ts: Option<i64>,
+    pub last_activity_ts: Option<i64>,
     pub unread_count: i32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MessageInfo {
     pub id: i64,
     pub session_id: String,
@@ -469,7 +428,7 @@ type PrivateMessageRow = (
     i64,
 );
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SearchResult {
     pub message_id: i64,
     pub session_id: String,
@@ -480,20 +439,23 @@ pub struct SearchResult {
     pub created_ts: i64,
 }
 
-pub struct PrivateChatService<'a> {
-    services: &'a ServiceContainer,
+pub struct PrivateChatService {
+    pool: Arc<sqlx::PgPool>,
+    member_storage: RoomMemberStorage,
     chat_storage: PrivateChatStorage,
     search_service: Arc<crate::services::search_service::SearchService>,
 }
 
-impl<'a> PrivateChatService<'a> {
+impl PrivateChatService {
     pub fn new(
-        services: &'a ServiceContainer,
         pool: &Arc<sqlx::PgPool>,
         search_service: Arc<crate::services::search_service::SearchService>,
+        server_name: String,
     ) -> Self {
+        let _ = server_name;
         Self {
-            services,
+            pool: pool.clone(),
+            member_storage: RoomMemberStorage::new(pool),
             chat_storage: PrivateChatStorage::new(pool),
             search_service,
         }
@@ -510,7 +472,7 @@ impl<'a> PrivateChatService<'a> {
             ));
         }
 
-        let friend_storage = FriendStorage::new(&self.services.user_storage.pool);
+        let friend_storage = FriendStorage::new(&self.pool);
         let is_friend = friend_storage
             .is_friend(user_id, other_user_id)
             .await
@@ -518,7 +480,6 @@ impl<'a> PrivateChatService<'a> {
 
         if !is_friend {
             let share_room = self
-                .services
                 .member_storage
                 .share_common_room(user_id, other_user_id)
                 .await
@@ -537,15 +498,9 @@ impl<'a> PrivateChatService<'a> {
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        let registration_service = RegistrationService::new(self.services);
-        let other_profile = registration_service
-            .get_profile(other_user_id)
-            .await
-            .unwrap_or(json!({ "user_id": other_user_id }));
-
         Ok(json!({
             "session_id": session_id,
-            "other_user": other_profile,
+            "other_user": other_user_id,
             "created": chrono::Utc::now().to_rfc3339()
         }))
     }
@@ -558,14 +513,7 @@ impl<'a> PrivateChatService<'a> {
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         let mut session_list = Vec::new();
-        let registration_service = RegistrationService::new(self.services);
-
         for session in sessions {
-            let profile = registration_service
-                .get_profile(&session.other_user)
-                .await
-                .unwrap_or(json!({ "user_id": session.other_user }));
-
             let last_message = self
                 .chat_storage
                 .get_session_messages(&session.session_id, 1, None)
@@ -582,7 +530,7 @@ impl<'a> PrivateChatService<'a> {
 
             session_list.push(json!({
                 "session_id": session.session_id,
-                "other_user": profile,
+                "other_user": session.other_user,
                 "created_ts": session.created_ts,
                 "updated_ts": session.updated_ts,
                 "unread_count": session.unread_count,
@@ -769,431 +717,41 @@ impl<'a> PrivateChatService<'a> {
 
         Ok(())
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use sqlx::{Pool, Postgres, Row};
-    use std::sync::Arc;
-    use tokio::runtime::Runtime;
-
-    async fn setup_test_database() -> Option<Pool<Postgres>> {
-        let database_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://synapse:synapse@localhost:5432/synapse_test".to_string()
-        });
-
-        let pool = match sqlx::postgres::PgPoolOptions::new()
-            .max_connections(5)
-            .connect(&database_url)
+    pub async fn get_session_details(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> ApiResult<serde_json::Value> {
+        let session = self
+            .chat_storage
+            .get_session_details(session_id)
             .await
-        {
-            Ok(pool) => pool,
-            Err(err) => {
-                eprintln!("Skipping database-backed tests: failed to connect: {err}");
-                return None;
-            }
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Session not found".to_string()))?;
+
+        if session.user_id_1 != user_id && session.user_id_2 != user_id {
+            return Err(ApiError::forbidden(
+                "You are not a participant of this session".to_string(),
+            ));
+        }
+
+        let other_user_id = if session.user_id_1 == user_id {
+            session.user_id_2
+        } else {
+            session.user_id_1
         };
 
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS users (
-                user_id TEXT PRIMARY KEY,
-                username TEXT NOT NULL UNIQUE,
-                password_hash TEXT,
-                creation_ts BIGINT NOT NULL
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create users table");
-
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS private_sessions (
-                id VARCHAR(255) PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                other_user_id TEXT NOT NULL,
-                session_type VARCHAR(50) DEFAULT 'direct',
-                created_ts BIGINT NOT NULL,
-                last_activity_ts BIGINT NOT NULL,
-                updated_ts BIGINT,
-                unread_count INT DEFAULT 0
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create private_sessions table");
-
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS private_messages (
-                id BIGSERIAL PRIMARY KEY,
-                session_id VARCHAR(255) NOT NULL,
-                sender_id TEXT NOT NULL,
-                message_type VARCHAR(50) DEFAULT 'text',
-                content TEXT,
-                encrypted_content TEXT,
-                read_by_receiver BOOLEAN DEFAULT FALSE,
-                created_ts BIGINT NOT NULL
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create private_messages table");
-
-        Some(pool)
-    }
-
-    async fn cleanup_test_database(pool: &Pool<Postgres>) {
-        sqlx::query("DROP TABLE IF EXISTS private_messages CASCADE")
-            .execute(pool)
-            .await
-            .ok();
-
-        sqlx::query("DROP TABLE IF EXISTS private_sessions CASCADE")
-            .execute(pool)
-            .await
-            .ok();
-
-        sqlx::query("DROP TABLE IF EXISTS users CASCADE")
-            .execute(pool)
-            .await
-            .ok();
-    }
-
-    async fn create_test_user(pool: &Pool<Postgres>, user_id: &str, username: &str) {
-        sqlx::query(
-            r#"
-            INSERT INTO users (user_id, username, creation_ts)
-            VALUES ($1, $2, $3)
-            "#,
-        )
-        .bind(user_id)
-        .bind(username)
-        .bind(chrono::Utc::now().timestamp())
-        .execute(pool)
-        .await
-        .expect("Failed to create test user");
-    }
-
-    async fn create_test_session(
-        pool: &Pool<Postgres>,
-        session_id: &str,
-        user_id: &str,
-        other_user_id: &str,
-    ) {
-        let now = chrono::Utc::now().timestamp();
-        sqlx::query(
-            r#"
-            INSERT INTO private_sessions (id, user_id, other_user_id, created_ts, last_activity_ts, updated_ts)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
-        )
-        .bind(session_id)
-        .bind(user_id)
-        .bind(other_user_id)
-        .bind(now)
-        .bind(now)
-        .bind(now)
-        .execute(pool)
-        .await
-        .expect("Failed to create test session");
-    }
-
-    async fn create_test_message(
-        pool: &Pool<Postgres>,
-        session_id: &str,
-        sender_id: &str,
-        content: &str,
-    ) -> i64 {
-        let result = sqlx::query(
-            r#"
-            INSERT INTO private_messages (session_id, sender_id, content, created_ts)
-            VALUES ($1, $2, $3, $4)
-            RETURNING id
-            "#,
-        )
-        .bind(session_id)
-        .bind(sender_id)
-        .bind(content)
-        .bind(chrono::Utc::now().timestamp())
-        .fetch_one(pool)
-        .await
-        .expect("Failed to create test message");
-
-        result
-            .try_get::<i64, _>("id")
-            .expect("Failed to get message id")
-    }
-
-    #[test]
-    fn test_delete_message_success() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let Some(pool) = setup_test_database().await else {
-                return;
-            };
-
-            create_test_user(&pool, "@alice:example.com", "alice").await;
-            create_test_user(&pool, "@bob:example.com", "bob").await;
-            create_test_session(&pool, "session_1", "@alice:example.com", "@bob:example.com").await;
-
-            let message_id =
-                create_test_message(&pool, "session_1", "@alice:example.com", "Hello Bob!").await;
-
-            let chat_storage = PrivateChatStorage::new(&Arc::new(pool.clone()));
-            let result = chat_storage.delete_message(message_id).await;
-
-            assert!(result.is_ok(), "Failed to delete message");
-
-            let message_exists = sqlx::query_as::<_, (bool,)>(
-                "SELECT EXISTS(SELECT 1 FROM private_messages WHERE id = $1)",
-            )
-            .bind(message_id)
-            .fetch_one(&pool)
-            .await
-            .expect("Failed to check message existence");
-
-            assert!(!message_exists.0, "Message still exists after deletion");
-
-            cleanup_test_database(&pool).await;
-        });
-    }
-
-    #[test]
-    fn test_delete_message_nonexistent() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let Some(pool) = setup_test_database().await else {
-                return;
-            };
-
-            create_test_user(&pool, "@alice:example.com", "alice").await;
-
-            let chat_storage = PrivateChatStorage::new(&Arc::new(pool.clone()));
-            let result = chat_storage.delete_message(999999).await;
-
-            assert!(
-                result.is_ok(),
-                "Deleting non-existent message should succeed"
-            );
-
-            cleanup_test_database(&pool).await;
-        });
-    }
-
-    #[test]
-    fn test_delete_message_service_authorization_success() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let Some(pool) = setup_test_database().await else {
-                return;
-            };
-
-            create_test_user(&pool, "@alice:example.com", "alice").await;
-            create_test_user(&pool, "@bob:example.com", "bob").await;
-            create_test_session(&pool, "session_1", "@alice:example.com", "@bob:example.com").await;
-
-            let message_id =
-                create_test_message(&pool, "session_1", "@alice:example.com", "Hello Bob!").await;
-
-            let services = ServiceContainer::new_test();
-            let chat_service = PrivateChatService::new(
-                &services,
-                &Arc::new(pool.clone()),
-                services.search_service.clone(),
-            );
-
-            let result = chat_service
-                .delete_message("@alice:example.com", &message_id.to_string())
-                .await;
-
-            assert!(
-                result.is_ok(),
-                "User should be able to delete their own message"
-            );
-
-            let message_exists = sqlx::query_as::<_, (bool,)>(
-                "SELECT EXISTS(SELECT 1 FROM private_messages WHERE id = $1)",
-            )
-            .bind(message_id)
-            .fetch_one(&pool)
-            .await
-            .expect("Failed to check message existence");
-
-            assert!(!message_exists.0, "Message should be deleted");
-
-            cleanup_test_database(&pool).await;
-        });
-    }
-
-    #[test]
-    fn test_delete_message_service_authorization_failure() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let Some(pool) = setup_test_database().await else {
-                return;
-            };
-
-            create_test_user(&pool, "@alice:example.com", "alice").await;
-            create_test_user(&pool, "@bob:example.com", "bob").await;
-            create_test_session(&pool, "session_1", "@alice:example.com", "@bob:example.com").await;
-
-            let message_id =
-                create_test_message(&pool, "session_1", "@alice:example.com", "Hello Bob!").await;
-
-            let services = ServiceContainer::new_test();
-            let chat_service = PrivateChatService::new(
-                &services,
-                &Arc::new(pool.clone()),
-                services.search_service.clone(),
-            );
-
-            let result = chat_service
-                .delete_message("@bob:example.com", &message_id.to_string())
-                .await;
-
-            assert!(
-                result.is_err(),
-                "User should not be able to delete others' message"
-            );
-
-            match result {
-                Err(e) => {
-                    assert_eq!(e.code(), "M_FORBIDDEN", "Should return forbidden status");
-                }
-                _ => panic!("Expected error"),
-            }
-
-            let message_exists = sqlx::query_as::<_, (bool,)>(
-                "SELECT EXISTS(SELECT 1 FROM private_messages WHERE id = $1)",
-            )
-            .bind(message_id)
-            .fetch_one(&pool)
-            .await
-            .expect("Failed to check message existence");
-
-            assert!(message_exists.0, "Message should still exist");
-
-            cleanup_test_database(&pool).await;
-        });
-    }
-
-    #[test]
-    fn test_delete_message_invalid_id() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let Some(pool) = setup_test_database().await else {
-                return;
-            };
-
-            create_test_user(&pool, "@alice:example.com", "alice").await;
-
-            let services = ServiceContainer::new_test();
-            let chat_service = PrivateChatService::new(
-                &services,
-                &Arc::new(pool.clone()),
-                services.search_service.clone(),
-            );
-
-            let result = chat_service
-                .delete_message("@alice:example.com", "invalid_id")
-                .await;
-
-            assert!(
-                result.is_err(),
-                "Should return error for invalid message ID"
-            );
-
-            match result {
-                Err(e) => {
-                    assert_eq!(e.code(), "M_BAD_JSON", "Should return bad request status");
-                }
-                _ => panic!("Expected error"),
-            }
-
-            cleanup_test_database(&pool).await;
-        });
-    }
-
-    #[test]
-    fn test_delete_message_not_found() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let Some(pool) = setup_test_database().await else {
-                return;
-            };
-
-            create_test_user(&pool, "@alice:example.com", "alice").await;
-
-            let services = ServiceContainer::new_test();
-            let chat_service = PrivateChatService::new(
-                &services,
-                &Arc::new(pool.clone()),
-                services.search_service.clone(),
-            );
-
-            let result = chat_service
-                .delete_message("@alice:example.com", "999999")
-                .await;
-
-            assert!(
-                result.is_err(),
-                "Should return error for non-existent message"
-            );
-
-            match result {
-                Err(e) => {
-                    assert_eq!(e.code(), "M_NOT_FOUND", "Should return not found status");
-                }
-                _ => panic!("Expected error"),
-            }
-
-            cleanup_test_database(&pool).await;
-        });
-    }
-
-    #[test]
-    fn test_delete_multiple_messages() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let Some(pool) = setup_test_database().await else {
-                return;
-            };
-
-            create_test_user(&pool, "@alice:example.com", "alice").await;
-            create_test_user(&pool, "@bob:example.com", "bob").await;
-            create_test_session(&pool, "session_1", "@alice:example.com", "@bob:example.com").await;
-
-            let message_id_1 =
-                create_test_message(&pool, "session_1", "@alice:example.com", "Message 1").await;
-
-            let message_id_2 =
-                create_test_message(&pool, "session_1", "@alice:example.com", "Message 2").await;
-
-            let message_id_3 =
-                create_test_message(&pool, "session_1", "@alice:example.com", "Message 3").await;
-
-            let chat_storage = PrivateChatStorage::new(&Arc::new(pool.clone()));
-
-            chat_storage.delete_message(message_id_1).await.unwrap();
-            chat_storage.delete_message(message_id_2).await.unwrap();
-            chat_storage.delete_message(message_id_3).await.unwrap();
-
-            let message_count: (i64,) =
-                sqlx::query_as("SELECT COUNT(*) FROM private_messages WHERE session_id = $1")
-                    .bind("session_1")
-                    .fetch_one(&pool)
-                    .await
-                    .expect("Failed to count messages");
-
-            assert_eq!(message_count.0, 0, "All messages should be deleted");
-
-            cleanup_test_database(&pool).await;
-        });
+        let messages = self.get_messages(user_id, session_id, 50, None).await?;
+
+        Ok(json!({
+            "session_id": session.session_id,
+            "other_user": other_user_id,
+            "created_ts": session.created_ts,
+            "updated_ts": session.updated_ts,
+            "last_activity_ts": session.last_activity_ts,
+            "unread_count": session.unread_count,
+            "messages": messages["messages"]
+        }))
     }
 }

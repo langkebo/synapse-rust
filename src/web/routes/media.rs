@@ -1,6 +1,5 @@
 use super::AppState;
 use crate::common::ApiError;
-use crate::services::MediaService;
 use crate::web::AuthenticatedUser;
 use axum::{
     extract::{Json, Path, Query, State},
@@ -72,7 +71,7 @@ async fn media_config(State(_state): State<AppState>) -> Json<Value> {
 }
 
 async fn upload_media(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -90,21 +89,26 @@ async fn upload_media(
         .iter()
         .map(|v| v.as_u64().unwrap_or(0) as u8)
         .collect();
-    let media_service = MediaService::new("media");
+
     Ok(Json(
-        media_service
+        state
+            .services
+            .media_service
             .upload_media(&auth_user.user_id, &content_bytes, content_type, filename)
             .await?,
     ))
 }
 
 async fn download_media(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let media_service = MediaService::new("media");
-
-    match media_service.download_media(&server_name, &media_id).await {
+    match state
+        .services
+        .media_service
+        .download_media(&server_name, &media_id)
+        .await
+    {
         Ok(content) => {
             let content_type = guess_content_type(&media_id);
             let headers = [
@@ -145,7 +149,7 @@ async fn _preview_url(
 }
 
 async fn get_thumbnail(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
 ) -> impl IntoResponse {
@@ -156,9 +160,9 @@ async fn get_thumbnail(
         .and_then(|v| v.as_str())
         .unwrap_or("scale");
 
-    let media_service = MediaService::new("media");
-
-    match media_service
+    match state
+        .services
+        .media_service
         .get_thumbnail(&server_name, &media_id, width, height, method)
         .await
     {
@@ -186,7 +190,7 @@ async fn get_thumbnail(
 }
 
 async fn upload_media_v1(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -204,21 +208,26 @@ async fn upload_media_v1(
         .iter()
         .map(|v| v.as_u64().unwrap_or(0) as u8)
         .collect();
-    let media_service = MediaService::new("media");
+
     Ok(Json(
-        media_service
+        state
+            .services
+            .media_service
             .upload_media(&auth_user.user_id, &content_bytes, content_type, filename)
             .await?,
     ))
 }
 
 async fn download_media_v1(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let media_service = MediaService::new("media");
-
-    match media_service.download_media(&server_name, &media_id).await {
+    match state
+        .services
+        .media_service
+        .download_media(&server_name, &media_id)
+        .await
+    {
         Ok(content) => {
             let content_type = guess_content_type(&media_id);
             let headers = [

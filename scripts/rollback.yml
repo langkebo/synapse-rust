@@ -27,7 +27,7 @@
 
     - name: Restart services using Docker Compose
       docker_compose:
-        project_src: "{{ project_path }}"
+        project_src: "{{ project_path }}/docker"
         build: yes
         restarted: yes
       register: restart_result

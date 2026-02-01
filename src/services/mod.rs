@@ -27,6 +27,11 @@ pub struct ServiceContainer {
     pub backup_service: KeyBackupService,
     pub to_device_service: ToDeviceService,
     pub voice_service: VoiceService,
+    pub private_chat_service: Arc<PrivateChatService>,
+    pub registration_service: Arc<RegistrationService>,
+    pub room_service: Arc<RoomService>,
+    pub sync_service: Arc<SyncService>,
+    pub private_chat_storage: PrivateChatStorage,
     pub search_service: Arc<crate::services::search_service::SearchService>,
     pub media_service: MediaService,
     pub cache: Arc<CacheManager>,
@@ -60,16 +65,47 @@ impl ServiceContainer {
             &config.search.elasticsearch_url,
             config.search.enabled,
         ));
+
+        let user_storage = UserStorage::new(pool);
+        let member_storage = RoomMemberStorage::new(pool);
+        let room_storage = RoomStorage::new(pool);
+        let event_storage = EventStorage::new(pool);
+        let presence_storage = PresenceStorage::new(presence_pool.clone(), cache.clone());
+        let private_chat_storage = PrivateChatStorage::new(pool);
+
+        let private_chat_service = Arc::new(PrivateChatService::new(
+            pool,
+            search_service.clone(),
+            config.server.name.clone(),
+        ));
+        let registration_service = Arc::new(RegistrationService::new(
+            user_storage.clone(),
+            auth_service.clone(),
+            config.server.name.clone(),
+            config.server.enable_registration,
+        ));
+        let room_service = Arc::new(RoomService::new(
+            room_storage.clone(),
+            member_storage.clone(),
+            event_storage.clone(),
+            config.server.name.clone(),
+        ));
+        let sync_service = Arc::new(SyncService::new(
+            presence_storage.clone(),
+            member_storage.clone(),
+            event_storage.clone(),
+            room_storage.clone(),
+        ));
         let media_service = MediaService::new("media");
 
         Self {
-            user_storage: UserStorage::new(pool),
+            user_storage,
             device_storage: DeviceStorage::new(pool),
             token_storage: AccessTokenStorage::new(pool),
-            room_storage: RoomStorage::new(pool),
-            member_storage: RoomMemberStorage::new(pool),
-            event_storage: EventStorage::new(pool),
-            presence_storage: PresenceStorage::new(presence_pool, cache.clone()),
+            room_storage,
+            member_storage,
+            event_storage,
+            presence_storage,
             presence_service,
             auth_service,
             device_keys_service,
@@ -78,6 +114,11 @@ impl ServiceContainer {
             backup_service,
             to_device_service,
             voice_service,
+            private_chat_service,
+            registration_service,
+            room_service,
+            sync_service,
+            private_chat_storage,
             search_service,
             media_service,
             cache,
@@ -145,6 +186,8 @@ impl ServiceContainer {
                 max_transaction_payload: 50000,
                 ca_file: None,
                 client_ca_file: None,
+                signing_key: None,
+                key_id: None,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),

@@ -1,0 +1,10 @@
+target/
+docker/postgres_data/
+docker/redis_data/
+media/
+ssl/
+.git/
+.vscode/
+.idea/
+.DS_Store
+*.log

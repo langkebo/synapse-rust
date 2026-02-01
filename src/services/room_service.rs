@@ -15,13 +15,26 @@ pub struct CreateRoomConfig {
     pub history_visibility: Option<String>,
 }
 
-pub struct RoomService<'a> {
-    services: &'a ServiceContainer,
+pub struct RoomService {
+    room_storage: RoomStorage,
+    member_storage: RoomMemberStorage,
+    event_storage: EventStorage,
+    server_name: String,
 }
 
-impl<'a> RoomService<'a> {
-    pub fn new(services: &'a ServiceContainer) -> Self {
-        Self { services }
+impl RoomService {
+    pub fn new(
+        room_storage: RoomStorage,
+        member_storage: RoomMemberStorage,
+        event_storage: EventStorage,
+        server_name: String,
+    ) -> Self {
+        Self {
+            room_storage,
+            member_storage,
+            event_storage,
+            server_name,
+        }
     }
 
     pub async fn create_room(
@@ -46,7 +59,7 @@ impl<'a> RoomService<'a> {
     }
 
     fn generate_room_id(&self) -> String {
-        generate_room_id(&self.services.server_name)
+        generate_room_id(&self.server_name)
     }
 
     fn determine_join_rule(&self, preset: Option<&str>) -> &'static str {
@@ -67,8 +80,7 @@ impl<'a> RoomService<'a> {
         join_rule: &str,
         is_public: bool,
     ) -> ApiResult<()> {
-        self.services
-            .room_storage
+        self.room_storage
             .create_room(room_id, user_id, join_rule, "1", is_public)
             .await
             .map(|_| ())
@@ -76,14 +88,12 @@ impl<'a> RoomService<'a> {
     }
 
     async fn add_creator_to_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
-        self.services
-            .member_storage
+        self.member_storage
             .add_member(room_id, user_id, "join", None, None)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to add room member: {}", e)))?;
 
-        self.services
-            .room_storage
+        self.room_storage
             .increment_member_count(room_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update member count: {}", e)))
@@ -96,16 +106,14 @@ impl<'a> RoomService<'a> {
         topic: Option<&str>,
     ) -> ApiResult<()> {
         if let Some(room_name) = name {
-            self.services
-                .room_storage
+            self.room_storage
                 .update_room_name(room_id, room_name)
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed to update room name: {}", e)))?;
         }
 
         if let Some(room_topic) = topic {
-            self.services
-                .room_storage
+            self.room_storage
                 .update_room_topic(room_id, room_topic)
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed to update room topic: {}", e)))?;
@@ -121,8 +129,7 @@ impl<'a> RoomService<'a> {
     ) -> ApiResult<()> {
         if let Some(invites) = invite_list {
             for invitee in invites {
-                self.services
-                    .member_storage
+                self.member_storage
                     .add_member(room_id, invitee, "invite", None, None)
                     .await
                     .map_err(|e| ApiError::internal(format!("Failed to invite user: {}", e)))?;
@@ -132,7 +139,7 @@ impl<'a> RoomService<'a> {
     }
 
     fn format_room_alias(&self, room_alias_name: Option<&str>) -> Option<String> {
-        room_alias_name.map(|a| format!("#{}:{}", a, self.services.server_name))
+        room_alias_name.map(|a| format!("#{}:{}", a, self.server_name))
     }
 
     fn build_room_response(&self, room_id: &str, room_alias: Option<String>) -> serde_json::Value {
@@ -150,7 +157,6 @@ impl<'a> RoomService<'a> {
         content: &serde_json::Value,
     ) -> ApiResult<serde_json::Value> {
         if !self
-            .services
             .member_storage
             .is_member(room_id, user_id)
             .await
@@ -161,7 +167,7 @@ impl<'a> RoomService<'a> {
             ));
         }
 
-        let event_id = generate_event_id(&self.services.server_name);
+        let event_id = generate_event_id(&self.server_name);
         let now = chrono::Utc::now().timestamp_millis();
 
         let event_content = json!({
@@ -169,8 +175,7 @@ impl<'a> RoomService<'a> {
             "body": content
         });
 
-        self.services
-            .event_storage
+        self.event_storage
             .create_event(CreateEventParams {
                 event_id: event_id.clone(),
                 room_id: room_id.to_string(),
@@ -190,7 +195,6 @@ impl<'a> RoomService<'a> {
 
     pub async fn join_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         if !self
-            .services
             .room_storage
             .room_exists(room_id)
             .await
@@ -199,14 +203,12 @@ impl<'a> RoomService<'a> {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
 
-        self.services
-            .member_storage
+        self.member_storage
             .add_member(room_id, user_id, "join", None, None)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to join room: {}", e)))?;
 
-        self.services
-            .room_storage
+        self.room_storage
             .increment_member_count(room_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update member count: {}", e)))?;
@@ -215,14 +217,12 @@ impl<'a> RoomService<'a> {
     }
 
     pub async fn leave_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
-        self.services
-            .member_storage
+        self.member_storage
             .remove_member(room_id, user_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to leave room: {}", e)))?;
 
-        self.services
-            .room_storage
+        self.room_storage
             .decrement_member_count(room_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update member count: {}", e)))?;
@@ -236,7 +236,6 @@ impl<'a> RoomService<'a> {
         user_id: &str,
     ) -> ApiResult<serde_json::Value> {
         if !self
-            .services
             .member_storage
             .is_member(room_id, user_id)
             .await
@@ -248,7 +247,6 @@ impl<'a> RoomService<'a> {
         }
 
         let members = self
-            .services
             .member_storage
             .get_room_members(room_id, "join")
             .await
@@ -259,7 +257,6 @@ impl<'a> RoomService<'a> {
 
     pub async fn get_room(&self, room_id: &str) -> ApiResult<serde_json::Value> {
         let room = self
-            .services
             .room_storage
             .get_room(room_id)
             .await
@@ -285,7 +282,6 @@ impl<'a> RoomService<'a> {
         user_id: &str,
     ) -> ApiResult<serde_json::Value> {
         if !self
-            .services
             .member_storage
             .is_member(room_id, user_id)
             .await
@@ -297,7 +293,6 @@ impl<'a> RoomService<'a> {
         }
 
         let room = self
-            .services
             .room_storage
             .get_room(room_id)
             .await
@@ -319,7 +314,6 @@ impl<'a> RoomService<'a> {
 
     pub async fn get_user_rooms(&self, user_id: &str) -> ApiResult<serde_json::Value> {
         let room_ids = self
-            .services
             .member_storage
             .get_joined_rooms(user_id)
             .await
@@ -327,7 +321,7 @@ impl<'a> RoomService<'a> {
 
         let mut rooms = Vec::new();
         for room_id in room_ids {
-            if let Ok(Some(room)) = self.services.room_storage.get_room(&room_id).await {
+            if let Ok(Some(room)) = self.room_storage.get_room(&room_id).await {
                 rooms.push(json!({
                     "room_id": room.room_id,
                     "name": room.name,
@@ -349,7 +343,6 @@ impl<'a> RoomService<'a> {
         _direction: &str,
     ) -> ApiResult<serde_json::Value> {
         let events = self
-            .services
             .event_storage
             .get_room_events(room_id, limit)
             .await
@@ -388,8 +381,7 @@ impl<'a> RoomService<'a> {
             "state_key": invitee
         });
 
-        self.services
-            .event_storage
+        self.event_storage
             .create_event(CreateEventParams {
                 event_id,
                 room_id: room_id.to_string(),
@@ -407,7 +399,6 @@ impl<'a> RoomService<'a> {
 
     pub async fn get_state_events(&self, room_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let events = self
-            .services
             .event_storage
             .get_state_events(room_id)
             .await
@@ -431,7 +422,6 @@ impl<'a> RoomService<'a> {
 
     pub async fn get_public_rooms(&self, limit: i64) -> ApiResult<serde_json::Value> {
         let rooms = self
-            .services
             .room_storage
             .get_public_rooms(limit)
             .await
@@ -458,16 +448,14 @@ impl<'a> RoomService<'a> {
     }
 
     pub async fn delete_room(&self, room_id: &str) -> ApiResult<()> {
-        self.services
-            .room_storage
+        self.room_storage
             .delete_room(room_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to delete room: {}", e)))
     }
 
     pub async fn get_joined_rooms(&self, user_id: &str) -> ApiResult<Vec<String>> {
-        self.services
-            .member_storage
+        self.member_storage
             .get_joined_rooms(user_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get joined rooms: {}", e)))

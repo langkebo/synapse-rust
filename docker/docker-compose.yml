@@ -1,10 +1,15 @@
 services:
   synapse:
+    image: synapse-rust:release
     build:
       context: ..
       dockerfile: docker/rust.Dockerfile
+      args:
+        CARGO_PROFILE: release
     container_name: synapse_rust
     restart: always
+    ports:
+      - "8008:8008"
     env_file: .env
     environment:
       - RUST_LOG=info

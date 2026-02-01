@@ -250,8 +250,12 @@ impl DatabaseMonitor {
 
                 vacuum_stats.push(VacuumStats {
                     table_name: table.to_string(),
-                    last_vacuum: s.last_vacuum.map(|t| t.naive_utc()),
-                    last_analyze: s.last_analyze.map(|t| t.naive_utc()),
+                    last_vacuum: s
+                        .last_vacuum
+                        .map(|t: chrono::DateTime<chrono::Utc>| t.naive_utc()),
+                    last_analyze: s
+                        .last_analyze
+                        .map(|t: chrono::DateTime<chrono::Utc>| t.naive_utc()),
                     dead_tuple_count: dead_tuples as i64,
                     dead_tuple_ratio: dead_ratio,
                 });

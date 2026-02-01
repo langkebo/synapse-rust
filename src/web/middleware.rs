@@ -1,22 +1,28 @@
 use crate::cache::*;
+use crate::common::ApiError;
 use axum::extract::State;
-use axum::http::{HeaderMap, Request, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
+use axum::response::IntoResponse;
 use axum::{body::Body, middleware::Next, response::Response};
+use base64::Engine;
 use serde_json::json;
-use std::sync::Arc;
+use serde_json::Value;
 use std::time::Instant;
 
 pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let start = Instant::now();
     let method = request.method().clone();
     let uri = request.uri().clone();
-    let headers = request.headers().clone();
-
-    let user_id = headers
+    let authenticated = request
+        .headers()
         .get("authorization")
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
-        .map(|s| s.to_string());
+        .is_some();
+
+    let mut headers = request.headers().clone();
+    headers.remove("authorization");
+    headers.remove("cookie");
 
     let response = next.run(request).await;
 
@@ -25,7 +31,11 @@ pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::
 
     tracing::info!(
         "Request: {} {} {} {} {:?} {}ms",
-        user_id.unwrap_or_else(|| "anonymous".to_string()),
+        if authenticated {
+            "authenticated"
+        } else {
+            "anonymous"
+        },
         method,
         uri,
         status.as_u16(),
@@ -40,18 +50,16 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
     let mut response = next.run(request).await;
 
     let headers = response.headers_mut();
-    headers.insert("Access-Control-Allow-Origin", "*".parse().unwrap());
+    headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
     headers.insert(
         "Access-Control-Allow-Methods",
-        "GET, POST, PUT, DELETE, OPTIONS".parse().unwrap(),
+        HeaderValue::from_static("GET, POST, PUT, DELETE, OPTIONS"),
     );
     headers.insert(
         "Access-Control-Allow-Headers",
-        "Content-Type, Authorization, X-Requested-With"
-            .parse()
-            .unwrap(),
+        HeaderValue::from_static("Content-Type, Authorization, X-Requested-With"),
     );
-    headers.insert("Access-Control-Max-Age", "86400".parse().unwrap());
+    headers.insert("Access-Control-Max-Age", HeaderValue::from_static("86400"));
 
     response
 }
@@ -129,19 +137,21 @@ pub async fn rate_limit_middleware(
 
     if !decision.allowed {
         let retry_after_ms = decision.retry_after_seconds.saturating_mul(1000);
-        let mut response = Response::builder()
-            .status(StatusCode::TOO_MANY_REQUESTS)
-            .header("content-type", "application/json")
-            .header("retry-after", decision.retry_after_seconds.to_string())
-            .body(Body::from(
-                json!({
-                    "errcode": "M_LIMIT_EXCEEDED",
-                    "error": "Rate limited",
-                    "retry_after_ms": retry_after_ms
-                })
-                .to_string(),
-            ))
-            .unwrap();
+        let mut response = Response::new(Body::from(
+            json!({
+                "errcode": "M_LIMIT_EXCEEDED",
+                "error": "Rate limited",
+                "retry_after_ms": retry_after_ms
+            })
+            .to_string(),
+        ));
+        *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+        response
+            .headers_mut()
+            .insert("content-type", HeaderValue::from_static("application/json"));
+        if let Ok(v) = decision.retry_after_seconds.to_string().parse() {
+            response.headers_mut().insert("retry-after", v);
+        }
 
         if config.include_headers {
             if let Ok(v) = decision.remaining.to_string().parse() {
@@ -171,22 +181,370 @@ pub async fn rate_limit_middleware(
 }
 
 pub async fn auth_middleware(
+    State(state): State<crate::web::routes::AppState>,
     request: Request<Body>,
     next: axum::middleware::Next,
-    _state: Arc<crate::web::routes::AppState>,
-) -> Result<Response, StatusCode> {
-    let token = extract_token(request.headers());
+) -> Response {
+    let token = match extract_token(request.headers()) {
+        Some(token) => token,
+        None => return ApiError::unauthorized("Missing access token".to_string()).into_response(),
+    };
 
-    if token.is_none() {
-        return Ok(Response::builder()
-            .status(StatusCode::UNAUTHORIZED)
-            .body(Body::from(
-                r#"{"errcode": "UNAUTHORIZED", "error": "Missing access token"}"#,
-            ))
-            .unwrap());
+    if let Err(err) = state.services.auth_service.validate_token(&token).await {
+        return err.into_response();
     }
 
-    Ok(next.run(request).await)
+    next.run(request).await
+}
+
+pub async fn federation_auth_middleware(
+    State(state): State<crate::web::routes::AppState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    if !state.services.config.federation.enabled || !state.services.config.federation.allow_ingress
+    {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let (parts, body) = request.into_parts();
+
+    let auth_header = parts
+        .headers
+        .get("authorization")
+        .or(parts.headers.get("Authorization"))
+        .and_then(|h| h.to_str().ok());
+
+    let auth_header = match auth_header {
+        Some(v) => v,
+        None => {
+            return ApiError::unauthorized("Missing federation signature".to_string())
+                .into_response()
+        }
+    };
+
+    let params = match parse_x_matrix_authorization(auth_header) {
+        Some(p) => p,
+        None => {
+            return ApiError::unauthorized("Missing federation signature".to_string())
+                .into_response()
+        }
+    };
+
+    let destination = state.services.server_name.as_str();
+
+    let body_limit = state
+        .services
+        .config
+        .federation
+        .max_transaction_payload
+        .max(64 * 1024) as usize;
+
+    let body_bytes = match axum::body::to_bytes(body, body_limit).await {
+        Ok(b) => b,
+        Err(_) => {
+            return ApiError::unauthorized("Invalid request body".to_string()).into_response()
+        }
+    };
+
+    let content = if body_bytes.is_empty() {
+        None
+    } else {
+        match serde_json::from_slice::<Value>(&body_bytes) {
+            Ok(v) => Some(v),
+            Err(_) => {
+                return ApiError::unauthorized("Invalid JSON body".to_string()).into_response()
+            }
+        }
+    };
+
+    let request_target = parts
+        .uri
+        .path_and_query()
+        .map(|p| p.as_str().to_string())
+        .unwrap_or_else(|| parts.uri.path().to_string());
+
+    let signed_bytes = canonical_federation_request_bytes(
+        parts.method.as_str(),
+        &request_target,
+        &params.origin,
+        destination,
+        content.as_ref(),
+    );
+
+    let public_key = match get_federation_verify_key(&state, &params.origin, &params.key).await {
+        Ok(k) => k,
+        Err(e) => return e.into_response(),
+    };
+
+    let signature = match decode_ed25519_signature(&params.sig) {
+        Ok(sig) => sig,
+        Err(_) => return ApiError::unauthorized("Invalid signature".to_string()).into_response(),
+    };
+
+    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key) {
+        Ok(k) => k,
+        Err(_) => return ApiError::unauthorized("Invalid public key".to_string()).into_response(),
+    };
+
+    if verifying_key
+        .verify_strict(&signed_bytes, &signature)
+        .is_err()
+    {
+        tracing::warn!(
+            "Unauthorized federation request from {:?}. Server name: {}",
+            parts
+                .headers
+                .get("x-forwarded-for")
+                .or(parts.headers.get("host")),
+            state.services.server_name
+        );
+        return ApiError::unauthorized("Invalid federation signature".to_string()).into_response();
+    }
+
+    let request = Request::from_parts(parts, Body::from(body_bytes));
+    next.run(request).await
+}
+
+#[derive(Debug, Clone)]
+struct XMatrixAuthParams {
+    origin: String,
+    key: String,
+    sig: String,
+}
+
+fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams> {
+    let header_value = header_value.trim();
+    let header_value = header_value.strip_prefix("X-Matrix ")?;
+
+    let mut origin: Option<String> = None;
+    let mut key: Option<String> = None;
+    let mut sig: Option<String> = None;
+
+    for part in header_value.split(',') {
+        let part = part.trim();
+        let (k, v) = part.split_once('=')?;
+        let k = k.trim();
+        let mut v = v.trim();
+        if v.starts_with('"') && v.ends_with('"') && v.len() >= 2 {
+            v = &v[1..v.len() - 1];
+        }
+
+        match k {
+            "origin" => origin = Some(v.to_string()),
+            "key" => key = Some(v.to_string()),
+            "sig" => sig = Some(v.to_string()),
+            _ => {}
+        }
+    }
+
+    Some(XMatrixAuthParams {
+        origin: origin?,
+        key: key?,
+        sig: sig?,
+    })
+}
+
+fn canonical_federation_request_bytes(
+    method: &str,
+    uri: &str,
+    origin: &str,
+    destination: &str,
+    content: Option<&Value>,
+) -> Vec<u8> {
+    let mut obj = serde_json::Map::new();
+    obj.insert("method".to_string(), Value::String(method.to_string()));
+    obj.insert("uri".to_string(), Value::String(uri.to_string()));
+    obj.insert("origin".to_string(), Value::String(origin.to_string()));
+    obj.insert(
+        "destination".to_string(),
+        Value::String(destination.to_string()),
+    );
+    if let Some(content) = content {
+        obj.insert("content".to_string(), content.clone());
+    }
+    canonical_json_bytes(&Value::Object(obj))
+}
+
+fn canonical_json_bytes(value: &Value) -> Vec<u8> {
+    canonical_json_string(value).into_bytes()
+}
+
+fn canonical_json_string(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(b) => {
+            if *b {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            }
+        }
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string()),
+        Value::Array(arr) => {
+            let mut out = String::from("[");
+            let mut first = true;
+            for v in arr {
+                if !first {
+                    out.push(',');
+                }
+                first = false;
+                out.push_str(&canonical_json_string(v));
+            }
+            out.push(']');
+            out
+        }
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+
+            let mut out = String::from("{");
+            let mut first = true;
+            for k in keys {
+                if !first {
+                    out.push(',');
+                }
+                first = false;
+                out.push_str(&serde_json::to_string(k).unwrap_or_else(|_| "\"\"".to_string()));
+                out.push(':');
+                if let Some(v) = map.get(k) {
+                    out.push_str(&canonical_json_string(v));
+                } else {
+                    out.push_str("null");
+                }
+            }
+            out.push('}');
+            out
+        }
+    }
+}
+
+async fn get_federation_verify_key(
+    state: &crate::web::routes::AppState,
+    origin: &str,
+    key_id: &str,
+) -> Result<[u8; 32], ApiError> {
+    let cache_key = format!("federation:verify_key:{}:{}", origin, key_id);
+    if let Ok(Some(cached)) = state.cache.get::<String>(&cache_key).await {
+        if let Ok(key) = decode_ed25519_public_key(&cached) {
+            return Ok(key);
+        }
+    }
+
+    let fetched = fetch_federation_verify_key(origin, key_id).await?;
+    let ttl = 3600u64;
+    let _ = state.cache.set(&cache_key, &fetched, ttl).await;
+    decode_ed25519_public_key(&fetched)
+        .map_err(|_| ApiError::unauthorized("Invalid public key".to_string()))
+}
+
+async fn fetch_federation_verify_key(origin: &str, key_id: &str) -> Result<String, ApiError> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+
+    let urls = [
+        format!("https://{}/_matrix/key/v2/server", origin),
+        format!("http://{}/_matrix/key/v2/server", origin),
+        format!(
+            "https://{}/_matrix/key/v2/query/{}/{}",
+            origin, origin, key_id
+        ),
+        format!(
+            "http://{}/_matrix/key/v2/query/{}/{}",
+            origin, origin, key_id
+        ),
+    ];
+
+    for url in urls {
+        let resp = match client.get(&url).send().await {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        if !resp.status().is_success() {
+            continue;
+        }
+        let json = match resp.json::<Value>().await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if let Some(key) = extract_verify_key_from_server_keys(&json, origin, key_id) {
+            return Ok(key);
+        }
+    }
+
+    Err(ApiError::unauthorized("Public key not found".to_string()))
+}
+
+fn extract_verify_key_from_server_keys(body: &Value, origin: &str, key_id: &str) -> Option<String> {
+    if let Some(key) = extract_verify_key_from_server_keys_object(body, key_id) {
+        return Some(key);
+    }
+
+    let server_keys = body.get("server_keys")?.as_array()?;
+    for entry in server_keys {
+        if entry
+            .get("server_name")
+            .and_then(|v| v.as_str())
+            .is_some_and(|v| v != origin)
+        {
+            continue;
+        }
+
+        if let Some(key) = extract_verify_key_from_server_keys_object(entry, key_id) {
+            return Some(key);
+        }
+    }
+
+    None
+}
+
+fn extract_verify_key_from_server_keys_object(body: &Value, key_id: &str) -> Option<String> {
+    let verify_keys = body.get("verify_keys")?.as_object()?;
+    if let Some(entry) = verify_keys.get(key_id) {
+        if let Some(key) = entry.get("key").and_then(|v| v.as_str()) {
+            return Some(key.to_string());
+        }
+    }
+    None
+}
+
+fn decode_ed25519_public_key(key: &str) -> Result<[u8; 32], ()> {
+    let engines = [
+        base64::engine::general_purpose::STANDARD,
+        base64::engine::general_purpose::STANDARD_NO_PAD,
+    ];
+
+    for engine in engines {
+        if let Ok(bytes) = engine.decode(key) {
+            if bytes.len() == 32 {
+                let mut out = [0u8; 32];
+                out.copy_from_slice(&bytes);
+                return Ok(out);
+            }
+        }
+    }
+    Err(())
+}
+
+fn decode_ed25519_signature(sig: &str) -> Result<ed25519_dalek::Signature, ()> {
+    let engines = [
+        base64::engine::general_purpose::STANDARD,
+        base64::engine::general_purpose::STANDARD_NO_PAD,
+    ];
+
+    for engine in engines {
+        if let Ok(bytes) = engine.decode(sig) {
+            if bytes.len() == 64 {
+                if let Ok(sig) = ed25519_dalek::Signature::try_from(&bytes[..]) {
+                    return Ok(sig);
+                }
+            }
+        }
+    }
+    Err(())
 }
 
 fn select_endpoint_rule<'a>(
@@ -299,7 +657,7 @@ fn parse_forwarded_for(value: &str) -> Option<String> {
 
             let colons = original.chars().filter(|c| *c == ':').count();
             if colons == 1 {
-                return Some(original.split(':').next().unwrap().to_string());
+                return original.split(':').next().map(|s| s.to_string());
             }
 
             if !original.is_empty() {
@@ -419,5 +777,35 @@ mod tests {
         let (id, rule) = select_endpoint_rule(&config, "/other/path");
         assert_eq!(id, "/other/path");
         assert_eq!(rule.per_second, config.default.per_second);
+    }
+
+    #[test]
+    fn test_extract_verify_key_from_server_key_response() {
+        let body = serde_json::json!({
+            "server_name": "example.org",
+            "verify_keys": {
+                "ed25519:abc": { "key": "SGVsbG9Xb3JsZA" }
+            }
+        });
+
+        let key = extract_verify_key_from_server_keys(&body, "example.org", "ed25519:abc");
+        assert_eq!(key, Some("SGVsbG9Xb3JsZA".to_string()));
+    }
+
+    #[test]
+    fn test_extract_verify_key_from_query_response() {
+        let body = serde_json::json!({
+            "server_keys": [
+                {
+                    "server_name": "example.org",
+                    "verify_keys": {
+                        "ed25519:abc": { "key": "SGVsbG9Xb3JsZA" }
+                    }
+                }
+            ]
+        });
+
+        let key = extract_verify_key_from_server_keys(&body, "example.org", "ed25519:abc");
+        assert_eq!(key, Some("SGVsbG9Xb3JsZA".to_string()));
     }
 }

@@ -2,13 +2,26 @@ use crate::common::*;
 use crate::services::*;
 use serde_json::json;
 
-pub struct SyncService<'a> {
-    services: &'a ServiceContainer,
+pub struct SyncService {
+    presence_storage: PresenceStorage,
+    member_storage: RoomMemberStorage,
+    event_storage: EventStorage,
+    room_storage: RoomStorage,
 }
 
-impl<'a> SyncService<'a> {
-    pub fn new(services: &'a ServiceContainer) -> Self {
-        Self { services }
+impl SyncService {
+    pub fn new(
+        presence_storage: PresenceStorage,
+        member_storage: RoomMemberStorage,
+        event_storage: EventStorage,
+        room_storage: RoomStorage,
+    ) -> Self {
+        Self {
+            presence_storage,
+            member_storage,
+            event_storage,
+            room_storage,
+        }
     }
 
     pub async fn sync(
@@ -18,14 +31,12 @@ impl<'a> SyncService<'a> {
         _full_state: bool,
         set_presence: &str,
     ) -> ApiResult<serde_json::Value> {
-        self.services
-            .presence_storage
+        self.presence_storage
             .set_presence(user_id, set_presence, None)
             .await
             .ok();
 
         let room_ids = self
-            .services
             .member_storage
             .get_joined_rooms(user_id)
             .await
@@ -34,7 +45,6 @@ impl<'a> SyncService<'a> {
         let mut rooms = serde_json::Map::new();
         for room_id in room_ids {
             let events = self
-                .services
                 .event_storage
                 .get_room_events(&room_id, 20)
                 .await
@@ -101,7 +111,6 @@ impl<'a> SyncService<'a> {
         _dir: &str,
     ) -> ApiResult<serde_json::Value> {
         if !self
-            .services
             .member_storage
             .is_member(room_id, user_id)
             .await
@@ -113,7 +122,6 @@ impl<'a> SyncService<'a> {
         }
 
         let events = self
-            .services
             .event_storage
             .get_room_events(room_id, limit)
             .await
@@ -145,7 +153,6 @@ impl<'a> SyncService<'a> {
         _since: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let rooms = self
-            .services
             .room_storage
             .get_public_rooms(limit)
             .await
@@ -179,7 +186,12 @@ mod tests {
     #[tokio::test]
     async fn test_sync_service_creation() {
         let services = ServiceContainer::new_test();
-        let _sync_service = SyncService::new(&services);
+        let _sync_service = SyncService::new(
+            services.presence_storage.clone(),
+            services.member_storage.clone(),
+            services.event_storage.clone(),
+            services.room_storage.clone(),
+        );
     }
 
     #[test]

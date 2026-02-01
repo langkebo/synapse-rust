@@ -298,19 +298,27 @@ impl VoiceStorage {
         .execute(&*self.pool)
         .await?;
 
-        // 2) Update Redis cache
-        // Strategy: Invalidate the main list cache to force re-fetch from DB on next read.
-        // This avoids the expensive read-modify-write cycle of the full JSON list.
-        // Also update a daily incremental counter for fast access to today's stats.
-        let list_cache_key = format!("voice_stats:{}", user_id);
-        let _ = self.cache.delete(&list_cache_key).await;
+        // 2) Update Redis cache in background to avoid blocking the main flow
+        // especially if Redis is slow or connection pool is exhausted.
+        let cache = self.cache.clone();
+        let user_id = user_id.to_string();
+        let today_str = today.to_string();
 
-        // Use Redis Hash for today's stats (Fast write)
-        let daily_key = format!("voice_stats_daily:{}:{}", user_id, today);
-        let _ = self.cache.hincrby(&daily_key, "total_duration_ms", duration_delta).await;
-        let _ = self.cache.hincrby(&daily_key, "total_file_size", size_delta).await;
-        let _ = self.cache.hincrby(&daily_key, "message_count", 1).await;
-        let _ = self.cache.expire(&daily_key, 86400 * 2).await; // 2 days TTL
+        tokio::spawn(async move {
+            let list_cache_key = format!("voice_stats:{}", user_id);
+            let _ = cache.delete(&list_cache_key).await;
+
+            // Use Redis Hash for today's stats (Fast write)
+            let daily_key = format!("voice_stats_daily:{}:{}", user_id, today_str);
+            let _ = cache
+                .hincrby(&daily_key, "total_duration_ms", duration_delta)
+                .await;
+            let _ = cache
+                .hincrby(&daily_key, "total_file_size", size_delta)
+                .await;
+            let _ = cache.hincrby(&daily_key, "message_count", 1).await;
+            let _ = cache.expire(&daily_key, 86400 * 2).await; // 2 days TTL
+        });
 
         Ok(())
     }

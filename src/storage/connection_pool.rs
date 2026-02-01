@@ -93,7 +93,12 @@ impl ConnectionPoolManager {
         database_url: &str,
         config: ConnectionPoolConfig,
     ) -> Result<Self, sqlx::Error> {
-        config.validate().expect("Invalid connection pool configuration");
+        if let Err(message) = config.validate() {
+            return Err(sqlx::Error::Configuration(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                message,
+            ))));
+        }
 
         let pool = sqlx::PgPool::connect_with(
             sqlx::postgres::PgConnectOptions::from_str(database_url)?

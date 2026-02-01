@@ -76,8 +76,8 @@ cargo run --release
 
 为确保项目按计划推进，我们使用自动化工具跟踪未完成的任务和文档TODO。
 
-- **最新任务报告**: [Unfinished Tasks Report](docs/synapse-rust/unfinished_tasks_summary_20260201_113738.md)
-- **JSON 数据源**: [unfinished_tasks.json](docs/synapse-rust/unfinished_tasks_20260201_113738.json)
+- **最新任务报告**: [Unfinished Tasks Report](docs/synapse-rust/unfinished_tasks_summary_20260201_114736.md)
+- **JSON 数据源**: [unfinished_tasks.json](docs/synapse-rust/unfinished_tasks_20260201_114736.json)
 
 ### 生成任务报告
 

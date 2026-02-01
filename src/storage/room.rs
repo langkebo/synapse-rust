@@ -120,12 +120,12 @@ impl RoomStorage {
     }
 
     pub async fn room_exists(&self, room_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(
+        let result = sqlx::query_scalar::<_, i32>(
             r#"
             SELECT 1 AS "exists" FROM rooms WHERE room_id = $1 LIMIT 1
             "#,
-            room_id
         )
+        .bind(room_id)
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.is_some())
@@ -221,15 +221,15 @@ impl RoomStorage {
     }
 
     pub async fn get_user_rooms(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows = sqlx::query!(
+        let rows: Vec<String> = sqlx::query_scalar::<_, String>(
             r#"
             SELECT room_id FROM room_memberships WHERE user_id = $1 AND membership = 'join'
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_all(&*self.pool)
         .await?;
-        Ok(rows.iter().map(|r| r.room_id.clone()).collect())
+        Ok(rows)
     }
 
     pub async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), sqlx::Error> {
@@ -382,6 +382,18 @@ impl RoomStorage {
             "#,
             room_id
         )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn shutdown_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        // Mark room as inactive or delete it. For simplicity, we delete it from directory
+        // and mark its name to indicate it's shutdown.
+        sqlx::query(
+            "UPDATE rooms SET is_public = false, name = COALESCE(name, '') || ' (SHUTDOWN)' WHERE room_id = $1",
+        )
+        .bind(room_id)
         .execute(&*self.pool)
         .await?;
         Ok(())

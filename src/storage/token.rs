@@ -142,12 +142,12 @@ impl AccessTokenStorage {
     }
 
     pub async fn token_exists(&self, token: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(
+        let result = sqlx::query_scalar::<_, i32>(
             r#"
-            SELECT 1 AS exists FROM access_tokens WHERE token = $1 LIMIT 1
+            SELECT 1 AS "exists" FROM access_tokens WHERE token = $1 LIMIT 1
             "#,
-            token
         )
+        .bind(token)
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.is_some())

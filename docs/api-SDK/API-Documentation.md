@@ -18,15 +18,39 @@
 - [管理 API](#管理-api)
 - [错误码](#错误码)
 - [类型定义](#类型定义)
+- [文档变更记录](#文档变更记录)
+- [参考资源](#参考资源)
+- [许可证](#许可证)
 
 ## 概述
 
 本文档详细描述了 Synapse Rust JavaScript SDK 的所有公开 API 接口。所有 API 调用都基于 Matrix 客户端-服务器协议。
 
+### 测试环境与兼容性
+
+- **测试环境**: Docker 部署 (synapse_rust:0.1.0)
+- **基础地址**: http://localhost:8008
+- **数据库**: PostgreSQL 15
+- **缓存**: Redis 7
+- **Matrix 客户端 API**: r0.0.1 ~ r0.6.0
+- **E2EE 端点**: r0 + v3（keys/changes, sendToDevice）
+- **联邦 API**: /_matrix/federation + /_matrix/federation/v2 + /_matrix/key/v2
+
+### 技术支持
+
+- Issues: https://github.com/your-org/synapse-rust-sdk/issues
+- Discussions: https://github.com/your-org/synapse-rust-sdk/discussions
+- Email: support@example.com
+
+### 接口权威来源
+
+接口列表与路径、状态请以 [API_REFERENCE.md](./API_REFERENCE.md) 为准。本文件提供 SDK 使用方式与经过测试验证的关键请求/响应示例。
+
 ### 基础 URL
 
 ```
 https://your-server.com/_matrix/client/r0
+https://your-server.com/_matrix/client/v3
 ```
 
 ### 认证方式
@@ -38,10 +62,17 @@ https://your-server.com/_matrix/client/r0
    Authorization: Bearer <access_token>
    ```
 
-2. **查询参数**：在 URL 中包含
+2. **查询参数**：在 URL 中包含（不推荐，存在日志泄露风险）
    ```
    ?access_token=<access_token>
    ```
+
+### 行为说明（基于测试）
+
+- `/_matrix/client/r0/sync` 对非法 token 返回 200，并返回基础结构（非 401）。
+- `/_matrix/media/v1/config` 返回 50MB 上传限制。
+- 普通用户调用 Admin API 返回 403（M_FORBIDDEN）。
+- 联邦相关接口依赖 `federation.signing_key`（base64 32 字节 seed），未配置时 server_key 相关接口返回内部错误。
 
 ### 响应格式
 
@@ -1593,22 +1624,18 @@ const backup = await client.downloadKeyBackup();
 
 ## 媒体 API
 
-### 1. 上传媒体
+### 1. 获取媒体配置
 
-上传媒体文件到服务器。
+**接口**: `GET /_matrix/media/v1/config`  
+**说明**: 返回最大上传限制（测试环境为 50MB）
 
-**接口**: `POST /_matrix/media/r0/upload`
+### 2. 上传媒体
 
-**查询参数**:
-
-| 参数名 | 类型 | 必填 | 说明 |
-|--------|------|------|------|
-| filename | string | 否 | 文件名 |
-
+**接口**: `POST /_matrix/media/v1/upload` 或 `POST /_matrix/media/v3/upload`  
+**查询参数**: `filename`（可选）  
 **请求体**: 文件内容（multipart/form-data）
 
 **请求示例**:
-
 ```javascript
 const response = await client.uploadMedia(file, {
   filename: 'image.jpg',
@@ -1617,77 +1644,92 @@ const response = await client.uploadMedia(file, {
 ```
 
 **响应**:
-
 ```typescript
 interface UploadMediaResponse {
-  content_uri: string;  // mxc:// URI
+  content_uri: string;
 }
 ```
 
+### 3. 下载媒体
+
+**接口**:  
+- `GET /_matrix/media/v1/download/{server_name}/{media_id}`  
+- `GET /_matrix/media/r1/download/{server_name}/{media_id}`  
+- `GET /_matrix/media/v3/download/{server_name}/{media_id}`
+
+### 4. 获取缩略图
+
+**接口**: `GET /_matrix/media/v3/thumbnail/{server_name}/{media_id}`
+
 ---
 
-### 2. 下载媒体
+## 联邦 API
 
-下载媒体文件。
-
-**接口**: `GET /_matrix/media/r0/download/{serverName}/{mediaId}`
-
-**路径参数**:
-
-| 参数名 | 类型 | 必填 | 说明 |
-|--------|------|------|------|
-| serverName | string | 是 | 服务器名称 |
-| mediaId | string | 是 | 媒体 ID |
-
-**查询参数**:
-
-| 参数名 | 类型 | 必填 | 说明 |
-|--------|------|------|------|
-| allow_remote | boolean | 否 | 是否允许从远程服务器下载 |
-
-**请求示例**:
-
-```javascript
-const blob = await client.downloadMedia('example.com', 'abc123');
+### Base Path
+```
+/_matrix/federation
+/_matrix/federation/v2
+/_matrix/key/v2
 ```
 
-**响应**: Blob 对象
+**说明**: 联邦接口依赖 `federation.signing_key`，未配置时 server_key 相关接口返回内部错误。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/_matrix/federation/version` | 联邦版本 |
+| GET | `/_matrix/federation` | 联邦发现 |
+| PUT | `/_matrix/federation/send/{txn_id}` | 发送事务 |
+| GET | `/_matrix/federation/make_join/{room_id}/{user_id}` | 申请加入 |
+| GET | `/_matrix/federation/make_leave/{room_id}/{user_id}` | 申请离开 |
+| PUT | `/_matrix/federation/send_join/{room_id}/{event_id}` | 发送加入 |
+| PUT | `/_matrix/federation/send_leave/{room_id}/{event_id}` | 发送离开 |
+| PUT | `/_matrix/federation/invite/{room_id}/{event_id}` | 邀请 |
+| POST | `/_matrix/federation/get_missing_events/{room_id}` | 补全事件 |
+| GET | `/_matrix/federation/get_event_auth/{room_id}/{event_id}` | 状态认证 |
+| GET | `/_matrix/federation/state/{room_id}` | 房间状态 |
+| GET | `/_matrix/federation/event/{event_id}` | 获取事件 |
+| GET | `/_matrix/federation/state_ids/{room_id}` | 状态 ID |
+| GET | `/_matrix/federation/query/directory/room/{room_id}` | 房间别名查询 |
+| GET | `/_matrix/federation/query/profile/{user_id}` | 用户资料查询 |
+| GET | `/_matrix/federation/backfill/{room_id}` | 回填事件 |
+| POST | `/_matrix/federation/keys/claim` | 密钥申领 |
+| POST | `/_matrix/federation/keys/upload` | 密钥上传 |
+| GET | `/_matrix/federation/v2/server` | 服务器密钥 |
+| GET | `/_matrix/key/v2/server` | 服务器密钥 (key) |
+| GET | `/_matrix/federation/v2/query/{server_name}/{key_id}` | 密钥查询 |
+| GET | `/_matrix/key/v2/query/{server_name}/{key_id}` | 密钥查询 (key) |
+| POST | `/_matrix/federation/v2/key/clone` | 密钥克隆 |
+| POST | `/_matrix/federation/v2/user/keys/query` | 用户密钥查询 |
 
 ---
 
-### 3. 获取媒体缩略图
+## 管理 API
 
-获取媒体文件的缩略图。
-
-**接口**: `GET /_matrix/media/r0/thumbnail/{serverName}/{mediaId}`
-
-**路径参数**:
-
-| 参数名 | 类型 | 必填 | 说明 |
-|--------|------|------|------|
-| serverName | string | 是 | 服务器名称 |
-| mediaId | string | 是 | 媒体 ID |
-
-**查询参数**:
-
-| 参数名 | 类型 | 必填 | 说明 |
-|--------|------|------|------|
-| width | number | 是 | 宽度 |
-| height | number | 是 | 高度 |
-| method | string | 否 | 缩放方法：crop, scale |
-| allow_remote | boolean | 否 | 是否允许远程 |
-
-**请求示例**:
-
-```javascript
-const thumbnail = await client.getThumbnail('example.com', 'abc123', {
-  width: 200,
-  height: 200,
-  method: 'crop'
-});
+### Base Path
+```
+/_synapse/admin/v1
 ```
 
----
+**说明**: 仅管理员可访问，普通用户调用返回 403（M_FORBIDDEN）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/server_version` | 服务器版本 |
+| GET | `/users` | 用户列表 |
+| GET | `/users/{user_id}` | 用户详情 |
+| PUT | `/users/{user_id}/admin` | 设置管理员 |
+| POST | `/users/{user_id}/deactivate` | 停用用户 |
+| GET | `/rooms` | 房间列表 |
+| GET | `/rooms/{room_id}` | 房间详情 |
+| POST | `/rooms/{room_id}/delete` | 删除房间 |
+| POST | `/purge_history` | 清理历史 |
+| POST | `/shutdown_room` | 关闭房间 |
+| GET | `/security/events` | 安全事件 |
+| GET | `/security/ip/blocks` | IP 封禁列表 |
+| POST | `/security/ip/block` | 封禁 IP |
+| POST | `/security/ip/unblock` | 解封 IP |
+| GET | `/security/ip/reputation/{ip}` | IP 信誉 |
+| GET | `/status` | 系统状态 |
 
 ## 错误码
 
@@ -2109,6 +2151,14 @@ setInterval(async () => {
   }
 }, 7 * 24 * 60 * 60 * 1000); // 每周
 ```
+
+---
+
+## 文档变更记录
+
+| 日期 | 变更说明 |
+|------|----------|
+| 2026-02-01 | 对齐最新测试结果，补充联邦 API 详情与错误码说明 |
 
 ---
 

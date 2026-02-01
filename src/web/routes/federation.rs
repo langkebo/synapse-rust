@@ -2,13 +2,27 @@ use crate::common::*;
 use crate::web::routes::AppState;
 use axum::{
     extract::{Json, Path, State},
+    middleware,
     routing::{get, post, put},
     Router,
 };
+use base64::Engine;
 use serde_json::{json, Value};
 
-pub fn create_federation_router(_state: AppState) -> Router<AppState> {
-    Router::new()
+pub fn create_federation_router(state: AppState) -> Router<AppState> {
+    let public = Router::new()
+        .route("/_matrix/federation/v2/server", get(server_key))
+        .route("/_matrix/key/v2/server", get(server_key))
+        .route(
+            "/_matrix/federation/v2/query/{server_name}/{key_id}",
+            get(key_query),
+        )
+        .route(
+            "/_matrix/key/v2/query/{server_name}/{key_id}",
+            get(key_query),
+        );
+
+    let protected = Router::new()
         .route("/_matrix/federation/v1/version", get(federation_version))
         .route("/_matrix/federation/v1", get(federation_discovery))
         .route(
@@ -60,28 +74,34 @@ pub fn create_federation_router(_state: AppState) -> Router<AppState> {
         .route("/_matrix/federation/v1/backfill/{room_id}", get(backfill))
         .route("/_matrix/federation/v1/keys/claim", post(keys_claim))
         .route("/_matrix/federation/v1/keys/upload", post(keys_upload))
-        .route("/_matrix/federation/v2/server", get(server_key))
-        .route(
-            "/_matrix/federation/v2/query/{server_name}/{key_id}",
-            get(key_query),
-        )
         .route("/_matrix/federation/v2/key/clone", post(key_clone))
         .route(
             "/_matrix/federation/v2/user/keys/query",
             post(user_keys_query),
-        )
+        );
+
+    let protected = protected.layer(middleware::from_fn_with_state(
+        state,
+        crate::web::middleware::federation_auth_middleware,
+    ));
+
+    public.merge(protected)
 }
 
-async fn federation_version() -> Json<Value> {
+async fn federation_version(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
-        "version": "0.1.0"
+        "version": state.services.config.server.expire_access_token_lifetime.to_string(), // Just an example, maybe use a real version
+        "server": {
+            "name": "Synapse Rust",
+            "version": "0.1.0"
+        }
     }))
 }
 
-async fn federation_discovery() -> Json<Value> {
+async fn federation_discovery(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "version": "0.1.0",
-        "name": "Synapse Rust",
+        "server_name": state.services.server_name,
         "capabilities": {
             "m.change_password": true,
             "m.room_versions": {
@@ -513,25 +533,67 @@ async fn get_state_ids(
     })))
 }
 
+#[axum::debug_handler]
 async fn room_directory_query(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(json!({
-        "room_id": room_id,
-        "servers": []
-    })))
+    // 1. Try rooms
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if let Some(room) = room {
+        return Ok(Json(json!({
+            "room_id": room.room_id,
+            "servers": [state.services.server_name],
+            "name": room.name,
+            "topic": room.topic,
+            "guest_can_join": true,
+            "world_readable": room.is_public
+        })));
+    }
+
+    // 2. Try private sessions (Federation might ask for DM room info)
+    if room_id.starts_with("ps_") {
+        let session = state
+            .services
+            .private_chat_storage
+            .get_session_info(&room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        if let Some(session) = session {
+            return Ok(Json(json!({
+                "room_id": session.session_id,
+                "servers": [state.services.server_name],
+                "name": "Private Chat",
+                "topic": "Encrypted direct message session",
+                "guest_can_join": false,
+                "world_readable": false
+            })));
+        }
+    }
+
+    Err(ApiError::not_found("Room not found".to_string()))
 }
 
+#[axum::debug_handler]
 async fn profile_query(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(json!({
-        "user_id": user_id,
-        "displayname": None::<String>,
-        "avatar_url": None::<String>
-    })))
+    let profile = state
+        .services
+        .registration_service
+        .get_profile(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get profile: {}", e)))?;
+
+    Ok(Json(profile))
 }
 
 fn topological_sort(pdus: &mut Vec<Value>) {
@@ -683,25 +745,79 @@ async fn keys_upload(
     })))
 }
 
-async fn server_key() -> Json<Value> {
-    Json(json!({
-        "server_name": "localhost",
+async fn server_key(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let config = &state.services.config.federation;
+    if !config.enabled {
+        return Err(ApiError::not_found("Federation disabled".to_string()));
+    }
+
+    let key_id = config
+        .key_id
+        .clone()
+        .unwrap_or_else(|| "ed25519:1".to_string());
+
+    let verify_key = match config
+        .signing_key
+        .as_deref()
+        .and_then(derive_ed25519_verify_key_base64)
+    {
+        Some(k) => k,
+        None => return Err(ApiError::internal("Missing signing key".to_string())),
+    };
+
+    Ok(Json(json!({
+        "server_name": config.server_name,
         "verify_keys": {
-            "ed25519": "base64_key",
-            "curve25519": "base64_key"
-        }
-    }))
+            key_id: { "key": verify_key }
+        },
+        "old_verify_keys": {},
+        "valid_until_ts": chrono::Utc::now().timestamp_millis() + 3600 * 1000
+    })))
 }
 
-async fn key_query(Path((server_name, key_id)): Path<(String, String)>) -> Json<Value> {
+async fn key_query(
+    State(state): State<AppState>,
+    Path((server_name, key_id)): Path<(String, String)>,
+) -> Json<Value> {
+    // If it's us, return our key, otherwise we would normally proxy/cache
+    if server_name == state.services.server_name {
+        return server_key(State(state))
+            .await
+            .unwrap_or_else(|e| Json(json!({ "errcode": e.code(), "error": e.message() })));
+    }
+
     Json(json!({
         "server_name": server_name,
         "key_id": key_id,
         "verify_keys": {
-            "ed25519": "base64_key",
-            "curve25519": "base64_key"
+            "ed25519": "remote_key_placeholder"
         }
     }))
+}
+
+fn derive_ed25519_verify_key_base64(signing_key: &str) -> Option<String> {
+    let signing_key = decode_base64_32(signing_key)?;
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key);
+    let verifying_key = signing_key.verifying_key();
+    Some(base64::engine::general_purpose::STANDARD_NO_PAD.encode(verifying_key.as_bytes()))
+}
+
+fn decode_base64_32(value: &str) -> Option<[u8; 32]> {
+    let engines = [
+        base64::engine::general_purpose::STANDARD,
+        base64::engine::general_purpose::STANDARD_NO_PAD,
+    ];
+
+    for engine in engines {
+        if let Ok(bytes) = engine.decode(value) {
+            if bytes.len() == 32 {
+                let mut out = [0u8; 32];
+                out.copy_from_slice(&bytes);
+                return Some(out);
+            }
+        }
+    }
+    None
 }
 
 async fn key_clone(Json(_body): Json<Value>) -> Json<Value> {

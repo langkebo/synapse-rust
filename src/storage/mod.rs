@@ -38,10 +38,13 @@ pub struct Database {
 impl Database {
     pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
         let pool = sqlx::PgPool::connect(database_url).await?;
-
-        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), 50)));
-
+        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), 10000)));
         Ok(Self { pool, monitor })
+    }
+
+    pub fn from_pool(pool: Pool<Postgres>) -> Self {
+        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), 10000)));
+        Self { pool, monitor }
     }
 
     pub fn pool(&self) -> &Pool<Postgres> {

@@ -1,4 +1,5 @@
 use super::{AppState, AuthenticatedUser};
+use crate::common::ApiError;
 use crate::services::VoiceMessageUploadParams;
 use axum::{
     extract::{Path, State},
@@ -41,7 +42,7 @@ async fn upload_voice_message(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
-) -> Json<Value> {
+) -> Result<Json<Value>, ApiError> {
     let voice_service = &state.services.voice_service;
 
     let content_base64 = body.get("content").and_then(|v| v.as_str()).unwrap_or("");
@@ -49,9 +50,7 @@ async fn upload_voice_message(
     let content = match engine.decode(content_base64) {
         Ok(data) => data,
         Err(_) => {
-            return Json(serde_json::json!({
-                "error": "Invalid base64 content"
-            }))
+            return Err(ApiError::bad_request("Invalid base64 content".to_string()));
         }
     };
 
@@ -77,10 +76,8 @@ async fn upload_voice_message(
         })
         .await
     {
-        Ok(result) => Json(result),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string()
-        })),
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
@@ -88,26 +85,22 @@ async fn upload_voice_message(
 async fn get_voice_message(
     State(state): State<AppState>,
     Path(message_id): Path<String>,
-) -> Json<Value> {
+) -> Result<Json<Value>, ApiError> {
     let voice_service = &state.services.voice_service;
 
     match voice_service.get_voice_message(&message_id).await {
         Ok(Some((content, content_type))) => {
             let engine = base64::engine::general_purpose::STANDARD;
             let content_base64 = engine.encode(&content);
-            Json(serde_json::json!({
+            Ok(Json(serde_json::json!({
                 "message_id": message_id,
                 "content": content_base64,
                 "content_type": content_type,
                 "size": content.len()
-            }))
+            })))
         }
-        Ok(None) => Json(serde_json::json!({
-            "error": "Voice message not found"
-        })),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string()
-        })),
+        Ok(None) => Err(ApiError::not_found("Voice message not found".to_string())),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
@@ -116,20 +109,18 @@ async fn delete_voice_message(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(message_id): Path<String>,
-) -> Json<Value> {
+) -> Result<Json<Value>, ApiError> {
     let voice_service = &state.services.voice_service;
 
     match voice_service
         .delete_voice_message(&auth_user.user_id, &message_id)
         .await
     {
-        Ok(deleted) => Json(serde_json::json!({
+        Ok(deleted) => Ok(Json(serde_json::json!({
             "deleted": deleted,
             "message_id": message_id
-        })),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string()
-        })),
+        }))),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
@@ -137,15 +128,12 @@ async fn delete_voice_message(
 async fn get_user_voice_messages(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-) -> Json<Value> {
+) -> Result<Json<Value>, ApiError> {
     let voice_service = &state.services.voice_service;
 
     match voice_service.get_user_messages(&user_id, 50, 0).await {
-        Ok(result) => Json(result),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string(),
-            "messages": []
-        })),
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
@@ -153,15 +141,12 @@ async fn get_user_voice_messages(
 async fn get_room_voice_messages(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
-) -> Json<Value> {
+) -> Result<Json<Value>, ApiError> {
     let voice_service = &state.services.voice_service;
 
     match voice_service.get_room_messages(&room_id, 50).await {
-        Ok(result) => Json(result),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string(),
-            "messages": []
-        })),
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
@@ -169,13 +154,11 @@ async fn get_room_voice_messages(
 async fn get_user_voice_stats(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-) -> Json<Value> {
+) -> Result<Json<Value>, ApiError> {
     let voice_service = &state.services.voice_service;
 
     match voice_service.get_user_stats(&user_id, None, None).await {
-        Ok(result) => Json(result),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string()
-        })),
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }

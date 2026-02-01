@@ -29,7 +29,8 @@ deadpool = "0.12"
 deadpool-postgres = "0.12"
 
 # Cache
-redis = { version = "0.26", features = ["aio", "tokio-comp"] }
+redis = { version = "0.27", features = ["aio", "tokio-comp"] }
+deadpool-redis = "0.18"
 moka = { version = "0.12", features = ["future", "sync"] }
 
 # Serialization

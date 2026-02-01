@@ -1,11 +1,11 @@
 use super::{AppState, AuthenticatedUser};
-use crate::services::PrivateChatService;
+use crate::common::ApiError;
 use axum::{
     extract::{Path, State},
     routing::{delete, get, post},
     Json, Router,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 
 pub fn create_private_chat_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -53,70 +53,160 @@ pub fn create_private_chat_router(_state: AppState) -> Router<AppState> {
 }
 
 #[axum::debug_handler]
-async fn get_dm_rooms(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(
-        &service_container,
-        &pool,
-        state.services.search_service.clone(),
-    );
-
-    match private_chat_service.get_sessions(&auth_user.user_id).await {
-        Ok(result) => Json(result),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string(),
-            "rooms": []
-        })),
+async fn get_dm_rooms(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    match state
+        .services
+        .private_chat_service
+        .get_sessions(&auth_user.user_id)
+        .await
+    {
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
 #[axum::debug_handler]
-async fn create_dm_room(State(_state): State<AppState>, Json(_body): Json<Value>) -> Json<Value> {
-    Json(serde_json::json!({
-        "room_id": "!dm:localhost"
-    }))
+async fn create_dm_room(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let other_user_id = body
+        .get("user_id")
+        .or(body.get("other_user_id"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("user_id required".to_string()))?;
+
+    match state
+        .services
+        .private_chat_storage
+        .get_or_create_session(&auth_user.user_id, other_user_id)
+        .await
+    {
+        Ok(session_id) => Ok(Json(serde_json::json!({
+            "room_id": session_id
+        }))),
+        Err(e) => Err(ApiError::internal(e.to_string())),
+    }
 }
 
 #[axum::debug_handler]
 async fn get_dm_room_details(
-    State(_state): State<AppState>,
-    Path(_room_id): Path<String>,
-) -> Json<Value> {
-    Json(serde_json::json!({
-        "room_id": _room_id,
-        "members": [],
-        "is_dm": true
-    }))
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    // 1. Try to find in standard rooms first
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if let Some(room) = room {
+        let members = state
+            .services
+            .member_storage
+            .get_room_members(&room_id, "")
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        if !members.iter().any(|m| m.user_id == auth_user.user_id) {
+            return Err(ApiError::forbidden(
+                "You are not a member of this room".to_string(),
+            ));
+        }
+
+        return Ok(Json(serde_json::json!({
+            "room_id": room_id,
+            "name": room.name,
+            "topic": room.topic,
+            "member_count": members.len(),
+            "joined_members": members
+        })));
+    }
+
+    // 2. If not found, try to find in private sessions
+    if room_id.starts_with("ps_") {
+        let session = state
+            .services
+            .private_chat_storage
+            .get_session_details(&room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Room or Session not found".to_string()))?;
+
+        if session.user_id_1 != auth_user.user_id && session.user_id_2 != auth_user.user_id {
+            return Err(ApiError::forbidden(
+                "You are not a participant of this session".to_string(),
+            ));
+        }
+
+        let other_user_id = if session.user_id_1 == auth_user.user_id {
+            &session.user_id_2
+        } else {
+            &session.user_id_1
+        };
+        let other_profile = state
+            .services
+            .registration_service
+            .get_profile(other_user_id)
+            .await
+            .unwrap_or(json!({"user_id": other_user_id}));
+
+        return Ok(Json(serde_json::json!({
+            "room_id": room_id,
+            "name": format!("Chat with {}", other_user_id),
+            "is_direct": true,
+            "participants": [
+                {"user_id": auth_user.user_id},
+                other_profile
+            ],
+            "unread_count": session.unread_count.unwrap_or(0)
+        })));
+    }
+
+    Err(ApiError::not_found("Room not found".to_string()))
 }
 
 #[axum::debug_handler]
 async fn get_unread_notifications(
-    State(_state): State<AppState>,
-    Path(_room_id): Path<String>,
-) -> Json<Value> {
-    Json(serde_json::json!({
-        "notification_count": 0,
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    // For now, return a basic unread count from private_sessions if it's a DM
+    let session: Option<(i32,)> =
+        sqlx::query_as("SELECT unread_count FROM private_sessions WHERE id = $1")
+            .bind(&room_id)
+            .fetch_optional(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "room_id": room_id,
+        "notification_count": session.map(|s| s.0).unwrap_or(0),
         "highlight_count": 0
-    }))
+    })))
 }
 
 #[axum::debug_handler]
-async fn get_sessions(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(
-        &service_container,
-        &pool,
-        state.services.search_service.clone(),
-    );
-
-    match private_chat_service.get_sessions(&auth_user.user_id).await {
-        Ok(result) => Json(result),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string(),
-            "sessions": []
-        })),
+async fn get_sessions(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    match state
+        .services
+        .private_chat_service
+        .get_sessions(&auth_user.user_id)
+        .await
+    {
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
@@ -125,41 +215,36 @@ async fn create_session(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
-) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(
-        &service_container,
-        &pool,
-        state.services.search_service.clone(),
-    );
-
+) -> Result<Json<Value>, ApiError> {
     let other_user_id = body
         .get("other_user_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    match private_chat_service
+    match state
+        .services
+        .private_chat_service
         .get_or_create_session(&auth_user.user_id, other_user_id)
         .await
     {
-        Ok(result) => Json(result),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string()
-        })),
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
 #[axum::debug_handler]
 async fn get_session_details(
-    State(_state): State<AppState>,
-    Path(_session_id): Path<String>,
-) -> Json<Value> {
-    Json(serde_json::json!({
-        "session_id": _session_id,
-        "participants": [],
-        "messages": []
-    }))
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let details = state
+        .services
+        .private_chat_service
+        .get_session_details(&auth_user.user_id, &session_id)
+        .await?;
+
+    Ok(Json(details))
 }
 
 #[axum::debug_handler]
@@ -167,23 +252,15 @@ async fn delete_session(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(session_id): Path<String>,
-) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(
-        &service_container,
-        &pool,
-        state.services.search_service.clone(),
-    );
-
-    match private_chat_service
+) -> Result<Json<Value>, ApiError> {
+    match state
+        .services
+        .private_chat_service
         .delete_session(&auth_user.user_id, &session_id)
         .await
     {
-        Ok(_) => Json(serde_json::json!({})),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string()
-        })),
+        Ok(_) => Ok(Json(serde_json::json!({}))),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
@@ -192,24 +269,15 @@ async fn get_session_messages(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(session_id): Path<String>,
-) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(
-        &service_container,
-        &pool,
-        state.services.search_service.clone(),
-    );
-
-    match private_chat_service
+) -> Result<Json<Value>, ApiError> {
+    match state
+        .services
+        .private_chat_service
         .get_messages(&auth_user.user_id, &session_id, 50, None)
         .await
     {
-        Ok(result) => Json(result),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string(),
-            "messages": []
-        })),
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
@@ -219,15 +287,7 @@ async fn send_session_message(
     auth_user: AuthenticatedUser,
     Path(session_id): Path<String>,
     Json(body): Json<Value>,
-) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(
-        &service_container,
-        &pool,
-        state.services.search_service.clone(),
-    );
-
+) -> Result<Json<Value>, ApiError> {
     let message_type = body
         .get("message_type")
         .and_then(|v| v.as_str())
@@ -236,7 +296,9 @@ async fn send_session_message(
     let content = body.get("content").unwrap_or(&default_content);
     let encrypted = body.get("encrypted_content").and_then(|v| v.as_str());
 
-    match private_chat_service
+    match state
+        .services
+        .private_chat_service
         .send_message(
             &auth_user.user_id,
             &session_id,
@@ -246,10 +308,8 @@ async fn send_session_message(
         )
         .await
     {
-        Ok(result) => Json(result),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string()
-        })),
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
@@ -258,16 +318,10 @@ async fn delete_message(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(message_id): Path<String>,
-) -> Result<Json<Value>, crate::error::ApiError> {
-    let pool = state.services.user_storage.pool.clone();
-    let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(
-        &service_container,
-        &pool,
-        state.services.search_service.clone(),
-    );
-
-    match private_chat_service
+) -> Result<Json<Value>, ApiError> {
+    match state
+        .services
+        .private_chat_service
         .delete_message(&auth_user.user_id, &message_id)
         .await
     {
@@ -281,23 +335,15 @@ async fn mark_message_read(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(message_id): Path<String>,
-) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(
-        &service_container,
-        &pool,
-        state.services.search_service.clone(),
-    );
-
-    match private_chat_service
+) -> Result<Json<Value>, ApiError> {
+    match state
+        .services
+        .private_chat_service
         .mark_session_read(&auth_user.user_id, &message_id)
         .await
     {
-        Ok(_) => Json(serde_json::json!({})),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string()
-        })),
+        Ok(_) => Ok(Json(serde_json::json!({}))),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
@@ -305,26 +351,17 @@ async fn mark_message_read(
 async fn get_unread_count(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(
-        &service_container,
-        &pool,
-        state.services.search_service.clone(),
-    );
-
-    match private_chat_service
+) -> Result<Json<Value>, ApiError> {
+    match state
+        .services
+        .private_chat_service
         .get_unread_count(&auth_user.user_id)
         .await
     {
-        Ok(count) => Json(serde_json::json!({
+        Ok(count) => Ok(Json(serde_json::json!({
             "unread_count": count
-        })),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string(),
-            "unread_count": 0
-        })),
+        }))),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
@@ -333,26 +370,17 @@ async fn search_messages(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
-) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let service_container = state.services.clone();
-    let private_chat_service = PrivateChatService::new(
-        &service_container,
-        &pool,
-        state.services.search_service.clone(),
-    );
-
+) -> Result<Json<Value>, ApiError> {
     let query = body.get("query").and_then(|v| v.as_str()).unwrap_or("");
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(50);
 
-    match private_chat_service
+    match state
+        .services
+        .private_chat_service
         .search_messages(&auth_user.user_id, query, limit)
         .await
     {
-        Ok(result) => Json(result),
-        Err(e) => Json(serde_json::json!({
-            "error": e.to_string(),
-            "results": []
-        })),
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }

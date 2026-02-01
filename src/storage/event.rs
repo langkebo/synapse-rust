@@ -99,6 +99,21 @@ impl EventStorage {
         Ok(event)
     }
 
+    pub async fn delete_events_before(
+        &self,
+        room_id: &str,
+        timestamp: i64,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            "DELETE FROM events WHERE room_id = $1 AND origin_server_ts < $2 AND event_type != 'm.room.create'",
+        )
+        .bind(room_id)
+        .bind(timestamp)
+        .execute(&*self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn get_room_events(
         &self,
         room_id: &str,

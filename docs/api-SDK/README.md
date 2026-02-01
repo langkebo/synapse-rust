@@ -2,6 +2,22 @@
 
 欢迎使用 Synapse Rust JavaScript SDK 文档中心。本 SDK 提供了完整的 Matrix 协议实现，让您可以轻松构建 Matrix 客户端应用。
 
+## ✅ 测试环境与兼容性
+
+- **测试环境**: Docker 部署 (synapse_rust:0.1.0)
+- **基础地址**: http://localhost:8008
+- **数据库**: PostgreSQL 15
+- **缓存**: Redis 7
+- **Matrix 客户端 API**: r0.0.1 ~ r0.6.0
+- **E2EE 端点**: r0 + v3（keys/changes, sendToDevice）
+- **联邦 API**: /_matrix/federation + /_matrix/federation/v2 + /_matrix/key/v2
+
+## 🧭 技术支持
+
+- Issues: https://github.com/your-org/synapse-rust-sdk/issues
+- Discussions: https://github.com/your-org/synapse-rust-sdk/discussions
+- Email: support@example.com
+
 ## 📚 文档目录
 
 ### [SDK 开发指南](./SDK-Development-Guide.md)
@@ -146,12 +162,7 @@ await client.sendMessage('!room:example.com', 'm.room.encrypted', encrypted);
 
 ## 📖 更多示例
 
-查看 [examples](../examples/) 目录获取更多使用示例：
-
-- [基础客户端示例](../examples/basic-client.js)
-- [端到端加密示例](../examples/e2ee.js)
-- [媒体上传示例](../examples/media-upload.js)
-- [同步循环示例](../examples/sync-loop.js)
+更多使用示例请参考 [API 文档](./API-Documentation.md) 中的请求示例与完整流程示例。
 
 ---
 
@@ -209,13 +220,13 @@ MIT License - 详见 [LICENSE](../../LICENSE) 文件
 
 当前版本：v1.2.4
 
-更新日志：[CHANGELOG.md](../../CHANGELOG.md)
+更新日志：2026-02-01 文档更新（接口对齐、FAQ 补充与集成指南完善）
 
 ---
 
 ## 📝 文档更新
 
-本文档最后更新于：2024-01-29
+本文档最后更新于：2026-02-01
 
 如有问题或建议，请提交 [Issue](https://github.com/your-org/synapse-rust-sdk/issues) 或 [Pull Request](https://github.com/your-org/synapse-rust-sdk/pulls)。
 

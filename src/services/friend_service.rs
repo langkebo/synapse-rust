@@ -417,6 +417,44 @@ impl FriendStorage {
         .await?;
         Ok(result.is_some())
     }
+
+    pub async fn get_recommendations(
+        &self,
+        user_id: &str,
+        limit: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        // Users who are in the same rooms OR have a private session but not yet friends
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r#"
+            WITH common_users AS (
+                -- Users in the same rooms
+                SELECT DISTINCT m2.user_id
+                FROM room_memberships m1
+                JOIN room_memberships m2 ON m1.room_id = m2.room_id
+                WHERE m1.user_id = $1 AND m1.membership = 'join'
+                AND m2.user_id != $1 AND m2.membership = 'join'
+                
+                UNION
+                
+                -- Users with a private session
+                SELECT user_id_2 FROM private_sessions WHERE user_id_1 = $1
+                UNION
+                SELECT user_id_1 FROM private_sessions WHERE user_id_2 = $1
+            )
+            SELECT user_id FROM common_users
+            WHERE user_id != $1
+            AND user_id NOT IN (SELECT friend_id FROM friends WHERE user_id = $1)
+            AND user_id NOT IN (SELECT blocked_user_id FROM blocked_users WHERE user_id = $1)
+            LIMIT $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
 }
 
 #[derive(Debug)]
@@ -453,19 +491,17 @@ impl<'a> FriendService<'a> {
     }
 
     pub async fn get_friends(&self, user_id: &str) -> ApiResult<serde_json::Value> {
-        let friends = self
+        let friend_ids = self
             .friend_storage
             .get_friends(user_id)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        let mut friend_list = Vec::new();
-        for friend_id in friends {
-            let registration_service = RegistrationService::new(self.services);
-            if let Ok(profile) = registration_service.get_profile(&friend_id).await {
-                friend_list.push(profile);
-            }
-        }
+        let friend_list = self
+            .services
+            .registration_service
+            .get_profiles(&friend_ids)
+            .await?;
 
         Ok(json!({
             "friends": friend_list,
@@ -518,22 +554,28 @@ impl<'a> FriendService<'a> {
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        let mut request_list = Vec::new();
-        for req in requests {
-            let registration_service = RegistrationService::new(self.services);
-            let profile = registration_service
-                .get_profile(&req.sender_id)
-                .await
-                .unwrap_or(json!({
+        let sender_ids: Vec<String> = requests.iter().map(|r| r.sender_id.clone()).collect();
+        let profiles = self
+            .services
+            .registration_service
+            .get_profiles(&sender_ids)
+            .await?;
+
+        let request_list: Vec<serde_json::Value> = requests
+            .into_iter()
+            .enumerate()
+            .map(|(i, req)| {
+                let profile = profiles.get(i).cloned().unwrap_or(json!({
                     "user_id": req.sender_id
                 }));
-            request_list.push(json!({
-                "request_id": req.id,
-                "sender": profile,
-                "message": req.message,
-                "created_ts": req.created_ts
-            }));
-        }
+                json!({
+                    "request_id": req.id,
+                    "sender": profile,
+                    "message": req.message,
+                    "created_ts": req.created_ts
+                })
+            })
+            .collect();
 
         Ok(json!({
             "requests": request_list,

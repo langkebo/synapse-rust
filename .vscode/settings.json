@@ -1,8 +1,9 @@
 {
-    "rust-analyzer.server.path": "~/.vscode/extensions/rust-lang.rust-analyzer-0.3.2769/extension/server/rust-analyzer",
     "rust-analyzer.checkOnSave.command": "clippy",
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
-        "cargo", "check", "--message-format=json"
+        "cargo",
+        "check",
+        "--message-format=json"
     ],
     "rust-analyzer.procMacro.enable": true,
     "rust-analyzer.cargo.features": "all",
@@ -38,8 +39,5 @@
     },
     "search.exclude": {
         "**/target": true
-    },
-    "files.watcherExclude": {
-        "**/target/**": true
     }
 }

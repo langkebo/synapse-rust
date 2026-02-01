@@ -1,13 +1,26 @@
 use crate::common::*;
 use crate::services::*;
 
-pub struct RegistrationService<'a> {
-    services: &'a ServiceContainer,
+pub struct RegistrationService {
+    user_storage: UserStorage,
+    auth_service: AuthService,
+    server_name: String,
+    enable_registration: bool,
 }
 
-impl<'a> RegistrationService<'a> {
-    pub fn new(services: &'a ServiceContainer) -> Self {
-        Self { services }
+impl RegistrationService {
+    pub fn new(
+        user_storage: UserStorage,
+        auth_service: AuthService,
+        server_name: String,
+        enable_registration: bool,
+    ) -> Self {
+        Self {
+            user_storage,
+            auth_service,
+            server_name,
+            enable_registration,
+        }
     }
 
     pub async fn register_user(
@@ -17,12 +30,11 @@ impl<'a> RegistrationService<'a> {
         admin: bool,
         displayname: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        if !self.services.config.server.enable_registration {
+        if !self.enable_registration {
             return Err(ApiError::forbidden("Registration is disabled".to_string()));
         }
 
         let (user, access_token, refresh_token, device_id) = self
-            .services
             .auth_service
             .register(username, password, admin, displayname)
             .await?;
@@ -30,12 +42,12 @@ impl<'a> RegistrationService<'a> {
         Ok(serde_json::json!({
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "expires_in": self.services.auth_service.token_expiry,
+            "expires_in": self.auth_service.token_expiry,
             "device_id": device_id,
             "user_id": user.user_id(),
             "well_known": {
                 "m.homeserver": {
-                    "base_url": format!("http://{}:8008", self.services.server_name)
+                    "base_url": format!("http://{}:8008", self.server_name)
                 }
             }
         }))
@@ -49,7 +61,6 @@ impl<'a> RegistrationService<'a> {
         initial_display_name: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let (user, access_token, refresh_token, device_id) = self
-            .services
             .auth_service
             .login(username, password, device_id, initial_display_name)
             .await?;
@@ -57,33 +68,31 @@ impl<'a> RegistrationService<'a> {
         Ok(serde_json::json!({
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "expires_in": self.services.auth_service.token_expiry,
+            "expires_in": self.auth_service.token_expiry,
             "device_id": device_id,
             "user_id": user.user_id(),
             "well_known": {
                 "m.homeserver": {
-                    "base_url": format!("http://{}:8008", self.services.server_name)
+                    "base_url": format!("http://{}:8008", self.server_name)
                 }
             }
         }))
     }
 
     pub async fn change_password(&self, user_id: &str, new_password: &str) -> ApiResult<()> {
-        self.services
-            .auth_service
+        self.auth_service
             .change_password(user_id, new_password)
             .await?;
         Ok(())
     }
 
     pub async fn deactivate_account(&self, user_id: &str) -> ApiResult<()> {
-        self.services.auth_service.deactivate_user(user_id).await?;
+        self.auth_service.deactivate_user(user_id).await?;
         Ok(())
     }
 
     pub async fn get_profile(&self, user_id: &str) -> ApiResult<serde_json::Value> {
         let user = self
-            .services
             .user_storage
             .get_user_by_id(user_id)
             .await
@@ -99,9 +108,27 @@ impl<'a> RegistrationService<'a> {
         }
     }
 
-    pub async fn set_displayname(&self, user_id: &str, displayname: &str) -> ApiResult<()> {
-        self.services
+    pub async fn get_profiles(&self, user_ids: &[String]) -> ApiResult<Vec<serde_json::Value>> {
+        let profiles = self
             .user_storage
+            .get_user_profiles_batch(user_ids)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get profiles: {}", e)))?;
+
+        Ok(profiles
+            .into_iter()
+            .map(|u| {
+                serde_json::json!({
+                    "user_id": u.user_id,
+                    "displayname": u.displayname,
+                    "avatar_url": u.avatar_url
+                })
+            })
+            .collect())
+    }
+
+    pub async fn set_displayname(&self, user_id: &str, displayname: &str) -> ApiResult<()> {
+        self.user_storage
             .update_displayname(user_id, Some(displayname))
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update displayname: {}", e)))?;
@@ -109,8 +136,7 @@ impl<'a> RegistrationService<'a> {
     }
 
     pub async fn set_avatar_url(&self, user_id: &str, avatar_url: &str) -> ApiResult<()> {
-        self.services
-            .user_storage
+        self.user_storage
             .update_avatar_url(user_id, Some(avatar_url))
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update avatar: {}", e)))?;
@@ -140,7 +166,12 @@ mod tests {
     #[tokio::test]
     async fn test_registration_service_creation() {
         let services = ServiceContainer::new_test();
-        let _registration_service = RegistrationService::new(&services);
+        let _registration_service = RegistrationService::new(
+            services.user_storage.clone(),
+            services.auth_service.clone(),
+            services.server_name.clone(),
+            services.config.server.enable_registration,
+        );
     }
 
     #[test]

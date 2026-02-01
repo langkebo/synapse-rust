@@ -238,6 +238,8 @@ pub struct FederationConfig {
     pub max_transaction_payload: u64,
     pub ca_file: Option<PathBuf>,
     pub client_ca_file: Option<PathBuf>,
+    pub signing_key: Option<String>,
+    pub key_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -336,6 +338,8 @@ mod tests {
                 max_transaction_payload: 50000,
                 ca_file: None,
                 client_ca_file: None,
+                signing_key: Some("test_signing_key".to_string()),
+                key_id: Some("ed25519:test_key".to_string()),
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -408,6 +412,8 @@ mod tests {
                 max_transaction_payload: 50000,
                 ca_file: None,
                 client_ca_file: None,
+                signing_key: Some("test_signing_key".to_string()),
+                key_id: Some("ed25519:test_key".to_string()),
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -512,6 +518,8 @@ mod tests {
             max_transaction_payload: 100000,
             ca_file: Some(PathBuf::from("/etc/synapse/ca.crt")),
             client_ca_file: None,
+            signing_key: None,
+            key_id: None,
         };
 
         assert!(config.enabled);

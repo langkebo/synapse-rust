@@ -63,9 +63,9 @@ impl SynapseServer {
         let services = ServiceContainer::new(&pool, cache.clone(), config.clone());
         let app_state = Arc::new(AppState::new(services, cache.clone()));
 
-        let scheduled_tasks = Arc::new(ScheduledTasks::new(Arc::new(
-            Database::new(&database_url).await?,
-        )));
+        let scheduled_tasks = Arc::new(ScheduledTasks::new(Arc::new(Database::from_pool(
+            (*pool).clone(),
+        ))));
         let metrics_collector = Arc::new(TaskMetricsCollector::new(scheduled_tasks.clone()));
 
         let address =

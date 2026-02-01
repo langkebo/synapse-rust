@@ -257,18 +257,18 @@ impl SchemaValidator {
     }
 
     async fn get_actual_columns(&self, table_name: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows = sqlx::query!(
+        let rows: Vec<String> = sqlx::query_scalar::<_, String>(
             r#"
             SELECT column_name FROM information_schema.columns
             WHERE table_name = $1
             ORDER BY ordinal_position
             "#,
-            table_name
         )
+        .bind(table_name)
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows.iter().filter_map(|r| r.column_name.clone()).collect())
+        Ok(rows)
     }
 
     pub async fn repair_missing_columns(&self) -> Result<Vec<String>, sqlx::Error> {
@@ -358,12 +358,12 @@ impl SchemaValidator {
     }
 
     async fn index_exists(&self, index_name: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(
+        let result = sqlx::query_scalar::<_, i32>(
             r#"
             SELECT 1 as "exists" FROM pg_indexes WHERE indexname = $1
             "#,
-            index_name
         )
+        .bind(index_name)
         .fetch_optional(&*self.pool)
         .await?;
 

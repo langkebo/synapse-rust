@@ -87,6 +87,8 @@ federation:
   resolve_timeout: 15s # DNS 解析与连接超时，快速失败避免阻塞
   ca_file: null
   client_ca_file: null
+  signing_key: "7206758265647f2fff7edb25bd4a3c323b05c888a6eff76bc8d3c30793ad293b" # dummy key for now
+  key_id: "ed25519:a_abc123"
 
 media:
   max_image_pixels: 33554432 # 32MP, 限制图片分辨率防止内存溢出
@@ -106,6 +108,10 @@ media:
     - width: 800
       height: 600
       method: scale
+
+search:
+  elasticsearch_url: "http://localhost:9200"
+  enabled: false
 
 security:
   secret: "7206758265647f2fff7edb25bd4a3c323b05c888a6eff76bc8d3c30793ad293b"

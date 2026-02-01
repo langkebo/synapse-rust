@@ -293,6 +293,26 @@ impl UserStorage {
         .await?;
         Ok(result)
     }
+
+    pub async fn get_user_profiles_batch(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<UserProfile>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        sqlx::query_as::<_, UserProfile>(
+            r#"
+            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
+            FROM users
+            WHERE user_id = ANY($1) AND COALESCE(deactivated, FALSE) = FALSE
+            "#,
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

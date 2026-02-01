@@ -7,6 +7,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 pub fn create_friend_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -89,7 +90,7 @@ pub struct UpdateCategoryBody {
 #[axum::debug_handler]
 async fn get_friends(
     State(state): State<AppState>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     let friends = friend_storage
@@ -97,13 +98,39 @@ async fn get_friends(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let mut friend_list = Vec::new();
-    for friend_id in friends {
-        let profile = json!({
-            "user_id": friend_id
-        });
-        friend_list.push(profile);
+    if friends.is_empty() {
+        return Ok(Json(json!({
+            "friends": [],
+            "count": 0
+        })));
     }
+
+    let profiles = state
+        .services
+        .user_storage
+        .get_user_profiles_batch(&friends)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let profile_map: HashMap<String, crate::storage::user::UserProfile> = profiles
+        .into_iter()
+        .map(|p| (p.user_id.clone(), p))
+        .collect();
+
+    let friend_list: Vec<Value> = friends
+        .iter()
+        .map(|friend_id| {
+            if let Some(profile) = profile_map.get(friend_id) {
+                json!({
+                    "user_id": friend_id,
+                    "display_name": profile.displayname,
+                    "avatar_url": profile.avatar_url
+                })
+            } else {
+                json!({ "user_id": friend_id })
+            }
+        })
+        .collect();
 
     Ok(Json(json!({
         "friends": friend_list,
@@ -114,7 +141,7 @@ async fn get_friends(
 #[axum::debug_handler]
 async fn send_friend_request(
     State(state): State<AppState>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
     Json(body): Json<SendFriendRequestBody>,
 ) -> Result<Json<Value>, ApiError> {
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
@@ -158,7 +185,7 @@ async fn send_friend_request(
 #[axum::debug_handler]
 async fn get_friend_requests(
     State(state): State<AppState>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     let requests = friend_storage
@@ -166,16 +193,47 @@ async fn get_friend_requests(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let mut request_list = Vec::new();
-    for req in requests {
-        let profile = json!({ "user_id": req.sender_id });
-        request_list.push(json!({
-            "request_id": req.id,
-            "sender": profile,
-            "message": req.message,
-            "created_ts": req.created_ts
-        }));
+    if requests.is_empty() {
+        return Ok(Json(json!({
+            "requests": [],
+            "count": 0
+        })));
     }
+
+    let sender_ids: Vec<String> = requests.iter().map(|req| req.sender_id.clone()).collect();
+    let profiles = state
+        .services
+        .user_storage
+        .get_user_profiles_batch(&sender_ids)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let profile_map: HashMap<String, crate::storage::user::UserProfile> = profiles
+        .into_iter()
+        .map(|p| (p.user_id.clone(), p))
+        .collect();
+
+    let request_list: Vec<Value> = requests
+        .iter()
+        .map(|req| {
+            let profile = if let Some(p) = profile_map.get(&req.sender_id) {
+                json!({
+                    "user_id": req.sender_id,
+                    "display_name": p.displayname,
+                    "avatar_url": p.avatar_url
+                })
+            } else {
+                json!({ "user_id": req.sender_id })
+            };
+
+            json!({
+                "request_id": req.id,
+                "sender": profile,
+                "message": req.message,
+                "created_ts": req.created_ts
+            })
+        })
+        .collect();
 
     Ok(Json(json!({
         "requests": request_list,
@@ -187,7 +245,7 @@ async fn get_friend_requests(
 async fn accept_friend_request(
     State(state): State<AppState>,
     Path(request_id): Path<i64>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     friend_storage
@@ -201,7 +259,7 @@ async fn accept_friend_request(
 async fn decline_friend_request(
     State(state): State<AppState>,
     Path(request_id): Path<i64>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     friend_storage
@@ -215,7 +273,7 @@ async fn decline_friend_request(
 async fn get_blocked_users(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     if auth_user.user_id != user_id && !auth_user.is_admin {
         return Err(ApiError::forbidden(
@@ -234,7 +292,7 @@ async fn get_blocked_users(
 async fn block_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
     Json(body): Json<BlockUserBody>,
 ) -> Result<Json<Value>, ApiError> {
     if auth_user.user_id != user_id && !auth_user.is_admin {
@@ -257,7 +315,7 @@ async fn block_user(
 async fn unblock_user(
     State(state): State<AppState>,
     Path((user_id, blocked_user_id)): Path<(String, String)>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     if auth_user.user_id != user_id && !auth_user.is_admin {
         return Err(ApiError::forbidden(
@@ -276,7 +334,7 @@ async fn unblock_user(
 async fn get_friend_categories(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     if auth_user.user_id != user_id && !auth_user.is_admin {
         return Err(ApiError::forbidden(
@@ -295,7 +353,7 @@ async fn get_friend_categories(
 async fn create_friend_category(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
     Json(body): Json<CreateCategoryBody>,
 ) -> Result<Json<Value>, ApiError> {
     if auth_user.user_id != user_id && !auth_user.is_admin {
@@ -316,7 +374,7 @@ async fn create_friend_category(
 async fn update_friend_category(
     State(state): State<AppState>,
     Path((user_id, category_name)): Path<(String, String)>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
     Json(body): Json<UpdateCategoryBody>,
 ) -> Result<Json<Value>, ApiError> {
     if auth_user.user_id != user_id && !auth_user.is_admin {
@@ -343,7 +401,7 @@ async fn update_friend_category(
 async fn delete_friend_category(
     State(state): State<AppState>,
     Path((user_id, category_name)): Path<(String, String)>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     if auth_user.user_id != user_id && !auth_user.is_admin {
         return Err(ApiError::forbidden(
@@ -364,7 +422,7 @@ async fn delete_friend_category(
 async fn get_friend_recommendations(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     if auth_user.user_id != user_id && !auth_user.is_admin {
         return Err(ApiError::forbidden(
@@ -372,23 +430,28 @@ async fn get_friend_recommendations(
         ));
     }
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
-    let _friends = friend_storage
-        .get_friends(&user_id)
+    let recommendation_ids = friend_storage
+        .get_recommendations(&user_id, 10)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let recommendations = vec![
-        json!({
-            "user_id": "@alice:localhost",
-            "display_name": "Alice",
-            "reason": "Same room members"
-        }),
-        json!({
-            "user_id": "@bob:localhost",
-            "display_name": "Bob",
-            "reason": "Popular user"
-        }),
-    ];
+    let mut recommendations = Vec::new();
+
+    for rec_id in recommendation_ids {
+        let profile = state
+            .services
+            .registration_service
+            .get_profile(&rec_id)
+            .await
+            .unwrap_or(json!({ "user_id": rec_id }));
+
+        recommendations.push(json!({
+            "user_id": rec_id,
+            "display_name": profile["displayname"],
+            "avatar_url": profile["avatar_url"],
+            "reason": "Common rooms"
+        }));
+    }
 
     Ok(Json(json!({
         "recommendations": recommendations,
@@ -406,7 +469,7 @@ pub struct SearchQuery {
 async fn search_users(
     State(state): State<AppState>,
     Query(params): Query<SearchQuery>,
-    auth_user: crate::AuthenticatedUser,
+    auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.unwrap_or(20).min(100);
     let users = state

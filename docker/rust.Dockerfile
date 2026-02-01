@@ -1,7 +1,17 @@
-# Stage 1: Build
-FROM rust:1.93-slim-bookworm AS builder
-
+# Stage 1: Recipe Generator
+FROM rust:1.93-slim-bookworm AS chef
+RUN cargo install cargo-chef
 WORKDIR /app
+
+# Stage 2: Recipe Planner
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+# Stage 3: Builder
+FROM chef AS builder
+ARG CARGO_PROFILE=release
+COPY --from=planner /app/recipe.json recipe.json
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -10,25 +20,18 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy manifests
-COPY Cargo.toml Cargo.lock ./
+# Build dependencies
+RUN cargo chef cook --recipe-path recipe.json --profile ${CARGO_PROFILE}
 
-# Create dummy source to build dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release
-RUN rm -f target/release/deps/synapse_rust*
-
-# Copy source code
-COPY src ./src
-COPY migrations ./migrations
-COPY .sqlx ./.sqlx
-
-# Build real application
+# Build application
+COPY . .
+# Ensure SQLX offline mode if needed
 ENV SQLX_OFFLINE=true
-RUN cargo build --release
+RUN cargo build --profile ${CARGO_PROFILE}
 
-# Stage 2: Runtime
-FROM debian:bookworm-slim
+# Stage 4: Runtime
+FROM debian:bookworm-slim AS runtime
+ARG CARGO_PROFILE=release
 
 WORKDIR /app
 
@@ -41,10 +44,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy binary
-COPY --from=builder /app/target/release/synapse-rust /usr/local/bin/synapse-rust
+COPY --from=builder /app/target/${CARGO_PROFILE}/synapse-rust /usr/local/bin/synapse-rust
 
-# Copy config and migrations (though usually mounted)
-COPY homeserver.yaml ./
+# Copy migrations (config and data usually mounted)
 COPY migrations ./migrations
 
 # Health check script
