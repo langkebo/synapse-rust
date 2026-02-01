@@ -19,6 +19,7 @@ pub use voice::create_voice_router;
 use crate::cache::*;
 use crate::common::*;
 use crate::services::*;
+use crate::storage::CreateEventParams;
 use axum::{
     extract::{FromRequestParts, Json, Path, Query, State},
     http::{request::Parts, HeaderMap},
@@ -49,6 +50,13 @@ pub struct AuthenticatedUser {
     pub access_token: String,
 }
 
+#[derive(Clone)]
+pub struct AdminUser {
+    pub user_id: String,
+    pub device_id: Option<String>,
+    pub access_token: String,
+}
+
 impl FromRequestParts<AppState> for AuthenticatedUser {
     type Rejection = ApiError;
 
@@ -58,19 +66,33 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
     ) -> Result<Self, Self::Rejection> {
         let token = extract_token_from_headers(&parts.headers)?;
 
-        let app_state = state;
-
-        let (user_id, device_id, is_admin) = app_state
-            .services
-            .auth_service
-            .validate_token(&token)
-            .await?;
+        let (user_id, device_id, is_admin) =
+            state.services.auth_service.validate_token(&token).await?;
 
         Ok(AuthenticatedUser {
             user_id,
             device_id,
             is_admin,
             access_token: token,
+        })
+    }
+}
+
+impl FromRequestParts<AppState> for AdminUser {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let auth = AuthenticatedUser::from_request_parts(parts, state).await?;
+        if !auth.is_admin {
+            return Err(ApiError::forbidden("Admin access required".to_string()));
+        }
+        Ok(AdminUser {
+            user_id: auth.user_id,
+            device_id: auth.device_id,
+            access_token: auth.access_token,
         })
     }
 }
@@ -188,6 +210,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/r0/rooms/{room_id}/kick", post(kick_user))
         .route("/_matrix/client/r0/rooms/{room_id}/ban", post(ban_user))
         .route("/_matrix/client/r0/rooms/{room_id}/unban", post(unban_user))
+        .merge(create_friend_router(state.clone()))
+        .merge(create_private_chat_router(state.clone()))
+        .merge(create_voice_router(state.clone()))
+        .merge(create_media_router(state.clone()))
+        .merge(create_e2ee_router(state.clone()))
+        .merge(create_key_backup_router(state.clone()))
+        .merge(create_admin_router(state.clone()))
+        .merge(create_federation_router(state.clone()))
         .layer(CompressionLayer::new())
         .with_state(state)
 }
@@ -253,7 +283,8 @@ async fn login(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let username = body
-        .get("username")
+        .get("user")
+        .or(body.get("username"))
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
     let password = body
@@ -573,20 +604,18 @@ async fn create_room(
     });
     let preset = body.get("preset").and_then(|v| v.as_str());
 
+    let config = CreateRoomConfig {
+        visibility: visibility.map(|s| s.to_string()),
+        room_alias_name: room_alias.map(|s| s.to_string()),
+        name: name.map(|s| s.to_string()),
+        topic: topic.map(|s| s.to_string()),
+        invite_list: invite,
+        preset: preset.map(|s| s.to_string()),
+        ..Default::default()
+    };
+
     let room_service = RoomService::new(&state.services);
-    Ok(Json(
-        room_service
-            .create_room(
-                &user_id,
-                visibility,
-                room_alias,
-                name,
-                topic,
-                invite.as_ref(),
-                preset,
-            )
-            .await?,
-    ))
+    Ok(Json(room_service.create_room(&user_id, config).await?))
 }
 
 async fn get_room(
@@ -639,19 +668,19 @@ async fn create_public_room(
     });
     let preset = body.get("preset").and_then(|v| v.as_str());
 
+    let config = CreateRoomConfig {
+        visibility: visibility.map(|s| s.to_string()),
+        room_alias_name: room_alias.map(|s| s.to_string()),
+        name: name.map(|s| s.to_string()),
+        topic: topic.map(|s| s.to_string()),
+        invite_list: invite,
+        preset: preset.map(|s| s.to_string()),
+        ..Default::default()
+    };
+
     let room_service = RoomService::new(&state.services);
     Ok(Json(
-        room_service
-            .create_room(
-                &auth_user.user_id,
-                visibility,
-                room_alias,
-                name,
-                topic,
-                invite.as_ref(),
-                preset,
-            )
-            .await?,
+        room_service.create_room(&auth_user.user_id, config).await?,
     ))
 }
 
@@ -860,7 +889,7 @@ async fn get_room_state(
                 "type": e.event_type,
                 "event_id": e.event_id,
                 "sender": e.user_id,
-                "content": serde_json::from_str(&e.content).unwrap_or(json!({})),
+                "content": e.content,
                 "state_key": e.state_key
             })
         })
@@ -888,7 +917,7 @@ async fn get_state_by_type(
                 "type": e.event_type,
                 "event_id": e.event_id,
                 "sender": e.user_id,
-                "content": serde_json::from_str(&e.content).unwrap_or(json!({})),
+                "content": e.content,
                 "state_key": e.state_key
             })
         })
@@ -918,7 +947,7 @@ async fn get_state_event(
         "type": event.event_type,
         "event_id": event.event_id,
         "sender": event.user_id,
-        "content": serde_json::from_str(&event.content).unwrap_or(json!({})),
+        "content": event.content,
         "state_key": event.state_key
     })))
 }
@@ -941,16 +970,15 @@ async fn redact_event(
     state
         .services
         .event_storage
-        .create_event(
-            &new_event_id,
-            &room_id,
-            &auth_user.user_id,
-            "m.room.redaction",
-            &serde_json::to_string(&content)
-                .map_err(|e| ApiError::internal(format!("Failed to serialize content: {}", e)))?,
-            None,
-            now,
-        )
+        .create_event(CreateEventParams {
+            event_id: new_event_id.clone(),
+            room_id: room_id.clone(),
+            user_id: auth_user.user_id,
+            event_type: "m.room.redaction".to_string(),
+            content,
+            state_key: None,
+            origin_server_ts: now,
+        })
         .await
         .map_err(|e| ApiError::internal(format!("Failed to redact event: {}", e)))?;
 
@@ -987,16 +1015,15 @@ async fn kick_user(
     state
         .services
         .event_storage
-        .create_event(
-            &event_id,
-            &room_id,
-            &auth_user.user_id,
-            "m.room.member",
-            &serde_json::to_string(&content)
-                .map_err(|e| ApiError::internal(format!("Failed to serialize content: {}", e)))?,
-            Some(target),
-            chrono::Utc::now().timestamp_millis(),
-        )
+        .create_event(CreateEventParams {
+            event_id,
+            room_id: room_id.clone(),
+            user_id: auth_user.user_id,
+            event_type: "m.room.member".to_string(),
+            content,
+            state_key: Some(target.to_string()),
+            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        })
         .await
         .ok();
 
@@ -1024,23 +1051,22 @@ async fn ban_user(
     state
         .services
         .member_storage
-        .add_member(&room_id, &target, "ban", None, None)
+        .add_member(&room_id, target, "ban", None, None)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to ban user: {}", e)))?;
 
     state
         .services
         .event_storage
-        .create_event(
-            &event_id,
-            &room_id,
-            &auth_user.user_id,
-            "m.room.member",
-            &serde_json::to_string(&content)
-                .map_err(|e| ApiError::internal(format!("Failed to serialize content: {}", e)))?,
-            Some(target),
-            chrono::Utc::now().timestamp_millis(),
-        )
+        .create_event(CreateEventParams {
+            event_id,
+            room_id: room_id.clone(),
+            user_id: auth_user.user_id,
+            event_type: "m.room.member".to_string(),
+            content,
+            state_key: Some(target.to_string()),
+            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        })
         .await
         .ok();
 
@@ -1073,15 +1099,15 @@ async fn unban_user(
     state
         .services
         .event_storage
-        .create_event(
-            &event_id,
-            &room_id,
-            &auth_user.user_id,
-            "m.room.member",
-            &serde_json::to_string(&content).unwrap(),
-            Some(target),
-            chrono::Utc::now().timestamp_millis(),
-        )
+        .create_event(CreateEventParams {
+            event_id,
+            room_id: room_id.clone(),
+            user_id: auth_user.user_id,
+            event_type: "m.room.member".to_string(),
+            content,
+            state_key: Some(target.to_string()),
+            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        })
         .await
         .ok();
 

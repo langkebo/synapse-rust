@@ -9,6 +9,7 @@ pub mod membership;
 pub mod monitoring;
 pub mod private_chat;
 pub mod room;
+pub mod schema_validator;
 pub mod token;
 pub mod user;
 pub mod voice;
@@ -24,6 +25,7 @@ pub use self::monitoring::{
 };
 pub use self::private_chat::*;
 pub use self::room::*;
+pub use self::schema_validator::*;
 pub use self::token::*;
 pub use self::user::*;
 pub use self::voice::*;
@@ -461,14 +463,15 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
         r#"
         CREATE TABLE IF NOT EXISTS friend_requests (
             id BIGSERIAL PRIMARY KEY,
-            requester_id TEXT NOT NULL,
-            target_id TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            message TEXT,
+            from_user_id TEXT NOT NULL,
+            to_user_id TEXT NOT NULL,
             created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL,
-            FOREIGN KEY (requester_id) REFERENCES users(user_id) ON DELETE CASCADE,
-            FOREIGN KEY (target_id) REFERENCES users(user_id) ON DELETE CASCADE
+            updated_ts BIGINT,
+            status TEXT DEFAULT 'pending',
+            message TEXT,
+            hide BOOLEAN DEFAULT FALSE,
+            FOREIGN KEY (from_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (to_user_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     "#,
     )
@@ -479,12 +482,12 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
         r#"
         CREATE TABLE IF NOT EXISTS blocked_users (
             user_id TEXT NOT NULL,
-            blocked_id TEXT NOT NULL,
+            blocked_user_id TEXT NOT NULL,
             reason TEXT,
             created_ts BIGINT NOT NULL,
-            PRIMARY KEY (user_id, blocked_id),
+            PRIMARY KEY (user_id, blocked_user_id),
             FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-            FOREIGN KEY (blocked_id) REFERENCES users(user_id) ON DELETE CASCADE
+            FOREIGN KEY (blocked_user_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     "#,
     )
@@ -498,8 +501,11 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
             user_id TEXT NOT NULL,
             name TEXT NOT NULL,
             color TEXT,
+            icon TEXT,
+            sort_order BIGINT DEFAULT 0,
             created_ts BIGINT NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            UNIQUE (user_id, name)
         )
     "#,
     )
@@ -616,7 +622,7 @@ mod tests {
             password_hash: Some("hash123".to_string()),
             displayname: Some("Test User".to_string()),
             avatar_url: Some("mxc://example.com/avatar".to_string()),
-            admin: Some(false),
+            is_admin: Some(false),
             deactivated: Some(false),
             is_guest: Some(false),
             consent_version: None,
@@ -627,8 +633,9 @@ mod tests {
             invalid_update_ts: None,
             migration_state: None,
             creation_ts: 1234567890,
+            updated_ts: None,
         };
-        assert_eq!(user.user_id(), "@test:example.com");
+        assert_eq!(user.user_id, "@test:example.com");
         assert_eq!(user.username, "testuser");
     }
 
@@ -640,10 +647,12 @@ mod tests {
             display_name: Some("My Device".to_string()),
             last_seen_ts: Some(1234567890000),
             last_seen_ip: Some("192.168.1.1".to_string()),
+            created_at: 1234567890000,
             created_ts: Some(1234567890000),
+            device_key: None,
             ignored_user_list: None,
             appservice_id: None,
-            first_seen_ts: Some(1234567890000),
+            first_seen_ts: 1234567890000,
         };
         assert_eq!(device.device_id, "DEVICE123");
         assert_eq!(device.user_id, "@test:example.com");
@@ -657,12 +666,11 @@ mod tests {
             user_id: "@test:example.com".to_string(),
             device_id: Some("DEVICE123".to_string()),
             created_ts: 1234567890,
-            expires_ts: Some(1234571490),
+            expires_ts: 1234571490,
             invalidated_ts: None,
         };
         assert_eq!(token.id, 1);
         assert_eq!(token.token, "test_token_123");
-        assert!(token.expires_ts.is_some());
     }
 
     #[test]
@@ -671,9 +679,9 @@ mod tests {
             id: 1,
             token: "refresh_token_123".to_string(),
             user_id: "@test:example.com".to_string(),
-            device_id: Some("DEVICE123".to_string()),
+            device_id: "DEVICE123".to_string(),
             created_ts: 1234567890,
-            expires_ts: Some(1235171490),
+            expires_ts: 1235171490,
             invalidated_ts: None,
         };
         assert_eq!(token.id, 1);
@@ -692,7 +700,7 @@ mod tests {
             version: "1".to_string(),
             encryption: None,
             is_public: false,
-            member_count: 5,
+            member_count: 0,
             history_visibility: "shared".to_string(),
             creation_ts: 1234567890,
         };
@@ -708,7 +716,7 @@ mod tests {
             room_id: "!test:example.com".to_string(),
             user_id: "@test:example.com".to_string(),
             event_type: "m.room.message".to_string(),
-            content: r#"{"body":"Hello","msgtype":"m.text"}"#.to_string(),
+            content: serde_json::from_str(r#"{"body":"Hello","msgtype":"m.text"}"#).unwrap(),
             state_key: None,
             depth: 1,
             origin_server_ts: 1234567890000,
@@ -734,11 +742,10 @@ mod tests {
             join_reason: Some("Joined via invite".to_string()),
             banned_by: None,
             sender: None,
-            event_id: None,
+            event_id: Some("$test_event:example.com".to_string()),
             event_type: None,
             is_banned: Some(false),
             invite_token: None,
-            inviter: None,
             updated_ts: None,
             joined_ts: Some(1234567890000),
             left_ts: None,

@@ -27,7 +27,7 @@ impl<'a> SignatureStorage<'a> {
         .bind(&signature.signature)
         .bind(&signature.key_id)
         .bind(signature.created_at)
-        .execute(&*self.pool)
+        .execute(self.pool)
         .await?;
 
         Ok(())

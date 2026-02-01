@@ -96,6 +96,12 @@ pub struct ServerConfig {
     pub refresh_token_lifetime: i64,
     pub refresh_token_sliding_window_size: i64,
     pub session_duration: i64,
+    #[serde(default = "default_warmup_pool")]
+    pub warmup_pool: bool,
+}
+
+fn default_warmup_pool() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -150,8 +156,11 @@ pub struct SecurityConfig {
 
 impl Config {
     pub async fn load() -> Result<Self, Box<dyn std::error::Error>> {
+        let config_path =
+            std::env::var("SYNAPSE_CONFIG_PATH").unwrap_or_else(|_| "homeserver.yaml".to_string());
+
         let config = ConfigBuilder::builder()
-            .add_source(config::File::with_name("config.yaml"))
+            .add_source(config::File::with_name(&config_path))
             .add_source(config::Environment::with_prefix("SYNAPSE"))
             .build()?;
 
@@ -198,6 +207,7 @@ mod tests {
                 refresh_token_lifetime: 604800,
                 refresh_token_sliding_window_size: 1000,
                 session_duration: 86400,
+                warmup_pool: true,
             },
             database: DatabaseConfig {
                 host: "localhost".to_string(),
@@ -264,6 +274,7 @@ mod tests {
                 refresh_token_lifetime: 604800,
                 refresh_token_sliding_window_size: 1000,
                 session_duration: 86400,
+                warmup_pool: true,
             },
             database: DatabaseConfig {
                 host: "localhost".to_string(),
@@ -329,6 +340,7 @@ mod tests {
             refresh_token_lifetime: 2592000,
             refresh_token_sliding_window_size: 5000,
             session_duration: 3600,
+            warmup_pool: true,
         };
 
         assert_eq!(config.name, "test");

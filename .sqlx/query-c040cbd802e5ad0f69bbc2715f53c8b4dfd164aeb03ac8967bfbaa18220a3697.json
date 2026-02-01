@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE TABLE IF NOT EXISTS friend_requests (\n                id BIGSERIAL PRIMARY KEY,\n                from_user_id VARCHAR(255) NOT NULL,\n                to_user_id VARCHAR(255) NOT NULL,\n                created_ts BIGINT NOT NULL,\n                updated_ts BIGINT,\n                status VARCHAR(50) DEFAULT 'pending',\n                message TEXT,\n                hide BOOLEAN DEFAULT FALSE,\n                FOREIGN KEY (from_user_id) REFERENCES users(user_id) ON DELETE CASCADE,\n                FOREIGN KEY (to_user_id) REFERENCES users(user_id) ON DELETE CASCADE\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "c040cbd802e5ad0f69bbc2715f53c8b4dfd164aeb03ac8967bfbaa18220a3697"
+}

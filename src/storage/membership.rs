@@ -7,23 +7,22 @@ use std::sync::Arc;
 pub struct RoomMember {
     pub room_id: String,
     pub user_id: String,
-    pub display_name: Option<String>,
-    pub membership: String,
-    pub avatar_url: Option<String>,
-    pub join_reason: Option<String>,
-    pub banned_by: Option<String>,
     pub sender: Option<String>,
+    pub membership: String,
     pub event_id: Option<String>,
     pub event_type: Option<String>,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
     pub is_banned: Option<bool>,
     pub invite_token: Option<String>,
-    pub inviter: Option<String>,
     pub updated_ts: Option<i64>,
     pub joined_ts: Option<i64>,
     pub left_ts: Option<i64>,
     pub reason: Option<String>,
+    pub banned_by: Option<String>,
     pub ban_reason: Option<String>,
     pub ban_ts: Option<i64>,
+    pub join_reason: Option<String>,
 }
 
 #[derive(Clone)]
@@ -58,7 +57,7 @@ impl RoomMemberStorage {
                 membership = EXCLUDED.membership,
                 join_reason = EXCLUDED.join_reason,
                 updated_ts = EXCLUDED.updated_ts
-            RETURNING *
+            RETURNING room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
             "#,
             room_id,
             user_id,
@@ -83,7 +82,8 @@ impl RoomMemberStorage {
         sqlx::query_as!(
             RoomMember,
             r#"
-            SELECT * FROM room_memberships WHERE room_id = $1 AND user_id = $2
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            FROM room_memberships WHERE room_id = $1 AND user_id = $2
             "#,
             room_id,
             user_id
@@ -100,7 +100,8 @@ impl RoomMemberStorage {
         sqlx::query_as!(
             RoomMember,
             r#"
-            SELECT * FROM room_memberships WHERE room_id = $1 AND membership = $2
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            FROM room_memberships WHERE room_id = $1 AND membership = $2
             "#,
             room_id,
             membership_type
@@ -200,7 +201,8 @@ impl RoomMemberStorage {
         let result = sqlx::query_as!(
             RoomMember,
             r#"
-            SELECT * FROM room_memberships WHERE room_id = $1 AND user_id = $2
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            FROM room_memberships WHERE room_id = $1 AND user_id = $2
             "#,
             room_id,
             user_id
@@ -214,7 +216,8 @@ impl RoomMemberStorage {
         let members = sqlx::query_as!(
             RoomMember,
             r#"
-            SELECT * FROM room_memberships WHERE room_id = $1 AND membership = 'join'
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            FROM room_memberships WHERE room_id = $1 AND membership = 'join'
             "#,
             room_id
         )
@@ -231,7 +234,8 @@ impl RoomMemberStorage {
         let result = sqlx::query_as!(
             RoomMember,
             r#"
-            SELECT * FROM room_memberships WHERE room_id = $1 AND user_id = $2 AND membership = 'join'
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            FROM room_memberships WHERE room_id = $1 AND user_id = $2 AND membership = 'join'
             "#,
             room_id,
             user_id
@@ -239,5 +243,50 @@ impl RoomMemberStorage {
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result)
+    }
+
+    pub async fn share_common_room(
+        &self,
+        user_id_1: &str,
+        user_id_2: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let rooms1: Vec<String> = sqlx::query!(
+            r#"
+            SELECT room_id FROM room_memberships WHERE user_id = $1 AND membership = 'join'
+            "#,
+            user_id_1
+        )
+        .fetch_all(&*self.pool)
+        .await?
+        .iter()
+        .map(|r| r.room_id.clone())
+        .collect();
+
+        if rooms1.is_empty() {
+            return Ok(false);
+        }
+
+        let placeholders: String = rooms1
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 1))
+            .collect();
+        let query = format!(
+            "SELECT 1 FROM room_memberships WHERE user_id = ${} AND membership = 'join' AND room_id IN ({}) LIMIT 1",
+            rooms1.len() + 1,
+            placeholders
+        );
+
+        let mut params: Vec<&(dyn sqlx::Encode<'_, sqlx::Postgres> + Send + Sync)> = Vec::new();
+        params.push(&user_id_2);
+        for room_id in &rooms1 {
+            params.push(room_id);
+        }
+
+        let result = sqlx::query(&query)
+            .bind(user_id_2)
+            .fetch_optional(&*self.pool)
+            .await?;
+        Ok(result.is_some())
     }
 }

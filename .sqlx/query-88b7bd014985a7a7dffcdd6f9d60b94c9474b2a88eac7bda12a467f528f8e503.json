@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT presence, status_msg FROM presence WHERE user_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "presence",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "status_msg",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "88b7bd014985a7a7dffcdd6f9d60b94c9474b2a88eac7bda12a467f528f8e503"
+}

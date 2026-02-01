@@ -146,10 +146,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_aes256_gcm_nonce_from_bytes() {
         let bytes = [0x34u8; 12];
-        let nonce = Aes256GcmNonce::from_bytes(&bytes).unwrap();
+        let nonce = Aes256GcmNonce::from_bytes(bytes).unwrap();
         assert_eq!(nonce.as_bytes(), &bytes);
     }
 
@@ -161,9 +161,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_aes256_gcm_ciphertext_new() {
-        let nonce = Aes256GcmNonce::from_bytes(&[0x12u8; 12]).unwrap();
+        let nonce = Aes256GcmNonce::from_bytes([0x12u8; 12]).unwrap();
         let ciphertext = vec![0x34u8; 20];
         let cipher = Aes256GcmCiphertext::new(nonce.clone(), ciphertext.clone());
         assert_eq!(cipher.nonce(), &nonce);
@@ -171,16 +171,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_aes256_gcm_ciphertext_as_ref() {
-        let nonce = Aes256GcmNonce::from_bytes(&[0x12u8; 12]).unwrap();
+        let nonce = Aes256GcmNonce::from_bytes([0x12u8; 12]).unwrap();
         let ciphertext = vec![0x34u8; 20];
         let cipher = Aes256GcmCiphertext::new(nonce, ciphertext.clone());
-        assert_eq!(cipher.as_ref(), ciphertext.as_slice());
+        assert_eq!(cipher.as_ref(), &ciphertext);
     }
 
     #[test]
-    #[ignore]
+
     fn test_aes256_gcm_encrypt_decrypt_roundtrip() {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Hello, World! This is a secret message.";
@@ -196,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_aes256_gcm_encrypt_different_nonces() {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Test message";
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_aes256_gcm_decrypt_wrong_key() {
         let key1 = Aes256GcmKey::generate();
         let key2 = Aes256GcmKey::generate();
@@ -224,13 +224,12 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_aes256_gcm_decrypt_wrong_nonce() {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Secret data";
 
         let encrypted = Aes256GcmCipher::encrypt(&key, plaintext.as_ref()).unwrap();
-        let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
         let ciphertext = &encrypted[12..];
 
         let wrong_nonce = Aes256GcmNonce::generate();
@@ -239,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_aes256_gcm_decrypt_tampered_ciphertext() {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Secret data";
@@ -255,13 +254,13 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_aes256_gcm_encrypt_empty_plaintext() {
         let key = Aes256GcmKey::generate();
         let plaintext = b"";
 
         let encrypted = Aes256GcmCipher::encrypt(&key, plaintext.as_ref()).unwrap();
-        assert_eq!(encrypted.len(), 12);
+        assert_eq!(encrypted.len(), 28);
 
         let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
         let ciphertext = &encrypted[12..];
@@ -271,13 +270,13 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_aes256_gcm_encrypt_large_plaintext() {
         let key = Aes256GcmKey::generate();
         let plaintext = vec![0x42u8; 10000];
 
         let encrypted = Aes256GcmCipher::encrypt(&key, &plaintext).unwrap();
-        assert_eq!(encrypted.len(), 12 + 10000);
+        assert_eq!(encrypted.len(), 10028);
 
         let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
         let ciphertext = &encrypted[12..];

@@ -189,10 +189,8 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    use super::*;
-
     #[test]
-    #[ignore]
+
     fn test_ed25519_verify_wrong_key() {
         let key_pair1 = Ed25519KeyPair::generate();
         let key_pair2 = Ed25519KeyPair::generate();
@@ -203,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_ed25519_verify_tampered_message() {
         let key_pair = Ed25519KeyPair::generate();
         let message = b"Hello, World!";
@@ -214,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_ed25519_sign_deterministic() {
         let key_pair = Ed25519KeyPair::generate();
         let message = b"Test message";
@@ -224,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_ed25519_key_pair_different_each_time() {
         let key_pair1 = Ed25519KeyPair::generate();
         let key_pair2 = Ed25519KeyPair::generate();

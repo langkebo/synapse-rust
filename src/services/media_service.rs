@@ -1,9 +1,9 @@
 use crate::common::*;
 use crate::services::*;
-use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 
+#[derive(Clone)]
 pub struct MediaService {
     media_path: PathBuf,
 }
@@ -129,6 +129,7 @@ impl MediaService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_media_service_creation() {

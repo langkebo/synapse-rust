@@ -7,6 +7,44 @@ use sqlx::Row;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+type VoiceMessageRow = (
+    i64,
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+    String,
+    Option<i32>,
+    Option<i64>,
+    Option<Vec<u8>>,
+    Option<String>,
+    i64,
+);
+
+#[derive(Debug, Clone)]
+pub struct VoiceMessageSaveParams {
+    pub message_id: String,
+    pub user_id: String,
+    pub room_id: Option<String>,
+    pub session_id: Option<String>,
+    pub file_path: String,
+    pub content_type: String,
+    pub duration_ms: i32,
+    pub file_size: i64,
+    pub waveform_data: Option<JsonValue>,
+}
+
+#[derive(Debug, Clone)]
+pub struct VoiceMessageUploadParams {
+    pub user_id: String,
+    pub room_id: Option<String>,
+    pub session_id: Option<String>,
+    pub content: Vec<u8>,
+    pub content_type: String,
+    pub duration_ms: i32,
+}
+
 #[derive(Clone)]
 pub struct VoiceStorage {
     pool: Arc<sqlx::PgPool>,
@@ -60,18 +98,10 @@ impl VoiceStorage {
 
     pub async fn save_voice_message(
         &self,
-        message_id: &str,
-        user_id: &str,
-        room_id: Option<&str>,
-        session_id: Option<&str>,
-        file_path: &str,
-        content_type: &str,
-        duration_ms: i32,
-        file_size: i64,
-        waveform_data: Option<JsonValue>,
+        params: VoiceMessageSaveParams,
     ) -> Result<i64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        let waveform_json: Option<String> = waveform_data.as_ref().map(|v| v.to_string());
+        let waveform_json: Option<String> = params.waveform_data.as_ref().map(|v| v.to_string());
         let result = sqlx::query(
             r#"
             INSERT INTO voice_messages
@@ -80,21 +110,21 @@ impl VoiceStorage {
             RETURNING id
             "#,
         )
-        .bind(message_id)
-        .bind(user_id)
-        .bind(room_id)
-        .bind(session_id)
-        .bind(file_path)
-        .bind(content_type)
-        .bind(duration_ms)
-        .bind(file_size)
+        .bind(&params.message_id)
+        .bind(&params.user_id)
+        .bind(params.room_id.as_deref())
+        .bind(params.session_id.as_deref())
+        .bind(&params.file_path)
+        .bind(&params.content_type)
+        .bind(params.duration_ms)
+        .bind(params.file_size)
         .bind(waveform_json)
         .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
         let id: i64 = result.try_get("id")?;
-        self.update_user_stats(user_id, duration_ms, file_size)
+        self.update_user_stats(&params.user_id, params.duration_ms as i64, params.file_size)
             .await?;
 
         Ok(id)
@@ -104,20 +134,7 @@ impl VoiceStorage {
         &self,
         message_id: &str,
     ) -> Result<Option<VoiceMessageInfo>, sqlx::Error> {
-        let result: Option<(
-            i64,
-            String,
-            String,
-            String,
-            Option<String>,
-            String,
-            String,
-            i32,
-            i64,
-            Option<Vec<u8>>,
-            Option<String>,
-            i64,
-        )> = sqlx::query_as(
+        let result: Option<VoiceMessageRow> = sqlx::query_as(
             r#"
             SELECT id, message_id, user_id, room_id, session_id, file_path, content_type,
                    duration_ms, file_size, waveform_data, transcribe_text, created_ts
@@ -136,8 +153,8 @@ impl VoiceStorage {
             session_id: r.4,
             file_path: r.5,
             content_type: r.6,
-            duration_ms: r.7,
-            file_size: r.8,
+            duration_ms: r.7.unwrap_or(0),
+            file_size: r.8.unwrap_or(0),
             waveform_data: r.9.map(|v| String::from_utf8_lossy(&v).to_string()),
             transcribe_text: r.10,
             created_ts: r.11,
@@ -150,20 +167,7 @@ impl VoiceStorage {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<VoiceMessageInfo>, sqlx::Error> {
-        let rows: Vec<(
-            i64,
-            String,
-            String,
-            String,
-            Option<String>,
-            String,
-            String,
-            i32,
-            i64,
-            Option<Vec<u8>>,
-            Option<String>,
-            i64,
-        )> = sqlx::query_as(
+        let rows: Vec<VoiceMessageRow> = sqlx::query_as(
             r#"
             SELECT id, message_id, user_id, room_id, session_id, file_path, content_type,
                    duration_ms, file_size, waveform_data, transcribe_text, created_ts
@@ -187,8 +191,8 @@ impl VoiceStorage {
                 session_id: r.4.clone(),
                 file_path: r.5.clone(),
                 content_type: r.6.clone(),
-                duration_ms: r.7,
-                file_size: r.8,
+                duration_ms: r.7.unwrap_or(0),
+                file_size: r.8.unwrap_or(0),
                 waveform_data: r.9.clone().map(|v| String::from_utf8_lossy(&v).to_string()),
                 transcribe_text: r.10.clone(),
                 created_ts: r.11,
@@ -201,23 +205,28 @@ impl VoiceStorage {
         message_id: &str,
         user_id: &str,
     ) -> Result<bool, sqlx::Error> {
-        let message = sqlx::query!(
-            r#"SELECT duration_ms, file_size FROM voice_messages WHERE message_id = $1 AND user_id = $2"#,
-            message_id,
-            user_id
+        let message = sqlx::query(
+            r#"
+            SELECT duration_ms, file_size
+            FROM voice_messages
+            WHERE message_id = $1 AND sender_id = $2
+            "#,
         )
+        .bind(message_id)
+        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
         if let Some(msg) = message {
-            sqlx::query!(
-                r#"DELETE FROM voice_messages WHERE message_id = $1"#,
-                message_id
-            )
-            .execute(&*self.pool)
-            .await?;
+            let duration_ms: i32 = msg.try_get::<Option<i32>, _>("duration_ms")?.unwrap_or(0);
+            let file_size: i64 = msg.try_get::<Option<i64>, _>("file_size")?.unwrap_or(0);
 
-            self.update_user_stats(user_id, -msg.duration_ms, -msg.file_size)
+            sqlx::query(r#"DELETE FROM voice_messages WHERE message_id = $1"#)
+                .bind(message_id)
+                .execute(&*self.pool)
+                .await?;
+
+            self.update_user_stats(user_id, -duration_ms as i64, -file_size)
                 .await?;
             return Ok(true);
         }
@@ -229,20 +238,7 @@ impl VoiceStorage {
         room_id: &str,
         limit: i64,
     ) -> Result<Vec<VoiceMessageInfo>, sqlx::Error> {
-        let rows: Vec<(
-            i64,
-            String,
-            String,
-            String,
-            Option<String>,
-            String,
-            String,
-            i32,
-            i64,
-            Option<Vec<u8>>,
-            Option<String>,
-            i64,
-        )> = sqlx::query_as(
+        let rows: Vec<VoiceMessageRow> = sqlx::query_as(
             r#"
             SELECT id, message_id, user_id, room_id, session_id, file_path, content_type,
                    duration_ms, file_size, waveform_data, transcribe_text, created_ts
@@ -265,8 +261,8 @@ impl VoiceStorage {
                 session_id: r.4.clone(),
                 file_path: r.5.clone(),
                 content_type: r.6.clone(),
-                duration_ms: r.7,
-                file_size: r.8,
+                duration_ms: r.7.unwrap_or(0),
+                file_size: r.8.unwrap_or(0),
                 waveform_data: r.9.as_ref().map(|v| String::from_utf8_lossy(v).to_string()),
                 transcribe_text: r.10.clone(),
                 created_ts: r.11,
@@ -277,7 +273,7 @@ impl VoiceStorage {
     async fn update_user_stats(
         &self,
         user_id: &str,
-        duration_delta: i32,
+        duration_delta: i64,
         size_delta: i64,
     ) -> Result<(), sqlx::Error> {
         let today = chrono::Utc::now().date_naive();
@@ -396,57 +392,55 @@ pub struct UserVoiceStats {
 
 #[derive(Clone)]
 pub struct VoiceService {
+    pool: Arc<sqlx::PgPool>,
     voice_path: PathBuf,
 }
 
 impl VoiceService {
-    pub fn new(voice_path: &str) -> Self {
+    pub fn new(pool: &Arc<sqlx::PgPool>, voice_path: &str) -> Self {
         let path = PathBuf::from(voice_path);
         if !path.exists() {
             std::fs::create_dir_all(&path).ok();
         }
-        Self { voice_path: path }
+        Self {
+            pool: pool.clone(),
+            voice_path: path,
+        }
     }
 
     pub async fn save_voice_message(
         &self,
-        pool: &Arc<sqlx::PgPool>,
-        user_id: &str,
-        room_id: Option<&str>,
-        session_id: Option<&str>,
-        content: &[u8],
-        content_type: &str,
-        duration_ms: i32,
+        params: VoiceMessageUploadParams,
     ) -> ApiResult<serde_json::Value> {
-        let voice_storage = VoiceStorage::new(pool);
+        let voice_storage = VoiceStorage::new(&self.pool);
         let message_id = format!("vm_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
-        let extension = self.get_extension_from_content_type(content_type);
+        let extension = self.get_extension_from_content_type(&params.content_type);
         let file_name = format!("{}.{}", message_id, extension);
         let file_path = self.voice_path.join(&file_name);
 
-        std::fs::write(&file_path, content)
+        std::fs::write(&file_path, &params.content)
             .map_err(|e| ApiError::internal(format!("Failed to save voice message: {}", e)))?;
 
-        let file_size = content.len() as i64;
+        let file_size = params.content.len() as i64;
         voice_storage
-            .save_voice_message(
-                &message_id,
-                user_id,
-                room_id,
-                session_id,
-                &file_path.to_string_lossy(),
-                content_type,
-                duration_ms,
+            .save_voice_message(VoiceMessageSaveParams {
+                message_id: message_id.clone(),
+                user_id: params.user_id,
+                room_id: params.room_id,
+                session_id: params.session_id,
+                file_path: file_path.to_string_lossy().to_string(),
+                content_type: params.content_type.clone(),
+                duration_ms: params.duration_ms,
                 file_size,
-                None,
-            )
+                waveform_data: None,
+            })
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         Ok(json!({
             "message_id": message_id,
-            "content_type": content_type,
-            "duration_ms": duration_ms,
+            "content_type": params.content_type,
+            "duration_ms": params.duration_ms,
             "size": file_size,
             "created_ts": chrono::Utc::now().timestamp_millis()
         }))
@@ -454,10 +448,9 @@ impl VoiceService {
 
     pub async fn get_voice_message(
         &self,
-        pool: &Arc<sqlx::PgPool>,
         message_id: &str,
     ) -> ApiResult<Option<(Vec<u8>, String)>> {
-        let voice_storage = VoiceStorage::new(pool);
+        let voice_storage = VoiceStorage::new(&self.pool);
         let message = voice_storage
             .get_voice_message(message_id)
             .await
@@ -471,13 +464,8 @@ impl VoiceService {
         Ok(None)
     }
 
-    pub async fn delete_voice_message(
-        &self,
-        pool: &Arc<sqlx::PgPool>,
-        user_id: &str,
-        message_id: &str,
-    ) -> ApiResult<bool> {
-        let voice_storage = VoiceStorage::new(pool);
+    pub async fn delete_voice_message(&self, user_id: &str, message_id: &str) -> ApiResult<bool> {
+        let voice_storage = VoiceStorage::new(&self.pool);
         let deleted = voice_storage
             .delete_voice_message(message_id, user_id)
             .await
@@ -500,12 +488,11 @@ impl VoiceService {
 
     pub async fn get_user_messages(
         &self,
-        pool: &Arc<sqlx::PgPool>,
         user_id: &str,
         limit: i64,
         offset: i64,
     ) -> ApiResult<serde_json::Value> {
-        let voice_storage = VoiceStorage::new(pool);
+        let voice_storage = VoiceStorage::new(&self.pool);
         let messages = voice_storage
             .get_user_voice_messages(user_id, limit, offset)
             .await
@@ -534,12 +521,11 @@ impl VoiceService {
 
     pub async fn get_user_stats(
         &self,
-        pool: &Arc<sqlx::PgPool>,
         user_id: &str,
         start_date: Option<&str>,
         end_date: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        let voice_storage = VoiceStorage::new(pool);
+        let voice_storage = VoiceStorage::new(&self.pool);
         let stats = voice_storage
             .get_user_stats(user_id, start_date, end_date)
             .await
@@ -560,11 +546,10 @@ impl VoiceService {
 
     pub async fn get_room_messages(
         &self,
-        pool: &Arc<sqlx::PgPool>,
         room_id: &str,
         limit: i64,
     ) -> ApiResult<serde_json::Value> {
-        let voice_storage = VoiceStorage::new(pool);
+        let voice_storage = VoiceStorage::new(&self.pool);
         let messages = voice_storage
             .get_room_voice_messages(room_id, limit)
             .await

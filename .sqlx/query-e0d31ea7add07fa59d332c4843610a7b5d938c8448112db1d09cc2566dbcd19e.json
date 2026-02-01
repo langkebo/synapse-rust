@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO room_aliases (room_id, alias) VALUES ($1, $2)\n            ON CONFLICT (room_id) DO UPDATE SET alias = EXCLUDED.alias\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e0d31ea7add07fa59d332c4843610a7b5d938c8448112db1d09cc2566dbcd19e"
+}

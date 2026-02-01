@@ -1,4 +1,4 @@
-use super::super::backup::{KeyBackupService, BackupKeyUploadRequest};
+use super::super::backup::{BackupKeyUploadParams, BackupKeyUploadRequest, KeyBackupService};
 use crate::error::ApiError;
 use axum::{
     extract::{Path, State},
@@ -14,7 +14,9 @@ pub async fn create_backup(
     let algorithm = request["algorithm"].as_str().unwrap();
     let auth_data = request.get("auth_data").cloned();
 
-    let version = service.create_backup(&user_id, algorithm, auth_data).await?;
+    let version = service
+        .create_backup(&user_id, algorithm, auth_data)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "version": version,
@@ -28,9 +30,9 @@ pub async fn get_backup(
     let backup = service.get_backup_version(&user_id).await?;
 
     Ok(Json(serde_json::json!({
-        "version": backup.as_ref().map(|b| b.version.clone()),
+        "version": backup.as_ref().map(|b| b.version.to_string()),
         "algorithm": backup.as_ref().map(|b| b.algorithm.clone()),
-        "auth_data": backup.as_ref().map(|b| b.auth_data.clone()),
+        "auth_data": backup.as_ref().map(|b| b.backup_data.clone()),
     })))
 }
 
@@ -47,20 +49,22 @@ pub async fn upload_backup_keys(
     Path((user_id, room_id, session_id)): Path<(String, String, String)>,
     Json(request): Json<BackupKeyUploadRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let backup = service.get_backup_version(&user_id).await?
+    let backup = service
+        .get_backup_version(&user_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
     service
-        .upload_backup_key(
-            &user_id,
-            &backup.version,
-            &room_id,
-            &session_id,
-            request.first_message_index,
-            request.forwarded_count,
-            request.is_verified,
-            &request.session_data,
-        )
+        .upload_backup_key(BackupKeyUploadParams {
+            user_id,
+            version: backup.version.to_string(),
+            room_id,
+            session_id,
+            first_message_index: request.first_message_index,
+            forwarded_count: request.forwarded_count,
+            is_verified: request.is_verified,
+            session_data: request.session_data,
+        })
         .await?;
 
     Ok(Json(serde_json::json!({
@@ -71,10 +75,10 @@ pub async fn upload_backup_keys(
 
 pub async fn download_backup_keys(
     State(service): State<Arc<KeyBackupService>>,
-    Path((user_id, room_id, session_id)): Path<(String, String, String)>,
+    Path((user_id, room_id, session_id, version)): Path<(String, String, String, String)>,
 ) -> Result<Json<BackupKeyUploadRequest>, ApiError> {
     let backup = service
-        .get_backup_key(&user_id, &room_id, &session_id)
+        .get_backup_key(&user_id, &room_id, &session_id, &version)
         .await?
         .ok_or_else(|| ApiError::not_found("Backup data not found".to_string()))?;
 
@@ -82,6 +86,9 @@ pub async fn download_backup_keys(
         first_message_index: backup.first_message_index,
         forwarded_count: backup.forwarded_count,
         is_verified: backup.is_verified,
-        session_data: backup.session_data,
+        session_data: backup.backup_data["session_data"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
     }))
 }

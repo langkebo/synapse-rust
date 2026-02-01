@@ -4,8 +4,8 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct PrivateSession {
     pub id: String,
-    pub user_id: String,
-    pub other_user_id: String,
+    pub user_id_1: String,
+    pub user_id_2: String,
     pub session_type: String,
     pub encryption_key: Option<String>,
     pub created_ts: i64,
@@ -30,8 +30,8 @@ pub struct PrivateMessage {
 #[derive(Debug, Clone)]
 pub struct CreatePrivateSession {
     pub id: String,
-    pub user_id: String,
-    pub other_user_id: String,
+    pub user_id_1: String,
+    pub user_id_2: String,
     pub session_type: String,
     pub encryption_key: Option<String>,
 }
@@ -62,14 +62,14 @@ impl PrivateSessionStorage {
 
         let row = sqlx::query(
             r#"
-            INSERT INTO private_sessions (id, user_id, other_user_id, session_type, encryption_key, created_ts, last_activity_ts, updated_ts, unread_count)
+            INSERT INTO private_sessions (id, user_id_1, user_id_2, session_type, encryption_key, created_ts, last_activity_ts, updated_ts, unread_count)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)
             RETURNING *
             "#,
         )
         .bind(&session.id)
-        .bind(&session.user_id)
-        .bind(&session.other_user_id)
+        .bind(&session.user_id_1)
+        .bind(&session.user_id_2)
         .bind(&session.session_type)
         .bind(&session.encryption_key)
         .bind(now)
@@ -80,8 +80,8 @@ impl PrivateSessionStorage {
 
         Ok(PrivateSession {
             id: row.get("id"),
-            user_id: row.get("user_id"),
-            other_user_id: row.get("other_user_id"),
+            user_id_1: row.get("user_id_1"),
+            user_id_2: row.get("user_id_2"),
             session_type: row.get("session_type"),
             encryption_key: row.get("encryption_key"),
             created_ts: row.get("created_ts"),
@@ -109,8 +109,8 @@ impl PrivateSessionStorage {
         if let Some(row) = row {
             Ok(Some(PrivateSession {
                 id: row.get("id"),
-                user_id: row.get("user_id"),
-                other_user_id: row.get("other_user_id"),
+                user_id_1: row.get("user_id_1"),
+                user_id_2: row.get("user_id_2"),
                 session_type: row.get("session_type"),
                 encryption_key: row.get("encryption_key"),
                 created_ts: row.get("created_ts"),
@@ -131,7 +131,7 @@ impl PrivateSessionStorage {
         let rows = sqlx::query(
             r#"
             SELECT * FROM private_sessions
-            WHERE user_id = $1 OR other_user_id = $1
+            WHERE user_id_1 = $1 OR user_id_2 = $1
             ORDER BY last_activity_ts DESC
             "#,
         )
@@ -143,8 +143,8 @@ impl PrivateSessionStorage {
         for row in rows {
             sessions.push(PrivateSession {
                 id: row.get("id"),
-                user_id: row.get("user_id"),
-                other_user_id: row.get("other_user_id"),
+                user_id_1: row.get("user_id_1"),
+                user_id_2: row.get("user_id_2"),
                 session_type: row.get("session_type"),
                 encryption_key: row.get("encryption_key"),
                 created_ts: row.get("created_ts"),
@@ -166,7 +166,7 @@ impl PrivateSessionStorage {
         let row = sqlx::query(
             r#"
             SELECT * FROM private_sessions
-            WHERE (user_id = $1 AND other_user_id = $2) OR (user_id = $2 AND other_user_id = $1)
+            WHERE (user_id_1 = $1 AND user_id_2 = $2) OR (user_id_1 = $2 AND user_id_2 = $1)
             "#,
         )
         .bind(user_id)
@@ -177,8 +177,8 @@ impl PrivateSessionStorage {
         if let Some(row) = row {
             Ok(Some(PrivateSession {
                 id: row.get("id"),
-                user_id: row.get("user_id"),
-                other_user_id: row.get("other_user_id"),
+                user_id_1: row.get("user_id_1"),
+                user_id_2: row.get("user_id_2"),
                 session_type: row.get("session_type"),
                 encryption_key: row.get("encryption_key"),
                 created_ts: row.get("created_ts"),
@@ -377,7 +377,7 @@ impl PrivateMessageStorage {
             r#"
             SELECT pm.* FROM private_messages pm
             INNER JOIN private_sessions ps ON pm.session_id = ps.id
-            WHERE (ps.user_id = $1 OR ps.other_user_id = $1)
+            WHERE (ps.user_id_1 = $1 OR ps.user_id_2 = $1)
             AND (pm.content ILIKE $2 OR pm.encrypted_content ILIKE $2)
             ORDER BY pm.created_ts DESC
             LIMIT $3

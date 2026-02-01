@@ -28,6 +28,14 @@ pub struct EncryptedEvent {
     pub device_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoomKeyDistributionData {
+    pub session_id: String,
+    pub session_key: String,
+    pub algorithm: String,
+    pub room_id: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,10 +145,7 @@ mod tests {
 
     #[test]
     fn test_megolm_algorithm_types() {
-        let algorithms = vec![
-            "m.megolm.v1.aes-sha2",
-            "m.olm.v1.curve25519-aes-sha2",
-        ];
+        let algorithms = vec!["m.megolm.v1.aes-sha2", "m.olm.v1.curve25519-aes-sha2"];
 
         for algo in algorithms {
             let session = MegolmSession {

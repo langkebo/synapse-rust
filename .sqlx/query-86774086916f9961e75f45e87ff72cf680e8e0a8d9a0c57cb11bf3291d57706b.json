@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO room_account_data (room_id, event_type, content, created_ts)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (room_id, event_type) DO UPDATE SET content = EXCLUDED.content, created_ts = EXCLUDED.created_ts\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "86774086916f9961e75f45e87ff72cf680e8e0a8d9a0c57cb11bf3291d57706b"
+}

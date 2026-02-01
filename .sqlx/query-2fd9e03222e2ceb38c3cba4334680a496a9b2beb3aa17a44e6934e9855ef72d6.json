@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO room_memberships (room_id, user_id, membership, banned_by)\n            VALUES ($1, $2, 'ban', $3)\n            ON CONFLICT (room_id, user_id) DO UPDATE SET\n                membership = 'ban',\n                banned_by = EXCLUDED.banned_by\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2fd9e03222e2ceb38c3cba4334680a496a9b2beb3aa17a44e6934e9855ef72d6"
+}

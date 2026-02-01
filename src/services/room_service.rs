@@ -1,6 +1,19 @@
 use crate::common::{generate_event_id, generate_room_id};
 use crate::services::*;
+use crate::storage::CreateEventParams;
 use serde_json::json;
+
+#[derive(Debug, Default, Clone)]
+pub struct CreateRoomConfig {
+    pub visibility: Option<String>,
+    pub room_alias_name: Option<String>,
+    pub name: Option<String>,
+    pub topic: Option<String>,
+    pub invite_list: Option<Vec<String>>,
+    pub preset: Option<String>,
+    pub encryption: Option<String>,
+    pub history_visibility: Option<String>,
+}
 
 pub struct RoomService<'a> {
     services: &'a ServiceContainer,
@@ -14,24 +27,21 @@ impl<'a> RoomService<'a> {
     pub async fn create_room(
         &self,
         user_id: &str,
-        visibility: Option<&str>,
-        room_alias_name: Option<&str>,
-        name: Option<&str>,
-        topic: Option<&str>,
-        invite_list: Option<&Vec<String>>,
-        preset: Option<&str>,
+        config: CreateRoomConfig,
     ) -> ApiResult<serde_json::Value> {
         let room_id = self.generate_room_id();
-        let join_rule = self.determine_join_rule(preset);
-        let is_public = self.is_public_visibility(visibility);
+        let join_rule = self.determine_join_rule(config.preset.as_deref());
+        let is_public = self.is_public_visibility(config.visibility.as_deref());
 
         self.create_room_in_db(&room_id, user_id, join_rule, is_public)
             .await?;
         self.add_creator_to_room(&room_id, user_id).await?;
-        self.set_room_metadata(&room_id, name, topic).await?;
-        self.process_invites(&room_id, invite_list).await?;
+        self.set_room_metadata(&room_id, config.name.as_deref(), config.topic.as_deref())
+            .await?;
+        self.process_invites(&room_id, config.invite_list.as_ref())
+            .await?;
 
-        let room_alias = self.format_room_alias(room_alias_name);
+        let room_alias = self.format_room_alias(config.room_alias_name.as_deref());
         Ok(self.build_room_response(&room_id, room_alias))
     }
 
@@ -161,15 +171,15 @@ impl<'a> RoomService<'a> {
 
         self.services
             .event_storage
-            .create_event(
-                &event_id,
-                room_id,
-                user_id,
-                "m.room.message",
-                &event_content.to_string(),
-                None,
-                now,
-            )
+            .create_event(CreateEventParams {
+                event_id: event_id.clone(),
+                room_id: room_id.to_string(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.message".to_string(),
+                content: event_content,
+                state_key: None,
+                origin_server_ts: now,
+            })
             .await
             .map_err(|e| ApiError::internal(format!("Failed to send message: {}", e)))?;
 
@@ -262,8 +272,8 @@ impl<'a> RoomService<'a> {
                 "topic": r.topic,
                 "canonical_alias": r.canonical_alias,
                 "is_public": r.is_public,
-                "member_count": r.member_count,
-                "creator": r.creator
+                "creator": r.creator,
+                "join_rule": r.join_rule
             })),
             None => Err(ApiError::not_found("Room not found".to_string())),
         }
@@ -300,8 +310,8 @@ impl<'a> RoomService<'a> {
                 "topic": r.topic,
                 "canonical_alias": r.canonical_alias,
                 "is_public": r.is_public,
-                "member_count": r.member_count,
-                "creator": r.creator
+                "creator": r.creator,
+                "join_rule": r.join_rule
             })),
             None => Err(ApiError::not_found("Room not found".to_string())),
         }
@@ -323,7 +333,7 @@ impl<'a> RoomService<'a> {
                     "name": room.name,
                     "topic": room.topic,
                     "is_public": room.is_public,
-                    "member_count": room.member_count
+                    "join_rule": room.join_rule
                 }));
             }
         }
@@ -350,7 +360,7 @@ impl<'a> RoomService<'a> {
             .map(|e| {
                 json!({
                     "type": e.event_type,
-                    "content": serde_json::from_str(&e.content).unwrap_or(json!({})),
+                    "content": e.content,
                     "sender": e.user_id,
                     "origin_server_ts": e.origin_server_ts,
                     "event_id": e.event_id
@@ -380,15 +390,15 @@ impl<'a> RoomService<'a> {
 
         self.services
             .event_storage
-            .create_event(
-                &event_id,
-                room_id,
-                inviter,
-                "m.room.member",
-                &invite_event.to_string(),
-                Some(invitee),
+            .create_event(CreateEventParams {
+                event_id,
+                room_id: room_id.to_string(),
+                user_id: inviter.to_string(),
+                event_type: "m.room.member".to_string(),
+                content: invite_event,
+                state_key: Some(invitee.to_string()),
                 origin_server_ts,
-            )
+            })
             .await
             .map_err(|e| ApiError::internal(format!("Failed to create invite event: {}", e)))?;
 
@@ -407,9 +417,10 @@ impl<'a> RoomService<'a> {
             .iter()
             .map(|e| {
                 json!({
-                    "type": e.event_type,
-                    "content": serde_json::from_str(&e.content).unwrap_or(json!({})),
+                    "event_id": e.event_id,
                     "sender": e.user_id,
+                    "type": e.event_type,
+                    "content": e.content,
                     "state_key": e.state_key
                 })
             })
@@ -435,7 +446,7 @@ impl<'a> RoomService<'a> {
                     "topic": r.topic,
                     "canonical_alias": r.canonical_alias,
                     "is_public": r.is_public,
-                    "member_count": r.member_count
+                    "join_rule": r.join_rule
                 })
             })
             .collect();
@@ -494,7 +505,7 @@ mod tests {
     #[test]
     fn test_create_room_response_format() {
         let room_id = "!testroom:example.com";
-        let room_alias = Some("#test:example.com");
+        let room_alias = "#test:example.com";
 
         let response = json!({
             "room_id": room_id,
@@ -502,7 +513,7 @@ mod tests {
         });
 
         assert_eq!(response["room_id"], room_id);
-        assert_eq!(response["room_alias"], room_alias.unwrap_or(""));
+        assert_eq!(response["room_alias"], room_alias);
     }
 
     #[test]

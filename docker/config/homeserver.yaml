@@ -1,0 +1,82 @@
+server:
+  name: "matrix.cjystx.top" # 生产环境域名
+  host: "0.0.0.0"
+  port: 8008
+  registration_shared_secret: "test_shared_secret"
+  admin_contact: "admin@cjystx.top"
+  max_upload_size: 104857600 # 100MB, 支持大文件上传
+  max_image_resolution: 33554432 # 32MP, 限制图片分辨率防止内存溢出
+  enable_registration: true
+  enable_registration_captcha: false
+  background_tasks_interval: 60
+  expire_access_token: true
+  expire_access_token_lifetime: 3600
+  refresh_token_lifetime: 604800
+  refresh_token_sliding_window_size: 1000
+  session_duration: 86400
+
+# 缓存优化 (Python Synapse 兼容参数)
+caches:
+  cache_factors: 2.0 # 缩放所有缓存的大小，Rust 版内存优势可设为 2.0
+  event_cache_size: 10000 # 内存中保留的事件数量，减少 DB 查询延迟
+
+database:
+  host: "db"
+  port: 5432
+  username: "synapse"
+  password: "synapse"
+  name: "synapse_test"
+  pool_size: 20
+  max_size: 100
+  min_idle: 5
+  connection_timeout: 30
+
+redis:
+  host: "redis"
+  port: 6379
+  key_prefix: "synapse:"
+  pool_size: 20
+  enabled: true
+
+logging:
+  level: "info"
+  format: "json" # 改为 JSON 格式以便 Prometheus/Grafana 解析
+  log_file: null
+  log_dir: null
+
+federation:
+  enabled: true
+  allow_ingress: false
+  server_name: "matrix.cjystx.top"
+  federation_port: 8448
+  connection_pool_size: 10
+  max_transaction_payload: 10485760
+  send_queue_limit: 50 # 限制发送队列，防止单个节点慢导致内存积压
+  resolve_timeout: 15s # DNS 解析与连接超时，快速失败避免阻塞
+  ca_file: null
+  client_ca_file: null
+
+media:
+  max_image_pixels: 33554432 # 32MP, 限制图片分辨率防止内存溢出
+  thumbnail_sizes:
+    - width: 32
+      height: 32
+      method: crop
+    - width: 96
+      height: 96
+      method: crop
+    - width: 320
+      height: 240
+      method: scale
+    - width: 640
+      height: 480
+      method: scale
+    - width: 800
+      height: 600
+      method: scale
+
+security:
+  secret: "7206758265647f2fff7edb25bd4a3c323b05c888a6eff76bc8d3c30793ad293b"
+  expiry_time: 3600
+  refresh_token_expiry: 604800
+  bcrypt_rounds: 12

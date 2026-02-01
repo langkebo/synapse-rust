@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO db_metadata (key, value, created_ts, updated_ts)\n            VALUES ('last_init_ts', $1, $2, $2)\n            ON CONFLICT (key) DO UPDATE SET\n                value = EXCLUDED.value,\n                updated_ts = EXCLUDED.updated_ts\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7823f092d68be4af19e063c2e99da270e0619989de26136fcc7e2526ae279bb2"
+}

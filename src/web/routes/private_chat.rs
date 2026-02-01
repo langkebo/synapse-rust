@@ -7,7 +7,7 @@ use axum::{
 };
 use serde_json::Value;
 
-pub fn create_private_chat_router(state: AppState) -> Router {
+pub fn create_private_chat_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/r0/dm", get(get_dm_rooms))
         .route("/_matrix/client/r0/createDM", post(create_dm_room))
@@ -50,14 +50,21 @@ pub fn create_private_chat_router(state: AppState) -> Router {
             get(get_unread_count),
         )
         .route("/_synapse/enhanced/private/search", post(search_messages))
-        .with_state(state)
 }
 
 #[axum::debug_handler]
-async fn get_dm_rooms(State(_state): State<AppState>) -> Json<Value> {
-    Json(serde_json::json!({
-        "rooms": []
-    }))
+async fn get_dm_rooms(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Json<Value> {
+    let pool = state.services.user_storage.pool.clone();
+    let service_container = state.services.clone();
+    let private_chat_service = PrivateChatService::new(&service_container, &pool);
+
+    match private_chat_service.get_sessions(&auth_user.user_id).await {
+        Ok(result) => Json(result),
+        Err(e) => Json(serde_json::json!({
+            "error": e.to_string(),
+            "rooms": []
+        })),
+    }
 }
 
 #[axum::debug_handler]
@@ -224,10 +231,21 @@ async fn send_session_message(
 
 #[axum::debug_handler]
 async fn delete_message(
-    State(_state): State<AppState>,
-    Path(_message_id): Path<String>,
-) -> Json<Value> {
-    Json(serde_json::json!({}))
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(message_id): Path<String>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let pool = state.services.user_storage.pool.clone();
+    let service_container = state.services.clone();
+    let private_chat_service = PrivateChatService::new(&service_container, &pool);
+
+    match private_chat_service
+        .delete_message(&auth_user.user_id, &message_id)
+        .await
+    {
+        Ok(_) => Ok(Json(serde_json::json!({}))),
+        Err(e) => Err(e),
+    }
 }
 
 #[axum::debug_handler]

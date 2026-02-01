@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM devices WHERE device_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b6c0110a9e5d6bad43a10f23b60b72d4b2da367829b11c5dcb002c9fc9e14ee6"
+}

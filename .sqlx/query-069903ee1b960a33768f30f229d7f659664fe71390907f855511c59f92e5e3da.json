@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) as count FROM private_messages WHERE session_id IS NOT NULL AND session_id NOT IN (SELECT session_id FROM private_sessions)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "069903ee1b960a33768f30f229d7f659664fe71390907f855511c59f92e5e3da"
+}

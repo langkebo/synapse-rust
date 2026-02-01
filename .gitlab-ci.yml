@@ -1,0 +1,47 @@
+stages:
+  - build
+  - test
+  - deploy
+  - rollback
+
+variables:
+  DOCKER_REGISTRY: registry.cjystx.top
+  NGINX_IMAGE: $DOCKER_REGISTRY/synapse-nginx
+  SYNAPSE_IMAGE: $DOCKER_REGISTRY/synapse-rust
+
+build_nginx:
+  stage: build
+  script:
+    - docker buildx build --platform linux/amd64 -t $NGINX_IMAGE:latest -t $NGINX_IMAGE:$CI_COMMIT_SHA --push ./nginx
+    - docker inspect --format='{{index .RepoDigests 0}}' $NGINX_IMAGE:$CI_COMMIT_SHA > nginx_digest.txt
+  artifacts:
+    paths:
+      - nginx_digest.txt
+
+api_smoke_test:
+  stage: test
+  services:
+    - name: $SYNAPSE_IMAGE:latest
+      alias: synapse
+    - name: $NGINX_IMAGE:$CI_COMMIT_SHA
+      alias: nginx
+  script:
+    - npm install -g newman
+    - newman run tests/api_tests.json --env-var base_url=http://nginx:80
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+deploy_production:
+  stage: deploy
+  script:
+    - ansible-playbook - i inventory.ini deploy.yml -e "nginx_image=$NGINX_IMAGE:$CI_COMMIT_SHA"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+auto_rollback:
+  stage: rollback
+  script:
+    - ansible-playbook -i inventory.ini scripts/rollback.yml
+  when: on_failure
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'

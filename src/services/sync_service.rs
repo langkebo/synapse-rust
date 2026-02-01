@@ -45,7 +45,7 @@ impl<'a> SyncService<'a> {
                 .map(|e| {
                     json!({
                         "type": e.event_type,
-                        "content": serde_json::from_str(&e.content).unwrap_or(json!({})),
+                        "content": e.content,
                         "sender": e.user_id,
                         "origin_server_ts": e.origin_server_ts,
                         "event_id": e.event_id
@@ -124,7 +124,7 @@ impl<'a> SyncService<'a> {
             .map(|e| {
                 json!({
                     "type": e.event_type,
-                    "content": serde_json::from_str(&e.content).unwrap_or(json!({})),
+                    "content": e.content,
                     "sender": e.user_id,
                     "origin_server_ts": e.origin_server_ts,
                     "event_id": e.event_id
@@ -160,7 +160,7 @@ impl<'a> SyncService<'a> {
                     "topic": r.topic,
                     "canonical_alias": r.canonical_alias,
                     "is_public": r.is_public,
-                    "member_count": r.member_count
+                    "join_rule": r.join_rule
                 })
             })
             .collect();

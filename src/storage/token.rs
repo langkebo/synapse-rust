@@ -8,7 +8,7 @@ pub struct AccessToken {
     pub user_id: String,
     pub device_id: Option<String>,
     pub created_ts: i64,
-    pub expires_ts: Option<i64>,
+    pub expires_ts: i64,
     pub invalidated_ts: Option<i64>,
 }
 
@@ -17,9 +17,9 @@ pub struct RefreshToken {
     pub id: i64,
     pub token: String,
     pub user_id: String,
-    pub device_id: Option<String>,
+    pub device_id: String,
     pub created_ts: i64,
-    pub expires_ts: Option<i64>,
+    pub expires_ts: i64,
     pub invalidated_ts: Option<i64>,
 }
 
@@ -37,7 +37,7 @@ impl AccessTokenStorage {
         &self,
         token: &str,
         user_id: &str,
-        device_id: &str,
+        device_id: Option<&str>,
         expires_ts: Option<i64>,
     ) -> Result<AccessToken, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();

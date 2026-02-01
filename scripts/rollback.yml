@@ -1,0 +1,47 @@
+---
+- name: Rollback Synapse-Rust Deployment
+  hosts: matrix_servers
+  become: yes
+  vars:
+    project_path: /home/hula/synapse_rust
+    previous_tag: "{{ lookup('env', 'PREVIOUS_TAG') | default('v1.0.0') }}"
+
+  tasks:
+    - name: Get the previous stable tag from Git
+      command: git describe --tags --abbrev=0 HEAD^
+      register: git_previous_tag
+      args:
+        chdir: "{{ project_path }}"
+      ignore_errors: yes
+
+    - name: Set rollback tag
+      set_fact:
+        rollback_tag: "{{ git_previous_tag.stdout if git_previous_tag.rc == 0 else previous_tag }}"
+
+    - name: Checkout previous stable version
+      git:
+        repo: "{{ project_path }}"
+        dest: "{{ project_path }}"
+        version: "{{ rollback_tag }}"
+        force: yes
+
+    - name: Restart services using Docker Compose
+      docker_compose:
+        project_src: "{{ project_path }}"
+        build: yes
+        restarted: yes
+      register: restart_result
+
+    - name: Verify service health
+      uri:
+        url: http://localhost:8008/_matrix/client/versions
+        status_code: 200
+      register: health_check
+      until: health_check.status == 200
+      retries: 5
+      delay: 10
+
+    - name: Notify Rollback Success
+      debug:
+        msg: "Successfully rolled back to {{ rollback_tag }}"
+      when: health_check.status == 200

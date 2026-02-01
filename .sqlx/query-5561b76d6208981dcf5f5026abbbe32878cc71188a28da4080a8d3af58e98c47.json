@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE TABLE IF NOT EXISTS private_sessions (\n                id SERIAL PRIMARY KEY,\n                session_id VARCHAR(255) NOT NULL UNIQUE,\n                user_id_1 VARCHAR(255) NOT NULL,\n                user_id_2 VARCHAR(255) NOT NULL,\n                created_ts BIGINT NOT NULL,\n                updated_ts BIGINT NOT NULL,\n                last_message_ts BIGINT,\n                unread_count INT DEFAULT 0\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "5561b76d6208981dcf5f5026abbbe32878cc71188a28da4080a8d3af58e98c47"
+}

@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_at, first_seen_ts, created_ts, appservice_id, ignored_user_list\n            FROM devices WHERE device_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "device_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "device_key",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_seen_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_seen_ip",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "first_seen_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "appservice_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "ignored_user_list",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "6f52046f0bb400fc9251640922e20fc67afad36ef05fde2408e8cdb4351fcfb4"
+}

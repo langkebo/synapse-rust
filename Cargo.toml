@@ -16,12 +16,14 @@ async-trait = "0.1"
 
 # Web framework
 axum = { version = "0.8", optional = true, features = ["macros"] }
+tower = "0.5"
 tower-http = { version = "0.6", optional = true, features = ["fs", "cors", "trace", "compression-gzip"] }
 hyper = "1"
 http = "1"
 
 # Database
-sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid"] }
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate"] }
+ipnetwork = "0.20"
 deadpool = "0.12"
 deadpool-postgres = "0.12"
 
@@ -89,6 +91,7 @@ criterion = "0.5"
 fake = "2.9"
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

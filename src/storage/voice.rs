@@ -54,7 +54,7 @@ impl VoiceUsageStatsStorage {
         user_id: &str,
         days: i64,
     ) -> Result<Vec<VoiceUsageStats>, sqlx::Error> {
-        let date_threshold = chrono::Utc::now() - chrono::Duration::days(days as i64);
+        let date_threshold = chrono::Utc::now() - chrono::Duration::days(days);
 
         let rows = sqlx::query(
             r#"

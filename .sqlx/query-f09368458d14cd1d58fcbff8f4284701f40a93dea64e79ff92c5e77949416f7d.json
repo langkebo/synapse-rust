@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT indexname FROM pg_indexes WHERE indexname = $1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "indexname",
+        "type_info": "Name"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Name"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "f09368458d14cd1d58fcbff8f4284701f40a93dea64e79ff92c5e77949416f7d"
+}

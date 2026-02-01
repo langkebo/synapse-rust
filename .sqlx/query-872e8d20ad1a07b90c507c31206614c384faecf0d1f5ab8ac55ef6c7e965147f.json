@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE TABLE IF NOT EXISTS ip_blocks (\n                id BIGSERIAL PRIMARY KEY,\n                ip_range CIDR NOT NULL,\n                ip_address INET,\n                reason TEXT,\n                blocked_at BIGINT NOT NULL,\n                blocked_ts BIGINT NOT NULL,\n                expires_at BIGINT,\n                expires_ts BIGINT\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "872e8d20ad1a07b90c507c31206614c384faecf0d1f5ab8ac55ef6c7e965147f"
+}

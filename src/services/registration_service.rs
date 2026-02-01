@@ -17,6 +17,10 @@ impl<'a> RegistrationService<'a> {
         admin: bool,
         displayname: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
+        if !self.services.config.server.enable_registration {
+            return Err(ApiError::forbidden("Registration is disabled".to_string()));
+        }
+
         let (user, access_token, refresh_token, device_id) = self
             .services
             .auth_service

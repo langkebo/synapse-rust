@@ -1,0 +1,95 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT r.room_id, r.name, r.topic, r.canonical_alias, r.join_rule, r.creator,\n                   r.version, r.encryption, r.is_public, r.member_count, r.history_visibility,\n                   r.creation_ts, COUNT(rm.user_id) as joined_members\n            FROM rooms r\n            LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'\n            GROUP BY r.room_id\n            ORDER BY r.creation_ts DESC\n            LIMIT $1 OFFSET $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "topic",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "canonical_alias",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "join_rule",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "creator",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "version",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "encryption",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_public",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "member_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "history_visibility",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "creation_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "joined_members",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "60dca7aba44e9bbc1c1fea18f2cd89be86226691baba8486113f394d9584f87c"
+}

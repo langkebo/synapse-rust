@@ -226,4 +226,24 @@ impl DeviceKeyStorage {
             updated_at: row.get("updated_at"),
         }))
     }
+
+    pub async fn get_key_changes(
+        &self,
+        from_ts: i64,
+        to_ts: i64,
+    ) -> Result<Vec<String>, ApiError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT user_id
+            FROM device_keys
+            WHERE ts_updated_ms > $1 AND ts_updated_ms <= $2
+            "#
+        )
+        .bind(from_ts)
+        .bind(to_ts)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|row| row.get("user_id")).collect())
+    }
 }

@@ -7,7 +7,7 @@ pub struct RoomEvent {
     pub room_id: String,
     pub user_id: String,
     pub event_type: String,
-    pub content: String,
+    pub content: serde_json::Value,
     pub state_key: Option<String>,
     pub depth: i64,
     pub origin_server_ts: i64,
@@ -22,20 +22,20 @@ pub struct RoomEvent {
 pub struct StateEvent {
     pub event_id: String,
     pub room_id: String,
-    pub user_id: String,
+    pub sender: String,
     pub event_type: String,
-    pub content: String,
+    pub content: serde_json::Value,
     pub state_key: Option<String>,
-    pub depth: i64,
+    pub unsigned: serde_json::Value,
+    pub redacted: Option<bool>,
     pub origin_server_ts: i64,
-    pub processed_ts: i64,
+    pub depth: Option<i64>,
+    pub processed_ts: Option<i64>,
     pub not_before: Option<i64>,
     pub status: Option<String>,
     pub reference_image: Option<String>,
-    pub origin: String,
-    pub sender: Option<String>,
-    pub unsigned: Option<String>,
-    pub redacted: Option<bool>,
+    pub origin: Option<String>,
+    pub user_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -43,38 +43,41 @@ pub struct EventStorage {
     pub pool: Arc<Pool<Postgres>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CreateEventParams {
+    pub event_id: String,
+    pub room_id: String,
+    pub user_id: String,
+    pub event_type: String,
+    pub content: serde_json::Value,
+    pub state_key: Option<String>,
+    pub origin_server_ts: i64,
+}
+
 impl EventStorage {
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_event(
-        &self,
-        event_id: &str,
-        room_id: &str,
-        user_id: &str,
-        event_type: &str,
-        content: &str,
-        state_key: Option<&str>,
-        origin_server_ts: i64,
-    ) -> Result<RoomEvent, sqlx::Error> {
+    pub async fn create_event(&self, params: CreateEventParams) -> Result<RoomEvent, sqlx::Error> {
         let processed_ts = chrono::Utc::now().timestamp_millis();
         let event = sqlx::query_as(
             r#"
-            INSERT INTO events (event_id, room_id, user_id, event_type, content, state_key, origin_server_ts, processed_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO events (event_id, room_id, user_id, sender, event_type, content, state_key, origin_server_ts, processed_ts)
+            VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8)
             RETURNING event_id, room_id, user_id, event_type, content, state_key, 
                       COALESCE(depth, 0) as depth, origin_server_ts, processed_ts, 
-                      COALESCE(not_before, 0) as not_before, status, reference_image, origin
+                      COALESCE(not_before, 0) as not_before, status, reference_image, 
+                      COALESCE(origin, 'self') as origin
             "#,
         )
-        .bind(event_id)
-        .bind(room_id)
-        .bind(user_id)
-        .bind(event_type)
-        .bind(content)
-        .bind(state_key)
-        .bind(origin_server_ts)
+        .bind(&params.event_id)
+        .bind(&params.room_id)
+        .bind(&params.user_id)
+        .bind(&params.event_type)
+        .bind(&params.content)
+        .bind(params.state_key.as_deref())
+        .bind(params.origin_server_ts)
         .bind(processed_ts)
         .fetch_one(&*self.pool)
         .await?;

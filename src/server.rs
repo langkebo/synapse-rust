@@ -10,24 +10,13 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 
 use crate::cache::*;
+use crate::common::config::Config;
 use crate::services::*;
 use crate::storage::*;
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
-use crate::web::routes::create_admin_router;
-use crate::web::routes::create_e2ee_router;
-use crate::web::routes::create_federation_router;
-use crate::web::routes::create_friend_router;
-use crate::web::routes::create_key_backup_router;
-use crate::web::routes::create_media_router;
-use crate::web::routes::create_private_chat_router;
 use crate::web::routes::create_router;
-use crate::web::routes::create_voice_router;
 use crate::web::AppState;
 
-const DEFAULT_MAX_SIZE: u32 = 100;
-const DEFAULT_MIN_IDLE: Option<u32> = Some(5);
-const DEFAULT_CONNECTION_TIMEOUT: u64 = 30;
-const DEFAULT_ACQUIRE_TIMEOUT: u64 = 30;
 const DEFAULT_MAX_LIFETIME: Duration = Duration::from_secs(1800);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -41,56 +30,45 @@ pub struct SynapseServer {
 }
 
 impl SynapseServer {
-    pub async fn new(
-        database_url: &str,
-        server_name: &str,
-        jwt_secret: &str,
-        address: SocketAddr,
-        media_path: std::path::PathBuf,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
         let pool_options = PgPoolOptions::new()
-            .max_connections(DEFAULT_MAX_SIZE)
-            .min_connections(DEFAULT_MIN_IDLE.unwrap_or(5))
-            .acquire_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT))
+            .max_connections(config.database.max_size)
+            .min_connections(config.database.min_idle.unwrap_or(5))
+            .acquire_timeout(Duration::from_secs(config.database.connection_timeout))
             .max_lifetime(DEFAULT_MAX_LIFETIME)
             .idle_timeout(DEFAULT_IDLE_TIMEOUT)
             .test_before_acquire(true);
 
         info!("Connecting to database with optimized pool settings...");
-        info!("  Max connections: {}", DEFAULT_MAX_SIZE);
-        info!("  Min idle connections: {:?}", DEFAULT_MIN_IDLE);
-        info!("  Connection timeout: {}s", DEFAULT_CONNECTION_TIMEOUT);
-        info!("  Acquire timeout: {}s", DEFAULT_ACQUIRE_TIMEOUT);
-        info!("  Max lifetime: {}s", DEFAULT_MAX_LIFETIME.as_secs());
-        info!("  Idle timeout: {}s", DEFAULT_IDLE_TIMEOUT.as_secs());
+        info!("  Max connections: {}", config.database.max_size);
+        info!("  Min idle connections: {:?}", config.database.min_idle);
+        info!(
+            "  Connection timeout: {}s",
+            config.database.connection_timeout
+        );
 
-        let pool = pool_options.connect(database_url).await?;
-        initialize_database(&pool).await?;
+        let database_url = config.database_url();
+        let pool = pool_options.connect(&database_url).await?;
         let pool = Arc::new(pool);
 
+        // Initialize database using the new database initialization service
+        let db_init_service = DatabaseInitService::new(pool.clone());
+        db_init_service.initialize().await?;
+
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let services = ServiceContainer::new(&pool, cache.clone(), jwt_secret, server_name);
+        let services = ServiceContainer::new(&pool, cache.clone(), config.clone());
         let app_state = Arc::new(AppState::new(services, cache.clone()));
 
-        let database = Arc::new(Database::new(database_url).await?);
-        let scheduled_tasks = Arc::new(ScheduledTasks::new(database.clone()));
+        let scheduled_tasks = Arc::new(ScheduledTasks::new(Arc::new(
+            Database::new(&database_url).await?,
+        )));
         let metrics_collector = Arc::new(TaskMetricsCollector::new(scheduled_tasks.clone()));
 
+        let address =
+            format!("{}:{}", config.server.host, config.server.port).parse::<SocketAddr>()?;
+        let media_path = std::path::PathBuf::from("./media"); // Default or from config if added
+
         let router = create_router((*app_state).clone())
-            .merge(create_admin_router((*app_state).clone()))
-            .merge(create_media_router(
-                (*app_state).clone(),
-                media_path.clone(),
-            ))
-            .merge(create_federation_router((*app_state).clone()))
-            .merge(create_friend_router((*app_state).clone()))
-            .merge(create_private_chat_router((*app_state).clone()))
-            .merge(create_voice_router(
-                (*app_state).clone(),
-                std::path::PathBuf::from("/tmp/synapse_voice"),
-            ))
-            .merge(create_e2ee_router((*app_state).clone()))
-            .merge(create_key_backup_router((*app_state).clone()))
             .route(
                 "/{*path}",
                 get(|| async { Json(json!({"errcode": "UNKNOWN", "error": "Unknown endpoint"})) }),
@@ -119,17 +97,41 @@ impl SynapseServer {
         info!("Server name: {}", self.app_state.services.server_name);
         info!("Listening on: {}", self.address);
         info!("Media storage: {}", self.media_path.display());
-        info!("Starting scheduled database monitoring and maintenance tasks...");
 
+        // Performance Optimization: Warmup database and cache
+        info!("Performing system warmup...");
+        if let Err(e) = self.warmup().await {
+            tracing::warn!("Warmup encountered minor errors: {}", e);
+        }
+
+        info!("Starting scheduled database monitoring and maintenance tasks...");
         self.scheduled_tasks.start_all().await;
 
         let listener = tokio::net::TcpListener::bind(self.address).await?;
-        let serve = axum::serve(listener, self.router.clone());
-        let graceful = serve.with_graceful_shutdown(async {
-            shutdown_signal().await;
-        });
-        let _ = graceful.await;
+        axum::serve(listener, self.router.clone())
+            .with_graceful_shutdown(async {
+                shutdown_signal().await;
+            })
+            .await?;
 
+        Ok(())
+    }
+
+    async fn warmup(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let pool = &self.app_state.services.user_storage.pool;
+
+        // 1. Warmup DB connections with a simple query
+        sqlx::query("SELECT 1").execute(&**pool).await?;
+
+        // 2. Warmup common lookup tables (e.g., server version, active users count)
+        let _ = sqlx::query("SELECT count(*) FROM users")
+            .fetch_one(&**pool)
+            .await?;
+
+        // 3. Populate Redis/Cache with critical system configs if any
+        // (Currently handled by ServiceContainer initialization, but could add specific ones)
+
+        info!("Warmup completed successfully.");
         Ok(())
     }
 

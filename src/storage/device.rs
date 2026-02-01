@@ -6,12 +6,14 @@ pub struct Device {
     pub device_id: String,
     pub user_id: String,
     pub display_name: Option<String>,
+    pub device_key: Option<serde_json::Value>,
     pub last_seen_ts: Option<i64>,
     pub last_seen_ip: Option<String>,
+    pub created_at: i64,
+    pub first_seen_ts: i64,
     pub created_ts: Option<i64>,
-    pub ignored_user_list: Option<String>,
     pub appservice_id: Option<String>,
-    pub first_seen_ts: Option<i64>,
+    pub ignored_user_list: Option<String>,
 }
 
 #[derive(Clone)]
@@ -34,13 +36,14 @@ impl DeviceStorage {
         sqlx::query_as!(
             Device,
             r#"
-            INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING *
+            INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_at, created_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_at, first_seen_ts, created_ts, appservice_id, ignored_user_list
             "#,
             device_id,
             user_id,
             display_name,
+            now,
             now,
             now,
             now
@@ -51,7 +54,8 @@ impl DeviceStorage {
         sqlx::query_as!(
             Device,
             r#"
-            SELECT * FROM devices WHERE device_id = $1
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_at, first_seen_ts, created_ts, appservice_id, ignored_user_list
+            FROM devices WHERE device_id = $1
             "#,
             device_id
         )
@@ -63,7 +67,8 @@ impl DeviceStorage {
         sqlx::query_as!(
             Device,
             r#"
-            SELECT * FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_at, first_seen_ts, created_ts, appservice_id, ignored_user_list
+            FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC
             "#,
             user_id
         )
@@ -131,11 +136,7 @@ impl DeviceStorage {
             return Ok(0);
         }
 
-        let query = format!(
-            "DELETE FROM devices WHERE device_id = ANY($1)"
-        );
-
-        sqlx::query(&query)
+        sqlx::query("DELETE FROM devices WHERE device_id = ANY($1)")
             .bind(device_ids)
             .execute(&*self.pool)
             .await

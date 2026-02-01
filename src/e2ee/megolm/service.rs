@@ -9,6 +9,7 @@ use crate::error::ApiError;
 use chrono::Utc;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct MegolmService {
     storage: MegolmSessionStorage,
     cache: Arc<CacheManager>,
@@ -176,5 +177,35 @@ impl MegolmService {
         let mut key = [0u8; 32];
         key.copy_from_slice(&decrypted);
         Ok(key)
+    }
+
+    pub async fn get_outbound_session(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<RoomKeyDistributionData>, ApiError> {
+        self.get_room_key_distribution(room_id).await
+    }
+
+    pub async fn get_room_key_distribution(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<RoomKeyDistributionData>, ApiError> {
+        let sessions = self.get_room_sessions(room_id).await?;
+
+        if let Some(session) = sessions.first() {
+            let session_key = self.decrypt_session_key(&session.session_key)?;
+
+            Ok(Some(RoomKeyDistributionData {
+                session_id: session.session_id.clone(),
+                session_key: base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    session_key,
+                ),
+                algorithm: session.algorithm.clone(),
+                room_id: room_id.to_string(),
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }

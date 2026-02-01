@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT \n                count(*) as total_queries\n            FROM pg_stat_activity \n            WHERE state = 'active' AND datname = current_database()\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_queries",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "811266f92062544378dbc0b6bd91cfe2f3762be2601ec00b1e96354a4410f5d7"
+}

@@ -34,17 +34,18 @@ if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
       -H "Content-Type: application/json" \
       -d '{"name": "测试房间", "topic": "这是一个测试房间"}')
     echo "创建房间结果: $ROOM_RESULT"
-    ROOM_ID=$(echo $ROOM_RESULT | jq -r '.room_id // empty')
+    ROOM_ID=$(echo $ROOM_RESULT | grep -o '"room_id":"[^"]*' | cut -d'"' -f4)
     echo "房间ID: $ROOM_ID"
     echo ""
 
     echo "5. 测试获取公共房间列表"
-    PUBLIC_ROOMS=$(curl -s -X GET "$BASE_URL/_matrix/client/r0/publicRooms")
+    PUBLIC_ROOMS=$(curl -s -X GET "$BASE_URL/_matrix/client/r0/publicRooms" \
+      -H "Authorization: Bearer $TOKEN")
     echo "公共房间列表: $PUBLIC_ROOMS"
     echo ""
 
     echo "6. 测试获取好友列表"
-    FRIENDS=$(curl -s -X GET "$BASE_URL/_synapse/enhanced/friends/testuser1" \
+    FRIENDS=$(curl -s -X GET "$BASE_URL/_synapse/enhanced/friends" \
       -H "Authorization: Bearer $TOKEN")
     echo "好友列表: $FRIENDS"
     echo ""

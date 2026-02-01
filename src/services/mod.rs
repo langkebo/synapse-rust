@@ -4,6 +4,8 @@ use crate::common::*;
 use crate::e2ee::backup::KeyBackupService;
 use crate::e2ee::cross_signing::CrossSigningService;
 use crate::e2ee::device_keys::DeviceKeyService;
+use crate::e2ee::megolm::MegolmService;
+use crate::e2ee::to_device::ToDeviceService;
 use crate::storage::*;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -20,30 +22,40 @@ pub struct ServiceContainer {
     pub presence_service: PresenceStorage,
     pub auth_service: AuthService,
     pub device_keys_service: DeviceKeyService,
+    pub megolm_service: MegolmService,
     pub cross_signing_service: CrossSigningService,
     pub backup_service: KeyBackupService,
+    pub to_device_service: ToDeviceService,
     pub voice_service: VoiceService,
+    pub media_service: MediaService,
     pub cache: Arc<CacheManager>,
     pub server_name: String,
+    pub config: Config,
 }
 
 impl ServiceContainer {
-    pub fn new(
-        pool: &Arc<sqlx::PgPool>,
-        cache: Arc<CacheManager>,
-        jwt_secret: &str,
-        server_name: &str,
-    ) -> Self {
+    pub fn new(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>, config: Config) -> Self {
         let presence_pool = pool.clone();
-        let auth_service = AuthService::new(pool, cache.clone(), jwt_secret, server_name);
+        let auth_service = AuthService::new(
+            pool,
+            cache.clone(),
+            &config.security.secret,
+            &config.server.name,
+        );
         let device_key_storage = crate::e2ee::device_keys::DeviceKeyStorage::new(pool);
         let device_keys_service = DeviceKeyService::new(device_key_storage, cache.clone());
+        let megolm_storage = crate::e2ee::megolm::MegolmSessionStorage::new(pool);
+        let encryption_key = generate_encryption_key();
+        let megolm_service = MegolmService::new(megolm_storage, cache.clone(), encryption_key);
         let cross_signing_storage = crate::e2ee::cross_signing::CrossSigningStorage::new(pool);
         let cross_signing_service = CrossSigningService::new(cross_signing_storage);
         let key_backup_storage = crate::e2ee::backup::KeyBackupStorage::new(pool);
         let backup_service = KeyBackupService::new(key_backup_storage);
+        let to_device_storage = crate::e2ee::to_device::ToDeviceStorage::new(pool);
+        let to_device_service = ToDeviceService::new(to_device_storage);
         let presence_service = PresenceStorage::new(presence_pool.clone(), cache.clone());
-        let voice_service = VoiceService::new("/tmp/synapse_voice");
+        let voice_service = VoiceService::new(pool, "/tmp/synapse_voice");
+        let media_service = MediaService::new("media");
 
         Self {
             user_storage: UserStorage::new(pool),
@@ -56,11 +68,15 @@ impl ServiceContainer {
             presence_service,
             auth_service,
             device_keys_service,
+            megolm_service,
             cross_signing_service,
             backup_service,
+            to_device_service,
             voice_service,
+            media_service,
             cache,
-            server_name: server_name.to_string(),
+            server_name: config.server.name.clone(),
+            config,
         }
     }
 
@@ -71,8 +87,76 @@ impl ServiceContainer {
                 .unwrap(),
         );
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        Self::new(&pool, cache, "test_secret", "localhost")
+        let config = Config {
+            server: ServerConfig {
+                name: "localhost".to_string(),
+                host: "0.0.0.0".to_string(),
+                port: 8008,
+                registration_shared_secret: None,
+                admin_contact: None,
+                max_upload_size: 1000000,
+                max_image_resolution: 1000000,
+                enable_registration: true,
+                enable_registration_captcha: false,
+                background_tasks_interval: 60,
+                expire_access_token: true,
+                expire_access_token_lifetime: 3600,
+                refresh_token_lifetime: 604800,
+                refresh_token_sliding_window_size: 1000,
+                session_duration: 86400,
+                warmup_pool: true,
+            },
+            database: DatabaseConfig {
+                host: "localhost".to_string(),
+                port: 5432,
+                username: "synapse".to_string(),
+                password: "synapse".to_string(),
+                name: "synapse".to_string(),
+                pool_size: 10,
+                max_size: 20,
+                min_idle: Some(5),
+                connection_timeout: 30,
+            },
+            redis: RedisConfig {
+                host: "localhost".to_string(),
+                port: 6379,
+                key_prefix: "test:".to_string(),
+                pool_size: 10,
+                enabled: true,
+            },
+            logging: crate::common::config::LoggingConfig {
+                level: "info".to_string(),
+                format: "json".to_string(),
+                log_file: None,
+                log_dir: None,
+            },
+            federation: FederationConfig {
+                enabled: true,
+                allow_ingress: false,
+                server_name: "test.example.com".to_string(),
+                federation_port: 8448,
+                connection_pool_size: 10,
+                max_transaction_payload: 50000,
+                ca_file: None,
+                client_ca_file: None,
+            },
+            security: SecurityConfig {
+                secret: "test_secret".to_string(),
+                expiry_time: 3600,
+                refresh_token_expiry: 604800,
+                bcrypt_rounds: 12,
+            },
+        };
+        Self::new(&pool, cache, config)
     }
+}
+
+fn generate_encryption_key() -> [u8; 32] {
+    let mut key = [0u8; 32];
+    for byte in key.iter_mut() {
+        *byte = rand::random();
+    }
+    key
 }
 
 #[derive(Clone)]
@@ -126,7 +210,7 @@ impl PresenceStorage {
         )
         .fetch_optional(&*self.pool)
         .await?;
-        Ok(result.map(|r| (r.presence, r.status_msg)))
+        Ok(result.map(|r| (r.presence.unwrap_or_default(), r.status_msg)))
     }
 
     pub async fn set_typing(
@@ -136,16 +220,18 @@ impl PresenceStorage {
         typing: bool,
     ) -> Result<(), sqlx::Error> {
         if typing {
+            let now = chrono::Utc::now().timestamp_millis();
             sqlx::query!(
                 r#"
                 INSERT INTO typing (room_id, user_id, typing, last_active_ts)
-                VALUES ($1, $2, $3, NOW() AT TIME ZONE 'UTC')
+                VALUES ($1, $2, $3, $4)
                 ON CONFLICT (room_id, user_id)
                 DO UPDATE SET typing = EXCLUDED.typing, last_active_ts = EXCLUDED.last_active_ts
                 "#,
                 room_id,
                 user_id,
                 typing,
+                now,
             )
             .execute(&*self.pool)
             .await?;
@@ -164,6 +250,7 @@ impl PresenceStorage {
     }
 }
 
+pub mod database_initializer;
 pub mod friend_service;
 pub mod media_service;
 pub mod private_chat_service;
@@ -172,6 +259,7 @@ pub mod room_service;
 pub mod sync_service;
 pub mod voice_service;
 
+pub use database_initializer::*;
 pub use friend_service::*;
 pub use media_service::*;
 pub use private_chat_service::*;

@@ -10,7 +10,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 
-pub fn create_media_router(state: AppState, _media_path: std::path::PathBuf) -> Router {
+pub fn create_media_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route(
             "/_matrix/media/v3/upload/{server_name}/{media_id}",
@@ -24,13 +24,51 @@ pub fn create_media_router(state: AppState, _media_path: std::path::PathBuf) -> 
             "/_matrix/media/v3/thumbnail/{server_name}/{media_id}",
             get(get_thumbnail),
         )
+        .route("/_matrix/media/v1/upload", post(upload_media_v1))
+        .route("/_matrix/media/v3/upload", post(upload_media_v3))
         .route("/_matrix/media/v1/config", get(media_config))
-        .route("/_matrix/media/r1/upload", post(upload_media_v1))
+        .route(
+            "/_matrix/media/v1/download/{server_name}/{media_id}",
+            get(download_media_v1),
+        )
         .route(
             "/_matrix/media/r1/download/{server_name}/{media_id}",
             get(download_media_v1),
         )
-        .with_state(state)
+}
+
+async fn upload_media_v3(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let content = body
+        .get("content")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| ApiError::bad_request("No file provided".to_string()))?;
+    let content_type = body
+        .get("content_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("application/octet-stream");
+    let filename = body.get("filename").and_then(|v| v.as_str());
+
+    let content_bytes: Vec<u8> = content
+        .iter()
+        .map(|v| v.as_u64().unwrap_or(0) as u8)
+        .collect();
+
+    let media_service = state.services.media_service.clone();
+    Ok(Json(
+        media_service
+            .upload_media(&auth_user.user_id, &content_bytes, content_type, filename)
+            .await?,
+    ))
+}
+
+async fn media_config(State(_state): State<AppState>) -> Json<Value> {
+    Json(json!({
+        "m.upload.size": 50 * 1024 * 1024
+    }))
 }
 
 async fn upload_media(
@@ -145,12 +183,6 @@ async fn get_thumbnail(
             (headers, error_body)
         }
     }
-}
-
-async fn media_config() -> Json<Value> {
-    Json(json!({
-        "m.upload.size": 50 * 1024 * 1024
-    }))
 }
 
 async fn upload_media_v1(

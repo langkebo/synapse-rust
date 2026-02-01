@@ -52,8 +52,9 @@ impl SignatureService {
         public_key: &[u8; 32],
     ) -> Result<bool, ApiError> {
         let message = event_id.as_bytes();
-        let signature_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signature)
-            .map_err(|_| ApiError::invalid_input("Invalid signature encoding"))?;
+        let signature_bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signature)
+                .map_err(|_| ApiError::invalid_input("Invalid signature encoding"))?;
 
         if signature_bytes.len() != 64 {
             return Err(ApiError::invalid_input("Invalid signature length"));
@@ -89,8 +90,9 @@ impl SignatureService {
         public_key: &[u8; 32],
     ) -> Result<bool, ApiError> {
         let message = key.as_bytes();
-        let signature_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signature)
-            .map_err(|_| ApiError::invalid_input("Invalid signature encoding"))?;
+        let signature_bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signature)
+                .map_err(|_| ApiError::invalid_input("Invalid signature encoding"))?;
 
         if signature_bytes.len() != 64 {
             return Err(ApiError::invalid_input("Invalid signature length"));

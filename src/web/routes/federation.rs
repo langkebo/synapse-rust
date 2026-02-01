@@ -7,7 +7,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 
-pub fn create_federation_router(state: AppState) -> Router {
+pub fn create_federation_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/federation/v1/version", get(federation_version))
         .route("/_matrix/federation/v1", get(federation_discovery))
@@ -70,7 +70,6 @@ pub fn create_federation_router(state: AppState) -> Router {
             "/_matrix/federation/v2/user/keys/query",
             post(user_keys_query),
         )
-        .with_state(state)
 }
 
 async fn federation_version() -> Json<Value> {
@@ -316,7 +315,7 @@ async fn get_event(
             "event_id": e.event_id,
             "type": e.event_type,
             "sender": e.user_id,
-            "content": serde_json::from_str(&e.content).unwrap_or(json!({})),
+            "content": e.content,
             "state_key": e.state_key,
             "origin_server_ts": e.origin_server_ts,
             "room_id": e.room_id
@@ -343,7 +342,7 @@ async fn get_state(
                 "event_id": e.event_id,
                 "type": e.event_type,
                 "sender": e.user_id,
-                "content": serde_json::from_str(&e.content).unwrap_or(json!({})),
+                "content": e.content,
                 "state_key": e.state_key
             })
         })

@@ -5,13 +5,19 @@
         },
         "check": {
             "command": "clippy",
-            "extraArgs": ["--", "-W", "clippy::all"]
+            "extraArgs": ["--", "-W", "clippy::all"],
+            "env": {
+                "SQLX_OFFLINE": "true"
+            }
         },
         "cargo": {
             "buildScripts": {
                 "overrideCommand": ["cargo", "check", "--message-format=json"]
             },
-            "features": "all"
+            "features": "all",
+            "env": {
+                "SQLX_OFFLINE": "true"
+            }
         },
         "procMacro": {
             "enable": true

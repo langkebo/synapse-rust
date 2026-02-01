@@ -1,15 +1,20 @@
-use super::AppState;
+use super::{AdminUser, AppState};
 use crate::common::ApiError;
 use axum::{
     extract::{Path, State},
     routing::{get, post, put},
     Json, Router,
 };
+use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sqlx::Row;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
-pub fn create_admin_router(state: AppState) -> Router {
+const MAX_LIMIT: i64 = 1000;
+
+pub fn create_admin_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/server_version", get(get_server_version))
         .route("/_synapse/admin/v1/users", get(get_users))
@@ -39,7 +44,10 @@ pub fn create_admin_router(state: AppState) -> Router {
             get(get_ip_reputation),
         )
         .route("/_synapse/admin/v1/status", get(get_status))
-        .with_state(state)
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/rooms",
+            get(get_user_rooms_admin),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,13 +76,19 @@ impl SecurityStorage {
         sqlx::query!(
             r#"
             CREATE TABLE IF NOT EXISTS security_events (
-                id SERIAL PRIMARY KEY,
+                id BIGSERIAL PRIMARY KEY,
                 event_type VARCHAR(255) NOT NULL,
                 user_id VARCHAR(255),
-                ip_address VARCHAR(255),
+                ip_address INET,
                 user_agent TEXT,
-                details JSONB,
-                created_at BIGINT NOT NULL
+                details TEXT,
+                created_at BIGINT NOT NULL,
+                severity VARCHAR(50) DEFAULT 'warning',
+                description TEXT,
+                created_ts BIGINT NOT NULL,
+                resolved BOOLEAN DEFAULT FALSE,
+                resolved_ts BIGINT,
+                resolved_by VARCHAR(255)
             )
             "#
         )
@@ -84,11 +98,14 @@ impl SecurityStorage {
         sqlx::query!(
             r#"
             CREATE TABLE IF NOT EXISTS ip_blocks (
-                id SERIAL PRIMARY KEY,
-                ip_address VARCHAR(255) UNIQUE NOT NULL,
+                id BIGSERIAL PRIMARY KEY,
+                ip_range CIDR NOT NULL,
+                ip_address INET,
                 reason TEXT,
                 blocked_at BIGINT NOT NULL,
-                expires_at BIGINT
+                blocked_ts BIGINT NOT NULL,
+                expires_at BIGINT,
+                expires_ts BIGINT
             )
             "#
         )
@@ -98,12 +115,17 @@ impl SecurityStorage {
         sqlx::query!(
             r#"
             CREATE TABLE IF NOT EXISTS ip_reputation (
-                id SERIAL PRIMARY KEY,
-                ip_address VARCHAR(255) UNIQUE NOT NULL,
-                score INTEGER DEFAULT 0,
-                last_seen_at BIGINT NOT NULL,
-                updated_at BIGINT NOT NULL,
-                details JSONB
+                id BIGSERIAL PRIMARY KEY,
+                ip_address INET NOT NULL,
+                score INTEGER DEFAULT 50,
+                reputation_score INTEGER DEFAULT 50,
+                threat_level VARCHAR(50) DEFAULT 'none',
+                last_seen_at BIGINT,
+                updated_at BIGINT,
+                details TEXT,
+                last_updated_ts BIGINT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                UNIQUE (ip_address)
             )
             "#
         )
@@ -113,41 +135,42 @@ impl SecurityStorage {
         Ok(())
     }
 
-    pub async fn log_security_event(
+    pub async fn log_admin_action(
         &self,
-        event_type: &str,
-        user_id: Option<&str>,
-        ip_address: Option<&str>,
-        user_agent: Option<&str>,
+        admin_id: &str,
+        action: &str,
+        target: Option<&str>,
         details: Option<Value>,
     ) -> Result<i64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        let details_str = details.as_ref().and_then(|d| serde_json::to_string(d).ok());
-        let result = sqlx::query!(
+        let details_str = details.map(|d| d.to_string());
+
+        let row = sqlx::query(
             r#"
-            INSERT INTO security_events (event_type, user_id, ip_address, user_agent, details, created_at)
+            INSERT INTO security_events (event_type, user_id, details, description, created_at, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id
             "#,
-            event_type,
-            user_id,
-            ip_address,
-            user_agent,
-            details_str,
-            now
         )
+        .bind(format!("admin_action:{}", action))
+        .bind(Some(admin_id))
+        .bind(details_str)
+        .bind(target)
+        .bind(now)
+        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
-        Ok(result.id)
+
+        Ok(row.get("id"))
     }
 
     pub async fn get_security_events(&self, limit: i64) -> Result<Vec<Value>, sqlx::Error> {
         #[derive(sqlx::FromRow)]
         struct SecurityEventRow {
-            id: i32,
-            event_type: Option<String>,
+            id: i64,
+            event_type: String,
             user_id: Option<String>,
-            ip_address: Option<String>,
+            ip_address: Option<IpNetwork>,
             user_agent: Option<String>,
             details: Option<String>,
             created_at: i64,
@@ -171,7 +194,7 @@ impl SecurityStorage {
                     "id": r.id,
                     "event_type": r.event_type,
                     "user_id": r.user_id,
-                    "ip_address": r.ip_address,
+                    "ip_address": r.ip_address.map(|ip| ip.ip().to_string()),
                     "user_agent": r.user_agent,
                     "details": r.details,
                     "created_at": r.created_at
@@ -184,21 +207,50 @@ impl SecurityStorage {
         &self,
         ip_address: &str,
         reason: Option<&str>,
-        expires_at: Option<i64>,
+        expires_at: Option<chrono::NaiveDateTime>,
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
+
+        let ip_network: IpNetwork = if let Ok(net) = ip_address.parse() {
+            net
+        } else if let Ok(v4) = ip_address.parse::<Ipv4Addr>() {
+            IpNetwork::V4(
+                Ipv4Network::new(v4, 32).map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+            )
+        } else if let Ok(v6) = ip_address.parse::<Ipv6Addr>() {
+            IpNetwork::V6(
+                Ipv6Network::new(v6, 128).map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+            )
+        } else if ip_address.contains(':') {
+            IpNetwork::V6(Ipv6Network::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1), 128).unwrap())
+        } else {
+            IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(127, 0, 0, 1), 32).unwrap())
+        };
+
+        let ip_addr: Option<IpNetwork> = match ip_network {
+            IpNetwork::V4(v4) if v4.prefix() == 32 => Some(IpNetwork::V4(v4)),
+            IpNetwork::V6(v6) if v6.prefix() == 128 => Some(IpNetwork::V6(v6)),
+            _ => None,
+        };
+        let expires_at_ts = expires_at.map(|t| t.and_utc().timestamp());
+        sqlx::query(r#"DELETE FROM ip_blocks WHERE ip_range = $1 OR ip_address = $2"#)
+            .bind(ip_network)
+            .bind(ip_addr)
+            .execute(&*self.pool)
+            .await?;
+
         sqlx::query!(
             r#"
-            INSERT INTO ip_blocks (ip_address, reason, blocked_at, expires_at)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (ip_address) DO UPDATE SET
-                reason = EXCLUDED.reason,
-                expires_at = EXCLUDED.expires_at
+            INSERT INTO ip_blocks (ip_range, ip_address, reason, blocked_at, blocked_ts, expires_at, expires_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
-            ip_address,
+            ip_network,
+            ip_addr,
             reason,
             now,
-            expires_at
+            now,
+            expires_at_ts,
+            expires_at_ts
         )
         .execute(&*self.pool)
         .await?;
@@ -206,7 +258,29 @@ impl SecurityStorage {
     }
 
     pub async fn unblock_ip(&self, ip_address: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(r#"DELETE FROM ip_blocks WHERE ip_address = $1"#, ip_address)
+        let ip_network: IpNetwork = if let Ok(net) = ip_address.parse() {
+            net
+        } else if let Ok(v4) = ip_address.parse::<Ipv4Addr>() {
+            IpNetwork::V4(
+                Ipv4Network::new(v4, 32).map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+            )
+        } else if let Ok(v6) = ip_address.parse::<Ipv6Addr>() {
+            IpNetwork::V6(
+                Ipv6Network::new(v6, 128).map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+            )
+        } else {
+            return Ok(false);
+        };
+
+        let ip_addr: Option<IpNetwork> = match ip_network {
+            IpNetwork::V4(v4) if v4.prefix() == 32 => Some(IpNetwork::V4(v4)),
+            IpNetwork::V6(v6) if v6.prefix() == 128 => Some(IpNetwork::V6(v6)),
+            _ => None,
+        };
+
+        let result = sqlx::query(r#"DELETE FROM ip_blocks WHERE ip_range = $1 OR ip_address = $2"#)
+            .bind(ip_network)
+            .bind(ip_addr)
             .execute(&*self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
@@ -222,7 +296,7 @@ impl SecurityStorage {
         }
         let rows: Vec<BlockedIpRow> = sqlx::query_as(
             r#"
-            SELECT ip_address, reason, blocked_at, expires_at
+            SELECT ip_range::text as ip_address, reason, blocked_at, expires_at
             FROM ip_blocks
             ORDER BY blocked_at DESC
             "#,
@@ -244,14 +318,18 @@ impl SecurityStorage {
     }
 
     pub async fn is_ip_blocked(&self, ip_address: &str) -> Result<bool, sqlx::Error> {
+        let Ok(ip) = ip_address.parse::<IpAddr>() else {
+            return Ok(false);
+        };
+
         let result: Option<(i32,)> = sqlx::query_as(
             r#"
             SELECT 1 FROM ip_blocks
-            WHERE ip_address = $1
+            WHERE $1::inet <<= ip_range
             AND (expires_at IS NULL OR expires_at > $2)
             "#,
         )
-        .bind(ip_address)
+        .bind(ip)
         .bind(chrono::Utc::now().timestamp())
         .fetch_optional(&*self.pool)
         .await?;
@@ -261,7 +339,7 @@ impl SecurityStorage {
     pub async fn get_ip_reputation(&self, ip_address: &str) -> Result<Option<Value>, sqlx::Error> {
         #[derive(sqlx::FromRow)]
         struct IpReputationRow {
-            ip_address: String,
+            ip_address: IpAddr,
             score: i32,
             last_seen_at: i64,
             updated_at: i64,
@@ -274,13 +352,17 @@ impl SecurityStorage {
             WHERE ip_address = $1
             "#,
         )
-        .bind(ip_address)
+        .bind(
+            ip_address
+                .parse::<IpAddr>()
+                .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+        )
         .fetch_optional(&*self.pool)
         .await?;
 
         Ok(row.map(|r| {
             json!({
-                "ip_address": r.ip_address,
+                "ip_address": r.ip_address.to_string(),
                 "score": r.score,
                 "last_seen_at": r.last_seen_at,
                 "updated_at": r.updated_at,
@@ -296,21 +378,45 @@ impl SecurityStorage {
         details: Option<Value>,
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
+        let details_str = details.map(|d| d.to_string());
+
+        let ip: IpAddr = ip_address
+            .parse::<IpAddr>()
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        let ip: IpNetwork = ip.into();
+        let base_score = 50;
+        let initial_score = base_score + score_delta;
+
         sqlx::query!(
             r#"
-            INSERT INTO ip_reputation (ip_address, score, last_seen_at, updated_at, details)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO ip_reputation (
+                ip_address,
+                score,
+                reputation_score,
+                last_seen_at,
+                updated_at,
+                details,
+                last_updated_ts,
+                created_ts
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (ip_address) DO UPDATE SET
-                score = ip_reputation.score + $2,
-                last_seen_at = $3,
-                updated_at = $3,
-                details = COALESCE($5, ip_reputation.details)
+                score = ip_reputation.score + $9,
+                reputation_score = ip_reputation.reputation_score + $9,
+                last_seen_at = EXCLUDED.last_seen_at,
+                updated_at = EXCLUDED.updated_at,
+                last_updated_ts = EXCLUDED.last_updated_ts,
+                details = COALESCE(EXCLUDED.details, ip_reputation.details)
             "#,
-            ip_address,
-            score_delta,
+            ip,
+            initial_score,
+            initial_score,
             now,
             now,
-            details
+            details_str,
+            now,
+            now,
+            score_delta
         )
         .execute(&*self.pool)
         .await?;
@@ -319,7 +425,7 @@ impl SecurityStorage {
 }
 
 #[axum::debug_handler]
-async fn get_security_events(State(state): State<AppState>) -> Json<Value> {
+async fn get_security_events(_admin: AdminUser, State(state): State<AppState>) -> Json<Value> {
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
     let events = security_storage
         .get_security_events(100)
@@ -332,7 +438,7 @@ async fn get_security_events(State(state): State<AppState>) -> Json<Value> {
 }
 
 #[axum::debug_handler]
-async fn get_ip_blocks(State(state): State<AppState>) -> Json<Value> {
+async fn get_ip_blocks(_admin: AdminUser, State(state): State<AppState>) -> Json<Value> {
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
     let blocked_ips = security_storage
         .get_blocked_ips()
@@ -345,12 +451,27 @@ async fn get_ip_blocks(State(state): State<AppState>) -> Json<Value> {
 }
 
 #[axum::debug_handler]
-async fn block_ip(State(state): State<AppState>, Json(body): Json<BlockIpBody>) -> Json<Value> {
+async fn block_ip(
+    admin: AdminUser,
+    State(state): State<AppState>,
+    Json(body): Json<BlockIpBody>,
+) -> Json<Value> {
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
+
+    // Log admin action
+    let _ = security_storage
+        .log_admin_action(
+            &admin.user_id,
+            "block_ip",
+            Some(&body.ip_address),
+            Some(json!({"reason": body.reason, "expires_at": body.expires_at})),
+        )
+        .await;
+
     let expires_at = body.expires_at.as_ref().and_then(|e| {
         chrono::DateTime::parse_from_rfc3339(e)
             .ok()
-            .map(|dt| dt.timestamp())
+            .map(|dt| dt.naive_utc())
     });
 
     let result = security_storage
@@ -370,8 +491,18 @@ async fn block_ip(State(state): State<AppState>, Json(body): Json<BlockIpBody>) 
 }
 
 #[axum::debug_handler]
-async fn unblock_ip(State(state): State<AppState>, Json(body): Json<UnblockIpBody>) -> Json<Value> {
+async fn unblock_ip(
+    admin: AdminUser,
+    State(state): State<AppState>,
+    Json(body): Json<UnblockIpBody>,
+) -> Json<Value> {
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
+
+    // Log admin action
+    let _ = security_storage
+        .log_admin_action(&admin.user_id, "unblock_ip", Some(&body.ip_address), None)
+        .await;
+
     let result = security_storage.unblock_ip(&body.ip_address).await;
 
     match result {
@@ -388,7 +519,11 @@ async fn unblock_ip(State(state): State<AppState>, Json(body): Json<UnblockIpBod
 }
 
 #[axum::debug_handler]
-async fn get_ip_reputation(State(state): State<AppState>, Path(ip): Path<String>) -> Json<Value> {
+async fn get_ip_reputation(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(ip): Path<String>,
+) -> Json<Value> {
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
     let reputation = security_storage
         .get_ip_reputation(&ip)
@@ -406,7 +541,10 @@ async fn get_ip_reputation(State(state): State<AppState>, Path(ip): Path<String>
 }
 
 #[axum::debug_handler]
-async fn get_status(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+async fn get_status(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
     let user_count = state
         .services
         .user_storage
@@ -431,7 +569,7 @@ async fn get_status(State(state): State<AppState>) -> Result<Json<Value>, ApiErr
 }
 
 #[axum::debug_handler]
-async fn get_server_version() -> Json<Value> {
+async fn get_server_version(_admin: AdminUser, State(_state): State<AppState>) -> Json<Value> {
     Json(serde_json::json!({
         "version": "1.0.0",
         "python_version": "3.9.0"
@@ -439,15 +577,78 @@ async fn get_server_version() -> Json<Value> {
 }
 
 #[axum::debug_handler]
-async fn get_users(State(_state): State<AppState>) -> Json<Value> {
-    Json(serde_json::json!({
-        "users": [],
-        "total": 0
-    }))
+async fn get_users(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100)
+        .clamp(1, MAX_LIMIT);
+    let offset = params
+        .get("offset")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+        .clamp(0, i64::MAX);
+
+    tracing::info!(
+        target: "admin_api",
+        "Admin user list request: limit={}, offset={}",
+        limit,
+        offset
+    );
+
+    let start = std::time::Instant::now();
+    let users = state
+        .services
+        .user_storage
+        .get_users_paginated(limit, offset)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let total = state
+        .services
+        .user_storage
+        .get_user_count()
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let duration_ms = start.elapsed().as_millis();
+    tracing::info!(
+        target: "admin_api",
+        "Admin user list completed: returned {} users, total={}, duration_ms={}",
+        users.len(),
+        total,
+        duration_ms
+    );
+
+    let user_list: Vec<Value> = users
+        .iter()
+        .map(|u| {
+            serde_json::json!({
+                "name": u.username,
+                "is_guest": u.is_guest.unwrap_or(false),
+                "admin": u.is_admin.unwrap_or(false),
+                "deactivated": u.deactivated.unwrap_or(false),
+                "displayname": u.displayname,
+                "avatar_url": u.avatar_url,
+                "creation_ts": u.creation_ts,
+                "user_type": u.user_type
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "users": user_list,
+        "total": total
+    })))
 }
 
 #[axum::debug_handler]
 async fn get_user(
+    _admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
@@ -462,7 +663,7 @@ async fn get_user(
         Some(u) => Ok(Json(serde_json::json!({
             "name": u.username,
             "is_guest": u.is_guest.unwrap_or(false),
-            "admin": u.admin.unwrap_or(false),
+            "admin": u.is_admin.unwrap_or(false),
             "deactivated": u.deactivated.unwrap_or(false),
             "displayname": u.displayname,
             "avatar_url": u.avatar_url,
@@ -475,6 +676,7 @@ async fn get_user(
 
 #[axum::debug_handler]
 async fn set_admin(
+    _admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
     Json(body): Json<Value>,
@@ -498,6 +700,7 @@ async fn set_admin(
 
 #[axum::debug_handler]
 async fn deactivate_user(
+    _admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
@@ -514,45 +717,156 @@ async fn deactivate_user(
 }
 
 #[axum::debug_handler]
-async fn get_rooms(State(_state): State<AppState>) -> Json<Value> {
-    Json(serde_json::json!({
-        "rooms": [],
-        "total": 0
-    }))
+async fn get_rooms(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100)
+        .clamp(1, MAX_LIMIT);
+    let offset = params
+        .get("offset")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+        .clamp(0, i64::MAX);
+
+    tracing::info!(
+        target: "admin_api",
+        "Admin room list request: limit={}, offset={}",
+        limit,
+        offset
+    );
+
+    let start = std::time::Instant::now();
+    let rooms_with_members = state
+        .services
+        .room_storage
+        .get_all_rooms_with_members(limit, offset)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let total = state
+        .services
+        .room_storage
+        .get_room_count()
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let duration_ms = start.elapsed().as_millis();
+    tracing::info!(
+        target: "admin_api",
+        "Admin room list completed: returned {} rooms, total={}, duration_ms={}",
+        rooms_with_members.len(),
+        total,
+        duration_ms
+    );
+
+    let room_list: Vec<Value> = rooms_with_members
+        .iter()
+        .map(|(r, joined_members)| {
+            serde_json::json!({
+                "room_id": r.room_id.clone(),
+                "name": r.name.clone().unwrap_or_default(),
+                "topic": r.topic.clone().unwrap_or_default(),
+                "creator": r.creator.clone(),
+                "joined_members": joined_members,
+                "joined_local_members": joined_members,
+                "is_public": r.is_public
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "rooms": room_list,
+        "total": total
+    })))
 }
 
 #[axum::debug_handler]
-async fn get_room(State(_state): State<AppState>, Path(_room_id): Path<String>) -> Json<Value> {
-    Json(serde_json::json!({
-        "room_id": "!test:localhost",
-        "name": "Test Room",
-        "topic": "",
-        "creator": "@test:localhost",
-        "joined_members": 1,
-        "joined_local_members": 1,
-        "state_events": 0
-    }))
+async fn get_room(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    match room {
+        Some(r) => Ok(Json(serde_json::json!({
+            "room_id": r.room_id,
+            "name": r.name.unwrap_or_default(),
+            "topic": r.topic.unwrap_or_default(),
+            "creator": r.creator,
+            "is_public": r.is_public,
+            "join_rule": r.join_rule
+        }))),
+        None => Err(ApiError::not_found("Room not found".to_string())),
+    }
 }
 
 #[axum::debug_handler]
-async fn delete_room(State(_state): State<AppState>, Path(_room_id): Path<String>) -> Json<Value> {
-    Json(serde_json::json!({
-        "delete_id": "!test:localhost"
-    }))
+async fn delete_room(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    state
+        .services
+        .room_storage
+        .delete_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "delete_id": room_id
+    })))
 }
 
 #[axum::debug_handler]
-async fn purge_history(State(_state): State<AppState>, Json(_body): Json<Value>) -> Json<Value> {
+async fn purge_history(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+    Json(_body): Json<Value>,
+) -> Json<Value> {
     Json(serde_json::json!({
         "success": true
     }))
 }
 
 #[axum::debug_handler]
-async fn shutdown_room(State(_state): State<AppState>, Json(_body): Json<Value>) -> Json<Value> {
+async fn shutdown_room(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+    Json(_body): Json<Value>,
+) -> Json<Value> {
     Json(serde_json::json!({
         "kicked_users": [],
         "failed_to_kick_users": [],
         "closed_room": true
     }))
+}
+
+#[axum::debug_handler]
+async fn get_user_rooms_admin(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let rooms = state
+        .services
+        .room_storage
+        .get_user_rooms(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "rooms": rooms
+    })))
 }

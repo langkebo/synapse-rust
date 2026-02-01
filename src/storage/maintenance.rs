@@ -67,7 +67,6 @@ impl DatabaseMaintenance {
             "access_tokens",
             "refresh_tokens",
             "rooms",
-            "room_events",
             "room_memberships",
             "events",
             "private_messages",
@@ -92,18 +91,18 @@ impl DatabaseMaintenance {
         let mut reindexed = Vec::new();
 
         let indexes = vec![
-            "idx_users_user_id",
             "idx_users_username",
-            "idx_devices_user_id",
-            "idx_devices_device_id",
-            "idx_tokens_user_id",
-            "idx_tokens_token",
-            "idx_room_memberships_room",
-            "idx_room_memberships_user",
+            "idx_devices_user",
+            "idx_access_tokens_user",
+            "idx_refresh_tokens_user",
+            "idx_rooms_creator",
+            "idx_memberships_room",
+            "idx_memberships_user",
             "idx_events_room",
-            "idx_events_user",
+            "idx_events_sender",
             "idx_private_messages_session",
-            "idx_private_sessions_user",
+            "idx_private_sessions_user1",
+            "idx_private_sessions_user2",
         ];
 
         for index in indexes {
@@ -173,15 +172,15 @@ impl DatabaseMaintenance {
 
     async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
         let thirty_days_ago = Utc::now().naive_utc() - Duration::days(30);
-        let cutoff_timestamp = thirty_days_ago.and_utc().timestamp();
+        let cutoff_timestamp: i64 = thirty_days_ago.and_utc().timestamp();
 
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             DELETE FROM private_sessions 
-            WHERE updated_ts < $1
+            WHERE last_activity_ts < $1
             "#,
-            cutoff_timestamp
         )
+        .bind(cutoff_timestamp)
         .execute(&self.pool)
         .await?;
 

@@ -90,7 +90,7 @@ impl AuthService {
             .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
 
         let access_token = self
-            .generate_access_token(&user_id, &device_id, user.admin.unwrap_or(false))
+            .generate_access_token(&user_id, &device_id, user.is_admin.unwrap_or(false))
             .await?;
         let refresh_token = self.generate_refresh_token(&user_id, &device_id).await?;
 
@@ -142,7 +142,7 @@ impl AuthService {
         }
 
         let access_token = self
-            .generate_access_token(&user.user_id, &device_id, user.admin.unwrap_or(false))
+            .generate_access_token(&user.user_id, &device_id, user.is_admin.unwrap_or(false))
             .await?;
         let refresh_token = self
             .generate_refresh_token(&user.user_id, &device_id)
@@ -192,7 +192,7 @@ impl AuthService {
 
         match token_data {
             Some(t) => {
-                if t.expires_ts.is_some_and(|ts| ts < Utc::now().timestamp()) {
+                if t.expires_ts > 0 && t.expires_ts < Utc::now().timestamp() {
                     return Err(ApiError::unauthorized("Refresh token expired".to_string()));
                 }
 
@@ -204,12 +204,16 @@ impl AuthService {
 
                 match user {
                     Some(u) => {
-                        let device_id = t.device_id.unwrap_or_default();
                         let new_access_token = self
-                            .generate_access_token(&u.user_id, &device_id, u.admin.unwrap_or(false))
+                            .generate_access_token(
+                                &u.user_id,
+                                &t.device_id,
+                                u.is_admin.unwrap_or(false),
+                            )
                             .await?;
-                        let new_refresh_token =
-                            self.generate_refresh_token(&u.user_id, &device_id).await?;
+                        let new_refresh_token = self
+                            .generate_refresh_token(&u.user_id, &t.device_id)
+                            .await?;
 
                         self.refresh_token_storage
                             .delete_refresh_token(refresh_token)
@@ -221,7 +225,7 @@ impl AuthService {
                                 ))
                             })?;
 
-                        Ok((new_access_token, new_refresh_token, device_id))
+                        Ok((new_access_token, new_refresh_token, t.device_id))
                     }
                     _ => Err(ApiError::unauthorized("User not found".to_string())),
                 }

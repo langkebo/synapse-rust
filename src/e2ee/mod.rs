@@ -5,6 +5,7 @@ pub mod crypto;
 pub mod device_keys;
 pub mod megolm;
 pub mod signature;
+pub mod to_device;
 
 pub use backup::models::*;
 pub use backup::service::KeyBackupService;

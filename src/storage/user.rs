@@ -1,4 +1,4 @@
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -8,7 +8,7 @@ pub struct User {
     pub password_hash: Option<String>,
     pub displayname: Option<String>,
     pub avatar_url: Option<String>,
-    pub admin: Option<bool>,
+    pub is_admin: Option<bool>,
     pub deactivated: Option<bool>,
     pub is_guest: Option<bool>,
     pub consent_version: Option<String>,
@@ -19,6 +19,7 @@ pub struct User {
     pub invalid_update_ts: Option<i64>,
     pub migration_state: Option<String>,
     pub creation_ts: i64,
+    pub updated_ts: Option<i64>,
 }
 
 impl User {
@@ -46,44 +47,51 @@ impl UserStorage {
     ) -> Result<User, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
         let generation = now * 1000;
-        sqlx::query_as!(
-            User,
+        sqlx::query_as::<_, User>(
             r#"
-            INSERT INTO users (user_id, username, password_hash, admin, creation_ts, generation)
+            INSERT INTO users (user_id, username, password_hash, is_admin, creation_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING *
+            RETURNING user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated,
+                      is_guest, consent_version, appservice_id, user_type, shadow_banned, generation,
+                      invalid_update_ts, migration_state, creation_ts, updated_ts
             "#,
-            user_id,
-            username,
-            password_hash,
-            is_admin,
-            now,
-            generation
         )
+        .bind(user_id)
+        .bind(username)
+        .bind(password_hash)
+        .bind(is_admin)
+        .bind(now)
+        .bind(generation)
         .fetch_one(&*self.pool)
         .await
     }
 
     pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
-        sqlx::query_as!(
-            User,
+        sqlx::query_as::<_, User>(
             r#"
-            SELECT * FROM users WHERE user_id = $1
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated,
+                   is_guest, consent_version, appservice_id, user_type, shadow_banned, generation,
+                   invalid_update_ts, migration_state, creation_ts, updated_ts
+            FROM users
+            WHERE user_id = $1
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await
     }
 
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error> {
-        sqlx::query_as!(
-            User,
+        sqlx::query_as::<_, User>(
             r#"
-            SELECT * FROM users WHERE username = $1
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated,
+                   is_guest, consent_version, appservice_id, user_type, shadow_banned, generation,
+                   invalid_update_ts, migration_state, creation_ts, updated_ts
+            FROM users
+            WHERE username = $1
             "#,
-            username
         )
+        .bind(username)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -100,24 +108,60 @@ impl UserStorage {
     }
 
     pub async fn get_all_users(&self, limit: i64) -> Result<Vec<User>, sqlx::Error> {
-        sqlx::query_as!(
-            User,
+        sqlx::query_as::<_, User>(
             r#"
-            SELECT * FROM users ORDER BY creation_ts DESC LIMIT $1
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated,
+                   is_guest, consent_version, appservice_id, user_type, shadow_banned, generation,
+                   invalid_update_ts, migration_state, creation_ts, updated_ts
+            FROM users
+            ORDER BY creation_ts DESC
+            LIMIT $1
             "#,
-            limit
         )
+        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
 
-    pub async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(
+    pub async fn get_users_paginated(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>(
             r#"
-            SELECT 1 AS "exists" FROM users WHERE user_id = $1 LIMIT 1
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated,
+                   is_guest, consent_version, appservice_id, user_type, shadow_banned, generation,
+                   invalid_update_ts, migration_state, creation_ts, updated_ts
+            FROM users
+            ORDER BY creation_ts DESC
+            LIMIT $1 OFFSET $2
             "#,
-            user_id
         )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT COALESCE(COUNT(*), 0) as count FROM users
+            "#,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+        row.try_get::<i64, _>("count")
+    }
+
+    pub async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            SELECT 1 FROM users WHERE user_id = $1 LIMIT 1
+            "#,
+        )
+        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.is_some())
@@ -128,15 +172,11 @@ impl UserStorage {
         user_id: &str,
         password_hash: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r#"
-            UPDATE users SET password_hash = $1 WHERE user_id = $2
-            "#,
-            password_hash,
-            user_id
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query(r#"UPDATE users SET password_hash = $1 WHERE user_id = $2"#)
+            .bind(password_hash)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
         Ok(())
     }
 
@@ -145,15 +185,11 @@ impl UserStorage {
         user_id: &str,
         displayname: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r#"
-            UPDATE users SET displayname = $1 WHERE user_id = $2
-            "#,
-            displayname,
-            user_id
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query(r#"UPDATE users SET displayname = $1 WHERE user_id = $2"#)
+            .bind(displayname)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
         Ok(())
     }
 
@@ -162,52 +198,29 @@ impl UserStorage {
         user_id: &str,
         avatar_url: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r#"
-            UPDATE users SET avatar_url = $1 WHERE user_id = $2
-            "#,
-            avatar_url,
-            user_id
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query(r#"UPDATE users SET avatar_url = $1 WHERE user_id = $2"#)
+            .bind(avatar_url)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
         Ok(())
     }
 
     pub async fn deactivate_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r#"
-            UPDATE users SET deactivated = TRUE WHERE user_id = $1
-            "#,
-            user_id
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query(r#"UPDATE users SET deactivated = TRUE WHERE user_id = $1"#)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
         Ok(())
     }
 
     pub async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r#"
-            UPDATE users SET admin = $1 WHERE user_id = $2
-            "#,
-            is_admin,
-            user_id
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query(r#"UPDATE users SET is_admin = $1 WHERE user_id = $2"#)
+            .bind(is_admin)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
         Ok(())
-    }
-
-    pub async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query!(
-            r#"
-            SELECT COUNT(*) as count FROM users
-            "#
-        )
-        .fetch_one(&*self.pool)
-        .await?;
-        Ok(result.count.unwrap_or(0))
     }
 
     pub async fn set_account_data(
@@ -233,4 +246,69 @@ impl UserStorage {
         .await?;
         Ok(())
     }
+
+    pub async fn search_users(
+        &self,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<UserSearchResult>, sqlx::Error> {
+        let search_pattern = format!("%{}%", query);
+        let rows = sqlx::query_as::<_, UserSearchResult>(
+            r#"
+            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
+            FROM users
+            WHERE (username ILIKE $1 OR user_id ILIKE $1 OR displayname ILIKE $1)
+            AND COALESCE(deactivated, FALSE) = FALSE
+            ORDER BY
+                CASE
+                    WHEN username = $2 THEN 0
+                    WHEN username ILIKE $2 THEN 1
+                    ELSE 2
+                END,
+                creation_ts DESC
+            LIMIT $3
+            "#,
+        )
+        .bind(search_pattern)
+        .bind(query)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn get_user_profile(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<UserProfile>, sqlx::Error> {
+        let result = sqlx::query_as::<_, UserProfile>(
+            r#"
+            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
+            FROM users
+            WHERE user_id = $1 AND COALESCE(deactivated, FALSE) = FALSE
+            "#,
+        )
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result)
+    }
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UserSearchResult {
+    pub user_id: String,
+    pub username: String,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub creation_ts: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UserProfile {
+    pub user_id: String,
+    pub username: String,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub creation_ts: i64,
 }

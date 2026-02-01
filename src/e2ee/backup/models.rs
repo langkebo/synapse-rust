@@ -1,18 +1,16 @@
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct KeyBackup {
-    pub id: Uuid,
     pub user_id: String,
-    pub version: String,
+    pub backup_id: String,
+    pub version: i64,
     pub algorithm: String,
-    pub auth_data: serde_json::Value,
-    pub encrypted_data: serde_json::Value,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub auth_key: String,
+    pub mgmt_key: String,
+    pub backup_data: serde_json::Value,
+    pub etag: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,17 +41,16 @@ pub struct BackupUploadResponse {
     pub count: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct BackupKeyInfo {
-    pub id: i64,
-    pub backup_id: i64,
+    pub user_id: String,
+    pub backup_id: String,
     pub room_id: String,
     pub session_id: String,
     pub first_message_index: i64,
     pub forwarded_count: i64,
     pub is_verified: bool,
-    pub session_data: String,
-    pub created_at: DateTime<Utc>,
+    pub backup_data: serde_json::Value,
 }
 
 #[derive(Debug, Clone)]
@@ -72,22 +69,20 @@ mod tests {
     #[test]
     fn test_key_backup_creation() {
         let backup = KeyBackup {
-            id: uuid::Uuid::new_v4(),
             user_id: "@test:example.com".to_string(),
-            version: "1".to_string(),
+            backup_id: "1".to_string(),
+            version: 1,
             algorithm: "m.megolm_backup.v1".to_string(),
-            auth_data: serde_json::json!({
+            auth_key: "".to_string(),
+            mgmt_key: "".to_string(),
+            backup_data: serde_json::json!({
                 "signatures": {}
             }),
-            encrypted_data: serde_json::json!({
-                "rooms": {}
-            }),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            etag: None,
         };
 
         assert_eq!(backup.user_id, "@test:example.com");
-        assert_eq!(backup.version, "1");
+        assert_eq!(backup.version, 1);
         assert_eq!(backup.algorithm, "m.megolm_backup.v1");
     }
 
@@ -145,27 +140,24 @@ mod tests {
     #[test]
     fn test_key_backup_with_rooms() {
         let backup = KeyBackup {
-            id: uuid::Uuid::new_v4(),
             user_id: "@test:example.com".to_string(),
-            version: "1".to_string(),
+            backup_id: "1".to_string(),
+            version: 1,
             algorithm: "m.megolm_backup.v1".to_string(),
-            auth_data: serde_json::json!({
-                "signatures": {},
-                "rotation_distance_ms": 1000
-            }),
-            encrypted_data: serde_json::json!({
+            auth_key: "".to_string(),
+            mgmt_key: "".to_string(),
+            backup_data: serde_json::json!({
                 "rooms": {
                     "!room:example.com": {
                         "sessions": {}
                     }
                 }
             }),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            etag: None,
         };
 
-        assert!(backup.encrypted_data.is_object());
-        assert!(backup.encrypted_data["rooms"].is_object());
+        assert!(backup.backup_data.is_object());
+        assert!(backup.backup_data["rooms"].is_object());
     }
 
     #[test]
@@ -205,14 +197,14 @@ mod tests {
 
         for algo in algorithms {
             let backup = KeyBackup {
-                id: uuid::Uuid::new_v4(),
                 user_id: "@test:example.com".to_string(),
-                version: "1".to_string(),
+                backup_id: "1".to_string(),
+                version: 1,
                 algorithm: algo.to_string(),
-                auth_data: serde_json::json!({}),
-                encrypted_data: serde_json::json!({}),
-                created_at: chrono::Utc::now(),
-                updated_at: chrono::Utc::now(),
+                auth_key: "".to_string(),
+                mgmt_key: "".to_string(),
+                backup_data: serde_json::json!({}),
+                etag: None,
             };
 
             assert_eq!(backup.algorithm, algo);

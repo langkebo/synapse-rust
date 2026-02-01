@@ -112,7 +112,10 @@ impl CrossSigningService {
         _key_id: &str,
         signature: &serde_json::Value,
     ) -> Result<(), ApiError> {
-        let key = self.storage.get_cross_signing_key(user_id, "master").await?;
+        let key = self
+            .storage
+            .get_cross_signing_key(user_id, "master")
+            .await?;
         if let Some(mut k) = key {
             let mut signatures = k.signatures.as_object().unwrap().clone();
             signatures.insert(user_id.to_string(), signature.clone());

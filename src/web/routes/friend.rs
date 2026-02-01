@@ -1,21 +1,23 @@
 use super::AppState;
+use crate::common::ApiError;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-pub fn create_friend_router(state: AppState) -> Router {
+pub fn create_friend_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_synapse/enhanced/friends/{user_id}", get(get_friends))
+        .route("/_synapse/enhanced/friends/search", get(search_users))
+        .route("/_synapse/enhanced/friends", get(get_friends))
         .route(
-            "/_synapse/enhanced/friend/request/{user_id}",
+            "/_synapse/enhanced/friend/request",
             post(send_friend_request),
         )
         .route(
-            "/_synapse/enhanced/friend/requests/{user_id}",
+            "/_synapse/enhanced/friend/requests",
             get(get_friend_requests),
         )
         .route(
@@ -35,7 +37,7 @@ pub fn create_friend_router(state: AppState) -> Router {
             post(block_user),
         )
         .route(
-            "/_synapse/enhanced/friend/blocks/{user_id}",
+            "/_synapse/enhanced/friend/blocks/{user_id}/{blocked_user_id}",
             delete(unblock_user),
         )
         .route(
@@ -58,7 +60,6 @@ pub fn create_friend_router(state: AppState) -> Router {
             "/_synapse/enhanced/friend/recommendations/{user_id}",
             get(get_friend_recommendations),
         )
-        .with_state(state)
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,13 +89,13 @@ pub struct UpdateCategoryBody {
 #[axum::debug_handler]
 async fn get_friends(
     State(state): State<AppState>,
-    Path(user_id): Path<String>,
-) -> Result<Json<Value>, String> {
+    auth_user: crate::AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     let friends = friend_storage
-        .get_friends(&user_id)
+        .get_friends(&auth_user.user_id)
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let mut friend_list = Vec::new();
     for friend_id in friends {
@@ -113,36 +114,40 @@ async fn get_friends(
 #[axum::debug_handler]
 async fn send_friend_request(
     State(state): State<AppState>,
-    Path(sender_id): Path<String>,
+    auth_user: crate::AuthenticatedUser,
     Json(body): Json<SendFriendRequestBody>,
-) -> Result<Json<Value>, String> {
+) -> Result<Json<Value>, ApiError> {
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     let receiver_id = &body.user_id;
 
-    if sender_id == *receiver_id {
-        return Err("Cannot send request to yourself".to_string());
+    if auth_user.user_id == *receiver_id {
+        return Err(ApiError::bad_request(
+            "Cannot send request to yourself".to_string(),
+        ));
     }
 
     if friend_storage
-        .is_friend(&sender_id, receiver_id)
+        .is_friend(&auth_user.user_id, receiver_id)
         .await
-        .map_err(|e| format!("Database error: {}", e))?
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
     {
-        return Err("Already friends".to_string());
+        return Err(ApiError::conflict("Already friends".to_string()));
     }
 
     if friend_storage
-        .is_blocked(&sender_id, receiver_id)
+        .is_blocked(&auth_user.user_id, receiver_id)
         .await
-        .map_err(|e| format!("Database error: {}", e))?
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
     {
-        return Err("Cannot send request to this user".to_string());
+        return Err(ApiError::forbidden(
+            "Cannot send request to this user".to_string(),
+        ));
     }
 
     let request_id = friend_storage
-        .create_request(&sender_id, receiver_id, body.message.as_deref())
+        .create_request(&auth_user.user_id, receiver_id, body.message.as_deref())
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({
         "request_id": request_id,
@@ -153,13 +158,13 @@ async fn send_friend_request(
 #[axum::debug_handler]
 async fn get_friend_requests(
     State(state): State<AppState>,
-    Path(user_id): Path<String>,
-) -> Result<Json<Value>, String> {
+    auth_user: crate::AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     let requests = friend_storage
-        .get_requests(&user_id, "pending")
+        .get_requests(&auth_user.user_id, "pending")
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let mut request_list = Vec::new();
     for req in requests {
@@ -182,12 +187,13 @@ async fn get_friend_requests(
 async fn accept_friend_request(
     State(state): State<AppState>,
     Path(request_id): Path<i64>,
-) -> Result<Json<Value>, String> {
+    auth_user: crate::AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     friend_storage
-        .accept_request(request_id, "")
+        .accept_request(request_id, &auth_user.user_id)
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     Ok(Json(json!({ "status": "accepted" })))
 }
 
@@ -195,12 +201,13 @@ async fn accept_friend_request(
 async fn decline_friend_request(
     State(state): State<AppState>,
     Path(request_id): Path<i64>,
-) -> Result<Json<Value>, String> {
+    auth_user: crate::AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     friend_storage
-        .decline_request(request_id, "")
+        .decline_request(request_id, &auth_user.user_id)
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     Ok(Json(json!({ "status": "declined" })))
 }
 
@@ -208,25 +215,41 @@ async fn decline_friend_request(
 async fn get_blocked_users(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-) -> Result<Json<Value>, String> {
+    auth_user: crate::AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    if auth_user.user_id != user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Cannot view blocked users for another user".to_string(),
+        ));
+    }
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     let blocked = friend_storage
         .get_blocked_users(&user_id)
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     Ok(Json(json!({ "blocked_users": blocked })))
 }
 
 #[axum::debug_handler]
 async fn block_user(
     State(state): State<AppState>,
+    Path(user_id): Path<String>,
+    auth_user: crate::AuthenticatedUser,
     Json(body): Json<BlockUserBody>,
-) -> Result<Json<Value>, String> {
+) -> Result<Json<Value>, ApiError> {
+    if auth_user.user_id != user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Cannot modify blocked users for another user".to_string(),
+        ));
+    }
+    if user_id == body.user_id {
+        return Err(ApiError::bad_request("Cannot block yourself".to_string()));
+    }
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     friend_storage
-        .block_user(&body.user_id, &body.user_id, body.reason.as_deref())
+        .block_user(&user_id, &body.user_id, body.reason.as_deref())
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     Ok(Json(json!({ "status": "blocked" })))
 }
 
@@ -234,12 +257,18 @@ async fn block_user(
 async fn unblock_user(
     State(state): State<AppState>,
     Path((user_id, blocked_user_id)): Path<(String, String)>,
-) -> Result<Json<Value>, String> {
+    auth_user: crate::AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    if auth_user.user_id != user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Cannot modify blocked users for another user".to_string(),
+        ));
+    }
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     friend_storage
         .unblock_user(&user_id, &blocked_user_id)
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     Ok(Json(json!({ "status": "unblocked" })))
 }
 
@@ -247,12 +276,18 @@ async fn unblock_user(
 async fn get_friend_categories(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-) -> Result<Json<Value>, String> {
+    auth_user: crate::AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    if auth_user.user_id != user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Cannot view categories for another user".to_string(),
+        ));
+    }
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     let categories = friend_storage
         .get_categories(&user_id)
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     Ok(Json(json!({ "categories": categories })))
 }
 
@@ -260,14 +295,20 @@ async fn get_friend_categories(
 async fn create_friend_category(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
+    auth_user: crate::AuthenticatedUser,
     Json(body): Json<CreateCategoryBody>,
-) -> Result<Json<Value>, String> {
+) -> Result<Json<Value>, ApiError> {
+    if auth_user.user_id != user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Cannot create categories for another user".to_string(),
+        ));
+    }
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     let color = body.color.unwrap_or_else(|| "#000000".to_string());
     let category_id = friend_storage
         .create_category(&user_id, &body.name, &color)
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     Ok(Json(json!({ "category_id": category_id })))
 }
 
@@ -275,8 +316,14 @@ async fn create_friend_category(
 async fn update_friend_category(
     State(state): State<AppState>,
     Path((user_id, category_name)): Path<(String, String)>,
+    auth_user: crate::AuthenticatedUser,
     Json(body): Json<UpdateCategoryBody>,
-) -> Result<Json<Value>, String> {
+) -> Result<Json<Value>, ApiError> {
+    if auth_user.user_id != user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Cannot update categories for another user".to_string(),
+        ));
+    }
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     friend_storage
         .update_category_by_name(
@@ -286,7 +333,7 @@ async fn update_friend_category(
             body.color.as_deref(),
         )
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     Ok(Json(
         json!({ "status": "updated", "category_name": category_name }),
     ))
@@ -296,12 +343,18 @@ async fn update_friend_category(
 async fn delete_friend_category(
     State(state): State<AppState>,
     Path((user_id, category_name)): Path<(String, String)>,
-) -> Result<Json<Value>, String> {
+    auth_user: crate::AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    if auth_user.user_id != user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Cannot delete categories for another user".to_string(),
+        ));
+    }
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     friend_storage
         .delete_category_by_name(&user_id, &category_name)
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     Ok(Json(
         json!({ "status": "deleted", "category_name": category_name }),
     ))
@@ -311,12 +364,18 @@ async fn delete_friend_category(
 async fn get_friend_recommendations(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-) -> Result<Json<Value>, String> {
+    auth_user: crate::AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    if auth_user.user_id != user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Cannot view recommendations for another user".to_string(),
+        ));
+    }
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     let _friends = friend_storage
         .get_friends(&user_id)
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let recommendations = vec![
         json!({
@@ -334,5 +393,60 @@ async fn get_friend_recommendations(
     Ok(Json(json!({
         "recommendations": recommendations,
         "count": recommendations.len()
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchQuery {
+    pub query: String,
+    pub limit: Option<i64>,
+}
+
+#[axum::debug_handler]
+async fn search_users(
+    State(state): State<AppState>,
+    Query(params): Query<SearchQuery>,
+    auth_user: crate::AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let limit = params.limit.unwrap_or(20).min(100);
+    let users = state
+        .services
+        .user_storage
+        .search_users(&params.query, limit)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let mut results = Vec::new();
+    let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
+
+    for user in users {
+        if user.user_id == auth_user.user_id {
+            continue;
+        }
+
+        let is_friend = friend_storage
+            .is_friend(&auth_user.user_id, &user.user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        let is_blocked = friend_storage
+            .is_blocked(&auth_user.user_id, &user.user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        let profile = json!({
+            "user_id": user.user_id,
+            "username": user.username,
+            "display_name": user.displayname.unwrap_or_else(|| user.username.clone()),
+            "avatar_url": user.avatar_url,
+            "is_friend": is_friend,
+            "is_blocked": is_blocked
+        });
+        results.push(profile);
+    }
+
+    Ok(Json(json!({
+        "results": results,
+        "count": results.len()
     })))
 }

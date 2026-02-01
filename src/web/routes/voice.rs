@@ -1,13 +1,14 @@
 use super::{AppState, AuthenticatedUser};
-use crate::services::VoiceService;
+use crate::services::{VoiceMessageUploadParams, VoiceService};
 use axum::{
     extract::{Path, State},
     routing::{delete, get, post},
     Json, Router,
 };
+use base64::Engine;
 use serde_json::Value;
 
-pub fn create_voice_router(state: AppState, _voice_path: std::path::PathBuf) -> Router {
+pub fn create_voice_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route(
             "/_matrix/client/r0/voice/upload",
@@ -33,7 +34,6 @@ pub fn create_voice_router(state: AppState, _voice_path: std::path::PathBuf) -> 
             "/_matrix/client/r0/voice/user/{user_id}/stats",
             get(get_user_voice_stats),
         )
-        .with_state(state)
 }
 
 #[axum::debug_handler]
@@ -43,10 +43,11 @@ async fn upload_voice_message(
     Json(body): Json<Value>,
 ) -> Json<Value> {
     let pool = state.services.user_storage.pool.clone();
-    let voice_service = VoiceService::new("/tmp/synapse_voice");
+    let voice_service = VoiceService::new(&pool, "/tmp/synapse_voice");
 
     let content_base64 = body.get("content").and_then(|v| v.as_str()).unwrap_or("");
-    let content = match base64::decode(content_base64) {
+    let engine = base64::engine::general_purpose::STANDARD;
+    let content = match engine.decode(content_base64) {
         Ok(data) => data,
         Err(_) => {
             return Json(serde_json::json!({
@@ -67,15 +68,14 @@ async fn upload_voice_message(
     let session_id = body.get("session_id").and_then(|v| v.as_str());
 
     match voice_service
-        .save_voice_message(
-            &pool,
-            &auth_user.user_id,
-            room_id,
-            session_id,
-            &content,
-            content_type,
+        .save_voice_message(VoiceMessageUploadParams {
+            user_id: auth_user.user_id,
+            room_id: room_id.map(|s| s.to_string()),
+            session_id: session_id.map(|s| s.to_string()),
+            content,
+            content_type: content_type.to_string(),
             duration_ms,
-        )
+        })
         .await
     {
         Ok(result) => Json(result),
@@ -90,12 +90,12 @@ async fn get_voice_message(
     State(state): State<AppState>,
     Path(message_id): Path<String>,
 ) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let voice_service = VoiceService::new("/tmp/synapse_voice");
+    let voice_service = VoiceService::new(&state.services.user_storage.pool, "/tmp/synapse_voice");
 
-    match voice_service.get_voice_message(&pool, &message_id).await {
+    match voice_service.get_voice_message(&message_id).await {
         Ok(Some((content, content_type))) => {
-            let content_base64 = base64::encode(&content);
+            let engine = base64::engine::general_purpose::STANDARD;
+            let content_base64 = engine.encode(&content);
             Json(serde_json::json!({
                 "message_id": message_id,
                 "content": content_base64,
@@ -118,11 +118,10 @@ async fn delete_voice_message(
     auth_user: AuthenticatedUser,
     Path(message_id): Path<String>,
 ) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let voice_service = VoiceService::new("/tmp/synapse_voice");
+    let voice_service = VoiceService::new(&state.services.user_storage.pool, "/tmp/synapse_voice");
 
     match voice_service
-        .delete_voice_message(&pool, &auth_user.user_id, &message_id)
+        .delete_voice_message(&auth_user.user_id, &message_id)
         .await
     {
         Ok(deleted) => Json(serde_json::json!({
@@ -140,13 +139,9 @@ async fn get_user_voice_messages(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let voice_service = VoiceService::new("/tmp/synapse_voice");
+    let voice_service = VoiceService::new(&state.services.user_storage.pool, "/tmp/synapse_voice");
 
-    match voice_service
-        .get_user_messages(&pool, &user_id, 50, 0)
-        .await
-    {
+    match voice_service.get_user_messages(&user_id, 50, 0).await {
         Ok(result) => Json(result),
         Err(e) => Json(serde_json::json!({
             "error": e.to_string(),
@@ -160,10 +155,9 @@ async fn get_room_voice_messages(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let voice_service = VoiceService::new("/tmp/synapse_voice");
+    let voice_service = VoiceService::new(&state.services.user_storage.pool, "/tmp/synapse_voice");
 
-    match voice_service.get_room_messages(&pool, &room_id, 50).await {
+    match voice_service.get_room_messages(&room_id, 50).await {
         Ok(result) => Json(result),
         Err(e) => Json(serde_json::json!({
             "error": e.to_string(),
@@ -177,13 +171,9 @@ async fn get_user_voice_stats(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Json<Value> {
-    let pool = state.services.user_storage.pool.clone();
-    let voice_service = VoiceService::new("/tmp/synapse_voice");
+    let voice_service = VoiceService::new(&state.services.user_storage.pool, "/tmp/synapse_voice");
 
-    match voice_service
-        .get_user_stats(&pool, &user_id, None, None)
-        .await
-    {
+    match voice_service.get_user_stats(&user_id, None, None).await {
         Ok(result) => Json(result),
         Err(e) => Json(serde_json::json!({
             "error": e.to_string()

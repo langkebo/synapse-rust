@@ -91,7 +91,7 @@ pub fn generate_device_id() -> String {
 pub fn generate_salt() -> String {
     let mut bytes = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut bytes);
-    STANDARD.encode(&bytes)
+    STANDARD.encode(bytes)
 }
 
 pub fn compute_hash(data: impl AsRef<[u8]>) -> String {
@@ -146,7 +146,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore]
+
     fn test_hash_password_and_verify() {
         let password = "test_password_123";
         let hash = hash_password(password).unwrap();
@@ -156,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_hash_password_with_salt() {
         let password = "test_password";
         let salt = "testsalt12345678";
@@ -165,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_verify_password_invalid_format() {
         let result = verify_password("password", "invalid");
         assert!(result.is_err());
@@ -173,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_verify_password_legacy_valid() {
         let password = "test_password";
         let salt = "testsalt12345678";
@@ -183,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_verify_password_legacy_invalid() {
         assert!(!verify_password_legacy("password", "invalid"));
         assert!(!verify_password_legacy(
@@ -193,17 +193,17 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_generate_token() {
         let token1 = generate_token(32);
         let token2 = generate_token(32);
-        assert_eq!(token1.len(), 32);
-        assert_eq!(token2.len(), 32);
+        assert_eq!(token1.len(), 44);
+        assert_eq!(token2.len(), 44);
         assert_ne!(token1, token2);
     }
 
     #[test]
-    #[ignore]
+
     fn test_generate_room_id() {
         let room_id = generate_room_id("example.com");
         assert!(room_id.starts_with('!'));
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_generate_event_id() {
         let event_id = generate_event_id("example.com");
         assert!(event_id.starts_with('$'));
@@ -219,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_generate_device_id() {
         let device_id = generate_device_id();
         assert!(device_id.starts_with("DEVICE"));
@@ -227,26 +227,26 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_generate_salt() {
         let salt1 = generate_salt();
         let salt2 = generate_salt();
-        assert_eq!(salt1.len(), 16);
-        assert_eq!(salt2.len(), 16);
+        assert_eq!(salt1.len(), 24);
+        assert_eq!(salt2.len(), 24);
         assert_ne!(salt1, salt2);
     }
 
     #[test]
-    #[ignore]
+
     fn test_compute_hash() {
         let data = b"test data";
         let hash = compute_hash(data);
-        assert_eq!(hash.len(), 64);
+        assert_eq!(hash.len(), 44);
         assert_ne!(hash, compute_hash(b"different data"));
     }
 
     #[test]
-    #[ignore]
+
     fn test_hmac_sha256() {
         let key = b"test_key";
         let data = b"test_data";
@@ -258,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_random_string() {
         let s1 = random_string(10);
         let s2 = random_string(10);
@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_encode_decode_base64() {
         let original = b"hello world test data";
         let encoded = encode_base64(original);
@@ -278,14 +278,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+
     fn test_decode_base64_invalid() {
         let result = decode_base64("!!!invalid base64!!!");
         assert!(result.is_err());
     }
 
     #[test]
-    #[ignore]
+
     fn test_generate_signing_key() {
         let (key_id, key) = generate_signing_key();
         assert!(key_id.starts_with("ed25519:"));

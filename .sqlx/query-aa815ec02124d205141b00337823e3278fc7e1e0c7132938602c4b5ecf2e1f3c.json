@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE TABLE IF NOT EXISTS ip_reputation (\n                id BIGSERIAL PRIMARY KEY,\n                ip_address INET NOT NULL,\n                score INTEGER DEFAULT 50,\n                reputation_score INTEGER DEFAULT 50,\n                threat_level VARCHAR(50) DEFAULT 'none',\n                last_seen_at BIGINT,\n                updated_at BIGINT,\n                details TEXT,\n                last_updated_ts BIGINT NOT NULL,\n                created_ts BIGINT NOT NULL,\n                UNIQUE (ip_address)\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "aa815ec02124d205141b00337823e3278fc7e1e0c7132938602c4b5ecf2e1f3c"
+}

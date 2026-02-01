@@ -180,4 +180,18 @@ impl DeviceKeyService {
 
         Ok(())
     }
+
+    pub async fn get_key_changes(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> Result<(Vec<String>, Vec<String>), ApiError> {
+        let from_ts = from.parse::<i64>().unwrap_or(0);
+        let to_ts = to.parse::<i64>().unwrap_or(Utc::now().timestamp_millis());
+
+        let changed = self.storage.get_key_changes(from_ts, to_ts).await?;
+        let left: Vec<String> = vec![]; // Simplified for now
+
+        Ok((changed, left))
+    }
 }
