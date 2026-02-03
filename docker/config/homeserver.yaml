@@ -78,17 +78,16 @@ logging:
 
 federation:
   enabled: true
-  allow_ingress: false
+  allow_ingress: true
   server_name: "matrix.cjystx.top"
   federation_port: 8448
   connection_pool_size: 10
   max_transaction_payload: 10485760
   send_queue_limit: 50 # 限制发送队列，防止单个节点慢导致内存积压
   resolve_timeout: 15s # DNS 解析与连接超时，快速失败避免阻塞
+  signing_key: "gtjAoCT5GSIk9DhLAq46MEIy7RdmZirxZpj0iDknE7I="
   ca_file: null
   client_ca_file: null
-  signing_key: "7206758265647f2fff7edb25bd4a3c323b05c888a6eff76bc8d3c30793ad293b" # dummy key for now
-  key_id: "ed25519:a_abc123"
 
 media:
   max_image_pixels: 33554432 # 32MP, 限制图片分辨率防止内存溢出
@@ -118,3 +117,8 @@ security:
   expiry_time: 3600
   refresh_token_expiry: 604800
   bcrypt_rounds: 12
+
+admin_registration:
+  enabled: true
+  shared_secret: "test_shared_secret"
+  nonce_timeout_seconds: 60

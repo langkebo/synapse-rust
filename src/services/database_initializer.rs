@@ -185,17 +185,17 @@ impl DatabaseInitService {
     }
 
     async fn check_cache_valid(&self) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(
+        let result = sqlx::query_as::<_, (i64,)>(
             r#"
-            SELECT value::BIGINT as last_init_ts
+            SELECT value::BIGINT
             FROM db_metadata WHERE key = 'last_init_ts'
-            "#
+            "#,
         )
         .fetch_optional(&*self.pool)
         .await?;
 
         if let Some(row) = result {
-            let last_init_ts: i64 = row.last_init_ts.unwrap_or(0);
+            let last_init_ts: i64 = row.0;
             let now = chrono::Utc::now().timestamp();
             let elapsed = now - last_init_ts;
 
@@ -210,7 +210,7 @@ impl DatabaseInitService {
     async fn update_init_timestamp(&self) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO db_metadata (key, value, created_ts, updated_ts)
             VALUES ('last_init_ts', $1, $2, $2)
@@ -218,9 +218,9 @@ impl DatabaseInitService {
                 value = EXCLUDED.value,
                 updated_ts = EXCLUDED.updated_ts
             "#,
-            now.to_string(),
-            now
         )
+        .bind(now.to_string())
+        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -228,7 +228,7 @@ impl DatabaseInitService {
     }
 
     async fn step_connection_test(&self) -> Result<String, sqlx::Error> {
-        sqlx::query!("SELECT 1 as test")
+        sqlx::query("SELECT 1 as test")
             .fetch_one(&*self.pool)
             .await?;
         Ok("数据库连接测试通过".to_string())

@@ -1,5 +1,15 @@
 {
-    "rust-analyzer.checkOnSave.command": "clippy",
+    "rust-analyzer.checkOnSave.enable": true,
+    "rust-analyzer.checkOnSave.commands": {
+        "clippy": [
+            "cargo",
+            "clippy",
+            "--all-features",
+            "--",
+            "-D",
+            "warnings"
+        ]
+    },
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",
         "check",

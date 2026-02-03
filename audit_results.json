@@ -1,0 +1,173 @@
+[
+    {
+        "name": "Server Info",
+        "path": "/",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "3.07ms",
+        "code": 200,
+        "response": "{\"msg\":\"Synapse Rust Matrix Server\",\"version\":\"0.1.0\"}"
+    },
+    {
+        "name": "Health",
+        "path": "/health",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "5.57ms",
+        "code": 200,
+        "response": "{\"checks\":{\"cache\":{\"duration_ms\":1,\"message\":\"Cache connection successful\",\"status\":\"healthy\"},\"database\":{\"duration_ms\":0,\"message\":\"Database connection successful\",\"status\":\"healthy\"}},\"status\":\"he"
+    },
+    {
+        "name": "Versions",
+        "path": "/_matrix/client/versions",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "2.97ms",
+        "code": 200,
+        "response": "{\"unstable_features\":{\"m.lazy_load_members\":true,\"m.require_identity_server\":false,\"m.supports_login_via_phone_number\":true},\"versions\":[\"r0.0.1\",\"r0.1.0\",\"r0.2.0\",\"r0.3.0\",\"r0.4.0\",\"r0.5.0\",\"r0.6.0\"]"
+    },
+    {
+        "name": "WhoAmI (Admin)",
+        "path": "/_matrix/client/r0/account/whoami",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "5.87ms",
+        "code": 200,
+        "response": "{\"admin\":true,\"avatar_url\":null,\"displayname\":\"admin_test\",\"user_id\":\"@admin_test:matrix.cjystx.top\"}"
+    },
+    {
+        "name": "WhoAmI (Normal)",
+        "path": "/_matrix/client/r0/account/whoami",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "4.74ms",
+        "code": 200,
+        "response": "{\"admin\":false,\"avatar_url\":null,\"displayname\":\"normal_test\",\"user_id\":\"@normal_test:matrix.cjystx.top\"}"
+    },
+    {
+        "name": "Sync (Normal)",
+        "path": "/_matrix/client/r0/sync",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "10.78ms",
+        "code": 200,
+        "response": "{\"account_data\":{\"events\":[]},\"next_batch\":\"s1770000359278\",\"presence\":{\"events\":[]},\"rooms\":{},\"to_device\":{\"events\":[]}}"
+    },
+    {
+        "name": "Admin: Server Version",
+        "path": "/_synapse/admin/v1/server_version",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "3.71ms",
+        "code": 200,
+        "response": "{\"python_version\":\"3.9.0\",\"version\":\"1.0.0\"}"
+    },
+    {
+        "name": "Admin: List Users",
+        "path": "/_synapse/admin/v1/users",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "7.01ms",
+        "code": 200,
+        "response": "{\"total\":23,\"users\":[{\"admin\":false,\"avatar_url\":null,\"creation_ts\":1769998698,\"deactivated\":false,\"displayname\":null,\"is_guest\":false,\"name\":\"muted_test\",\"user_type\":null},{\"admin\":false,\"avatar_url\""
+    },
+    {
+        "name": "Admin: List Rooms",
+        "path": "/_synapse/admin/v1/rooms",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "8.98ms",
+        "code": 200,
+        "response": "{\"rooms\":[{\"creator\":\"@admin_test:matrix.cjystx.top\",\"is_public\":true,\"joined_local_members\":1,\"joined_members\":1,\"name\":\"Public Discussion\",\"room_id\":\"!pIG7EtPC2I7MKJM+O0g02pTX:matrix.cjystx.top\",\"to"
+    },
+    {
+        "name": "Admin: IP Blocks",
+        "path": "/_synapse/admin/v1/security/ip/blocks",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "8.69ms",
+        "code": 200,
+        "response": "{\"blocked_ips\":[{\"blocked_at\":1769907627,\"expires_at\":null,\"ip_address\":\"1.2.3.4/32\",\"reason\":\"audit_test\"}],\"total\":1}"
+    },
+    {
+        "name": "Admin: List Users (Unauthorized)",
+        "path": "/_synapse/admin/v1/users",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "3.39ms",
+        "code": 403,
+        "response": "{\"errcode\":\"M_FORBIDDEN\",\"error\":\"Admin access required\"}"
+    },
+    {
+        "name": "Federation: Server Key",
+        "path": "/_matrix/federation/v2/server",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "3.72ms",
+        "code": 200,
+        "response": "{\"old_verify_keys\":{},\"server_name\":\"matrix.cjystx.top\",\"valid_until_ts\":1770003959314,\"verify_keys\":{\"ed25519:1\":{\"key\":\"Ff+nLvKjj0H2R7Y9DLNj3XNOH/kJTY4fQ31iym0iVa4\"}}}"
+    },
+    {
+        "name": "Federation: Version",
+        "path": "/_matrix/federation/v1/version",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "3.43ms",
+        "code": 200,
+        "response": "{\"server\":{\"name\":\"Synapse Rust\",\"version\":\"0.1.0\"},\"version\":\"3600\"}"
+    },
+    {
+        "name": "Friends: List",
+        "path": "/_synapse/enhanced/friends",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "4.04ms",
+        "code": 200,
+        "response": "{\"count\":0,\"friends\":[]}"
+    },
+    {
+        "name": "Friends: Search",
+        "path": "/_synapse/enhanced/friends/search",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "13.00ms",
+        "code": 200,
+        "response": "{\"count\":8,\"results\":[{\"avatar_url\":null,\"display_name\":\"admin\",\"is_blocked\":false,\"is_friend\":false,\"user_id\":\"@admin:matrix.cjystx.top\",\"username\":\"admin\"},{\"avatar_url\":null,\"display_name\":\"admin_t"
+    },
+    {
+        "name": "DM: List",
+        "path": "/_matrix/client/r0/dm",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "4.07ms",
+        "code": 200,
+        "response": "{\"count\":0,\"sessions\":[]}"
+    },
+    {
+        "name": "Voice: Stats",
+        "path": "/_matrix/client/r0/voice/stats",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "7.53ms",
+        "code": 200,
+        "response": "{\"daily_stats\":[],\"total_duration_ms\":0,\"total_file_size\":0,\"total_message_count\":0,\"user_id\":\"@normal_test:matrix.cjystx.top\"}"
+    },
+    {
+        "name": "Sync (Invalid Token)",
+        "path": "/_matrix/client/r0/sync",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "3.60ms",
+        "code": 401,
+        "response": "{\"errcode\":\"M_UNAUTHORIZED\",\"error\":\"Missing or invalid authorization header\"}"
+    },
+    {
+        "name": "WhoAmI (Invalid Token)",
+        "path": "/_matrix/client/r0/account/whoami",
+        "method": "GET",
+        "status": "\u2705 PASS",
+        "duration": "3.26ms",
+        "code": 401,
+        "response": "{\"errcode\":\"M_UNAUTHORIZED\",\"error\":\"Missing or invalid authorization header\"}"
+    }
+]

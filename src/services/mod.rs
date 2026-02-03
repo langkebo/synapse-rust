@@ -1,5 +1,6 @@
 use crate::auth::*;
 use crate::cache::*;
+use crate::common::metrics::MetricsCollector;
 use crate::common::*;
 use crate::e2ee::backup::KeyBackupService;
 use crate::e2ee::cross_signing::CrossSigningService;
@@ -10,42 +11,92 @@ use crate::storage::*;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
+/// 服务容器结构体。
+///
+/// 包含 Matrix Homeserver 运行所需的所有服务和存储句柄。
+/// 该结构体在应用程序启动时创建，作为依赖注入的中心容器。
+/// 所有服务和存储句柄都可以在线程间安全共享（实现了 Clone 和 Send）。
 #[derive(Clone)]
 pub struct ServiceContainer {
+    /// 用户存储句柄
     pub user_storage: UserStorage,
+    /// 设备存储句柄
     pub device_storage: DeviceStorage,
+    /// 访问令牌存储句柄
     pub token_storage: AccessTokenStorage,
+    /// 房间存储句柄
     pub room_storage: RoomStorage,
+    /// 房间成员存储句柄
     pub member_storage: RoomMemberStorage,
+    /// 事件存储句柄
     pub event_storage: EventStorage,
+    /// 在线状态存储句柄
     pub presence_storage: PresenceStorage,
+    /// 在线状态服务
     pub presence_service: PresenceStorage,
+    /// 认证服务
     pub auth_service: AuthService,
+    /// 设备密钥服务
     pub device_keys_service: DeviceKeyService,
+    /// Megolm 会话服务
     pub megolm_service: MegolmService,
+    /// 交叉签名服务
     pub cross_signing_service: CrossSigningService,
+    /// 密钥备份服务
     pub backup_service: KeyBackupService,
+    /// 设备间消息服务
     pub to_device_service: ToDeviceService,
+    /// 语音消息服务
     pub voice_service: VoiceService,
+    /// 私聊服务
     pub private_chat_service: Arc<PrivateChatService>,
+    /// 注册服务
     pub registration_service: Arc<RegistrationService>,
+    /// 房间服务
     pub room_service: Arc<RoomService>,
+    /// 同步服务
     pub sync_service: Arc<SyncService>,
+    /// 私聊存储
     pub private_chat_storage: PrivateChatStorage,
+    /// 搜索服务
     pub search_service: Arc<crate::services::search_service::SearchService>,
+    /// 媒体服务
     pub media_service: MediaService,
+    /// 缓存管理器
     pub cache: Arc<CacheManager>,
+    /// 指标收集器
+    pub metrics: Arc<MetricsCollector>,
+    /// 服务器名称
     pub server_name: String,
+    /// 服务器配置
     pub config: Config,
+    /// 管理员注册服务
+    pub admin_registration_service: AdminRegistrationService,
 }
 
 impl ServiceContainer {
+    /// 创建新的服务容器。
+    ///
+    /// 初始化所有服务和存储句柄，建立与数据库和缓存的连接。
+    /// 这是应用程序启动的关键步骤。
+    ///
+    /// # 参数
+    ///
+    /// * `pool` - PostgreSQL 数据库连接池
+    /// * `cache` - 缓存管理器实例
+    /// * `config` - 服务器配置
+    ///
+    /// # 返回值
+    ///
+    /// 返回完全配置的服务容器实例
     pub fn new(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>, config: Config) -> Self {
         let presence_pool = pool.clone();
+        let metrics = Arc::new(MetricsCollector::new());
         let auth_service = AuthService::new(
             pool,
             cache.clone(),
-            &config.security.secret,
+            metrics.clone(),
+            &config.security,
             &config.server.name,
         );
         let device_key_storage = crate::e2ee::device_keys::DeviceKeyStorage::new(pool);
@@ -58,7 +109,9 @@ impl ServiceContainer {
         let key_backup_storage = crate::e2ee::backup::KeyBackupStorage::new(pool);
         let backup_service = KeyBackupService::new(key_backup_storage);
         let to_device_storage = crate::e2ee::to_device::ToDeviceStorage::new(pool);
-        let to_device_service = ToDeviceService::new(to_device_storage);
+        let user_storage = UserStorage::new(pool);
+        let to_device_service =
+            ToDeviceService::new(to_device_storage).with_user_storage(user_storage.clone());
         let presence_service = PresenceStorage::new(presence_pool.clone(), cache.clone());
         let voice_service = VoiceService::new(pool, cache.clone(), "/tmp/synapse_voice");
         let search_service = Arc::new(crate::services::search_service::SearchService::new(
@@ -66,7 +119,6 @@ impl ServiceContainer {
             config.search.enabled,
         ));
 
-        let user_storage = UserStorage::new(pool);
         let member_storage = RoomMemberStorage::new(pool);
         let room_storage = RoomStorage::new(pool);
         let event_storage = EventStorage::new(pool);
@@ -81,6 +133,7 @@ impl ServiceContainer {
         let registration_service = Arc::new(RegistrationService::new(
             user_storage.clone(),
             auth_service.clone(),
+            metrics.clone(),
             config.server.name.clone(),
             config.server.enable_registration,
         ));
@@ -88,6 +141,8 @@ impl ServiceContainer {
             room_storage.clone(),
             member_storage.clone(),
             event_storage.clone(),
+            user_storage.clone(),
+            auth_service.validator.clone(),
             config.server.name.clone(),
         ));
         let sync_service = Arc::new(SyncService::new(
@@ -97,6 +152,12 @@ impl ServiceContainer {
             room_storage.clone(),
         ));
         let media_service = MediaService::new("media");
+        let admin_registration_service = AdminRegistrationService::new(
+            auth_service.clone(),
+            config.admin_registration.clone(),
+            cache.clone(),
+            metrics.clone(),
+        );
 
         Self {
             user_storage,
@@ -122,15 +183,31 @@ impl ServiceContainer {
             search_service,
             media_service,
             cache,
+            metrics,
             server_name: config.server.name.clone(),
             config,
+            admin_registration_service,
         }
     }
 
-    #[cfg(test)]
+    // #[cfg(test)] - Removed to make it available for integration tests
     pub fn new_test() -> Self {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse".to_string());
+        let host = std::env::var("DATABASE_HOST").unwrap_or_else(|_| "localhost".to_string());
+        let port: u16 = std::env::var("DATABASE_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(5432);
+        let user = std::env::var("DATABASE_USER").unwrap_or_else(|_| "synapse".to_string());
+        let pass = std::env::var("DATABASE_PASSWORD").unwrap_or_else(|_| "synapse".to_string());
+        let name = std::env::var("DATABASE_NAME").unwrap_or_else(|_| "synapse".to_string());
         let pool = Arc::new(
-            sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse")
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(50)
+                .min_connections(5)
+                .acquire_timeout(std::time::Duration::from_secs(60))
+                .connect_lazy(&db_url)
                 .unwrap(),
         );
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
@@ -154,11 +231,11 @@ impl ServiceContainer {
                 warmup_pool: true,
             },
             database: DatabaseConfig {
-                host: "localhost".to_string(),
-                port: 5432,
-                username: "synapse".to_string(),
-                password: "synapse".to_string(),
-                name: "synapse".to_string(),
+                host,
+                port,
+                username: user,
+                password: pass,
+                name,
                 pool_size: 10,
                 max_size: 20,
                 min_idle: Some(5),
@@ -169,7 +246,7 @@ impl ServiceContainer {
                 port: 6379,
                 key_prefix: "test:".to_string(),
                 pool_size: 10,
-                enabled: true,
+                enabled: false,
             },
             logging: crate::common::config::LoggingConfig {
                 level: "info".to_string(),
@@ -193,13 +270,22 @@ impl ServiceContainer {
                 secret: "test_secret".to_string(),
                 expiry_time: 3600,
                 refresh_token_expiry: 604800,
-                bcrypt_rounds: 12,
+                argon2_m_cost: 2048,
+                argon2_t_cost: 1,
+                argon2_p_cost: 1,
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
                 enabled: false,
             },
             rate_limit: RateLimitConfig::default(),
+            admin_registration: AdminRegistrationConfig {
+                enabled: true,
+                shared_secret: "test_shared_secret".to_string(),
+                nonce_timeout_seconds: 60,
+            },
+            worker: WorkerConfig::default(),
+            cors: CorsConfig::default(),
         };
         Self::new(&pool, cache, config)
     }
@@ -234,7 +320,7 @@ impl PresenceStorage {
         status_msg: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO presence (user_id, presence, status_msg, last_active_ts, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $4, $4)
@@ -244,11 +330,13 @@ impl PresenceStorage {
                 last_active_ts = EXCLUDED.last_active_ts,
                 updated_ts = EXCLUDED.updated_ts
             "#,
-            user_id,
-            presence,
-            status_msg,
-            now
-        ).execute(&*self.pool).await?;
+        )
+        .bind(user_id)
+        .bind(presence)
+        .bind(status_msg)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -256,15 +344,15 @@ impl PresenceStorage {
         &self,
         user_id: &str,
     ) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
-        let result = sqlx::query!(
+        let result = sqlx::query_as::<_, (Option<String>, Option<String>)>(
             r#"
             SELECT presence, status_msg FROM presence WHERE user_id = $1
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
-        Ok(result.map(|r| (r.presence.unwrap_or_default(), r.status_msg)))
+        Ok(result.map(|r| (r.0.unwrap_or_default(), r.1)))
     }
 
     pub async fn set_typing(
@@ -275,28 +363,28 @@ impl PresenceStorage {
     ) -> Result<(), sqlx::Error> {
         if typing {
             let now = chrono::Utc::now().timestamp_millis();
-            sqlx::query!(
+            sqlx::query(
                 r#"
                 INSERT INTO typing (room_id, user_id, typing, last_active_ts)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (room_id, user_id)
                 DO UPDATE SET typing = EXCLUDED.typing, last_active_ts = EXCLUDED.last_active_ts
                 "#,
-                room_id,
-                user_id,
-                typing,
-                now,
             )
+            .bind(room_id)
+            .bind(user_id)
+            .bind(typing)
+            .bind(now)
             .execute(&*self.pool)
             .await?;
         } else {
-            sqlx::query!(
+            sqlx::query(
                 r#"
                 DELETE FROM typing WHERE room_id = $1 AND user_id = $2
                 "#,
-                room_id,
-                user_id
             )
+            .bind(room_id)
+            .bind(user_id)
             .execute(&*self.pool)
             .await?;
         }
@@ -304,6 +392,7 @@ impl PresenceStorage {
     }
 }
 
+pub mod admin_registration_service;
 pub mod database_initializer;
 pub mod friend_service;
 pub mod media_service;
@@ -314,6 +403,7 @@ pub mod search_service;
 pub mod sync_service;
 pub mod voice_service;
 
+pub use admin_registration_service::*;
 pub use database_initializer::*;
 pub use friend_service::*;
 pub use media_service::*;

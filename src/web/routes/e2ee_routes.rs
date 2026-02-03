@@ -1,4 +1,5 @@
 use super::{AppState, AuthenticatedUser};
+use crate::ApiError;
 use axum::{
     extract::{Path, Query, State},
     routing::{get, post, put},
@@ -8,19 +9,16 @@ use serde_json::Value;
 
 pub fn create_e2ee_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/_matrix/client/r0/keys/upload/{device_id}",
-            post(upload_keys),
-        )
+        .route("/_matrix/client/r0/keys/upload", post(upload_keys))
         .route("/_matrix/client/r0/keys/query", post(query_keys))
         .route("/_matrix/client/r0/keys/claim", post(claim_keys))
-        .route("/_matrix/client/v3/keys/changes", get(key_changes))
+        .route("/_matrix/client/r0/keys/changes", get(key_changes))
         .route(
             "/_matrix/client/r0/rooms/{room_id}/keys/distribution",
             get(room_key_distribution),
         )
         .route(
-            "/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}",
+            "/_matrix/client/r0/sendToDevice/{event_type}/{transaction_id}",
             put(send_to_device),
         )
 }
@@ -28,15 +26,19 @@ pub fn create_e2ee_router(_state: AppState) -> Router<AppState> {
 #[axum::debug_handler]
 async fn upload_keys(
     State(state): State<AppState>,
-    Path(device_id): Path<String>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, crate::error::ApiError> {
+) -> Result<Json<Value>, ApiError> {
+    let device_id = auth_user
+        .device_id
+        .clone()
+        .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
+
     let request = crate::e2ee::device_keys::KeyUploadRequest {
         device_keys: if body.get("device_keys").is_some() {
             Some(crate::e2ee::device_keys::DeviceKeys {
                 user_id: auth_user.user_id.clone(),
-                device_id: device_id.clone(),
+                device_id,
                 algorithms: vec!["m.olm.v1.curve25519-aes-sha2".to_string()],
                 keys: body["device_keys"]["keys"].clone(),
                 signatures: body["device_keys"]["signatures"].clone(),
@@ -66,7 +68,7 @@ async fn query_keys(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, crate::error::ApiError> {
+) -> Result<Json<Value>, ApiError> {
     let request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body)
         .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {}", e)))?;
 

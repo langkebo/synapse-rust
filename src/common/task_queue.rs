@@ -219,6 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_tasks() {
+        tokio::time::pause();
         let manager = BackgroundTaskManager::new(3);
 
         for i in 0..5 {
@@ -233,6 +234,6 @@ mod tests {
                 .unwrap();
         }
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::advance(tokio::time::Duration::from_millis(100)).await;
     }
 }

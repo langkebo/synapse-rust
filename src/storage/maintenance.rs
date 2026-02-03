@@ -108,12 +108,12 @@ impl DatabaseMaintenance {
         for index in indexes {
             let _start = Instant::now();
 
-            match sqlx::query!(
+            match sqlx::query_scalar::<_, String>(
                 r#"
                 SELECT indexname FROM pg_indexes WHERE indexname = $1
                 "#,
-                index
             )
+            .bind(index)
             .fetch_optional(&self.pool)
             .await
             {
@@ -143,27 +143,27 @@ impl DatabaseMaintenance {
     async fn analyze_table_stats(&self) -> Result<Vec<TableStats>, sqlx::Error> {
         let mut stats = Vec::new();
 
-        let tables = sqlx::query!(
+        let tables = sqlx::query_as::<_, (String, i64, i64, i64)>(
             r#"
             SELECT 
                 relname as table_name,
-                n_live_tup as live_tuples,
-                n_dead_tup as dead_tuples,
-                n_mod_since_analyze as modifications
+                COALESCE(n_live_tup, 0) as live_tuples,
+                COALESCE(n_dead_tup, 0) as dead_tuples,
+                COALESCE(n_mod_since_analyze, 0) as modifications
             FROM pg_stat_user_tables
             ORDER BY n_mod_since_analyze DESC
             LIMIT 20
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await?;
 
         for table in tables {
             stats.push(TableStats {
-                table_name: table.table_name.unwrap_or_default(),
-                live_tuples: table.live_tuples.unwrap_or(0),
-                dead_tuples: table.dead_tuples.unwrap_or(0),
-                modifications: table.modifications.unwrap_or(0),
+                table_name: table.0,
+                live_tuples: table.1,
+                dead_tuples: table.2,
+                modifications: table.3,
             });
         }
 

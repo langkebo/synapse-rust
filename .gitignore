@@ -1,3 +1,5 @@
 target/
 Cargo.lock
 *.local
+docker/postgres_data/
+docker/imags/*.tar

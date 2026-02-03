@@ -7,6 +7,8 @@ use axum::{body::Body, middleware::Next, response::Response};
 use base64::Engine;
 use serde_json::json;
 use serde_json::Value;
+use std::fs;
+use std::path::PathBuf;
 use std::time::Instant;
 
 pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
@@ -130,8 +132,23 @@ pub async fn rate_limit_middleware(
     {
         Ok(d) => d,
         Err(e) => {
-            tracing::warn!("Rate limiter error, allowing request: {}", e);
-            return next.run(request).await;
+            if state.services.config.rate_limit.fail_open_on_error {
+                tracing::warn!("Rate limiter error, allowing request: {}", e);
+                return next.run(request).await;
+            } else {
+                let mut response = Response::new(Body::from(
+                    json!({
+                        "errcode": "M_LIMIT_EXCEEDED",
+                        "error": "Rate limiter unavailable"
+                    })
+                    .to_string(),
+                ));
+                *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+                response
+                    .headers_mut()
+                    .insert("content-type", HeaderValue::from_static("application/json"));
+                return response;
+            }
         }
     };
 
@@ -303,6 +320,35 @@ pub async fn federation_auth_middleware(
     }
 
     let request = Request::from_parts(parts, Body::from(body_bytes));
+    next.run(request).await
+}
+
+pub async fn replication_http_auth_middleware(
+    State(state): State<crate::web::routes::AppState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    if !state.services.config.worker.replication.http.enabled {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let secret = if let Some(s) = &state.services.config.worker.replication.http.secret {
+        s.clone()
+    } else if let Some(p) = &state.services.config.worker.replication.http.secret_path {
+        match fs::read_to_string(PathBuf::from(p)) {
+            Ok(s) => s.trim().to_string(),
+            Err(_) => {
+                return ApiError::unauthorized("Replication secret not available".to_string())
+                    .into_response()
+            }
+        }
+    } else {
+        return ApiError::unauthorized("Replication secret not configured".to_string())
+            .into_response();
+    };
+    let token = extract_token(request.headers()).unwrap_or_default();
+    if token != secret {
+        return ApiError::unauthorized("Invalid replication secret".to_string()).into_response();
+    }
     next.run(request).await
 }
 

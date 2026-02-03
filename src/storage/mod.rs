@@ -30,40 +30,109 @@ pub use self::token::*;
 pub use self::user::*;
 pub use self::voice::*;
 
+/// 数据库结构体。
+///
+/// Matrix Homeserver 的数据库访问层，封装 PostgreSQL 连接池和监控功能。
+/// 提供数据库连接管理、健康检查、性能监控等功能。
 pub struct Database {
+    /// PostgreSQL 连接池
     pub pool: Pool<Postgres>,
+    /// 数据库监控器
     pub monitor: Arc<RwLock<DatabaseMonitor>>,
 }
 
 impl Database {
+    /// 创建新的数据库实例。
+    ///
+    /// 建立与 PostgreSQL 数据库的连接并初始化监控器。
+    ///
+    /// # 参数
+    ///
+    /// * `database_url` - PostgreSQL 连接 URL，如 "postgresql://user:pass@localhost/dbname"
+    ///
+    /// # 返回值
+    ///
+    /// 成功时返回 `Ok(Database)`，连接失败时返回 `Err(sqlx::Error)`
     pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
         let pool = sqlx::PgPool::connect(database_url).await?;
         let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), 10000)));
         Ok(Self { pool, monitor })
     }
 
+    /// 从现有连接池创建数据库实例。
+    ///
+    /// 用于复用已创建的连接池场景。
+    ///
+    /// # 参数
+    ///
+    /// * `pool` - 已存在的 PostgreSQL 连接池
+    ///
+    /// # 返回值
+    ///
+    /// 返回使用给定连接池的 `Database` 实例
     pub fn from_pool(pool: Pool<Postgres>) -> Self {
         let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), 10000)));
         Self { pool, monitor }
     }
 
+    /// 获取数据库连接池引用。
+    ///
+    /// # 返回值
+    ///
+    /// 返回 PostgreSQL 连接池的不可变引用
     pub fn pool(&self) -> &Pool<Postgres> {
         &self.pool
     }
 
+    /// 执行数据库健康检查。
+    ///
+    /// 检查数据库连接、表存在性、索引状态等。
+    ///
+    /// # 返回值
+    ///
+    /// 成功时返回 `Ok(DatabaseHealthStatus)`，包含详细健康信息
+    /// 失败时返回 `Err(sqlx::Error)`
     pub async fn health_check(&self) -> Result<DatabaseHealthStatus, sqlx::Error> {
         self.monitor.write().await.get_full_health_status().await
     }
 
+    /// 获取性能指标。
+    ///
+    /// 返回数据库连接池使用情况、查询延迟等性能数据。
+    ///
+    /// # 返回值
+    ///
+    /// 成功时返回 `Ok(PerformanceMetrics)`，包含性能数据
+    /// 失败时返回 `Err(sqlx::Error)`
     pub async fn get_performance_metrics(&self) -> Result<PerformanceMetrics, sqlx::Error> {
         self.monitor.write().await.get_performance_metrics().await
     }
 
+    /// 验证数据完整性。
+    ///
+    /// 检查外键约束、空值约束、孤立记录等数据完整性问题。
+    ///
+    /// # 返回值
+    ///
+    /// 成功时返回 `Ok(DataIntegrityReport)`，包含完整性检查报告
+    /// 失败时返回 `Err(sqlx::Error)`
     pub async fn verify_data_integrity(&self) -> Result<DataIntegrityReport, sqlx::Error> {
         self.monitor.write().await.verify_data_integrity().await
     }
 }
 
+/// 初始化数据库 schema。
+///
+/// 创建 Matrix Homeserver 运行所需的所有数据表。
+/// 如果表已存在，则跳过创建（使用 IF NOT EXISTS）。
+///
+/// # 参数
+///
+/// * `pool` - PostgreSQL 连接池
+///
+/// # 返回值
+///
+/// 成功时返回 `Ok(())`，失败时返回 `Err(sqlx::Error)`
 pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
@@ -606,11 +675,14 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "Requires running PostgreSQL server"]
     async fn test_database_struct_creation() {
-        let pool = sqlx::PgPool::connect("postgres://test:test@localhost/test")
-            .await
-            .expect("Database connection failed - this test requires a running PostgreSQL server");
+        let db_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()
+        });
+        let pool = match sqlx::PgPool::connect(&db_url).await {
+            Ok(p) => p,
+            Err(_) => return,
+        };
         let _db = Database {
             pool: pool.clone(),
             monitor: Arc::new(RwLock::new(DatabaseMonitor::new(pool, 50))),

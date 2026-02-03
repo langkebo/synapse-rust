@@ -124,21 +124,21 @@ impl DatabaseMonitor {
         let idle_connections = self.pool.num_idle() as u32;
         let max_connections = self.max_connections;
 
-        let status = sqlx::query!(
+        let status = sqlx::query_as::<_, (i64, i64)>(
             r#"
             SELECT 
                 count(*) as total_connections,
                 count(*) FILTER (WHERE state = 'idle') as idle_connections
             FROM pg_stat_activity 
             WHERE datname = current_database()
-            "#
+            "#,
         )
         .fetch_one(&self.pool)
         .await?;
 
         Ok(ConnectionPoolStatus {
-            total_connections: status.total_connections.unwrap_or(0) as u32,
-            idle_connections: status.idle_connections.unwrap_or(0) as u32,
+            total_connections: status.0 as u32,
+            idle_connections: status.1 as u32,
             busy_connections: pool_size.saturating_sub(idle_connections),
             max_connections,
             connection_utilization: if max_connections > 0 {
@@ -170,26 +170,26 @@ impl DatabaseMonitor {
             .filter(|&&t| t > self.slow_query_threshold)
             .count() as u64;
 
-        let stats = sqlx::query!(
+        let stats = sqlx::query_as::<_, (i64,)>(
             r#"
             SELECT 
-                count(*) as total_queries
+                count(*)
             FROM pg_stat_activity 
             WHERE state = 'active' AND datname = current_database()
-            "#
+            "#,
         )
         .fetch_one(&self.pool)
         .await?;
 
-        let tps = sqlx::query!(
+        let tps = sqlx::query_as::<_, (i64, i64)>(
             r#"
             SELECT 
-                COALESCE(xact_commit, 0) as "transactions_committed!: i64",
-                COALESCE(xact_rollback, 0) as "transactions_rollbacked!: i64"
+                COALESCE(xact_commit, 0),
+                COALESCE(xact_rollback, 0)
             FROM pg_stat_database 
             WHERE datname = current_database()
             LIMIT 1
-            "#
+            "#,
         )
         .fetch_one(&self.pool)
         .await?;
@@ -199,8 +199,8 @@ impl DatabaseMonitor {
         Ok(PerformanceMetrics {
             average_query_time_ms: avg_query_time,
             slow_queries_count: slow_queries,
-            total_queries: stats.total_queries.unwrap_or(0) as u64,
-            transactions_per_second: tps.transactions_committed as f64 / 60.0,
+            total_queries: stats.0 as u64,
+            transactions_per_second: tps.0 as f64 / 60.0,
             cache_hit_ratio: 0.0,
             deadlock_count: 0,
             vacuum_analyze_stats: vacuum_stats,
@@ -224,24 +224,32 @@ impl DatabaseMonitor {
         let mut vacuum_stats = Vec::new();
 
         for table in tables {
-            let stats = sqlx::query!(
+            let stats = sqlx::query_as::<
+                _,
+                (
+                    i64,
+                    i64,
+                    Option<chrono::DateTime<chrono::Utc>>,
+                    Option<chrono::DateTime<chrono::Utc>>,
+                ),
+            >(
                 r#"
                 SELECT 
-                    n_live_tup as live_tuples,
-                    n_dead_tup as dead_tuples,
+                    COALESCE(n_live_tup, 0) as live_tuples,
+                    COALESCE(n_dead_tup, 0) as dead_tuples,
                     last_vacuum,
                     last_analyze
                 FROM pg_stat_user_tables 
                 WHERE relname = $1
                 "#,
-                table
             )
+            .bind(table)
             .fetch_optional(&self.pool)
             .await?;
 
             if let Some(s) = stats {
-                let total_tuples = s.live_tuples.unwrap_or(0) as f64;
-                let dead_tuples = s.dead_tuples.unwrap_or(0) as f64;
+                let total_tuples = s.0 as f64;
+                let dead_tuples = s.1 as f64;
                 let dead_ratio = if total_tuples > 0.0 {
                     (dead_tuples / total_tuples) * 100.0
                 } else {
@@ -250,12 +258,8 @@ impl DatabaseMonitor {
 
                 vacuum_stats.push(VacuumStats {
                     table_name: table.to_string(),
-                    last_vacuum: s
-                        .last_vacuum
-                        .map(|t: chrono::DateTime<chrono::Utc>| t.naive_utc()),
-                    last_analyze: s
-                        .last_analyze
-                        .map(|t: chrono::DateTime<chrono::Utc>| t.naive_utc()),
+                    last_vacuum: s.2.map(|t| t.naive_utc()),
+                    last_analyze: s.3.map(|t| t.naive_utc()),
                     dead_tuple_count: dead_tuples as i64,
                     dead_tuple_ratio: dead_ratio,
                 });
@@ -314,51 +318,78 @@ impl DatabaseMonitor {
         for (table, column, referenced_table) in fk_checks {
             let count = match table {
                 "devices" => {
-                    sqlx::query!(
-                        "SELECT COUNT(*) as count FROM devices WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)"
-                    ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                    sqlx::query_as::<_, (i64,)>(
+                        "SELECT COUNT(*) FROM devices WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)",
+                    )
+                    .fetch_one(&self.pool)
+                    .await?
+                    .0
                 },
                 "access_tokens" => {
-                    sqlx::query!(
-                        "SELECT COUNT(*) as count FROM access_tokens WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)"
-                    ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                    sqlx::query_as::<_, (i64,)>(
+                        "SELECT COUNT(*) FROM access_tokens WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)",
+                    )
+                    .fetch_one(&self.pool)
+                    .await?
+                    .0
                 },
                 "refresh_tokens" => {
-                    sqlx::query!(
-                        "SELECT COUNT(*) as count FROM refresh_tokens WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)"
-                    ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                    sqlx::query_as::<_, (i64,)>(
+                        "SELECT COUNT(*) FROM refresh_tokens WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)",
+                    )
+                    .fetch_one(&self.pool)
+                    .await?
+                    .0
                 },
                 "room_memberships" => {
                     if column == "room_id" {
-                        sqlx::query!(
-                            "SELECT COUNT(*) as count FROM room_memberships WHERE room_id IS NOT NULL AND room_id NOT IN (SELECT room_id FROM rooms)"
-                        ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                        sqlx::query_as::<_, (i64,)>(
+                            "SELECT COUNT(*) FROM room_memberships WHERE room_id IS NOT NULL AND room_id NOT IN (SELECT room_id FROM rooms)",
+                        )
+                        .fetch_one(&self.pool)
+                        .await?
+                        .0
                     } else {
-                        sqlx::query!(
-                            "SELECT COUNT(*) as count FROM room_memberships WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)"
-                        ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                        sqlx::query_as::<_, (i64,)>(
+                            "SELECT COUNT(*) FROM room_memberships WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)",
+                        )
+                        .fetch_one(&self.pool)
+                        .await?
+                        .0
                     }
                 },
                 "events" => {
                     if column == "room_id" {
-                        sqlx::query!(
-                            "SELECT COUNT(*) as count FROM events WHERE room_id IS NOT NULL AND room_id NOT IN (SELECT room_id FROM rooms)"
-                        ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                        sqlx::query_as::<_, (i64,)>(
+                            "SELECT COUNT(*) FROM events WHERE room_id IS NOT NULL AND room_id NOT IN (SELECT room_id FROM rooms)",
+                        )
+                        .fetch_one(&self.pool)
+                        .await?
+                        .0
                     } else {
-                        sqlx::query!(
-                            "SELECT COUNT(*) as count FROM events WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)"
-                        ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                        sqlx::query_as::<_, (i64,)>(
+                            "SELECT COUNT(*) FROM events WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)",
+                        )
+                        .fetch_one(&self.pool)
+                        .await?
+                        .0
                     }
                 },
                 "private_messages" => {
                     if column == "session_id" {
-                        sqlx::query!(
-                            "SELECT COUNT(*) as count FROM private_messages WHERE session_id IS NOT NULL AND session_id NOT IN (SELECT session_id FROM private_sessions)"
-                        ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                        sqlx::query_as::<_, (i64,)>(
+                            "SELECT COUNT(*) FROM private_messages WHERE session_id IS NOT NULL AND session_id NOT IN (SELECT session_id FROM private_sessions)",
+                        )
+                        .fetch_one(&self.pool)
+                        .await?
+                        .0
                     } else {
-                        sqlx::query!(
-                            "SELECT COUNT(*) as count FROM private_messages WHERE sender_id IS NOT NULL AND sender_id NOT IN (SELECT user_id FROM users)"
-                        ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                        sqlx::query_as::<_, (i64,)>(
+                            "SELECT COUNT(*) FROM private_messages WHERE sender_id IS NOT NULL AND sender_id NOT IN (SELECT user_id FROM users)",
+                        )
+                        .fetch_one(&self.pool)
+                        .await?
+                        .0
                     }
                 },
                 _ => 0,
@@ -391,30 +422,45 @@ impl DatabaseMonitor {
         for (table, column, _referenced_table) in orphan_checks {
             let count = match table {
                 "devices" => {
-                    sqlx::query!(
-                        "SELECT COUNT(*) as count FROM devices WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)"
-                    ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                    sqlx::query_as::<_, (i64,)>(
+                        "SELECT COUNT(*) FROM devices WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)",
+                    )
+                    .fetch_one(&self.pool)
+                    .await?
+                    .0
                 },
                 "access_tokens" => {
-                    sqlx::query!(
-                        "SELECT COUNT(*) as count FROM access_tokens WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)"
-                    ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                    sqlx::query_as::<_, (i64,)>(
+                        "SELECT COUNT(*) FROM access_tokens WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)",
+                    )
+                    .fetch_one(&self.pool)
+                    .await?
+                    .0
                 },
                 "room_memberships" => {
                     if column == "room_id" {
-                        sqlx::query!(
-                            "SELECT COUNT(*) as count FROM room_memberships WHERE room_id IS NOT NULL AND room_id NOT IN (SELECT room_id FROM rooms)"
-                        ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                        sqlx::query_as::<_, (i64,)>(
+                            "SELECT COUNT(*) FROM room_memberships WHERE room_id IS NOT NULL AND room_id NOT IN (SELECT room_id FROM rooms)",
+                        )
+                        .fetch_one(&self.pool)
+                        .await?
+                        .0
                     } else {
-                        sqlx::query!(
-                            "SELECT COUNT(*) as count FROM room_memberships WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)"
-                        ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                        sqlx::query_as::<_, (i64,)>(
+                            "SELECT COUNT(*) FROM room_memberships WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)",
+                        )
+                        .fetch_one(&self.pool)
+                        .await?
+                        .0
                     }
                 },
                 "events" => {
-                    sqlx::query!(
-                        "SELECT COUNT(*) as count FROM events WHERE room_id IS NOT NULL AND room_id NOT IN (SELECT room_id FROM rooms)"
-                    ).fetch_one(&self.pool).await?.count.unwrap_or(0)
+                    sqlx::query_as::<_, (i64,)>(
+                        "SELECT COUNT(*) FROM events WHERE room_id IS NOT NULL AND room_id NOT IN (SELECT room_id FROM rooms)",
+                    )
+                    .fetch_one(&self.pool)
+                    .await?
+                    .0
                 },
                 _ => 0,
             };
@@ -511,7 +557,7 @@ impl DatabaseMonitor {
 }
 
 pub async fn create_performance_stats_table(pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
-    sqlx::query!(
+    sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS synapse_performance_stats (
             id BIGSERIAL PRIMARY KEY,
@@ -521,16 +567,16 @@ pub async fn create_performance_stats_table(pool: &Pool<Postgres>) -> Result<(),
             collected_at BIGINT NOT NULL,
             metadata JSONB
         )
-        "#
+        "#,
     )
     .execute(pool)
     .await?;
 
-    sqlx::query!(
+    sqlx::query(
         r#"
         CREATE INDEX IF NOT EXISTS idx_performance_stats_type_time 
         ON synapse_performance_stats(metric_type, collected_at)
-        "#
+        "#,
     )
     .execute(pool)
     .await?;

@@ -2,6 +2,7 @@ use super::{AdminUser, AppState};
 use crate::common::ApiError;
 use axum::{
     extract::{Path, State},
+    http::HeaderMap,
     routing::{get, post, put},
     Json, Router,
 };
@@ -14,6 +15,9 @@ use std::sync::Arc;
 
 const MAX_LIMIT: i64 = 1000;
 
+use crate::services::admin_registration_service::{
+    AdminRegisterRequest, AdminRegisterResponse, NonceResponse,
+};
 pub fn create_admin_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/server_version", get(get_server_version))
@@ -43,6 +47,11 @@ pub fn create_admin_router(_state: AppState) -> Router<AppState> {
             "/_synapse/admin/v1/security/ip/reputation/{ip}",
             get(get_ip_reputation),
         )
+        .route(
+            "/_synapse/admin/v1/register/nonce",
+            get(get_admin_register_nonce),
+        )
+        .route("/_synapse/admin/v1/register", post(admin_register))
         .route("/_synapse/admin/v1/status", get(get_status))
         .route(
             "/_synapse/admin/v1/users/{user_id}/rooms",
@@ -73,7 +82,7 @@ impl SecurityStorage {
     }
 
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS security_events (
                 id BIGSERIAL PRIMARY KEY,
@@ -90,12 +99,12 @@ impl SecurityStorage {
                 resolved_ts BIGINT,
                 resolved_by VARCHAR(255)
             )
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS ip_blocks (
                 id BIGSERIAL PRIMARY KEY,
@@ -107,12 +116,12 @@ impl SecurityStorage {
                 expires_at BIGINT,
                 expires_ts BIGINT
             )
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS ip_reputation (
                 id BIGSERIAL PRIMARY KEY,
@@ -127,7 +136,7 @@ impl SecurityStorage {
                 created_ts BIGINT NOT NULL,
                 UNIQUE (ip_address)
             )
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
@@ -239,19 +248,19 @@ impl SecurityStorage {
             .execute(&*self.pool)
             .await?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO ip_blocks (ip_range, ip_address, reason, blocked_at, blocked_ts, expires_at, expires_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
-            ip_network,
-            ip_addr,
-            reason,
-            now,
-            now,
-            expires_at_ts,
-            expires_at_ts
         )
+        .bind(ip_network)
+        .bind(ip_addr)
+        .bind(reason)
+        .bind(now)
+        .bind(now)
+        .bind(expires_at_ts)
+        .bind(expires_at_ts)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -387,7 +396,7 @@ impl SecurityStorage {
         let base_score = 50;
         let initial_score = base_score + score_delta;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO ip_reputation (
                 ip_address,
@@ -408,20 +417,79 @@ impl SecurityStorage {
                 last_updated_ts = EXCLUDED.last_updated_ts,
                 details = COALESCE(EXCLUDED.details, ip_reputation.details)
             "#,
-            ip,
-            initial_score,
-            initial_score,
-            now,
-            now,
-            details_str,
-            now,
-            now,
-            score_delta
         )
+        .bind(ip)
+        .bind(initial_score)
+        .bind(initial_score)
+        .bind(now)
+        .bind(now)
+        .bind(details_str)
+        .bind(now)
+        .bind(now)
+        .bind(score_delta)
         .execute(&*self.pool)
         .await?;
         Ok(())
     }
+}
+
+#[axum::debug_handler]
+async fn get_admin_register_nonce(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<NonceResponse>, ApiError> {
+    let ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .unwrap_or("0.0.0.0")
+        .trim()
+        .to_string();
+    let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
+    if security_storage.is_ip_blocked(&ip).await.unwrap_or(false) {
+        return Err(ApiError::forbidden("IP blocked".to_string()));
+    }
+    let key = format!("rl:admin_register_nonce:{}", ip);
+    let decision = state.cache.rate_limit_token_bucket_take(&key, 1, 3).await?;
+    if !decision.allowed {
+        return Err(ApiError::RateLimited);
+    }
+    let nonce = state
+        .services
+        .admin_registration_service
+        .generate_nonce()
+        .await?;
+    Ok(Json(nonce))
+}
+
+#[axum::debug_handler]
+async fn admin_register(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<AdminRegisterRequest>,
+) -> Result<Json<AdminRegisterResponse>, ApiError> {
+    let ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .unwrap_or("0.0.0.0")
+        .trim()
+        .to_string();
+    let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
+    if security_storage.is_ip_blocked(&ip).await.unwrap_or(false) {
+        return Err(ApiError::forbidden("IP blocked".to_string()));
+    }
+    let key = format!("rl:admin_register:{}", ip);
+    let decision = state.cache.rate_limit_token_bucket_take(&key, 1, 2).await?;
+    if !decision.allowed {
+        return Err(ApiError::RateLimited);
+    }
+    let resp = state
+        .services
+        .admin_registration_service
+        .register_admin_user(body)
+        .await?;
+    Ok(Json(resp))
 }
 
 #[axum::debug_handler]

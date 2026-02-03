@@ -1,9 +1,12 @@
+use crate::common::metrics::MetricsCollector;
 use crate::common::*;
 use crate::services::*;
+use std::sync::Arc;
 
 pub struct RegistrationService {
     user_storage: UserStorage,
     auth_service: AuthService,
+    metrics: Arc<MetricsCollector>,
     server_name: String,
     enable_registration: bool,
 }
@@ -12,12 +15,14 @@ impl RegistrationService {
     pub fn new(
         user_storage: UserStorage,
         auth_service: AuthService,
+        metrics: Arc<MetricsCollector>,
         server_name: String,
         enable_registration: bool,
     ) -> Self {
         Self {
             user_storage,
             auth_service,
+            metrics,
             server_name,
             enable_registration,
         }
@@ -34,10 +39,32 @@ impl RegistrationService {
             return Err(ApiError::forbidden("Registration is disabled".to_string()));
         }
 
-        let (user, access_token, refresh_token, device_id) = self
+        let start = std::time::Instant::now();
+        let result = self
             .auth_service
             .register(username, password, admin, displayname)
-            .await?;
+            .await;
+
+        let duration = start.elapsed().as_secs_f64();
+        if let Some(hist) = self.metrics.get_histogram("registration_duration_seconds") {
+            hist.observe(duration);
+        } else {
+            let hist = self
+                .metrics
+                .register_histogram("registration_duration_seconds".to_string());
+            hist.observe(duration);
+        }
+
+        let (user, access_token, refresh_token, device_id) = result?;
+
+        if let Some(counter) = self.metrics.get_counter("registration_success_total") {
+            counter.inc();
+        } else {
+            let counter = self
+                .metrics
+                .register_counter("registration_success_total".to_string());
+            counter.inc();
+        }
 
         Ok(serde_json::json!({
             "access_token": access_token,
@@ -60,10 +87,32 @@ impl RegistrationService {
         device_id: Option<&str>,
         initial_display_name: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        let (user, access_token, refresh_token, device_id) = self
+        let start = std::time::Instant::now();
+        let result = self
             .auth_service
             .login(username, password, device_id, initial_display_name)
-            .await?;
+            .await;
+
+        let duration = start.elapsed().as_secs_f64();
+        if let Some(hist) = self.metrics.get_histogram("login_duration_seconds") {
+            hist.observe(duration);
+        } else {
+            let hist = self
+                .metrics
+                .register_histogram("login_duration_seconds".to_string());
+            hist.observe(duration);
+        }
+
+        let (user, access_token, refresh_token, device_id) = result?;
+
+        if let Some(counter) = self.metrics.get_counter("login_success_total") {
+            counter.inc();
+        } else {
+            let counter = self
+                .metrics
+                .register_counter("login_success_total".to_string());
+            counter.inc();
+        }
 
         Ok(serde_json::json!({
             "access_token": access_token,
@@ -169,6 +218,7 @@ mod tests {
         let _registration_service = RegistrationService::new(
             services.user_storage.clone(),
             services.auth_service.clone(),
+            services.metrics.clone(),
             services.server_name.clone(),
             services.config.server.enable_registration,
         );
@@ -195,15 +245,20 @@ mod tests {
         assert_eq!(response["expires_in"], 86400);
     }
 
-    #[test]
-    fn test_profile_response_format() {
-        let profile = serde_json::json!({
-            "user_id": "@test:example.com",
-            "displayname": "Test User",
-            "avatar_url": "mxc://example.com/avatar"
-        });
+    #[tokio::test]
+    async fn test_registration_service_disabled() {
+        let services = ServiceContainer::new_test();
+        let registration_service = RegistrationService::new(
+            services.user_storage.clone(),
+            services.auth_service.clone(),
+            services.metrics.clone(),
+            services.server_name.clone(),
+            false, // disabled
+        );
 
-        assert_eq!(profile["user_id"], "@test:example.com");
-        assert_eq!(profile["displayname"], "Test User");
+        let result = registration_service
+            .register_user("test", "pass", false, None)
+            .await;
+        assert!(matches!(result, Err(ApiError::Forbidden { .. })));
     }
 }

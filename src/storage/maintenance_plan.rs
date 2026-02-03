@@ -310,10 +310,10 @@ impl MaintenanceManager {
         let thirty_days_ago = Utc::now().naive_utc() - Duration::days(30);
         let cutoff_timestamp = thirty_days_ago.timestamp();
 
-        let result = sqlx::query!(
+        let result = sqlx::query(
             "DELETE FROM private_sessions WHERE updated_ts < $1 AND last_message IS NULL",
-            cutoff_timestamp
         )
+        .bind(cutoff_timestamp)
         .execute(&self.pool)
         .await?;
 

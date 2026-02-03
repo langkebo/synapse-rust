@@ -4,10 +4,13 @@ mod e2e_tests {
     use serde::{Deserialize, Serialize};
     use serde_json::json;
     use std::time::Duration;
-    use tempfile::tempdir;
     use tokio::runtime::Runtime;
 
     const BASE_URL: &str = "http://localhost:8000";
+
+    fn should_run_e2e() -> bool {
+        std::env::var("E2E_RUN").ok().as_deref() == Some("1")
+    }
 
     #[derive(Debug, Serialize, Deserialize)]
     struct RegisterResponse {
@@ -59,7 +62,7 @@ mod e2e_tests {
     async fn register_user(username: &str, password: &str) -> RegisterResponse {
         let client = Client::new();
         let response = client
-            .post(&format!("{}/_matrix/client/r0/register", BASE_URL))
+            .post(format!("{}/_matrix/client/r0/register", BASE_URL))
             .json(&json!({
                 "username": username,
                 "password": password,
@@ -78,7 +81,7 @@ mod e2e_tests {
     async fn login_user(username: &str, password: &str) -> LoginResponse {
         let client = Client::new();
         let response = client
-            .post(&format!("{}/_matrix/client/r0/login", BASE_URL))
+            .post(format!("{}/_matrix/client/r0/login", BASE_URL))
             .json(&json!({
                 "type": "m.login.password",
                 "user": username,
@@ -102,7 +105,7 @@ mod e2e_tests {
         }
 
         let response = client
-            .post(&format!("{}/_matrix/client/r0/createRoom", BASE_URL))
+            .post(format!("{}/_matrix/client/r0/createRoom", BASE_URL))
             .header("Authorization", format!("Bearer {}", access_token))
             .json(&body)
             .send()
@@ -115,14 +118,10 @@ mod e2e_tests {
             .expect("Failed to parse create room response")
     }
 
-    async fn send_message(
-        access_token: &str,
-        room_id: &str,
-        message: &str,
-    ) -> SendMessageResponse {
+    async fn send_message(access_token: &str, room_id: &str, message: &str) -> SendMessageResponse {
         let client = Client::new();
         let response = client
-            .put(&format!(
+            .put(format!(
                 "{}/_matrix/client/r0/rooms/{}/send/m.room.message/{}",
                 BASE_URL,
                 room_id,
@@ -150,7 +149,7 @@ mod e2e_tests {
     ) -> UploadMediaResponse {
         let client = Client::new();
         let response = client
-            .post(&format!("{}/_matrix/media/v3/upload", BASE_URL))
+            .post(format!("{}/_matrix/media/v3/upload", BASE_URL))
             .header("Authorization", format!("Bearer {}", access_token))
             .header("Content-Type", content_type)
             .body(content)
@@ -167,7 +166,7 @@ mod e2e_tests {
     async fn search_user(access_token: &str, username: &str) -> Vec<serde_json::Value> {
         let client = Client::new();
         let response = client
-            .get(&format!(
+            .get(format!(
                 "{}/_matrix/client/r0/user_directory/search/users",
                 BASE_URL
             ))
@@ -182,10 +181,7 @@ mod e2e_tests {
             .await
             .expect("Failed to parse search response");
 
-        json["results"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
+        json["results"].as_array().cloned().unwrap_or_default()
     }
 
     async fn send_friend_request(
@@ -200,7 +196,7 @@ mod e2e_tests {
         }
 
         let response = client
-            .post(&format!("{}/_matrix/client/r0/friends/request", BASE_URL))
+            .post(format!("{}/_matrix/client/r0/friends/request", BASE_URL))
             .header("Authorization", format!("Bearer {}", access_token))
             .json(&body)
             .send()
@@ -213,13 +209,10 @@ mod e2e_tests {
             .expect("Failed to parse friend request response")
     }
 
-    async fn accept_friend_request(
-        access_token: &str,
-        request_id: &str,
-    ) -> serde_json::Value {
+    async fn accept_friend_request(access_token: &str, request_id: &str) -> serde_json::Value {
         let client = Client::new();
         let response = client
-            .post(&format!(
+            .post(format!(
                 "{}/_matrix/client/r0/friends/requests/{}/accept",
                 BASE_URL, request_id
             ))
@@ -240,7 +233,7 @@ mod e2e_tests {
     ) -> CreateSessionResponse {
         let client = Client::new();
         let response = client
-            .post(&format!("{}/_matrix/client/r0/private/sessions", BASE_URL))
+            .post(format!("{}/_matrix/client/r0/private/sessions", BASE_URL))
             .header("Authorization", format!("Bearer {}", access_token))
             .json(&json!({"other_user_id": other_user_id}))
             .send()
@@ -260,7 +253,7 @@ mod e2e_tests {
     ) -> SendMessageResponsePrivate {
         let client = Client::new();
         let response = client
-            .post(&format!(
+            .post(format!(
                 "{}/_matrix/client/r0/private/sessions/{}/messages",
                 BASE_URL, session_id
             ))
@@ -279,13 +272,10 @@ mod e2e_tests {
             .expect("Failed to parse send private message response")
     }
 
-    async fn delete_private_message(
-        access_token: &str,
-        message_id: &str,
-    ) -> serde_json::Value {
+    async fn delete_private_message(access_token: &str, message_id: &str) -> serde_json::Value {
         let client = Client::new();
         let response = client
-            .delete(&format!(
+            .delete(format!(
                 "{}/_matrix/client/r0/private/messages/{}",
                 BASE_URL, message_id
             ))
@@ -304,6 +294,9 @@ mod e2e_tests {
     fn test_e2e_complete_user_flow() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
+            if !should_run_e2e() {
+                return;
+            }
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_e2e", "password123").await;
@@ -318,13 +311,12 @@ mod e2e_tests {
 
             assert!(!room.room_id.is_empty());
 
-            let msg_response = send_message(&alice.access_token, &room.room_id, "Hello, Bob!").await;
+            let msg_response =
+                send_message(&alice.access_token, &room.room_id, "Hello, Bob!").await;
 
             assert!(!msg_response.event_id.is_empty());
 
-            let image_data = vec![
-                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-            ];
+            let image_data = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
             let upload_response = upload_media(&alice.access_token, image_data, "image/png").await;
 
@@ -340,6 +332,9 @@ mod e2e_tests {
     fn test_e2e_friend_flow() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
+            if !should_run_e2e() {
+                return;
+            }
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_friend", "password123").await;
@@ -353,16 +348,14 @@ mod e2e_tests {
                 .as_str()
                 .expect("User ID should be string");
 
-            let friend_request = send_friend_request(
-                &alice.access_token,
-                bob_user_id,
-                Some("Let's be friends!"),
-            )
-            .await;
+            let friend_request =
+                send_friend_request(&alice.access_token, bob_user_id, Some("Let's be friends!"))
+                    .await;
 
             assert!(!friend_request.request_id.is_empty());
 
-            let accept_response = accept_friend_request(&bob.access_token, &friend_request.request_id).await;
+            let accept_response =
+                accept_friend_request(&bob.access_token, &friend_request.request_id).await;
 
             assert_eq!(accept_response["status"], "accepted");
 
@@ -374,6 +367,9 @@ mod e2e_tests {
     fn test_e2e_private_chat_flow() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
+            if !should_run_e2e() {
+                return;
+            }
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_chat", "password123").await;
@@ -400,11 +396,9 @@ mod e2e_tests {
 
             assert!(msg_response.message_id > 0);
 
-            let delete_response = delete_private_message(
-                &alice.access_token,
-                &msg_response.message_id.to_string(),
-            )
-            .await;
+            let delete_response =
+                delete_private_message(&alice.access_token, &msg_response.message_id.to_string())
+                    .await;
 
             assert_eq!(delete_response["status"], "success");
 
@@ -416,26 +410,30 @@ mod e2e_tests {
     fn test_e2e_media_upload_and_retrieve() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
+            if !should_run_e2e() {
+                return;
+            }
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_media", "password123").await;
 
             let image_data = vec![
-                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-                0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+                0x44, 0x52,
             ];
 
-            let upload_response = upload_media(&alice.access_token, image_data.clone(), "image/png").await;
+            let upload_response =
+                upload_media(&alice.access_token, image_data.clone(), "image/png").await;
 
             assert!(!upload_response.content_uri.is_empty());
             assert_eq!(upload_response.content_type, "image/png");
             assert_eq!(upload_response.size, 16);
 
             let client = Client::new();
-            let media_filename = upload_response.content_uri.split('/').last().unwrap();
+            let media_filename = upload_response.content_uri.split('/').next_back().unwrap();
 
             let response = client
-                .get(&format!(
+                .get(format!(
                     "{}/_matrix/media/v3/download/{}",
                     BASE_URL, media_filename
                 ))
@@ -459,6 +457,9 @@ mod e2e_tests {
     fn test_e2e_multi_user_room() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
+            if !should_run_e2e() {
+                return;
+            }
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_multi", "password123").await;
@@ -487,6 +488,9 @@ mod e2e_tests {
     fn test_e2e_user_login_logout() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
+            if !should_run_e2e() {
+                return;
+            }
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_auth", "password123").await;
@@ -506,6 +510,9 @@ mod e2e_tests {
     fn test_e2e_multiple_rooms() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
+            if !should_run_e2e() {
+                return;
+            }
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_rooms", "password123").await;

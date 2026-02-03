@@ -1,4 +1,8 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use argon2::{
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2, Params,
+};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use rand::Rng;
 use rand::RngCore;
@@ -8,21 +12,41 @@ use sha2::{Digest, Sha256};
 type HmacSha256 = Hmac<Sha256>;
 
 pub fn hash_password(password: &str) -> Result<String, String> {
-    let salt = generate_salt();
-    Ok(hash_password_with_salt(password, &salt))
+    hash_password_with_params(password, 4096, 3, 1)
 }
 
-pub fn hash_password_with_salt(password: &str, salt: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(password);
-    hasher.update(salt);
-    let result = hasher.finalize();
-    format!("sha256$v=1$m=32,p=1${}${}", salt, STANDARD.encode(result))
+pub fn hash_password_with_params(
+    password: &str,
+    m_cost: u32,
+    t_cost: u32,
+    p_cost: u32,
+) -> Result<String, String> {
+    let salt = SaltString::generate(&mut rand::thread_rng());
+    let params = Params::new(m_cost, t_cost, p_cost, None).map_err(|e| e.to_string())?;
+    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+
+    let password_hash = argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|e| e.to_string())?
+        .to_string();
+
+    Ok(password_hash)
 }
 
 pub fn verify_password(password: &str, password_hash: &str) -> Result<bool, String> {
-    let parts: Vec<&str> = password_hash.split('$').collect();
-    if parts.len() < 5 {
+    if password_hash.starts_with("$argon2") {
+        let parsed_hash = PasswordHash::new(password_hash).map_err(|e| e.to_string())?;
+        // Argon2::verify_password will use the algorithm and params from the parsed hash
+        return Ok(Argon2::default()
+            .verify_password(password.as_bytes(), &parsed_hash)
+            .is_ok());
+    }
+
+    // Fallback to SHA-256 (handling both with and without leading $)
+    let password_hash_trimmed = password_hash.trim_start_matches('$');
+    let parts: Vec<&str> = password_hash_trimmed.split('$').collect();
+
+    if parts.len() < 4 {
         return Err("Invalid hash format".to_string());
     }
 
@@ -30,53 +54,77 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool, Stri
     let version = parts[1];
     let _params = parts[2];
     let salt = parts[3];
-    let _hash = parts[4];
+    let hash = parts[parts.len() - 1];
 
     if algo != "sha256" || version != "v=1" {
-        return Err("Unsupported hash algorithm".to_string());
+        return Err(format!("Unsupported hash algorithm: {}", algo));
     }
 
-    let computed_hash = hash_password_with_salt(password, salt);
-    Ok(computed_hash == password_hash)
+    // Support both simple and iterated SHA-256
+    if parts.len() >= 7 {
+        // Iterated version from AuthService
+        let iterations = parts[5].parse::<u32>().unwrap_or(10000);
+        let mut computed_hash = [0u8; 32];
+        let mut input = password.as_bytes().to_vec();
+        input.extend_from_slice(salt.as_bytes());
+
+        for _ in 0..iterations {
+            let mut hasher = Sha256::new();
+            hasher.update(&input);
+            let result = hasher.finalize();
+            computed_hash.copy_from_slice(&result);
+            input = computed_hash.to_vec();
+        }
+        let encoded_hash = URL_SAFE_NO_PAD.encode(computed_hash);
+        Ok(secure_compare(&encoded_hash, hash))
+    } else {
+        // Simple version from crypto.rs
+        let mut hasher = Sha256::new();
+        hasher.update(password);
+        hasher.update(salt);
+        let result = hasher.finalize();
+        let encoded_hash = URL_SAFE_NO_PAD.encode(result);
+        Ok(secure_compare(&encoded_hash, hash))
+    }
+}
+
+fn secure_compare(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut result = 0u8;
+    for (byte_a, byte_b) in a.bytes().zip(b.bytes()) {
+        result |= byte_a ^ byte_b;
+    }
+    result == 0
 }
 
 pub fn verify_password_legacy(password: &str, password_hash: &str) -> bool {
-    let parts: Vec<&str> = password_hash.split('$').collect();
-    if parts.len() < 5 {
-        return false;
-    }
-
-    let algo = parts[0];
-    let version = parts[1];
-    let _params = parts[2];
-    let salt = parts[3];
-    let _hash = parts[4];
-
-    if algo != "sha256" || version != "v=1" {
-        return false;
-    }
-
-    let computed_hash = hash_password_with_salt(password, salt);
-    computed_hash == password_hash
+    verify_password(password, password_hash).unwrap_or(false)
 }
 
 pub fn generate_token(length: usize) -> String {
     let mut bytes = vec![0u8; length];
     rand::thread_rng().fill_bytes(&mut bytes);
-    STANDARD.encode(bytes)
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 pub fn generate_room_id(server_name: &str) -> String {
     let mut bytes = [0u8; 18];
     rand::thread_rng().fill_bytes(&mut bytes);
-    format!("!{}:{}", STANDARD.encode(bytes), server_name)
+    format!("!{}:{}", URL_SAFE_NO_PAD.encode(bytes), server_name)
 }
 
 pub fn generate_event_id(server_name: &str) -> String {
     let timestamp = chrono::Utc::now().timestamp_millis();
     let mut bytes = [0u8; 18];
     rand::thread_rng().fill_bytes(&mut bytes);
-    format!("${}${}:{}", timestamp, STANDARD.encode(bytes), server_name)
+    format!(
+        "${}${}:{}",
+        timestamp,
+        URL_SAFE_NO_PAD.encode(bytes),
+        server_name
+    )
 }
 
 pub fn generate_device_id() -> String {
@@ -84,20 +132,23 @@ pub fn generate_device_id() -> String {
     rand::thread_rng().fill_bytes(&mut bytes);
     format!(
         "DEVICE{}",
-        STANDARD.encode(bytes).get(..10).unwrap_or("DEVICE0000")
+        URL_SAFE_NO_PAD
+            .encode(bytes)
+            .get(..10)
+            .unwrap_or("DEVICE0000")
     )
 }
 
 pub fn generate_salt() -> String {
     let mut bytes = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut bytes);
-    STANDARD.encode(bytes)
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 pub fn compute_hash(data: impl AsRef<[u8]>) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data.as_ref());
-    STANDARD.encode(&hasher.finalize()[..])
+    URL_SAFE_NO_PAD.encode(&hasher.finalize()[..])
 }
 
 pub fn hmac_sha256(key: impl AsRef<[u8]>, data: impl AsRef<[u8]>) -> Vec<u8> {
@@ -121,11 +172,11 @@ pub fn random_string(length: usize) -> String {
 }
 
 pub fn encode_base64(data: impl AsRef<[u8]>) -> String {
-    STANDARD.encode(data.as_ref())
+    URL_SAFE_NO_PAD.encode(data.as_ref())
 }
 
 pub fn decode_base64(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
-    STANDARD.decode(s)
+    URL_SAFE_NO_PAD.decode(s)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,18 +201,17 @@ mod tests {
     fn test_hash_password_and_verify() {
         let password = "test_password_123";
         let hash = hash_password(password).unwrap();
-        assert!(hash.starts_with("sha256$v=1$m=32,p=1$"));
+        assert!(hash.starts_with("$argon2"));
         assert!(verify_password(password, &hash).unwrap());
         assert!(!verify_password("wrong_password", &hash).unwrap());
     }
 
     #[test]
 
-    fn test_hash_password_with_salt() {
+    fn test_hash_password_with_params() {
         let password = "test_password";
-        let salt = "testsalt12345678";
-        let hash = hash_password_with_salt(password, salt);
-        assert!(hash.starts_with("sha256$v=1$m=32,p=1$testsalt12345678$"));
+        let hash = hash_password_with_params(password, 4096, 3, 1).unwrap();
+        assert!(hash.starts_with("$argon2"));
     }
 
     #[test]
@@ -177,7 +227,12 @@ mod tests {
     fn test_verify_password_legacy_valid() {
         let password = "test_password";
         let salt = "testsalt12345678";
-        let hash = hash_password_with_salt(password, salt);
+        let mut hasher = Sha256::new();
+        hasher.update(password);
+        hasher.update(salt);
+        let result = hasher.finalize();
+        let encoded = URL_SAFE_NO_PAD.encode(result);
+        let hash = format!("sha256$v=1$m=32,p=1${}${}", salt, encoded);
         assert!(verify_password_legacy(password, &hash));
         assert!(!verify_password_legacy("wrong_password", &hash));
     }
@@ -197,8 +252,8 @@ mod tests {
     fn test_generate_token() {
         let token1 = generate_token(32);
         let token2 = generate_token(32);
-        assert_eq!(token1.len(), 44);
-        assert_eq!(token2.len(), 44);
+        assert_eq!(token1.len(), 43); // URL_SAFE_NO_PAD is shorter
+        assert_eq!(token2.len(), 43);
         assert_ne!(token1, token2);
     }
 
@@ -227,12 +282,11 @@ mod tests {
     }
 
     #[test]
-
     fn test_generate_salt() {
         let salt1 = generate_salt();
         let salt2 = generate_salt();
-        assert_eq!(salt1.len(), 24);
-        assert_eq!(salt2.len(), 24);
+        assert_eq!(salt1.len(), 22);
+        assert_eq!(salt2.len(), 22);
         assert_ne!(salt1, salt2);
     }
 
@@ -241,7 +295,7 @@ mod tests {
     fn test_compute_hash() {
         let data = b"test data";
         let hash = compute_hash(data);
-        assert_eq!(hash.len(), 44);
+        assert_eq!(hash.len(), 43);
         assert_ne!(hash, compute_hash(b"different data"));
     }
 

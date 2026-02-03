@@ -461,7 +461,8 @@ async fn get_friend_recommendations(
 
 #[derive(Debug, Deserialize)]
 pub struct SearchQuery {
-    pub query: String,
+    pub query: Option<String>,
+    pub search_term: Option<String>,
     pub limit: Option<i64>,
 }
 
@@ -472,10 +473,14 @@ async fn search_users(
     auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.unwrap_or(20).min(100);
+    let search_query = params.search_term.or(params.query).ok_or_else(|| {
+        ApiError::bad_request("Missing 'search_term' or 'query' parameter".to_string())
+    })?;
+
     let users = state
         .services
         .user_storage
-        .search_users(&params.query, limit)
+        .search_users(&search_query, limit)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 

@@ -1,11 +1,9 @@
 services:
   synapse:
-    image: synapse-rust:release
     build:
       context: ..
-      dockerfile: docker/rust.Dockerfile
-      args:
-        CARGO_PROFILE: release
+      dockerfile: docker/Dockerfile
+    image: synapse-rust:dev
     container_name: synapse_rust
     restart: always
     ports:

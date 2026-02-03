@@ -4,53 +4,100 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+/// 服务器配置结构。
+///
+/// Matrix Homeserver 的主配置类，包含所有配置子项。
+/// 通过环境变量或配置文件加载。
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
+    /// 服务器配置
     pub server: ServerConfig,
+    /// 数据库配置
     pub database: DatabaseConfig,
+    /// Redis 配置
     pub redis: RedisConfig,
+    /// 日志配置
     pub logging: LoggingConfig,
+    /// 联邦配置
     pub federation: FederationConfig,
+    /// 安全配置
     pub security: SecurityConfig,
+    /// 搜索配置
     pub search: SearchConfig,
+    /// 限流配置
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
+    /// 管理员注册配置
+    #[serde(default)]
+    pub admin_registration: AdminRegistrationConfig,
+    /// 工作节点配置
+    #[serde(default)]
+    pub worker: WorkerConfig,
+    /// CORS 配置
+    #[serde(default)]
+    pub cors: CorsConfig,
 }
 
+/// 搜索服务配置。
 #[derive(Debug, Clone, Deserialize)]
 pub struct SearchConfig {
+    /// Elasticsearch 服务器 URL
     pub elasticsearch_url: String,
+    /// 是否启用搜索功能
     pub enabled: bool,
 }
 
+/// 限流配置。
+///
+/// 配置 API 请求限流规则，包括全局限流和端点级限流。
 #[derive(Debug, Clone, Deserialize)]
 pub struct RateLimitConfig {
+    /// 是否启用限流
     #[serde(default = "default_rate_limit_enabled")]
     pub enabled: bool,
+    /// 默认限流规则
     #[serde(default)]
     pub default: RateLimitRule,
+    /// 端点级限流规则
     #[serde(default)]
     pub endpoints: Vec<RateLimitEndpointRule>,
+    /// IP 头优先级列表
     #[serde(default)]
     pub ip_header_priority: Vec<String>,
+    /// 是否包含请求头进行限流判断
     #[serde(default)]
     pub include_headers: bool,
+    /// 豁免路径列表
     #[serde(default)]
     pub exempt_paths: Vec<String>,
+    /// 豁免路径前缀列表
     #[serde(default)]
     pub exempt_path_prefixes: Vec<String>,
+    /// 端点别名映射
     #[serde(default)]
     pub endpoint_aliases: HashMap<String, String>,
+    /// 错误时是否开放访问
+    #[serde(default = "default_rate_limit_fail_open")]
+    pub fail_open_on_error: bool,
 }
 
 fn default_rate_limit_enabled() -> bool {
     true
 }
 
+fn default_rate_limit_fail_open() -> bool {
+    false
+}
+
+/// 单个限流规则。
+///
+/// 定义令牌桶算法的参数：每秒补充令牌数和桶容量。
 #[derive(Debug, Clone, Deserialize)]
 pub struct RateLimitRule {
+    /// 每秒允许的请求数
     #[serde(default = "default_rate_limit_per_second")]
     pub per_second: u32,
+    /// 令牌桶容量（突发请求数）
     #[serde(default = "default_rate_limit_burst_size")]
     pub burst_size: u32,
 }
@@ -72,19 +119,28 @@ impl Default for RateLimitRule {
     }
 }
 
+/// 端点级限流规则。
+///
+/// 为特定 API 路径配置独立的限流参数。
 #[derive(Debug, Clone, Deserialize)]
 pub struct RateLimitEndpointRule {
+    /// 匹配的路径
     pub path: String,
+    /// 路径匹配类型
     #[serde(default)]
     pub match_type: RateLimitMatchType,
+    /// 该路径的限流规则
     pub rule: RateLimitRule,
 }
 
+/// 路径匹配类型。
 #[derive(Debug, Clone, Copy, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum RateLimitMatchType {
+    /// 精确匹配
     #[default]
     Exact,
+    /// 前缀匹配
     Prefix,
 }
 
@@ -103,36 +159,66 @@ impl Default for RateLimitConfig {
             exempt_paths: vec!["/".to_string(), "/_matrix/client/versions".to_string()],
             exempt_path_prefixes: Vec::new(),
             endpoint_aliases: HashMap::new(),
+            fail_open_on_error: default_rate_limit_fail_open(),
         }
     }
 }
 
+/// 配置管理器。
+///
+/// 提供线程安全的配置访问和更新方法。
 pub struct ConfigManager {
+    /// 内部配置存储
     config: Arc<RwLock<Config>>,
 }
 
 impl ConfigManager {
+    /// 创建新的配置管理器。
+    ///
+    /// # 参数
+    ///
+    /// * `config` - 初始配置
     pub fn new(config: Config) -> Self {
         Self {
             config: Arc::new(RwLock::new(config)),
         }
     }
 
+    /// 获取服务器名称。
+    ///
+    /// # 返回值
+    ///
+    /// 返回服务器名称字符串
     pub fn get_server_name(&self) -> String {
         let config = self.config.read().unwrap();
         config.server.name.clone()
     }
 
+    /// 获取服务器主机地址。
+    ///
+    /// # 返回值
+    ///
+    /// 返回服务器主机字符串
     pub fn get_server_host(&self) -> String {
         let config = self.config.read().unwrap();
         config.server.host.clone()
     }
 
+    /// 获取服务器端口。
+    ///
+    /// # 返回值
+    ///
+    /// 返回服务器端口号
     pub fn get_server_port(&self) -> u16 {
         let config = self.config.read().unwrap();
         config.server.port
     }
 
+    /// 获取数据库连接 URL。
+    ///
+    /// # 返回值
+    ///
+    /// 返回 PostgreSQL 连接字符串
     pub fn get_database_url(&self) -> String {
         let config = self.config.read().unwrap();
         format!(
@@ -145,16 +231,35 @@ impl ConfigManager {
         )
     }
 
+    /// 获取 Redis 连接 URL。
+    ///
+    /// # 返回值
+    ///
+    /// 返回 Redis 连接字符串
     pub fn get_redis_url(&self) -> String {
         let config = self.config.read().unwrap();
         format!("redis://{}:{}", config.redis.host, config.redis.port)
     }
 
+    /// 获取完整配置副本。
+    ///
+    /// # 返回值
+    ///
+    /// 返回配置克隆
     pub fn get_config(&self) -> Config {
         let config = self.config.read().unwrap();
         config.clone()
     }
 
+    /// 更新配置。
+    ///
+    /// # 参数
+    ///
+    /// * `f` - 配置更新闭包
+    ///
+    /// # 返回值
+    ///
+    /// 成功时返回 `Ok(())`，失败时返回错误
     pub fn update_config<F>(&self, f: F) -> Result<(), Box<dyn std::error::Error>>
     where
         F: FnOnce(&mut Config),
@@ -173,22 +278,40 @@ impl Clone for ConfigManager {
     }
 }
 
+/// 服务器配置。
+///
+/// 配置 Matrix Homeserver 的网络和会话参数。
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
+    /// 服务器名称（域名）
     pub name: String,
+    /// 监听主机地址
     pub host: String,
+    /// 监听端口
     pub port: u16,
+    /// 注册共享密钥（用于管理员注册）
     pub registration_shared_secret: Option<String>,
+    /// 管理员联系邮箱
     pub admin_contact: Option<String>,
+    /// 最大上传大小（字节）
     pub max_upload_size: u64,
+    /// 最大图片分辨率
     pub max_image_resolution: u32,
+    /// 是否允许用户注册
     pub enable_registration: bool,
+    /// 是否启用注册验证码
     pub enable_registration_captcha: bool,
+    /// 后台任务执行间隔（秒）
     pub background_tasks_interval: u64,
+    /// 是否使访问令牌过期
     pub expire_access_token: bool,
+    /// 访问令牌过期时间
     pub expire_access_token_lifetime: i64,
+    /// 刷新令牌生命周期
     pub refresh_token_lifetime: i64,
+    /// 刷新令牌滑动窗口大小
     pub refresh_token_sliding_window_size: i64,
+    /// 会话持续时间
     pub session_duration: i64,
     #[serde(default = "default_warmup_pool")]
     pub warmup_pool: bool,
@@ -198,56 +321,310 @@ fn default_warmup_pool() -> bool {
     true
 }
 
+/// 数据库连接配置。
 #[derive(Debug, Clone, Deserialize)]
 pub struct DatabaseConfig {
+    /// 数据库主机地址
     pub host: String,
+    /// 数据库端口
     pub port: u16,
+    /// 数据库用户名
     pub username: String,
+    /// 数据库密码
     pub password: String,
+    /// 数据库名称
     pub name: String,
+    /// 连接池大小
     pub pool_size: u32,
+    /// 最大连接数
     pub max_size: u32,
+    /// 最小空闲连接数
     pub min_idle: Option<u32>,
+    /// 连接超时时间（秒）
     pub connection_timeout: u64,
 }
 
+/// Redis 缓存配置。
 #[derive(Debug, Clone, Deserialize)]
 pub struct RedisConfig {
+    /// Redis 主机地址
     pub host: String,
+    /// Redis 端口
     pub port: u16,
+    /// 缓存键前缀
     pub key_prefix: String,
+    /// 连接池大小
     pub pool_size: u32,
+    /// 是否启用 Redis 缓存
     pub enabled: bool,
 }
 
+/// 日志配置。
 #[derive(Debug, Clone, Deserialize)]
 pub struct LoggingConfig {
+    /// 日志级别
     pub level: String,
+    /// 日志格式
     pub format: String,
+    /// 日志文件路径
     pub log_file: Option<String>,
+    /// 日志目录
     pub log_dir: Option<String>,
 }
 
+/// 联邦配置。
+///
+/// 配置与其他 Matrix 服务器的联邦通信参数。
 #[derive(Debug, Clone, Deserialize)]
 pub struct FederationConfig {
+    /// 是否启用联邦功能
     pub enabled: bool,
+    /// 是否允许入口
     pub allow_ingress: bool,
+    /// 联邦服务器名称
     pub server_name: String,
+    /// 联邦通信端口
     pub federation_port: u16,
+    /// 连接池大小
     pub connection_pool_size: u32,
+    /// 最大事务负载大小
     pub max_transaction_payload: u64,
+    /// CA 证书文件
     pub ca_file: Option<PathBuf>,
+    /// 客户端 CA 证书文件
     pub client_ca_file: Option<PathBuf>,
+    /// 签名密钥
     pub signing_key: Option<String>,
+    /// 密钥 ID
     pub key_id: Option<String>,
 }
 
+/// 安全配置。
+///
+/// 配置认证、加密和密码哈希参数。
 #[derive(Debug, Clone, Deserialize)]
 pub struct SecurityConfig {
+    /// 密钥字符串
     pub secret: String,
+    /// 令牌过期时间
     pub expiry_time: i64,
+    /// 刷新令牌过期时间
     pub refresh_token_expiry: i64,
-    pub bcrypt_rounds: u32,
+    /// Argon2 内存成本
+    #[serde(default = "default_argon2_m_cost")]
+    pub argon2_m_cost: u32,
+    /// Argon2 时间成本
+    #[serde(default = "default_argon2_t_cost")]
+    pub argon2_t_cost: u32,
+    /// Argon2 并行度
+    #[serde(default = "default_argon2_p_cost")]
+    pub argon2_p_cost: u32,
+}
+
+fn default_argon2_m_cost() -> u32 {
+    4096
+}
+
+fn default_argon2_t_cost() -> u32 {
+    3
+}
+
+fn default_argon2_p_cost() -> u32 {
+    1
+}
+
+/// CORS 配置。
+///
+/// 配置跨域资源共享策略。
+#[derive(Debug, Clone, Deserialize)]
+pub struct CorsConfig {
+    /// 允许的来源列表
+    #[serde(default = "default_allowed_origins")]
+    pub allowed_origins: Vec<String>,
+    /// 是否允许凭证
+    #[serde(default = "default_allow_credentials")]
+    pub allow_credentials: bool,
+    /// 允许的 HTTP 方法
+    #[serde(default = "default_allowed_methods")]
+    pub allowed_methods: Vec<String>,
+    /// 允许的请求头
+    #[serde(default = "default_allowed_headers")]
+    pub allowed_headers: Vec<String>,
+    /// 预检请求最大缓存时间（秒）
+    #[serde(default = "default_cors_max_age")]
+    pub max_age_seconds: u64,
+}
+
+impl Default for CorsConfig {
+    fn default() -> Self {
+        Self {
+            allowed_origins: default_allowed_origins(),
+            allow_credentials: default_allow_credentials(),
+            allowed_methods: default_allowed_methods(),
+            allowed_headers: default_allowed_headers(),
+            max_age_seconds: default_cors_max_age(),
+        }
+    }
+}
+
+fn default_allowed_origins() -> Vec<String> {
+    vec!["*".to_string()]
+}
+
+fn default_allow_credentials() -> bool {
+    false
+}
+
+fn default_allowed_methods() -> Vec<String> {
+    vec![
+        "GET".to_string(),
+        "POST".to_string(),
+        "PUT".to_string(),
+        "DELETE".to_string(),
+        "OPTIONS".to_string(),
+    ]
+}
+
+fn default_allowed_headers() -> Vec<String> {
+    vec![
+        "Authorization".to_string(),
+        "Content-Type".to_string(),
+        "Accept".to_string(),
+        "X-Requested-With".to_string(),
+    ]
+}
+
+fn default_cors_max_age() -> u64 {
+    86400
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdminRegistrationConfig {
+    #[serde(default = "default_admin_registration_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_admin_registration_shared_secret")]
+    pub shared_secret: String,
+    #[serde(default = "default_admin_registration_nonce_timeout")]
+    pub nonce_timeout_seconds: u64,
+}
+
+fn default_admin_registration_enabled() -> bool {
+    false
+}
+
+fn default_admin_registration_shared_secret() -> String {
+    "".to_string()
+}
+
+fn default_admin_registration_nonce_timeout() -> u64 {
+    60
+}
+
+impl Default for AdminRegistrationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_admin_registration_enabled(),
+            shared_secret: default_admin_registration_shared_secret(),
+            nonce_timeout_seconds: default_admin_registration_nonce_timeout(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkerConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_worker_instance_name")]
+    pub instance_name: String,
+    #[serde(default)]
+    pub worker_app: Option<String>,
+    #[serde(default)]
+    pub instance_map: HashMap<String, InstanceLocationConfig>,
+    #[serde(default)]
+    pub stream_writers: StreamWriters,
+    #[serde(default)]
+    pub replication: ReplicationConfig,
+}
+
+fn default_worker_instance_name() -> String {
+    "master".to_string()
+}
+
+impl Default for WorkerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            instance_name: default_worker_instance_name(),
+            worker_app: None,
+            instance_map: HashMap::new(),
+            stream_writers: StreamWriters::default(),
+            replication: ReplicationConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct InstanceLocationConfig {
+    pub host: String,
+    pub port: u16,
+    #[serde(default)]
+    pub tls: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StreamWriters {
+    #[serde(default = "default_stream_writers")]
+    pub events: Vec<String>,
+    #[serde(default = "default_stream_writers")]
+    pub typing: Vec<String>,
+    #[serde(default = "default_stream_writers")]
+    pub to_device: Vec<String>,
+    #[serde(default = "default_stream_writers")]
+    pub account_data: Vec<String>,
+    #[serde(default = "default_stream_writers")]
+    pub receipts: Vec<String>,
+    #[serde(default = "default_stream_writers")]
+    pub presence: Vec<String>,
+    #[serde(default = "default_stream_writers")]
+    pub push_rules: Vec<String>,
+    #[serde(default = "default_stream_writers")]
+    pub device_lists: Vec<String>,
+}
+
+fn default_stream_writers() -> Vec<String> {
+    vec![default_worker_instance_name()]
+}
+
+impl Default for StreamWriters {
+    fn default() -> Self {
+        let default = default_stream_writers();
+        Self {
+            events: default.clone(),
+            typing: default.clone(),
+            to_device: default.clone(),
+            account_data: default.clone(),
+            receipts: default.clone(),
+            presence: default.clone(),
+            push_rules: default.clone(),
+            device_lists: default,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ReplicationConfig {
+    pub enabled: bool,
+    pub server_name: String,
+    pub http: ReplicationHttpConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ReplicationHttpConfig {
+    pub enabled: bool,
+    pub host: String,
+    pub port: u16,
+    pub secret: Option<String>,
+    pub secret_path: Option<String>,
 }
 
 impl Config {
@@ -345,13 +722,24 @@ mod tests {
                 secret: "test_secret".to_string(),
                 expiry_time: 3600,
                 refresh_token_expiry: 604800,
-                bcrypt_rounds: 12,
+                argon2_m_cost: 4096,
+                argon2_t_cost: 3,
+                argon2_p_cost: 1,
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
                 enabled: false,
             },
             rate_limit: RateLimitConfig::default(),
+            admin_registration: AdminRegistrationConfig::default(),
+            worker: WorkerConfig::default(),
+            cors: CorsConfig {
+                allowed_origins: vec!["*".to_string()],
+                allow_credentials: false,
+                allowed_methods: default_allowed_methods(),
+                allowed_headers: default_allowed_headers(),
+                max_age_seconds: default_cors_max_age(),
+            },
         };
 
         let url = config.database_url();
@@ -419,13 +807,24 @@ mod tests {
                 secret: "test_secret".to_string(),
                 expiry_time: 3600,
                 refresh_token_expiry: 604800,
-                bcrypt_rounds: 12,
+                argon2_m_cost: 4096,
+                argon2_t_cost: 3,
+                argon2_p_cost: 1,
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
                 enabled: false,
             },
             rate_limit: RateLimitConfig::default(),
+            admin_registration: AdminRegistrationConfig::default(),
+            worker: WorkerConfig::default(),
+            cors: CorsConfig {
+                allowed_origins: vec!["*".to_string()],
+                allow_credentials: false,
+                allowed_methods: default_allowed_methods(),
+                allowed_headers: default_allowed_headers(),
+                max_age_seconds: default_cors_max_age(),
+            },
         };
 
         let url = config.redis_url();
@@ -533,10 +932,12 @@ mod tests {
             secret: "very_secure_secret_key".to_string(),
             expiry_time: 3600,
             refresh_token_expiry: 604800,
-            bcrypt_rounds: 12,
+            argon2_m_cost: 4096,
+            argon2_t_cost: 3,
+            argon2_p_cost: 1,
         };
 
         assert!(config.secret.len() > 16);
-        assert_eq!(config.bcrypt_rounds, 12);
+        assert_eq!(config.argon2_m_cost, 4096);
     }
 }

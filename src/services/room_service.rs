@@ -1,7 +1,10 @@
+use crate::common::validation::Validator;
 use crate::common::{generate_event_id, generate_room_id};
 use crate::services::*;
 use crate::storage::CreateEventParams;
+use crate::storage::UserStorage;
 use serde_json::json;
+use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
 pub struct CreateRoomConfig {
@@ -19,6 +22,8 @@ pub struct RoomService {
     room_storage: RoomStorage,
     member_storage: RoomMemberStorage,
     event_storage: EventStorage,
+    user_storage: UserStorage,
+    validator: Arc<Validator>,
     server_name: String,
 }
 
@@ -27,12 +32,16 @@ impl RoomService {
         room_storage: RoomStorage,
         member_storage: RoomMemberStorage,
         event_storage: EventStorage,
+        user_storage: UserStorage,
+        validator: Arc<Validator>,
         server_name: String,
     ) -> Self {
         Self {
             room_storage,
             member_storage,
             event_storage,
+            user_storage,
+            validator,
             server_name,
         }
     }
@@ -42,6 +51,12 @@ impl RoomService {
         user_id: &str,
         config: CreateRoomConfig,
     ) -> ApiResult<serde_json::Value> {
+        if let Some(alias) = &config.room_alias_name {
+            if let Err(e) = self.validator.validate_username(alias) {
+                return Err(e.into());
+            }
+        }
+
         let room_id = self.generate_room_id();
         let join_rule = self.determine_join_rule(config.preset.as_deref());
         let is_public = self.is_public_visibility(config.visibility.as_deref());
@@ -129,6 +144,12 @@ impl RoomService {
     ) -> ApiResult<()> {
         if let Some(invites) = invite_list {
             for invitee in invites {
+                if !self.user_storage.user_exists(invitee).await.map_err(|e| {
+                    ApiError::internal(format!("Failed to check user existence: {}", e))
+                })? {
+                    ::tracing::warn!("Skipping invite for non-existent user: {}", invitee);
+                    continue;
+                }
                 self.member_storage
                     .add_member(room_id, invitee, "invite", None, None)
                     .await
@@ -203,6 +224,15 @@ impl RoomService {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
 
+        if !self
+            .user_storage
+            .user_exists(user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?
+        {
+            return Err(ApiError::not_found("User not found".to_string()));
+        }
+
         self.member_storage
             .add_member(room_id, user_id, "join", None, None)
             .await
@@ -252,7 +282,7 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get members: {}", e)))?;
 
-        Ok(json!(members))
+        Ok(json!({ "chunk": members }))
     }
 
     pub async fn get_room(&self, room_id: &str) -> ApiResult<serde_json::Value> {
@@ -368,32 +398,66 @@ impl RoomService {
         }))
     }
 
-    pub async fn invite_user(&self, room_id: &str, inviter: &str, invitee: &str) -> ApiResult<()> {
-        let event_id = format!("${}", uuid::Uuid::new_v4());
-        let origin_server_ts = chrono::Utc::now().timestamp_millis();
+    pub async fn invite_user(
+        &self,
+        room_id: &str,
+        inviter_id: &str,
+        invitee_id: &str,
+    ) -> ApiResult<()> {
+        if !self
+            .room_storage
+            .room_exists(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check room: {}", e)))?
+        {
+            return Err(ApiError::not_found("Room not found".to_string()));
+        }
 
-        let invite_event = json!({
-            "type": "m.room.member",
-            "content": {
-                "membership": "invite"
-            },
-            "sender": inviter,
-            "state_key": invitee
-        });
+        if !self
+            .user_storage
+            .user_exists(invitee_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?
+        {
+            return Err(ApiError::not_found("User not found".to_string()));
+        }
 
-        self.event_storage
-            .create_event(CreateEventParams {
-                event_id,
-                room_id: room_id.to_string(),
-                user_id: inviter.to_string(),
-                event_type: "m.room.member".to_string(),
-                content: invite_event,
-                state_key: Some(invitee.to_string()),
-                origin_server_ts,
-            })
+        self.member_storage
+            .add_member(room_id, invitee_id, "invite", None, Some(inviter_id))
             .await
             .map_err(|e| ApiError::internal(format!("Failed to create invite event: {}", e)))?;
+        Ok(())
+    }
 
+    pub async fn ban_user(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        banned_by: &str,
+        _reason: Option<&str>,
+    ) -> ApiResult<()> {
+        if !self
+            .room_storage
+            .room_exists(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check room: {}", e)))?
+        {
+            return Err(ApiError::not_found("Room not found".to_string()));
+        }
+
+        if !self
+            .user_storage
+            .user_exists(user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?
+        {
+            return Err(ApiError::not_found("User not found".to_string()));
+        }
+
+        self.member_storage
+            .ban_member(room_id, user_id, banned_by)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to ban user: {}", e)))?;
         Ok(())
     }
 

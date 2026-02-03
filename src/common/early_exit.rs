@@ -49,6 +49,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_early_exit_timeout() {
+        tokio::time::pause();
         let future = async {
             tokio::time::sleep(Duration::from_millis(100)).await;
             42
@@ -68,6 +69,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_early_exit_deadline() {
+        tokio::time::pause();
         let future = async {
             tokio::time::sleep(Duration::from_millis(100)).await;
             42

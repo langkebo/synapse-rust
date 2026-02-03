@@ -94,6 +94,7 @@ mod metrics_integration_tests {
         }
 
         let metrics = collector.collect_metrics();
-        assert_eq!(metrics.len(), 30);
+        // 10 counters + 10 gauges + 10 histograms * 3 (count, sum, avg) = 50
+        assert_eq!(metrics.len(), 50);
     }
 }

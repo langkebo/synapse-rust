@@ -14,18 +14,21 @@ impl DeviceKeyStorage {
     }
 
     pub async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError> {
+        let now_ms = key.updated_at.timestamp_millis();
         sqlx::query(
             r#"
-            INSERT INTO device_keys (id, user_id, device_id, display_name, algorithm, key_id, public_key, signatures, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO device_keys (user_id, device_id, display_name, algorithm, key_id, public_key, signatures, created_at, updated_at, ts_updated_ms, key_json, ts_added_ms, ts_last_accessed)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT (user_id, device_id, key_id) DO UPDATE
             SET display_name = EXCLUDED.display_name,
                 public_key = EXCLUDED.public_key,
                 signatures = EXCLUDED.signatures,
-                updated_at = EXCLUDED.updated_at
+                updated_at = EXCLUDED.updated_at,
+                ts_updated_ms = EXCLUDED.ts_updated_ms,
+                key_json = EXCLUDED.key_json,
+                ts_last_accessed = EXCLUDED.ts_last_accessed
             "#
         )
-        .bind(key.id)
         .bind(&key.user_id)
         .bind(&key.device_id)
         .bind(&key.display_name)
@@ -35,6 +38,10 @@ impl DeviceKeyStorage {
         .bind(&key.signatures)
         .bind(key.created_at)
         .bind(key.updated_at)
+        .bind(now_ms)
+        .bind(serde_json::json!({}))
+        .bind(now_ms)
+        .bind(now_ms)
         .execute(&*self.pool)
         .await?;
 

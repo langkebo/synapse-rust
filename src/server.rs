@@ -2,6 +2,7 @@ use axum::{routing::get, Json, Router};
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
@@ -77,13 +78,60 @@ impl SynapseServer {
                 "/{*path}",
                 get(|| async { Json(json!({"errcode": "UNKNOWN", "error": "Unknown endpoint"})) }),
             )
-            .layer(
-                CorsLayer::new()
-                    .allow_origin(Any)
-                    .allow_methods(Any)
-                    .allow_headers(Any)
-                    .allow_credentials(false),
-            )
+            .layer({
+                let cors = &config.cors;
+                let mut layer = CorsLayer::new();
+
+                if cors.allowed_origins.iter().any(|o| o == "*") {
+                    layer = layer.allow_origin(Any);
+                } else {
+                    let origins: Vec<http::HeaderValue> = cors
+                        .allowed_origins
+                        .iter()
+                        .filter_map(|o| http::HeaderValue::from_str(o).ok())
+                        .collect();
+                    if !origins.is_empty() {
+                        layer = layer.allow_origin(origins);
+                    } else {
+                        layer = layer.allow_origin(Any);
+                    }
+                }
+
+                if cors.allow_credentials && !cors.allowed_origins.iter().any(|o| o == "*") {
+                    layer = layer.allow_credentials(true);
+                } else {
+                    layer = layer.allow_credentials(false);
+                }
+                if cors.allowed_methods.iter().any(|m| m == "*") {
+                    layer = layer.allow_methods(Any);
+                } else {
+                    let methods: Vec<http::Method> = cors
+                        .allowed_methods
+                        .iter()
+                        .filter_map(|m| http::Method::from_bytes(m.as_bytes()).ok())
+                        .collect();
+                    if !methods.is_empty() {
+                        layer = layer.allow_methods(methods);
+                    } else {
+                        layer = layer.allow_methods(Any);
+                    }
+                }
+                if cors.allowed_headers.iter().any(|h| h == "*") {
+                    layer = layer.allow_headers(Any);
+                } else {
+                    let headers: Vec<http::HeaderName> = cors
+                        .allowed_headers
+                        .iter()
+                        .filter_map(|h| http::HeaderName::from_str(h).ok())
+                        .collect();
+                    if !headers.is_empty() {
+                        layer = layer.allow_headers(headers);
+                    } else {
+                        layer = layer.allow_headers(Any);
+                    }
+                }
+                layer
+            })
             .layer(TraceLayer::new_for_http());
 
         Ok(Self {

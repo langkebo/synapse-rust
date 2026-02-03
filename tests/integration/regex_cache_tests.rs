@@ -14,9 +14,11 @@ mod regex_cache_integration_tests {
             r"[A-Z][a-z]+",
         ];
 
-        for pattern in &patterns {
+        let test_strings = vec!["123", "abc", "test_123", "2023-10-27", "Hello"];
+
+        for (pattern, test_str) in patterns.iter().zip(test_strings.iter()) {
             let regex = cache.get_or_create(pattern).unwrap();
-            assert!(regex.is_match("test123"));
+            assert!(regex.is_match(test_str));
         }
 
         assert_eq!(cache.len(), patterns.len());
@@ -66,7 +68,9 @@ mod regex_cache_integration_tests {
         let email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$";
 
         assert!(cache.is_match(email_pattern, "test@example.com").unwrap());
-        assert!(cache.is_match(email_pattern, "user.name@domain.co.uk").unwrap());
+        assert!(cache
+            .is_match(email_pattern, "user.name@domain.co.uk")
+            .unwrap());
         assert!(!cache.is_match(email_pattern, "invalid-email").unwrap());
         assert!(!cache.is_match(email_pattern, "@missing-local.com").unwrap());
         assert!(!cache.is_match(email_pattern, "missing@domain").unwrap());
@@ -78,7 +82,9 @@ mod regex_cache_integration_tests {
         let url_pattern = r"^(https?|ftp)://[^\s/$.?#].[^\s]*$";
 
         assert!(cache.is_match(url_pattern, "http://example.com").unwrap());
-        assert!(cache.is_match(url_pattern, "https://www.example.com/path").unwrap());
+        assert!(cache
+            .is_match(url_pattern, "https://www.example.com/path")
+            .unwrap());
         assert!(!cache.is_match(url_pattern, "not-a-url").unwrap());
     }
 

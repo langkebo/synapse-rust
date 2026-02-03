@@ -1,0 +1,568 @@
+{
+  "test_suite": "认证模块测试",
+  "test_date": "2026-02-02T10:34:37Z",
+  "test_environment": {
+    "server_url": "http://localhost:8008",
+    "server_name": "localhost"
+  },
+  "summary": {
+    "total_tests": 41,
+    "passed": 31,
+    "failed": 10,
+    "skipped": 0,
+    "success_rate": "75.6%"
+  },
+  "results": [
+    {
+      "test_id": "1.1",
+      "api": "GET /_matrix/client/versions",
+      "test_name": "正常请求",
+      "status": "passed",
+      "duration_ms": 11,
+      "http_status": 200,
+      "response": {
+        "unstable_features": {
+          "m.lazy_load_members": true,
+          "m.require_identity_server": false,
+          "m.supports_login_via_phone_number": true
+        },
+        "versions": [
+          "r0.0.1",
+          "r0.1.0",
+          "r0.2.0",
+          "r0.3.0",
+          "r0.4.0",
+          "r0.5.0",
+          "r0.6.0"
+        ]
+      },
+      "error": null
+    },
+    {
+      "test_id": "1.2",
+      "api": "GET /_matrix/client/versions",
+      "test_name": "重复请求",
+      "status": "passed",
+      "duration_ms": 13,
+      "http_status": 200,
+      "response": {
+        "unstable_features": {
+          "m.lazy_load_members": true,
+          "m.require_identity_server": false,
+          "m.supports_login_via_phone_number": true
+        },
+        "versions": [
+          "r0.0.1",
+          "r0.1.0",
+          "r0.2.0",
+          "r0.3.0",
+          "r0.4.0",
+          "r0.5.0",
+          "r0.6.0"
+        ]
+      },
+      "error": null
+    },
+    {
+      "test_id": "2.1",
+      "api": "GET /_matrix/client/r0/register/available",
+      "test_name": "检查不存在的用户名",
+      "status": "passed",
+      "duration_ms": 22,
+      "http_status": 200,
+      "response": {
+        "available": true,
+        "username": "testuser1_1770028477"
+      },
+      "error": null
+    },
+    {
+      "test_id": "2.2",
+      "api": "GET /_matrix/client/r0/register/available",
+      "test_name": "检查已存在的用户名",
+      "status": "passed",
+      "duration_ms": 12,
+      "http_status": 200,
+      "response": {
+        "available": false,
+        "username": "testuser1_1770028477"
+      },
+      "error": null
+    },
+    {
+      "test_id": "2.3",
+      "api": "GET /_matrix/client/r0/register/available",
+      "test_name": "空用户名",
+      "status": "failed",
+      "duration_ms": 12,
+      "http_status": 200,
+      "response": {
+        "available": true,
+        "username": ""
+      },
+      "error": "Expected HTTP 400, got 200"
+    },
+    {
+      "test_id": "3.1",
+      "api": "POST /_matrix/client/r0/register",
+      "test_name": "正常注册",
+      "status": "failed",
+      "duration_ms": 12,
+      "http_status": 409,
+      "response": {
+        "errcode": "M_USER_IN_USE",
+        "error": "Username already taken"
+      },
+      "error": "Expected HTTP 200, got 409"
+    },
+    {
+      "test_id": "3.2",
+      "api": "POST /_matrix/client/r0/register",
+      "test_name": "重复注册相同用户名",
+      "status": "failed",
+      "duration_ms": 14,
+      "http_status": 429,
+      "response": {
+        "errcode": "M_LIMIT_EXCEEDED",
+        "error": "Rate limited",
+        "retry_after_ms": 1000
+      },
+      "error": "Expected HTTP 400, got 429"
+    },
+    {
+      "test_id": "3.3",
+      "api": "POST /_matrix/client/r0/register",
+      "test_name": "密码太短",
+      "status": "failed",
+      "duration_ms": 15,
+      "http_status": 429,
+      "response": {
+        "errcode": "M_LIMIT_EXCEEDED",
+        "error": "Rate limited",
+        "retry_after_ms": 1000
+      },
+      "error": "Expected HTTP 400, got 429"
+    },
+    {
+      "test_id": "3.4",
+      "api": "POST /_matrix/client/r0/register",
+      "test_name": "缺少必填字段",
+      "status": "failed",
+      "duration_ms": 11,
+      "http_status": 429,
+      "response": {
+        "errcode": "M_LIMIT_EXCEEDED",
+        "error": "Rate limited",
+        "retry_after_ms": 1000
+      },
+      "error": "Expected HTTP 400, got 429"
+    },
+    {
+      "test_id": "3.5",
+      "api": "POST /_matrix/client/r0/register",
+      "test_name": "注册管理员账户",
+      "status": "failed",
+      "duration_ms": 12,
+      "http_status": 429,
+      "response": {
+        "errcode": "M_LIMIT_EXCEEDED",
+        "error": "Rate limited",
+        "retry_after_ms": 1000
+      },
+      "error": "Expected HTTP 200, got 429"
+    },
+    {
+      "test_id": "4.1",
+      "api": "POST /_matrix/client/r0/login",
+      "test_name": "正常登录",
+      "status": "passed",
+      "duration_ms": 19,
+      "http_status": 200,
+      "response": {
+        "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAdGVzdHVzZXIyXzE3NzAwMjg0Nzc6bWF0cml4LmNqeXN0eC50b3AiLCJ1c2VyX2lkIjoiQHRlc3R1c2VyMl8xNzcwMDI4NDc3Om1hdHJpeC5janlzdHgudG9wIiwiYWRtaW4iOmZhbHNlLCJleHAiOjE3NzAxMTQ4NzksImlhdCI6MTc3MDAyODQ3OSwiZGV2aWNlX2lkIjoiMjN4QzRlcWRqR0VOaW14aCJ9.ibL5oYU1zgRjAw3g_PcFbGl3vF03vHHi7mqGgmDQe-M",
+        "device_id": "23xC4eqdjGENimxh",
+        "expires_in": 86400,
+        "refresh_token": "KLGX0IakUE7DZtWStA03SYY03mbaS+jUy6Oc38TnAUQ=",
+        "user_id": "@testuser2_1770028477:matrix.cjystx.top",
+        "well_known": {
+          "m.homeserver": {
+            "base_url": "http://matrix.cjystx.top:8008"
+          }
+        }
+      },
+      "error": null
+    },
+    {
+      "test_id": "4.2",
+      "api": "POST /_matrix/client/r0/login",
+      "test_name": "错误密码",
+      "status": "passed",
+      "duration_ms": 16,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Invalid credentials"
+      },
+      "error": null
+    },
+    {
+      "test_id": "4.3",
+      "api": "POST /_matrix/client/r0/login",
+      "test_name": "不存在的用户",
+      "status": "passed",
+      "duration_ms": 12,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Invalid credentials"
+      },
+      "error": null
+    },
+    {
+      "test_id": "4.4",
+      "api": "POST /_matrix/client/r0/login",
+      "test_name": "缺少密码",
+      "status": "passed",
+      "duration_ms": 12,
+      "http_status": 400,
+      "response": {
+        "errcode": "M_BAD_JSON",
+        "error": "Password required"
+      },
+      "error": null
+    },
+    {
+      "test_id": "5.1",
+      "api": "GET /_matrix/client/r0/account/whoami",
+      "test_name": "正常请求",
+      "status": "passed",
+      "duration_ms": 18,
+      "http_status": 200,
+      "response": {
+        "admin": false,
+        "avatar_url": null,
+        "displayname": "testuser2_1770028477",
+        "user_id": "@testuser2_1770028477:matrix.cjystx.top"
+      },
+      "error": null
+    },
+    {
+      "test_id": "5.2",
+      "api": "GET /_matrix/client/r0/account/whoami",
+      "test_name": "无效令牌",
+      "status": "passed",
+      "duration_ms": 15,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Invalid token: InvalidToken"
+      },
+      "error": null
+    },
+    {
+      "test_id": "5.3",
+      "api": "GET /_matrix/client/r0/account/whoami",
+      "test_name": "缺少令牌",
+      "status": "passed",
+      "duration_ms": 11,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Missing or invalid authorization header"
+      },
+      "error": null
+    },
+    {
+      "test_id": "6.1",
+      "api": "GET /_matrix/client/r0/account/profile/{user_id}",
+      "test_name": "获取自己的资料",
+      "status": "passed",
+      "duration_ms": 14,
+      "http_status": 200,
+      "response": {
+        "avatar_url": null,
+        "displayname": null,
+        "user_id": "@testuser2_1770028477:matrix.cjystx.top"
+      },
+      "error": null
+    },
+    {
+      "test_id": "6.2",
+      "api": "GET /_matrix/client/r0/account/profile/{user_id}",
+      "test_name": "获取其他用户资料",
+      "status": "passed",
+      "duration_ms": 12,
+      "http_status": 200,
+      "response": {
+        "errcode": "UNKNOWN",
+        "error": "Unknown endpoint"
+      },
+      "error": null
+    },
+    {
+      "test_id": "6.3",
+      "api": "GET /_matrix/client/r0/account/profile/{user_id}",
+      "test_name": "不存在的用户",
+      "status": "passed",
+      "duration_ms": 14,
+      "http_status": 404,
+      "response": {
+        "errcode": "M_NOT_FOUND",
+        "error": "User not found"
+      },
+      "error": null
+    },
+    {
+      "test_id": "7.1",
+      "api": "PUT /_matrix/client/r0/account/profile/{user_id}/displayname",
+      "test_name": "更新自己的显示名",
+      "status": "passed",
+      "duration_ms": 16,
+      "http_status": 200,
+      "response": {},
+      "error": null
+    },
+    {
+      "test_id": "7.2",
+      "api": "PUT /_matrix/client/r0/account/profile/{user_id}/displayname",
+      "test_name": "更新为空字符串",
+      "status": "passed",
+      "duration_ms": 14,
+      "http_status": 200,
+      "response": {},
+      "error": null
+    },
+    {
+      "test_id": "7.3",
+      "api": "PUT /_matrix/client/r0/account/profile/{user_id}/displayname",
+      "test_name": "无效令牌",
+      "status": "passed",
+      "duration_ms": 14,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Invalid token: InvalidToken"
+      },
+      "error": null
+    },
+    {
+      "test_id": "8.1",
+      "api": "PUT /_matrix/client/r0/account/profile/{user_id}/avatar_url",
+      "test_name": "更新自己的头像",
+      "status": "passed",
+      "duration_ms": 14,
+      "http_status": 200,
+      "response": {},
+      "error": null
+    },
+    {
+      "test_id": "8.2",
+      "api": "PUT /_matrix/client/r0/account/profile/{user_id}/avatar_url",
+      "test_name": "更新为空字符串",
+      "status": "passed",
+      "duration_ms": 14,
+      "http_status": 200,
+      "response": {},
+      "error": null
+    },
+    {
+      "test_id": "8.3",
+      "api": "PUT /_matrix/client/r0/account/profile/{user_id}/avatar_url",
+      "test_name": "无效令牌",
+      "status": "passed",
+      "duration_ms": 12,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Invalid token: InvalidToken"
+      },
+      "error": null
+    },
+    {
+      "test_id": "9.1",
+      "api": "POST /_matrix/client/r0/account/password",
+      "test_name": "正常修改密码",
+      "status": "passed",
+      "duration_ms": 18,
+      "http_status": 200,
+      "response": {},
+      "error": null
+    },
+    {
+      "test_id": "9.2",
+      "api": "POST /_matrix/client/r0/account/password",
+      "test_name": "新密码太短",
+      "status": "failed",
+      "duration_ms": 19,
+      "http_status": 200,
+      "response": {},
+      "error": "Expected HTTP 400, got 200"
+    },
+    {
+      "test_id": "9.3",
+      "api": "POST /_matrix/client/r0/account/password",
+      "test_name": "缺少new_password",
+      "status": "passed",
+      "duration_ms": 12,
+      "http_status": 400,
+      "response": {
+        "errcode": "M_BAD_JSON",
+        "error": "New password required"
+      },
+      "error": null
+    },
+    {
+      "test_id": "9.4",
+      "api": "POST /_matrix/client/r0/account/password",
+      "test_name": "无效令牌",
+      "status": "passed",
+      "duration_ms": 12,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Invalid token: InvalidToken"
+      },
+      "error": null
+    },
+    {
+      "test_id": "10.1",
+      "api": "POST /_matrix/client/r0/refresh",
+      "test_name": "正常刷新令牌",
+      "status": "failed",
+      "duration_ms": 13,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Invalid refresh token"
+      },
+      "error": "Expected HTTP 200, got 401"
+    },
+    {
+      "test_id": "10.2",
+      "api": "POST /_matrix/client/r0/refresh",
+      "test_name": "无效refresh_token",
+      "status": "passed",
+      "duration_ms": 14,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Invalid refresh token"
+      },
+      "error": null
+    },
+    {
+      "test_id": "10.3",
+      "api": "POST /_matrix/client/r0/refresh",
+      "test_name": "缺少refresh_token",
+      "status": "passed",
+      "duration_ms": 11,
+      "http_status": 400,
+      "response": {
+        "errcode": "M_BAD_JSON",
+        "error": "Refresh token required"
+      },
+      "error": null
+    },
+    {
+      "test_id": "11.1",
+      "api": "POST /_matrix/client/r0/logout",
+      "test_name": "正常登出",
+      "status": "passed",
+      "duration_ms": 14,
+      "http_status": 200,
+      "response": {},
+      "error": null
+    },
+    {
+      "test_id": "11.2",
+      "api": "POST /_matrix/client/r0/logout",
+      "test_name": "无效令牌",
+      "status": "passed",
+      "duration_ms": 11,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Invalid token: InvalidToken"
+      },
+      "error": null
+    },
+    {
+      "test_id": "11.3",
+      "api": "POST /_matrix/client/r0/logout",
+      "test_name": "缺少令牌",
+      "status": "passed",
+      "duration_ms": 17,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Missing or invalid authorization header"
+      },
+      "error": null
+    },
+    {
+      "test_id": "12.1",
+      "api": "POST /_matrix/client/r0/logout/all",
+      "test_name": "正常全部登出",
+      "status": "failed",
+      "duration_ms": 13,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Missing or invalid authorization header"
+      },
+      "error": "Expected HTTP 200, got 401"
+    },
+    {
+      "test_id": "12.2",
+      "api": "POST /_matrix/client/r0/logout/all",
+      "test_name": "无效令牌",
+      "status": "passed",
+      "duration_ms": 12,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Invalid token: InvalidToken"
+      },
+      "error": null
+    },
+    {
+      "test_id": "13.1",
+      "api": "POST /_matrix/client/r0/account/deactivate",
+      "test_name": "正常停用账户",
+      "status": "failed",
+      "duration_ms": 11,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Missing or invalid authorization header"
+      },
+      "error": "Expected HTTP 200, got 401"
+    },
+    {
+      "test_id": "13.2",
+      "api": "POST /_matrix/client/r0/account/deactivate",
+      "test_name": "无效令牌",
+      "status": "passed",
+      "duration_ms": 13,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Invalid token: InvalidToken"
+      },
+      "error": null
+    },
+    {
+      "test_id": "13.3",
+      "api": "POST /_matrix/client/r0/account/deactivate",
+      "test_name": "缺少令牌",
+      "status": "passed",
+      "duration_ms": 13,
+      "http_status": 401,
+      "response": {
+        "errcode": "M_UNAUTHORIZED",
+        "error": "Missing or invalid authorization header"
+      },
+      "error": null
+    }
+  ]
+}

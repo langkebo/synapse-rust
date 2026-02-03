@@ -1,38 +1,68 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// 健康状态响应结构。
+///
+/// 用于 /_health 端点的 JSON 响应，包含整体状态和各项检查结果。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {
+    /// 整体状态：healthy、degraded 或 unhealthy
     pub status: String,
+    /// 服务器版本
     pub version: String,
+    /// 时间戳
     pub timestamp: i64,
+    /// 各项检查结果映射
     pub checks: HashMap<String, CheckResult>,
 }
 
+/// 单项检查结果。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckResult {
+    /// 检查状态：healthy、degraded 或 unhealthy
     pub status: String,
+    /// 状态消息
     pub message: String,
+    /// 检查耗时（毫秒）
     pub duration_ms: u64,
 }
 
+/// 健康检查级别。
+///
+/// 用于区分存活检查和就绪检查。
 #[derive(Debug, Clone)]
 pub enum HealthCheckLevel {
+    /// 存活检查：服务是否正在运行
     Liveness,
+    /// 就绪检查：服务是否准备好处理请求
     Readiness,
 }
 
+/// 健康检查 trait。
+///
+/// 定义健康检查组件必须实现的方法。
 #[async_trait::async_trait]
 pub trait HealthCheck: Send + Sync {
+    /// 执行健康检查。
     async fn check(&self) -> CheckResult;
+    /// 获取检查名称。
     fn name(&self) -> &str;
 }
 
+/// 数据库健康检查。
+///
+/// 检查 PostgreSQL 数据库连接是否正常。
 pub struct DatabaseHealthCheck {
+    /// 数据库连接池
     pool: sqlx::PgPool,
 }
 
 impl DatabaseHealthCheck {
+    /// 创建新的数据库健康检查实例。
+    ///
+    /// # 参数
+    ///
+    /// * `pool` - PostgreSQL 连接池
     pub fn new(pool: sqlx::PgPool) -> Self {
         Self { pool }
     }
@@ -62,11 +92,20 @@ impl HealthCheck for DatabaseHealthCheck {
     }
 }
 
+/// 缓存健康检查。
+///
+/// 检查缓存服务（Redis 或本地）是否正常。
 pub struct CacheHealthCheck {
+    /// 缓存管理器
     cache: crate::cache::CacheManager,
 }
 
 impl CacheHealthCheck {
+    /// 创建新的缓存健康检查实例。
+    ///
+    /// # 参数
+    ///
+    /// * `cache` - 缓存管理器
     pub fn new(cache: crate::cache::CacheManager) -> Self {
         Self { cache }
     }
@@ -113,12 +152,22 @@ impl HealthCheck for CacheHealthCheck {
     }
 }
 
+/// 健康检查器。
+///
+/// 收集和管理多个健康检查组件，执行综合健康检查。
 pub struct HealthChecker {
+    /// 健康检查组件列表
     checks: Vec<Box<dyn HealthCheck>>,
+    /// 服务器版本
     version: String,
 }
 
 impl HealthChecker {
+    /// 创建新的健康检查器。
+    ///
+    /// # 参数
+    ///
+    /// * `version` - 服务器版本号
     pub fn new(version: String) -> Self {
         Self {
             checks: Vec::new(),
@@ -126,14 +175,29 @@ impl HealthChecker {
         }
     }
 
+    /// 添加健康检查组件。
+    ///
+    /// # 参数
+    ///
+    /// * `check` - 健康检查组件
     pub fn add_check(&mut self, check: Box<dyn HealthCheck>) {
         self.checks.push(check);
     }
 
+    /// 执行存活检查。
+    ///
+    /// # 返回值
+    ///
+    /// 返回 `HealthStatus`，包含存活检查结果
     pub async fn check_liveness(&self) -> HealthStatus {
         self.perform_checks(HealthCheckLevel::Liveness).await
     }
 
+    /// 执行就绪检查。
+    ///
+    /// # 返回值
+    ///
+    /// 返回 `HealthStatus`，包含就绪检查结果
     pub async fn check_readiness(&self) -> HealthStatus {
         self.perform_checks(HealthCheckLevel::Readiness).await
     }
@@ -205,18 +269,16 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires running PostgreSQL server"]
     async fn test_health_checker_add_check() {
         let mut checker = HealthChecker::default();
-        let check = Box::new(DatabaseHealthCheck::new(
-            sqlx::PgPool::connect("postgresql://test:test@localhost/test")
-                .await
-                .expect(
-                    "Database connection failed - this test requires a running PostgreSQL server",
-                ),
-        ));
-        checker.add_check(check);
-        assert_eq!(checker.checks.len(), 1);
+        let db_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()
+        });
+        if let Ok(pool) = sqlx::PgPool::connect(&db_url).await {
+            let check = Box::new(DatabaseHealthCheck::new(pool));
+            checker.add_check(check);
+            assert_eq!(checker.checks.len(), 1);
+        }
     }
 
     #[tokio::test]

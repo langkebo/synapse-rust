@@ -20,11 +20,12 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route(
             "/_matrix/key/v2/query/{server_name}/{key_id}",
             get(key_query),
-        );
-
-    let protected = Router::new()
+        )
         .route("/_matrix/federation/v1/version", get(federation_version))
         .route("/_matrix/federation/v1", get(federation_discovery))
+        .route("/_matrix/federation/v1/publicRooms", get(get_public_rooms));
+
+    let protected = Router::new()
         .route(
             "/_matrix/federation/v1/send/{txn_id}",
             put(send_transaction),
@@ -596,6 +597,29 @@ async fn profile_query(
     Ok(Json(profile))
 }
 
+async fn get_public_rooms(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    let _since = params.get("since").cloned();
+
+    let rooms = state
+        .services
+        .room_storage
+        .get_public_rooms(limit)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(json!({
+        "chunk": rooms,
+        "next_batch": null
+    })))
+}
+
 fn topological_sort(pdus: &mut Vec<Value>) {
     use std::collections::{HashMap, VecDeque};
 
@@ -756,13 +780,20 @@ async fn server_key(State(state): State<AppState>) -> Result<Json<Value>, ApiErr
         .clone()
         .unwrap_or_else(|| "ed25519:1".to_string());
 
-    let verify_key = match config
-        .signing_key
-        .as_deref()
-        .and_then(derive_ed25519_verify_key_base64)
-    {
+    let verify_key = match config.signing_key.as_deref().and_then(|k| {
+        let res = derive_ed25519_verify_key_base64(k);
+        if res.is_none() {
+            ::tracing::error!("Failed to derive verify key from signing_key: {}", k);
+        }
+        res
+    }) {
         Some(k) => k,
-        None => return Err(ApiError::internal("Missing signing key".to_string())),
+        None => {
+            ::tracing::error!("Federation signing key missing or invalid in config");
+            return Err(ApiError::internal(
+                "Missing or invalid federation signing key".to_string(),
+            ));
+        }
     };
 
     Ok(Json(json!({
@@ -803,9 +834,12 @@ fn derive_ed25519_verify_key_base64(signing_key: &str) -> Option<String> {
 }
 
 fn decode_base64_32(value: &str) -> Option<[u8; 32]> {
+    let value = value.trim();
     let engines = [
         base64::engine::general_purpose::STANDARD,
         base64::engine::general_purpose::STANDARD_NO_PAD,
+        base64::engine::general_purpose::URL_SAFE,
+        base64::engine::general_purpose::URL_SAFE_NO_PAD,
     ];
 
     for engine in engines {

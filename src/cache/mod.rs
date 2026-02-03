@@ -9,8 +9,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
 
+pub mod query_cache;
 pub mod strategy;
 
+pub use query_cache::{CacheConfig as QueryCacheConfig, CacheEntry, CacheStats, QueryCache};
 pub use strategy::{CacheKeyBuilder, CacheTtl};
 
 const REDIS_TIMEOUT: Duration = Duration::from_millis(200);
@@ -29,6 +31,7 @@ impl Default for CacheConfig {
     }
 }
 
+#[derive(Clone)]
 pub struct LocalCache {
     cache: Cache<String, String>,
 }
@@ -67,6 +70,7 @@ impl LocalCache {
     }
 }
 
+#[derive(Clone)]
 pub struct RedisCache {
     pool: Pool,
 }
@@ -265,6 +269,7 @@ return {allowed, retry_after, remaining}
     }
 }
 
+#[derive(Clone)]
 pub struct CacheManager {
     local: LocalCache,
     redis: Option<Arc<RedisCache>>,
@@ -334,6 +339,16 @@ impl CacheManager {
         if let Some(redis) = &self.redis {
             redis.delete(token).await;
         }
+    }
+
+    pub async fn is_user_active(&self, user_id: &str) -> Option<bool> {
+        let key = format!("user:active:{}", user_id);
+        self.get::<bool>(&key).await.ok().flatten()
+    }
+
+    pub async fn set_user_active(&self, user_id: &str, active: bool, ttl: u64) {
+        let key = format!("user:active:{}", user_id);
+        let _ = self.set(&key, active, ttl).await;
     }
 
     pub async fn delete(&self, key: &str) {
@@ -545,74 +560,62 @@ mod tests {
         assert!(manager.redis.is_none());
     }
 
-    #[test]
-    fn test_cache_manager_set_and_get() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+    #[tokio::test]
+    async fn test_cache_manager_set_and_get() {
+        let config = CacheConfig::default();
+        let manager = CacheManager::new(config);
 
-            let test_value = "test_value".to_string();
-            let _ = manager.set("test_key", &test_value, 60).await;
+        let test_value = "test_value".to_string();
+        let _ = manager.set("test_key", &test_value, 60).await;
 
-            let result: Option<String> = manager.get::<String>("test_key").await.unwrap();
-            assert_eq!(result, Some(test_value));
-        });
+        let result: Option<String> = manager.get::<String>("test_key").await.unwrap();
+        assert_eq!(result, Some(test_value));
     }
 
-    #[test]
-    fn test_cache_manager_delete() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+    #[tokio::test]
+    async fn test_cache_manager_delete() {
+        let config = CacheConfig::default();
+        let manager = CacheManager::new(config);
 
-            let test_value = "test_value".to_string();
-            let _ = manager.set("test_key", &test_value, 60).await;
-            assert!(manager.get::<String>("test_key").await.unwrap().is_some());
+        let test_value = "test_value".to_string();
+        let _ = manager.set("test_key", &test_value, 60).await;
+        assert!(manager.get::<String>("test_key").await.unwrap().is_some());
 
-            let _ = manager.delete("test_key").await;
-            assert!(manager.get::<String>("test_key").await.unwrap().is_none());
-        });
+        let _ = manager.delete("test_key").await;
+        assert!(manager.get::<String>("test_key").await.unwrap().is_none());
     }
 
-    #[test]
-    fn test_cache_manager_get_nonexistent() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+    #[tokio::test]
+    async fn test_cache_manager_get_nonexistent() {
+        let config = CacheConfig::default();
+        let manager = CacheManager::new(config);
 
-            let result: Option<String> = manager.get::<String>("nonexistent").await.unwrap();
-            assert!(result.is_none());
-        });
+        let result: Option<String> = manager.get::<String>("nonexistent").await.unwrap();
+        assert!(result.is_none());
     }
 
-    #[test]
-    fn test_cache_manager_token_operations() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+    #[tokio::test]
+    async fn test_cache_manager_token_operations() {
+        let config = CacheConfig::default();
+        let manager = CacheManager::new(config);
 
-            let claims = Claims {
-                sub: "test_subject".to_string(),
-                user_id: "@test:example.com".to_string(),
-                admin: false,
-                device_id: Some("DEVICE123".to_string()),
-                exp: 1234567890,
-                iat: 1234567890,
-            };
+        let claims = Claims {
+            sub: "test_subject".to_string(),
+            user_id: "@test:example.com".to_string(),
+            admin: false,
+            device_id: Some("DEVICE123".to_string()),
+            exp: 1234567890,
+            iat: 1234567890,
+        };
 
-            manager.set_token("test_token", &claims, 3600).await;
-            let result = manager.get_token("test_token").await;
-            assert!(result.is_some());
-            assert_eq!(result.unwrap().user_id, "@test:example.com");
+        manager.set_token("test_token", &claims, 3600).await;
+        let result = manager.get_token("test_token").await;
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().user_id, "@test:example.com");
 
-            manager.delete_token("test_token").await;
-            let result = manager.get_token("test_token").await;
-            assert!(result.is_none());
-        });
+        manager.delete_token("test_token").await;
+        let result = manager.get_token("test_token").await;
+        assert!(result.is_none());
     }
 
     #[test]

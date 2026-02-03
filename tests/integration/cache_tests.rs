@@ -55,9 +55,9 @@ mod cache_integration_tests {
             let manager = CacheManager::new(config);
 
             let test_value = "test_value".to_string();
-            manager.set("test_key", &test_value, 60).await;
+            manager.set("test_key", &test_value, 60).await.unwrap();
 
-            let result: Option<String> = manager.get("test_key").await;
+            let result: Option<String> = manager.get("test_key").await.unwrap();
             assert_eq!(result, Some(test_value));
         });
     }
@@ -69,7 +69,7 @@ mod cache_integration_tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            let result: Option<String> = manager.get("nonexistent").await;
+            let result: Option<String> = manager.get("nonexistent").await.unwrap();
             assert!(result.is_none());
         });
     }
@@ -82,11 +82,11 @@ mod cache_integration_tests {
             let manager = CacheManager::new(config);
 
             let test_value = "test_value".to_string();
-            manager.set("test_key", &test_value, 60).await;
-            assert!(manager.get::<String>("test_key").await.is_some());
+            manager.set("test_key", &test_value, 60).await.unwrap();
+            assert!(manager.get::<String>("test_key").await.unwrap().is_some());
 
             manager.delete("test_key").await;
-            assert!(manager.get::<String>("test_key").await.is_none());
+            assert!(manager.get::<String>("test_key").await.unwrap().is_none());
         });
     }
 }

@@ -12,7 +12,9 @@ pub mod metrics;
 pub mod regex_cache;
 pub mod task_queue;
 pub mod tracing;
+pub mod transaction;
 pub mod types;
+pub mod validation;
 
 #[allow(ambiguous_glob_reexports)]
 pub use collections::*;

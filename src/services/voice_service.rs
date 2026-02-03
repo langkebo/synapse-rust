@@ -6,18 +6,19 @@ use serde_json::Value as JsonValue;
 use sqlx::Row;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::fs;
 
 type VoiceMessageRow = (
     i64,
     String,
     String,
-    String,
-    Option<String>,
+    Option<String>, // room_id
+    Option<String>, // session_id
     String,
     String,
     Option<i32>,
     Option<i64>,
-    Option<Vec<u8>>,
+    Option<String>, // waveform_data (TEXT in DB)
     Option<String>,
     i64,
 );
@@ -60,10 +61,10 @@ impl VoiceStorage {
     }
 
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS voice_messages (
-                id SERIAL PRIMARY KEY,
+                id BIGSERIAL PRIMARY KEY,
                 message_id VARCHAR(255) NOT NULL UNIQUE,
                 user_id VARCHAR(255) NOT NULL,
                 room_id VARCHAR(255),
@@ -76,23 +77,23 @@ impl VoiceStorage {
                 transcribe_text TEXT,
                 created_ts BIGINT NOT NULL
             )
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS voice_usage_stats (
-                id SERIAL PRIMARY KEY,
+                id BIGSERIAL PRIMARY KEY,
                 user_id VARCHAR(255) NOT NULL,
                 date DATE NOT NULL,
-                total_duration_ms INT DEFAULT 0,
+                total_duration_ms BIGINT DEFAULT 0,
                 total_file_size BIGINT DEFAULT 0,
                 message_count INT DEFAULT 0,
                 UNIQUE(user_id, date)
             )
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
@@ -153,13 +154,13 @@ impl VoiceStorage {
             id: r.0,
             message_id: r.1,
             user_id: r.2,
-            room_id: Some(r.3),
+            room_id: r.3,
             session_id: r.4,
             file_path: r.5,
             content_type: r.6,
             duration_ms: r.7.unwrap_or(0),
             file_size: r.8.unwrap_or(0),
-            waveform_data: r.9.map(|v| String::from_utf8_lossy(&v).to_string()),
+            waveform_data: r.9,
             transcribe_text: r.10,
             created_ts: r.11,
         }))
@@ -191,13 +192,13 @@ impl VoiceStorage {
                 id: r.0,
                 message_id: r.1.clone(),
                 user_id: r.2.clone(),
-                room_id: Some(r.3.clone()),
+                room_id: r.3.clone(),
                 session_id: r.4.clone(),
                 file_path: r.5.clone(),
                 content_type: r.6.clone(),
                 duration_ms: r.7.unwrap_or(0),
                 file_size: r.8.unwrap_or(0),
-                waveform_data: r.9.clone().map(|v| String::from_utf8_lossy(&v).to_string()),
+                waveform_data: r.9.clone(),
                 transcribe_text: r.10.clone(),
                 created_ts: r.11,
             })
@@ -213,7 +214,7 @@ impl VoiceStorage {
             r#"
             SELECT duration_ms, file_size
             FROM voice_messages
-            WHERE message_id = $1 AND sender_id = $2
+            WHERE message_id = $1 AND user_id = $2
             "#,
         )
         .bind(message_id)
@@ -261,13 +262,13 @@ impl VoiceStorage {
                 id: r.0,
                 message_id: r.1.clone(),
                 user_id: r.2.clone(),
-                room_id: Some(r.3.clone()),
+                room_id: r.3.clone(),
                 session_id: r.4.clone(),
                 file_path: r.5.clone(),
                 content_type: r.6.clone(),
                 duration_ms: r.7.unwrap_or(0),
                 file_size: r.8.unwrap_or(0),
-                waveform_data: r.9.as_ref().map(|v| String::from_utf8_lossy(v).to_string()),
+                waveform_data: r.9.clone(),
                 transcribe_text: r.10.clone(),
                 created_ts: r.11,
             })
@@ -281,7 +282,7 @@ impl VoiceStorage {
         size_delta: i64,
     ) -> Result<(), sqlx::Error> {
         let today = chrono::Utc::now().date_naive();
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO voice_usage_stats (user_id, date, total_duration_ms, total_file_size, message_count)
             VALUES ($1, $2, $3, $4, 1)
@@ -290,11 +291,11 @@ impl VoiceStorage {
                 total_file_size = voice_usage_stats.total_file_size + EXCLUDED.total_file_size,
                 message_count = voice_usage_stats.message_count + 1
             "#,
-            user_id,
-            today,
-            duration_delta,
-            size_delta
         )
+        .bind(user_id)
+        .bind(today)
+        .bind(duration_delta)
+        .bind(size_delta)
         .execute(&*self.pool)
         .await?;
 
@@ -485,7 +486,8 @@ impl VoiceService {
         let file_name = format!("{}.{}", message_id, extension);
         let file_path = self.voice_path.join(&file_name);
 
-        std::fs::write(&file_path, &params.content)
+        fs::write(&file_path, &params.content)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to save voice message: {}", e)))?;
 
         let file_size = params.content.len() as i64;
@@ -524,7 +526,7 @@ impl VoiceService {
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if let Some(msg) = message {
-            if let Ok(content) = std::fs::read(&msg.file_path) {
+            if let Ok(content) = fs::read(&msg.file_path).await {
                 return Ok(Some((content, msg.content_type)));
             }
         }
@@ -540,11 +542,11 @@ impl VoiceService {
 
         if deleted {
             let _file_path = self.voice_path.join(format!("{}.*", message_id));
-            if let Ok(entries) = std::fs::read_dir(&self.voice_path) {
-                for entry in entries.flatten() {
+            if let Ok(mut entries) = fs::read_dir(&self.voice_path).await {
+                while let Ok(Some(entry)) = entries.next_entry().await {
                     if let Some(file_name) = entry.file_name().to_str() {
                         if file_name.starts_with(message_id) {
-                            let _ = std::fs::remove_file(entry.path());
+                            let _ = fs::remove_file(entry.path()).await;
                         }
                     }
                 }

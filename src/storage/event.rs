@@ -123,7 +123,7 @@ impl EventStorage {
             r#"
             SELECT event_id, room_id, user_id, event_type, content, state_key, 
                    COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_ts, 0) as processed_ts, 
-                   COALESCE(not_before, 0) as not_before, status, reference_image, origin
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
             FROM events WHERE room_id = $1
             ORDER BY origin_server_ts DESC
             LIMIT $2
@@ -183,46 +183,49 @@ impl EventStorage {
     }
 
     pub async fn get_room_message_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query!(
+        let count = sqlx::query_scalar::<_, i64>(
             r#"
-            SELECT COUNT(*) as count FROM events WHERE room_id = $1 AND event_type = 'm.room.message'
+            SELECT COALESCE(COUNT(*), 0) FROM events WHERE room_id = $1 AND event_type = 'm.room.message'
             "#,
-            room_id
-        ).fetch_one(&*self.pool).await?;
-        Ok(result.count.unwrap_or(0))
+        )
+        .bind(room_id)
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(count)
     }
 
     pub async fn get_total_message_count(&self) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query!(
+        let count = sqlx::query_scalar::<_, i64>(
             r#"
-            SELECT COUNT(*) as count FROM events WHERE event_type = 'm.room.message'
-            "#
+            SELECT COALESCE(COUNT(*), 0) FROM events WHERE event_type = 'm.room.message'
+            "#,
         )
         .fetch_one(&*self.pool)
         .await?;
-        Ok(result.count.unwrap_or(0))
+        Ok(count)
     }
 
     pub async fn delete_room_events(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             DELETE FROM events WHERE room_id = $1
             "#,
-            room_id
         )
+        .bind(room_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
-        sqlx::query_as!(
-            StateEvent,
+        sqlx::query_as::<_, StateEvent>(
             r#"
             SELECT * FROM events WHERE room_id = $1 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
             "#,
-            room_id
-        ).fetch_all(&*self.pool).await
+        )
+        .bind(room_id)
+        .fetch_all(&*self.pool)
+        .await
     }
 
     pub async fn get_state_events_by_type(
@@ -230,13 +233,14 @@ impl EventStorage {
         room_id: &str,
         event_type: &str,
     ) -> Result<Vec<StateEvent>, sqlx::Error> {
-        sqlx::query_as!(
-            StateEvent,
+        sqlx::query_as::<_, StateEvent>(
             r#"
             SELECT * FROM events WHERE room_id = $1 AND event_type = $2 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
             "#,
-            room_id,
-            event_type
-        ).fetch_all(&*self.pool).await
+        )
+        .bind(room_id)
+        .bind(event_type)
+        .fetch_all(&*self.pool)
+        .await
     }
 }

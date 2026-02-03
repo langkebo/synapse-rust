@@ -1,12 +1,14 @@
 use crate::cache::*;
+use crate::common::config::SecurityConfig;
+use crate::common::crypto::{hash_password_with_params, verify_password as verify_password_common};
+use crate::common::metrics::MetricsCollector;
+use crate::common::validation::Validator;
 use crate::common::*;
 use crate::storage::*;
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, DecodingKey, EncodingKey, Header, Validation};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -26,17 +28,23 @@ pub struct AuthService {
     pub token_storage: AccessTokenStorage,
     pub refresh_token_storage: RefreshTokenStorage,
     pub cache: Arc<CacheManager>,
+    pub metrics: Arc<MetricsCollector>,
+    pub validator: Arc<Validator>,
     pub jwt_secret: Vec<u8>,
     pub token_expiry: i64,
     pub refresh_token_expiry: i64,
     pub server_name: String,
+    pub argon2_m_cost: u32,
+    pub argon2_t_cost: u32,
+    pub argon2_p_cost: u32,
 }
 
 impl AuthService {
     pub fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: Arc<CacheManager>,
-        jwt_secret: &str,
+        metrics: Arc<MetricsCollector>,
+        security: &SecurityConfig,
         server_name: &str,
     ) -> Self {
         Self {
@@ -45,14 +53,49 @@ impl AuthService {
             token_storage: AccessTokenStorage::new(pool),
             refresh_token_storage: RefreshTokenStorage::new(pool),
             cache,
-            jwt_secret: jwt_secret.as_bytes().to_vec(),
-            token_expiry: 24 * 60 * 60,
-            refresh_token_expiry: 7 * 24 * 60 * 60,
+            metrics,
+            validator: Arc::new(Validator::default()),
+            jwt_secret: security.secret.as_bytes().to_vec(),
+            token_expiry: security.expiry_time,
+            refresh_token_expiry: security.refresh_token_expiry,
             server_name: server_name.to_string(),
+            argon2_m_cost: security.argon2_m_cost,
+            argon2_t_cost: security.argon2_t_cost,
+            argon2_p_cost: security.argon2_p_cost,
         }
     }
 
     pub async fn register(
+        &self,
+        username: &str,
+        password: &str,
+        admin: bool,
+        displayname: Option<&str>,
+    ) -> ApiResult<(User, String, String, String)> {
+        let start = std::time::Instant::now();
+        let result = self
+            .register_internal(username, password, admin, displayname)
+            .await;
+
+        let duration = start.elapsed().as_secs_f64();
+        if let Some(hist) = self.metrics.get_histogram("auth_register_duration_seconds") {
+            hist.observe(duration);
+        } else {
+            let hist = self
+                .metrics
+                .register_histogram("auth_register_duration_seconds".to_string());
+            hist.observe(duration);
+        }
+
+        if result.is_ok() {
+            self.increment_counter("auth_register_success_total");
+        } else {
+            self.increment_counter("auth_register_failure_total");
+        }
+        result
+    }
+
+    async fn register_internal(
         &self,
         username: &str,
         password: &str,
@@ -63,6 +106,9 @@ impl AuthService {
             return Err(ApiError::bad_request(
                 "Username and password are required".to_string(),
             ));
+        }
+        if let Err(e) = self.validator.validate_username(username) {
+            return Err(e.into());
         }
 
         let existing_user = self
@@ -76,12 +122,26 @@ impl AuthService {
         }
 
         let user_id = format!("@{}:{}", username, self.server_name);
-        let password_hash = self.hash_password(password)?;
+
+        // P1 Performance: Run CPU-intensive hashing in spawn_blocking to avoid blocking the async executor
+        let auth = self.clone();
+        let password_str = password.to_string();
+        let password_hash = tokio::task::spawn_blocking(move || auth.hash_password(&password_str))
+            .await
+            .map_err(|e| ApiError::internal(format!("Hashing task panicked: {}", e)))??;
+
         let user = self
             .user_storage
             .create_user(&user_id, username, Some(&password_hash), admin)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to create user: {}", e)))?;
+
+        ::tracing::info!(
+            target: "security_audit",
+            event = "user_registered",
+            user_id = user_id,
+            admin = admin
+        );
 
         let device_id = generate_token(16);
         self.device_storage
@@ -98,6 +158,36 @@ impl AuthService {
     }
 
     pub async fn login(
+        &self,
+        username: &str,
+        password: &str,
+        device_id: Option<&str>,
+        initial_display_name: Option<&str>,
+    ) -> ApiResult<(User, String, String, String)> {
+        let start = std::time::Instant::now();
+        let result = self
+            .login_internal(username, password, device_id, initial_display_name)
+            .await;
+
+        let duration = start.elapsed().as_secs_f64();
+        if let Some(hist) = self.metrics.get_histogram("auth_login_duration_seconds") {
+            hist.observe(duration);
+        } else {
+            let hist = self
+                .metrics
+                .register_histogram("auth_login_duration_seconds".to_string());
+            hist.observe(duration);
+        }
+
+        if result.is_ok() {
+            self.increment_counter("auth_login_success_total");
+        } else {
+            self.increment_counter("auth_login_failure_total");
+        }
+        result
+    }
+
+    async fn login_internal(
         &self,
         username: &str,
         password: &str,
@@ -120,9 +210,32 @@ impl AuthService {
             _ => return Err(ApiError::unauthorized("Invalid credentials".to_string())),
         };
 
-        if !self.verify_password(password, password_hash)? {
+        // P1 Performance: Run CPU-intensive verification in spawn_blocking
+        let auth = self.clone();
+        let password_str = password.to_string();
+        let password_hash_str = password_hash.to_string();
+        let is_valid = tokio::task::spawn_blocking(move || {
+            auth.verify_password(&password_str, &password_hash_str)
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("Verification task panicked: {}", e)))??;
+
+        if !is_valid {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "login_failure",
+                username = username,
+                reason = "invalid_credentials"
+            );
             return Err(ApiError::unauthorized("Invalid credentials".to_string()));
         }
+
+        ::tracing::info!(
+            target: "security_audit",
+            event = "login_success",
+            user_id = user.user_id(),
+            device_id = device_id
+        );
 
         let device_id = match device_id {
             Some(d) => d.to_string(),
@@ -149,6 +262,15 @@ impl AuthService {
             .await?;
 
         Ok((user, access_token, refresh_token, device_id))
+    }
+
+    fn increment_counter(&self, name: &str) {
+        if let Some(counter) = self.metrics.get_counter(name) {
+            counter.inc();
+        } else {
+            let counter = self.metrics.register_counter(name.to_string());
+            counter.inc();
+        }
     }
 
     pub async fn logout(&self, access_token: &str, device_id: Option<&str>) -> ApiResult<()> {
@@ -236,9 +358,33 @@ impl AuthService {
 
     pub async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool)> {
         let cached_token = self.cache.get_token(token).await;
-
         if let Some(claims) = cached_token {
-            return Ok((claims.user_id, None, claims.admin));
+            // P1 Performance: Optimization - Cache user existence/active status for 60s
+            // to avoid hitting DB on every request.
+            if let Some(active) = self.cache.is_user_active(&claims.sub).await {
+                if !active {
+                    return Err(ApiError::unauthorized(
+                        "User not found or deactivated".to_string(),
+                    ));
+                }
+                return Ok((claims.user_id, claims.device_id.clone(), claims.admin));
+            }
+
+            let user_exists = self
+                .user_storage
+                .user_exists(&claims.sub)
+                .await
+                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+            self.cache
+                .set_user_active(&claims.sub, user_exists, 60)
+                .await;
+
+            if !user_exists {
+                return Err(ApiError::unauthorized("User not found".to_string()));
+            }
+
+            return Ok((claims.user_id, claims.device_id.clone(), claims.admin));
         }
 
         match self.decode_token(token) {
@@ -247,17 +393,28 @@ impl AuthService {
                     return Err(ApiError::unauthorized("Token expired".to_string()));
                 }
 
-                let user_exists = self
+                // Get user info and check existence/admin status in one go
+                let user = self
                     .user_storage
-                    .user_exists(&claims.sub)
+                    .get_user_by_id(&claims.sub)
                     .await
                     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-                if user_exists {
-                    self.cache.set_token(token, &claims, 3600).await;
-                    Ok((claims.user_id, None, claims.admin))
-                } else {
-                    Err(ApiError::unauthorized("User not found".to_string()))
+                match user {
+                    Some(u) => {
+                        let is_admin = u.is_admin.unwrap_or(false);
+                        // Update claims with correct admin status if it differs (though it shouldn't for this token)
+                        let mut final_claims = claims.clone();
+                        final_claims.admin = is_admin;
+
+                        self.cache.set_token(token, &final_claims, 3600).await;
+                        Ok((
+                            final_claims.user_id,
+                            final_claims.device_id.clone(),
+                            is_admin,
+                        ))
+                    }
+                    None => Err(ApiError::unauthorized("User not found".to_string())),
                 }
             }
             Err(e) => Err(ApiError::unauthorized(format!("Invalid token: {}", e))),
@@ -345,61 +502,17 @@ impl AuthService {
     }
 
     fn hash_password(&self, password: &str) -> Result<String, ApiError> {
-        let salt = auth_generate_token(16);
-        let mut output = [0u8; 32];
-        let mut input = password.as_bytes().to_vec();
-        input.extend_from_slice(salt.as_bytes());
-
-        for _ in 0..10000 {
-            let mut hasher = Sha256::new();
-            hasher.update(&input);
-            let result = hasher.finalize();
-            output.copy_from_slice(&result);
-            input = output.to_vec();
-        }
-
-        let hash = STANDARD.encode(output);
-        Ok(format!("$sha256$v=1$m=32,p=1${}${}${}", salt, 10000, hash))
+        hash_password_with_params(
+            password,
+            self.argon2_m_cost,
+            self.argon2_t_cost,
+            self.argon2_p_cost,
+        )
+        .map_err(ApiError::internal)
     }
 
     fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool, ApiError> {
-        if password_hash.starts_with("$sha256$") {
-            self.verify_sha256_password(password, password_hash)
-        } else {
-            Ok(password_hash.starts_with("$argon2"))
-        }
-    }
-
-    fn verify_sha256_password(
-        &self,
-        password: &str,
-        password_hash: &str,
-    ) -> Result<bool, ApiError> {
-        let parts: Vec<&str> = password_hash.split('$').collect();
-
-        if parts.len() >= 7 {
-            let salt = parts[4];
-            let iterations = parts[5].parse::<u32>().unwrap_or(10000);
-
-            let mut hash = [0u8; 32];
-            let mut input = password.as_bytes().to_vec();
-            input.extend_from_slice(salt.as_bytes());
-
-            for _ in 0..iterations {
-                let mut hasher = Sha256::new();
-                hasher.update(&input);
-                let result = hasher.finalize();
-                hash.copy_from_slice(&result);
-                input = hash.to_vec();
-            }
-
-            let expected_hash = STANDARD.encode(hash);
-            let stored_hash = parts[6];
-
-            Ok(secure_compare(&expected_hash, stored_hash))
-        } else {
-            Ok(false)
-        }
+        verify_password_common(password, password_hash).map_err(ApiError::internal)
     }
 }
 
@@ -412,19 +525,6 @@ fn auth_generate_token(length: usize) -> String {
         token.push(CHARSET[idx] as char);
     }
     token
-}
-
-fn secure_compare(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-
-    let mut result = 0u8;
-    for (byte_a, byte_b) in a.bytes().zip(b.bytes()) {
-        result |= byte_a ^ byte_b;
-    }
-
-    result == 0
 }
 
 #[cfg(test)]

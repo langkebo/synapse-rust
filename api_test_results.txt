@@ -1,0 +1,19 @@
+API Comprehensive Test Report - Sun Feb  1 22:45:52 CST 2026
+----------------------------------------
+| 功能描述 | 方法 | 路径 | 状态码 | 响应时间 |
+| :--- | :--- | :--- | :--- | :--- |
+| Server Info | GET | / | 200 | 0.013669s |
+| Versions | GET | /_matrix/client/versions | 200 | 0.005684s |
+| WhoAmI (Admin) | GET | /_matrix/client/r0/account/whoami | 200 | 0.012581s |
+| Sync (Admin) | GET | /_matrix/client/r0/sync | 200 | 0.015196s |
+| Admin Status | GET | /_synapse/admin/v1/status | 200 | 0.009235s |
+| Admin Users List | GET | /_synapse/admin/v1/users | 200 | 0.007990s |
+| Admin Rooms List | GET | /_synapse/admin/v1/rooms | 200 | 0.008519s |
+| Security Events | GET | /_synapse/admin/v1/security/events | 200 | 0.008287s |
+| IP Blocks | GET | /_synapse/admin/v1/security/ip/blocks | 200 | 0.008404s |
+| Friend List (User1) | GET | /_synapse/enhanced/friends | 200 | 0.008612s |
+| Search Friends | GET | /_synapse/enhanced/friends/search?query=admin | 200 | 0.016664s |
+| Private Sessions | GET | /_synapse/enhanced/private/sessions | 200 | 0.007056s |
+| Unread Count | GET | /_synapse/enhanced/private/unread-count | 200 | 0.008812s |
+| Admin Status (Unauthorized) | GET | /_synapse/admin/v1/status | 403 | 0.006409s |
+| Login (Failed) | POST | /_matrix/client/r0/login | 401 | 0.008281s |

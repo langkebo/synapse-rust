@@ -33,45 +33,44 @@ impl DeviceStorage {
         display_name: Option<&str>,
     ) -> Result<Device, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query_as!(
-            Device,
+        sqlx::query_as::<_, Device>(
             r#"
             INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_at, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_at, first_seen_ts, created_ts, appservice_id, ignored_user_list
             "#,
-            device_id,
-            user_id,
-            display_name,
-            now,
-            now,
-            now,
-            now
-        ).fetch_one(&*self.pool).await
+        )
+        .bind(device_id)
+        .bind(user_id)
+        .bind(display_name)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await
     }
 
     pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
-        sqlx::query_as!(
-            Device,
+        sqlx::query_as::<_, Device>(
             r#"
             SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_at, first_seen_ts, created_ts, appservice_id, ignored_user_list
             FROM devices WHERE device_id = $1
             "#,
-            device_id
         )
+        .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
     }
 
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
-        sqlx::query_as!(
-            Device,
+        sqlx::query_as::<_, Device>(
             r#"
             SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_at, first_seen_ts, created_ts, appservice_id, ignored_user_list
             FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -81,13 +80,13 @@ impl DeviceStorage {
         device_id: &str,
         display_name: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE devices SET display_name = $1 WHERE device_id = $2
             "#,
-            display_name,
-            device_id
         )
+        .bind(display_name)
+        .bind(device_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -95,37 +94,37 @@ impl DeviceStorage {
 
     pub async fn update_device_last_seen(&self, device_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE devices SET last_seen_ts = $1 WHERE device_id = $2
             "#,
-            now,
-            device_id
         )
+        .bind(now)
+        .bind(device_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             DELETE FROM devices WHERE device_id = $1
             "#,
-            device_id
         )
+        .bind(device_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn delete_user_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             DELETE FROM devices WHERE user_id = $1
             "#,
-            user_id
         )
+        .bind(user_id)
         .execute(&*self.pool)
         .await?;
         Ok(())

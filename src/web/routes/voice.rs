@@ -16,6 +16,10 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
             post(upload_voice_message),
         )
         .route(
+            "/_matrix/client/r0/voice/stats",
+            get(get_current_user_voice_stats),
+        )
+        .route(
             "/_matrix/client/r0/voice/{message_id}",
             get(get_voice_message),
         )
@@ -158,6 +162,22 @@ async fn get_user_voice_stats(
     let voice_service = &state.services.voice_service;
 
     match voice_service.get_user_stats(&user_id, None, None).await {
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err(ApiError::internal(e.to_string())),
+    }
+}
+
+#[axum::debug_handler]
+async fn get_current_user_voice_stats(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let voice_service = &state.services.voice_service;
+
+    match voice_service
+        .get_user_stats(&auth_user.user_id, None, None)
+        .await
+    {
         Ok(result) => Ok(Json(result)),
         Err(e) => Err(ApiError::internal(e.to_string())),
     }

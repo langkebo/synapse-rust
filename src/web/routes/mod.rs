@@ -21,6 +21,7 @@ use crate::common::*;
 use crate::services::*;
 use crate::storage::CreateEventParams;
 use crate::web::middleware::rate_limit_middleware;
+use axum::extract::rejection::JsonRejection;
 use axum::{
     extract::{FromRequestParts, Json, Path, Query, State},
     http::{request::Parts, HeaderMap},
@@ -31,15 +32,60 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
 
+// Custom JSON extractor to provide friendly error messages
+pub struct MatrixJson<T>(pub T);
+
+impl<S, T> axum::extract::FromRequest<S> for MatrixJson<T>
+where
+    S: Send + Sync,
+    T: serde::de::DeserializeOwned + Send,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        match axum::extract::Json::<T>::from_request(req, state).await {
+            Ok(axum::extract::Json(value)) => Ok(MatrixJson(value)),
+            Err(rejection) => {
+                let message = match rejection {
+                    JsonRejection::JsonDataError(e) => format!("Invalid JSON data: {}", e),
+                    JsonRejection::JsonSyntaxError(e) => format!("JSON syntax error: {}", e),
+                    JsonRejection::MissingJsonContentType(e) => {
+                        format!("Missing Content-Type: application/json: {}", e)
+                    }
+                    _ => format!("JSON error: {}", rejection),
+                };
+                Err(ApiError::bad_request(message))
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub services: ServiceContainer,
     pub cache: Arc<CacheManager>,
+    pub health_checker: Arc<crate::common::health::HealthChecker>,
 }
 
 impl AppState {
     pub fn new(services: ServiceContainer, cache: Arc<CacheManager>) -> Self {
-        Self { services, cache }
+        let mut health_checker = crate::common::health::HealthChecker::new("0.1.0".to_string());
+
+        // Add DB health check
+        health_checker.add_check(Box::new(crate::common::health::DatabaseHealthCheck::new(
+            (*services.user_storage.pool).clone(),
+        )));
+
+        // Add Cache health check
+        health_checker.add_check(Box::new(crate::common::health::CacheHealthCheck::new(
+            (*cache).clone(),
+        )));
+
+        Self {
+            services,
+            cache,
+            health_checker: Arc::new(health_checker),
+        }
     }
 }
 
@@ -117,6 +163,7 @@ pub fn create_router(state: AppState) -> Router {
                 Json(json!({"msg": "Synapse Rust Matrix Server", "version": "0.1.0"}))
             }),
         )
+        .route("/health", get(health_check))
         .route("/_matrix/client/versions", get(get_client_versions))
         .route("/_matrix/client/r0/register", post(register))
         .route(
@@ -151,8 +198,8 @@ pub fn create_router(state: AppState) -> Router {
             get(get_messages),
         )
         .route(
-            "/_matrix/client/r0/rooms/{room_id}/send/{event_type}",
-            post(send_message),
+            "/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}",
+            put(send_message),
         )
         .route("/_matrix/client/r0/rooms/{room_id}/join", post(join_room))
         .route("/_matrix/client/r0/rooms/{room_id}/leave", post(leave_room))
@@ -211,8 +258,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/r0/rooms/{room_id}/kick", post(kick_user))
         .route("/_matrix/client/r0/rooms/{room_id}/ban", post(ban_user))
         .route("/_matrix/client/r0/rooms/{room_id}/unban", post(unban_user))
-        .merge(create_friend_router(state.clone()))
         .merge(create_private_chat_router(state.clone()))
+        .merge(create_friend_router(state.clone()))
         .merge(create_voice_router(state.clone()))
         .merge(create_media_router(state.clone()))
         .merge(create_e2ee_router(state.clone()))
@@ -238,9 +285,17 @@ async fn get_client_versions() -> Json<Value> {
     }))
 }
 
+async fn health_check(State(state): State<AppState>) -> Json<Value> {
+    let status = state.health_checker.check_readiness().await;
+    Json(
+        serde_json::to_value(status)
+            .unwrap_or_else(|_| json!({"status": "unhealthy", "error": "serialization error"})),
+    )
+}
+
 async fn register(
     State(state): State<AppState>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let username = body
         .get("username")
@@ -250,7 +305,36 @@ async fn register(
         .get("password")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
-    let admin = body.get("admin").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    // P1 Quality: Validate username and password
+    state
+        .services
+        .auth_service
+        .validator
+        .validate_username(username)?;
+    state
+        .services
+        .auth_service
+        .validator
+        .validate_password(password)?;
+
+    // Matrix spec: check for registration type if provided
+    if let Some(auth_type) = body
+        .get("auth")
+        .and_then(|a| a.get("type"))
+        .and_then(|t| t.as_str())
+    {
+        if auth_type != "m.login.password" && auth_type != "m.login.dummy" {
+            return Err(ApiError::bad_request(format!(
+                "Unsupported authentication type: {}",
+                auth_type
+            )));
+        }
+    }
+
+    // P0 Security: Standard registration cannot request admin status.
+    // Admin registration must go through the dedicated admin registration flow (HMAC-based).
+    let admin = false;
     let displayname = body.get("displayname").and_then(|v| v.as_str());
 
     Ok(Json(
@@ -271,10 +355,20 @@ async fn check_username_availability(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
 
+    if let Err(e) = state
+        .services
+        .auth_service
+        .validator
+        .validate_username(username)
+    {
+        return Err(e.into());
+    }
+
+    let user_id = format!("@{}:{}", username, state.services.server_name);
     let exists = state
         .services
         .user_storage
-        .user_exists(&format!("@{}:{}", username, state.services.server_name))
+        .user_exists(&user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
@@ -286,7 +380,7 @@ async fn check_username_availability(
 
 async fn login(
     State(state): State<AppState>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let username = body
         .get("user")
@@ -297,6 +391,14 @@ async fn login(
         .get("password")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
+
+    // P1 Quality: Basic validation
+    if username.is_empty() || password.is_empty() {
+        return Err(ApiError::bad_request(
+            "Username and password are required".to_string(),
+        ));
+    }
+
     let device_id = body.get("device_id").and_then(|v| v.as_str());
     let initial_display_name = body.get("initial_display_name").and_then(|v| v.as_str());
 
@@ -323,7 +425,6 @@ async fn login(
 async fn logout(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     state
         .services
@@ -337,7 +438,6 @@ async fn logout(
 async fn logout_all(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     state
         .services
@@ -460,6 +560,18 @@ async fn change_password(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("New password required".to_string()))?;
 
+    if new_password.len() < 8 {
+        return Err(ApiError::bad_request(
+            "Password must be at least 8 characters".to_string(),
+        ));
+    }
+
+    if new_password.len() > 128 {
+        return Err(ApiError::bad_request(
+            "Password too long (max 128 characters)".to_string(),
+        ));
+    }
+
     state
         .services
         .registration_service
@@ -472,7 +584,6 @@ async fn change_password(
 async fn deactivate_account(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     state
         .services
@@ -538,7 +649,7 @@ async fn get_messages(
 async fn send_message(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _event_type)): Path<(String, String)>,
+    Path((room_id, _event_type, _txn_id)): Path<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let msgtype = body

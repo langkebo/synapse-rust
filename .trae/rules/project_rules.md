@@ -65,24 +65,97 @@ profile = "default"
 
 ### 2.3 编译验证流程
 
-每次代码提交前必须执行以下编译检查：
+**强制要求**：在测试、编译或构建之前，必须先检查并修复项目中的所有错误代码。只有在确保没有错误的情况下，才能进行测试、编译和构建操作。
+
+**错误检查优先级**：
+
+| 优先级 | 检查项 | 命令 | 说明 |
+|-------|--------|------|------|
+| P0 | 代码诊断 | `cargo check` 或 IDE 诊断 | 必须通过，无任何错误 |
+| P0 | 编译检查 | `cargo build` | 必须成功，无编译错误 |
+| P1 | 静态分析 | `cargo clippy` | 警告可接受，错误必须修复 |
+| P1 | 格式检查 | `cargo fmt --check` | 必须通过 |
+| P2 | 单元测试 | `cargo test` | 测试失败视为错误 |
+| P2 | 集成测试 | `cargo test --test integration` | 测试失败视为错误 |
+
+**标准验证流程**：
 
 ```bash
-# 1. 清理 SQLx 缓存
+# 1. 清理并检查（第一步：必须无错误）
+echo "=== Step 1: 代码诊断 ==="
 rm -rf .sqlx
+cargo check
+
+if [ $? -ne 0 ]; then
+    echo "❌ 错误：代码诊断失败，必须修复所有错误后继续"
+    exit 1
+fi
 
 # 2. 执行完整编译
-cargo build --release
+echo "=== Step 2: 完整编译 ==="
+cargo build
+
+if [ $? -ne 0 ]; then
+    echo "❌ 错误：编译失败，必须修复所有错误后继续"
+    exit 1
+fi
 
 # 3. 运行 Clippy 检查
+echo "=== Step 3: 静态分析 ==="
 cargo clippy --all-features -- -D warnings
 
+if [ $? -ne 0 ]; then
+    echo "❌ 错误：Clippy 检查失败，必须修复所有警告和错误后继续"
+    exit 1
+fi
+
 # 4. 运行格式化检查
+echo "=== Step 4: 格式检查 ==="
 cargo fmt --check
 
-# 5. 执行测试
+if [ $? -ne 0 ]; then
+    echo "❌ 错误：格式检查失败，请运行 'cargo fmt' 修复格式问题"
+    exit 1
+fi
+
+# 5. 执行测试（只有在以上步骤全部通过后才能执行）
+echo "=== Step 5: 执行测试 ==="
 cargo test
+
+if [ $? -ne 0 ]; then
+    echo "❌ 错误：测试失败，必须修复所有失败的测试后继续"
+    exit 1
+fi
+
+echo "✅ 所有检查通过，项目状态良好"
 ```
+
+**IDE 开发流程**：
+
+1. 编写代码后立即运行 `cargo check` 或依赖 IDE 实时诊断
+2. 发现错误时立即修复，不要带着错误继续开发
+3. 提交前必须执行完整的验证流程
+4. CI/CD 流水线必须包含完整的验证步骤
+
+**禁止行为**：
+
+```bash
+# 禁止：带着错误运行测试
+cargo test  # 错误：可能掩盖真实问题
+
+# 禁止：带着错误进行构建镜像
+docker build  # 错误：可能在构建阶段暴露问题
+
+# 禁止：跳过错误直接提交
+git commit -m "..."  # 错误：可能引入 regressions
+```
+
+**错误处理原则**：
+
+1. **零容忍**：对编译错误和测试失败零容忍
+2. **立即修复**：发现问题立即处理，不积累技术债务
+3. **完整验证**：每次修复后重新运行完整验证流程
+4. **记录追踪**：将发现和修复的错误记录在 CHANGELOG 中
 
 ### 2.4 工具链管理
 
@@ -211,6 +284,14 @@ cargo deny check
 ---
 
 ## 四、代码质量标准
+
+### 4.0 与 Synapse 对齐原则
+
+**目标约束**：
+
+1. **安全不低于 Synapse**：认证、密码存储、CORS、限流与审计能力至少达到 Synapse 当前实现水平  
+2. **质量不低于 Synapse**：核心路径测试覆盖、错误处理与可观测性与 Synapse 相当  
+3. **性能优于 Synapse**：在保证安全与正确性的前提下实现更低延迟与更高吞吐
 
 ### 4.1 编码规范
 
@@ -369,6 +450,38 @@ impl From<jsonwebtoken::errors::Error> for ApiError {
 }
 ```
 
+### 4.5 禁止阻塞与异步规范
+
+**规则**：
+
+1. 任何 async 路径内禁止使用 `block_on`、`std::thread::sleep` 等阻塞调用  
+2. 阻塞型 IO 必须通过 `spawn_blocking` 或专用线程池执行  
+3. 缓存/数据库不可用时的降级策略必须明确记录并可配置  
+
+---
+
+### 4.6 测试基线与覆盖要求
+
+**最低要求**：
+
+1. 认证、注册、房间、同步、联邦、媒体为 P0 用例  
+2. 新增功能必须补齐单元与集成用例  
+3. 回归缺陷必须新增针对性测试
+
+---
+
+### 4.7 Worker 与复制一致性要求
+
+**规则**：
+
+1. 需要支持多进程/多实例部署时，必须提供 `worker_app`、`instance_map`、`stream_writers` 等职责配置模型  
+2. 复制通道必须进行实例身份认证，禁止匿名或未授权实例写入  
+3. 每个 stream 的写入实例必须有明确配置约束，禁止未配置实例写入  
+4. 复制通道必须提供队列长度、延迟与失败率指标，并提供可配置降级策略
+
+---
+
+## 五、数据库开发规范
 ---
 
 ## 五、数据库开发规范
@@ -634,7 +747,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 pub fn create_cors_layer() -> CorsLayer {
     CorsLayer::new()
-        .allow_origin(Any)  // 生产环境应指定具体域名
+        .allow_origin(Any)  // 非生产环境可使用 Any
         .allow_methods(Any)  // 或显式指定: vec![Method::GET, Method::POST]
         .allow_headers(Any)  // 或显式指定: vec![HeaderName::ACCEPT, HeaderName::AUTHORIZATION]
         .allow_credentials(false)  // 启用 credentials 时不能使用 Any
@@ -768,6 +881,14 @@ async fn create_room(
 | password_min_length | 密码最小长度 | 8-32 | 8 |
 | require_strong_password | 是否要求强密码 | true/false | true |
 
+**认证与密码安全要求**：
+
+1. 密码哈希必须使用 Argon2id 或 bcrypt，并允许配置成本参数  
+2. 禁止自定义弱哈希算法作为存储方案  
+3. 密码与 Token 相关逻辑必须有针对性测试覆盖  
+4. 管理员注册通道必须保证参数语义与实际行为一致  
+5. 用户名校验规则需与 Matrix 规范对齐
+
 ### 8.2 请求处理配置
 
 **统一请求验证**：
@@ -814,6 +935,12 @@ impl RequestValidator {
 | request_timeout | 请求超时时间（秒） | 30-300 | 60 |
 | rate_limit_requests | 速率限制请求数 | 10-1000 | 100 |
 | rate_limit_window | 速率限制时间窗口（秒） | 60-3600 | 60 |
+
+**限流降级策略**：
+
+1. 缓存或 Redis 不可用时必须遵循可配置策略  
+2. 默认策略为 fail‑closed，并记录告警日志  
+3. 必须提供全局与端点级限流指标
 
 ### 8.3 错误响应配置
 
@@ -920,6 +1047,12 @@ async fn create_room(
 | log_rotation | 日志轮转策略 | daily/weekly/never | daily |
 | log_retention | 日志保留天数 | 1-90 | 30 |
 
+**可观测性要求**：
+
+1. 注册、登录、同步、联邦为必备指标  
+2. 关键路径必须记录耗时与错误码  
+3. 生产环境必须可启用结构化日志
+
 ### 8.5 跨域设置（CORS）配置
 
 **统一CORS配置**：
@@ -966,6 +1099,12 @@ pub fn create_production_cors_layer(allowed_origins: Vec<String>) -> CorsLayer {
 | allowed_headers | 允许的请求头 | - | * (所有) |
 | allow_credentials | 是否允许携带凭证 | true/false | false |
 | max_age | 预检请求缓存时间（秒） | 0-86400 | 86400 |
+
+**生产环境强制要求**：
+
+1. `allowed_origins` 不能为 `*`  
+2. 若 `allow_credentials=true`，必须显式列出 `allowed_origins`  
+3. 仅允许必要的 HTTP 方法与请求头
 
 ### 8.6 配置验证与测试
 

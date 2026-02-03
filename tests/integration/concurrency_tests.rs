@@ -25,24 +25,24 @@ mod concurrency_integration_tests {
         });
     }
 
-    #[test]
-    fn test_concurrency_controller_try_acquire() {
+    #[tokio::test]
+    async fn test_concurrency_controller_try_acquire() {
         let controller = ConcurrencyController::new(1, "test".to_string());
 
-        let permit = controller.try_acquire();
+        let permit = controller.try_acquire().await;
         assert!(permit.is_some());
 
-        let permit2 = controller.try_acquire();
+        let permit2 = controller.try_acquire().await;
         assert!(permit2.is_none());
 
         drop(permit);
 
-        let permit3 = controller.try_acquire();
+        let permit3 = controller.try_acquire().await;
         assert!(permit3.is_some());
     }
 
-    #[test]
-    fn test_concurrency_controller_clone() {
+    #[tokio::test]
+    async fn test_concurrency_controller_clone() {
         let controller1 = ConcurrencyController::new(2, "test".to_string());
         let controller2 = controller1.clone();
 
@@ -73,7 +73,7 @@ mod concurrency_integration_tests {
 
     #[tokio::test]
     async fn test_concurrency_limiter_acquire() {
-        let limiter = ConcurrencyLimiter::new();
+        let mut limiter = ConcurrencyLimiter::new();
         limiter.add_controller("test".to_string(), 2);
 
         let permit1 = limiter.acquire("test").await;
@@ -82,7 +82,8 @@ mod concurrency_integration_tests {
         let permit2 = limiter.acquire("test").await;
         assert!(permit2.is_some());
 
-        let permit3 = limiter.acquire("test").await;
+        // Use try_acquire here to avoid hanging
+        let permit3 = limiter.try_acquire("test").await;
         assert!(permit3.is_none());
 
         drop(permit1);
@@ -90,10 +91,10 @@ mod concurrency_integration_tests {
         assert!(permit4.is_some());
     }
 
-    #[test]
-    fn test_concurrency_permit_drop_logging() {
+    #[tokio::test]
+    async fn test_concurrency_permit_drop_logging() {
         let controller = ConcurrencyController::new(1, "test_controller".to_string());
-        let _permit = controller.try_acquire().unwrap();
+        let _permit = controller.try_acquire().await.unwrap();
         assert_eq!(controller.available_permits(), 0);
     }
 }

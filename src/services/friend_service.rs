@@ -1,7 +1,7 @@
 use crate::services::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::FromRow;
+use sqlx::{FromRow, Row};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, FromRow)]
@@ -40,7 +40,7 @@ impl FriendStorage {
     }
 
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS friends (
                 user_id VARCHAR(255) NOT NULL,
@@ -52,12 +52,12 @@ impl FriendStorage {
                 FOREIGN KEY (friend_id) REFERENCES users(user_id) ON DELETE CASCADE,
                 CHECK (user_id != friend_id)
             )
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS friend_requests (
                 id BIGSERIAL PRIMARY KEY,
@@ -71,12 +71,12 @@ impl FriendStorage {
                 FOREIGN KEY (from_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
                 FOREIGN KEY (to_user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS friend_categories (
                 id BIGSERIAL PRIMARY KEY,
@@ -89,12 +89,12 @@ impl FriendStorage {
                 FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
                 UNIQUE (user_id, name)
             )
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS blocked_users (
                 user_id VARCHAR(255) NOT NULL,
@@ -105,7 +105,7 @@ impl FriendStorage {
                 FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
                 FOREIGN KEY (blocked_user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
@@ -125,29 +125,27 @@ impl FriendStorage {
 
     pub async fn add_friend(&self, user_id: &str, friend_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO friends (user_id, friend_id, created_ts)
             VALUES ($1, $2, $3)
             ON CONFLICT (user_id, friend_id) DO NOTHING
             "#,
-            user_id,
-            friend_id,
-            now
         )
+        .bind(user_id)
+        .bind(friend_id)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn remove_friend(&self, user_id: &str, friend_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r#"DELETE FROM friends WHERE user_id = $1 AND friend_id = $2"#,
-            user_id,
-            friend_id
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query(r#"DELETE FROM friends WHERE user_id = $1 AND friend_id = $2"#)
+            .bind(user_id)
+            .bind(friend_id)
+            .execute(&*self.pool)
+            .await?;
         Ok(())
     }
 
@@ -168,20 +166,20 @@ impl FriendStorage {
         message: Option<&str>,
     ) -> Result<i64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             INSERT INTO friend_requests (from_user_id, to_user_id, message, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $4)
             RETURNING id
             "#,
-            sender_id,
-            receiver_id,
-            message,
-            now
         )
+        .bind(sender_id)
+        .bind(receiver_id)
+        .bind(message)
+        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
-        Ok(result.id)
+        result.try_get::<i64, _>("id")
     }
 
     pub async fn get_requests(
@@ -217,34 +215,39 @@ impl FriendStorage {
 
     pub async fn accept_request(&self, request_id: i64, user_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        let request = sqlx::query!(
+        let request = sqlx::query(
             r#"SELECT from_user_id as sender_id FROM friend_requests WHERE id = $1 AND to_user_id = $2"#,
-            request_id,
-            user_id
         )
+        .bind(request_id)
+        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
         if let Some(r) = request {
-            sqlx::query!(
+            sqlx::query(
                 r#"UPDATE friend_requests SET status = 'accepted', updated_ts = $1 WHERE id = $2"#,
-                now,
-                request_id
             )
+            .bind(now)
+            .bind(request_id)
             .execute(&*self.pool)
             .await?;
 
-            self.add_friend(user_id, &r.sender_id).await?;
-            self.add_friend(&r.sender_id, user_id).await?;
+            let sender_id = r.try_get::<String, _>("sender_id")?;
+            self.add_friend(user_id, &sender_id).await?;
+            self.add_friend(&sender_id, user_id).await?;
         }
         Ok(())
     }
 
     pub async fn decline_request(&self, request_id: i64, user_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             r#"UPDATE friend_requests SET status = 'declined', updated_ts = $1 WHERE id = $2 AND to_user_id = $3"#,
-            chrono::Utc::now().timestamp(), request_id, user_id
-        ).execute(&*self.pool).await?;
+        )
+        .bind(chrono::Utc::now().timestamp())
+        .bind(request_id)
+        .bind(user_id)
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -274,11 +277,16 @@ impl FriendStorage {
         color: &str,
     ) -> Result<i64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"INSERT INTO friend_categories (user_id, name, color, created_ts) VALUES ($1, $2, $3, $4) RETURNING id"#,
-            user_id, name, color, now
-        ).fetch_one(&*self.pool).await?;
-        Ok(result.id)
+        )
+        .bind(user_id)
+        .bind(name)
+        .bind(color)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await?;
+        result.try_get::<i64, _>("id")
     }
 
     pub async fn update_category(
@@ -288,22 +296,18 @@ impl FriendStorage {
         color: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         if let Some(name) = name {
-            sqlx::query!(
-                "UPDATE friend_categories SET name = $1 WHERE id = $2",
-                name,
-                category_id
-            )
-            .execute(&*self.pool)
-            .await?;
+            sqlx::query("UPDATE friend_categories SET name = $1 WHERE id = $2")
+                .bind(name)
+                .bind(category_id)
+                .execute(&*self.pool)
+                .await?;
         }
         if let Some(color) = color {
-            sqlx::query!(
-                "UPDATE friend_categories SET color = $1 WHERE id = $2",
-                color,
-                category_id
-            )
-            .execute(&*self.pool)
-            .await?;
+            sqlx::query("UPDATE friend_categories SET color = $1 WHERE id = $2")
+                .bind(color)
+                .bind(category_id)
+                .execute(&*self.pool)
+                .await?;
         }
         Ok(())
     }
@@ -316,30 +320,27 @@ impl FriendStorage {
         new_color: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         if let Some(name) = new_name {
-            sqlx::query!(
-                "UPDATE friend_categories SET name = $1 WHERE user_id = $2 AND name = $3",
-                name,
-                user_id,
-                category_name
-            )
-            .execute(&*self.pool)
-            .await?;
+            sqlx::query("UPDATE friend_categories SET name = $1 WHERE user_id = $2 AND name = $3")
+                .bind(name)
+                .bind(user_id)
+                .bind(category_name)
+                .execute(&*self.pool)
+                .await?;
         }
         if let Some(color) = new_color {
-            sqlx::query!(
-                "UPDATE friend_categories SET color = $1 WHERE user_id = $2 AND name = $3",
-                color,
-                user_id,
-                category_name
-            )
-            .execute(&*self.pool)
-            .await?;
+            sqlx::query("UPDATE friend_categories SET color = $1 WHERE user_id = $2 AND name = $3")
+                .bind(color)
+                .bind(user_id)
+                .bind(category_name)
+                .execute(&*self.pool)
+                .await?;
         }
         Ok(())
     }
 
     pub async fn delete_category(&self, category_id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query!("DELETE FROM friend_categories WHERE id = $1", category_id)
+        sqlx::query("DELETE FROM friend_categories WHERE id = $1")
+            .bind(category_id)
             .execute(&*self.pool)
             .await?;
         Ok(())
@@ -350,13 +351,11 @@ impl FriendStorage {
         user_id: &str,
         category_name: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            "DELETE FROM friend_categories WHERE user_id = $1 AND name = $2",
-            user_id,
-            category_name
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query("DELETE FROM friend_categories WHERE user_id = $1 AND name = $2")
+            .bind(user_id)
+            .bind(category_name)
+            .execute(&*self.pool)
+            .await?;
         Ok(())
     }
 
@@ -367,17 +366,17 @@ impl FriendStorage {
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO blocked_users (user_id, blocked_user_id, reason, created_ts)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (user_id, blocked_user_id) DO NOTHING
             "#,
-            user_id,
-            blocked_user_id,
-            reason,
-            now
         )
+        .bind(user_id)
+        .bind(blocked_user_id)
+        .bind(reason)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -388,13 +387,11 @@ impl FriendStorage {
         user_id: &str,
         blocked_user_id: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r#"DELETE FROM blocked_users WHERE user_id = $1 AND blocked_user_id = $2"#,
-            user_id,
-            blocked_user_id
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query(r#"DELETE FROM blocked_users WHERE user_id = $1 AND blocked_user_id = $2"#)
+            .bind(user_id)
+            .bind(blocked_user_id)
+            .execute(&*self.pool)
+            .await?;
         Ok(())
     }
 
@@ -515,6 +512,16 @@ impl<'a> FriendService<'a> {
         receiver_id: &str,
         message: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
+        if !self
+            .services
+            .user_storage
+            .user_exists(receiver_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        {
+            return Err(ApiError::not_found("User not found".to_string()));
+        }
+
         if self
             .friend_storage
             .is_friend(sender_id, receiver_id)
@@ -640,6 +647,16 @@ impl<'a> FriendService<'a> {
         blocked_user_id: &str,
         reason: Option<&str>,
     ) -> ApiResult<()> {
+        if !self
+            .services
+            .user_storage
+            .user_exists(blocked_user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        {
+            return Err(ApiError::not_found("User not found".to_string()));
+        }
+
         self.friend_storage
             .block_user(user_id, blocked_user_id, reason)
             .await

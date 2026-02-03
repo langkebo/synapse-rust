@@ -166,7 +166,7 @@ impl Histogram {
             return 0.0;
         }
         values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let index = ((percentile / 100.0) * values.len() as f64) as usize;
+        let index = ((percentile / 100.0) * (values.len() - 1) as f64).floor() as usize;
         values[index.min(values.len() - 1)]
     }
 

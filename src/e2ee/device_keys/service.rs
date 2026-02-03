@@ -69,7 +69,7 @@ impl DeviceKeyService {
     ) -> Result<KeyUploadResponse, ApiError> {
         let mut one_time_key_counts = serde_json::Map::new();
 
-        if let Some(device_keys) = request.device_keys {
+        if let Some(ref device_keys) = request.device_keys {
             let user_id = device_keys.user_id.clone();
             let device_id = device_keys.device_id.clone();
 
@@ -85,8 +85,8 @@ impl DeviceKeyService {
                         "ed25519".to_string()
                     },
                     key_id: key_id.clone(),
-                    public_key: public_key.as_str().unwrap().to_string(),
-                    signatures: device_keys.signatures.clone(),
+                    public_key: public_key.as_str().unwrap_or_default().to_string(),
+                    signatures: serde_json::to_value(&device_keys.signatures).unwrap(),
                     created_at: Utc::now(),
                     updated_at: Utc::now(),
                 };
@@ -98,35 +98,51 @@ impl DeviceKeyService {
             }
         }
 
-        if let Some(one_time_keys) = request.one_time_keys {
-            for (user_id, keys) in one_time_keys.as_object().unwrap() {
-                for (device_id, device_keys) in keys.as_object().unwrap() {
-                    for (key_id, key_data) in device_keys.as_object().unwrap() {
-                        let key = DeviceKey {
-                            id: uuid::Uuid::new_v4(),
-                            user_id: user_id.clone(),
-                            device_id: device_id.clone(),
-                            display_name: None,
-                            algorithm: "signed_curve25519".to_string(),
-                            key_id: key_id.clone(),
-                            public_key: key_data["key"].as_str().unwrap().to_string(),
-                            signatures: key_data["signatures"].clone(),
-                            created_at: Utc::now(),
-                            updated_at: Utc::now(),
-                        };
+        if let Some(ref one_time_keys) = request.one_time_keys {
+            let (user_id, device_id) = if let Some(ref dk) = request.device_keys {
+                (dk.user_id.clone(), dk.device_id.clone())
+            } else {
+                (String::new(), String::new())
+            };
 
-                        self.storage.create_device_key(&key).await?;
-                    }
+            for (key_id, key_data) in one_time_keys.as_object().unwrap() {
+                let public_key = if key_data.is_string() {
+                    key_data.as_str().unwrap().to_string()
+                } else {
+                    key_data["key"].as_str().unwrap_or_default().to_string()
+                };
 
-                    let count = self
-                        .storage
-                        .get_one_time_keys_count(user_id, device_id)
-                        .await?;
-                    one_time_key_counts.insert(
-                        "signed_curve25519".to_string(),
-                        serde_json::Value::Number(count.into()),
-                    );
-                }
+                let signatures = if key_data.is_object() {
+                    key_data["signatures"].clone()
+                } else {
+                    serde_json::json!({})
+                };
+
+                let key = DeviceKey {
+                    id: uuid::Uuid::new_v4(),
+                    user_id: user_id.clone(),
+                    device_id: device_id.clone(),
+                    display_name: None,
+                    algorithm: "signed_curve25519".to_string(),
+                    key_id: key_id.clone(),
+                    public_key,
+                    signatures,
+                    created_at: Utc::now(),
+                    updated_at: Utc::now(),
+                };
+
+                self.storage.create_device_key(&key).await?;
+            }
+
+            if !user_id.is_empty() {
+                let count = self
+                    .storage
+                    .get_one_time_keys_count(&user_id, &device_id)
+                    .await?;
+                one_time_key_counts.insert(
+                    "signed_curve25519".to_string(),
+                    serde_json::Value::Number(count.into()),
+                );
             }
         }
 

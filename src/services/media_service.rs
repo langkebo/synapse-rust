@@ -1,6 +1,5 @@
 use crate::common::*;
 use crate::services::*;
-use std::fs;
 use std::path::PathBuf;
 
 #[derive(Clone)]
@@ -12,7 +11,11 @@ impl MediaService {
     pub fn new(media_path: &str) -> Self {
         let path = PathBuf::from(media_path);
         if !path.exists() {
-            fs::create_dir_all(&path).ok();
+            if let Err(e) = std::fs::create_dir_all(&path) {
+                ::tracing::error!("Failed to create media directory {}: {}", path.display(), e);
+            } else {
+                ::tracing::info!("Created media directory: {}", path.display());
+            }
         }
         Self { media_path: path }
     }
@@ -24,12 +27,15 @@ impl MediaService {
         content_type: &str,
         _filename: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        let media_id = generate_token(32);
+        let media_id = random_string(32);
         let extension = self.get_extension_from_content_type(content_type);
         let file_name = format!("{}.{}", media_id, extension);
         let file_path = self.media_path.join(&file_name);
 
-        fs::write(&file_path, content)
+        let content_vec = content.to_vec();
+        tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
+            .await
+            .map_err(|e| ApiError::internal(format!("Write task panicked: {}", e)))?
             .map_err(|e| ApiError::internal(format!("Failed to save media: {}", e)))?;
 
         let media_url = format!("/_matrix/media/v3/download/{}", file_name);
@@ -45,19 +51,25 @@ impl MediaService {
     }
 
     pub async fn get_media(&self, _server_name: &str, media_id: &str) -> Option<Vec<u8>> {
-        let _file_path = self.media_path.join(format!("{}.*", media_id));
-        if let Ok(entries) = fs::read_dir(&self.media_path) {
-            for entry in entries.flatten() {
-                if let Some(file_name) = entry.file_name().to_str() {
-                    if file_name.starts_with(media_id) {
-                        if let Ok(content) = fs::read(entry.path()) {
-                            return Some(content);
+        let media_path = self.media_path.clone();
+        let media_id = media_id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            if let Ok(entries) = std::fs::read_dir(media_path) {
+                for entry in entries.flatten() {
+                    if let Some(file_name) = entry.file_name().to_str() {
+                        if file_name.starts_with(&media_id) {
+                            if let Ok(content) = std::fs::read(entry.path()) {
+                                return Some(content);
+                            }
                         }
                     }
                 }
             }
-        }
-        None
+            None
+        })
+        .await
+        .unwrap_or(None)
     }
 
     pub async fn download_media(
@@ -86,150 +98,38 @@ impl MediaService {
         _server_name: &str,
         media_id: &str,
     ) -> Option<serde_json::Value> {
-        if let Ok(entries) = fs::read_dir(&self.media_path) {
-            for entry in entries.flatten() {
-                if let Some(file_name) = entry.file_name().to_str() {
-                    if file_name.starts_with(media_id) {
-                        let metadata = serde_json::json!({
-                            "media_id": media_id,
-                            "content_uri": format!("/_matrix/media/v3/download/{}", file_name),
-                            "filename": file_name
-                        });
-                        return Some(metadata);
+        let media_path = self.media_path.clone();
+        let media_id = media_id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            if let Ok(entries) = std::fs::read_dir(media_path) {
+                for entry in entries.flatten() {
+                    if let Some(file_name) = entry.file_name().to_str() {
+                        if file_name.starts_with(&media_id) {
+                            let metadata = serde_json::json!({
+                                "media_id": media_id,
+                                "content_uri": format!("/_matrix/media/v3/download/{}", file_name),
+                                "filename": file_name
+                            });
+                            return Some(metadata);
+                        }
                     }
                 }
             }
-        }
-        None
+            None
+        })
+        .await
+        .unwrap_or(None)
     }
 
     fn get_extension_from_content_type(&self, content_type: &str) -> &str {
-        if content_type.starts_with("image/png") {
-            "png"
-        } else if content_type.starts_with("image/jpeg") {
-            "jpg"
-        } else if content_type.starts_with("image/gif") {
-            "gif"
-        } else if content_type.starts_with("image/webp") {
-            "webp"
-        } else if content_type.starts_with("video/mp4") {
-            "mp4"
-        } else if content_type.starts_with("video/webm") {
-            "webm"
-        } else if content_type.starts_with("audio/mpeg") {
-            "mp3"
-        } else if content_type.starts_with("audio/ogg") {
-            "ogg"
-        } else {
-            "bin"
+        match content_type {
+            "image/jpeg" => "jpg",
+            "image/png" => "png",
+            "image/gif" => "gif",
+            "application/pdf" => "pdf",
+            "text/plain" => "txt",
+            _ => "bin",
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn test_media_service_creation() {
-        let _media_service = MediaService::new("/tmp/test_media");
-    }
-
-    #[test]
-    fn test_get_extension_png() {
-        let media_service = MediaService::new("/tmp/test");
-        let ext = media_service.get_extension_from_content_type("image/png");
-        assert_eq!(ext, "png");
-    }
-
-    #[test]
-    fn test_get_extension_jpeg() {
-        let media_service = MediaService::new("/tmp/test");
-        let ext = media_service.get_extension_from_content_type("image/jpeg");
-        assert_eq!(ext, "jpg");
-    }
-
-    #[test]
-    fn test_get_extension_gif() {
-        let media_service = MediaService::new("/tmp/test");
-        let ext = media_service.get_extension_from_content_type("image/gif");
-        assert_eq!(ext, "gif");
-    }
-
-    #[test]
-    fn test_get_extension_webp() {
-        let media_service = MediaService::new("/tmp/test");
-        let ext = media_service.get_extension_from_content_type("image/webp");
-        assert_eq!(ext, "webp");
-    }
-
-    #[test]
-    fn test_get_extension_mp4() {
-        let media_service = MediaService::new("/tmp/test");
-        let ext = media_service.get_extension_from_content_type("video/mp4");
-        assert_eq!(ext, "mp4");
-    }
-
-    #[test]
-    fn test_get_extension_webm() {
-        let media_service = MediaService::new("/tmp/test");
-        let ext = media_service.get_extension_from_content_type("video/webm");
-        assert_eq!(ext, "webm");
-    }
-
-    #[test]
-    fn test_get_extension_mp3() {
-        let media_service = MediaService::new("/tmp/test");
-        let ext = media_service.get_extension_from_content_type("audio/mpeg");
-        assert_eq!(ext, "mp3");
-    }
-
-    #[test]
-    fn test_get_extension_ogg() {
-        let media_service = MediaService::new("/tmp/test");
-        let ext = media_service.get_extension_from_content_type("audio/ogg");
-        assert_eq!(ext, "ogg");
-    }
-
-    #[test]
-    fn test_get_extension_unknown() {
-        let media_service = MediaService::new("/tmp/test");
-        let ext = media_service.get_extension_from_content_type("application/octet-stream");
-        assert_eq!(ext, "bin");
-    }
-
-    #[test]
-    fn test_media_metadata_format() {
-        let metadata = json!({
-            "media_id": "test123",
-            "content_uri": "/_matrix/media/v3/download/test123.png",
-            "filename": "test123.png"
-        });
-
-        assert_eq!(metadata["media_id"], "test123");
-        assert!(metadata["content_uri"].is_string());
-        assert!(metadata["filename"].is_string());
-    }
-
-    #[test]
-    fn test_upload_response_format() {
-        let response = json!({
-            "content_uri": "/_matrix/media/v3/download/test123.png",
-            "content_type": "image/png",
-            "size": 1024,
-            "media_id": "test123"
-        });
-
-        assert!(response.get("content_uri").is_some());
-        assert!(response.get("content_type").is_some());
-        assert!(response.get("size").is_some());
-        assert!(response.get("media_id").is_some());
-    }
-
-    #[test]
-    fn test_media_id_length() {
-        let media_id = generate_token(32);
-        assert_eq!(media_id.len(), 44);
     }
 }

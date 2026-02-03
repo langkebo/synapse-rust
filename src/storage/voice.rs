@@ -12,6 +12,7 @@ pub struct VoiceMessage {
     pub waveform_data: Option<serde_json::Value>,
     pub file_path: Option<String>,
     pub session_id: Option<String>,
+    pub transcribe_text: Option<String>,
     pub created_ts: i64,
 }
 
@@ -26,6 +27,7 @@ pub struct CreateVoiceMessage {
     pub waveform_data: Option<serde_json::Value>,
     pub file_path: Option<String>,
     pub session_id: Option<String>,
+    pub transcribe_text: Option<String>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -164,6 +166,7 @@ impl VoiceMessageStorage {
             waveform_data: row.get("waveform_data"),
             file_path: row.get("file_path"),
             session_id: row.get("session_id"),
+            transcribe_text: row.get("transcribe_text"),
             created_ts: row.get("created_ts"),
         })
     }
@@ -190,6 +193,7 @@ impl VoiceMessageStorage {
                 waveform_data: row.get("waveform_data"),
                 file_path: row.get("file_path"),
                 session_id: row.get("session_id"),
+                transcribe_text: row.get("transcribe_text"),
                 created_ts: row.get("created_ts"),
             }))
         } else {
@@ -229,10 +233,10 @@ impl VoiceMessageStorage {
                 waveform_data: row.get("waveform_data"),
                 file_path: row.get("file_path"),
                 session_id: row.get("session_id"),
+                transcribe_text: row.get("transcribe_text"),
                 created_ts: row.get("created_ts"),
             });
         }
-
         Ok(messages)
     }
 
@@ -268,10 +272,10 @@ impl VoiceMessageStorage {
                 waveform_data: row.get("waveform_data"),
                 file_path: row.get("file_path"),
                 session_id: row.get("session_id"),
+                transcribe_text: row.get("transcribe_text"),
                 created_ts: row.get("created_ts"),
             });
         }
-
         Ok(messages)
     }
 
@@ -307,10 +311,10 @@ impl VoiceMessageStorage {
                 waveform_data: row.get("waveform_data"),
                 file_path: row.get("file_path"),
                 session_id: row.get("session_id"),
+                transcribe_text: row.get("transcribe_text"),
                 created_ts: row.get("created_ts"),
             });
         }
-
         Ok(messages)
     }
 
@@ -380,10 +384,10 @@ impl VoiceMessageStorage {
                 waveform_data: row.get("waveform_data"),
                 file_path: row.get("file_path"),
                 session_id: row.get("session_id"),
+                transcribe_text: row.get("transcribe_text"),
                 created_ts: row.get("created_ts"),
             });
         }
-
         Ok(messages)
     }
 
@@ -429,6 +433,7 @@ impl VoiceMessageStorage {
                 waveform_data: row.get("waveform_data"),
                 file_path: row.get("file_path"),
                 session_id: row.get("session_id"),
+                transcribe_text: row.get("transcribe_text"),
                 created_ts: row.get("created_ts"),
             });
         }

@@ -1,157 +1,202 @@
-use tracing::{debug, error, info, trace, warn, Level};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use serde::{Deserialize, Serialize};
+use std::fmt;
 
-pub struct LoggingConfig {
-    pub level: Level,
-    pub format: LogFormat,
-    pub file_path: Option<String>,
-    pub rotation: LogRotation,
-    pub retention_days: u32,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum LogFormat {
-    Json,
-    Pretty,
+impl fmt::Display for LogLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LogLevel::Trace => write!(f, "TRACE"),
+            LogLevel::Debug => write!(f, "DEBUG"),
+            LogLevel::Info => write!(f, "INFO"),
+            LogLevel::Warn => write!(f, "WARN"),
+            LogLevel::Error => write!(f, "ERROR"),
+        }
+    }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum LogRotation {
-    Daily,
-    Weekly,
-    Never,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogContext {
+    pub request_id: Option<String>,
+    pub user_id: Option<String>,
+    pub room_id: Option<String>,
+    pub device_id: Option<String>,
+    pub session_id: Option<String>,
+    pub trace_id: Option<String>,
 }
 
-impl Default for LoggingConfig {
-    fn default() -> Self {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogMetadata {
+    pub timestamp: i64,
+    pub level: LogLevel,
+    pub target: String,
+    pub context: LogContext,
+    pub module: Option<String>,
+    pub file: Option<String>,
+    pub line: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogEntry {
+    pub metadata: LogMetadata,
+    pub message: String,
+    pub error: Option<String>,
+    pub duration_ms: Option<u64>,
+    pub extra: Option<serde_json::Value>,
+}
+
+impl LogEntry {
+    pub fn new(level: LogLevel, target: &str, message: &str) -> Self {
         Self {
-            level: Level::INFO,
-            format: LogFormat::Json,
-            file_path: None,
-            rotation: LogRotation::Daily,
-            retention_days: 30,
+            metadata: LogMetadata {
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                level,
+                target: target.to_string(),
+                context: LogContext {
+                    request_id: None,
+                    user_id: None,
+                    room_id: None,
+                    device_id: None,
+                    session_id: None,
+                    trace_id: None,
+                },
+                module: None,
+                file: None,
+                line: None,
+            },
+            message: message.to_string(),
+            error: None,
+            duration_ms: None,
+            extra: None,
         }
+    }
+
+    pub fn with_context(mut self, context: LogContext) -> Self {
+        self.metadata.context = context;
+        self
+    }
+
+    pub fn with_request_id(mut self, request_id: &str) -> Self {
+        self.metadata.context.request_id = Some(request_id.to_string());
+        self
+    }
+
+    pub fn with_user_id(mut self, user_id: &str) -> Self {
+        self.metadata.context.user_id = Some(user_id.to_string());
+        self
+    }
+
+    pub fn with_room_id(mut self, room_id: &str) -> Self {
+        self.metadata.context.room_id = Some(room_id.to_string());
+        self
+    }
+
+    pub fn with_device_id(mut self, device_id: &str) -> Self {
+        self.metadata.context.device_id = Some(device_id.to_string());
+        self
+    }
+
+    pub fn with_session_id(mut self, session_id: &str) -> Self {
+        self.metadata.context.session_id = Some(session_id.to_string());
+        self
+    }
+
+    pub fn with_trace_id(mut self, trace_id: &str) -> Self {
+        self.metadata.context.trace_id = Some(trace_id.to_string());
+        self
+    }
+
+    pub fn with_module(mut self, module: &str) -> Self {
+        self.metadata.module = Some(module.to_string());
+        self
+    }
+
+    pub fn with_location(mut self, file: &str, line: u32) -> Self {
+        self.metadata.file = Some(file.to_string());
+        self.metadata.line = Some(line);
+        self
+    }
+
+    pub fn with_error(mut self, error: &str) -> Self {
+        self.error = Some(error.to_string());
+        self
+    }
+
+    pub fn with_duration(mut self, duration_ms: u64) -> Self {
+        self.duration_ms = Some(duration_ms);
+        self
+    }
+
+    pub fn with_extra(mut self, extra: serde_json::Value) -> Self {
+        self.extra = Some(extra);
+        self
     }
 }
 
-pub fn init_tracing(config: &LoggingConfig) {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(format!("synapse_rust={}", config.level)));
+impl fmt::Display for LogEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp(
+            self.metadata.timestamp / 1000,
+            (self.metadata.timestamp % 1000) as u32,
+        )
+        .unwrap_or_default()
+        .format("%Y-%m-%d %H:%M:%S%.3f");
 
-    if let Some(file_path) = &config.file_path {
-        let file_appender = tracing_appender::rolling::daily(file_path, "synapse-rust.log");
+        write!(
+            f,
+            "{} [{}] {} - {}",
+            timestamp, self.metadata.level, self.metadata.target, self.message
+        )?;
 
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(fmt::layer().json().with_writer(file_appender))
-            .init();
-    } else {
-        match config.format {
-            LogFormat::Json => {
-                tracing_subscriber::registry()
-                    .with(env_filter)
-                    .with(
-                        fmt::layer()
-                            .json()
-                            .with_target(false)
-                            .with_thread_ids(true)
-                            .with_file(true)
-                            .with_line_number(true),
-                    )
-                    .init();
-            }
-            LogFormat::Pretty => {
-                tracing_subscriber::registry()
-                    .with(env_filter)
-                    .with(
-                        fmt::layer()
-                            .pretty()
-                            .with_target(false)
-                            .with_thread_ids(true)
-                            .with_file(true)
-                            .with_line_number(true),
-                    )
-                    .init();
-            }
+        if let Some(request_id) = &self.metadata.context.request_id {
+            write!(f, " [request_id={}]", request_id)?;
         }
+
+        if let Some(user_id) = &self.metadata.context.user_id {
+            write!(f, " [user_id={}]", user_id)?;
+        }
+
+        if let Some(room_id) = &self.metadata.context.room_id {
+            write!(f, " [room_id={}]", room_id)?;
+        }
+
+        if let Some(duration) = self.duration_ms {
+            write!(f, " [duration={}ms]", duration)?;
+        }
+
+        if let Some(error) = &self.error {
+            write!(f, " [error={}]", error)?;
+        }
+
+        Ok(())
     }
 }
 
-pub fn log_request(method: &str, path: &str, status: u16, duration_ms: u64, user_id: Option<&str>) {
-    info!(
-        method = method,
-        path = path,
-        status = status,
-        duration_ms = duration_ms,
-        user_id = user_id,
-        "HTTP request"
-    );
+pub fn log_trace(target: &str, message: &str) -> LogEntry {
+    LogEntry::new(LogLevel::Trace, target, message)
 }
 
-pub fn log_error(
-    error: &dyn std::error::Error,
-    context: &str,
-    user_id: Option<&str>,
-    request_id: Option<&str>,
-) {
-    error!(
-        error = %error,
-        context = context,
-        user_id = user_id,
-        request_id = request_id,
-        "Error occurred"
-    );
+pub fn log_debug(target: &str, message: &str) -> LogEntry {
+    LogEntry::new(LogLevel::Debug, target, message)
 }
 
-pub fn log_warning(message: &str, context: &str, user_id: Option<&str>) {
-    warn!(
-        message = message,
-        context = context,
-        user_id = user_id,
-        "Warning"
-    );
+pub fn log_info(target: &str, message: &str) -> LogEntry {
+    LogEntry::new(LogLevel::Info, target, message)
 }
 
-pub fn log_business_event(event_type: &str, user_id: &str, details: Option<&str>) {
-    info!(
-        event_type = event_type,
-        user_id = user_id,
-        details = details,
-        "Business event"
-    );
+pub fn log_warn(target: &str, message: &str) -> LogEntry {
+    LogEntry::new(LogLevel::Warn, target, message)
 }
 
-pub fn log_debug(message: &str, context: &str, data: Option<&str>) {
-    debug!(message = message, context = context, data = data, "Debug");
-}
-
-pub fn log_trace(message: &str, context: &str, data: Option<&str>) {
-    trace!(message = message, context = context, data = data, "Trace");
-}
-
-pub fn sanitize_for_logging(data: &str) -> String {
-    let sensitive_patterns = vec![
-        ("password", "[REDACTED: PASSWORD]"),
-        ("token", "[REDACTED: TOKEN]"),
-        ("secret", "[REDACTED: SECRET]"),
-        ("key", "[REDACTED: KEY]"),
-        ("authorization", "[REDACTED: AUTHORIZATION]"),
-        ("cookie", "[REDACTED: COOKIE]"),
-    ];
-
-    let mut sanitized = data.to_string();
-    for (pattern, replacement) in &sensitive_patterns {
-        let pattern_with_quotes = format!(r#""{}":"#, pattern);
-        if sanitized.to_lowercase().contains(&pattern_with_quotes) {
-            let regex_pattern = format!(r#"(?i)"{}"\s*:\s*"[^"]*""#, pattern);
-            if let Ok(re) = regex::Regex::new(&regex_pattern) {
-                sanitized = re
-                    .replace_all(&sanitized, format!(r#""{}": {}"#, pattern, replacement))
-                    .to_string();
-            }
-        }
-    }
-    sanitized
+pub fn log_error(target: &str, message: &str) -> LogEntry {
+    LogEntry::new(LogLevel::Error, target, message)
 }
 
 #[cfg(test)]
@@ -159,28 +204,71 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_logging_config_default() {
-        let config = LoggingConfig::default();
-        assert_eq!(config.level, Level::INFO);
-        assert_eq!(config.format, LogFormat::Json);
-        assert!(config.file_path.is_none());
-        assert_eq!(config.retention_days, 30);
+    fn test_log_level_display() {
+        assert_eq!(format!("{}", LogLevel::Trace), "TRACE");
+        assert_eq!(format!("{}", LogLevel::Debug), "DEBUG");
+        assert_eq!(format!("{}", LogLevel::Info), "INFO");
+        assert_eq!(format!("{}", LogLevel::Warn), "WARN");
+        assert_eq!(format!("{}", LogLevel::Error), "ERROR");
     }
 
     #[test]
-    fn test_sanitize_for_logging() {
-        let data = r#"{"password": "secret123", "token": "abc123"}"#;
-        let sanitized = sanitize_for_logging(data);
-        assert!(sanitized.contains("[REDACTED: PASSWORD]"));
-        assert!(sanitized.contains("[REDACTED: TOKEN]"));
-        assert!(!sanitized.contains("secret123"));
-        assert!(!sanitized.contains("abc123"));
+    fn test_log_entry_creation() {
+        let entry = LogEntry::new(LogLevel::Info, "test_module", "Test message");
+        assert_eq!(entry.metadata.level, LogLevel::Info);
+        assert_eq!(entry.metadata.target, "test_module");
+        assert_eq!(entry.message, "Test message");
     }
 
     #[test]
-    fn test_sanitize_no_sensitive_data() {
-        let data = r#"{"username": "john", "email": "john@example.com"}"#;
-        let sanitized = sanitize_for_logging(data);
-        assert_eq!(sanitized, data);
+    fn test_log_entry_with_context() {
+        let entry = LogEntry::new(LogLevel::Info, "test_module", "Test message")
+            .with_request_id("req-123")
+            .with_user_id("@user:server")
+            .with_room_id("!room:server");
+
+        assert_eq!(
+            entry.metadata.context.request_id,
+            Some("req-123".to_string())
+        );
+        assert_eq!(
+            entry.metadata.context.user_id,
+            Some("@user:server".to_string())
+        );
+        assert_eq!(
+            entry.metadata.context.room_id,
+            Some("!room:server".to_string())
+        );
+    }
+
+    #[test]
+    fn test_log_entry_with_duration() {
+        let entry = LogEntry::new(LogLevel::Info, "test_module", "Test message").with_duration(100);
+
+        assert_eq!(entry.duration_ms, Some(100));
+    }
+
+    #[test]
+    fn test_log_entry_with_error() {
+        let entry =
+            LogEntry::new(LogLevel::Error, "test_module", "Test message").with_error("Test error");
+
+        assert_eq!(entry.error, Some("Test error".to_string()));
+    }
+
+    #[test]
+    fn test_log_entry_display() {
+        let entry = LogEntry::new(LogLevel::Info, "test_module", "Test message")
+            .with_request_id("req-123")
+            .with_user_id("@user:server")
+            .with_duration(50);
+
+        let display = format!("{}", entry);
+        assert!(display.contains("INFO"));
+        assert!(display.contains("test_module"));
+        assert!(display.contains("Test message"));
+        assert!(display.contains("req-123"));
+        assert!(display.contains("@user:server"));
+        assert!(display.contains("50ms"));
     }
 }
