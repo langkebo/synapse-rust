@@ -1,8 +1,154 @@
 # Synapse Rust API测试优化最终报告
 
-> **测试日期**：2026-02-04  
-> **项目**：Synapse Rust Matrix Server  
+> **测试日期**：2026-02-04
+> **更新日期**：2026-02-04 (v3.1.0 - 域名配置优化)
+> **项目**：Synapse Rust Matrix Server
 > **文档目的**：汇总API测试优化过程和最终结果
+
+---
+
+## 更新记录 (v3.1.0)
+
+### 2026-02-04: 域名配置优化
+
+#### 问题描述
+用户反馈用户名格式未正确配置为 `@user:cjystx.top`，而是显示为 `@user:matrix.cjystx.top`。
+
+#### 问题分析
+1. **配置文件检查**：
+   - `homeserver.yaml` 配置正确：`server.name: "cjystx.top"`
+   - `.env` 文件中 `SYNAPSE_SERVER_NAME=cjystx.top` ✅
+
+2. **根本原因**：
+   - 数据库中存在**旧用户数据**，这些用户是在之前配置下注册的
+   - 旧用户ID：`@testuser1:matrix.cjystx.top`, `@testuser2:matrix.cjystx.top`, `@admin:matrix.cjystx.top`
+
+#### 解决方案
+
+**步骤1：清理Docker环境**
+```bash
+# 停止并删除旧容器
+docker stop synapse_redis synapse_postgres
+docker rm synapse_redis synapse_postgres
+
+# 清理网络
+docker network rm docker_matrix_net matrix_net
+```
+
+**步骤2：重新加载离线镜像**
+```bash
+# 加载之前保存的离线镜像
+docker load -i /home/hula/synapse_rust/docker/imags/synapse-rust_dev_20260204_132223.tar
+```
+
+**步骤3：启动服务**
+```bash
+cd /home/hula/synapse_rust/docker
+docker compose up -d
+```
+
+**步骤4：清除旧用户数据**
+```bash
+# 删除数据库中的所有旧用户
+docker exec synapse_postgres psql -U synapse -d synapse_test -c "DELETE FROM users;"
+```
+
+**步骤5：重新注册测试用户**
+```bash
+# 注册 testuser1
+curl -X POST http://localhost:8008/_matrix/client/r0/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testuser1","password":"TestUser123456!","admin":false}'
+
+# 注册 testuser2
+curl -X POST http://localhost:8008/_matrix/client/r0/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testuser2","password":"TestUser123456!","admin":false}'
+
+# 注册 admin
+curl -X POST http://localhost:8008/_matrix/client/r0/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"Admin123456!","admin":true}'
+```
+
+#### 验证结果
+
+**用户名格式验证** ✅
+```json
+{
+  "admin": false,
+  "avatar_url": null,
+  "displayname": "testuser1",
+  "user_id": "@testuser1:cjystx.top"
+}
+```
+
+**数据库用户记录**
+```
+        user_id        
+-----------------------
+ @testuser1:cjystx.top
+ @testuser2:cjystx.top
+ @admin:cjystx.top
+(3 rows)
+```
+
+**Matrix API 版本检查** ✅
+```json
+{
+  "unstable_features": {
+    "m.lazy_load_members": true,
+    "m.require_identity_server": false,
+    "m.supports_login_via_phone_number": true
+  },
+  "versions": [
+    "r0.0.1",
+    "r0.1.0",
+    "r0.2.0",
+    "r0.3.0",
+    "r0.4.0",
+    "r0.5.0",
+    "r0.6.0"
+  ]
+}
+```
+
+#### 当前服务状态
+| 容器名称 | 状态 | 端口 |
+|----------|------|------|
+| synapse_rust | ✅ 运行中 (healthy) | 8008 |
+| synapse_redis | ✅ 运行中 (healthy) | 6379 |
+| synapse_postgres | ✅ 运行中 (healthy) | 5432 |
+
+#### 重要配置说明
+
+**1. homeserver.yaml**
+```yaml
+server:
+  name: "cjystx.top"  # 生产环境域名，用户名格式: @user:cjystx.top
+  host: "0.0.0.0"
+  port: 8008
+  public_host: "matrix.cjystx.top"  # 公开访问域名，Nginx代理使用
+```
+
+**2. .env**
+```
+SYNAPSE_SERVER_NAME=cjystx.top
+```
+
+**3. docker-compose.yml**
+```yaml
+services:
+  synapse:
+    image: synapse-rust:dev
+    ports:
+      - "8008:8008"
+```
+
+#### 注意事项
+1. **域名分离**：cjystx.top 用于用户名格式，matrix.cjystx.top 用于Nginx代理
+2. **服务发现**：.well-known 端点配置为返回 matrix.cjystx.top:443
+3. **HTTPS配置**：生产环境需要为 matrix.cjystx.top 配置SSL证书
 
 ---
 
@@ -362,6 +508,6 @@ curl -X GET http://localhost:8008/_synapse/admin/v1/server_version \
 
 ---
 
-**文档版本**：3.0.0  
-**最后更新**：2026-02-04  
+**文档版本**：3.1.0
+**最后更新**：2026-02-04
 **维护者**：API测试团队

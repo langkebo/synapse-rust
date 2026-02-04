@@ -1,7 +1,8 @@
 server:
-  name: "matrix.cjystx.top" # 生产环境域名
+  name: "cjystx.top" # 生产环境域名，用户名格式: @user:cjystx.top
   host: "0.0.0.0"
   port: 8008
+  public_host: "matrix.cjystx.top" # 公开访问域名，Nginx代理使用
   registration_shared_secret: "test_shared_secret"
   admin_contact: "admin@cjystx.top"
   max_upload_size: 104857600 # 100MB, 支持大文件上传
@@ -14,6 +15,9 @@ server:
   refresh_token_lifetime: 604800
   refresh_token_sliding_window_size: 1000
   session_duration: 86400
+  # 确保用户名格式统一为 @user:cjystx.top
+  allow_username_issue: true
+  disallow_username_inspection: false
 
 # 缓存优化 (Python Synapse 兼容参数)
 caches:
@@ -75,11 +79,27 @@ logging:
   format: "json" # 改为 JSON 格式以便 Prometheus/Grafana 解析
   log_file: null
   log_dir: null
+  # 日志级别细粒度控制
+  levels:
+    default: "info"
+    synapse.handlers: "info"
+    synapse.storage: "warn"
+    synapse.http.client: "warn"
+  # 日志过滤
+  filters:
+    - module: "synapse.http.AccessLog"
+      format: "%(remote)s - %(request)s - %(code)s - %(time)s - %(message)s"
+  # 审计日志
+  audit_log:
+    enabled: true
+    path: "/var/log/synapse/audit.log"
+    max_size: 104857600 # 100MB
+    max_files: 10
 
 federation:
   enabled: true
   allow_ingress: true
-  server_name: "matrix.cjystx.top"
+  server_name: "cjystx.top" # 联邦服务器名，用户名格式: @user:cjystx.top
   federation_port: 8448
   connection_pool_size: 10
   max_transaction_payload: 10485760
@@ -88,6 +108,33 @@ federation:
   signing_key: "gtjAoCT5GSIk9DhLAq46MEIy7RdmZirxZpj0iDknE7I="
   ca_file: null
   client_ca_file: null
+  # 信任的下载密钥，用于验证其他服务器的身份
+  key_requests:
+    conn_pool_size: 10
+    timeout: 15s
+  # 发送配置
+  sender:
+    worker: null
+  # 接收配置
+  receiver:
+    worker: null
+  # 排除的服务器列表
+  exclude_server_names:
+    - "*"
+  # 房间版本配置
+  room_versions:
+    default: "10"
+    supported:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+      - "5"
+      - "6"
+      - "7"
+      - "8"
+      - "9"
+      - "10"
 
 media:
   max_image_pixels: 33554432 # 32MP, 限制图片分辨率防止内存溢出
@@ -117,6 +164,59 @@ security:
   expiry_time: 3600
   refresh_token_expiry: 604800
   bcrypt_rounds: 12
+  # 生产环境安全增强
+  user_directory:
+    enabled: true
+    search_all_users: false
+    prefer_local_users: true
+  # 防暴力破解配置
+  rate_limiting:
+    auth_failure: [2, 3, 5, 10, 20] # 递增锁定时间
+    login_attempt_count: [5, 10] # 登录尝试次数限制
+  # 会话安全配置
+  sessions:
+    maximum: 100
+    idle_timeout: 86400
+    expiry_time: 3600
+  # 密码强度配置
+  password:
+    minimum_length: 8
+    require_digit: true
+    require_symbol: true
+    require_uppercase: true
+    require_lowercase: true
+    blacklist: ["password", "123456", "qwerty", "admin"]
+
+# 生产环境监控配置
+metrics:
+  enabled: true
+  endpoint: "/_matrix/client/versions"
+  port: 9100
+
+# 报告配置
+reports:
+  server_notices:
+    enabled: true
+    room_name: "Server Notices"
+  message_template: |
+    You have been warned for %(reason)s.
+    This is an automated message.
+
+# HTTP客户端配置（用于联邦请求）
+http_client:
+  # DNS缓存配置
+  dns_cache:
+    ttl: 300
+    negative_ttl: 60
+  # 连接池配置
+  connection_pool:
+    max_connections_per_host: 100
+    max_total_connections: 500
+  # 超时配置
+  timeout:
+    connect: 10s
+    read: 30s
+    write: 30s
 
 admin_registration:
   enabled: true
