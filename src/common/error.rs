@@ -124,6 +124,18 @@ impl ApiError {
         }
     }
 
+    fn to_server_error_response(
+        log_msg: &str,
+        user_msg: &str,
+    ) -> (StatusCode, &'static str, String) {
+        tracing::error!("{}", log_msg);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "M_UNKNOWN",
+            user_msg.to_string(),
+        )
+    }
+
     pub fn message(&self) -> String {
         self.to_string()
     }
@@ -142,15 +154,30 @@ impl IntoResponse for ApiError {
                 "M_LIMIT_EXCEEDED",
                 "Rate limited".to_string(),
             ),
-            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "M_UNKNOWN", msg),
-            ApiError::Database(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "M_UNKNOWN", msg),
-            ApiError::Cache(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "M_UNKNOWN", msg),
+            ApiError::Internal(msg) => Self::to_server_error_response(
+                &format!("Internal error: {}", msg),
+                "Internal server error",
+            ),
+            ApiError::Database(msg) => Self::to_server_error_response(
+                &format!("Database error: {}", msg),
+                "Database operation failed",
+            ),
+            ApiError::Cache(msg) => Self::to_server_error_response(
+                &format!("Cache error: {}", msg),
+                "Cache operation failed",
+            ),
             ApiError::Authentication(msg) => (StatusCode::UNAUTHORIZED, "M_UNKNOWN_TOKEN", msg),
             ApiError::Validation(msg) => (StatusCode::BAD_REQUEST, "M_INVALID_PARAM", msg),
             ApiError::InvalidInput(msg) => (StatusCode::BAD_REQUEST, "M_BAD_JSON", msg),
             ApiError::DecryptionError(msg) => (StatusCode::UNAUTHORIZED, "M_UNKNOWN", msg),
-            ApiError::EncryptionError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "M_UNKNOWN", msg),
-            ApiError::Crypto(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "M_UNKNOWN", msg),
+            ApiError::EncryptionError(msg) => Self::to_server_error_response(
+                &format!("Encryption error: {}", msg),
+                "Encryption operation failed",
+            ),
+            ApiError::Crypto(msg) => Self::to_server_error_response(
+                &format!("Crypto error: {}", msg),
+                "Cryptographic operation failed",
+            ),
         };
 
         let body = json!({
@@ -164,7 +191,16 @@ impl IntoResponse for ApiError {
 
 impl From<sqlx::Error> for ApiError {
     fn from(err: sqlx::Error) -> Self {
-        ApiError::Database(err.to_string())
+        let error_msg = format!("{:?}", err).to_lowercase();
+        if error_msg.contains("duplicate key")
+            || error_msg.contains("unique constraint")
+            || error_msg.contains("23505")
+            || error_msg.contains("violates unique constraint")
+        {
+            ApiError::BadRequest(format!("Duplicate entry: {}", err.to_string()))
+        } else {
+            ApiError::Database(err.to_string())
+        }
     }
 }
 

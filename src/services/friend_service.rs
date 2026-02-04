@@ -10,6 +10,22 @@ struct FriendRecord {
 }
 
 #[derive(Debug, Clone, FromRow)]
+struct FriendshipRecord {
+    user_id: String,
+    friend_id: String,
+    created_ts: i64,
+    note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FriendshipInfo {
+    pub user_id: String,
+    pub friend_id: String,
+    pub created_ts: i64,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow)]
 struct RequestRecord {
     id: i64,
     sender_id: String,
@@ -157,6 +173,25 @@ impl FriendStorage {
                 .fetch_optional(&*self.pool)
                 .await?;
         Ok(result.is_some())
+    }
+
+    pub async fn get_friendship(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+    ) -> Result<Option<FriendshipInfo>, sqlx::Error> {
+        let result: Option<FriendshipRecord> =
+            sqlx::query_as(r#"SELECT user_id, friend_id, created_ts, note FROM friends WHERE user_id = $1 AND friend_id = $2"#)
+                .bind(user_id)
+                .bind(friend_id)
+                .fetch_optional(&*self.pool)
+                .await?;
+        Ok(result.map(|r| FriendshipInfo {
+            user_id: r.user_id,
+            friend_id: r.friend_id,
+            created_ts: r.created_ts,
+            note: r.note,
+        }))
     }
 
     pub async fn create_request(

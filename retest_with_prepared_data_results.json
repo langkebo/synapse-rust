@@ -1,0 +1,138 @@
+[
+  {
+    "category": "5. 语音消息API",
+    "api_name": "获取语音消息",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/voice/{message_id}",
+    "status_code": null,
+    "expected_code": 200,
+    "success": false,
+    "error": {
+      "errcode": "M_NOT_FOUND",
+      "error": "Voice message not found"
+    },
+    "timestamp": "2026-02-04T09:17:53.539672",
+    "response_data": null
+  },
+  {
+    "category": "6. 好友系统API",
+    "api_name": "更新好友分类",
+    "method": "PUT",
+    "endpoint": "/_synapse/enhanced/friend/categories/{user_id}/{category_name}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T09:17:53.552668",
+    "response_data": {
+      "category_name": "NewTestCategory",
+      "status": "updated"
+    }
+  },
+  {
+    "category": "7. 媒体文件API",
+    "api_name": "下载媒体文件",
+    "method": "GET",
+    "endpoint": "/_matrix/media/v3/download/TtugMm4vyxsaTJRV4XkgMjuRArfBO6NC.png",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T09:17:53.558598",
+    "response_data": {
+      "errcode": "UNKNOWN",
+      "error": "Unknown endpoint"
+    }
+  },
+  {
+    "category": "8. 私聊API",
+    "api_name": "创建私聊会话",
+    "method": "POST",
+    "endpoint": "/_synapse/enhanced/private/sessions",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T09:17:53.569963",
+    "response_data": {
+      "created": "2026-02-04T01:17:53.568630610+00:00",
+      "other_user": "@testuser2:matrix.cjystx.top",
+      "session_id": "ps_e43e740572d54d10b216502ae821c8d5"
+    }
+  },
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "获取备份版本信息",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/room_keys/version/{version}",
+    "status_code": null,
+    "expected_code": 200,
+    "success": false,
+    "error": {
+      "errcode": "M_NOT_FOUND",
+      "error": "Backup version '1770164649' not found"
+    },
+    "timestamp": "2026-02-04T09:17:53.580266",
+    "response_data": null
+  },
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "更新备份版本",
+    "method": "PUT",
+    "endpoint": "/_matrix/client/r0/room_keys/version/{version}",
+    "status_code": null,
+    "expected_code": 200,
+    "success": false,
+    "error": {
+      "errcode": "M_NOT_FOUND",
+      "error": "Backup version '1770164649' not found for user '@testuser1:matrix.cjystx.top'"
+    },
+    "timestamp": "2026-02-04T09:17:53.590630",
+    "response_data": null
+  },
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "删除备份版本",
+    "method": "DELETE",
+    "endpoint": "/_matrix/client/r0/room_keys/version/{version}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T09:17:53.601196",
+    "response_data": {
+      "deleted": true,
+      "version": "1770164649"
+    }
+  },
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "获取所有房间密钥",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/room_keys/{version}",
+    "status_code": null,
+    "expected_code": 200,
+    "success": false,
+    "error": {
+      "errcode": "M_NOT_FOUND",
+      "error": "Backup version '1770164649' not found"
+    },
+    "timestamp": "2026-02-04T09:17:53.612472",
+    "response_data": null
+  },
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "上传房间密钥",
+    "method": "PUT",
+    "endpoint": "/_matrix/client/r0/room_keys/{version}",
+    "status_code": null,
+    "expected_code": 200,
+    "success": false,
+    "error": {
+      "errcode": "M_NOT_FOUND",
+      "error": "Backup not found"
+    },
+    "timestamp": "2026-02-04T09:17:53.623366",
+    "response_data": null
+  }
+]

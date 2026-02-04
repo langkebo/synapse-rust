@@ -1,0 +1,184 @@
+[
+  {
+    "category": "3.1 公开端点",
+    "api_name": "获取服务器签名密钥",
+    "method": "GET",
+    "endpoint": "/_matrix/federation/v2/server",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:59.700104",
+    "response_data": {
+      "old_verify_keys": {},
+      "server_name": "matrix.cjystx.top",
+      "valid_until_ts": 1770178379698,
+      "verify_keys": {
+        "ed25519:1": {
+          "key": "Ff+nLvKjj0H2R7Y9DLNj3XNOH/kJTY4fQ31iym0iVa4"
+        }
+      }
+    }
+  },
+  {
+    "category": "3.1 公开端点",
+    "api_name": "获取服务器密钥（v1兼容）",
+    "method": "GET",
+    "endpoint": "/_matrix/key/v2/server",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:59.708561",
+    "response_data": {
+      "old_verify_keys": {},
+      "server_name": "matrix.cjystx.top",
+      "valid_until_ts": 1770178379707,
+      "verify_keys": {
+        "ed25519:1": {
+          "key": "Ff+nLvKjj0H2R7Y9DLNj3XNOH/kJTY4fQ31iym0iVa4"
+        }
+      }
+    }
+  },
+  {
+    "category": "3.1 公开端点",
+    "api_name": "查询服务器密钥",
+    "method": "GET",
+    "endpoint": "/_matrix/federation/v2/query/{server_name}/{key_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:59.716900",
+    "response_data": {
+      "old_verify_keys": {},
+      "server_name": "matrix.cjystx.top",
+      "valid_until_ts": 1770178379715,
+      "verify_keys": {
+        "ed25519:1": {
+          "key": "Ff+nLvKjj0H2R7Y9DLNj3XNOH/kJTY4fQ31iym0iVa4"
+        }
+      }
+    }
+  },
+  {
+    "category": "3.1 公开端点",
+    "api_name": "获取联邦版本信息",
+    "method": "GET",
+    "endpoint": "/_matrix/federation/v1/version",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:59.725274",
+    "response_data": {
+      "server": {
+        "name": "Synapse Rust",
+        "version": "0.1.0"
+      },
+      "version": "3600"
+    }
+  },
+  {
+    "category": "3.1 公开端点",
+    "api_name": "联邦服务发现",
+    "method": "GET",
+    "endpoint": "/_matrix/federation/v1",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:59.733186",
+    "response_data": {
+      "capabilities": {
+        "m.change_password": true,
+        "m.room_versions": {
+          "1": {
+            "status": "stable"
+          }
+        }
+      },
+      "server_name": "matrix.cjystx.top",
+      "version": "0.1.0"
+    }
+  },
+  {
+    "category": "3.1 公开端点",
+    "api_name": "获取公共房间列表",
+    "method": "GET",
+    "endpoint": "/_matrix/federation/v1/publicRooms",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:59.742819",
+    "response_data": {
+      "chunk": [
+        {
+          "canonical_alias": null,
+          "creation_ts": 1770127666,
+          "creator": "@testuser1:matrix.cjystx.top",
+          "encryption": null,
+          "history_visibility": "joined",
+          "is_public": true,
+          "join_rule": "invite",
+          "member_count": 2,
+          "name": "Test Room 1",
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "topic": "Test room for API testing",
+          "version": "1"
+        }
+      ],
+      "next_batch": null
+    }
+  },
+  {
+    "category": "3.2 保护端点",
+    "api_name": "发送事务",
+    "method": "PUT",
+    "endpoint": "/_matrix/federation/v1/send/test_txn_123",
+    "status_code": null,
+    "expected_code": 200,
+    "success": false,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:59.751225",
+    "response_data": null
+  },
+  {
+    "category": "3.2 保护端点",
+    "api_name": "生成加入事件模板",
+    "method": "GET",
+    "endpoint": "/_matrix/federation/v1/make_join/!testroom:matrix.cjystx.top/@testuser1:matrix.cjystx.top",
+    "status_code": null,
+    "expected_code": 200,
+    "success": false,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:59.759773",
+    "response_data": null
+  },
+  {
+    "category": "3.2 保护端点",
+    "api_name": "获取房间状态",
+    "method": "GET",
+    "endpoint": "/_matrix/federation/v1/state/!testroom:matrix.cjystx.top",
+    "status_code": null,
+    "expected_code": 200,
+    "success": false,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:59.768357",
+    "response_data": null
+  },
+  {
+    "category": "3.2 保护端点",
+    "api_name": "获取事件授权链",
+    "method": "GET",
+    "endpoint": "/_matrix/federation/v1/get_event_auth/!testroom:matrix.cjystx.top/$event",
+    "status_code": null,
+    "expected_code": 200,
+    "success": false,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:59.776451",
+    "response_data": null
+  }
+]

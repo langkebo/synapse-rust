@@ -1055,13 +1055,23 @@ async fn get_room_state(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .room_service
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found(format!("Room '{}' not found", room_id)));
+    }
+
     let events = state
         .services
         .event_storage
         .get_state_events(&room_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
-
     let state_events: Vec<Value> = events
         .iter()
         .map(|e| {
@@ -1083,6 +1093,17 @@ async fn get_state_by_type(
     _auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .room_service
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found(format!("Room '{}' not found", room_id)));
+    }
+
     let events = state
         .services
         .event_storage

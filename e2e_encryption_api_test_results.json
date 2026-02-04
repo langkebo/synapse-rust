@@ -1,0 +1,108 @@
+[
+  {
+    "category": "4. 端到端加密API",
+    "api_name": "上传设备密钥",
+    "method": "POST",
+    "endpoint": "/_matrix/client/r0/keys/upload",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:18.711022",
+    "response_data": {
+      "one_time_key_counts": {
+        "signed_curve25519": 1
+      }
+    }
+  },
+  {
+    "category": "4. 端到端加密API",
+    "api_name": "查询设备密钥",
+    "method": "POST",
+    "endpoint": "/_matrix/client/r0/keys/query",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:18.722433",
+    "response_data": {
+      "device_keys": {
+        "@testuser1:matrix.cjystx.top": {}
+      },
+      "failures": {}
+    }
+  },
+  {
+    "category": "4. 端到端加密API",
+    "api_name": "声明一次性密钥",
+    "method": "POST",
+    "endpoint": "/_matrix/client/r0/keys/claim",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:18.732708",
+    "response_data": {
+      "failures": {},
+      "one_time_keys": {
+        "@testuser1:matrix.cjystx.top": {}
+      }
+    }
+  },
+  {
+    "category": "4. 端到端加密API",
+    "api_name": "获取密钥变更列表",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/keys/changes",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:18.758018",
+    "response_data": {
+      "changed": [
+        "@testuser1:matrix.cjystx.top",
+        "@user_1836170499:localhost",
+        "@user_1970751539:localhost",
+        "@user_2046057971:localhost",
+        "@user_3744284716:localhost",
+        "@user_3817871248:localhost",
+        "@user_3834419743:localhost",
+        "@user_4016937639:localhost",
+        "@user_687037154:localhost"
+      ],
+      "left": []
+    }
+  },
+  {
+    "category": "4. 端到端加密API",
+    "api_name": "获取房间密钥分发信息",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/rooms/{room_id}/keys/distribution",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:18.770982",
+    "response_data": {
+      "algorithm": "m.megolm.v1.aes-sha2",
+      "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+      "session_id": "",
+      "session_key": ""
+    }
+  },
+  {
+    "category": "4. 端到端加密API",
+    "api_name": "发送设备到设备消息",
+    "method": "PUT",
+    "endpoint": "/_matrix/client/r0/sendToDevice/{event_type}/{transaction_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:18.782691",
+    "response_data": {
+      "txn_id": "test_txn_123"
+    }
+  }
+]

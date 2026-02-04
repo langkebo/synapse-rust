@@ -61,14 +61,6 @@ impl Validator {
             ));
         }
 
-        if username.is_empty() {
-            return Err(ValidationError::new(
-                "username",
-                "Username must be at least 1 character",
-                "TOO_SHORT",
-            ));
-        }
-
         if username.len() > 255 {
             return Err(ValidationError::new(
                 "username",

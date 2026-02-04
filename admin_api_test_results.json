@@ -1,0 +1,392 @@
+[
+  {
+    "category": "2.1 服务器管理",
+    "api_name": "获取服务器版本",
+    "method": "GET",
+    "endpoint": "/_synapse/admin/v1/server_version",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:15:27.018445",
+    "response_data": {
+      "python_version": "3.9.0",
+      "version": "1.0.0"
+    }
+  },
+  {
+    "category": "2.1 服务器管理",
+    "api_name": "获取服务器状态",
+    "method": "GET",
+    "endpoint": "/_synapse/admin/v1/status",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:15:27.028979",
+    "response_data": {
+      "rooms": 3,
+      "status": "running",
+      "uptime": 0,
+      "users": 4,
+      "version": "1.0.0"
+    }
+  },
+  {
+    "category": "2.2 用户管理",
+    "api_name": "获取用户列表（分页）",
+    "method": "GET",
+    "endpoint": "/_synapse/admin/v1/users",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:15:27.040887",
+    "response_data": {
+      "total": 4,
+      "users": [
+        {
+          "admin": true,
+          "avatar_url": null,
+          "creation_ts": 1770128721,
+          "deactivated": false,
+          "displayname": null,
+          "is_guest": false,
+          "name": "admin",
+          "user_type": null
+        },
+        {
+          "admin": false,
+          "avatar_url": null,
+          "creation_ts": 1770127615,
+          "deactivated": false,
+          "displayname": null,
+          "is_guest": false,
+          "name": "testuser2",
+          "user_type": null
+        },
+        {
+          "admin": true,
+          "avatar_url": "mxc://matrix.cjystx.top/test_avatar",
+          "creation_ts": 1770127597,
+          "deactivated": false,
+          "displayname": "Test User 1 Updated",
+          "is_guest": false,
+          "name": "testuser1",
+          "user_type": null
+        },
+        {
+          "admin": false,
+          "avatar_url": null,
+          "creation_ts": 1770091716,
+          "deactivated": false,
+          "displayname": null,
+          "is_guest": false,
+          "name": "alice",
+          "user_type": null
+        }
+      ]
+    }
+  },
+  {
+    "category": "2.2 用户管理",
+    "api_name": "获取用户详情",
+    "method": "GET",
+    "endpoint": "/_synapse/admin/v1/users/{{user_id}}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:15:27.050140",
+    "response_data": {
+      "admin": true,
+      "avatar_url": "mxc://matrix.cjystx.top/test_avatar",
+      "creation_ts": 1770127597,
+      "deactivated": false,
+      "displayname": "Test User 1 Updated",
+      "is_guest": false,
+      "name": "testuser1",
+      "user_type": null
+    }
+  },
+  {
+    "category": "2.2 用户管理",
+    "api_name": "设置管理员权限",
+    "method": "PUT",
+    "endpoint": "/_synapse/admin/v1/users/{{user_id}}/admin",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:15:27.062859",
+    "response_data": {
+      "success": true
+    }
+  },
+  {
+    "category": "2.2 用户管理",
+    "api_name": "获取用户的房间列表",
+    "method": "GET",
+    "endpoint": "/_synapse/admin/v1/users/{{user_id}}/rooms",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:15:27.073199",
+    "response_data": {
+      "rooms": [
+        "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+        "!pdsb0b_OqRVJazC6JYW1CZRQ:matrix.cjystx.top"
+      ]
+    }
+  },
+  {
+    "category": "2.3 房间管理",
+    "api_name": "获取房间列表（分页）",
+    "method": "GET",
+    "endpoint": "/_synapse/admin/v1/rooms",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:15:27.083087",
+    "response_data": {
+      "rooms": [
+        {
+          "creator": "@testuser1:matrix.cjystx.top",
+          "is_public": false,
+          "joined_local_members": 1,
+          "joined_members": 1,
+          "name": "Test Room 2",
+          "room_id": "!pdsb0b_OqRVJazC6JYW1CZRQ:matrix.cjystx.top",
+          "topic": "Private test room"
+        },
+        {
+          "creator": "@testuser1:matrix.cjystx.top",
+          "is_public": true,
+          "joined_local_members": 1,
+          "joined_members": 1,
+          "name": "Test Room 1",
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "topic": "Test room for API testing"
+        },
+        {
+          "creator": "@alice:localhost",
+          "is_public": false,
+          "joined_local_members": 1,
+          "joined_members": 1,
+          "name": "Test Room",
+          "room_id": "!-hABrIndvYAoTfdEDygd1Wky:localhost",
+          "topic": ""
+        }
+      ],
+      "total": 3
+    }
+  },
+  {
+    "category": "2.3 房间管理",
+    "api_name": "获取房间详情",
+    "method": "GET",
+    "endpoint": "/_synapse/admin/v1/rooms/{{room_id}}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:15:27.094179",
+    "response_data": {
+      "creator": "@testuser1:matrix.cjystx.top",
+      "is_public": true,
+      "join_rule": "invite",
+      "name": "Test Room 1",
+      "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+      "topic": "Test room for API testing"
+    }
+  },
+  {
+    "category": "2.4 安全管理",
+    "api_name": "获取安全事件日志",
+    "method": "GET",
+    "endpoint": "/_synapse/admin/v1/security/events",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:15:27.106841",
+    "response_data": {
+      "events": [
+        {
+          "created_at": 1770090254,
+          "details": "{\"expires_at\":null,\"reason\":\"Spamming\"}",
+          "event_type": "admin_action:block_ip",
+          "id": 15,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_2790526939:localhost"
+        },
+        {
+          "created_at": 1770089650,
+          "details": "{\"expires_at\":null,\"reason\":\"Spamming\"}",
+          "event_type": "admin_action:block_ip",
+          "id": 14,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_3144672503:localhost"
+        },
+        {
+          "created_at": 1770089131,
+          "details": "{\"expires_at\":null,\"reason\":\"Spamming\"}",
+          "event_type": "admin_action:block_ip",
+          "id": 13,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_3098269161:localhost"
+        },
+        {
+          "created_at": 1770088540,
+          "details": "{\"expires_at\":null,\"reason\":\"Spamming\"}",
+          "event_type": "admin_action:block_ip",
+          "id": 12,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_1873335128:localhost"
+        },
+        {
+          "created_at": 1770087907,
+          "details": "{\"expires_at\":null,\"reason\":\"Spamming\"}",
+          "event_type": "admin_action:block_ip",
+          "id": 11,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_836548273:localhost"
+        },
+        {
+          "created_at": 1770074288,
+          "details": null,
+          "event_type": "admin_action:unblock_ip",
+          "id": 10,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_1770074287:matrix.cjystx.top"
+        },
+        {
+          "created_at": 1770074288,
+          "details": "{\"expires_at\":\"2026-02-03T00:00:00Z\",\"reason\":\"Spamming\"}",
+          "event_type": "admin_action:block_ip",
+          "id": 9,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_1770074287:matrix.cjystx.top"
+        },
+        {
+          "created_at": 1770045243,
+          "details": null,
+          "event_type": "admin_action:unblock_ip",
+          "id": 8,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_1770045242:matrix.cjystx.top"
+        },
+        {
+          "created_at": 1770045243,
+          "details": "{\"expires_at\":\"2026-02-03T00:00:00Z\",\"reason\":\"Spamming\"}",
+          "event_type": "admin_action:block_ip",
+          "id": 7,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_1770045242:matrix.cjystx.top"
+        },
+        {
+          "created_at": 1770044608,
+          "details": null,
+          "event_type": "admin_action:unblock_ip",
+          "id": 6,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_1770044607:matrix.cjystx.top"
+        },
+        {
+          "created_at": 1770044608,
+          "details": "{\"expires_at\":\"2026-02-03T00:00:00Z\",\"reason\":\"Spamming\"}",
+          "event_type": "admin_action:block_ip",
+          "id": 5,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_1770044607:matrix.cjystx.top"
+        },
+        {
+          "created_at": 1770044267,
+          "details": null,
+          "event_type": "admin_action:unblock_ip",
+          "id": 4,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_1770044266:matrix.cjystx.top"
+        },
+        {
+          "created_at": 1770044267,
+          "details": "{\"expires_at\":\"2026-02-03T00:00:00Z\",\"reason\":\"Spamming\"}",
+          "event_type": "admin_action:block_ip",
+          "id": 3,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin_1770044266:matrix.cjystx.top"
+        },
+        {
+          "created_at": 1769907627,
+          "details": "{\"expires_at\":null,\"reason\":\"audit_test\"}",
+          "event_type": "admin_action:block_ip",
+          "id": 2,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin:matrix.cjystx.top"
+        },
+        {
+          "created_at": 1769906794,
+          "details": "{\"expires_at\":null,\"reason\":\"audit_test\"}",
+          "event_type": "admin_action:block_ip",
+          "id": 1,
+          "ip_address": null,
+          "user_agent": null,
+          "user_id": "@admin:matrix.cjystx.top"
+        }
+      ],
+      "total": 15
+    }
+  },
+  {
+    "category": "2.4 安全管理",
+    "api_name": "获取IP封禁列表",
+    "method": "GET",
+    "endpoint": "/_synapse/admin/v1/security/ip/blocks",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:15:27.118766",
+    "response_data": {
+      "blocked_ips": [
+        {
+          "blocked_at": 1770090254,
+          "expires_at": null,
+          "ip_address": "1.2.3.4/32",
+          "reason": "Spamming"
+        }
+      ],
+      "total": 1
+    }
+  },
+  {
+    "category": "2.5 管理员注册",
+    "api_name": "获取管理员注册nonce",
+    "method": "GET",
+    "endpoint": "/_synapse/admin/v1/register/nonce",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:15:27.129303",
+    "response_data": {
+      "nonce": "RP2zNl-spZT9KQHMda7Sw7OvOmWURH3lglituFl8iAlN21JXE9MSp6vWJXmpoyfxHXKwS6CwbwoF1p-2FBe6gw"
+    }
+  }
+]

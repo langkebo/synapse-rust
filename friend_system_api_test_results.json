@@ -1,0 +1,169 @@
+[
+  {
+    "category": "6. 好友系统API",
+    "api_name": "搜索用户",
+    "method": "GET",
+    "endpoint": "/_synapse/enhanced/friends/search",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:41.415058",
+    "response_data": {
+      "count": 1,
+      "results": [
+        {
+          "avatar_url": null,
+          "display_name": "testuser2",
+          "is_blocked": false,
+          "is_friend": true,
+          "user_id": "@testuser2:matrix.cjystx.top",
+          "username": "testuser2"
+        }
+      ]
+    }
+  },
+  {
+    "category": "6. 好友系统API",
+    "api_name": "获取好友列表",
+    "method": "GET",
+    "endpoint": "/_synapse/enhanced/friends",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:41.425165",
+    "response_data": {
+      "count": 1,
+      "friends": [
+        {
+          "avatar_url": null,
+          "display_name": "testuser2",
+          "user_id": "@testuser2:matrix.cjystx.top"
+        }
+      ]
+    }
+  },
+  {
+    "category": "6. 好友系统API",
+    "api_name": "发送好友请求",
+    "method": "POST",
+    "endpoint": "/_synapse/enhanced/friend/request",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:41.435235",
+    "response_data": {
+      "friend": {
+        "created_ts": 1770164627,
+        "friend_id": "@testuser2:matrix.cjystx.top",
+        "note": null,
+        "user_id": "@testuser1:matrix.cjystx.top"
+      },
+      "status": "already_friends"
+    }
+  },
+  {
+    "category": "6. 好友系统API",
+    "api_name": "获取好友请求列表",
+    "method": "GET",
+    "endpoint": "/_synapse/enhanced/friend/requests",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:41.444942",
+    "response_data": {
+      "count": 0,
+      "requests": []
+    }
+  },
+  {
+    "category": "6. 好友系统API",
+    "api_name": "获取封禁用户列表",
+    "method": "GET",
+    "endpoint": "/_synapse/enhanced/friend/blocks/{user_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:41.453855",
+    "response_data": {
+      "blocked_users": []
+    }
+  },
+  {
+    "category": "6. 好友系统API",
+    "api_name": "获取好友分类",
+    "method": "GET",
+    "endpoint": "/_synapse/enhanced/friend/categories/{user_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:41.462934",
+    "response_data": {
+      "categories": []
+    }
+  },
+  {
+    "category": "6. 好友系统API",
+    "api_name": "创建好友分类",
+    "method": "POST",
+    "endpoint": "/_synapse/enhanced/friend/categories/{user_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:41.479060",
+    "response_data": {
+      "category_id": 23
+    }
+  },
+  {
+    "category": "6. 好友系统API",
+    "api_name": "获取好友推荐",
+    "method": "GET",
+    "endpoint": "/_synapse/enhanced/friend/recommendations/{user_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:41.489913",
+    "response_data": {
+      "count": 0,
+      "recommendations": []
+    }
+  },
+  {
+    "category": "6. 好友系统API",
+    "api_name": "更新好友分类",
+    "method": "PUT",
+    "endpoint": "/_synapse/enhanced/friend/categories/{user_id}/{category_name}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:41.501782",
+    "response_data": {
+      "category_name": "Test Category",
+      "status": "updated"
+    }
+  },
+  {
+    "category": "6. 好友系统API",
+    "api_name": "删除好友分类",
+    "method": "DELETE",
+    "endpoint": "/_synapse/enhanced/friend/categories/{user_id}/{category_name}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:41.511106",
+    "response_data": {
+      "category_name": "Test Category",
+      "status": "deleted"
+    }
+  }
+]

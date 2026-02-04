@@ -158,7 +158,19 @@ async fn send_friend_request(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
     {
-        return Err(ApiError::conflict("Already friends".to_string()));
+        let friend = friend_storage
+            .get_friendship(&auth_user.user_id, receiver_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        if let Some(friendship) = friend {
+            return Ok(Json(json!({
+                "status": "already_friends",
+                "friend": friendship,
+            })));
+        }
+
+        return Err(ApiError::bad_request("Friendship not found".to_string()));
     }
 
     if friend_storage
@@ -382,19 +394,62 @@ async fn update_friend_category(
             "Cannot update categories for another user".to_string(),
         ));
     }
+
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
+
+    let new_name = body.name.as_deref();
+    let new_color = body.color.as_deref();
+
+    if let Some(name) = new_name {
+        if name != category_name {
+            let categories = friend_storage
+                .get_categories(&user_id)
+                .await
+                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+            if categories.iter().any(|c| c.name == *name) {
+                return Err(ApiError::bad_request(format!(
+                    "Category '{}' already exists. Please use a different name.",
+                    name
+                )));
+            }
+        }
+    }
+
     friend_storage
-        .update_category_by_name(
-            &user_id,
-            &category_name,
-            body.name.as_deref(),
-            body.color.as_deref(),
-        )
+        .update_category_by_name(&user_id, &category_name, new_name, new_color)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    Ok(Json(
-        json!({ "status": "updated", "category_name": category_name }),
-    ))
+        .map_err(|e| {
+            let error_msg = format!("{:?}", e);
+            let error_msg_lower = error_msg.to_lowercase();
+
+            if error_msg_lower.contains("duplicate key")
+                || error_msg_lower.contains("unique constraint")
+                || error_msg_lower.contains("23505")
+                || error_msg_lower.contains("violates unique constraint")
+                || error_msg_lower.contains("duplicatekeyvalue")
+                || error_msg_lower.contains("duplicate_key")
+            {
+                ApiError::bad_request(format!(
+                    "Category '{}' already exists. Please choose a different name.",
+                    new_name.unwrap_or(&category_name)
+                ))
+            } else if error_msg_lower.contains("foreign key constraint")
+                || error_msg_lower.contains("23503")
+            {
+                ApiError::bad_request(
+                    "Cannot update category: referenced data not found".to_string(),
+                )
+            } else {
+                ApiError::internal(format!("Failed to update category: {}", e))
+            }
+        })?;
+
+    Ok(Json(json!({
+        "status": "updated",
+        "category_name": category_name,
+        "message": "Category updated successfully"
+    })))
 }
 
 #[axum::debug_handler]

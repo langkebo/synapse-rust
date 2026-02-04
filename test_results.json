@@ -1,0 +1,869 @@
+[
+  {
+    "category": "1.1 基础信息与认证",
+    "api_name": "服务器根路径信息",
+    "method": "GET",
+    "endpoint": "/",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.266058",
+    "response_data": {
+      "msg": "Synapse Rust Matrix Server",
+      "version": "0.1.0"
+    }
+  },
+  {
+    "category": "1.1 基础信息与认证",
+    "api_name": "健康检查",
+    "method": "GET",
+    "endpoint": "/health",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.275524",
+    "response_data": {
+      "checks": {
+        "cache": {
+          "duration_ms": 1,
+          "message": "Cache connection successful",
+          "status": "healthy"
+        },
+        "database": {
+          "duration_ms": 0,
+          "message": "Database connection successful",
+          "status": "healthy"
+        }
+      },
+      "status": "healthy",
+      "timestamp": 1770180591,
+      "version": "0.1.0"
+    }
+  },
+  {
+    "category": "1.1 基础信息与认证",
+    "api_name": "获取支持的客户端版本",
+    "method": "GET",
+    "endpoint": "/_matrix/client/versions",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.282575",
+    "response_data": {
+      "unstable_features": {
+        "m.lazy_load_members": true,
+        "m.require_identity_server": false,
+        "m.supports_login_via_phone_number": true
+      },
+      "versions": [
+        "r0.0.1",
+        "r0.1.0",
+        "r0.2.0",
+        "r0.3.0",
+        "r0.4.0",
+        "r0.5.0",
+        "r0.6.0"
+      ]
+    }
+  },
+  {
+    "category": "1.1 基础信息与认证",
+    "api_name": "检查用户名可用性",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/register/available",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.290956",
+    "response_data": {
+      "available": true,
+      "username": "newuser123"
+    }
+  },
+  {
+    "category": "1.1 基础信息与认证",
+    "api_name": "用户登录",
+    "method": "POST",
+    "endpoint": "/_matrix/client/r0/login",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.457240",
+    "response_data": {
+      "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAdGVzdHVzZXIxOm1hdHJpeC5janlzdHgudG9wIiwidXNlcl9pZCI6IkB0ZXN0dXNlcjE6bWF0cml4LmNqeXN0eC50b3AiLCJhZG1pbiI6dHJ1ZSwiZXhwIjoxNzcwMTg0MTkxLCJpYXQiOjE3NzAxODA1OTEsImRldmljZV9pZCI6IkJzTkR0ZkNxQzg3a2liWTEifQ.znusa33NKGCDStleamulrvXcAkkscyQMkTamA2UhTZk",
+      "device_id": "BsNDtfCqC87kibY1",
+      "expires_in": 3600,
+      "refresh_token": "s39Ue_ofAKQmCFTYeU15Y9wcWZsBO8W1KJf7M7jswBI",
+      "user_id": "@testuser1:matrix.cjystx.top",
+      "well_known": {
+        "m.homeserver": {
+          "base_url": "http://matrix.cjystx.top:8008"
+        }
+      }
+    }
+  },
+  {
+    "category": "1.1 基础信息与认证",
+    "api_name": "获取当前用户信息",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/account/whoami",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.469515",
+    "response_data": {
+      "admin": true,
+      "avatar_url": "mxc://matrix.cjystx.top/test_avatar",
+      "displayname": "Test User 1 Updated",
+      "user_id": "@testuser1:matrix.cjystx.top"
+    }
+  },
+  {
+    "category": "1.1 基础信息与认证",
+    "api_name": "刷新访问令牌",
+    "method": "POST",
+    "endpoint": "/_matrix/client/r0/refresh",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.652154",
+    "response_data": {
+      "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAdGVzdHVzZXIxOm1hdHJpeC5janlzdHgudG9wIiwidXNlcl9pZCI6IkB0ZXN0dXNlcjE6bWF0cml4LmNqeXN0eC50b3AiLCJhZG1pbiI6dHJ1ZSwiZXhwIjoxNzcwMTg0MTkxLCJpYXQiOjE3NzAxODA1OTEsImRldmljZV9pZCI6Im9hOVdmdVQzRDZwWElCZWcifQ.84Q37a_vqFk9ODwR-xsP8nK8j6j92DkqjXlDP42ExBk",
+      "device_id": "oa9WfuT3D6pXIBeg",
+      "expires_in": 3600,
+      "refresh_token": "iv-YwsynW_uH3G-wL0Ovo0BSwe1FW6CX9jfcD2OAYaM"
+    }
+  },
+  {
+    "category": "1.2 用户资料管理",
+    "api_name": "获取用户资料",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/account/profile/{user_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.661513",
+    "response_data": {
+      "avatar_url": "mxc://matrix.cjystx.top/test_avatar",
+      "displayname": "Test User 1 Updated",
+      "user_id": "@testuser1:matrix.cjystx.top"
+    }
+  },
+  {
+    "category": "1.2 用户资料管理",
+    "api_name": "更新显示名称",
+    "method": "PUT",
+    "endpoint": "/_matrix/client/r0/account/profile/{user_id}/displayname",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.672443",
+    "response_data": {}
+  },
+  {
+    "category": "1.2 用户资料管理",
+    "api_name": "更新头像URL",
+    "method": "PUT",
+    "endpoint": "/_matrix/client/r0/account/profile/{user_id}/avatar_url",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.682851",
+    "response_data": {}
+  },
+  {
+    "category": "1.3 房间管理",
+    "api_name": "客户端同步",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/sync",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.697375",
+    "response_data": {
+      "account_data": {
+        "events": []
+      },
+      "next_batch": "s1770180591695",
+      "presence": {
+        "events": []
+      },
+      "rooms": {
+        "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770180304128$4xDKVu4oQmZDjv5dF3tUEIkX:matrix.cjystx.top",
+                "origin_server_ts": 1770180304128,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770176268395$YVvEt4v5NZa060rD0gQsaXcg:matrix.cjystx.top",
+                "origin_server_ts": 1770176268395,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770175339535$CkYRsh1ejDd339ORgzxRBtPB:matrix.cjystx.top",
+                "origin_server_ts": 1770175339535,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770174722883$mHCiExxMrehw_RWPJAh3tNU4:matrix.cjystx.top",
+                "origin_server_ts": 1770174722883,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770173684308$6HAbkDLex5llpitTISwtSn0Q:matrix.cjystx.top",
+                "origin_server_ts": 1770173684308,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770171986154$YuKoBkCS05yzZDRwhO1x2aJ9:matrix.cjystx.top",
+                "origin_server_ts": 1770171986154,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770169739146$Jv1QdNe458ts_Bos6E6Fy2Yt:matrix.cjystx.top",
+                "origin_server_ts": 1770169739146,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770169715014$cS4eya3n6_YgrNZVURsmQBNn:matrix.cjystx.top",
+                "origin_server_ts": 1770169715014,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770169695574$rrbEM5aKGRZy-xoEhOUqWWCs:matrix.cjystx.top",
+                "origin_server_ts": 1770169695574,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770169635213$MdVUcNgjhTP9Uq6a0fsWcTHm:matrix.cjystx.top",
+                "origin_server_ts": 1770169635213,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770169465784$qI7mFAIvF425f13O2q0X9nEP:matrix.cjystx.top",
+                "origin_server_ts": 1770169465784,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770168991573$hW37d7pZCqagIQxhptZJNgjj:matrix.cjystx.top",
+                "origin_server_ts": 1770168991573,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770168053781$6bcBbR1PqXLpghNVg9PZmX2Y:matrix.cjystx.top",
+                "origin_server_ts": 1770168053781,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770167986765$pmMs9D8mjGDgwtN0Wh675O9n:matrix.cjystx.top",
+                "origin_server_ts": 1770167986765,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Test message from API test",
+                  "msgtype": "m.text"
+                },
+                "event_id": "$1770130003702$ZUwpvD4WisOvN0yeyEppc5WH:matrix.cjystx.top",
+                "origin_server_ts": 1770130003702,
+                "sender": "@testuser1:matrix.cjystx.top",
+                "type": "m.room.message"
+              }
+            ],
+            "limited": true,
+            "prev_batch": "t1770180304128"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!pdsb0b_OqRVJazC6JYW1CZRQ:matrix.cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [],
+            "limited": true,
+            "prev_batch": "t1770180591695"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        }
+      },
+      "to_device": {
+        "events": []
+      }
+    }
+  },
+  {
+    "category": "1.3 房间管理",
+    "api_name": "获取房间消息",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/rooms/{{room_id}}/messages",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.708872",
+    "response_data": {
+      "chunk": [
+        {
+          "content": {
+            "body": "Test message from API test",
+            "msgtype": "m.text"
+          },
+          "event_id": "$1770180304128$4xDKVu4oQmZDjv5dF3tUEIkX:matrix.cjystx.top",
+          "origin_server_ts": 1770180304128,
+          "sender": "@testuser1:matrix.cjystx.top",
+          "type": "m.room.message"
+        },
+        {
+          "content": {
+            "body": "Test message from API test",
+            "msgtype": "m.text"
+          },
+          "event_id": "$1770176268395$YVvEt4v5NZa060rD0gQsaXcg:matrix.cjystx.top",
+          "origin_server_ts": 1770176268395,
+          "sender": "@testuser1:matrix.cjystx.top",
+          "type": "m.room.message"
+        },
+        {
+          "content": {
+            "body": "Test message from API test",
+            "msgtype": "m.text"
+          },
+          "event_id": "$1770175339535$CkYRsh1ejDd339ORgzxRBtPB:matrix.cjystx.top",
+          "origin_server_ts": 1770175339535,
+          "sender": "@testuser1:matrix.cjystx.top",
+          "type": "m.room.message"
+        },
+        {
+          "content": {
+            "body": "Test message from API test",
+            "msgtype": "m.text"
+          },
+          "event_id": "$1770174722883$mHCiExxMrehw_RWPJAh3tNU4:matrix.cjystx.top",
+          "origin_server_ts": 1770174722883,
+          "sender": "@testuser1:matrix.cjystx.top",
+          "type": "m.room.message"
+        },
+        {
+          "content": {
+            "body": "Test message from API test",
+            "msgtype": "m.text"
+          },
+          "event_id": "$1770173684308$6HAbkDLex5llpitTISwtSn0Q:matrix.cjystx.top",
+          "origin_server_ts": 1770173684308,
+          "sender": "@testuser1:matrix.cjystx.top",
+          "type": "m.room.message"
+        },
+        {
+          "content": {
+            "body": "Test message from API test",
+            "msgtype": "m.text"
+          },
+          "event_id": "$1770171986154$YuKoBkCS05yzZDRwhO1x2aJ9:matrix.cjystx.top",
+          "origin_server_ts": 1770171986154,
+          "sender": "@testuser1:matrix.cjystx.top",
+          "type": "m.room.message"
+        },
+        {
+          "content": {
+            "body": "Test message from API test",
+            "msgtype": "m.text"
+          },
+          "event_id": "$1770169739146$Jv1QdNe458ts_Bos6E6Fy2Yt:matrix.cjystx.top",
+          "origin_server_ts": 1770169739146,
+          "sender": "@testuser1:matrix.cjystx.top",
+          "type": "m.room.message"
+        },
+        {
+          "content": {
+            "body": "Test message from API test",
+            "msgtype": "m.text"
+          },
+          "event_id": "$1770169715014$cS4eya3n6_YgrNZVURsmQBNn:matrix.cjystx.top",
+          "origin_server_ts": 1770169715014,
+          "sender": "@testuser1:matrix.cjystx.top",
+          "type": "m.room.message"
+        },
+        {
+          "content": {
+            "body": "Test message from API test",
+            "msgtype": "m.text"
+          },
+          "event_id": "$1770169695574$rrbEM5aKGRZy-xoEhOUqWWCs:matrix.cjystx.top",
+          "origin_server_ts": 1770169695574,
+          "sender": "@testuser1:matrix.cjystx.top",
+          "type": "m.room.message"
+        },
+        {
+          "content": {
+            "body": "Test message from API test",
+            "msgtype": "m.text"
+          },
+          "event_id": "$1770169635213$MdVUcNgjhTP9Uq6a0fsWcTHm:matrix.cjystx.top",
+          "origin_server_ts": 1770169635213,
+          "sender": "@testuser1:matrix.cjystx.top",
+          "type": "m.room.message"
+        }
+      ],
+      "end": "e1770180591707",
+      "start": "0"
+    }
+  },
+  {
+    "category": "1.3 房间管理",
+    "api_name": "发送消息",
+    "method": "PUT",
+    "endpoint": "/_matrix/client/r0/rooms/{{room_id}}/send/{{event_type}}/{{txn_id}}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.727930",
+    "response_data": {
+      "event_id": "$1770180591720$b8iootNsjAYsbdfDtc2uaL8m:matrix.cjystx.top"
+    }
+  },
+  {
+    "category": "1.3 房间管理",
+    "api_name": "获取房间成员",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/rooms/{{room_id}}/members",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.739783",
+    "response_data": {
+      "chunk": [
+        {
+          "avatar_url": null,
+          "ban_reason": null,
+          "ban_ts": null,
+          "banned_by": null,
+          "display_name": null,
+          "event_id": "$$1770127666669$hwTUSBBOG5JI4pFsUV_dLrjH:localhost",
+          "event_type": "m.room.member",
+          "invite_token": null,
+          "is_banned": false,
+          "join_reason": null,
+          "joined_ts": 1770127666669,
+          "left_ts": null,
+          "membership": "join",
+          "reason": null,
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "sender": "@testuser1:matrix.cjystx.top",
+          "updated_ts": 1770127666669,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        }
+      ]
+    }
+  },
+  {
+    "category": "1.3 房间管理",
+    "api_name": "获取公共房间列表",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/publicRooms",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.750885",
+    "response_data": {
+      "chunk": [
+        {
+          "canonical_alias": null,
+          "is_public": true,
+          "join_rule": "invite",
+          "name": "Test Room 1",
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "topic": "Test room for API testing"
+        }
+      ],
+      "total_room_count_estimate": 1
+    }
+  },
+  {
+    "category": "1.3 房间管理",
+    "api_name": "获取用户加入的房间",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/user/{{user_id}}/rooms",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.760104",
+    "response_data": {
+      "joined_rooms": [
+        "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+        "!pdsb0b_OqRVJazC6JYW1CZRQ:matrix.cjystx.top"
+      ]
+    }
+  },
+  {
+    "category": "1.4 房间状态与权限",
+    "api_name": "获取房间所有状态",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/rooms/{{room_id}}/state",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.768918",
+    "response_data": {
+      "state": []
+    }
+  },
+  {
+    "category": "1.4 房间状态与权限",
+    "api_name": "按类型获取状态事件",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/rooms/{{room_id}}/state/{{event_type}}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.778617",
+    "response_data": {
+      "events": []
+    }
+  },
+  {
+    "category": "1.5 设备管理",
+    "api_name": "获取设备列表",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/devices",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.789684",
+    "response_data": {
+      "devices": [
+        {
+          "device_id": "oa9WfuT3D6pXIBeg",
+          "display_name": null,
+          "last_seen_ts": 1770180591627,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "BsNDtfCqC87kibY1",
+          "display_name": null,
+          "last_seen_ts": 1770180591446,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "N3mHnjmYXXqguAdh",
+          "display_name": null,
+          "last_seen_ts": 1770180450502,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "KCWZM8Y86NahD6hE",
+          "display_name": null,
+          "last_seen_ts": 1770180440824,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "zhNEtyoQ7tcMyNot",
+          "display_name": null,
+          "last_seen_ts": 1770180304013,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "Snd0ahRoYp6INCbc",
+          "display_name": null,
+          "last_seen_ts": 1770180303829,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "L8OseiZAEfx2J2Kg",
+          "display_name": null,
+          "last_seen_ts": 1770176268301,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "hA3WpJMHwvHIdCov",
+          "display_name": null,
+          "last_seen_ts": 1770176268119,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "hZQ5ulJhjdYLWywm",
+          "display_name": null,
+          "last_seen_ts": 1770175339430,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "05BZObczJmrbtm0h",
+          "display_name": null,
+          "last_seen_ts": 1770174722752,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "oJppt71eb4NqcBi4",
+          "display_name": null,
+          "last_seen_ts": 1770174167558,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "JqX0KzxSTwWB34CP",
+          "display_name": null,
+          "last_seen_ts": 1770173684160,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "2fxxrSn6VeDdgtX2",
+          "display_name": null,
+          "last_seen_ts": 1770173103159,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "qL4ackyOdcsMjkD9",
+          "display_name": null,
+          "last_seen_ts": 1770172884891,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "w1G5DrDzkxBjq9pb",
+          "display_name": null,
+          "last_seen_ts": 1770171986048,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "HRRjJcIqtll1yuvv",
+          "display_name": null,
+          "last_seen_ts": 1770169739049,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "ymPlmnYxcxy3WuaB",
+          "display_name": null,
+          "last_seen_ts": 1770169714914,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "yQHu2AQvaJAiN0P2",
+          "display_name": null,
+          "last_seen_ts": 1770169695476,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "jtFINO1q9bi4KQnw",
+          "display_name": null,
+          "last_seen_ts": 1770169635097,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "U8dnhz8n4OS0DYHP",
+          "display_name": null,
+          "last_seen_ts": 1770169465688,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "gpoFEyOwLvmmQLAn",
+          "display_name": null,
+          "last_seen_ts": 1770168991479,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "umcQOwlPrKfAsTJl",
+          "display_name": null,
+          "last_seen_ts": 1770168849600,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "ZvtlCaaoZRTZn9nR",
+          "display_name": null,
+          "last_seen_ts": 1770168053685,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "Jwzq3gVAKFGMI6Pl",
+          "display_name": null,
+          "last_seen_ts": 1770168044964,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "RtSryoDoPRk8Y7sP",
+          "display_name": null,
+          "last_seen_ts": 1770167986662,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "B80p2DYgjIyBcvdz",
+          "display_name": null,
+          "last_seen_ts": 1770167856146,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "plOQFwXUQeNQybHk",
+          "display_name": null,
+          "last_seen_ts": 1770166549767,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "71xX0qfwYZK9BVUM",
+          "display_name": null,
+          "last_seen_ts": 1770164498382,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "WaoSTkTnZD7MuWFu",
+          "display_name": null,
+          "last_seen_ts": 1770164464845,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "BwNOHlaV79A1ZjsC",
+          "display_name": null,
+          "last_seen_ts": 1770163797389,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "IWISeIo8ITBcrqtC",
+          "display_name": null,
+          "last_seen_ts": 1770161101792,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "lXp2bP2oOlSCd5jl",
+          "display_name": null,
+          "last_seen_ts": 1770130601851,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "YzdGPjGknQSR0OWH",
+          "display_name": null,
+          "last_seen_ts": 1770130003595,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "device_id": "2XLNKR5uUGJpDrYL23AmZA",
+          "display_name": null,
+          "last_seen_ts": 1770127597783,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        }
+      ]
+    }
+  },
+  {
+    "category": "1.6 在线状态",
+    "api_name": "获取用户在线状态",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/presence/{{user_id}}/status",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.800331",
+    "response_data": {
+      "presence": "online",
+      "status_msg": null
+    }
+  },
+  {
+    "category": "1.6 在线状态",
+    "api_name": "设置用户在线状态",
+    "method": "PUT",
+    "endpoint": "/_matrix/client/r0/presence/{{user_id}}/status",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T12:49:51.810674",
+    "response_data": {}
+  }
+]

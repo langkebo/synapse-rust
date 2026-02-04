@@ -524,6 +524,14 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get joined rooms: {}", e)))
     }
+
+    pub async fn room_exists(&self, room_id: &str) -> ApiResult<bool> {
+        let exists =
+            self.room_storage.room_exists(room_id).await.map_err(|e| {
+                ApiError::database(format!("Failed to check room existence: {}", e))
+            })?;
+        Ok(exists)
+    }
 }
 
 #[cfg(test)]

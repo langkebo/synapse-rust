@@ -1,0 +1,294 @@
+[
+  {
+    "category": "5. 语音消息API",
+    "api_name": "上传语音消息",
+    "method": "POST",
+    "endpoint": "/_matrix/client/r0/voice/upload",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:01.574749",
+    "response_data": {
+      "content_type": "audio/ogg",
+      "created_ts": 1770176281572,
+      "duration_ms": 1000,
+      "message_id": "vm_e0dec4b317fb47caaa5a442d0f61a79e",
+      "size": 18
+    }
+  },
+  {
+    "category": "5. 语音消息API",
+    "api_name": "获取当前用户语音统计",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/voice/stats",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:01.585728",
+    "response_data": {
+      "daily_stats": [
+        {
+          "date": "2026-02-04",
+          "message_count": 9,
+          "total_duration_ms": 9000,
+          "total_file_size": 162,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "date": "2026-02-03",
+          "message_count": 1,
+          "total_duration_ms": 1000,
+          "total_file_size": 18,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        }
+      ],
+      "total_duration_ms": 10000,
+      "total_file_size": 180,
+      "total_message_count": 10,
+      "user_id": "@testuser1:matrix.cjystx.top"
+    }
+  },
+  {
+    "category": "5. 语音消息API",
+    "api_name": "获取语音消息",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/voice/{message_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:01.594565",
+    "response_data": {
+      "content": "dGVzdCBhdWRpbyBjb250ZW50",
+      "content_type": "audio/ogg",
+      "message_id": "vm_e0dec4b317fb47caaa5a442d0f61a79e",
+      "size": 18
+    }
+  },
+  {
+    "category": "5. 语音消息API",
+    "api_name": "删除语音消息",
+    "method": "DELETE",
+    "endpoint": "/_matrix/client/r0/voice/{message_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:01.609173",
+    "response_data": {
+      "deleted": true,
+      "message_id": "vm_e0dec4b317fb47caaa5a442d0f61a79e"
+    }
+  },
+  {
+    "category": "5. 语音消息API",
+    "api_name": "获取用户语音消息",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/voice/user/{user_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:01.618227",
+    "response_data": {
+      "count": 9,
+      "messages": [
+        {
+          "content_type": "audio/ogg",
+          "created_ts": 1770174739,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_c5bd030391a6422283f9a981d5904735",
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "waveform_data": null
+        },
+        {
+          "content_type": "audio/ogg",
+          "created_ts": 1770171987,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_defb8d7d418546b9bcb575bcde458c9a",
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "waveform_data": null
+        },
+        {
+          "content_type": "audio/ogg",
+          "created_ts": 1770169740,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_d6611dbd24204ef39a7a8d52ccc279ed",
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "waveform_data": null
+        },
+        {
+          "content_type": "audio/ogg",
+          "created_ts": 1770169715,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_9631a51c5bd34c768b803baaa3b9e523",
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "waveform_data": null
+        },
+        {
+          "content_type": "audio/ogg",
+          "created_ts": 1770169696,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_4e6a4e8fccb841abad80b339802c188e",
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "waveform_data": null
+        },
+        {
+          "content_type": "audio/ogg",
+          "created_ts": 1770169466,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_9cb8588fab274d5d88f167f69ae14418",
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "waveform_data": null
+        },
+        {
+          "content_type": "audio/ogg",
+          "created_ts": 1770168992,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_dbbb1332c4d3497ca957d24bbb9b26d7",
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "waveform_data": null
+        },
+        {
+          "content_type": "audio/ogg",
+          "created_ts": 1770168054,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_135d1c30062b4bc7a13eb1444f3561a6",
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "waveform_data": null
+        },
+        {
+          "content_type": "audio/ogg",
+          "created_ts": 1770161330,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_fa9f7d9d762e43d7bfec21662e8de093",
+          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+          "waveform_data": null
+        }
+      ]
+    }
+  },
+  {
+    "category": "5. 语音消息API",
+    "api_name": "获取房间语音消息",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/voice/room/{room_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:01.627440",
+    "response_data": {
+      "count": 9,
+      "messages": [
+        {
+          "created_ts": 1770174739,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_c5bd030391a6422283f9a981d5904735",
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "created_ts": 1770171987,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_defb8d7d418546b9bcb575bcde458c9a",
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "created_ts": 1770169740,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_d6611dbd24204ef39a7a8d52ccc279ed",
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "created_ts": 1770169715,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_9631a51c5bd34c768b803baaa3b9e523",
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "created_ts": 1770169696,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_4e6a4e8fccb841abad80b339802c188e",
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "created_ts": 1770169466,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_9cb8588fab274d5d88f167f69ae14418",
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "created_ts": 1770168992,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_dbbb1332c4d3497ca957d24bbb9b26d7",
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "created_ts": 1770168054,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_135d1c30062b4bc7a13eb1444f3561a6",
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "created_ts": 1770161330,
+          "duration_ms": 1000,
+          "file_size": 18,
+          "message_id": "vm_fa9f7d9d762e43d7bfec21662e8de093",
+          "user_id": "@testuser1:matrix.cjystx.top"
+        }
+      ]
+    }
+  },
+  {
+    "category": "5. 语音消息API",
+    "api_name": "获取指定用户语音统计",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/voice/user/{user_id}/stats",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:01.639935",
+    "response_data": {
+      "daily_stats": [
+        {
+          "date": "2026-02-04",
+          "message_count": 10,
+          "total_duration_ms": 8000,
+          "total_file_size": 144,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "date": "2026-02-03",
+          "message_count": 1,
+          "total_duration_ms": 1000,
+          "total_file_size": 18,
+          "user_id": "@testuser1:matrix.cjystx.top"
+        }
+      ],
+      "total_duration_ms": 9000,
+      "total_file_size": 162,
+      "total_message_count": 11,
+      "user_id": "@testuser1:matrix.cjystx.top"
+    }
+  }
+]

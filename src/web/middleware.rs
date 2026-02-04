@@ -5,11 +5,19 @@ use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
 use axum::response::IntoResponse;
 use axum::{body::Body, middleware::Next, response::Response};
 use base64::Engine;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde_json::json;
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
+
+static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
+    std::env::var("CORS_ORIGIN_PATTERN")
+        .ok()
+        .map(|pattern| Regex::new(&pattern).expect("Invalid CORS_ORIGIN_PATTERN regex"))
+});
 
 pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let start = Instant::now();
@@ -48,20 +56,128 @@ pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::
     response
 }
 
+fn is_dev_mode() -> bool {
+    std::env::var("RUST_ENV")
+        .unwrap_or_else(|_| "production".to_string())
+        .to_lowercase()
+        == "development"
+}
+
+fn get_allowed_origins() -> Vec<String> {
+    std::env::var("ALLOWED_ORIGINS")
+        .ok()
+        .map(|s| s.split(',').map(|v| v.trim().to_string()).collect())
+        .unwrap_or_default()
+}
+
+fn is_origin_allowed(origin: &str) -> bool {
+    if is_dev_mode() {
+        return true;
+    }
+
+    let allowed_origins = get_allowed_origins();
+    if allowed_origins.is_empty() {
+        if let Some(ref pattern) = *CORS_ORIGINS_REGEX {
+            return pattern.is_match(origin);
+        }
+        return false;
+    }
+
+    allowed_origins.iter().any(|o| {
+        if o == "*" {
+            true
+        } else {
+            normalize_origin(o) == normalize_origin(origin)
+        }
+    })
+}
+
+fn normalize_origin(origin: &str) -> String {
+    let normalized = origin.trim_end_matches('/').to_lowercase();
+    let parts: Vec<&str> = normalized.split("://").collect();
+    if parts.len() == 2 {
+        format!("{}://{}", parts[0], parts[1])
+    } else {
+        normalized
+    }
+}
+
 pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
+    let origin = request
+        .headers()
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let is_options = request.method() == "OPTIONS";
+
     let mut response = next.run(request).await;
 
-    let headers = response.headers_mut();
-    headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
-    headers.insert(
+    let allow_origin = if is_dev_mode() {
+        origin.as_deref().or(Some("*"))
+    } else if let Some(ref req_origin) = origin {
+        if is_origin_allowed(req_origin) {
+            Some(req_origin.as_str())
+        } else {
+            tracing::warn!("CORS origin rejected: {}", req_origin);
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(allowed) = allow_origin {
+        if let Ok(value) = HeaderValue::from_str(allowed) {
+            response
+                .headers_mut()
+                .insert("Access-Control-Allow-Origin", value);
+        }
+    }
+
+    response.headers_mut().insert(
         "Access-Control-Allow-Methods",
-        HeaderValue::from_static("GET, POST, PUT, DELETE, OPTIONS"),
+        HeaderValue::from_static("GET, POST, PUT, DELETE, OPTIONS, PATCH"),
     );
-    headers.insert(
+
+    response.headers_mut().insert(
         "Access-Control-Allow-Headers",
-        HeaderValue::from_static("Content-Type, Authorization, X-Requested-With"),
+        HeaderValue::from_static("Content-Type, Authorization, X-Requested-With, X-Request-ID"),
     );
-    headers.insert("Access-Control-Max-Age", HeaderValue::from_static("86400"));
+
+    response.headers_mut().insert(
+        "Access-Control-Expose-Headers",
+        HeaderValue::from_static("X-Request-ID"),
+    );
+
+    response.headers_mut().insert(
+        "Access-Control-Allow-Credentials",
+        HeaderValue::from_static("true"),
+    );
+
+    if let Some(ref origin) = origin {
+        response.headers_mut().insert(
+            "Vary",
+            HeaderValue::from_str(&format!("Origin, {}", origin))
+                .unwrap_or_else(|_| HeaderValue::from_static("Origin")),
+        );
+    } else {
+        response
+            .headers_mut()
+            .insert("Vary", HeaderValue::from_static("Origin"));
+    }
+
+    if is_options {
+        let max_age = std::env::var("CORS_MAX_AGE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(86400);
+
+        response
+            .headers_mut()
+            .insert("Access-Control-Max-Age", HeaderValue::from(max_age));
+
+        *response.status_mut() = StatusCode::NO_CONTENT;
+    }
 
     response
 }

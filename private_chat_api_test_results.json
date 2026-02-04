@@ -1,0 +1,206 @@
+[
+  {
+    "category": "8. 私聊API",
+    "api_name": "获取所有私聊房间",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/dm",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:40.497048",
+    "response_data": {
+      "count": 0,
+      "sessions": []
+    }
+  },
+  {
+    "category": "8. 私聊API",
+    "api_name": "创建私聊房间",
+    "method": "POST",
+    "endpoint": "/_matrix/client/r0/createDM",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:40.511855",
+    "response_data": {
+      "room_id": "ps_8a3726f7dc1844298c970cc7d0f4676c"
+    }
+  },
+  {
+    "category": "8. 私聊API",
+    "api_name": "获取DM房间详情",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/rooms/{room_id}/dm",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:40.523124",
+    "response_data": {
+      "is_direct": true,
+      "name": "Chat with @testuser2:matrix.cjystx.top",
+      "participants": [
+        {
+          "user_id": "@testuser1:matrix.cjystx.top"
+        },
+        {
+          "avatar_url": null,
+          "displayname": null,
+          "user_id": "@testuser2:matrix.cjystx.top"
+        }
+      ],
+      "room_id": "ps_8a3726f7dc1844298c970cc7d0f4676c",
+      "unread_count": 0
+    }
+  },
+  {
+    "category": "8. 私聊API",
+    "api_name": "获取未读通知数",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/rooms/{room_id}/unread",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:40.533282",
+    "response_data": {
+      "highlight_count": 0,
+      "notification_count": 0,
+      "room_id": "ps_8a3726f7dc1844298c970cc7d0f4676c"
+    }
+  },
+  {
+    "category": "8. 私聊API",
+    "api_name": "获取私聊会话列表",
+    "method": "GET",
+    "endpoint": "/_synapse/enhanced/private/sessions",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:40.544926",
+    "response_data": {
+      "count": 1,
+      "sessions": [
+        {
+          "created_ts": 1770174760,
+          "last_message": null,
+          "other_user": "@testuser2:matrix.cjystx.top",
+          "session_id": "ps_8a3726f7dc1844298c970cc7d0f4676c",
+          "unread_count": 0,
+          "updated_ts": 1770174760
+        }
+      ]
+    }
+  },
+  {
+    "category": "8. 私聊API",
+    "api_name": "创建私聊会话",
+    "method": "POST",
+    "endpoint": "/_synapse/enhanced/private/sessions",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:40.558395",
+    "response_data": {
+      "created": "2026-02-04T03:12:40.554956780+00:00",
+      "other_user": "@testuser2:matrix.cjystx.top",
+      "session_id": "ps_8a3726f7dc1844298c970cc7d0f4676c"
+    }
+  },
+  {
+    "category": "8. 私聊API",
+    "api_name": "获取会话详情",
+    "method": "GET",
+    "endpoint": "/_synapse/enhanced/private/sessions/{session_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:40.572060",
+    "response_data": {
+      "created_ts": 1770174760,
+      "last_activity_ts": 1770174760,
+      "messages": [],
+      "other_user": "@testuser2:matrix.cjystx.top",
+      "session_id": "ps_8a3726f7dc1844298c970cc7d0f4676c",
+      "unread_count": 0,
+      "updated_ts": 1770174760
+    }
+  },
+  {
+    "category": "8. 私聊API",
+    "api_name": "删除会话",
+    "method": "DELETE",
+    "endpoint": "/_synapse/enhanced/private/sessions/{session_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:40.588718",
+    "response_data": {}
+  },
+  {
+    "category": "8. 私聊API",
+    "api_name": "获取会话消息",
+    "method": "GET",
+    "endpoint": "/_synapse/enhanced/private/sessions/{session_id}/messages",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:40.600754",
+    "response_data": {
+      "count": 0,
+      "messages": []
+    }
+  },
+  {
+    "category": "8. 私聊API",
+    "api_name": "发送会话消息",
+    "method": "POST",
+    "endpoint": "/_synapse/enhanced/private/sessions/{session_id}/messages",
+    "status_code": null,
+    "expected_code": 200,
+    "success": false,
+    "error": {
+      "errcode": "M_UNKNOWN",
+      "error": "Internal error: Database error: error returned from database: insert or update on table \"private_messages\" violates foreign key constraint \"private_messages_session_id_fkey\""
+    },
+    "timestamp": "2026-02-04T11:12:40.616385",
+    "response_data": null
+  },
+  {
+    "category": "8. 私聊API",
+    "api_name": "获取未读消息总数",
+    "method": "GET",
+    "endpoint": "/_synapse/enhanced/private/unread-count",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:40.628201",
+    "response_data": {
+      "unread_count": 0
+    }
+  },
+  {
+    "category": "8. 私聊API",
+    "api_name": "搜索私聊消息",
+    "method": "POST",
+    "endpoint": "/_synapse/enhanced/private/search",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:12:40.641317",
+    "response_data": {
+      "count": 0,
+      "query": "test",
+      "results": []
+    }
+  }
+]

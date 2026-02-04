@@ -1,0 +1,124 @@
+[
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "创建备份版本",
+    "method": "POST",
+    "endpoint": "/_matrix/client/r0/room_keys/version",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:03.405469",
+    "response_data": {
+      "version": "1770176283"
+    }
+  },
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "获取备份版本信息",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/room_keys/version/{version}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:03.414715",
+    "response_data": {
+      "algorithm": "m.megolm.v1.aes-sha2",
+      "auth_data": {
+        "private_key": "test_private_key",
+        "public_key": "test_public_key"
+      },
+      "version": "1770176283"
+    }
+  },
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "更新备份版本",
+    "method": "PUT",
+    "endpoint": "/_matrix/client/r0/room_keys/version/{version}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:03.426289",
+    "response_data": {
+      "version": "1770176283"
+    }
+  },
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "获取所有房间密钥",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/room_keys/{version}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:03.438862",
+    "response_data": {
+      "etag": "6982bf1b",
+      "rooms": {}
+    }
+  },
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "上传房间密钥",
+    "method": "PUT",
+    "endpoint": "/_matrix/client/r0/room_keys/{version}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:03.447859",
+    "response_data": {
+      "count": 0,
+      "etag": "1770176283_1770176283"
+    }
+  },
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "获取指定房间的密钥",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/room_keys/{version}/room/{room_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:03.456110",
+    "response_data": {
+      "errcode": "UNKNOWN",
+      "error": "Unknown endpoint"
+    }
+  },
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "获取指定会话的密钥",
+    "method": "GET",
+    "endpoint": "/_matrix/client/r0/room_keys/{version}/room/{room_id}/session/{session_id}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:03.461455",
+    "response_data": {
+      "errcode": "UNKNOWN",
+      "error": "Unknown endpoint"
+    }
+  },
+  {
+    "category": "9. 密钥备份API",
+    "api_name": "删除备份版本",
+    "method": "DELETE",
+    "endpoint": "/_matrix/client/r0/room_keys/version/{version}",
+    "status_code": 200,
+    "expected_code": 200,
+    "success": true,
+    "error": null,
+    "timestamp": "2026-02-04T11:38:03.472681",
+    "response_data": {
+      "deleted": true,
+      "version": "1770176283"
+    }
+  }
+]
