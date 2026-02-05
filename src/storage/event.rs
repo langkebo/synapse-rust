@@ -89,7 +89,7 @@ impl EventStorage {
             r#"
             SELECT event_id, room_id, user_id, event_type, content, state_key, 
                    COALESCE(depth, 0) as depth, origin_server_ts, processed_ts, 
-                   COALESCE(not_before, 0) as not_before, status, reference_image, origin
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, '') as origin
             FROM events WHERE event_id = $1
             "#,
         )
@@ -243,4 +243,102 @@ impl EventStorage {
         .fetch_all(&*self.pool)
         .await
     }
+
+    pub async fn report_event(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        user_id: &str,
+        reporter_user_id: &str,
+        reason: Option<&str>,
+        score: i32,
+    ) -> Result<i64, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
+        let row = sqlx::query_as::<_, EventReportId>(
+            r#"
+            INSERT INTO event_reports (event_id, room_id, user_id, reporter_user_id, reason, score, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING id
+            "#,
+        )
+        .bind(event_id)
+        .bind(room_id)
+        .bind(user_id)
+        .bind(reporter_user_id)
+        .bind(reason)
+        .bind(score)
+        .bind(now)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(row.id)
+    }
+
+    pub async fn update_event_report_score(
+        &self,
+        report_id: i64,
+        score: i32,
+    ) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
+        sqlx::query(
+            r#"
+            UPDATE event_reports SET score = $1, updated_ts = $2 WHERE id = $3
+            "#,
+        )
+        .bind(score)
+        .bind(now)
+        .bind(report_id)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_event_report_score_by_event(
+        &self,
+        event_id: &str,
+        score: i32,
+    ) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
+        sqlx::query(
+            r#"
+            UPDATE event_reports SET score = $1, updated_ts = $2 WHERE event_id = $3
+            "#,
+        )
+        .bind(score)
+        .bind(now)
+        .bind(event_id)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_event_report(&self, event_id: &str) -> Result<Vec<EventReport>, sqlx::Error> {
+        sqlx::query_as::<_, EventReport>(
+            r#"
+            SELECT id, event_id, room_id, user_id, reporter_user_id, reason, score, created_ts, updated_ts
+            FROM event_reports WHERE event_id = $1 ORDER BY created_ts DESC
+            "#,
+        )
+        .bind(event_id)
+        .fetch_all(&*self.pool)
+        .await
+    }
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct EventReportId {
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct EventReport {
+    pub id: i64,
+    pub event_id: String,
+    pub room_id: String,
+    pub user_id: String,
+    pub reporter_user_id: String,
+    pub reason: Option<String>,
+    pub score: i32,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }

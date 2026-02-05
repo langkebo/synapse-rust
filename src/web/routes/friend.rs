@@ -57,10 +57,6 @@ pub fn create_friend_router(_state: AppState) -> Router<AppState> {
             "/_synapse/enhanced/friend/categories/{user_id}/{category_name}",
             delete(delete_friend_category),
         )
-        .route(
-            "/_synapse/enhanced/friend/recommendations/{user_id}",
-            get(get_friend_recommendations),
-        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -471,47 +467,6 @@ async fn delete_friend_category(
     Ok(Json(
         json!({ "status": "deleted", "category_name": category_name }),
     ))
-}
-
-#[axum::debug_handler]
-async fn get_friend_recommendations(
-    State(state): State<AppState>,
-    Path(user_id): Path<String>,
-    auth_user: crate::web::routes::AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    if auth_user.user_id != user_id && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "Cannot view recommendations for another user".to_string(),
-        ));
-    }
-    let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
-    let recommendation_ids = friend_storage
-        .get_recommendations(&user_id, 10)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-    let mut recommendations = Vec::new();
-
-    for rec_id in recommendation_ids {
-        let profile = state
-            .services
-            .registration_service
-            .get_profile(&rec_id)
-            .await
-            .unwrap_or(json!({ "user_id": rec_id }));
-
-        recommendations.push(json!({
-            "user_id": rec_id,
-            "display_name": profile["displayname"],
-            "avatar_url": profile["avatar_url"],
-            "reason": "Common rooms"
-        }));
-    }
-
-    Ok(Json(json!({
-        "recommendations": recommendations,
-        "count": recommendations.len()
-    })))
 }
 
 #[derive(Debug, Deserialize)]

@@ -10,6 +10,10 @@ pub fn create_key_backup_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route(
             "/_matrix/client/r0/room_keys/version",
+            get(get_all_backup_versions),
+        )
+        .route(
+            "/_matrix/client/r0/room_keys/version",
             post(create_backup_version),
         )
         .route(
@@ -57,6 +61,33 @@ async fn create_backup_version(
 
     Ok(Json(serde_json::json!({
         "version": version
+    })))
+}
+
+#[axum::debug_handler]
+async fn get_all_backup_versions(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let backups = state
+        .services
+        .backup_service
+        .get_all_backups(&auth_user.user_id)
+        .await?;
+
+    let versions: Vec<Value> = backups
+        .into_iter()
+        .map(|b| {
+            serde_json::json!({
+                "algorithm": b.algorithm,
+                "auth_data": b.backup_data,
+                "version": b.version.to_string()
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "versions": versions
     })))
 }
 

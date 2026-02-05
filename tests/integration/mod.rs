@@ -8,6 +8,7 @@ mod cache_tests;
 mod concurrency_tests;
 mod metrics_tests;
 mod regex_cache_tests;
+mod protocol_compliance_tests;
 
 use std::sync::Arc;
 use synapse_rust::services::DatabaseInitService;

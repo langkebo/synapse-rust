@@ -170,6 +170,14 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/r0/register/available",
             get(check_username_availability),
         )
+        .route(
+            "/_matrix/client/r0/register/email/requestToken",
+            post(request_email_verification),
+        )
+        .route(
+            "/_matrix/client/r0/register/email/submitToken",
+            post(submit_email_token),
+        )
         .route("/_matrix/client/r0/login", post(login))
         .route("/_matrix/client/r0/logout", post(logout))
         .route("/_matrix/client/r0/logout/all", post(logout_all))
@@ -191,6 +199,22 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/_matrix/client/r0/account/deactivate",
             post(deactivate_account),
+        )
+        .route(
+            "/_matrix/client/r0/user_directory/search",
+            post(search_user_directory),
+        )
+        .route(
+            "/_matrix/client/r0/user_directory/list",
+            post(list_user_directory),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/report/{event_id}",
+            post(report_event),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/report/{event_id}/score",
+            put(update_report_score),
         )
         .route("/_matrix/client/r0/sync", get(sync))
         .route(
@@ -217,6 +241,22 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/r0/directory/room/{room_id}",
             delete(delete_room),
         )
+        .route(
+            "/_matrix/client/r0/directory/room/{room_id}/alias",
+            get(get_room_aliases),
+        )
+        .route(
+            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
+            put(set_room_alias),
+        )
+        .route(
+            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
+            delete(delete_room_alias),
+        )
+        .route(
+            "/_matrix/client/r0/directory/room/alias/{room_alias}",
+            get(get_room_by_alias),
+        )
         .route("/_matrix/client/r0/publicRooms", get(get_public_rooms))
         .route("/_matrix/client/r0/publicRooms", post(create_public_room))
         .route(
@@ -240,6 +280,22 @@ pub fn create_router(state: AppState) -> Router {
             put(set_presence),
         )
         .route(
+            "/_matrix/client/r0/rooms/{room_id}/typing/{user_id}",
+            put(set_typing),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
+            post(send_receipt),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/read_markers",
+            post(set_read_markers),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}",
+            put(put_state_event),
+        )
+        .route(
             "/_matrix/client/r0/rooms/{room_id}/state",
             get(get_room_state),
         )
@@ -252,12 +308,21 @@ pub fn create_router(state: AppState) -> Router {
             get(get_state_event),
         )
         .route(
+            "/_matrix/client/r0/rooms/{room_id}/state/{event_type}",
+            post(send_state_event),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/get_membership_events",
+            post(get_membership_events),
+        )
+        .route(
             "/_matrix/client/r0/rooms/{room_id}/redact/{event_id}",
             put(redact_event),
         )
         .route("/_matrix/client/r0/rooms/{room_id}/kick", post(kick_user))
         .route("/_matrix/client/r0/rooms/{room_id}/ban", post(ban_user))
         .route("/_matrix/client/r0/rooms/{room_id}/unban", post(unban_user))
+        // 合并子路由器
         .merge(create_private_chat_router(state.clone()))
         .merge(create_friend_router(state.clone()))
         .merge(create_voice_router(state.clone()))
@@ -375,6 +440,131 @@ async fn check_username_availability(
     Ok(Json(json!({
         "available": !exists,
         "username": username
+    })))
+}
+
+async fn request_email_verification(
+    State(state): State<AppState>,
+    MatrixJson(body): MatrixJson<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let email = body
+        .get("email")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Email is required".to_string()))?;
+
+    if state
+        .services
+        .auth_service
+        .validator
+        .validate_email(email)
+        .is_err()
+    {
+        return Err(ApiError::bad_request(
+            "Invalid email address format".to_string(),
+        ));
+    }
+
+    let token = state
+        .services
+        .auth_service
+        .generate_email_verification_token()
+        .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))?;
+
+    let session_data = body.get("client_secret").cloned();
+
+    let token_id = state
+        .services
+        .email_verification_storage
+        .create_verification_token(email, &token, 3600, session_data)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to store token: {}", e)))?;
+
+    let sid = format!("{}", token_id);
+
+    let submit_url = format!(
+        "https://{}:8008/_matrix/client/r0/register/email/submitToken",
+        state.services.config.server.host
+    );
+
+    Ok(Json(json!({
+        "sid": sid,
+        "submit_url": submit_url,
+        "expires_in": 3600
+    })))
+}
+
+async fn submit_email_token(
+    State(state): State<AppState>,
+    MatrixJson(body): MatrixJson<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let sid = body
+        .get("sid")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Session ID (sid) is required".to_string()))?;
+
+    let client_secret = body
+        .get("client_secret")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Client secret is required".to_string()))?;
+
+    let token = body
+        .get("token")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Verification token is required".to_string()))?;
+
+    let sid_int: i64 = sid
+        .parse()
+        .map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
+
+    let verification_token = state
+        .services
+        .email_verification_storage
+        .get_verification_token_by_id(sid_int)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get verification token: {}", e)))?;
+
+    let verification_token = match verification_token {
+        Some(t) => t,
+        None => {
+            return Err(ApiError::bad_request(
+                "Invalid session ID or session not found".to_string(),
+            ))
+        }
+    };
+
+    if verification_token.used {
+        return Err(ApiError::bad_request(
+            "Verification token has already been used".to_string(),
+        ));
+    }
+
+    if verification_token.expires_at < chrono::Utc::now().timestamp() {
+        return Err(ApiError::bad_request(
+            "Verification token has expired".to_string(),
+        ));
+    }
+
+    if verification_token.token != token {
+        return Err(ApiError::bad_request(
+            "Invalid verification token".to_string(),
+        ));
+    }
+
+    if verification_token.session_data != Some(serde_json::Value::String(client_secret.to_string()))
+        && verification_token.session_data.as_ref().map(|v| v.as_str()) != Some(Some(client_secret))
+    {
+        return Err(ApiError::bad_request("Client secret mismatch".to_string()));
+    }
+
+    state
+        .services
+        .email_verification_storage
+        .mark_token_used(sid_int)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to mark token as used: {}", e)))?;
+
+    Ok(Json(json!({
+        "success": true
     })))
 }
 
@@ -560,17 +750,11 @@ async fn change_password(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("New password required".to_string()))?;
 
-    if new_password.len() < 8 {
-        return Err(ApiError::bad_request(
-            "Password must be at least 8 characters".to_string(),
-        ));
-    }
-
-    if new_password.len() > 128 {
-        return Err(ApiError::bad_request(
-            "Password too long (max 128 characters)".to_string(),
-        ));
-    }
+    state
+        .services
+        .auth_service
+        .validator
+        .validate_password(new_password)?;
 
     state
         .services
@@ -585,11 +769,163 @@ async fn deactivate_account(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
+    let user_id = auth_user.user_id.clone();
+
     state
         .services
         .registration_service
-        .deactivate_account(&auth_user.user_id)
+        .deactivate_account(&user_id)
         .await?;
+
+    state
+        .services
+        .cache
+        .delete(&format!("user:active:{}", user_id))
+        .await;
+
+    state
+        .services
+        .cache
+        .delete(&format!("token:{}", auth_user.access_token))
+        .await;
+
+    Ok(Json(json!({})))
+}
+
+async fn search_user_directory(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let token = extract_token_from_headers(&headers)?;
+    let (_, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let search_query = body
+        .get("search_term")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as i64;
+
+    let results = state
+        .services
+        .user_storage
+        .search_users(&search_query, limit)
+        .await?;
+
+    let users: Vec<Value> = results
+        .into_iter()
+        .map(|u| {
+            json!({
+                "user_id": u.user_id,
+                "display_name": u.displayname.unwrap_or_else(|| u.username.clone()),
+                "avatar_url": u.avatar_url
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "limited": users.len() >= limit as usize,
+        "results": users
+    })))
+}
+
+async fn list_user_directory(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let token = extract_token_from_headers(&headers)?;
+    let (_, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as i64;
+
+    let offset = body.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as i64;
+
+    let total_count = state.services.user_storage.get_user_count().await?;
+
+    let users = state
+        .services
+        .user_storage
+        .get_users_paginated(limit, offset)
+        .await?;
+
+    let users_json: Vec<Value> = users
+        .into_iter()
+        .map(|u| {
+            json!({
+                "user_id": u.user_id,
+                "display_name": u.displayname.unwrap_or_else(|| u.username.clone()),
+                "avatar_url": u.avatar_url
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "total": total_count,
+        "offset": offset,
+        "users": users_json
+    })))
+}
+
+async fn report_event(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, event_id)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let reason = body.get("reason").and_then(|v| v.as_str());
+    let score = body.get("score").and_then(|v| v.as_i64()).unwrap_or(-100) as i32;
+
+    let event = state
+        .services
+        .event_storage
+        .get_event(&event_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+    if event.room_id != room_id {
+        return Err(ApiError::bad_request(
+            "Event does not belong to the specified room".to_string(),
+        ));
+    }
+
+    let report_id = state
+        .services
+        .event_storage
+        .report_event(
+            &event_id,
+            &room_id,
+            &event.user_id,
+            &auth_user.user_id,
+            reason,
+            score,
+        )
+        .await?;
+
+    Ok(Json(json!({
+        "report_id": report_id
+    })))
+}
+
+async fn update_report_score(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path((_room_id, event_id)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let score =
+        body.get("score")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| ApiError::bad_request("Score is required".to_string()))? as i32;
+
+    state
+        .services
+        .event_storage
+        .update_event_report_score_by_event(&event_id, score)
+        .await?;
+
     Ok(Json(json!({})))
 }
 
@@ -798,6 +1134,61 @@ async fn delete_room(
 
     state.services.room_service.delete_room(&room_id).await?;
     Ok(Json(json!({})))
+}
+
+async fn get_room_aliases(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let aliases = state
+        .services
+        .room_service
+        .get_room_aliases(&room_id)
+        .await?;
+    Ok(Json(json!({ "aliases": aliases })))
+}
+
+async fn set_room_alias(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path((room_id, room_alias)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    state
+        .services
+        .room_service
+        .set_room_alias(&room_id, &room_alias)
+        .await?;
+    Ok(Json(json!({})))
+}
+
+async fn delete_room_alias(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path((room_id, _room_alias)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    state
+        .services
+        .room_service
+        .remove_room_alias(&room_id)
+        .await?;
+    Ok(Json(json!({})))
+}
+
+async fn get_room_by_alias(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(room_alias): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let room_id = state
+        .services
+        .room_service
+        .get_room_by_alias(&room_alias)
+        .await?;
+    match room_id {
+        Some(rid) => Ok(Json(json!({ "room_id": rid }))),
+        None => Err(ApiError::not_found("Room alias not found".to_string())),
+    }
 }
 
 async fn get_public_rooms(
@@ -1051,6 +1442,31 @@ async fn set_presence(
     Ok(Json(json!({})))
 }
 
+async fn set_typing(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, user_id)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    if auth_user.user_id != user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden("Access denied".to_string()));
+    }
+
+    let typing = body
+        .get("typing")
+        .and_then(|v| v.as_bool())
+        .ok_or_else(|| ApiError::bad_request("Typing flag required".to_string()))?;
+
+    state
+        .services
+        .presence_storage
+        .set_typing(&room_id, &user_id, typing)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to set typing: {}", e)))?;
+
+    Ok(Json(json!({})))
+}
+
 async fn get_room_state(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
@@ -1150,6 +1566,158 @@ async fn get_state_event(
         "sender": event.user_id,
         "content": event.content,
         "state_key": event.state_key
+    })))
+}
+
+async fn send_state_event(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, event_type)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let content = body;
+
+    let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
+    let now = chrono::Utc::now().timestamp_millis();
+
+    let state_event = state
+        .services
+        .event_storage
+        .create_event(CreateEventParams {
+            event_id: new_event_id.clone(),
+            room_id: room_id.clone(),
+            user_id: auth_user.user_id.clone(),
+            event_type: format!("m.room.{}", event_type),
+            content,
+            state_key: Some(auth_user.user_id),
+            origin_server_ts: now,
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to send state event: {}", e)))?;
+
+    Ok(Json(json!({
+        "event_id": new_event_id,
+        "type": state_event.event_type,
+        "state_key": state_event.state_key
+    })))
+}
+
+async fn put_state_event(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, event_type, state_key)): Path<(String, String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
+    let now = chrono::Utc::now().timestamp_millis();
+
+    let event = state
+        .services
+        .event_storage
+        .create_event(CreateEventParams {
+            event_id: new_event_id.clone(),
+            room_id: room_id.clone(),
+            user_id: auth_user.user_id.clone(),
+            event_type: format!("m.room.{}", event_type),
+            content: body,
+            state_key: Some(state_key),
+            origin_server_ts: now,
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to put state event: {}", e)))?;
+
+    Ok(Json(json!({
+        "event_id": new_event_id,
+        "type": event.event_type,
+        "state_key": event.state_key
+    })))
+}
+
+async fn send_receipt(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, receipt_type, event_id)): Path<(String, String, String)>,
+    Json(_body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let event = state
+        .services
+        .event_storage
+        .get_event(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+    state
+        .services
+        .room_storage
+        .add_receipt(
+            &auth_user.user_id,
+            &event.user_id,
+            &room_id,
+            &event_id,
+            &receipt_type,
+        )
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to store receipt: {}", e)))?;
+
+    Ok(Json(json!({})))
+}
+
+async fn set_read_markers(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let event_id = body
+        .get("event_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| body.get("m.fully_read").and_then(|v| v.as_str()))
+        .or_else(|| body.get("m.read").and_then(|v| v.as_str()))
+        .ok_or_else(|| ApiError::bad_request("Event ID required".to_string()))?;
+
+    state
+        .services
+        .room_storage
+        .update_read_marker(&room_id, &auth_user.user_id, event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to set read marker: {}", e)))?;
+
+    Ok(Json(json!({})))
+}
+async fn get_membership_events(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as i64;
+
+    let memberships = state
+        .services
+        .member_storage
+        .get_membership_history(&room_id, limit)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get membership events: {}", e)))?;
+
+    let events: Vec<Value> = memberships
+        .into_iter()
+        .map(|m| {
+            json!({
+                "event_id": m.event_id,
+                "type": m.event_type,
+                "sender": m.sender,
+                "state_key": m.user_id,
+                "content": {
+                    "membership": m.membership
+                },
+                "origin_server_ts": m.joined_ts
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "events": events
     })))
 }
 

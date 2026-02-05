@@ -532,6 +532,34 @@ impl RoomService {
             })?;
         Ok(exists)
     }
+
+    pub async fn get_room_aliases(&self, room_id: &str) -> ApiResult<Vec<String>> {
+        self.room_storage
+            .get_room_aliases(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get room aliases: {}", e)))
+    }
+
+    pub async fn set_room_alias(&self, room_id: &str, alias: &str) -> ApiResult<()> {
+        self.room_storage
+            .set_room_alias(room_id, alias)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to set room alias: {}", e)))
+    }
+
+    pub async fn get_room_by_alias(&self, alias: &str) -> ApiResult<Option<String>> {
+        self.room_storage
+            .get_room_by_alias(alias)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get room by alias: {}", e)))
+    }
+
+    pub async fn remove_room_alias(&self, room_id: &str) -> ApiResult<()> {
+        self.room_storage
+            .remove_room_alias(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to remove room alias: {}", e)))
+    }
 }
 
 #[cfg(test)]

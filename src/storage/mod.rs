@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub mod device;
+pub mod email_verification;
 pub mod event;
 pub mod maintenance;
 pub mod membership;
@@ -516,6 +517,22 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
 
     sqlx::query(
         r#"
+        CREATE TABLE IF NOT EXISTS email_verification_tokens (
+            id BIGSERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
+            token TEXT NOT NULL,
+            expires_at BIGINT NOT NULL,
+            created_ts BIGINT NOT NULL,
+            used BOOLEAN DEFAULT FALSE,
+            session_data JSONB
+        )
+    "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
         CREATE TABLE IF NOT EXISTS friends (
             user_id TEXT NOT NULL,
             friend_id TEXT NOT NULL,
@@ -615,6 +632,27 @@ pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Erro
             expires_at BIGINT,
             is_active BOOLEAN DEFAULT TRUE,
             FOREIGN KEY (blocked_by) REFERENCES users(user_id) ON DELETE CASCADE
+        )
+    "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS event_reports (
+            id BIGSERIAL PRIMARY KEY,
+            event_id TEXT NOT NULL,
+            room_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            reporter_user_id TEXT NOT NULL,
+            reason TEXT,
+            score INTEGER DEFAULT -100,
+            created_ts BIGINT NOT NULL,
+            updated_ts BIGINT NOT NULL,
+            FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (reporter_user_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     "#,
     )

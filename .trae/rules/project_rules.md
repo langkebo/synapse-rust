@@ -5,7 +5,7 @@
 > **更新日期**：2026-01-29  
 > **项目状态**：开发中  
 > **参考文档**：[Synapse 官方文档](https://element-hq.github.io/synapse/latest/)、[Matrix 规范](https://spec.matrix.org/)
-
+测试失败时先查看官方文档，检查是测试脚本问题还是代码实现问题
 ---
 
 ## 一、项目概述

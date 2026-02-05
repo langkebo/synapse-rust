@@ -257,10 +257,7 @@ impl KeyBackupService {
     }
 
     pub async fn get_all_backups(&self, user_id: &str) -> Result<Vec<KeyBackup>, ApiError> {
-        self.storage
-            .get_backup(user_id)
-            .await
-            .map(|v| v.map(|b| vec![b]).unwrap_or_default())
+        self.storage.get_all_backup_versions(user_id).await
     }
 
     pub async fn get_backup_key_count(&self, user_id: &str) -> Result<i64, ApiError> {

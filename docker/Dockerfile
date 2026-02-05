@@ -1,32 +1,56 @@
-# Stage 1: Runtime (Using pre-built binary from host)
+# Multi-stage build for optimal image size
+FROM rust:1.93-slim-bookworm AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY Cargo.toml ./
+COPY src ./src
+COPY migrations ./migrations
+
+# Build the application
+RUN cargo build --release --locked
+
+# Runtime image
 FROM debian:bookworm-slim
+
+WORKDIR /app
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     libssl3 \
+    libpq5 \
     ca-certificates \
     curl \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Copy binary
+COPY --from=builder /app/target/release/synapse-rust /usr/local/bin/synapse-rust
 
-# Copy binary from host (must run cargo build on host first)
-COPY target/debug/synapse-rust /usr/local/bin/synapse-rust
-
-# Copy configuration and migrations
-COPY ../homeserver.yaml ./
-COPY ../migrations ./migrations
-
-# Expose the Matrix port
-EXPOSE 8008
-
-# Health check mechanism
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8008/_matrix/client/versions || exit 1
+# Copy config
+COPY ./config ./config
+COPY ./migrations ./migrations
 
 # Environment variables
-ENV RUST_LOG=debug
+ENV RUST_LOG=info
+ENV SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
+ENV DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
+ENV REDIS_URL=redis://redis:6379
+
+# Expose port
+EXPOSE 8008
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8008/_matrix/client/versions || exit 1
 
 # Run the application
 ENTRYPOINT ["synapse-rust"]

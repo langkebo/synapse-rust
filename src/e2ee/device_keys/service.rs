@@ -73,28 +73,30 @@ impl DeviceKeyService {
             let user_id = device_keys.user_id.clone();
             let device_id = device_keys.device_id.clone();
 
-            for (key_id, public_key) in device_keys.keys.as_object().unwrap() {
-                let key = DeviceKey {
-                    id: uuid::Uuid::new_v4(),
-                    user_id: user_id.clone(),
-                    device_id: device_id.clone(),
-                    display_name: None,
-                    algorithm: if key_id.contains("curve25519") {
-                        "curve25519".to_string()
-                    } else {
-                        "ed25519".to_string()
-                    },
-                    key_id: key_id.clone(),
-                    public_key: public_key.as_str().unwrap_or_default().to_string(),
-                    signatures: serde_json::to_value(&device_keys.signatures).unwrap(),
-                    created_at: Utc::now(),
-                    updated_at: Utc::now(),
-                };
+            if let Some(keys) = device_keys.keys.as_object() {
+                for (key_id, public_key) in keys {
+                    let key = DeviceKey {
+                        id: uuid::Uuid::new_v4(),
+                        user_id: user_id.clone(),
+                        device_id: device_id.clone(),
+                        display_name: None,
+                        algorithm: if key_id.contains("curve25519") {
+                            "curve25519".to_string()
+                        } else {
+                            "ed25519".to_string()
+                        },
+                        key_id: key_id.clone(),
+                        public_key: public_key.as_str().unwrap_or_default().to_string(),
+                        signatures: serde_json::to_value(&device_keys.signatures).unwrap_or(serde_json::json!({})),
+                        created_at: Utc::now(),
+                        updated_at: Utc::now(),
+                    };
 
-                self.storage.create_device_key(&key).await?;
+                    self.storage.create_device_key(&key).await?;
 
-                let cache_key = format!("device_keys:{}:{}", user_id, device_id);
-                let _ = self.cache.set(&cache_key, &key, 300).await;
+                    let cache_key = format!("device_keys:{}:{}", user_id, device_id);
+                    let _ = self.cache.set(&cache_key, &key, 300).await;
+                }
             }
         }
 
@@ -105,33 +107,35 @@ impl DeviceKeyService {
                 (String::new(), String::new())
             };
 
-            for (key_id, key_data) in one_time_keys.as_object().unwrap() {
-                let public_key = if key_data.is_string() {
-                    key_data.as_str().unwrap().to_string()
-                } else {
-                    key_data["key"].as_str().unwrap_or_default().to_string()
-                };
+            if let Some(keys) = one_time_keys.as_object() {
+                for (key_id, key_data) in keys {
+                    let public_key = if key_data.is_string() {
+                        key_data.as_str().unwrap_or_default().to_string()
+                    } else {
+                        key_data["key"].as_str().unwrap_or_default().to_string()
+                    };
 
-                let signatures = if key_data.is_object() {
-                    key_data["signatures"].clone()
-                } else {
-                    serde_json::json!({})
-                };
+                    let signatures = if key_data.is_object() {
+                        key_data["signatures"].clone()
+                    } else {
+                        serde_json::json!({})
+                    };
 
-                let key = DeviceKey {
-                    id: uuid::Uuid::new_v4(),
-                    user_id: user_id.clone(),
-                    device_id: device_id.clone(),
-                    display_name: None,
-                    algorithm: "signed_curve25519".to_string(),
-                    key_id: key_id.clone(),
-                    public_key,
-                    signatures,
-                    created_at: Utc::now(),
-                    updated_at: Utc::now(),
-                };
+                    let key = DeviceKey {
+                        id: uuid::Uuid::new_v4(),
+                        user_id: user_id.clone(),
+                        device_id: device_id.clone(),
+                        display_name: None,
+                        algorithm: "signed_curve25519".to_string(),
+                        key_id: key_id.clone(),
+                        public_key,
+                        signatures,
+                        created_at: Utc::now(),
+                        updated_at: Utc::now(),
+                    };
 
-                self.storage.create_device_key(&key).await?;
+                    self.storage.create_device_key(&key).await?;
+                }
             }
 
             if !user_id.is_empty() {
@@ -159,22 +163,26 @@ impl DeviceKeyService {
             for (user_id, device_keys) in claim_map {
                 let mut user_keys = serde_json::Map::new();
 
-                for (device_id, algorithm) in device_keys.as_object().unwrap() {
-                    if let Some(key) = self
-                        .storage
-                        .claim_one_time_key(user_id, device_id, algorithm.as_str().unwrap())
-                        .await?
-                    {
-                        let key_data = serde_json::json!({
-                            "key": key.public_key,
-                            "signatures": key.signatures,
-                        });
-                        user_keys.insert(
-                            device_id.clone(),
-                            serde_json::json!({
-                                format!("{}:{}", algorithm.as_str().unwrap(), key.key_id): key_data
-                            }),
-                        );
+                if let Some(keys) = device_keys.as_object() {
+                    for (device_id, algorithm) in keys {
+                        if let Some(algo_str) = algorithm.as_str() {
+                            if let Some(key) = self
+                                .storage
+                                .claim_one_time_key(user_id, device_id, algo_str)
+                                .await?
+                            {
+                                let key_data = serde_json::json!({
+                                    "key": key.public_key,
+                                    "signatures": key.signatures,
+                                });
+                                user_keys.insert(
+                                    device_id.clone(),
+                                    serde_json::json!({
+                                        format!("{}:{}", algo_str, key.key_id): key_data
+                                    }),
+                                );
+                            }
+                        }
                     }
                 }
 

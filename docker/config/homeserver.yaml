@@ -222,3 +222,19 @@ admin_registration:
   enabled: true
   shared_secret: "test_shared_secret"
   nonce_timeout_seconds: 60
+
+# SMTP邮件服务配置 (用于邮箱验证)
+smtp:
+  enabled: false  # 生产环境设为true启用
+  host: "smtp.example.com"
+  port: 587
+  username: "noreply@example.com"
+  password: "your_smtp_password"
+  from: "Matrix <noreply@example.com>"
+  tls: true  # 使用STARTTLS
+  # 验证码有效期(秒)
+  verification_token_expire: 900  # 15分钟
+  # 速率限制
+  rate_limit:
+    per_minute: 3  # 每分钟最多发送3封邮件
+    per_hour: 10  # 每小时最多发送10封邮件

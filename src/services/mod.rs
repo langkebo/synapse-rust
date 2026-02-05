@@ -7,6 +7,7 @@ use crate::e2ee::cross_signing::CrossSigningService;
 use crate::e2ee::device_keys::DeviceKeyService;
 use crate::e2ee::megolm::MegolmService;
 use crate::e2ee::to_device::ToDeviceService;
+use crate::storage::email_verification::EmailVerificationStorage;
 use crate::storage::*;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -72,6 +73,8 @@ pub struct ServiceContainer {
     pub config: Config,
     /// 管理员注册服务
     pub admin_registration_service: AdminRegistrationService,
+    /// 邮箱验证存储
+    pub email_verification_storage: EmailVerificationStorage,
 }
 
 impl ServiceContainer {
@@ -159,6 +162,8 @@ impl ServiceContainer {
             metrics.clone(),
         );
 
+        let email_verification_storage = EmailVerificationStorage::new(pool);
+
         Self {
             user_storage,
             device_storage: DeviceStorage::new(pool),
@@ -187,13 +192,15 @@ impl ServiceContainer {
             server_name: config.server.name.clone(),
             config,
             admin_registration_service,
+            email_verification_storage,
         }
     }
 
     // #[cfg(test)] - Removed to make it available for integration tests
     pub fn new_test() -> Self {
-        let db_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse".to_string());
+        let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()
+        });
         let host = std::env::var("DATABASE_HOST").unwrap_or_else(|_| "localhost".to_string());
         let port: u16 = std::env::var("DATABASE_PORT")
             .ok()
@@ -206,7 +213,7 @@ impl ServiceContainer {
             sqlx::postgres::PgPoolOptions::new()
                 .max_connections(50)
                 .min_connections(5)
-                .acquire_timeout(std::time::Duration::from_secs(60))
+                .acquire_timeout(std::time::Duration::from_secs(2))
                 .connect_lazy(&db_url)
                 .unwrap(),
         );
@@ -286,6 +293,7 @@ impl ServiceContainer {
             },
             worker: WorkerConfig::default(),
             cors: CorsConfig::default(),
+            smtp: SmtpConfig::default(),
         };
         Self::new(&pool, cache, config)
     }

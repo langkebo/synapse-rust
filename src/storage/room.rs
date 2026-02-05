@@ -384,14 +384,24 @@ impl RoomStorage {
     }
 
     pub async fn set_room_alias(&self, room_id: &str, alias: &str) -> Result<(), sqlx::Error> {
+        let created_by = format!("{}:{}", room_id, chrono::Utc::now().timestamp());
+        let creation_ts = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            INSERT INTO room_aliases (room_id, alias) VALUES ($1, $2)
-            ON CONFLICT (room_id) DO UPDATE SET alias = EXCLUDED.alias
+            INSERT INTO room_aliases (room_alias, alias, room_id, created_by, creation_ts)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (room_alias) DO UPDATE SET
+                alias = EXCLUDED.alias,
+                room_id = EXCLUDED.room_id,
+                created_by = EXCLUDED.created_by,
+                creation_ts = EXCLUDED.creation_ts
             "#,
         )
-        .bind(room_id)
         .bind(alias)
+        .bind(alias)
+        .bind(room_id)
+        .bind(created_by)
+        .bind(creation_ts)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -445,6 +455,30 @@ impl RoomStorage {
         Ok(result.map(|r| r.0))
     }
 
+    pub async fn get_room_aliases(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        let results: Vec<(String,)> = sqlx::query_as(
+            r#"
+            SELECT alias FROM room_aliases WHERE room_id = $1
+            "#,
+        )
+        .bind(room_id)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(results.into_iter().map(|r| r.0).collect())
+    }
+
+    pub async fn get_room_by_alias(&self, alias: &str) -> Result<Option<String>, sqlx::Error> {
+        let result: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT room_id FROM room_aliases WHERE alias = $1
+            "#,
+        )
+        .bind(alias)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.map(|r| r.0))
+    }
+
     pub async fn set_room_account_data(
         &self,
         room_id: &str,
@@ -485,6 +519,34 @@ impl RoomStorage {
         .bind(user_id)
         .bind(event_id)
         .bind(now)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn add_receipt(
+        &self,
+        sender: &str,
+        sent_to: &str,
+        room_id: &str,
+        event_id: &str,
+        receipt_type: &str,
+    ) -> Result<(), sqlx::Error> {
+        let now: i64 = chrono::Utc::now().timestamp();
+        sqlx::query(
+            r#"
+            INSERT INTO receipts (sender, sent_to, room_id, event_id, sent_ts, receipt_type)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (sent_to, sender, room_id) DO UPDATE
+            SET event_id = EXCLUDED.event_id, sent_ts = EXCLUDED.sent_ts, receipt_type = EXCLUDED.receipt_type
+            "#,
+        )
+        .bind(sender)
+        .bind(sent_to)
+        .bind(room_id)
+        .bind(event_id)
+        .bind(now)
+        .bind(receipt_type)
         .execute(&*self.pool)
         .await?;
         Ok(())

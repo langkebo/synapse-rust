@@ -158,7 +158,7 @@ impl UserStorage {
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
-            SELECT 1 FROM users WHERE user_id = $1 LIMIT 1
+            SELECT 1 FROM users WHERE user_id = $1 AND deactivated = FALSE LIMIT 1
             "#,
         )
         .bind(user_id)
@@ -312,6 +312,14 @@ impl UserStorage {
         .bind(user_ids)
         .fetch_all(&*self.pool)
         .await
+    }
+
+    pub async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(r#"DELETE FROM users WHERE user_id = $1"#)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(())
     }
 }
 

@@ -279,28 +279,37 @@ CREATE TABLE IF NOT EXISTS blocked_users (
 );
 
 CREATE TABLE IF NOT EXISTS private_sessions (
-    id BIGSERIAL PRIMARY KEY,
-    user_id_1 TEXT NOT NULL,
-    user_id_2 TEXT NOT NULL,
-    last_message TEXT,
-    unread_count INTEGER DEFAULT 0,
+    id VARCHAR(255) NOT NULL PRIMARY KEY,
+    user_id_1 VARCHAR(255) NOT NULL,
+    user_id_2 VARCHAR(255) NOT NULL,
+    session_type VARCHAR(50) DEFAULT 'direct',
+    encryption_key VARCHAR(255),
     created_ts BIGINT NOT NULL,
+    last_activity_ts BIGINT NOT NULL,
     updated_ts BIGINT,
+    unread_count INTEGER DEFAULT 0,
+    encrypted_content TEXT,
     FOREIGN KEY (user_id_1) REFERENCES users(user_id) ON DELETE CASCADE,
     FOREIGN KEY (user_id_2) REFERENCES users(user_id) ON DELETE CASCADE,
-    UNIQUE(user_id_1, user_id_2)
+    UNIQUE (user_id_1, user_id_2)
 );
 
 CREATE TABLE IF NOT EXISTS private_messages (
     id BIGSERIAL PRIMARY KEY,
-    session_id BIGINT NOT NULL,
-    sender_id TEXT NOT NULL,
+    session_id VARCHAR(255) NOT NULL,
+    sender_id VARCHAR(255) NOT NULL,
     content TEXT NOT NULL,
     encrypted_content TEXT,
-    message_type TEXT DEFAULT 'text',
+    created_ts BIGINT NOT NULL,
+    message_type VARCHAR(50) DEFAULT 'm.text',
     is_read BOOLEAN DEFAULT FALSE,
     read_by_receiver BOOLEAN DEFAULT FALSE,
-    created_ts BIGINT NOT NULL,
+    read_ts BIGINT,
+    edit_history JSONB,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    deleted_ts BIGINT,
+    is_edited BOOLEAN DEFAULT FALSE,
+    unread_count INTEGER DEFAULT 0,
     FOREIGN KEY (session_id) REFERENCES private_sessions(id) ON DELETE CASCADE,
     FOREIGN KEY (sender_id) REFERENCES users(user_id) ON DELETE CASCADE
 );

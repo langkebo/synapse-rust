@@ -230,6 +230,10 @@ impl AuthService {
             return Err(ApiError::unauthorized("Invalid credentials".to_string()));
         }
 
+        if user.deactivated == Some(true) {
+            return Err(ApiError::unauthorized("User is deactivated".to_string()));
+        }
+
         ::tracing::info!(
             target: "security_audit",
             event = "login_success",
@@ -357,11 +361,15 @@ impl AuthService {
     }
 
     pub async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool)> {
+        ::tracing::debug!(target: "token_validation", "Validating token");
+
         let cached_token = self.cache.get_token(token).await;
         if let Some(claims) = cached_token {
-            // P1 Performance: Optimization - Cache user existence/active status for 60s
-            // to avoid hitting DB on every request.
+            ::tracing::debug!(target: "token_validation", "Found cached token for user: {}", 
+                claims.sub);
+
             if let Some(active) = self.cache.is_user_active(&claims.sub).await {
+                ::tracing::debug!(target: "token_validation", "Cache hit for user active: {:?}", active);
                 if !active {
                     return Err(ApiError::unauthorized(
                         "User not found or deactivated".to_string(),
@@ -370,30 +378,46 @@ impl AuthService {
                 return Ok((claims.user_id, claims.device_id.clone(), claims.admin));
             }
 
-            let user_exists = self
+            ::tracing::debug!(target: "token_validation", "Cache miss for user active status, querying DB");
+
+            let user = self
                 .user_storage
-                .user_exists(&claims.sub)
+                .get_user_by_id(&claims.sub)
                 .await
                 .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-            self.cache
-                .set_user_active(&claims.sub, user_exists, 60)
-                .await;
+            match user {
+                Some(u) => {
+                    let is_active = u.deactivated != Some(true);
+                    ::tracing::debug!(target: "token_validation", "User found, deactivated: {:?}, is_active: {}", u.deactivated, is_active);
 
-            if !user_exists {
-                return Err(ApiError::unauthorized("User not found".to_string()));
+                    self.cache.set_user_active(&claims.sub, is_active, 60).await;
+
+                    if !is_active {
+                        return Err(ApiError::unauthorized("User is deactivated".to_string()));
+                    }
+
+                    return Ok((claims.user_id, claims.device_id.clone(), claims.admin));
+                }
+                None => {
+                    ::tracing::debug!(target: "token_validation", "User not found in database");
+                    self.cache.set_user_active(&claims.sub, false, 60).await;
+                    return Err(ApiError::unauthorized("User not found".to_string()));
+                }
             }
-
-            return Ok((claims.user_id, claims.device_id.clone(), claims.admin));
         }
+
+        ::tracing::debug!(target: "token_validation", "Token not found in cache, decoding from JWT");
 
         match self.decode_token(token) {
             Ok(claims) => {
                 if claims.exp < Utc::now().timestamp() {
+                    ::tracing::debug!(target: "token_validation", "Token expired");
                     return Err(ApiError::unauthorized("Token expired".to_string()));
                 }
 
-                // Get user info and check existence/admin status in one go
+                ::tracing::debug!(target: "token_validation", "Decoded JWT for user: {}", claims.sub);
+
                 let user = self
                     .user_storage
                     .get_user_by_id(&claims.sub)
@@ -402,8 +426,12 @@ impl AuthService {
 
                 match user {
                     Some(u) => {
+                        ::tracing::debug!(target: "token_validation", "User found, deactivated: {:?}", u.deactivated);
+                        if u.deactivated == Some(true) {
+                            ::tracing::debug!(target: "token_validation", "User is deactivated, rejecting token");
+                            return Err(ApiError::unauthorized("User is deactivated".to_string()));
+                        }
                         let is_admin = u.is_admin.unwrap_or(false);
-                        // Update claims with correct admin status if it differs (though it shouldn't for this token)
                         let mut final_claims = claims.clone();
                         final_claims.admin = is_admin;
 
@@ -414,10 +442,16 @@ impl AuthService {
                             is_admin,
                         ))
                     }
-                    None => Err(ApiError::unauthorized("User not found".to_string())),
+                    None => {
+                        ::tracing::debug!(target: "token_validation", "User not found in database");
+                        Err(ApiError::unauthorized("User not found".to_string()))
+                    }
                 }
             }
-            Err(e) => Err(ApiError::unauthorized(format!("Invalid token: {}", e))),
+            Err(e) => {
+                ::tracing::debug!(target: "token_validation", "Invalid token: {}", e);
+                Err(ApiError::unauthorized(format!("Invalid token: {}", e)))
+            }
         }
     }
 
@@ -451,6 +485,8 @@ impl AuthService {
             .delete_user_devices(user_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to delete devices: {}", e)))?;
+
+        self.cache.delete(&format!("user:active:{}", user_id)).await;
 
         Ok(())
     }
@@ -513,6 +549,11 @@ impl AuthService {
 
     fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool, ApiError> {
         verify_password_common(password, password_hash).map_err(ApiError::internal)
+    }
+
+    pub fn generate_email_verification_token(&self) -> Result<String, Box<dyn std::error::Error>> {
+        let token = auth_generate_token(32);
+        Ok(token)
     }
 }
 

@@ -1,0 +1,61 @@
+{
+  "timestamp": "2026-02-05T09:41:10.169874",
+  "base_url": "http://localhost:8008",
+  "total_endpoints": 6,
+  "results": [
+    {
+      "name": "上传密钥",
+      "status": "❌ FAIL",
+      "status_code": "CONN_ERR",
+      "endpoint": "/_matrix/client/r0/keys/upload",
+      "notes": "需要认证",
+      "method": "POST",
+      "error": "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
+    },
+    {
+      "name": "查询密钥",
+      "status": "❌ FAIL",
+      "status_code": "CONN_ERR",
+      "endpoint": "/_matrix/client/r0/keys/query",
+      "notes": "需要认证",
+      "method": "POST",
+      "error": "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
+    },
+    {
+      "name": "声明密钥",
+      "status": "❌ FAIL",
+      "status_code": "CONN_ERR",
+      "endpoint": "/_matrix/client/r0/keys/claim",
+      "notes": "需要认证",
+      "method": "POST",
+      "error": "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
+    },
+    {
+      "name": "密钥变更",
+      "status": "❌ FAIL",
+      "status_code": "CONN_ERR",
+      "endpoint": "/_matrix/client/r0/keys/changes",
+      "notes": "需要认证",
+      "method": "GET",
+      "error": "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
+    },
+    {
+      "name": "房间密钥分发",
+      "status": "❌ FAIL",
+      "status_code": "CONN_ERR",
+      "endpoint": "/_matrix/client/r0/rooms/!hU1S_lh9PJl93a-zGJY1SUlX:cjystx.top/keys/distribution",
+      "notes": "需要认证",
+      "method": "GET",
+      "error": "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
+    },
+    {
+      "name": "发送设备消息",
+      "status": "❌ FAIL",
+      "status_code": "CONN_ERR",
+      "endpoint": "/_matrix/client/r0/sendToDevice/m.room.encrypted/test_txn_123",
+      "notes": "需要认证",
+      "method": "PUT",
+      "error": "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
+    }
+  ]
+}

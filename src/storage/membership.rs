@@ -276,4 +276,24 @@ impl RoomMemberStorage {
 
         Ok(result.is_some())
     }
+
+    pub async fn get_membership_history(
+        &self,
+        room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<RoomMember>, sqlx::Error> {
+        let memberships = sqlx::query_as::<_, RoomMember>(
+            r#"
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            FROM room_memberships WHERE room_id = $1
+            ORDER BY updated_ts DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(room_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(memberships)
+    }
 }

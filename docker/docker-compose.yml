@@ -1,9 +1,6 @@
 services:
   synapse:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    image: synapse-rust:dev
+    image: synapse-rust:test
     container_name: synapse_rust
     restart: always
     ports:
@@ -11,12 +8,13 @@ services:
     env_file: .env
     environment:
       - RUST_LOG=info
+      - DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
       - SYNAPSE_DATABASE__HOST=db
       - SYNAPSE_DATABASE__NAME=${POSTGRES_DB}
       - SYNAPSE_DATABASE__USERNAME=${POSTGRES_USER}
       - SYNAPSE_DATABASE__PASSWORD=${POSTGRES_PASSWORD}
       - SYNAPSE_REDIS__HOST=${REDIS_HOST}
-      - SYNAPSE_CONFIG_PATH=${SYNAPSE_CONFIG_PATH}
+      - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
     volumes:
       - ./config:/app/config:ro
       - ./data:/app/data:rw
@@ -43,6 +41,8 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "5432:5432"
     volumes:
       - ./postgres_data:/var/lib/postgresql/data:rw
     networks:

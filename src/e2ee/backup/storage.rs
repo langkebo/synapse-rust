@@ -60,13 +60,29 @@ impl KeyBackupStorage {
             WHERE user_id = $1
             ORDER BY version DESC
             LIMIT 1
-            "#,
+            "#
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
         Ok(row)
+    }
+
+    pub async fn get_all_backup_versions(&self, user_id: &str) -> Result<Vec<KeyBackup>, ApiError> {
+        let rows = sqlx::query_as::<_, KeyBackup>(
+            r#"
+            SELECT user_id, backup_id, version, algorithm, auth_key, mgmt_key, backup_data, etag
+            FROM key_backups
+            WHERE user_id = $1
+            ORDER BY version DESC
+            "#
+        )
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
     }
 
     pub async fn get_backup_version(

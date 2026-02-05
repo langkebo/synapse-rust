@@ -1,0 +1,714 @@
+[
+  {
+    "name": "用户登录",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAdGVzdHVzZXIxOmNqeXN0eC50b3AiLCJ1c2VyX2lkIjoiQHRlc3R1c2VyMTpjanlzdHgudG9wIiwiYWRtaW4iOmZhbHNlLCJleHAiOjE3NzAyNTM2MjMsImlhdCI6MTc3MDI1MDAyMywiZGV2aWNlX2lkIjoiNnB5M0NWaFZuTGZZVk9ZMiJ9.CG3ISzhOKwewsE8le4Bd4KJSce67BuIcFUxnAJhq6rA",
+      "device_id": "6py3CVhVnLfYVOY2",
+      "expires_in": 3600,
+      "refresh_token": "MPws3_8M9fC6ngmSZE5GPH2zOXIyioVhULdOyC78dHQ",
+      "user_id": "@testuser1:cjystx.top",
+      "well_known": {
+        "m.homeserver": {
+          "base_url": "http://cjystx.top:8008"
+        }
+      }
+    }
+  },
+  {
+    "name": "检查用户名可用性",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "available": true,
+      "username": "newuser123"
+    }
+  },
+  {
+    "name": "退出登录",
+    "passed": true,
+    "status": 200,
+    "data": {}
+  },
+  {
+    "name": "重新登录",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAdGVzdHVzZXIxOmNqeXN0eC50b3AiLCJ1c2VyX2lkIjoiQHRlc3R1c2VyMTpjanlzdHgudG9wIiwiYWRtaW4iOmZhbHNlLCJleHAiOjE3NzAyNTM2MjQsImlhdCI6MTc3MDI1MDAyNCwiZGV2aWNlX2lkIjoiT2VIZnVNbU4zOHVzaUxTQiJ9.OVEjD9dfo_7IdEAhMDodqkdezawO9GCmS8xJKwNvmGU",
+      "device_id": "OeHfuMmN38usiLSB",
+      "expires_in": 3600,
+      "refresh_token": "zzPJvykUO8LYJtV9dFZjd-UCugG5oY4Gg1kdSa8T2yM",
+      "user_id": "@testuser1:cjystx.top",
+      "well_known": {
+        "m.homeserver": {
+          "base_url": "http://cjystx.top:8008"
+        }
+      }
+    }
+  },
+  {
+    "name": "退出所有设备",
+    "passed": true,
+    "status": 200,
+    "data": {}
+  },
+  {
+    "name": "刷新令牌",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAdGVzdHVzZXIxOmNqeXN0eC50b3AiLCJ1c2VyX2lkIjoiQHRlc3R1c2VyMTpjanlzdHgudG9wIiwiYWRtaW4iOmZhbHNlLCJleHAiOjE3NzAyNTM2MjQsImlhdCI6MTc3MDI1MDAyNCwiZGV2aWNlX2lkIjoiVmRPVmlCM1pNUEpmUWUwdiJ9.36KxXCVUohOIQ7ToLQbz-kJONdvJGcC0dsLmx2ub6yI",
+      "device_id": "VdOViB3ZMPJfQe0v",
+      "expires_in": 3600,
+      "refresh_token": "oNlwOwy7cd88FlI6vJ10-YfZpLWm-1Mzpskg9bWtjNw"
+    }
+  },
+  {
+    "name": "获取当前用户信息",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "admin": false,
+      "avatar_url": null,
+      "displayname": null,
+      "user_id": "@testuser1:cjystx.top"
+    }
+  },
+  {
+    "name": "停用账户",
+    "passed": true,
+    "status": 200,
+    "data": {}
+  },
+  {
+    "name": "修改密码",
+    "passed": true,
+    "status": 200,
+    "data": {}
+  },
+  {
+    "name": "获取用户资料",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "avatar_url": "mxc://example.com/avatar",
+      "displayname": "Test User 1",
+      "user_id": "@testuser1:cjystx.top"
+    }
+  },
+  {
+    "name": "更新显示名称",
+    "passed": true,
+    "status": 200,
+    "data": {}
+  },
+  {
+    "name": "更新头像",
+    "passed": true,
+    "status": 200,
+    "data": {}
+  },
+  {
+    "name": "同步数据",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "account_data": {
+        "events": []
+      },
+      "next_batch": "s1770250026952",
+      "presence": {
+        "events": []
+      },
+      "rooms": {
+        "!-vqJmYDAWYtbduVH-UxgYigU:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [
+              {
+                "content": {
+                  "body": "第四个消息 - 测试完成",
+                  "msgtype": "m.room.message"
+                },
+                "event_id": "$1770246713953$Siu2PqjhfmTbF0KR8-7VOOKM:cjystx.top",
+                "origin_server_ts": 1770246713953,
+                "sender": "@testuser1:cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "这是第三条测试消息",
+                  "msgtype": "m.room.message"
+                },
+                "event_id": "$1770246713640$srAQcK7_mVW1Q-qLqLFtiE8a:cjystx.top",
+                "origin_server_ts": 1770246713640,
+                "sender": "@testuser1:cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "这是第二条测试消息",
+                  "msgtype": "m.room.message"
+                },
+                "event_id": "$1770246713332$twxnVcO_JVuMhfIr49PuW-l6:cjystx.top",
+                "origin_server_ts": 1770246713332,
+                "sender": "@testuser1:cjystx.top",
+                "type": "m.room.message"
+              },
+              {
+                "content": {
+                  "body": "Hello from testuser1! 这是一条测试消息",
+                  "msgtype": "m.room.message"
+                },
+                "event_id": "$1770246713324$ADEm82J1KPSHZIMa5VdqUTQu:cjystx.top",
+                "origin_server_ts": 1770246713324,
+                "sender": "@testuser1:cjystx.top",
+                "type": "m.room.message"
+              }
+            ],
+            "limited": true,
+            "prev_batch": "t1770246713953"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!JibzLFdd5efAnzAgT1JYkYmL:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [],
+            "limited": true,
+            "prev_batch": "t1770250026950"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!KEeI5AH64uyFA7osmuHk0q6L:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [],
+            "limited": true,
+            "prev_batch": "t1770250026952"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!L19MD7pFXPtutRlmNybSnVcR:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [],
+            "limited": true,
+            "prev_batch": "t1770250026951"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!MnoE0LeQz-q_tL_bND8wWqEA:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [],
+            "limited": true,
+            "prev_batch": "t1770250026949"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!QvhoBK-_KJcqEF8XxhrLw3Bd:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [],
+            "limited": true,
+            "prev_batch": "t1770250026950"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!Vix2rx5yrYV1pyC2PrM4KpR4:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [],
+            "limited": true,
+            "prev_batch": "t1770250026951"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!ZogWr-icbru8ROEw579oCuFq:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [],
+            "limited": true,
+            "prev_batch": "t1770250026949"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!cywBcfQarkbkOtXir5Nbr38a:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [
+              {
+                "content": {
+                  "reason": null
+                },
+                "event_id": "$1770247146978$bMYdo-vB3YsqfXp0sbm86ZgI:cjystx.top",
+                "origin_server_ts": 1770247146978,
+                "sender": "@testuser1:cjystx.top",
+                "type": "m.room.redaction"
+              },
+              {
+                "content": {
+                  "topic": "Test topic"
+                },
+                "event_id": "$1770247146052$5Ohb-xFNA2J57Mf5OVEheN9s:cjystx.top",
+                "origin_server_ts": 1770247146052,
+                "sender": "@testuser1:cjystx.top",
+                "type": "m.room.m.room.topic"
+              },
+              {
+                "content": {
+                  "body": "Test message",
+                  "msgtype": "m.room.message"
+                },
+                "event_id": "$1770247145433$7vT3vDPxJnftEWcIj0pVJfiy:cjystx.top",
+                "origin_server_ts": 1770247145433,
+                "sender": "@testuser1:cjystx.top",
+                "type": "m.room.message"
+              }
+            ],
+            "limited": true,
+            "prev_batch": "t1770247146978"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!ei75FGYcGCbeBJiafX_mIWyU:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [],
+            "limited": true,
+            "prev_batch": "t1770250026949"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!j3L8SjtGQpcdlVGp9RvNpkxR:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [],
+            "limited": true,
+            "prev_batch": "t1770250026949"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!qRC85aMuwrNlOyZGmW_Z-q1C:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [],
+            "limited": true,
+            "prev_batch": "t1770250026950"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        },
+        "!uaG7oswKMEyyH4SInANCbrU4:cjystx.top": {
+          "account_data": {},
+          "ephemeral": {},
+          "state": {},
+          "timeline": {
+            "events": [],
+            "limited": true,
+            "prev_batch": "t1770250026951"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        }
+      },
+      "to_device": {
+        "events": []
+      }
+    }
+  },
+  {
+    "name": "获取在线状态",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "presence": "online",
+      "status_msg": null
+    }
+  },
+  {
+    "name": "设置在线状态",
+    "passed": true,
+    "status": 200,
+    "data": {}
+  },
+  {
+    "name": "创建房间",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "room_alias": null,
+      "room_id": "!HliQYRgHYU9_TDoskZ1Vgshi:cjystx.top"
+    }
+  },
+  {
+    "name": "发送消息",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "event_id": "$1770250027886$SUwsXfoco5qOoqmuFUZL4bjz:cjystx.top"
+    }
+  },
+  {
+    "name": "获取房间状态",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "state": []
+    }
+  },
+  {
+    "name": "获取特定状态事件",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "events": []
+    }
+  },
+  {
+    "name": "设置房间状态",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "event_id": "$1770250028503$-lK8KIDVszXm6WMEr7hGIirx:cjystx.top",
+      "state_key": "@testuser1:cjystx.top",
+      "type": "m.room.m.room.topic"
+    }
+  },
+  {
+    "name": "获取成员事件",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "events": [
+        {
+          "content": {
+            "membership": "join"
+          },
+          "event_id": "$$1770250027876$SfnTrH9Z2KjDAlRcxSWbn0vk:localhost",
+          "origin_server_ts": 1770250027876,
+          "sender": "@testuser1:cjystx.top",
+          "state_key": "@testuser1:cjystx.top",
+          "type": "m.room.member"
+        }
+      ]
+    }
+  },
+  {
+    "name": "获取房间消息",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "chunk": [
+        {
+          "content": {
+            "topic": "Test topic"
+          },
+          "event_id": "$1770250028503$-lK8KIDVszXm6WMEr7hGIirx:cjystx.top",
+          "origin_server_ts": 1770250028503,
+          "sender": "@testuser1:cjystx.top",
+          "type": "m.room.m.room.topic"
+        },
+        {
+          "content": {
+            "body": "Test message",
+            "msgtype": "m.room.message"
+          },
+          "event_id": "$1770250027886$SUwsXfoco5qOoqmuFUZL4bjz:cjystx.top",
+          "origin_server_ts": 1770250027886,
+          "sender": "@testuser1:cjystx.top",
+          "type": "m.room.message"
+        }
+      ],
+      "end": "e1770250029123",
+      "start": "0"
+    }
+  },
+  {
+    "name": "删除事件",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "event_id": "$1770250029428$ggGBTiWEwuYpypXG0D8dejzM:cjystx.top"
+    }
+  },
+  {
+    "name": "获取房间信息",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "canonical_alias": null,
+      "creator": "@testuser1:cjystx.top",
+      "is_public": false,
+      "join_rule": "invite",
+      "name": "API Test Room",
+      "room_id": "!HliQYRgHYU9_TDoskZ1Vgshi:cjystx.top",
+      "topic": null
+    }
+  },
+  {
+    "name": "获取公共房间列表",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "chunk": [
+        {
+          "canonical_alias": null,
+          "is_public": true,
+          "join_rule": "invite",
+          "name": "公共房间",
+          "room_id": "!KEeI5AH64uyFA7osmuHk0q6L:cjystx.top",
+          "topic": null
+        },
+        {
+          "canonical_alias": null,
+          "is_public": true,
+          "join_rule": "invite",
+          "name": "Public Test Room",
+          "room_id": "!L19MD7pFXPtutRlmNybSnVcR:cjystx.top",
+          "topic": null
+        },
+        {
+          "canonical_alias": null,
+          "is_public": true,
+          "join_rule": "invite",
+          "name": "公共房间",
+          "room_id": "!Vix2rx5yrYV1pyC2PrM4KpR4:cjystx.top",
+          "topic": null
+        },
+        {
+          "canonical_alias": null,
+          "is_public": true,
+          "join_rule": "invite",
+          "name": "公共房间",
+          "room_id": "!ei75FGYcGCbeBJiafX_mIWyU:cjystx.top",
+          "topic": null
+        },
+        {
+          "canonical_alias": null,
+          "is_public": true,
+          "join_rule": "invite",
+          "name": "公共房间",
+          "room_id": "!j3L8SjtGQpcdlVGp9RvNpkxR:cjystx.top",
+          "topic": null
+        }
+      ],
+      "total_room_count_estimate": 5
+    }
+  },
+  {
+    "name": "创建公共房间",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "room_alias": null,
+      "room_id": "!hU1S_lh9PJl93a-zGJY1SUlX:cjystx.top"
+    }
+  },
+  {
+    "name": "获取设备列表",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "devices": [
+        {
+          "device_id": "tXN3gmRjmMgJXHA8",
+          "display_name": null,
+          "last_seen_ts": 1770250026932,
+          "user_id": "@testuser1:cjystx.top"
+        }
+      ]
+    }
+  },
+  {
+    "name": "获取设备信息",
+    "passed": false,
+    "status": 404,
+    "data": {
+      "errcode": "M_NOT_FOUND",
+      "error": "Device not found"
+    }
+  },
+  {
+    "name": "更新设备",
+    "passed": true,
+    "status": 200,
+    "data": {}
+  },
+  {
+    "name": "删除设备",
+    "passed": true,
+    "status": 200,
+    "data": {}
+  },
+  {
+    "name": "批量删除设备",
+    "passed": true,
+    "status": 200,
+    "data": {}
+  },
+  {
+    "name": "举报事件",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "report_id": 1
+    }
+  },
+  {
+    "name": "设置举报分数",
+    "passed": true,
+    "status": 200,
+    "data": {}
+  },
+  {
+    "name": "搜索用户",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "limited": false,
+      "results": [
+        {
+          "avatar_url": null,
+          "display_name": "testuser6",
+          "user_id": "@testuser6:cjystx.top"
+        },
+        {
+          "avatar_url": null,
+          "display_name": "testuser5",
+          "user_id": "@testuser5:cjystx.top"
+        },
+        {
+          "avatar_url": null,
+          "display_name": "testuser4",
+          "user_id": "@testuser4:cjystx.top"
+        },
+        {
+          "avatar_url": null,
+          "display_name": "testuser3",
+          "user_id": "@testuser3:cjystx.top"
+        },
+        {
+          "avatar_url": null,
+          "display_name": "testuser2",
+          "user_id": "@testuser2:cjystx.top"
+        }
+      ]
+    }
+  },
+  {
+    "name": "获取用户列表",
+    "passed": true,
+    "status": 200,
+    "data": {
+      "offset": 0,
+      "total": 8,
+      "users": [
+        {
+          "avatar_url": null,
+          "display_name": "testuser6",
+          "user_id": "@testuser6:cjystx.top"
+        },
+        {
+          "avatar_url": null,
+          "display_name": "testuser5",
+          "user_id": "@testuser5:cjystx.top"
+        },
+        {
+          "avatar_url": null,
+          "display_name": "testuser4",
+          "user_id": "@testuser4:cjystx.top"
+        },
+        {
+          "avatar_url": null,
+          "display_name": "testuser3",
+          "user_id": "@testuser3:cjystx.top"
+        },
+        {
+          "avatar_url": null,
+          "display_name": "testuser2",
+          "user_id": "@testuser2:cjystx.top"
+        },
+        {
+          "avatar_url": "mxc://example.com/avatar",
+          "display_name": "Test User 1",
+          "user_id": "@testuser1:cjystx.top"
+        },
+        {
+          "avatar_url": "mxc://example.com/avatar",
+          "display_name": "Admin User",
+          "user_id": "@admin:cjystx.top"
+        },
+        {
+          "avatar_url": null,
+          "display_name": "alice",
+          "user_id": "@alice:localhost"
+        }
+      ]
+    }
+  }
+]

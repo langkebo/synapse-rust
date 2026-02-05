@@ -348,7 +348,9 @@ impl CacheManager {
 
     pub async fn set_user_active(&self, user_id: &str, active: bool, ttl: u64) {
         let key = format!("user:active:{}", user_id);
-        let _ = self.set(&key, active, ttl).await;
+        if let Err(e) = self.set(&key, active, ttl).await {
+            ::tracing::error!(target: "cache", "Failed to set user active status: {}", e);
+        }
     }
 
     pub async fn delete(&self, key: &str) {
