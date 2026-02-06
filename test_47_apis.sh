@@ -2,6 +2,7 @@
 
 # Synapse Rust - 47 Core Client API Test Suite
 # 测试日期: 2026-02-04
+# 更新日期: 2026-02-06 (动态获取token)
 
 SERVER_URL="http://localhost:8008"
 ADMIN_USER="admin"
@@ -12,13 +13,22 @@ echo "Synapse Rust - 47 Core Client API Tests"
 echo "=========================================="
 echo ""
 
-# Step 1: Login as admin to get token
+# Step 1: Login as admin to get token dynamically
 echo ">>> Step 1: 获取管理员Token..."
 LOGIN_RESPONSE=$(curl -s -X POST "$SERVER_URL/_matrix/client/r0/login" \
     -H "Content-Type: application/json" \
     -d "{\"type\": \"m.login.password\", \"user\": \"$ADMIN_USER\", \"password\": \"$ADMIN_PASS\"}")
 
-ADMIN_TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAYWRtaW46Y2p5c3R4LnRvcCIsInVzZXJfaWQiOiJAYWRtaW46Y2p5c3R4LnRvcCIsImFkbWluIjp0cnVlLCJleHAiOjE3NzAyMjMyMjAsImlhdCI6MTc3MDIxOTYyMCwiZGV2aWNlX2lkIjoiT2xhVEt3WThoczQ3ODc2Z2g2VHNiZyJ9.E9N59jTn53KhSkRKml8cAyvQUtFe92sDvPbAd804o8c"
+# Extract token from response
+ADMIN_TOKEN=$(echo "$LOGIN_RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('access_token', ''))" 2>/dev/null)
+
+if [ -z "$ADMIN_TOKEN" ]; then
+    echo "❌ 无法获取管理员Token，登录响应: $LOGIN_RESPONSE"
+    echo "使用备用Token进行测试..."
+    ADMIN_TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAYWRtaW46Y2p5c3R4LnRvcCIsInVzZXJfaWQiOiJAYWRtaW46Y2p5c3R4LnRvcCIsImFkbWluIjp0cnVlLCJleHAiOjE3NzAyMjMyMjAsImlhdCI6MTc3MDIxOTYyMCwiZGV2aWNlX2lkIjoiT2xhVEt3WThoczQ3ODc2Z2g2VHNiZyJ9.E9N59jTn53KhSkRKml8cAyvQUtFe92sDvPbAd804o8c"
+else
+    echo "✅ 成功获取管理员Token"
+fi
 
 # Initialize counters
 TOTAL_TESTS=0

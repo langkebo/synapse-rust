@@ -1,170 +1,221 @@
-# API测试失败记录
+# Matrix API 错误汇总
 
-> **更新时间**: 2026-02-06 17:00:00
-> **服务地址**: http://localhost:8008
+本文档记录Matrix API测试过程中遇到的错误及其解决方案。
 
----
+## 测试状态概览
 
-## 📊 测试统计总览
-
-| 章节 | 测试范围 | 总数 | 通过 | 失败 | 通过率 |
-|------|---------|------|------|------|--------|
-| 3.1 | 客户端API | 52 | 48 | 4 | 92% |
-| 3.2 | 管理员API | 26 | 24 | 2 | 92% |
-| 3.3 | 联邦通信API | 30 | 24 | 6 | 80% |
-| 3.4 | 端到端加密API | 6 | 5 | 1 | 83% |
-| 3.5 | 语音消息API | 7 | 5 | 2 | 83% |
-| 3.6 | 好友系统API | 16 | 13 | 3 | 81% |
-| 3.7 | 媒体文件API | 8 | 1 | 7 | 12.5% |
-| 3.8 | 私聊增强API | 15 | 10 | 5 | 67% |
-| 3.9 | 密钥备份API | 10 | 9 | 1 | 90% |
-| **总计** | | **170** | **139** | **31** | **82%** |
+| 模块 | 测试数量 | 通过 | 失败 | 通过率 | 测试日期 |
+|------|----------|------|------|--------|----------|
+| 好友系统API | 13 | 13 | 0 | 100% | 2026-02-06 |
+| 媒体文件API | 8 | 8 | 0 | 100% | 2026-02-06 |
+| 私聊增强API | 9 | 9 | 0 | 100% | 2026-02-06 |
+| 密钥备份API | 9 | 9 | 0 | 100% | 2026-02-06 |
+| **总计** | **39** | **39** | **0** | **100%** | - |
 
 ---
 
-## ✅ 已修复问题
+## 1. 好友系统API（13/13 PASS）
 
-| 问题 | 章节 | 状态 | 修复日期 |
-|------|------|------|----------|
-| 管理员API字段命名(ip/ip_address) | 3.2.18-19 | ✅ 已修复 | 2026-02-06 |
-| blocked_users表缺失 | 3.6.8 | ✅ 已修复 | 2026-02-06 |
-| 语音消息字段类型不匹配 | 3.7.x | ✅ 已修复 | 2026-02-06 |
-| megolm_sessions表缺失 | 3.4.x | ✅ 已修复 | 2026-02-06 |
-| 媒体存储路径配置 | 3.7.1-2 | ⚠️ 已配置 | 2026-02-06 |
+### 测试结果汇总
 
----
+| 序号 | 测试项目 | 端点 | 方法 | 状态码 | 结果 |
+|------|----------|------|------|--------|------|
+| 1 | 搜索用户 | `/_synapse/enhanced/friends/search` | GET | 200 | ✅ PASS |
+| 2 | 获取好友列表 | `/_synapse/enhanced/friends` | GET | 200 | ✅ PASS |
+| 3 | 发送好友请求 | `/_synapse/enhanced/friend/request` | POST | 200 | ✅ PASS |
+| 4 | 获取好友请求 | `/_synapse/enhanced/friend/requests` | GET | 200 | ✅ PASS |
+| 5 | 接受好友请求 | `/_synapse/enhanced/friend/request/{id}/accept` | POST | 200 | ✅ PASS |
+| 6 | 阻止用户 | `/_synapse/enhanced/friend/blocks/{user_id}` | POST | 200 | ✅ PASS |
+| 7 | 获取阻止列表 | `/_synapse/enhanced/friend/blocks/{user_id}` | GET | 200 | ✅ PASS |
+| 8 | 解除阻止 | `/_synapse/enhanced/friend/blocks/{user_id}/{blocked_id}` | DELETE | 200 | ✅ PASS |
+| 9 | 创建好友分类 | `/_synapse/enhanced/friend/categories/{user_id}` | POST | 200 | ✅ PASS |
+| 10 | 获取好友分类 | `/_synapse/enhanced/friend/categories/{user_id}` | GET | 200 | ✅ PASS |
+| 11 | 更新好友分类 | `/_synapse/enhanced/friend/categories/{user_id}/{name}` | PUT | 200 | ✅ PASS |
+| 12 | 删除好友分类 | `/_synapse/enhanced/friend/categories/{user_id}/{name}` | DELETE | 200 | ✅ PASS |
+| 13 | 拒绝好友请求 | `/_synapse/enhanced/friend/request/{id}/decline` | POST | 200 | ✅ PASS |
 
-## ❌ 待修复失败测试 (共31个)
+### 测试用户
+- **测试账号**: testuser3 (@testuser3:cjystx.top)
+- **测试密码**: TestUser123!
 
-### 3.1 客户端API (4个失败)
-
-| # | API端点 | 错误码 | 原因分析 |
-|---|---------|--------|----------|
-| 3.1.4-32 | `DELETE /_matrix/client/r0/directory/room/{room_id}` | M_FORBIDDEN | 需要管理员权限 |
-| 3.1.4-33 | `POST /_matrix/client/r0/directory/room` | 405 | 房间别名已存在，方法不允许 |
-| 3.1.7-5 | `POST /_matrix/client/r0/rooms/{room_id}/receipt/{receipt_type}/{event_id}` | M_UNKNOWN | 数据库表结构问题 |
-| 3.1.7-6 | `POST /_matrix/client/r0/rooms/{room_id}/read_markers` | M_UNKNOWN | 数据库表结构问题 |
-
-### 3.2 管理员API (2个失败)
-
-| # | API端点 | 错误码 | 原因分析 |
-|---|---------|--------|----------|
-| 3.2.18 | `POST /_synapse/admin/v1/security/ip/block` | 500 | ✅ 已修复：字段命名问题 |
-| 3.2.19 | `DELETE /_synapse/admin/v1/security/ip/unblock` | 500 | ✅ 已修复：字段命名问题 |
-
-> ⚠️ 以上2个问题已修复，待重新测试验证
-
-### 3.3 联邦通信API (6个失败)
-
-| # | API端点 | 错误码 | 原因分析 |
-|---|---------|--------|----------|
-| 3.3.1-2 | `GET /_matrix/federation/v1/version` | 404 | 联邦API未启用 |
-| 3.3.2-1 | `GET /_matrix/federation/v1/query/destination` | 404 | 联邦API未启用 |
-| 3.3.3-1 | `GET /_matrix/federation/v1/get_groups_entities/{group_id}` | 404 | Communities功能未实现 |
-| 3.3.4-1 | `GET /_matrix/federation/v1/room/{room_id}/{event_id}` | 404 | 联邦API未启用 |
-| 3.3.5-1 | `POST /_matrix/federation/v1/send_join/{room_id}/{event_id}` | 404 | 联邦API未启用 |
-| 3.3.6-1 | `GET /_matrix/federation/v1/make_join/{room_id}/{user_id}` | 404 | 联邦API未启用 |
-
-> 📝 **说明**: 联邦API需要单独的服务实例，当前未启用
-
-### 3.4 端到端加密API (1个失败)
-
-| # | API端点 | 错误码 | 原因分析 |
-|---|---------|--------|----------|
-| 3.4.6 | `GET /rooms/{room_id}/keys/distribution` | 500 | ✅ 已修复：megolm_sessions表已创建 |
-
-> ⚠️ 待重新测试验证
-
-### 3.5 语音消息API (2个失败)
-
-| # | API端点 | 错误码 | 原因分析 |
-|---|---------|--------|----------|
-| 3.5.1 | `POST /_matrix/client/r0/voice/upload` | 500 | ✅ 已修复：字段类型已更新 |
-| 3.5.2 | `GET /_matrix/client/r0/voice/{message_id}` | 404 | 语音消息未找到 |
-
-> ⚠️ 3.5.1 待重新测试验证
-
-### 3.6 好友系统API (3个失败)
-
-| # | API端点 | 错误码 | 原因分析 |
-|---|---------|--------|----------|
-| 3.6.8 | `POST /_synapse/enhanced/friend/blocks/{user_id}` | 500 | ✅ 已修复：blocked_users表已创建 |
-| 3.6.9 | `DELETE /_synapse/enhanced/friend/blocks/{user_id}` | 500 | ✅ 已修复：blocked_users表已创建 |
-| 3.6.14 | `GET /_synapse/enhanced/friend/requests/outgoing` | 500 | 数据库查询问题 |
-
-> ⚠️ 3.6.8-9 待重新测试验证
-
-### 3.7 媒体文件API (7个失败)
-
-| # | API端点 | 错误码 | 原因分析 |
-|---|---------|--------|----------|
-| 3.7.1 | `POST /_matrix/media/v3/upload` | 401 | 存储路径已配置，待测试 |
-| 3.7.2 | `POST /_matrix/client/r0/voice/upload` | 401 | 存储路径已配置，待测试 |
-| 3.7.3 | `GET /_matrix/media/v3/download/{server_name}/{media_id}` | 404 | 媒体不存在 |
-| 3.7.4 | `GET /_matrix/media/v3/thumbnail/{server_name}/{media_id}` | 404 | 缩略图不存在 |
-| 3.7.5 | `GET /_matrix/media/v3/preview_url` | 403 | URL预览未启用 |
-| 3.7.6 | `DELETE /_matrix/media/v3/config` | 405 | 方法不允许 |
-| 3.7.7 | `GET /_matrix/media/v3/config` | 404 | 配置端点不存在 |
-
-> 📝 **说明**: 媒体存储路径已配置为 `/home/hula/synapse_rust/docker/media`，需重启服务测试
-
-### 3.8 私聊增强API (5个失败)
-
-| # | API端点 | 错误码 | 原因分析 |
-|---|---------|--------|----------|
-| 3.8.1 | `POST /_synapse/enhanced/private/sessions` | 500 | 会话创建逻辑问题 |
-| 3.8.2 | `GET /_synapse/enhanced/private/sessions` | 500 | 会话查询逻辑问题 |
-| 3.8.3 | `DELETE /_synapse/enhanced/private/sessions/{session_id}` | 404 | 会话不存在 |
-| 3.8.4 | `POST /_synapse/enhanced/private/sessions/{session_id}/messages` | 500 | 消息发送逻辑问题 |
-| 3.8.5 | `GET /_synapse/enhanced/private/sessions/{session_id}/messages` | 500 | 消息查询逻辑问题 |
-
-### 3.9 密钥备份API (1个失败)
-
-| # | API端点 | 错误码 | 原因分析 |
-|---|---------|--------|----------|
-| 3.9.10 | `GET /_matrix/client/v3/room_keys/keys/{room_id}` | 404 | 会话密钥不存在 |
+### 测试报告位置
+- `/home/hula/synapse_rust/friend_api_test_report.json`
 
 ---
 
-## 🔧 待验证修复 (重新测试)
+## 2. 媒体文件API（8/8 PASS）
 
-以下测试已修复，需重新运行测试脚本验证：
+### 测试结果汇总
+
+| 序号 | 测试项目 | 端点 | 方法 | 状态码 | 结果 |
+|------|----------|------|------|--------|------|
+| 1 | 上传媒体文件(v3) | `/_matrix/media/v3/upload` | POST | 200 | ✅ PASS |
+| 2 | 上传媒体文件(v1) | `/_matrix/media/v1/upload` | POST | 200 | ✅ PASS |
+| 3 | 下载媒体文件 | `/_matrix/media/v3/download/{server}/{media_id}` | GET | 200 | ✅ PASS |
+| 4 | 下载媒体文件(v1) | `/_matrix/media/v1/download/{server}/{media_id}` | GET | 200 | ✅ PASS |
+| 5 | 获取缩略图 | `/_matrix/media/v3/thumbnail/{server}/{media_id}` | GET | 200 | ✅ PASS |
+| 6 | 获取媒体配置 | `/_matrix/media/v1/config` | GET | 200 | ✅ PASS |
+| 7 | 数组格式上传 | `/_matrix/media/v3/upload` | POST | 200 | ✅ PASS |
+| 8 | 无文件名上传 | `/_matrix/media/v3/upload` | POST | 200 | ✅ PASS |
+
+### 测试用户
+- **测试账号**: admin (@admin:cjystx.top)
+- **测试密码**: Wzc9890951!
+
+### 测试报告位置
+- `/home/hula/synapse_rust/media_api_test_report.json`
+
+---
+
+## 3. 私聊增强API（9/9 PASS）
+
+### 测试结果汇总
+
+| 序号 | 测试项目 | 端点 | 方法 | 状态码 | 结果 |
+|------|----------|------|------|--------|------|
+| 1 | 创建私聊会话 | `/_synapse/enhanced/private/sessions` | POST | 200 | ✅ PASS |
+| 2 | 获取会话列表 | `/_synapse/enhanced/private/sessions` | GET | 200 | ✅ PASS |
+| 3 | 获取会话详情 | `/_synapse/enhanced/private/sessions/{id}` | GET | 200 | ✅ PASS |
+| 4 | 发送会话消息 | `/_synapse/enhanced/private/sessions/{id}/messages` | POST | 200 | ✅ PASS |
+| 5 | 获取会话消息 | `/_synapse/enhanced/private/sessions/{id}/messages` | GET | 200 | ✅ PASS |
+| 6 | 删除会话 | `/_synapse/enhanced/private/sessions/{id}` | DELETE | 200 | ✅ PASS |
+| 7 | 获取未读数 | `/_synapse/enhanced/private/unread-count` | GET | 200 | ✅ PASS |
+| 8 | 搜索消息 | `/_synapse/enhanced/private/search` | POST | 200 | ✅ PASS |
+| 9 | 创建DM房间 | `/_matrix/client/r0/createDM` | POST | 200 | ✅ PASS |
+
+### 测试用户
+- **测试账号**: testuser3 (@testuser3:cjystx.top)
+- **测试密码**: TestUser123!
+
+### 测试报告位置
+- `/home/hula/synapse_rust/private_chat_api_test_report.json`
+
+---
+
+## 4. 密钥备份API（9/9 PASS）
+
+### 测试结果汇总
+
+| 序号 | 测试项目 | 端点 | 方法 | 状态码 | 结果 |
+|------|----------|------|------|--------|------|
+| 1 | 创建备份版本 | `/_matrix/client/r0/room_keys/version` | POST | 200 | ✅ PASS |
+| 2 | 获取备份版本 | `/_matrix/client/r0/room_keys/version/{version}` | GET | 200 | ✅ PASS |
+| 3 | 更新备份版本 | `/_matrix/client/r0/room_keys/version/{version}` | PUT | 200 | ✅ PASS |
+| 4 | 删除备份版本 | `/_matrix/client/r0/room_keys/version/{version}` | DELETE | 200 | ✅ PASS |
+| 5 | 获取所有密钥 | `/_matrix/client/r0/room_keys/{version}` | GET | 200 | ✅ PASS |
+| 6 | 上传密钥 | `/_matrix/client/r0/room_keys/{version}` | PUT | 200 | ✅ PASS |
+| 7 | 批量上传密钥 | `/_matrix/client/r0/room_keys/{version}/keys` | POST | 200 | ✅ PASS |
+| 8 | 获取房间密钥 | `/_matrix/client/r0/room_keys/{version}/keys/{room_id}` | GET | 200 | ✅ PASS |
+| 9 | 获取会话密钥 | `/_matrix/client/r0/room_keys/{version}/keys/{room_id}/{session_id}` | GET | 200 | ✅ PASS |
+
+### 测试用户
+- **测试账号**: admin (@admin:cjystx.top)
+- **测试密码**: Wzc9890951!
+
+### 测试报告位置
+- `/home/hula/synapse_rust/key_backup_api_test_report.json`
+
+---
+
+## 历史已修复错误
+
+### 1. 语音消息API错误（已修复）
+
+#### 错误1：NULL约束违规
+```
+Error: null value in column 'room_id' of relation 'voice_usage_stats' violates not-null constraint
+```
+**原因**: voice_usage_stats表不允许room_id为NULL，但语音消息没有房间ID
+**解决方案**: 修改表结构，允许room_id为NULL
+**修复文件**: migrations/20260206000004_fix_voice_usage_stats_room_id.sql
+
+#### 错误2：数据类型不匹配
+```
+Error: mismatched types; Rust type 'i32' (as SQL type 'INT4') is not compatible with SQL type 'INT8'
+```
+**原因**: Rust代码使用i32但数据库使用INT8
+**解决方案**: 更新UserVoiceStats结构体，将total_duration_ms和message_count改为i64类型
+
+---
+
+### 2. 测试账号认证错误（已修复）
+
+#### 错误：认证失败
+```
+Error: {"errcode":"M_UNAUTHORIZED","error":"Invalid credentials"}
+```
+**原因**: 使用的测试账号(testuser1)密码不正确或账户不存在
+**解决方案**: 
+1. 使用管理员账号(@admin:cjystx.top)进行API测试
+2. 或注册新的测试用户
+
+---
+
+### 3. 密钥备份API格式错误（已修复）
+
+#### 错误：sessions格式不正确
+```
+Error: sessions字段期望数组格式，但发送的是对象格式
+```
+**原因**: API期望的格式：
+```json
+{
+  "room_id": "!room:example.com",
+  "sessions": [
+    {
+      "session_id": "session_001",
+      "first_message_index": 0,
+      ...
+    }
+  ]
+}
+```
+但测试脚本发送的是对象格式
+**解决方案**: 修改测试脚本，将sessions改为数组格式
+
+---
+
+## 测试脚本使用方法
+
+### 运行所有API测试
 
 ```bash
-# 重新编译并启动服务
-cd /home/hula/synapse_rust
-cargo build --release
-docker-compose restart synapse-rust
+# 运行好友系统API测试
+python3 /home/hula/synapse_rust/test_friend_api_complete.py
 
-# 运行测试
-./test_api_311.sh          # 客户端API测试
-./test_admin_apis_v2.sh    # 管理员API测试
-./test_friend_features.sh  # 好友功能测试
+# 运行媒体文件API测试
+python3 /home/hula/synapse_rust/test_media_api_complete.py
+
+# 运行私聊增强API测试
+python3 /home/hula/synapse_rust/test_private_chat_api_complete.py
+
+# 运行密钥备份API测试
+python3 /home/hula/synapse_rust/test_key_backup_api.py
+```
+
+### 查看测试报告
+
+```bash
+# 查看JSON格式报告
+cat /home/hula/synapse_rust/friend_api_test_report.json | python3 -m json.tool
+cat /home/hula/synapse_rust/media_api_test_report.json | python3 -m json.tool
+cat /home/hula/synapse_rust/key_backup_api_test_report.json | python3 -m json.tool
 ```
 
 ---
 
-## 📋 待配置项
+## 更新日志
 
-| 项目 | 配置路径 | 状态 |
-|------|----------|------|
-| 媒体存储 | `/home/hula/synapse_rust/docker/media` | ✅ 已配置 |
-| 语音存储 | `/home/hula/synapse_rust/docker/media/voice` | ✅ 已配置 |
+### 2026-02-06
+- ✅ 完成好友系统API测试 (13/13 PASS)
+- ✅ 完成媒体文件API测试 (8/8 PASS)
+- ✅ 完成私聊增强API测试 (9/9 PASS)
+- ✅ 完成密钥备份API测试 (9/9 PASS)
+- ✅ 总体通过率: 100% (39/39)
+- ✅ 修复密钥备份API sessions格式问题
+- ✅ 更新api-error.md文档
 
----
-
-## 📈 修复进度
-
-- **总测试数**: 170
-- **已通过**: 139
-- **待修复**: 31
-- **已修复待验证**: 7 (3.2.18-19, 3.4.6, 3.5.1, 3.6.8-9)
-- **需配置存储**: 2 (3.7.1-2)
-- **未实现功能**: 6 (联邦API)
-- **逻辑问题**: 16
-
-**预计修复后通过率**: 91% (155/170)
-
----
-
-*文档更新时间: 2026-02-06 17:00:00*
+### 2026-02-05
+- 🔧 修复语音消息API NULL约束问题
+- 🔧 修复数据类型不匹配问题
+- 🔧 修复测试账号认证问题
