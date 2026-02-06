@@ -23,9 +23,49 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         )
         .route("/_matrix/federation/v1/version", get(federation_version))
         .route("/_matrix/federation/v1", get(federation_discovery))
-        .route("/_matrix/federation/v1/publicRooms", get(get_public_rooms));
+        .route("/_matrix/federation/v1/publicRooms", get(get_public_rooms))
+        .route(
+            "/_matrix/federation/v1/query/destination",
+            get(query_destination),
+        )
+        .route(
+            "/_matrix/federation/v1/room/{room_id}/{event_id}",
+            get(get_room_event),
+        );
 
     let protected = Router::new()
+        .route(
+            "/_matrix/federation/v1/members/{room_id}",
+            get(get_room_members),
+        )
+        .route(
+            "/_matrix/federation/v1/members/{room_id}/joined",
+            get(get_joined_room_members),
+        )
+        .route(
+            "/_matrix/federation/v1/user/devices/{user_id}",
+            get(get_user_devices),
+        )
+        .route(
+            "/_matrix/federation/v1/room_auth/{room_id}",
+            get(get_room_auth),
+        )
+        .route(
+            "/_matrix/federation/v1/knock/{room_id}/{user_id}",
+            get(knock_room),
+        )
+        .route(
+            "/_matrix/federation/v1/thirdparty/invite",
+            post(thirdparty_invite),
+        )
+        .route(
+            "/_matrix/federation/v1/get_joining_rules/{room_id}",
+            get(get_joining_rules),
+        )
+        .route(
+            "/_matrix/federation/v2/invite/{room_id}/{event_id}",
+            put(invite_v2),
+        )
         .route(
             "/_matrix/federation/v1/send/{txn_id}",
             put(send_transaction),
@@ -112,6 +152,302 @@ async fn federation_discovery(State(state): State<AppState>) -> Json<Value> {
             }
         }
     }))
+}
+
+async fn get_room_members(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let members = state
+        .services
+        .member_storage
+        .get_room_members(&room_id, "join")
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room members: {}", e)))?;
+
+    let members_json: Vec<Value> = members
+        .into_iter()
+        .map(|m| {
+            json!({
+                "room_id": m.room_id,
+                "user_id": m.user_id,
+                "membership": m.membership,
+                "display_name": m.display_name,
+                "avatar_url": m.avatar_url
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "members": members_json,
+        "room_id": room_id,
+        "offset": 0,
+        "total": members_json.len()
+    })))
+}
+
+async fn knock_room(
+    State(state): State<AppState>,
+    Path((room_id, user_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let event_id = format!(
+        "${}",
+        crate::common::crypto::generate_event_id(&state.services.server_name)
+    );
+
+    let params = crate::storage::event::CreateEventParams {
+        event_id: event_id.clone(),
+        room_id: room_id.clone(),
+        user_id: user_id.clone(),
+        event_type: "m.room.member".to_string(),
+        content: json!({"membership": "knock"}),
+        state_key: Some(user_id.clone()),
+        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+    };
+
+    state
+        .services
+        .event_storage
+        .create_event(params)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create knock event: {}", e)))?;
+
+    Ok(Json(json!({
+        "event_id": event_id,
+        "room_id": room_id,
+        "state": "knocking"
+    })))
+}
+
+async fn thirdparty_invite(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let room_id = body
+        .get("room_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("room_id required".to_string()))?;
+    let invitee = body
+        .get("invitee")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("invitee required".to_string()))?;
+    let sender = body
+        .get("sender")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("sender required".to_string()))?;
+
+    let event_id = format!(
+        "${}",
+        crate::common::crypto::generate_event_id(&state.services.server_name)
+    );
+
+    let params = crate::storage::event::CreateEventParams {
+        event_id: event_id.clone(),
+        room_id: room_id.to_string(),
+        user_id: sender.to_string(),
+        event_type: "m.room.member".to_string(),
+        content: json!({
+            "membership": "invite",
+            "third_party_invite": {
+                "signed": {
+                    "mxid": invitee,
+                    "token": format!("third_party_token_{}", event_id)
+                }
+            }
+        }),
+        state_key: Some(invitee.to_string()),
+        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+    };
+
+    state
+        .services
+        .event_storage
+        .create_event(params)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create invite event: {}", e)))?;
+
+    Ok(Json(json!({
+        "event_id": event_id,
+        "room_id": room_id,
+        "state": "invited"
+    })))
+}
+
+async fn get_joining_rules(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?;
+
+    match room {
+        Some(r) => {
+            let join_rule = if r.is_public { "public" } else { "invite" };
+            Ok(Json(json!({
+                "room_id": room_id,
+                "join_rule": join_rule,
+                "allow": []
+            })))
+        }
+        None => Err(ApiError::not_found("Room not found".to_string())),
+    }
+}
+
+async fn get_joined_room_members(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let members = state
+        .services
+        .member_storage
+        .get_room_members(&room_id, "join")
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room members: {}", e)))?;
+
+    let members_json: Vec<Value> = members
+        .into_iter()
+        .map(|m| {
+            json!({
+                "room_id": m.room_id,
+                "user_id": m.user_id,
+                "membership": m.membership,
+                "display_name": m.display_name,
+                "avatar_url": m.avatar_url
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "joined": members_json,
+        "room_id": room_id
+    })))
+}
+
+async fn get_user_devices(
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let devices = state
+        .services
+        .device_storage
+        .get_user_devices(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get user devices: {}", e)))?;
+
+    let devices_json: Vec<Value> = devices
+        .into_iter()
+        .map(|d| {
+            let keys = d.device_key.unwrap_or_else(|| json!({}));
+            json!({
+                "device_id": d.device_id,
+                "user_id": d.user_id,
+                "keys": keys,
+                "device_display_name": d.display_name,
+                "last_seen_ts": d.last_seen_ts,
+                "last_seen_ip": d.last_seen_ip
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "user_id": user_id,
+        "devices": devices_json
+    })))
+}
+
+async fn get_room_auth(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let auth_events = state
+        .services
+        .event_storage
+        .get_state_events(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get auth events: {}", e)))?;
+
+    let auth_chain: Vec<Value> = auth_events
+        .into_iter()
+        .filter(|e| {
+            e.event_type == "m.room.create"
+                || e.event_type == "m.room.member"
+                || e.event_type == "m.room.power_levels"
+                || e.event_type == "m.room.join_rules"
+                || e.event_type == "m.room.history_visibility"
+        })
+        .map(|e| {
+            json!({
+                "event_id": e.event_id,
+                "type": e.event_type,
+                "sender": e.user_id,
+                "content": e.content,
+                "state_key": e.state_key,
+                "origin_server_ts": e.origin_server_ts
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "room_id": room_id,
+        "auth_chain": auth_chain
+    })))
+}
+
+async fn invite_v2(
+    State(state): State<AppState>,
+    Path((room_id, event_id)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let origin = body
+        .get("origin")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
+
+    let event = body
+        .get("event")
+        .ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
+
+    let sender = event.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+    let state_key = event
+        .get("state_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let content = event.get("content").cloned().unwrap_or(json!({}));
+
+    let params = crate::storage::event::CreateEventParams {
+        event_id: event_id.clone(),
+        room_id: room_id.clone(),
+        user_id: sender.to_string(),
+        event_type: "m.room.member".to_string(),
+        content,
+        state_key: Some(state_key.to_string()),
+        origin_server_ts: event
+            .get("origin_server_ts")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(chrono::Utc::now().timestamp_millis()),
+    };
+
+    state
+        .services
+        .event_storage
+        .create_event(params)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create invite event: {}", e)))?;
+
+    ::tracing::info!(
+        "Processed v2 invite for room {} event {} from {}",
+        room_id,
+        event_id,
+        origin
+    );
+
+    Ok(Json(json!({
+        "event_id": event_id
+    })))
 }
 
 async fn send_transaction(
@@ -485,6 +821,48 @@ async fn get_event(
         }))),
         None => Err(ApiError::not_found("Event not found".to_string())),
     }
+}
+
+async fn get_room_event(
+    State(state): State<AppState>,
+    Path((room_id, event_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let event = state
+        .services
+        .event_storage
+        .get_event(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?;
+
+    match event {
+        Some(e) => {
+            if e.room_id != room_id {
+                return Err(ApiError::bad_request(
+                    "Event does not belong to this room".to_string(),
+                ));
+            }
+            Ok(Json(json!({
+                "event_id": e.event_id,
+                "type": e.event_type,
+                "sender": e.user_id,
+                "content": e.content,
+                "state_key": e.state_key,
+                "origin_server_ts": e.origin_server_ts,
+                "room_id": e.room_id
+            })))
+        }
+        None => Err(ApiError::not_found("Event not found".to_string())),
+    }
+}
+
+async fn query_destination(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "destination": state.services.server_name,
+        "host": "localhost",
+        "port": 8008,
+        "tls": false,
+        "ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 async fn get_state(

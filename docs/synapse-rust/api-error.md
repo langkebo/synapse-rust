@@ -1,237 +1,170 @@
 # API测试失败记录
 
-更新日期: 2026-02-05
-
-## 3.1.1 健康检查、账户管理与用户资料
-
-> **测试状态**: ✅ **100% 通过** | **完整验证完成**
-
-### 测试结果汇总
-
-| 类别 | 通过 | 总数 | 通过率 |
-|------|------|------|--------|
-| 健康检查 | 2 | 2 | **100%** ✅ |
-| 用户认证与注册 | 6 | 6 | **100%** ✅ |
-| 账号管理 | 4 | 4 | **100%** ✅ |
-| 用户资料 | 3 | 3 | **100%** ✅ |
-| **总计** | **15** | **15** | **100%** ✅ |
-
-### API测试详情
-
-| 序号 | 端点 | 方法 | 状态 | 响应时间 | 测试结果 |
-|------|------|------|------|---------|---------|
-| 1 | `/health` | GET | 200 | 2ms | ✅ 正常 |
-| 2 | `/_matrix/client/versions` | GET | 200 | 3ms | ✅ 正常 |
-| 3 | `/_matrix/client/r0/register/available` | GET | 200 | 5ms | ✅ 正常 |
-| 4 | `/_matrix/client/r0/register/email/requestToken` | POST | 200 | 15ms | ✅ 正常 |
-| 5 | `/_matrix/client/r0/register` | POST | 200 | 45ms | ✅ 新用户注册成功 |
-| 6 | `/_matrix/client/r0/login` | POST | 200 | 25ms | ✅ 正常 |
-| 7 | `/_matrix/client/r0/logout` | POST | 200 | 8ms | ✅ 正常 |
-| 8 | `/_matrix/client/r0/logout/all` | POST | 200 | 10ms | ✅ 正常 |
-| 9 | `/_matrix/client/r0/refresh` | POST | 200 | 12ms | ✅ 正常 |
-| 10 | `/_matrix/client/r0/account/whoami` | GET | 200 | 5ms | ✅ 正常 |
-| 11 | `/_matrix/client/r0/account/deactivate` | POST | 200 | 20ms | ✅ 正常 |
-| 12 | `/_matrix/client/r0/account/password` | POST | 200 | 18ms | ✅ 正常 |
-| 13 | `/_matrix/client/r0/account/profile/{user_id}` | GET | 200 | 4ms | ✅ 正常 |
-| 14 | `/_matrix/client/r0/account/profile/{user_id}/displayname` | PUT | 200 | 6ms | ✅ 正常 |
-| 15 | `/_matrix/client/r0/account/profile/{user_id}/avatar_url` | PUT | 200 | 7ms | ✅ 正常 |
+> **更新时间**: 2026-02-06 17:00:00
+> **服务地址**: http://localhost:8008
 
 ---
 
-## 📋 测试环境信息
+## 📊 测试统计总览
 
-### 测试账号状态
-
-| 用户名 | 状态 | 备注 |
-|--------|------|------|
-| testuser1 | ✅ 激活 | 主测试账号 |
-| testuser2 | ✅ 激活 | 密码修改测试 |
-| testuser3 | ✅ 激活 | 账户停用测试 |
-| testuser4 | ✅ 激活 | 备用 |
-| testuser6 | ✅ 激活 | 备用 |
-| testuser_api | ✅ 激活 | 新注册测试 |
-| admin | ✅ 激活 | 管理员 |
-
-### 测试时间
-
-- **日期**: 2026-02-05
-- **环境**: Docker容器 (synapse_rust, synapse_postgres, synapse_redis)
-- **Redis缓存**: 每次测试前清理
+| 章节 | 测试范围 | 总数 | 通过 | 失败 | 通过率 |
+|------|---------|------|------|------|--------|
+| 3.1 | 客户端API | 52 | 48 | 4 | 92% |
+| 3.2 | 管理员API | 26 | 24 | 2 | 92% |
+| 3.3 | 联邦通信API | 30 | 24 | 6 | 80% |
+| 3.4 | 端到端加密API | 6 | 5 | 1 | 83% |
+| 3.5 | 语音消息API | 7 | 5 | 2 | 83% |
+| 3.6 | 好友系统API | 16 | 13 | 3 | 81% |
+| 3.7 | 媒体文件API | 8 | 1 | 7 | 12.5% |
+| 3.8 | 私聊增强API | 15 | 10 | 5 | 67% |
+| 3.9 | 密钥备份API | 10 | 9 | 1 | 90% |
+| **总计** | | **170** | **139** | **31** | **82%** |
 
 ---
 
-## 🔧 已修复：Token验证缓存Bug
+## ✅ 已修复问题
 
-### 问题描述
-
-首次调用需要认证的API成功后，后续调用均返回401错误。
-
-**复现步骤**：
-1. 清理Redis缓存
-2. 用户登录获取token
-3. 首次调用 `/_matrix/client/r0/account/whoami` → 返回200
-4. 后续调用 → 返回401 "User not found or deactivated"
-
-### 根因分析
-
-通过深度分析源码，发现问题出在 [src/auth/mod.rs:365-410](file:///home/hula/synapse_rust/src/auth/mod.rs#L365-L410) 的Token验证逻辑中：
-
-```rust
-// 原代码问题：使用 user_exists 而非 get_user_by_id
-let user_exists = self
-    .user_storage
-    .user_exists(&claims.sub)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-```
-
-**核心问题**：
-1. `user_exists` 查询只检查用户是否存在，不返回停用状态
-2. 登录后首次API调用时，缓存未命中导致查询数据库
-3. 虽然 `user_exists` 返回 `true`，但 `get_user_by_id` 可能因 `deactivated` 字段返回 `None`
-4. 缓存写入后，后续调用读取到不一致的缓存状态
-
-### 修复方案
-
-修改 [src/auth/mod.rs:380-407](file:///home/hula/synapse_rust/src/auth/mod.rs#L380-L407)，改用 `get_user_by_id` 并正确检查停用状态：
-
-```rust
-let user = self
-    .user_storage
-    .get_user_by_id(&claims.sub)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-match user {
-    Some(u) => {
-        let is_active = u.deactivated != Some(true);
-        ::tracing::debug!(target: "token_validation",
-            "User found, deactivated: {:?}, is_active: {}", u.deactivated, is_active);
-
-        self.cache.set_user_active(&claims.sub, is_active, 60).await;
-
-        if !is_active {
-            return Err(ApiError::unauthorized("User is deactivated".to_string()));
-        }
-
-        return Ok((claims.user_id, claims.device_id.clone(), claims.admin));
-    }
-    None => {
-        ::tracing::debug!(target: "token_validation", "User not found in database");
-        self.cache.set_user_active(&claims.sub, false, 60).await;
-        return Err(ApiError::unauthorized("User not found".to_string()));
-    }
-}
-```
+| 问题 | 章节 | 状态 | 修复日期 |
+|------|------|------|----------|
+| 管理员API字段命名(ip/ip_address) | 3.2.18-19 | ✅ 已修复 | 2026-02-06 |
+| blocked_users表缺失 | 3.6.8 | ✅ 已修复 | 2026-02-06 |
+| 语音消息字段类型不匹配 | 3.7.x | ✅ 已修复 | 2026-02-06 |
+| megolm_sessions表缺失 | 3.4.x | ✅ 已修复 | 2026-02-06 |
+| 媒体存储路径配置 | 3.7.1-2 | ⚠️ 已配置 | 2026-02-06 |
 
 ---
 
-## 📝 完整测试报告
+## ❌ 待修复失败测试 (共31个)
 
-### 1. 健康检查测试
+### 3.1 客户端API (4个失败)
 
-```
-✅ GET /health -> 200
-✅ GET /_matrix/client/versions -> 200
-```
+| # | API端点 | 错误码 | 原因分析 |
+|---|---------|--------|----------|
+| 3.1.4-32 | `DELETE /_matrix/client/r0/directory/room/{room_id}` | M_FORBIDDEN | 需要管理员权限 |
+| 3.1.4-33 | `POST /_matrix/client/r0/directory/room` | 405 | 房间别名已存在，方法不允许 |
+| 3.1.7-5 | `POST /_matrix/client/r0/rooms/{room_id}/receipt/{receipt_type}/{event_id}` | M_UNKNOWN | 数据库表结构问题 |
+| 3.1.7-6 | `POST /_matrix/client/r0/rooms/{room_id}/read_markers` | M_UNKNOWN | 数据库表结构问题 |
 
-### 2. 用户注册测试
+### 3.2 管理员API (2个失败)
 
-```
-✅ GET /register/available (新用户) -> 200, available: true
-✅ GET /register/available (testuser1) -> 200, available: false
-✅ POST /register (新用户testuser_api) -> 200
-   User ID: @testuser_api:cjystx.top
-   Access Token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
-✅ POST /register (已存在用户testuser1) -> 409 (预期行为)
-✅ POST /register/email/requestToken -> 200
-   Response: {"expires_in": 3600, "sid": "8", "submit_url": "..."}
-```
+| # | API端点 | 错误码 | 原因分析 |
+|---|---------|--------|----------|
+| 3.2.18 | `POST /_synapse/admin/v1/security/ip/block` | 500 | ✅ 已修复：字段命名问题 |
+| 3.2.19 | `DELETE /_synapse/admin/v1/security/ip/unblock` | 500 | ✅ 已修复：字段命名问题 |
 
-### 3. 用户登录测试
+> ⚠️ 以上2个问题已修复，待重新测试验证
 
-```
-✅ POST /login (testuser1) -> 200
-   User: @testuser1:cjystx.top, Device: hEQAX12pkA4uVEza
-✅ POST /login (新密码NewPass456!) -> 200 (密码修改后验证)
-✅ POST /login (停用后) -> 401 (预期行为)
-```
+### 3.3 联邦通信API (6个失败)
 
-### 4. Token刷新测试
+| # | API端点 | 错误码 | 原因分析 |
+|---|---------|--------|----------|
+| 3.3.1-2 | `GET /_matrix/federation/v1/version` | 404 | 联邦API未启用 |
+| 3.3.2-1 | `GET /_matrix/federation/v1/query/destination` | 404 | 联邦API未启用 |
+| 3.3.3-1 | `GET /_matrix/federation/v1/get_groups_entities/{group_id}` | 404 | Communities功能未实现 |
+| 3.3.4-1 | `GET /_matrix/federation/v1/room/{room_id}/{event_id}` | 404 | 联邦API未启用 |
+| 3.3.5-1 | `POST /_matrix/federation/v1/send_join/{room_id}/{event_id}` | 404 | 联邦API未启用 |
+| 3.3.6-1 | `GET /_matrix/federation/v1/make_join/{room_id}/{user_id}` | 404 | 联邦API未启用 |
 
-```
-✅ POST /refresh -> 200
-   New Access Token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
-```
+> 📝 **说明**: 联邦API需要单独的服务实例，当前未启用
 
-### 5. 退出登录测试
+### 3.4 端到端加密API (1个失败)
 
-```
-✅ POST /logout -> 200
-   退出后访问返回401（预期行为）
-✅ POST /logout/all -> 200
-   原token和refresh_token均失效（预期行为）
-```
+| # | API端点 | 错误码 | 原因分析 |
+|---|---------|--------|----------|
+| 3.4.6 | `GET /rooms/{room_id}/keys/distribution` | 500 | ✅ 已修复：megolm_sessions表已创建 |
 
-### 6. 账号管理测试
+> ⚠️ 待重新测试验证
 
-```
-✅ GET /account/whoami -> 200
-   User ID: @testuser1:cjystx.top
-✅ POST /account/password -> 200
-   新密码验证成功
-✅ POST /account/deactivate -> 200
-   停用后登录返回401（预期行为）
-```
+### 3.5 语音消息API (2个失败)
 
-### 7. 用户资料测试
+| # | API端点 | 错误码 | 原因分析 |
+|---|---------|--------|----------|
+| 3.5.1 | `POST /_matrix/client/r0/voice/upload` | 500 | ✅ 已修复：字段类型已更新 |
+| 3.5.2 | `GET /_matrix/client/r0/voice/{message_id}` | 404 | 语音消息未找到 |
 
-```
-✅ GET /account/profile/@testuser1:cjystx.top -> 200
-   Displayname: Test User Updated
-   Avatar URL: mxc://example.com/avatar_test
-✅ PUT /account/profile/displayname -> 200
-✅ PUT /account/profile/avatar_url -> 200
-```
+> ⚠️ 3.5.1 待重新测试验证
 
-### 8. 连续调用测试（验证缓存修复）
+### 3.6 好友系统API (3个失败)
 
-```
-连续5次调用 /account/whoami:
-✅ 第1次: 200
-✅ 第2次: 200
-✅ 第3次: 200
-✅ 第4次: 200
-✅ 第5次: 200
+| # | API端点 | 错误码 | 原因分析 |
+|---|---------|--------|----------|
+| 3.6.8 | `POST /_synapse/enhanced/friend/blocks/{user_id}` | 500 | ✅ 已修复：blocked_users表已创建 |
+| 3.6.9 | `DELETE /_synapse/enhanced/friend/blocks/{user_id}` | 500 | ✅ 已修复：blocked_users表已创建 |
+| 3.6.14 | `GET /_synapse/enhanced/friend/requests/outgoing` | 500 | 数据库查询问题 |
+
+> ⚠️ 3.6.8-9 待重新测试验证
+
+### 3.7 媒体文件API (7个失败)
+
+| # | API端点 | 错误码 | 原因分析 |
+|---|---------|--------|----------|
+| 3.7.1 | `POST /_matrix/media/v3/upload` | 401 | 存储路径已配置，待测试 |
+| 3.7.2 | `POST /_matrix/client/r0/voice/upload` | 401 | 存储路径已配置，待测试 |
+| 3.7.3 | `GET /_matrix/media/v3/download/{server_name}/{media_id}` | 404 | 媒体不存在 |
+| 3.7.4 | `GET /_matrix/media/v3/thumbnail/{server_name}/{media_id}` | 404 | 缩略图不存在 |
+| 3.7.5 | `GET /_matrix/media/v3/preview_url` | 403 | URL预览未启用 |
+| 3.7.6 | `DELETE /_matrix/media/v3/config` | 405 | 方法不允许 |
+| 3.7.7 | `GET /_matrix/media/v3/config` | 404 | 配置端点不存在 |
+
+> 📝 **说明**: 媒体存储路径已配置为 `/home/hula/synapse_rust/docker/media`，需重启服务测试
+
+### 3.8 私聊增强API (5个失败)
+
+| # | API端点 | 错误码 | 原因分析 |
+|---|---------|--------|----------|
+| 3.8.1 | `POST /_synapse/enhanced/private/sessions` | 500 | 会话创建逻辑问题 |
+| 3.8.2 | `GET /_synapse/enhanced/private/sessions` | 500 | 会话查询逻辑问题 |
+| 3.8.3 | `DELETE /_synapse/enhanced/private/sessions/{session_id}` | 404 | 会话不存在 |
+| 3.8.4 | `POST /_synapse/enhanced/private/sessions/{session_id}/messages` | 500 | 消息发送逻辑问题 |
+| 3.8.5 | `GET /_synapse/enhanced/private/sessions/{session_id}/messages` | 500 | 消息查询逻辑问题 |
+
+### 3.9 密钥备份API (1个失败)
+
+| # | API端点 | 错误码 | 原因分析 |
+|---|---------|--------|----------|
+| 3.9.10 | `GET /_matrix/client/v3/room_keys/keys/{room_id}` | 404 | 会话密钥不存在 |
+
+---
+
+## 🔧 待验证修复 (重新测试)
+
+以下测试已修复，需重新运行测试脚本验证：
+
+```bash
+# 重新编译并启动服务
+cd /home/hula/synapse_rust
+cargo build --release
+docker-compose restart synapse-rust
+
+# 运行测试
+./test_api_311.sh          # 客户端API测试
+./test_admin_apis_v2.sh    # 管理员API测试
+./test_friend_features.sh  # 好友功能测试
 ```
 
 ---
 
-## 📋 待处理事项
+## 📋 待配置项
 
-### ✅ 已完成
-
-1. **Token验证缓存Bug修复** ✅
-2. **所有3.1.1 API测试通过** ✅
-3. **测试文档更新** ✅
-
-### 📝 后续优化
-
-1. **邮箱验证完整流程**：实现submitToken端点完成验证流程
-2. **多因素认证**：添加MFA支持
-3. **会话管理**：增强refresh token机制
+| 项目 | 配置路径 | 状态 |
+|------|----------|------|
+| 媒体存储 | `/home/hula/synapse_rust/docker/media` | ✅ 已配置 |
+| 语音存储 | `/home/hula/synapse_rust/docker/media/voice` | ✅ 已配置 |
 
 ---
 
-## 历史记录
+## 📈 修复进度
 
-### 2026-02-05 (完整测试)
-- ✅ **15/15 API测试通过** - 3.1.1章节完成验证
-- ✅ **测试账号已激活** - 7个测试账号全部可用
-- ✅ **Token验证Bug已修复** - 连续调用正常
-- 📊 **通过率**: 100%
+- **总测试数**: 170
+- **已通过**: 139
+- **待修复**: 31
+- **已修复待验证**: 7 (3.2.18-19, 3.4.6, 3.5.1, 3.6.8-9)
+- **需配置存储**: 2 (3.7.1-2)
+- **未实现功能**: 6 (联邦API)
+- **逻辑问题**: 16
 
-### 2026-02-05 (Bug修复)
-- 🔧 **重大修复**: Token验证缓存Bug已完全修复
-- ✅ **测试通过**: 连续5次API调用均成功
-- 📊 **通过率**: 92% → 100%
+**预计修复后通过率**: 91% (155/170)
+
+---
+
+*文档更新时间: 2026-02-06 17:00:00*

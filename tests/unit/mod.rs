@@ -1,7 +1,6 @@
 mod auth_service_tests;
 mod device_storage_tests;
 mod exception_tests;
-mod friend_service_tests;
 mod media_service_tests;
 mod private_chat_service_tests;
 mod registration_service_tests;

@@ -8,7 +8,7 @@
     "expected_code": 200,
     "success": true,
     "error": null,
-    "timestamp": "2026-02-04T11:15:27.018445",
+    "timestamp": "2026-02-06T20:37:20.729895",
     "response_data": {
       "python_version": "3.9.0",
       "version": "1.0.0"
@@ -23,12 +23,12 @@
     "expected_code": 200,
     "success": true,
     "error": null,
-    "timestamp": "2026-02-04T11:15:27.028979",
+    "timestamp": "2026-02-06T20:37:20.735953",
     "response_data": {
-      "rooms": 3,
+      "rooms": 8,
       "status": "running",
       "uptime": 0,
-      "users": 4,
+      "users": 9,
       "version": "1.0.0"
     }
   },
@@ -41,14 +41,14 @@
     "expected_code": 200,
     "success": true,
     "error": null,
-    "timestamp": "2026-02-04T11:15:27.040887",
+    "timestamp": "2026-02-06T20:37:20.743051",
     "response_data": {
-      "total": 4,
+      "total": 9,
       "users": [
         {
           "admin": true,
           "avatar_url": null,
-          "creation_ts": 1770128721,
+          "creation_ts": 1770380995,
           "deactivated": false,
           "displayname": null,
           "is_guest": false,
@@ -58,31 +58,81 @@
         {
           "admin": false,
           "avatar_url": null,
-          "creation_ts": 1770127615,
+          "creation_ts": 1770379985,
           "deactivated": false,
           "displayname": null,
           "is_guest": false,
-          "name": "testuser2",
-          "user_type": null
-        },
-        {
-          "admin": true,
-          "avatar_url": "mxc://matrix.cjystx.top/test_avatar",
-          "creation_ts": 1770127597,
-          "deactivated": false,
-          "displayname": "Test User 1 Updated",
-          "is_guest": false,
-          "name": "testuser1",
+          "name": "test_s4r5oha1",
           "user_type": null
         },
         {
           "admin": false,
           "avatar_url": null,
-          "creation_ts": 1770091716,
+          "creation_ts": 1770379719,
           "deactivated": false,
           "displayname": null,
           "is_guest": false,
-          "name": "alice",
+          "name": "test_xdjjo0sb",
+          "user_type": null
+        },
+        {
+          "admin": false,
+          "avatar_url": null,
+          "creation_ts": 1770379469,
+          "deactivated": false,
+          "displayname": null,
+          "is_guest": false,
+          "name": "test_43zgyn80",
+          "user_type": null
+        },
+        {
+          "admin": false,
+          "avatar_url": null,
+          "creation_ts": 1770379133,
+          "deactivated": false,
+          "displayname": null,
+          "is_guest": false,
+          "name": "test_sjrzqc5f",
+          "user_type": null
+        },
+        {
+          "admin": false,
+          "avatar_url": null,
+          "creation_ts": 1770378913,
+          "deactivated": false,
+          "displayname": null,
+          "is_guest": false,
+          "name": "test_ocwqa4un",
+          "user_type": null
+        },
+        {
+          "admin": false,
+          "avatar_url": null,
+          "creation_ts": 1770378644,
+          "deactivated": false,
+          "displayname": null,
+          "is_guest": false,
+          "name": "test_4pazbmva",
+          "user_type": null
+        },
+        {
+          "admin": false,
+          "avatar_url": null,
+          "creation_ts": 1770378176,
+          "deactivated": false,
+          "displayname": null,
+          "is_guest": false,
+          "name": "test_eafk52nr",
+          "user_type": null
+        },
+        {
+          "admin": false,
+          "avatar_url": null,
+          "creation_ts": 1770377120,
+          "deactivated": false,
+          "displayname": null,
+          "is_guest": false,
+          "name": "test_txe91qba",
           "user_type": null
         }
       ]
@@ -97,15 +147,15 @@
     "expected_code": 200,
     "success": true,
     "error": null,
-    "timestamp": "2026-02-04T11:15:27.050140",
+    "timestamp": "2026-02-06T20:37:20.749686",
     "response_data": {
       "admin": true,
-      "avatar_url": "mxc://matrix.cjystx.top/test_avatar",
-      "creation_ts": 1770127597,
+      "avatar_url": null,
+      "creation_ts": 1770380995,
       "deactivated": false,
-      "displayname": "Test User 1 Updated",
+      "displayname": null,
       "is_guest": false,
-      "name": "testuser1",
+      "name": "admin",
       "user_type": null
     }
   },
@@ -118,7 +168,7 @@
     "expected_code": 200,
     "success": true,
     "error": null,
-    "timestamp": "2026-02-04T11:15:27.062859",
+    "timestamp": "2026-02-06T20:37:20.758092",
     "response_data": {
       "success": true
     }
@@ -132,11 +182,10 @@
     "expected_code": 200,
     "success": true,
     "error": null,
-    "timestamp": "2026-02-04T11:15:27.073199",
+    "timestamp": "2026-02-06T20:37:20.764804",
     "response_data": {
       "rooms": [
-        "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
-        "!pdsb0b_OqRVJazC6JYW1CZRQ:matrix.cjystx.top"
+        "!ZvtusAjkfrGp5ZEBbL9EfptT:cjystx.top"
       ]
     }
   },
@@ -149,38 +198,83 @@
     "expected_code": 200,
     "success": true,
     "error": null,
-    "timestamp": "2026-02-04T11:15:27.083087",
+    "timestamp": "2026-02-06T20:37:20.771159",
     "response_data": {
       "rooms": [
         {
-          "creator": "@testuser1:matrix.cjystx.top",
+          "creator": "@admin:cjystx.top",
           "is_public": false,
-          "joined_local_members": 1,
-          "joined_members": 1,
-          "name": "Test Room 2",
-          "room_id": "!pdsb0b_OqRVJazC6JYW1CZRQ:matrix.cjystx.top",
-          "topic": "Private test room"
-        },
-        {
-          "creator": "@testuser1:matrix.cjystx.top",
-          "is_public": true,
           "joined_local_members": 1,
           "joined_members": 1,
           "name": "Test Room 1",
-          "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
-          "topic": "Test room for API testing"
+          "room_id": "!ZvtusAjkfrGp5ZEBbL9EfptT:cjystx.top",
+          "topic": ""
         },
         {
-          "creator": "@alice:localhost",
+          "creator": "@test_s4r5oha1:cjystx.top",
           "is_public": false,
           "joined_local_members": 1,
           "joined_members": 1,
-          "name": "Test Room",
-          "room_id": "!-hABrIndvYAoTfdEDygd1Wky:localhost",
+          "name": "Test",
+          "room_id": "!99ipLL8ycqPatjIjtJWZCd5m:cjystx.top",
+          "topic": ""
+        },
+        {
+          "creator": "@test_xdjjo0sb:cjystx.top",
+          "is_public": false,
+          "joined_local_members": 1,
+          "joined_members": 1,
+          "name": "Test",
+          "room_id": "!4mdEGCGP7EthAUpLNnp-pPgS:cjystx.top",
+          "topic": ""
+        },
+        {
+          "creator": "@test_43zgyn80:cjystx.top",
+          "is_public": false,
+          "joined_local_members": 1,
+          "joined_members": 1,
+          "name": "Test",
+          "room_id": "!f5M0279C2OTOjOeTNgPBOsJQ:cjystx.top",
+          "topic": ""
+        },
+        {
+          "creator": "@test_sjrzqc5f:cjystx.top",
+          "is_public": false,
+          "joined_local_members": 1,
+          "joined_members": 1,
+          "name": "Test",
+          "room_id": "!TtCZ-GJdLRHJDNk2ngCsVamw:cjystx.top",
+          "topic": ""
+        },
+        {
+          "creator": "@test_ocwqa4un:cjystx.top",
+          "is_public": false,
+          "joined_local_members": 1,
+          "joined_members": 1,
+          "name": "Test",
+          "room_id": "!baJ0-F49hMkMD5830xq67Bva:cjystx.top",
+          "topic": ""
+        },
+        {
+          "creator": "@test_4pazbmva:cjystx.top",
+          "is_public": false,
+          "joined_local_members": 1,
+          "joined_members": 1,
+          "name": "Test",
+          "room_id": "!DISc-hVh26X_3K2ZSRB_6I1X:cjystx.top",
+          "topic": ""
+        },
+        {
+          "creator": "@test_eafk52nr:cjystx.top",
+          "is_public": false,
+          "joined_local_members": 1,
+          "joined_members": 1,
+          "name": "Test",
+          "room_id": "!dcxoN8tOjNVE0qdcYRd2ZR7N:cjystx.top",
           "topic": ""
         }
       ],
-      "total": 3
+      "total": 8
     }
   },
   {
@@ -192,14 +286,14 @@
     "expected_code": 200,
     "success": true,
     "error": null,
-    "timestamp": "2026-02-04T11:15:27.094179",
+    "timestamp": "2026-02-06T20:37:20.778845",
     "response_data": {
-      "creator": "@testuser1:matrix.cjystx.top",
-      "is_public": true,
-      "join_rule": "invite",
+      "creator": "@admin:cjystx.top",
+      "is_public": false,
+      "join_rule": "public",
       "name": "Test Room 1",
-      "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
-      "topic": "Test room for API testing"
+      "room_id": "!ZvtusAjkfrGp5ZEBbL9EfptT:cjystx.top",
+      "topic": ""
     }
   },
   {
@@ -211,146 +305,10 @@
     "expected_code": 200,
     "success": true,
     "error": null,
-    "timestamp": "2026-02-04T11:15:27.106841",
+    "timestamp": "2026-02-06T20:37:20.786276",
     "response_data": {
-      "events": [
-        {
-          "created_at": 1770090254,
-          "details": "{\"expires_at\":null,\"reason\":\"Spamming\"}",
-          "event_type": "admin_action:block_ip",
-          "id": 15,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_2790526939:localhost"
-        },
-        {
-          "created_at": 1770089650,
-          "details": "{\"expires_at\":null,\"reason\":\"Spamming\"}",
-          "event_type": "admin_action:block_ip",
-          "id": 14,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_3144672503:localhost"
-        },
-        {
-          "created_at": 1770089131,
-          "details": "{\"expires_at\":null,\"reason\":\"Spamming\"}",
-          "event_type": "admin_action:block_ip",
-          "id": 13,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_3098269161:localhost"
-        },
-        {
-          "created_at": 1770088540,
-          "details": "{\"expires_at\":null,\"reason\":\"Spamming\"}",
-          "event_type": "admin_action:block_ip",
-          "id": 12,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_1873335128:localhost"
-        },
-        {
-          "created_at": 1770087907,
-          "details": "{\"expires_at\":null,\"reason\":\"Spamming\"}",
-          "event_type": "admin_action:block_ip",
-          "id": 11,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_836548273:localhost"
-        },
-        {
-          "created_at": 1770074288,
-          "details": null,
-          "event_type": "admin_action:unblock_ip",
-          "id": 10,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_1770074287:matrix.cjystx.top"
-        },
-        {
-          "created_at": 1770074288,
-          "details": "{\"expires_at\":\"2026-02-03T00:00:00Z\",\"reason\":\"Spamming\"}",
-          "event_type": "admin_action:block_ip",
-          "id": 9,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_1770074287:matrix.cjystx.top"
-        },
-        {
-          "created_at": 1770045243,
-          "details": null,
-          "event_type": "admin_action:unblock_ip",
-          "id": 8,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_1770045242:matrix.cjystx.top"
-        },
-        {
-          "created_at": 1770045243,
-          "details": "{\"expires_at\":\"2026-02-03T00:00:00Z\",\"reason\":\"Spamming\"}",
-          "event_type": "admin_action:block_ip",
-          "id": 7,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_1770045242:matrix.cjystx.top"
-        },
-        {
-          "created_at": 1770044608,
-          "details": null,
-          "event_type": "admin_action:unblock_ip",
-          "id": 6,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_1770044607:matrix.cjystx.top"
-        },
-        {
-          "created_at": 1770044608,
-          "details": "{\"expires_at\":\"2026-02-03T00:00:00Z\",\"reason\":\"Spamming\"}",
-          "event_type": "admin_action:block_ip",
-          "id": 5,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_1770044607:matrix.cjystx.top"
-        },
-        {
-          "created_at": 1770044267,
-          "details": null,
-          "event_type": "admin_action:unblock_ip",
-          "id": 4,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_1770044266:matrix.cjystx.top"
-        },
-        {
-          "created_at": 1770044267,
-          "details": "{\"expires_at\":\"2026-02-03T00:00:00Z\",\"reason\":\"Spamming\"}",
-          "event_type": "admin_action:block_ip",
-          "id": 3,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin_1770044266:matrix.cjystx.top"
-        },
-        {
-          "created_at": 1769907627,
-          "details": "{\"expires_at\":null,\"reason\":\"audit_test\"}",
-          "event_type": "admin_action:block_ip",
-          "id": 2,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin:matrix.cjystx.top"
-        },
-        {
-          "created_at": 1769906794,
-          "details": "{\"expires_at\":null,\"reason\":\"audit_test\"}",
-          "event_type": "admin_action:block_ip",
-          "id": 1,
-          "ip_address": null,
-          "user_agent": null,
-          "user_id": "@admin:matrix.cjystx.top"
-        }
-      ],
-      "total": 15
+      "events": [],
+      "total": 0
     }
   },
   {
@@ -362,17 +320,10 @@
     "expected_code": 200,
     "success": true,
     "error": null,
-    "timestamp": "2026-02-04T11:15:27.118766",
+    "timestamp": "2026-02-06T20:37:20.793666",
     "response_data": {
-      "blocked_ips": [
-        {
-          "blocked_at": 1770090254,
-          "expires_at": null,
-          "ip_address": "1.2.3.4/32",
-          "reason": "Spamming"
-        }
-      ],
-      "total": 1
+      "blocked_ips": [],
+      "total": 0
     }
   },
   {
@@ -384,9 +335,9 @@
     "expected_code": 200,
     "success": true,
     "error": null,
-    "timestamp": "2026-02-04T11:15:27.129303",
+    "timestamp": "2026-02-06T20:37:20.800708",
     "response_data": {
-      "nonce": "RP2zNl-spZT9KQHMda7Sw7OvOmWURH3lglituFl8iAlN21JXE9MSp6vWJXmpoyfxHXKwS6CwbwoF1p-2FBe6gw"
+      "nonce": "NnbrVhOSwaBF2eB_m73EA35UA6BR7zRsZ_osYrQbDx-y_Z8We5jAHANmM-w4UYsuOKNahIDTqdDyqF9EzlmDZQ"
     }
   }
 ]

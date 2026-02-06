@@ -1,0 +1,151 @@
+# ============================================================================
+# Synapse Rust - Production Optimized Docker Image
+# ============================================================================
+# Deployment Strategy: Pre-compiled Binary Deployment
+# 
+# This Dockerfile is designed for production deployment using pre-compiled
+# binaries from the local build. This approach provides:
+# - Faster build times (no Rust compilation in Docker)
+# - Consistent builds (binary compiled in controlled environment)
+# - Smaller final image (no build tools included)
+#
+# Build Flow:
+# 1. Compile Rust application on host: cargo build --release
+# 2. Build Docker image: docker build -t synapse-rust:latest .
+# 3. Run: docker compose up -d
+#
+# IMPORTANT: Make sure binaries exist in target/release/ before building
+# ============================================================================
+
+# ============================================================================
+# Stage: Runtime - Minimal production image
+# ============================================================================
+FROM debian:bookworm-slim AS runtime
+
+# ============================================================================
+# Install Runtime Dependencies
+# ============================================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libssl3 \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# ============================================================================
+# Security: Create Non-Root User
+# ============================================================================
+RUN groupadd --system synapse && \
+    useradd --system --gid synapse --home-dir /app --shell /usr/sbin/nologin synapse
+
+# ============================================================================
+# Directory Structure
+# ============================================================================
+RUN mkdir -p /app/bin /app/data /app/logs /app/config && \
+    chown -R synapse:synapse /app && \
+    chmod 755 /app
+
+# ============================================================================
+# Copy Pre-compiled Binaries
+# ============================================================================
+# Copy the pre-compiled binaries from the build context
+# Build context should be the project root where target/release/ exists
+COPY --chown=synapse:synapse target/release/synapse-rust /usr/local/bin/synapse-rust
+COPY --chown=synapse:synapse target/release/generate_test_keypair /usr/local/bin/generate_test_keypair
+
+# Copy Configuration Files
+COPY --chown=synapse:synapse docker/config/homeserver.yaml /app/config/homeserver.yaml
+
+# Make binaries executable
+RUN chmod +x /usr/local/bin/synapse-rust /usr/local/bin/generate_test_keypair
+
+# ============================================================================
+# Drop capabilities for security
+# ============================================================================
+RUN chmod 500 /usr/local/bin/synapse-rust && \
+    chmod 500 /usr/local/bin/generate_test_keypair
+
+# ============================================================================
+# Environment Variables
+# ============================================================================
+ENV DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
+ENV REDIS_URL=redis://redis:6379
+ENV RUST_LOG=warn
+ENV RUST_BACKTRACE=0
+ENV SERVER_NAME=cjystx.top
+ENV SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
+ENV TZ=UTC
+ENV PATH=/usr/local/bin:/usr/bin:/bin
+
+# ============================================================================
+# Working Directory
+# ============================================================================
+WORKDIR /app
+
+# ============================================================================
+# Security: Switch to Non-Root User
+# ============================================================================
+USER synapse
+
+# ============================================================================
+# Port Exposure
+# ============================================================================
+EXPOSE 8008 8448
+
+# ============================================================================
+# Health Checks
+# ============================================================================
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -sf http://localhost:8008/_matrix/federation/v1/version || exit 1
+
+# ============================================================================
+# Entrypoint
+# ============================================================================
+ENTRYPOINT ["sh", "-c"]
+
+# Default command with configuration path
+CMD ["exec synapse-rust --config /app/config/homeserver.yaml"]
+
+# ============================================================================
+# OCI Labels for Container Metadata
+# ============================================================================
+ARG BUILD_DATE
+ARG VERSION="0.1.0"
+
+LABEL org.opencontainers.image.title="Synapse Rust" \
+      org.opencontainers.image.description="Matrix Homeserver implemented in Rust - Production Ready" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/synapse-rust/synapse-rust" \
+      org.opencontainers.image.vendor="Synapse Rust Team" \
+      org.opencontainers.image.licenses="MIT" \
+      maintainer="Synapse Rust Team <dev@cjystx.top>" \
+      com.matrix.server="cjystx.top" \
+      com.matrix.domain="matrix.cjystx.top" \
+      org.opencontainers.image.created="${BUILD_DATE}"
+
+# ============================================================================
+# Signal Handling
+# ============================================================================
+STOPSIGNAL SIGTERM
+
+# ============================================================================
+# Build Instructions
+# ============================================================================
+#
+# 1. Compile Rust application on host:
+#    cd /path/to/synapse_rust
+#    cargo build --release
+#
+# 2. Build Docker image:
+#    docker build \
+#      --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+#      -t synapse-rust:latest .
+#
+# 3. Run with docker compose:
+#    docker compose up -d
+#
+# 4. Verify deployment:
+#    curl http://localhost:8008/_matrix/federation/v1/version
+#
+# ============================================================================

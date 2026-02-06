@@ -1,0 +1,178 @@
+services:
+  synapse-rust:
+    build:
+      context: .
+      dockerfile: Dockerfile.fast
+    container_name: synapse-rust
+    restart: unless-stopped
+    ports:
+      - "8008:8008"
+      - "8448:8448"
+    environment:
+      - DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
+      - REDIS_URL=redis://redis:6379
+      - RUST_LOG=${RUST_LOG:-warn}
+      - RUST_BACKTRACE=0
+      - SERVER_NAME=cjystx.top
+      - SECRET_KEY=${SECRET_KEY}
+      - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
+    volumes:
+      - ./docker/data:/app/data
+      - ./docker/logs:/app/logs
+      - ./docker/config:/app/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/_matrix/federation/v1/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - synapse_network
+    labels:
+      - "com.matrix.description=Synapse Rust Homeserver"
+      - "com.matrix.hostname=matrix.cjystx.top"
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 2G
+        reservations:
+          cpus: '2.0'
+          memory: 1G
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=10M,mode=1777
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  db:
+    image: postgres:16-alpine
+    container_name: synapse-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=synapse
+      - POSTGRES_PASSWORD=synapse
+      - POSTGRES_DB=synapse_test
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse -d synapse_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - synapse_network
+    labels:
+      - "com.matrix.description=PostgreSQL Database"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c max_connections=100
+      -c effective_cache_size=512MB
+      -c work_mem=16MB
+      -c maintenance_work_mem=128MB
+      -c synchronous_commit=off
+      -c fsync=off
+      -c full_page_writes=off
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:7-alpine
+    container_name: synapse-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --tcp-backlog 511
+      --timeout 0
+      --tcp-keepalive 300
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - synapse_network
+    labels:
+      - "com.matrix.description=Redis Cache"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    security_opt:
+      - no-new-privileges:true
+
+  nginx:
+    image: nginx:alpine
+    container_name: synapse-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8448:8448"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/.well-known:/var/www/html/.well-known:ro
+      - ./docker/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - synapse-rust
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - synapse_network
+    labels:
+      - "com.matrix.description=Nginx Reverse Proxy"
+      - "com.matrix.domains=cjystx.top,matrix.cjystx.top"
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  nginx_logs:
+    driver: local
+
+networks:
+  synapse_network:
+    driver: bridge
+    name: synapse_network

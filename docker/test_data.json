@@ -1,0 +1,373 @@
+{
+  "info": {
+    "description": "Synapse Rust API测试数据",
+    "server": "cjystx.top",
+    "base_url": "http://localhost:8008",
+    "version": "1.0.0",
+    "created": "2026-02-06",
+    "note": "所有数据为测试虚拟数据，需要运行服务后重新获取实际token"
+  },
+  "admin_account": {
+    "username": "admin",
+    "password": "Wzc9890951!",
+    "user_id": "@admin:cjystx.top",
+    "server": "http://localhost:8008",
+    "purpose": "用于访问所有管理员API端点",
+    "note": "需要使用HMAC注册，登录可能失败"
+  },
+  "test_users": [
+    {
+      "id": 1,
+      "username": "testuser1",
+      "password": "TestUser123!",
+      "user_id": "@testuser1:cjystx.top",
+      "displayname": "测试用户1",
+      "status": "active",
+      "purpose": "主要测试用户",
+      "note": "密码已更新为 TestUser123!"
+    },
+    {
+      "id": 2,
+      "username": "testuser2",
+      "password": "TestUser123!",
+      "user_id": "@testuser2:cjystx.top",
+      "displayname": "测试用户2",
+      "status": "active",
+      "purpose": "好友功能测试",
+      "note": "建议重置密码"
+    },
+    {
+      "id": 3,
+      "username": "testuser3",
+      "password": "TestUser123!",
+      "user_id": "@testuser3:cjystx.top",
+      "displayname": "测试用户3",
+      "status": "active",
+      "purpose": "房间操作测试",
+      "note": ""
+    },
+    {
+      "id": 4,
+      "username": "testuser4",
+      "password": "TestUser123!",
+      "user_id": "@testuser4:cjystx.top",
+      "displayname": "测试用户4",
+      "status": "active",
+      "purpose": "联邦API测试",
+      "note": ""
+    },
+    {
+      "id": 5,
+      "username": "testuser5",
+      "password": "TestUser123!",
+      "user_id": "@testuser5:cjystx.top",
+      "displayname": "测试用户5",
+      "status": "active",
+      "purpose": "设备管理测试",
+      "note": ""
+    },
+    {
+      "id": 6,
+      "username": "testuser6",
+      "password": "TestUser123!",
+      "user_id": "@testuser6:cjystx.top",
+      "displayname": "测试用户6",
+      "status": "active",
+      "purpose": "媒体文件测试",
+      "note": ""
+    }
+  ],
+  "test_rooms": [
+    {
+      "id": 1,
+      "name": "核心功能测试房间",
+      "room_id": "!TestRoom001:cjystx.top",
+      "purpose": "测试房间创建、消息发送、状态事件等核心功能",
+      "is_public": false,
+      "members": ["testuser1", "testuser2", "testuser3"],
+      "expected_events": 10
+    },
+    {
+      "id": 2,
+      "name": "好友测试房间",
+      "room_id": "!TestRoom002:cjystx.top",
+      "purpose": "测试好友关系、私聊功能",
+      "is_public": false,
+      "members": ["testuser1", "testuser2"],
+      "expected_events": 5
+    },
+    {
+      "id": 3,
+      "name": "联邦测试房间",
+      "room_id": "!TestRoom003:cjystx.top",
+      "purpose": "测试联邦API端点（房间状态、成员列表等）",
+      "is_public": true,
+      "members": ["testuser1", "testuser2", "testuser3", "testuser4"],
+      "expected_events": 8
+    },
+    {
+      "id": 4,
+      "name": "设备测试房间",
+      "room_id": "!TestRoom004:cjystx.top",
+      "purpose": "测试设备管理、密钥交换",
+      "is_public": false,
+      "members": ["testuser1", "testuser5"],
+      "expected_events": 6
+    },
+    {
+      "id": 5,
+      "name": "公共测试房间",
+      "room_id": "!TestRoom005:cjystx.top",
+      "purpose": "测试公共房间API、房间目录",
+      "is_public": true,
+      "members": ["testuser1", "testuser2", "testuser3", "testuser4", "testuser5", "testuser6"],
+      "expected_events": 15
+    }
+  ],
+  "test_messages": [
+    {
+      "id": 1,
+      "type": "m.room.message",
+      "body": "这是一条测试消息",
+      "msgtype": "m.text",
+      "purpose": "测试基本文本消息"
+    },
+    {
+      "id": 2,
+      "type": "m.room.message",
+      "body": "Hello World",
+      "msgtype": "m.text",
+      "purpose": "测试英文消息"
+    },
+    {
+      "id": 3,
+      "type": "m.room.message",
+      "body": "测试图片",
+      "msgtype": "m.image",
+      "purpose": "测试图片消息（需要上传媒体文件）"
+    },
+    {
+      "id": 4,
+      "type": "m.room.message",
+      "body": "测试语音消息",
+      "msgtype": "m.audio",
+      "purpose": "测试语音消息（需要上传媒体文件）"
+    },
+    {
+      "id": 5,
+      "type": "m.room.message",
+      "body": "This is an edited message",
+      "msgtype": "m.text",
+      "purpose": "测试消息编辑功能"
+    }
+  ],
+  "test_devices": [
+    {
+      "id": 1,
+      "device_id": "TESTDEVICE001",
+      "user_id": "@testuser1:cjystx.top",
+      "display_name": "测试设备1 - Chrome浏览器",
+      "purpose": "测试设备获取、更新、删除功能"
+    },
+    {
+      "id": 2,
+      "device_id": "TESTDEVICE002",
+      "user_id": "@testuser2:cjystx.top",
+      "display_name": "测试设备2 - Firefox浏览器",
+      "purpose": "测试设备密钥交换"
+    },
+    {
+      "id": 3,
+      "device_id": "TESTDEVICE003",
+      "user_id": "@testuser3:cjystx.top",
+      "display_name": "测试设备3 - iOS应用",
+      "purpose": "测试多设备场景"
+    }
+  ],
+  "test_friendships": [
+    {
+      "id": 1,
+      "from_user": "@testuser1:cjystx.top",
+      "to_user": "@testuser2:cjystx.top",
+      "status": "friend",
+      "purpose": "测试好友关系API"
+    },
+    {
+      "id": 2,
+      "from_user": "@testuser1:cjystx.top",
+      "to_user": "@testuser3:cjystx.top",
+      "status": "friend",
+      "purpose": "测试好友关系API"
+    },
+    {
+      "id": 3,
+      "from_user": "@testuser2:cjystx.top",
+      "to_user": "@testuser3:cjystx.top",
+      "status": "friend",
+      "purpose": "测试好友关系API"
+    }
+  ],
+  "test_profiles": [
+    {
+      "user_id": "@testuser1:cjystx.top",
+      "displayname": "测试用户1",
+      "avatar_url": "mxc://cjystx.top/testavatar1",
+      "purpose": "测试用户资料API"
+    },
+    {
+      "user_id": "@testuser2:cjystx.top",
+      "displayname": "测试用户2",
+      "avatar_url": "mxc://cjystx.top/testavatar2",
+      "purpose": "测试用户资料API"
+    }
+  ],
+  "api_test_groups": {
+    "authentication": {
+      "name": "用户认证API",
+      "endpoints": [
+        "/_matrix/client/r0/login",
+        "/_matrix/client/r0/logout",
+        "/_matrix/client/r0/logout/all",
+        "/_matrix/client/r0/refresh"
+      ],
+      "required_users": ["testuser1", "testuser2"],
+      "required_rooms": []
+    },
+    "user_account": {
+      "name": "用户账号管理API",
+      "endpoints": [
+        "/_matrix/client/r0/account/whoami",
+        "/_matrix/client/r0/account/password",
+        "/_matrix/client/r0/account/profile/{user_id}/displayname",
+        "/_matrix/client/r0/account/profile/{user_id}/avatar_url"
+      ],
+      "required_users": ["testuser1"],
+      "required_rooms": []
+    },
+    "user_directory": {
+      "name": "用户目录API",
+      "endpoints": [
+        "/_matrix/client/r0/user_directory/search",
+        "/_matrix/client/r0/user_directory/list"
+      ],
+      "required_users": ["testuser1"],
+      "required_rooms": []
+    },
+    "device_management": {
+      "name": "设备管理API",
+      "endpoints": [
+        "/_matrix/client/r0/devices",
+        "/_matrix/client/r0/devices/{device_id}",
+        "/_matrix/client/r0/delete_devices"
+      ],
+      "required_users": ["testuser1", "testuser5"],
+      "required_rooms": []
+    },
+    "presence": {
+      "name": "在线状态API",
+      "endpoints": [
+        "/_matrix/client/r0/presence/{user_id}/status"
+      ],
+      "required_users": ["testuser1", "testuser2"],
+      "required_rooms": []
+    },
+    "room_management": {
+      "name": "房间管理API",
+      "endpoints": [
+        "/_matrix/client/r0/createRoom",
+        "/_matrix/client/r0/directory/room/{room_id}",
+        "/_matrix/client/r0/joined_rooms",
+        "/_matrix/client/r0/publicRooms"
+      ],
+      "required_users": ["testuser1"],
+      "required_rooms": ["TestRoom001", "TestRoom002", "TestRoom003"]
+    },
+    "room_operations": {
+      "name": "房间操作API",
+      "endpoints": [
+        "/_matrix/client/r0/rooms/{room_id}/join",
+        "/_matrix/client/r0/rooms/{room_id}/leave",
+        "/_matrix/client/r0/rooms/{room_id}/invite",
+        "/_matrix/client/r0/rooms/{room_id}/kick",
+        "/_matrix/client/r0/rooms/{room_id}/ban",
+        "/_matrix/client/r0/rooms/{room_id}/unban"
+      ],
+      "required_users": ["testuser1", "testuser2", "testuser3"],
+      "required_rooms": ["TestRoom001", "TestRoom002"]
+    },
+    "room_state": {
+      "name": "房间状态和消息API",
+      "endpoints": [
+        "/_matrix/client/r0/rooms/{room_id}/state",
+        "/_matrix/client/r0/rooms/{room_id}/state/{event_type}",
+        "/_matrix/client/r0/rooms/{room_id}/send/m.room.message",
+        "/_matrix/client/r0/rooms/{room_id}/messages",
+        "/_matrix/client/r0/rooms/{room_id}/redact/{event_id}"
+      ],
+      "required_users": ["testuser1"],
+      "required_rooms": ["TestRoom001"]
+    },
+    "federation_discovery": {
+      "name": "联邦发现API",
+      "endpoints": [
+        "/_matrix/federation/v1/version",
+        "/_matrix/federation/v1",
+        "/_matrix/federation/v1/publicRooms"
+      ],
+      "required_users": [],
+      "required_rooms": []
+    },
+    "federation_keys": {
+      "name": "联邦密钥管理API",
+      "endpoints": [
+        "/_matrix/federation/v2/server",
+        "/_matrix/federation/v2/query/{server_name}/{key_id}",
+        "/_matrix/federation/v1/keys/claim",
+        "/_matrix/federation/v1/keys/upload"
+      ],
+      "required_users": [],
+      "required_rooms": []
+    },
+    "federation_room": {
+      "name": "联邦房间API",
+      "endpoints": [
+        "/_matrix/federation/v1/members/{room_id}",
+        "/_matrix/federation/v1/members/{room_id}/joined",
+        "/_matrix/federation/v1/room_auth/{room_id}",
+        "/_matrix/federation/v1/state/{room_id}",
+        "/_matrix/federation/v1/event/{event_id}",
+        "/_matrix/federation/v1/backfill/{room_id}"
+      ],
+      "required_users": [],
+      "required_rooms": ["TestRoom003"]
+    },
+    "federation_transactions": {
+      "name": "联邦事务API",
+      "endpoints": [
+        "/_matrix/federation/v1/send/{txn_id}",
+        "/_matrix/federation/v1/make_join/{room_id}/{user_id}",
+        "/_matrix/federation/v1/make_leave/{room_id}/{user_id}",
+        "/_matrix/federation/v1/send_join/{room_id}/{event_id}",
+        "/_matrix/federation/v1/send_leave/{room_id}/{event_id}",
+        "/_matrix/federation/v1/invite/{room_id}/{event_id}"
+      ],
+      "required_users": [],
+      "required_rooms": ["TestRoom003"]
+    }
+  },
+  "token_refresh_schedule": {
+    "note": "Token可能会过期，建议定期刷新",
+    "recommended_refresh_interval_hours": 24,
+    "endpoints": {
+      "login": "/_matrix/client/r0/login",
+      "refresh": "/_matrix/client/r0/refresh"
+    }
+  },
+  "notes": [
+    "所有密码已统一为 TestUser123!，符合密码策略要求",
+    "实际使用时需要启动服务并重新获取有效的 access_token",
+    "测试房间ID为虚拟数据，实际测试时需要先创建房间",
+    "媒体文件需要实际文件上传，本文件只包含元数据",
+    "建议按 API 模块分组进行测试，避免数据冲突"
+  ]
+}

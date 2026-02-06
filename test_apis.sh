@@ -1,85 +1,107 @@
 #!/bin/bash
+set -e
+
+echo "=========================================="
+echo "  测试4个3.1客户端API端点"
+echo "=========================================="
+echo ""
 
 BASE_URL="http://localhost:8008"
+TS=$(date +%s)
+UNIQUE_ID=$(head /dev/urandom | tr -dc a-z0-9 | head -c 10)
 
-echo "=== 测试 API 端点 ==="
-echo ""
-
-echo "1. 测试注册用户"
-REGISTER_RESULT=$(curl -s -X POST "$BASE_URL/_matrix/client/r0/register" \
+echo "=== 1. 创建用户 ==="
+REG=$(curl -s -X POST "$BASE_URL/_matrix/client/r0/register" \
   -H "Content-Type: application/json" \
-  -d '{"username": "testuser1", "password": "testpass123"}')
-echo "注册结果: $REGISTER_RESULT"
-echo ""
+  -d "{\"username\": \"test_${UNIQUE_ID}\", \"password\": \"Password123!\"}")
+TOKEN=$(echo "$REG" | sed "s/.*\"access_token\":\"\([^\"]*\)\".*/\1/")
+if [ -z "$TOKEN" ] || [ "$TOKEN" = "$REG" ]; then
+  echo "ERROR: 注册失败"
+  exit 1
+fi
+echo "OK: 用户创建成功"
 
-echo "2. 测试登录"
-LOGIN_RESULT=$(curl -s -X POST "$BASE_URL/_matrix/client/r0/login" \
+echo ""
+echo "=== 2. 创建房间 ==="
+ROOM=$(curl -s -X POST "$BASE_URL/_matrix/client/r0/createRoom" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"type": "m.login.password", "username": "testuser1", "password": "testpass123"}')
-echo "登录结果: $LOGIN_RESULT"
-TOKEN=$(echo $LOGIN_RESULT | grep -o '"access_token":"[^"]*' | cut -d'"' -f4)
-echo "获取到的Token: $TOKEN"
+  -d "{\"name\": \"Test${TS}\", \"visibility\": \"private\"}")
+ROOM_ID=$(echo "$ROOM" | sed "s/.*\"room_id\":\"\([^\"]*\)\".*/\1/")
+if [ -z "$ROOM_ID" ] || [ "$ROOM_ID" = "$ROOM" ]; then
+  echo "ERROR: 创建房间失败"
+  exit 1
+fi
+echo "OK: Room ID: $ROOM_ID"
+
 echo ""
-
-if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
-    echo "3. 测试获取设备列表"
-    DEVICES_RESULT=$(curl -s -X GET "$BASE_URL/_matrix/client/r0/devices" \
-      -H "Authorization: Bearer $TOKEN")
-    echo "设备列表: $DEVICES_RESULT"
-    echo ""
-
-    echo "4. 测试创建房间"
-    ROOM_RESULT=$(curl -s -X POST "$BASE_URL/_matrix/client/r0/createRoom" \
-      -H "Authorization: Bearer $TOKEN" \
-      -H "Content-Type: application/json" \
-      -d '{"name": "测试房间", "topic": "这是一个测试房间"}')
-    echo "创建房间结果: $ROOM_RESULT"
-    ROOM_ID=$(echo $ROOM_RESULT | grep -o '"room_id":"[^"]*' | cut -d'"' -f4)
-    echo "房间ID: $ROOM_ID"
-    echo ""
-
-    echo "5. 测试获取公共房间列表"
-    PUBLIC_ROOMS=$(curl -s -X GET "$BASE_URL/_matrix/client/r0/publicRooms" \
-      -H "Authorization: Bearer $TOKEN")
-    echo "公共房间列表: $PUBLIC_ROOMS"
-    echo ""
-
-    echo "6. 测试获取好友列表"
-    FRIENDS=$(curl -s -X GET "$BASE_URL/_synapse/enhanced/friends" \
-      -H "Authorization: Bearer $TOKEN")
-    echo "好友列表: $FRIENDS"
-    echo ""
-
-    echo "7. 测试获取私聊会话"
-    SESSIONS=$(curl -s -X GET "$BASE_URL/_synapse/enhanced/private/sessions" \
-      -H "Authorization: Bearer $TOKEN")
-    echo "私聊会话: $SESSIONS"
-    echo ""
-
-    echo "8. 测试获取未读消息数"
-    UNREAD=$(curl -s -X GET "$BASE_URL/_synapse/enhanced/private/unread-count" \
-      -H "Authorization: Bearer $TOKEN")
-    echo "未读消息数: $UNREAD"
-    echo ""
-
-    echo "9. 测试获取语音统计"
-    VOICE_STATS=$(curl -s -X GET "$BASE_URL/_matrix/client/r0/voice/user/testuser1/stats" \
-      -H "Authorization: Bearer $TOKEN")
-    echo "语音统计: $VOICE_STATS"
-    echo ""
-
-    echo "10. 测试服务器状态"
-    SERVER_STATUS=$(curl -s -X GET "$BASE_URL/_synapse/admin/v1/status")
-    echo "服务器状态: $SERVER_STATUS"
-    echo ""
-
-    echo "11. 测试联邦版本"
-    VERSION=$(curl -s -X GET "$BASE_URL/_matrix/federation/v1/version")
-    echo "联邦版本: $VERSION"
-    echo ""
-
+echo "=== 3. 发送消息 ==="
+MSG=$(curl -s -X POST "$BASE_URL/_matrix/client/r0/rooms/$ROOM_ID/send/m.room.message/txn_${TS}_msg" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"msgtype": "m.text", "body": "test"}')
+EVENT_ID=$(echo "$MSG" | sed "s/.*\"event_id\":\"\([^\"]*\)\".*/\1/")
+if [ -z "$EVENT_ID" ]; then
+  echo "WARNING: 消息发送失败，event_id为空"
+  EVENT_ID="test_event"
 else
-    echo "无法获取Token，跳过需要认证的测试"
+  echo "OK: Event ID: $EVENT_ID"
 fi
 
-echo "=== API 测试完成 ==="
+echo ""
+echo "=========================================="
+echo " 测试 3.1.4-33: PUT /directory/room/{room_alias}"
+echo "=========================================="
+ALIAS_RESP=$(curl -s -w "\nHTTP:%{http_code}" -X PUT "$BASE_URL/_matrix/client/r0/directory/room/testalias_${UNIQUE_ID}" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"room_id\": \"$ROOM_ID\"}")
+echo "$ALIAS_RESP"
+
+echo ""
+echo "=========================================="
+echo " 测试 3.1.4-32: DELETE /directory/room/{room_id}"
+echo "=========================================="
+DELETE_RESP=$(curl -s -w "\nHTTP:%{http_code}" -X DELETE "$BASE_URL/_matrix/client/r0/directory/room/$ROOM_ID" \
+  -H "Authorization: Bearer $TOKEN")
+echo "$DELETE_RESP"
+
+echo ""
+echo "=========================================="
+echo " 测试 3.1.7-5: POST /receipt/m.read/{event_id}"
+echo "=========================================="
+RECEIPT_RESP=$(curl -s -w "\nHTTP:%{http_code}" -X POST "$BASE_URL/_matrix/client/r0/rooms/$ROOM_ID/receipt/m.read/$EVENT_ID" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{}")
+echo "$RECEIPT_RESP"
+
+echo ""
+echo "=========================================="
+echo " 测试 3.1.7-6: POST /read_markers"
+echo "=========================================="
+READ_RESP=$(curl -s -w "\nHTTP:%{http_code}" -X POST "$BASE_URL/_matrix/client/r0/rooms/$ROOM_ID/read_markers" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"event_id\": \"$EVENT_ID\"}")
+echo "$READ_RESP"
+
+echo ""
+echo "=========================================="
+echo "             测试结果汇总"
+echo "=========================================="
+echo ""
+echo "API端点                           | 状态码 | 结果"
+echo "-----------------------------------|--------|------"
+printf "3.1.4-33 PUT /directory/room    | %s | %s\n" \
+  "$(echo "$ALIAS_RESP" | grep -o 'HTTP:[0-9]*' | cut -d: -f2)" \
+  "$([[ $(echo "$ALIAS_RESP" | grep -o 'HTTP:[0-9]*' | cut -d: -f2) =~ ^2 ]] && echo 'OK' || echo 'FAIL')"
+printf "3.1.4-32 DELETE /directory/room  | %s | %s\n" \
+  "$(echo "$DELETE_RESP" | grep -o 'HTTP:[0-9]*' | cut -d: -f2)" \
+  "$([[ $(echo "$DELETE_RESP" | grep -o 'HTTP:[0-9]*' | cut -d: -f2) =~ ^2 ]] && echo 'OK' || echo 'FAIL')"
+printf "3.1.7-5 POST /receipt           | %s | %s\n" \
+  "$(echo "$RECEIPT_RESP" | grep -o 'HTTP:[0-9]*' | cut -d: -f2)" \
+  "$([[ $(echo "$RECEIPT_RESP" | grep -o 'HTTP:[0-9]*' | cut -d: -f2) =~ ^2 ]] && echo 'OK' || echo 'FAIL')"
+printf "3.1.7-6 POST /read_markers      | %s | %s\n" \
+  "$(echo "$READ_RESP" | grep -o 'HTTP:[0-9]*' | cut -d: -f2)" \
+  "$([[ $(echo "$READ_RESP" | grep -o 'HTTP:[0-9]*' | cut -d: -f2) =~ ^2 ]] && echo 'OK' || echo 'FAIL')"

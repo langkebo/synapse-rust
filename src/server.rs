@@ -1,5 +1,4 @@
-use axum::{routing::get, Json, Router};
-use serde_json::json;
+use axum::Router;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -71,13 +70,9 @@ impl SynapseServer {
 
         let address =
             format!("{}:{}", config.server.host, config.server.port).parse::<SocketAddr>()?;
-        let media_path = std::path::PathBuf::from("./media"); // Default or from config if added
+        let media_path = std::path::PathBuf::from("/app/data/media");
 
         let router = create_router((*app_state).clone())
-            .route(
-                "/{*path}",
-                get(|| async { Json(json!({"errcode": "UNKNOWN", "error": "Unknown endpoint"})) }),
-            )
             .layer({
                 let cors = &config.cors;
                 let mut layer = CorsLayer::new();
@@ -155,6 +150,13 @@ impl SynapseServer {
         if let Err(e) = self.warmup().await {
             tracing::warn!("Warmup encountered minor errors: {}", e);
         }
+
+        // Start key rotation scheduler
+        self.app_state
+            .services
+            .key_rotation_manager
+            .start_auto_rotation()
+            .await;
 
         info!("Starting scheduled database monitoring and maintenance tasks...");
         self.scheduled_tasks.start_all().await;

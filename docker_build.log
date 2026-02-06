@@ -1,0 +1,41 @@
+time="2026-02-06T12:37:44+08:00" level=warning msg="/home/hula/synapse_rust/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+ Image synapse_rust-synapse-rust Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 532B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 8.24kB done
+#2 DONE 0.0s
+Dockerfile:144
+
+--------------------
+
+ 143 |     # ============================================================================
+
+ 144 | >>> LABEL org.opencontainers.image.title="Synapse Rust" \
+
+ 145 | >>>       org.opencontainers.image.description="Matrix Homeserver implemented in Rust - Production Ready" \
+
+ 146 | >>>       org.opencontainers.image.version="0.1.0" \
+
+ 147 | >>>       org.opencontainers.image.source="https://github.com/synapse-rust/synapse-rust" \
+
+ 148 | >>>       org.opencontainers.image.vendor="Synapse Rust Team" \
+
+ 149 | >>>       org.opencontainers.image.licenses="MIT" \
+
+ 150 | >>>       maintainer="Synapse Rust Team <dev@cjystx.top>" \
+
+ 151 | >>>       com.matrix.server="cjystx.top" \
+
+ 152 | >>>       com.matrix.domain="matrix.cjystx.top" \
+
+ 153 | >>>       org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+
+ 154 |     
+
+--------------------
+
+failed to solve: Syntax error - can't find = in "-u". Must be of the form: name=value
+

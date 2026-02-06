@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-02-06T21:55:28.238251",
+  "total_tests": 6,
+  "passed_tests": 6,
+  "failed_tests": 0,
+  "success_rate": "100.0%",
+  "results": [
+    {
+      "test": "\u4e0a\u4f20\u8bbe\u5907\u5bc6\u94a5",
+      "endpoint": "POST /_matrix/client/r0/keys/upload",
+      "status_code": 200,
+      "expected": 200,
+      "success": true,
+      "response": "{\"one_time_key_counts\":{}}"
+    },
+    {
+      "test": "\u67e5\u8be2\u8bbe\u5907\u5bc6\u94a5",
+      "endpoint": "POST /_matrix/client/r0/keys/query",
+      "status_code": 200,
+      "expected": 200,
+      "success": true,
+      "response": "{\"device_keys\":{\"@e2e_test_20260206215528:cjystx.top\":{\"I5Fc5oFOCr4UzAzf\":{\"algorithms\":[\"m.olm.v1.curve25519-aes-sha2\"],\"device_id\":\"I5Fc5oFOCr4UzAzf\",\"keys\":{\"curve25519:ed25519:I5Fc5oFOCr4UzAzf\":\"test_key\",\"ed25519:ed25519:I5Fc5oFOCr4UzAzf\":\"test_key\"},\"signatures\":null,\"user_id\":\"@e2e_test_20260206215528:cjystx.top\"}}},\"failures\":{}}"
+    },
+    {
+      "test": "\u58f0\u660e\u4e00\u6b21\u6027\u5bc6\u94a5",
+      "endpoint": "POST /_matrix/client/r0/keys/claim",
+      "status_code": 200,
+      "expected": 200,
+      "success": true,
+      "response": "{\"failures\":{},\"one_time_keys\":{\"@e2e_test_20260206215528:cjystx.top\":{}}}"
+    },
+    {
+      "test": "\u83b7\u53d6\u5bc6\u94a5\u53d8\u66f4\u5217\u8868",
+      "endpoint": "GET /_matrix/client/r0/keys/changes",
+      "status_code": 200,
+      "expected": 200,
+      "success": true,
+      "response": "{\"changed\":[\"@e2e_test_20260206214924:cjystx.top\",\"@e2e_test_20260206215059:cjystx.top\",\"@e2e_test_20260206215227:cjystx.top\",\"@e2e_test_20260206215528:cjystx.top\"],\"left\":[]}"
+    },
+    {
+      "test": "\u83b7\u53d6\u623f\u95f4\u5bc6\u94a5\u5206\u53d1\u4fe1\u606f",
+      "endpoint": "GET /_matrix/client/r0/rooms/!wHj4aWQ8eikwU-PU0KNizTAQ:cjystx.top/keys/distribution",
+      "status_code": 200,
+      "expected": 200,
+      "success": true,
+      "response": "{\"algorithm\":\"m.megolm.v1.aes-sha2\",\"room_id\":\"!wHj4aWQ8eikwU-PU0KNizTAQ:cjystx.top\",\"session_id\":\"\",\"session_key\":\"\"}"
+    },
+    {
+      "test": "\u53d1\u9001\u8bbe\u5907\u5230\u8bbe\u5907\u6d88\u606f",
+      "endpoint": "PUT /_matrix/client/r0/sendToDevice/{event_type}/{transaction_id}",
+      "status_code": 200,
+      "expected": 200,
+      "success": true,
+      "response": "{\"txn_id\":\"test_txn_123\"}"
+    }
+  ]
+}

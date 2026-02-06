@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
@@ -383,8 +384,12 @@ impl RoomStorage {
         Ok(())
     }
 
-    pub async fn set_room_alias(&self, room_id: &str, alias: &str) -> Result<(), sqlx::Error> {
-        let created_by = format!("{}:{}", room_id, chrono::Utc::now().timestamp());
+    pub async fn set_room_alias(
+        &self,
+        room_id: &str,
+        alias: &str,
+        created_by: &str,
+    ) -> Result<(), sqlx::Error> {
         let creation_ts = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
@@ -479,6 +484,37 @@ impl RoomStorage {
         Ok(result.map(|r| r.0))
     }
 
+    pub async fn set_room_directory(
+        &self,
+        room_id: &str,
+        is_public: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO room_directory (room_id, is_public)
+            VALUES ($1, $2)
+            ON CONFLICT (room_id) DO UPDATE SET is_public = EXCLUDED.is_public
+            "#,
+        )
+        .bind(room_id)
+        .bind(is_public)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn remove_room_directory(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            DELETE FROM room_directory WHERE room_id = $1
+            "#,
+        )
+        .bind(room_id)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn set_room_account_data(
         &self,
         room_id: &str,
@@ -526,27 +562,28 @@ impl RoomStorage {
 
     pub async fn add_receipt(
         &self,
-        sender: &str,
+        _sender: &str,
         sent_to: &str,
         room_id: &str,
         event_id: &str,
         receipt_type: &str,
     ) -> Result<(), sqlx::Error> {
-        let now: i64 = chrono::Utc::now().timestamp();
+        let now: i64 = chrono::Utc::now().timestamp_millis();
+        let receipt_data = json!({});
         sqlx::query(
             r#"
-            INSERT INTO receipts (sender, sent_to, room_id, event_id, sent_ts, receipt_type)
+            INSERT INTO event_receipts (room_id, receipt_type, event_id, user_id, receipt_data, created_at)
             VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (sent_to, sender, room_id) DO UPDATE
-            SET event_id = EXCLUDED.event_id, sent_ts = EXCLUDED.sent_ts, receipt_type = EXCLUDED.receipt_type
+            ON CONFLICT (room_id, receipt_type, event_id, user_id) DO UPDATE
+            SET receipt_data = EXCLUDED.receipt_data, created_at = EXCLUDED.created_at
             "#,
         )
-        .bind(sender)
-        .bind(sent_to)
         .bind(room_id)
-        .bind(event_id)
-        .bind(now)
         .bind(receipt_type)
+        .bind(event_id)
+        .bind(sent_to)
+        .bind(receipt_data)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())

@@ -1,12 +1,18 @@
+# Synapse Rust Homeserver Configuration
+# Reference: synapse-rust project
+#
+# 服务器名称: cjystx.top
+# 服务器地址: matrix.cjystx.top:8008
+# 用户格式: @user:cjystx.top
+
 server:
-  name: "cjystx.top" # 生产环境域名，用户名格式: @user:cjystx.top
-  host: "0.0.0.0"
+  name: cjystx.top
+  host: 0.0.0.0
   port: 8008
-  public_host: "matrix.cjystx.top" # 公开访问域名，Nginx代理使用
-  registration_shared_secret: "test_shared_secret"
+  registration_shared_secret: "change_this_in_production_use_secure_random"
   admin_contact: "admin@cjystx.top"
-  max_upload_size: 104857600 # 100MB, 支持大文件上传
-  max_image_resolution: 33554432 # 32MP, 限制图片分辨率防止内存溢出
+  max_upload_size: 52428800
+  max_image_resolution: 33554432
   enable_registration: true
   enable_registration_captcha: false
   background_tasks_interval: 60
@@ -15,14 +21,7 @@ server:
   refresh_token_lifetime: 604800
   refresh_token_sliding_window_size: 1000
   session_duration: 86400
-  # 确保用户名格式统一为 @user:cjystx.top
-  allow_username_issue: true
-  disallow_username_inspection: false
-
-# 缓存优化 (Python Synapse 兼容参数)
-caches:
-  cache_factors: 2.0 # 缩放所有缓存的大小，Rust 版内存优势可设为 2.0
-  event_cache_size: 10000 # 内存中保留的事件数量，减少 DB 查询延迟
+  warmup_pool: true
 
 database:
   host: "db"
@@ -31,210 +30,87 @@ database:
   password: "synapse"
   name: "synapse_test"
   pool_size: 20
-  max_size: 100
-  min_idle: 5
-  connection_timeout: 60
+  max_size: 40
+  min_idle: 10
+  connection_timeout: 30
 
 redis:
   host: "redis"
   port: 6379
-  key_prefix: "synapse:"
+  key_prefix: "synapse:cjystx.top:"
   pool_size: 20
   enabled: true
+
+logging:
+  level: "warn"
+  format: "json"
+  log_file: ""
+  log_dir: ""
+
+federation:
+  enabled: true
+  allow_ingress: true
+  server_name: "cjystx.top"
+  federation_port: 8448
+  connection_pool_size: 10
+  max_transaction_payload: 50000
+  signing_key: "5XVPWT8O/DyaXT17qJpUnEO5aRl1Cmevojx0+8uPYV8="
+  key_id: "ed25519:testkb1OUw"
+  ca_file: ""
+  client_ca_file: ""
+
+security:
+  secret: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
+  expiry_time: 3600
+  refresh_token_expiry: 604800
+  argon2_m_cost: 8192
+  argon2_t_cost: 3
+  argon2_p_cost: 2
+
+search:
+  elasticsearch_url: "http://localhost:9200"
+  enabled: false
 
 rate_limit:
   enabled: true
   default:
     per_second: 10
     burst_size: 20
-  endpoints:
-    - path: "/_matrix/client/r0/login"
-      match_type: exact
-      rule:
-        per_second: 1
-        burst_size: 5
-    - path: "/_matrix/client/r0/register"
-      match_type: exact
-      rule:
-        per_second: 1
-        burst_size: 3
-    - path: "/_matrix/media/"
-      match_type: prefix
-      rule:
-        per_second: 2
-        burst_size: 10
-  ip_header_priority:
-    - "x-forwarded-for"
-    - "x-real-ip"
-    - "forwarded"
+  endpoints: []
+  ip_header_priority: ["x-forwarded-for", "x-real-ip", "forwarded"]
   include_headers: true
-  exempt_paths:
-    - "/"
-    - "/_matrix/client/versions"
+  exempt_paths: []
   exempt_path_prefixes: []
   endpoint_aliases: {}
-
-logging:
-  level: "info"
-  format: "json" # 改为 JSON 格式以便 Prometheus/Grafana 解析
-  log_file: null
-  log_dir: null
-  # 日志级别细粒度控制
-  levels:
-    default: "info"
-    synapse.handlers: "info"
-    synapse.storage: "warn"
-    synapse.http.client: "warn"
-  # 日志过滤
-  filters:
-    - module: "synapse.http.AccessLog"
-      format: "%(remote)s - %(request)s - %(code)s - %(time)s - %(message)s"
-  # 审计日志
-  audit_log:
-    enabled: true
-    path: "/var/log/synapse/audit.log"
-    max_size: 104857600 # 100MB
-    max_files: 10
-
-federation:
-  enabled: true
-  allow_ingress: true
-  server_name: "cjystx.top" # 联邦服务器名，用户名格式: @user:cjystx.top
-  federation_port: 8448
-  connection_pool_size: 10
-  max_transaction_payload: 10485760
-  send_queue_limit: 50 # 限制发送队列，防止单个节点慢导致内存积压
-  resolve_timeout: 15s # DNS 解析与连接超时，快速失败避免阻塞
-  signing_key: "gtjAoCT5GSIk9DhLAq46MEIy7RdmZirxZpj0iDknE7I="
-  ca_file: null
-  client_ca_file: null
-  # 信任的下载密钥，用于验证其他服务器的身份
-  key_requests:
-    conn_pool_size: 10
-    timeout: 15s
-  # 发送配置
-  sender:
-    worker: null
-  # 接收配置
-  receiver:
-    worker: null
-  # 排除的服务器列表
-  exclude_server_names:
-    - "*"
-  # 房间版本配置
-  room_versions:
-    default: "10"
-    supported:
-      - "1"
-      - "2"
-      - "3"
-      - "4"
-      - "5"
-      - "6"
-      - "7"
-      - "8"
-      - "9"
-      - "10"
-
-media:
-  max_image_pixels: 33554432 # 32MP, 限制图片分辨率防止内存溢出
-  thumbnail_sizes:
-    - width: 32
-      height: 32
-      method: crop
-    - width: 96
-      height: 96
-      method: crop
-    - width: 320
-      height: 240
-      method: scale
-    - width: 640
-      height: 480
-      method: scale
-    - width: 800
-      height: 600
-      method: scale
-
-search:
-  elasticsearch_url: "http://localhost:9200"
-  enabled: false
-
-security:
-  secret: "7206758265647f2fff7edb25bd4a3c323b05c888a6eff76bc8d3c30793ad293b"
-  expiry_time: 3600
-  refresh_token_expiry: 604800
-  bcrypt_rounds: 12
-  # 生产环境安全增强
-  user_directory:
-    enabled: true
-    search_all_users: false
-    prefer_local_users: true
-  # 防暴力破解配置
-  rate_limiting:
-    auth_failure: [2, 3, 5, 10, 20] # 递增锁定时间
-    login_attempt_count: [5, 10] # 登录尝试次数限制
-  # 会话安全配置
-  sessions:
-    maximum: 100
-    idle_timeout: 86400
-    expiry_time: 3600
-  # 密码强度配置
-  password:
-    minimum_length: 8
-    require_digit: true
-    require_symbol: true
-    require_uppercase: true
-    require_lowercase: true
-    blacklist: ["password", "123456", "qwerty", "admin"]
-
-# 生产环境监控配置
-metrics:
-  enabled: true
-  endpoint: "/_matrix/client/versions"
-  port: 9100
-
-# 报告配置
-reports:
-  server_notices:
-    enabled: true
-    room_name: "Server Notices"
-  message_template: |
-    You have been warned for %(reason)s.
-    This is an automated message.
-
-# HTTP客户端配置（用于联邦请求）
-http_client:
-  # DNS缓存配置
-  dns_cache:
-    ttl: 300
-    negative_ttl: 60
-  # 连接池配置
-  connection_pool:
-    max_connections_per_host: 100
-    max_total_connections: 500
-  # 超时配置
-  timeout:
-    connect: 10s
-    read: 30s
-    write: 30s
 
 admin_registration:
   enabled: true
   shared_secret: "test_shared_secret"
   nonce_timeout_seconds: 60
 
-# SMTP邮件服务配置 (用于邮箱验证)
+worker:
+  enabled: false
+  worker_app: ""
+  metrics_port: 0
+  health_port: 0
+  replication_port: 0
+
+cors:
+  allowed_origins: ["*"]
+  allow_credentials: false
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  allowed_headers: ["Authorization", "Content-Type", "X-Requested-With"]
+  max_age_seconds: 86400
+
 smtp:
-  enabled: false  # 生产环境设为true启用
-  host: "smtp.example.com"
-  port: 587
-  username: "noreply@example.com"
-  password: "your_smtp_password"
-  from: "Matrix <noreply@example.com>"
-  tls: true  # 使用STARTTLS
-  # 验证码有效期(秒)
-  verification_token_expire: 900  # 15分钟
-  # 速率限制
+  enabled: false
+  host: "localhost"
+  port: 25
+  username: ""
+  password: ""
+  from: "Matrix <noreply@cjystx.top>"
+  tls: true
+  verification_token_expire: 900
   rate_limit:
-    per_minute: 3  # 每分钟最多发送3封邮件
-    per_hour: 10  # 每小时最多发送10封邮件
+    per_minute: 3
+    per_hour: 10

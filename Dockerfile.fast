@@ -1,0 +1,70 @@
+# ============================================================================
+# Synapse Rust - Fast Development Docker Image
+# ============================================================================
+# Build Strategy: Use pre-compiled binaries for instant deployment
+#
+# This Dockerfile is optimized for rapid development/testing:
+# - Uses locally compiled binaries (no Rust compilation in Docker)
+# - Instant rebuilds when only source code changes
+# - Requires: cargo build --release must be run first
+# ============================================================================
+
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libssl3 \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user
+RUN groupadd --system synapse && \
+    useradd --system --gid synapse --home-dir /app --shell /usr/sbin/nologin synapse
+
+# Create directory structure
+RUN mkdir -p /app/bin /app/data /app/logs /app/config && \
+    chown -R synapse:synapse /app && \
+    chmod 755 /app
+
+# Copy pre-compiled binaries from local build
+COPY --chown=synapse:synapse target/release/synapse-rust /usr/local/bin/synapse-rust
+COPY --chown=synapse:synapse target/release/generate_test_keypair /usr/local/bin/generate_test_keypair
+
+# Copy configuration
+COPY --chown=synapse:synapse docker/config/homeserver.yaml /app/config/homeserver.yaml
+
+# Copy migrations
+COPY --chown=synapse:synapse migrations /app/migrations
+
+# Make binaries executable
+RUN chmod +x /usr/local/bin/synapse-rust /usr/local/bin/generate_test_keypair
+
+# Environment variables
+ENV DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
+ENV REDIS_URL=redis://redis:6379
+ENV RUST_LOG=warn
+ENV RUST_BACKTRACE=0
+ENV SERVER_NAME=cjystx.top
+ENV SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
+ENV TZ=UTC
+
+WORKDIR /app
+
+USER synapse
+
+EXPOSE 8008 8448
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -sf http://localhost:8008/_matrix/federation/v1/version || exit 1
+
+ENTRYPOINT ["sh", "-c"]
+CMD ["exec synapse-rust --config /app/config/homeserver.yaml"]
+
+STOPSIGNAL SIGTERM
+
+LABEL org.opencontainers.image.title="Synapse Rust (Fast Dev)" \
+      org.opencontainers.image.description="Matrix Homeserver - Fast Dev Build" \
+      org.opencontainers.image.version="0.1.0-dev"

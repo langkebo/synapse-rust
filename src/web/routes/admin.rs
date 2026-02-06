@@ -67,14 +67,18 @@ pub fn create_admin_router(_state: AppState) -> Router<AppState> {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BlockIpBody {
+    #[serde(alias = "ip", alias = "ip_address")]
     pub ip_address: String,
     pub reason: Option<String>,
     pub expires_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UnblockIpBody {
+    #[serde(alias = "ip", alias = "ip_address")]
     pub ip_address: String,
 }
 
@@ -243,30 +247,21 @@ impl SecurityStorage {
             IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(127, 0, 0, 1), 32).unwrap())
         };
 
-        let ip_addr: Option<IpNetwork> = match ip_network {
-            IpNetwork::V4(v4) if v4.prefix() == 32 => Some(IpNetwork::V4(v4)),
-            IpNetwork::V6(v6) if v6.prefix() == 128 => Some(IpNetwork::V6(v6)),
-            _ => None,
-        };
         let expires_at_ts = expires_at.map(|t| t.and_utc().timestamp());
-        sqlx::query(r#"DELETE FROM ip_blocks WHERE ip_range = $1 OR ip_address = $2"#)
+        sqlx::query(r#"DELETE FROM ip_blocks WHERE ip_range = $1"#)
             .bind(ip_network)
-            .bind(ip_addr)
             .execute(&*self.pool)
             .await?;
 
         sqlx::query(
             r#"
-            INSERT INTO ip_blocks (ip_range, ip_address, reason, blocked_at, blocked_ts, expires_at, expires_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO ip_blocks (ip_range, reason, blocked_ts, expires_ts)
+            VALUES ($1, $2, $3, $4)
             "#,
         )
         .bind(ip_network)
-        .bind(ip_addr)
         .bind(reason)
         .bind(now)
-        .bind(now)
-        .bind(expires_at_ts)
         .bind(expires_at_ts)
         .execute(&*self.pool)
         .await?;
@@ -288,15 +283,8 @@ impl SecurityStorage {
             return Ok(false);
         };
 
-        let ip_addr: Option<IpNetwork> = match ip_network {
-            IpNetwork::V4(v4) if v4.prefix() == 32 => Some(IpNetwork::V4(v4)),
-            IpNetwork::V6(v6) if v6.prefix() == 128 => Some(IpNetwork::V6(v6)),
-            _ => None,
-        };
-
-        let result = sqlx::query(r#"DELETE FROM ip_blocks WHERE ip_range = $1 OR ip_address = $2"#)
+        let result = sqlx::query(r#"DELETE FROM ip_blocks WHERE ip_range = $1"#)
             .bind(ip_network)
-            .bind(ip_addr)
             .execute(&*self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
@@ -307,14 +295,14 @@ impl SecurityStorage {
         struct BlockedIpRow {
             ip_address: String,
             reason: Option<String>,
-            blocked_at: i64,
-            expires_at: Option<i64>,
+            blocked_ts: i64,
+            expires_ts: Option<i64>,
         }
         let rows: Vec<BlockedIpRow> = sqlx::query_as(
             r#"
-            SELECT ip_range::text as ip_address, reason, blocked_at, expires_at
+            SELECT ip_range::text as ip_address, reason, blocked_ts, expires_ts
             FROM ip_blocks
-            ORDER BY blocked_at DESC
+            ORDER BY blocked_ts DESC
             "#,
         )
         .fetch_all(&*self.pool)
@@ -326,8 +314,8 @@ impl SecurityStorage {
                 json!({
                     "ip_address": r.ip_address,
                     "reason": r.reason,
-                    "blocked_at": r.blocked_at,
-                    "expires_at": r.expires_at
+                    "blocked_at": r.blocked_ts,
+                    "expires_at": r.expires_ts
                 })
             })
             .collect())
@@ -342,7 +330,7 @@ impl SecurityStorage {
             r#"
             SELECT 1 FROM ip_blocks
             WHERE $1::inet <<= ip_range
-            AND (expires_at IS NULL OR expires_at > $2)
+            AND (expires_ts IS NULL OR expires_ts > $2)
             "#,
         )
         .bind(ip)
@@ -1139,7 +1127,7 @@ pub async fn get_media_stats(
     _admin: AdminUser,
     State(_state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let media_path = std::path::PathBuf::from("./media");
+    let media_path = std::path::PathBuf::from("/app/data/media");
 
     let total_size = if media_path.exists() {
         let mut total: i64 = 0;
@@ -1167,7 +1155,7 @@ pub async fn get_media_stats(
         "total_storage_bytes": total_size,
         "total_storage_human": format_bytes(total_size),
         "file_count": file_count,
-        "media_directory": "./media",
+        "media_directory": "/app/data/media",
         "thumbnail_enabled": true,
         "max_upload_size_mb": 50
     })))

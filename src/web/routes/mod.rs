@@ -157,6 +157,7 @@ fn extract_token_from_headers(headers: &HeaderMap) -> Result<String, ApiError> {
 
 pub fn create_router(state: AppState) -> Router {
     Router::new()
+        .without_v07_checks()
         .route(
             "/",
             get(|| async {
@@ -222,8 +223,16 @@ pub fn create_router(state: AppState) -> Router {
             get(get_messages),
         )
         .route(
-            "/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}",
-            put(send_message),
+            "/_matrix/client/r0/rooms/{room_id}/typing/{user_id}",
+            put(set_typing),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
+            post(send_receipt),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/read_markers",
+            post(set_read_markers),
         )
         .route("/_matrix/client/r0/rooms/{room_id}/join", post(join_room))
         .route("/_matrix/client/r0/rooms/{room_id}/leave", post(leave_room))
@@ -236,10 +245,15 @@ pub fn create_router(state: AppState) -> Router {
             post(invite_user),
         )
         .route("/_matrix/client/r0/createRoom", post(create_room))
-        .route("/_matrix/client/r0/directory/room/{room_id}", get(get_room))
         .route(
-            "/_matrix/client/r0/directory/room/{room_id}",
-            delete(delete_room),
+            "/_matrix/client/r0/directory/room/alias/{room_alias}",
+            get(get_room_by_alias),
+        )
+        .route(
+            "/_matrix/client/r0/directory/room/{param}",
+            get(get_room)
+                .put(set_room_directory)
+                .delete(delete_room_directory),
         )
         .route(
             "/_matrix/client/r0/directory/room/{room_id}/alias",
@@ -252,10 +266,6 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
             delete(delete_room_alias),
-        )
-        .route(
-            "/_matrix/client/r0/directory/room/alias/{room_alias}",
-            get(get_room_by_alias),
         )
         .route("/_matrix/client/r0/publicRooms", get(get_public_rooms))
         .route("/_matrix/client/r0/publicRooms", post(create_public_room))
@@ -278,18 +288,6 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/_matrix/client/r0/presence/{user_id}/status",
             put(set_presence),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/typing/{user_id}",
-            put(set_typing),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
-            post(send_receipt),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/read_markers",
-            post(set_read_markers),
         )
         .route(
             "/_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}",
@@ -322,6 +320,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/r0/rooms/{room_id}/kick", post(kick_user))
         .route("/_matrix/client/r0/rooms/{room_id}/ban", post(ban_user))
         .route("/_matrix/client/r0/rooms/{room_id}/unban", post(unban_user))
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}",
+            put(send_message),
+        )
         // 合并子路由器
         .merge(create_private_chat_router(state.clone()))
         .merge(create_friend_router(state.clone()))
@@ -1118,21 +1120,75 @@ async fn create_room(
 async fn get_room(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(param): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_id = if param.starts_with('!') {
+        param
+    } else {
+        return Err(ApiError::bad_request("Invalid room_id format".to_string()));
+    };
     Ok(Json(state.services.room_service.get_room(&room_id).await?))
 }
 
-async fn delete_room(
+async fn delete_room_directory(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(param): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !auth_user.is_admin {
-        return Err(ApiError::forbidden("Admin access required".to_string()));
+    if !param.starts_with('!') {
+        return Err(ApiError::bad_request("Invalid room_id format".to_string()));
     }
 
-    state.services.room_service.delete_room(&room_id).await?;
+    let is_creator = state
+        .services
+        .room_service
+        .is_room_creator(&param, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room creator: {}", e)))?;
+
+    if !auth_user.is_admin && !is_creator {
+        return Err(ApiError::forbidden(
+            "Only room creator or server admin can remove room from directory".to_string(),
+        ));
+    }
+
+    state
+        .services
+        .room_service
+        .remove_room_directory(&param)
+        .await?;
+    Ok(Json(json!({})))
+}
+
+async fn set_room_directory(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(param): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let room_id = body
+        .get("room_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("room_id required".to_string()))?;
+
+    let alias = if param.starts_with('#') {
+        param
+    } else {
+        format!("#{}", param)
+    };
+
+    state
+        .services
+        .room_service
+        .set_room_alias(room_id, &alias, &auth_user.user_id)
+        .await?;
+
+    state
+        .services
+        .room_service
+        .set_room_directory(room_id, true)
+        .await?;
+
     Ok(Json(json!({})))
 }
 
@@ -1151,13 +1207,13 @@ async fn get_room_aliases(
 
 async fn set_room_alias(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path((room_id, room_alias)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     state
         .services
         .room_service
-        .set_room_alias(&room_id, &room_alias)
+        .set_room_alias(&room_id, &room_alias, &auth_user.user_id)
         .await?;
     Ok(Json(json!({})))
 }

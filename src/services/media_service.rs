@@ -10,7 +10,11 @@ pub struct MediaService {
 impl MediaService {
     pub fn new(media_path: &str) -> Self {
         let path = PathBuf::from(media_path);
+        ::tracing::info!("MediaService::new called with path: {}", media_path);
+        ::tracing::info!("Media path exists: {}", path.exists());
+        
         if !path.exists() {
+            ::tracing::info!("Attempting to create media directory: {}", path.display());
             if let Err(e) = std::fs::create_dir_all(&path) {
                 ::tracing::error!("Failed to create media directory {}: {}", path.display(), e);
             } else {

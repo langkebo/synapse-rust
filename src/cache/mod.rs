@@ -31,7 +31,7 @@ impl Default for CacheConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LocalCache {
     cache: Cache<String, String>,
 }
@@ -70,7 +70,7 @@ impl LocalCache {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RedisCache {
     pool: Pool,
 }
@@ -269,7 +269,7 @@ return {allowed, retry_after, remaining}
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CacheManager {
     local: LocalCache,
     redis: Option<Arc<RedisCache>>,
@@ -491,7 +491,7 @@ pub struct RateLimitDecision {
     pub remaining: u32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct LocalRateLimitState {
     tokens: f64,
     last_ms: u64,
@@ -632,5 +632,113 @@ mod tests {
         };
         assert_eq!(claims.user_id, "@user:example.com");
         assert_eq!(claims.device_id, Some("DEVICE456".to_string()));
+    }
+}
+
+pub mod compression {
+    use std::io::{Read, Write};
+
+    const COMPRESSION_THRESHOLD: usize = 1024;
+
+    pub fn compress(data: &[u8]) -> Result<Vec<u8>, &'static str> {
+        if data.len() < COMPRESSION_THRESHOLD {
+            let mut result = Vec::with_capacity(data.len() + 1);
+            result.push(0);
+            result.extend_from_slice(data);
+            Ok(result)
+        } else {
+            let mut encoder =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(6));
+            encoder.write_all(data).map_err(|_| "Failed to compress")?;
+            let compressed = encoder
+                .finish()
+                .map_err(|_| "Failed to finish compression")?;
+
+            let mut result = Vec::with_capacity(compressed.len() + 1);
+            result.push(1);
+            result.extend_from_slice(&compressed);
+            Ok(result)
+        }
+    }
+
+    pub fn decompress(data: &[u8]) -> Result<Vec<u8>, &'static str> {
+        if data.is_empty() {
+            return Err("Empty data");
+        }
+
+        let is_compressed = data[0] == 1;
+        let payload = &data[1..];
+
+        if !is_compressed {
+            Ok(payload.to_vec())
+        } else {
+            let mut decoder = flate2::read::GzDecoder::new(payload);
+            let mut decompressed = Vec::new();
+            decoder
+                .read_to_end(&mut decompressed)
+                .map_err(|_| "Failed to decompress")?;
+            Ok(decompressed)
+        }
+    }
+
+    pub fn compress_string(s: &str) -> Result<Vec<u8>, &'static str> {
+        compress(s.as_bytes())
+    }
+
+    pub fn decompress_to_string(data: &[u8]) -> Result<String, &'static str> {
+        decompress(data).and_then(|bytes| String::from_utf8(bytes).map_err(|_| "Invalid UTF-8"))
+    }
+
+    pub fn should_compress(data: &[u8]) -> bool {
+        data.len() >= COMPRESSION_THRESHOLD
+    }
+}
+
+#[cfg(test)]
+mod compression_tests {
+    use super::compression::*;
+
+    #[test]
+    fn test_compress_decompress_roundtrip() {
+        let original = b"Hello, World! This is a test string for compression.";
+
+        let compressed = compress(original).unwrap();
+        assert!(!compressed.is_empty());
+
+        let decompressed = decompress(&compressed).unwrap();
+        assert_eq!(decompressed, original);
+    }
+
+    #[test]
+    fn test_small_data_not_compressed() {
+        let original = b"small";
+
+        let compressed = compress(original).unwrap();
+        assert_eq!(compressed[0], 0);
+        assert_eq!(&compressed[1..], original);
+    }
+
+    #[test]
+    fn test_compress_string_roundtrip() {
+        let original = "Test string with unicode: 你好世界 🌍";
+
+        let compressed = compress_string(original).unwrap();
+        let decompressed = decompress_to_string(&compressed).unwrap();
+        assert_eq!(decompressed, original);
+    }
+
+    #[test]
+    fn test_decompress_empty() {
+        let result = decompress(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_compress_decompress_large_data() {
+        let original: Vec<u8> = (0..10000).map(|i| (i % 256) as u8).collect();
+
+        let compressed = compress(&original).unwrap();
+        let decompressed = decompress(&compressed).unwrap();
+        assert_eq!(decompressed, original);
     }
 }

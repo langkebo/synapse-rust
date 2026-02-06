@@ -7,6 +7,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use base64::Engine;
 use serde_json::{json, Value};
 
 pub fn create_media_router(_state: AppState) -> Router<AppState> {
@@ -41,20 +42,30 @@ async fn upload_media_v3(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let content = body
-        .get("content")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| ApiError::bad_request("No file provided".to_string()))?;
+    let content_bytes: Vec<u8> = match body.get("content") {
+        Some(content) => {
+            if let Some(arr) = content.as_array() {
+                arr.iter().map(|v| v.as_u64().unwrap_or(0) as u8).collect()
+            } else if let Some(str_val) = content.as_str() {
+                base64::engine::general_purpose::STANDARD
+                    .decode(str_val)
+                    .map_err(|_| ApiError::bad_request("Invalid base64 content".to_string()))?
+            } else {
+                return Err(ApiError::bad_request(
+                    "Invalid content format. Expected array or base64 string".to_string(),
+                ));
+            }
+        }
+        None => {
+            return Err(ApiError::bad_request("No file provided".to_string()));
+        }
+    };
+
     let content_type = body
         .get("content_type")
         .and_then(|v| v.as_str())
         .unwrap_or("application/octet-stream");
     let filename = body.get("filename").and_then(|v| v.as_str());
-
-    let content_bytes: Vec<u8> = content
-        .iter()
-        .map(|v| v.as_u64().unwrap_or(0) as u8)
-        .collect();
 
     let media_service = state.services.media_service.clone();
     Ok(Json(
@@ -194,20 +205,30 @@ async fn upload_media_v1(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let content = body
-        .get("content")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| ApiError::bad_request("No file provided".to_string()))?;
+    let content_bytes: Vec<u8> = match body.get("content") {
+        Some(content) => {
+            if let Some(arr) = content.as_array() {
+                arr.iter().map(|v| v.as_u64().unwrap_or(0) as u8).collect()
+            } else if let Some(str_val) = content.as_str() {
+                base64::engine::general_purpose::STANDARD
+                    .decode(str_val)
+                    .map_err(|_| ApiError::bad_request("Invalid base64 content".to_string()))?
+            } else {
+                return Err(ApiError::bad_request(
+                    "Invalid content format. Expected array or base64 string".to_string(),
+                ));
+            }
+        }
+        None => {
+            return Err(ApiError::bad_request("No file provided".to_string()));
+        }
+    };
+
     let content_type = body
         .get("content_type")
         .and_then(|v| v.as_str())
         .unwrap_or("application/octet-stream");
     let filename = body.get("filename").and_then(|v| v.as_str());
-
-    let content_bytes: Vec<u8> = content
-        .iter()
-        .map(|v| v.as_u64().unwrap_or(0) as u8)
-        .collect();
 
     Ok(Json(
         state

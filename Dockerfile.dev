@@ -1,0 +1,102 @@
+# ============================================================================
+# Synapse Rust - Development/Test Optimized Docker Image
+# ============================================================================
+# Build Strategy: Multi-stage with caching for fast rebuilds
+#
+# This Dockerfile is optimized for development and testing:
+# - Uses multi-stage builds
+# - Leverages Docker layer caching
+# - Fast rebuilds when only source code changes
+# - Includes build tools for debugging
+# ============================================================================
+
+# ============================================================================
+# Stage 1: Build
+# ============================================================================
+FROM rust:1.83-slim-bookworm AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /build
+
+# Copy Cargo files first for better caching
+COPY Cargo.toml Cargo.lock ./
+
+# Create dummy main.rs to cache dependencies
+RUN mkdir src && \
+    echo "fn main() {}" > src/main.rs && \
+    cargo build --release && \
+    rm -rf src
+
+# Copy actual source code
+COPY src ./src
+
+# Build the application
+RUN cargo build --release
+
+# ============================================================================
+# Stage 2: Runtime
+# ============================================================================
+FROM debian:bookworm-slim AS runtime
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libssl3 \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user
+RUN groupadd --system synapse && \
+    useradd --system --gid synapse --home-dir /app --shell /usr/sbin/nologin synapse
+
+# Create directory structure
+RUN mkdir -p /app/bin /app/data /app/logs /app/config && \
+    chown -R synapse:synapse /app && \
+    chmod 755 /app
+
+# Copy binaries from builder stage
+COPY --from=builder --chown=synapse:synapse /build/target/release/synapse-rust /usr/local/bin/synapse-rust
+COPY --from=builder --chown=synapse:synapse /build/target/release/generate_test_keypair /usr/local/bin/generate_test_keypair
+
+# Copy configuration
+COPY --chown=synapse:synapse docker/config/homeserver.yaml /app/config/homeserver.yaml
+
+# Make binaries executable
+RUN chmod +x /usr/local/bin/synapse-rust /usr/local/bin/generate_test_keypair
+
+# Environment variables
+ENV DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
+ENV REDIS_URL=redis://redis:6379
+ENV RUST_LOG=warn
+ENV RUST_BACKTRACE=0
+ENV SERVER_NAME=cjystx.top
+ENV SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
+ENV TZ=UTC
+
+WORKDIR /app
+
+USER synapse
+
+EXPOSE 8008 8448
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -sf http://localhost:8008/_matrix/federation/v1/version || exit 1
+
+ENTRYPOINT ["sh", "-c"]
+CMD ["exec synapse-rust --config /app/config/homeserver.yaml"]
+
+STOPSIGNAL SIGTERM
+
+LABEL org.opencontainers.image.title="Synapse Rust (Dev)" \
+      org.opencontainers.image.description="Matrix Homeserver - Development Build" \
+      org.opencontainers.image.version="0.1.0-dev"

@@ -15,25 +15,23 @@ TEST_ACCOUNTS = {
     "admin": {
         "username": "admin",
         "password": "Wzc9890951!",
-        "user_id": "@admin:matrix.cjystx.top",
-        "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAdGVzdHVzZXIxOm1hdHJpeC5janlzdHgudG9wIiwidXNlcl9pZCI6IkB0ZXN0dXNlcjE6bWF0cml4LmNqeXN0eC50b3AiLCJhZG1pbiI6dHJ1ZSwiZXhwIjoxNzcwMTg0MDUwLCJpYXQiOjE3NzAxODA0NTAsImRldmljZV9pZCI6Ik4zbUhuam1ZWFhxZ3VBZGgifQ.G8092HdzmY_a73l-jvzYBsLTd4TLf2PVOkdkDwAy2X8"
+        "user_id": "@admin:cjystx.top",
     },
     "testuser1": {
         "username": "testuser1",
-        "password": "TestUser123456!",
-        "user_id": "@testuser1:matrix.cjystx.top",
-        "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAdGVzdHVzZXIxOm1hdHJpeC5janlzdHgudG9wIiwidXNlcl9pZCI6IkB0ZXN0dXNlcjE6bWF0cml4LmNqeXN0eC50b3AiLCJhZG1pbiI6dHJ1ZSwiZXhwIjoxNzcwMTg0MDUwLCJpYXQiOjE3NzAxODA0NTAsImRldmljZV9pZCI6Ik4zbUhuam1ZWFhxZ3VBZGgifQ.G8092HdzmY_a73l-jvzYBsLTd4TLf2PVOkdkDwAy2X8"
+        "password": "TestUser123!",
+        "user_id": "@testuser1:cjystx.top",
     }
 }
 
 # 测试房间信息
 TEST_ROOMS = {
     "room1": {
-        "room_id": "!BfUBQVVQfR0EQUmS9kwF_EQ2:matrix.cjystx.top",
+        "room_id": "!ZvtusAjkfrGp5ZEBbL9EfptT:cjystx.top",
         "name": "Test Room 1"
     },
     "room2": {
-        "room_id": "!pdsb0b_OqRVJazC6JYW1CZRQ:matrix.cjystx.top",
+        "room_id": "!pdsb0b_OqRVJazC6JYW1CZRQ:cjystx.top",
         "name": "Test Room 2"
     }
 }
@@ -133,7 +131,7 @@ def test_2_2_user_management():
     print("="*80 + "\n")
     
     token = TEST_ACCOUNTS["admin"]["access_token"]
-    user_id = TEST_ACCOUNTS["testuser1"]["user_id"]
+    user_id = TEST_ACCOUNTS["admin"]["user_id"]
     
     # 1. 获取用户列表（分页）
     print("测试1: 获取用户列表（分页）")
@@ -308,6 +306,26 @@ def main():
     print("="*80)
     print(f"测试时间: {datetime.now().isoformat()}")
     print(f"服务器地址: {BASE_URL}")
+    print()
+    
+    # 登录获取token
+    print("正在登录管理员账户...")
+    login_response = requests.post(
+        f"{BASE_URL}/_matrix/client/r0/login",
+        json={
+            "type": "m.login.password",
+            "user": TEST_ACCOUNTS["admin"]["username"],
+            "password": TEST_ACCOUNTS["admin"]["password"]
+        }
+    )
+    
+    if login_response.status_code != 200:
+        print(f"登录失败: {login_response.status_code}")
+        print(login_response.text)
+        exit(1)
+    
+    TEST_ACCOUNTS["admin"]["access_token"] = login_response.json()["access_token"]
+    print(f"登录成功，Token: {TEST_ACCOUNTS['admin']['access_token'][:50]}...")
     print()
     
     # 运行所有测试

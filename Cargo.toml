@@ -32,6 +32,7 @@ deadpool-postgres = "0.12"
 redis = { version = "0.27", features = ["aio", "tokio-comp"] }
 deadpool-redis = "0.18"
 moka = { version = "0.12", features = ["future", "sync"] }
+lru = "0.12"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -84,6 +85,7 @@ dashmap = { version = "6", features = ["serde"] }
 parking_lot = "0.12"
 lazy_static = "1"
 regex = "1.10"
+flate2 = "1.0"
 
 # Search
 elasticsearch = "8.15.0-alpha.1"
@@ -124,3 +126,7 @@ path = "tests/unit/mod.rs"
 [[test]]
 name = "e2e"
 path = "tests/e2e/mod.rs"
+
+[[bin]]
+name = "generate_test_keypair"
+path = "src/bin/generate_test_keypair.rs"

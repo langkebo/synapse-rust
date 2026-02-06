@@ -533,6 +533,19 @@ impl RoomService {
         Ok(exists)
     }
 
+    pub async fn is_room_creator(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?;
+
+        match room {
+            Some(r) => Ok(r.creator == user_id),
+            None => Ok(false),
+        }
+    }
+
     pub async fn get_room_aliases(&self, room_id: &str) -> ApiResult<Vec<String>> {
         self.room_storage
             .get_room_aliases(room_id)
@@ -540,9 +553,14 @@ impl RoomService {
             .map_err(|e| ApiError::internal(format!("Failed to get room aliases: {}", e)))
     }
 
-    pub async fn set_room_alias(&self, room_id: &str, alias: &str) -> ApiResult<()> {
+    pub async fn set_room_alias(
+        &self,
+        room_id: &str,
+        alias: &str,
+        created_by: &str,
+    ) -> ApiResult<()> {
         self.room_storage
-            .set_room_alias(room_id, alias)
+            .set_room_alias(room_id, alias, created_by)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to set room alias: {}", e)))
     }
@@ -559,6 +577,20 @@ impl RoomService {
             .remove_room_alias(room_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to remove room alias: {}", e)))
+    }
+
+    pub async fn set_room_directory(&self, room_id: &str, is_public: bool) -> ApiResult<()> {
+        self.room_storage
+            .set_room_directory(room_id, is_public)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to set room directory: {}", e)))
+    }
+
+    pub async fn remove_room_directory(&self, room_id: &str) -> ApiResult<()> {
+        self.room_storage
+            .remove_room_directory(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to remove room from directory: {}", e)))
     }
 }
 

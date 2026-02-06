@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO federation_signing_keys (key_id, secret_key, public_key, created_at, expires_at)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (key_id) DO UPDATE SET\n                secret_key = EXCLUDED.secret_key,\n                public_key = EXCLUDED.public_key,\n                created_at = EXCLUDED.created_at,\n                expires_at = EXCLUDED.expires_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fdac48842bd09f96304744b75c634cb1e77cfdcf66850313e66ba737eccc506f"
+}

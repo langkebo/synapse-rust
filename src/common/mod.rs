@@ -5,6 +5,7 @@ pub mod crypto;
 pub mod early_exit;
 pub mod error;
 pub mod error_context;
+pub mod federation_test_keys;
 pub mod health;
 pub mod logging;
 pub mod macros;

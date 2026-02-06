@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT public_key, expires_at FROM federation_signing_keys WHERE key_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "public_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "expires_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "10bc5d4890374783b4c50fda52262387fb1141cc4b1f38550ca2aee3c5769537"
+}

@@ -7,6 +7,7 @@ use crate::e2ee::cross_signing::CrossSigningService;
 use crate::e2ee::device_keys::DeviceKeyService;
 use crate::e2ee::megolm::MegolmService;
 use crate::e2ee::to_device::ToDeviceService;
+use crate::federation::{DeviceSyncManager, EventAuthChain, KeyRotationManager};
 use crate::storage::email_verification::EmailVerificationStorage;
 use crate::storage::*;
 use sqlx::{Pool, Postgres};
@@ -75,6 +76,12 @@ pub struct ServiceContainer {
     pub admin_registration_service: AdminRegistrationService,
     /// 邮箱验证存储
     pub email_verification_storage: EmailVerificationStorage,
+    /// 事件授权链服务
+    pub event_auth_chain: EventAuthChain,
+    /// 密钥轮换管理服务
+    pub key_rotation_manager: KeyRotationManager,
+    /// 设备同步管理服务
+    pub device_sync_manager: DeviceSyncManager,
 }
 
 impl ServiceContainer {
@@ -116,7 +123,7 @@ impl ServiceContainer {
         let to_device_service =
             ToDeviceService::new(to_device_storage).with_user_storage(user_storage.clone());
         let presence_service = PresenceStorage::new(presence_pool.clone(), cache.clone());
-        let voice_service = VoiceService::new(pool, cache.clone(), "/tmp/synapse_voice");
+        let voice_service = VoiceService::new(pool, cache.clone(), "/app/data/media/voice");
         let search_service = Arc::new(crate::services::search_service::SearchService::new(
             &config.search.elasticsearch_url,
             config.search.enabled,
@@ -154,7 +161,7 @@ impl ServiceContainer {
             event_storage.clone(),
             room_storage.clone(),
         ));
-        let media_service = MediaService::new("media");
+        let media_service = MediaService::new("/app/data/media");
         let admin_registration_service = AdminRegistrationService::new(
             auth_service.clone(),
             config.admin_registration.clone(),
@@ -163,6 +170,11 @@ impl ServiceContainer {
         );
 
         let email_verification_storage = EmailVerificationStorage::new(pool);
+
+        let event_auth_chain = EventAuthChain::new();
+        let server_name = config.server.name.clone();
+        let key_rotation_manager = KeyRotationManager::new(pool, &server_name);
+        let device_sync_manager = DeviceSyncManager::new(pool, Some(cache.clone()));
 
         Self {
             user_storage,
@@ -193,6 +205,9 @@ impl ServiceContainer {
             config,
             admin_registration_service,
             email_verification_storage,
+            event_auth_chain,
+            key_rotation_manager,
+            device_sync_manager,
         }
     }
 
