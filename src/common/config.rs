@@ -1,8 +1,23 @@
 use config::Config as ConfigBuilder;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+// The issue is that parking_lot::RwLock doesn't poison on panic unlike std::sync::RwLock
+// parking_lot's lock() methods return &T directly, not Result<_, PoisonError<T>>
+
+use std::sync::Arc;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("Config load error: {0}")]
+    LoadError(String),
+    #[error("Config parse error: {0}")]
+    ParseError(String),
+    #[error("Validation error: {0}")]
+    ValidationError(String),
+}
 
 /// 服务器配置结构。
 ///
@@ -187,13 +202,31 @@ impl ConfigManager {
         }
     }
 
+    /// 安全读取配置（只读）。
+    ///
+    /// # 返回值
+    ///
+    /// 成功时返回配置只读引用
+    fn read_config(&self, _location: &str) -> RwLockReadGuard<'_, Config> {
+        self.config.read()
+    }
+
+    /// 安全写入配置（可写）。
+    ///
+    /// # 返回值
+    ///
+    /// 成功时返回配置可变引用
+    fn write_config(&self, _location: &str) -> RwLockWriteGuard<'_, Config> {
+        self.config.write()
+    }
+
     /// 获取服务器名称。
     ///
     /// # 返回值
     ///
     /// 返回服务器名称字符串
     pub fn get_server_name(&self) -> String {
-        let config = self.config.read().unwrap();
+        let config = self.read_config("get_server_name");
         config.server.name.clone()
     }
 
@@ -203,7 +236,7 @@ impl ConfigManager {
     ///
     /// 返回服务器主机字符串
     pub fn get_server_host(&self) -> String {
-        let config = self.config.read().unwrap();
+        let config = self.read_config("get_server_host");
         config.server.host.clone()
     }
 
@@ -213,7 +246,7 @@ impl ConfigManager {
     ///
     /// 返回服务器端口号
     pub fn get_server_port(&self) -> u16 {
-        let config = self.config.read().unwrap();
+        let config = self.read_config("get_server_port");
         config.server.port
     }
 
@@ -223,7 +256,7 @@ impl ConfigManager {
     ///
     /// 返回 PostgreSQL 连接字符串
     pub fn get_database_url(&self) -> String {
-        let config = self.config.read().unwrap();
+        let config = self.read_config("get_database_url");
         format!(
             "postgres://{}:{}@{}:{}/{}",
             config.database.username,
@@ -240,7 +273,7 @@ impl ConfigManager {
     ///
     /// 返回 Redis 连接字符串
     pub fn get_redis_url(&self) -> String {
-        let config = self.config.read().unwrap();
+        let config = self.read_config("get_redis_url");
         format!("redis://{}:{}", config.redis.host, config.redis.port)
     }
 
@@ -250,7 +283,7 @@ impl ConfigManager {
     ///
     /// 返回配置克隆
     pub fn get_config(&self) -> Config {
-        let config = self.config.read().unwrap();
+        let config = self.read_config("get_config");
         config.clone()
     }
 
@@ -263,13 +296,12 @@ impl ConfigManager {
     /// # 返回值
     ///
     /// 成功时返回 `Ok(())`，失败时返回错误
-    pub fn update_config<F>(&self, f: F) -> Result<(), Box<dyn std::error::Error>>
+    pub fn update_config<F>(&self, f: F)
     where
         F: FnOnce(&mut Config),
     {
-        let mut config = self.config.write().unwrap();
+        let mut config = self.write_config("update_config");
         f(&mut config);
-        Ok(())
     }
 }
 
@@ -632,8 +664,8 @@ pub struct ReplicationHttpConfig {
 
 impl Config {
     pub async fn load() -> Result<Self, Box<dyn std::error::Error>> {
-        let config_path =
-            std::env::var("SYNAPSE_CONFIG_PATH").unwrap_or_else(|_| "/app/config/homeserver.yaml".to_string());
+        let config_path = std::env::var("SYNAPSE_CONFIG_PATH")
+            .unwrap_or_else(|_| "/app/config/homeserver.yaml".to_string());
 
         let config = ConfigBuilder::builder()
             .add_source(config::File::with_name(&config_path))

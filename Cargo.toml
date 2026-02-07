@@ -32,7 +32,7 @@ deadpool-postgres = "0.12"
 redis = { version = "0.27", features = ["aio", "tokio-comp"] }
 deadpool-redis = "0.18"
 moka = { version = "0.12", features = ["future", "sync"] }
-lru = "0.12"
+lru = "0.16.3"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -70,7 +70,7 @@ opentelemetry-jaeger = "0.20"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
-time = "0.3"
+time = "0.3.47"
 
 # Utilities
 thiserror = "1.0"

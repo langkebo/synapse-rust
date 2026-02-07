@@ -364,7 +364,13 @@ impl Validator {
 
 impl Default for Validator {
     fn default() -> Self {
-        Self::new().expect("Failed to create validator")
+        Self::new().unwrap_or_else(|e| {
+            panic!(
+                "Critical: Failed to create default validator - regex compilation error: {}. \
+                 This indicates a programming error in regex patterns.",
+                e
+            )
+        })
     }
 }
 

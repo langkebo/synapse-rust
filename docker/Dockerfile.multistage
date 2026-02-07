@@ -1,0 +1,170 @@
+# ============================================================================
+# Synapse Rust - Multi-Stage Production Build Docker Image
+# ============================================================================
+# Build Strategy: Multi-stage build for minimal final image
+#
+# This Dockerfile uses multi-stage builds to:
+# 1. Stage 1 (builder): Compile Rust application with optimizations
+# 2. Stage 2 (runtime): Minimal runtime image with only essential dependencies
+#
+# Benefits:
+# - Final image contains only runtime dependencies (no Rust toolchain)
+# - Reduced attack surface and image size (~150MB vs ~2GB)
+# - Better layer caching for faster incremental builds
+# ============================================================================
+
+# ============================================================================
+# Stage 1: Builder - Compile Rust application
+# ============================================================================
+FROM rust:1-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache \
+    musl-dev \
+    openssl-dev \
+    postgresql-dev \
+    pkgconfig
+
+# Set working directory
+WORKDIR /build
+
+# Copy source code
+COPY . .
+
+# Build with optimizations for production
+# - LTO (Link Time Optimization) for smaller binary size
+# - codegen-units=1 for better optimization
+# - opt-level=3 for maximum optimization
+# - server feature enables the web server components
+RUN cargo build --release \
+    --locked \
+    --features "server" \
+    && strip --strip-all target/release/synapse-rust \
+    && strip --strip-all target/release/generate_test_keypair
+
+# ============================================================================
+# Stage 2: Runtime - Minimal production image
+# ============================================================================
+FROM debian:bookworm-slim AS runtime
+
+# ============================================================================
+# Install Runtime Dependencies Only
+# ============================================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libssl3 \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# ============================================================================
+# Security: Create Non-Root User
+# ============================================================================
+RUN groupadd --system synapse && \
+    useradd --system --gid synapse --home-dir /app --shell /usr/sbin/nologin synapse
+
+# ============================================================================
+# Directory Structure
+# ============================================================================
+RUN mkdir -p /app/bin /app/data /app/logs /app/config && \
+    chown -R synapse:synapse /app && \
+    chmod 755 /app
+
+# ============================================================================
+# Copy Pre-compiled Binaries from Builder Stage
+# ============================================================================
+COPY --from=builder /build/target/release/synapse-rust /usr/local/bin/synapse-rust
+COPY --from=builder /build/target/release/generate_test_keypair /usr/local/bin/generate_test_keypair
+
+# ============================================================================
+# Copy Configuration Files
+# ============================================================================
+COPY --chown=synapse:synapse docker/config/homeserver.yaml /app/config/homeserver.yaml
+
+# ============================================================================
+# Security: Drop Capabilities and Restrict Permissions
+# ============================================================================
+RUN chmod 500 /usr/local/bin/synapse-rust && \
+    chmod 500 /usr/local/bin/generate_test_keypair
+
+# ============================================================================
+# Environment Variables
+# ============================================================================
+ENV DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
+ENV REDIS_URL=redis://redis:6379
+ENV RUST_LOG=warn
+ENV RUST_BACKTRACE=0
+ENV SERVER_NAME=cjystx.top
+ENV SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
+ENV TZ=UTC
+ENV PATH=/usr/local/bin:/usr/bin:/bin
+
+# ============================================================================
+# Working Directory
+# ============================================================================
+WORKDIR /app
+
+# ============================================================================
+# Security: Switch to Non-Root User
+# ============================================================================
+USER synapse
+
+# ============================================================================
+# Port Exposure
+# ============================================================================
+EXPOSE 8008 8448
+
+# ============================================================================
+# Health Checks
+# ============================================================================
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -sf http://localhost:8008/_matrix/federation/v1/version || exit 1
+
+# ============================================================================
+# Entrypoint
+# ============================================================================
+ENTRYPOINT ["sh", "-c"]
+
+# Default command with configuration path
+CMD ["exec synapse-rust --config /app/config/homeserver.yaml"]
+
+# ============================================================================
+# OCI Labels for Container Metadata
+# ============================================================================
+ARG BUILD_DATE
+ARG VERSION="0.1.0"
+
+LABEL org.opencontainers.image.title="Synapse Rust (Multi-Stage)" \
+      org.opencontainers.image.description="Matrix Homeserver implemented in Rust - Multi-Stage Production Build" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/synapse-rust/synapse-rust" \
+      org.opencontainers.image.vendor="Synapse Rust Team" \
+      org.opencontainers.image.licenses="MIT" \
+      maintainer="Synapse Rust Team <dev@cjystx.top>" \
+      com.matrix.server="cjystx.top" \
+      com.matrix.domain="matrix.cjystx.top" \
+      org.opencontainers.image.created="${BUILD_DATE}"
+
+# ============================================================================
+# Signal Handling
+# ============================================================================
+STOPSIGNAL SIGTERM
+
+# ============================================================================
+# Build Instructions
+# ============================================================================
+#
+# Multi-stage build (includes Rust compilation in Docker):
+#    docker build \
+#      --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+#      -f Dockerfile.multistage \
+#      -t synapse-rust:multistage .
+#
+# Save image to tarball:
+#    docker save synapse-rust:multistage | gzip > synapse-rust-multistage.tar.gz
+#
+# Load image from tarball:
+#    docker load < synapse-rust-multistage.tar.gz
+#
+# ============================================================================

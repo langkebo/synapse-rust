@@ -11,7 +11,9 @@ pub async fn create_backup(
     Path(user_id): Path<String>,
     Json(request): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let algorithm = request["algorithm"].as_str().unwrap();
+    let algorithm = request["algorithm"].as_str().ok_or_else(|| {
+        ApiError::bad_request("Missing or invalid 'algorithm' field in request body".to_string())
+    })?;
     let auth_data = request.get("auth_data").cloned();
 
     let version = service

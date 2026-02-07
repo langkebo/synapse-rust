@@ -78,9 +78,9 @@ mod metrics_integration_tests {
             histogram.observe(i as f64);
         }
 
-        assert_eq!(histogram.get_percentile(50.0), 50.0);
-        assert_eq!(histogram.get_percentile(90.0), 90.0);
-        assert_eq!(histogram.get_percentile(99.0), 99.0);
+        assert_eq!(histogram.get_percentile(50.0).unwrap(), 50.0);
+        assert_eq!(histogram.get_percentile(90.0).unwrap(), 90.0);
+        assert_eq!(histogram.get_percentile(99.0).unwrap(), 99.0);
     }
 
     #[test]

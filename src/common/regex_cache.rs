@@ -1,6 +1,7 @@
 use regex::Regex;
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 pub struct RegexCache {
     cache: Arc<RwLock<HashMap<String, Regex>>>,
@@ -15,14 +16,14 @@ impl RegexCache {
 
     pub fn get_or_create(&self, pattern: &str) -> Result<Regex, regex::Error> {
         {
-            let cache = self.cache.read().unwrap();
+            let cache = self.cache.read();
             if let Some(regex) = cache.get(pattern) {
                 return Ok(regex.clone());
             }
         }
 
         let regex = Regex::new(pattern)?;
-        let mut cache = self.cache.write().unwrap();
+        let mut cache = self.cache.write();
         cache.insert(pattern.to_string(), regex.clone());
         Ok(regex)
     }
@@ -33,17 +34,17 @@ impl RegexCache {
     }
 
     pub fn clear(&self) {
-        let mut cache = self.cache.write().unwrap();
+        let mut cache = self.cache.write();
         cache.clear();
     }
 
     pub fn len(&self) -> usize {
-        let cache = self.cache.read().unwrap();
+        let cache = self.cache.read();
         cache.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        let cache = self.cache.read().unwrap();
+        let cache = self.cache.read();
         cache.is_empty()
     }
 }

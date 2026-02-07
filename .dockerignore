@@ -1,6 +1,8 @@
 # target/
 docker/postgres_data/
 docker/redis_data/
+docker/data/
+docker/media/
 media/
 ssl/
 .git/
@@ -8,3 +10,4 @@ ssl/
 .idea/
 .DS_Store
 *.log
+postgres_data/

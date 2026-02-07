@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use thiserror::Error;
 use tokio::time::timeout;
 
 pub mod query_cache;
@@ -16,6 +17,20 @@ pub use query_cache::{CacheConfig as QueryCacheConfig, CacheEntry, CacheStats, Q
 pub use strategy::{CacheKeyBuilder, CacheTtl};
 
 const REDIS_TIMEOUT: Duration = Duration::from_millis(200);
+
+#[derive(Debug, Error)]
+pub enum CacheError {
+    #[error("Redis connection timeout: {0}")]
+    ConnectionTimeout(String),
+    #[error("Redis command timeout: {0}")]
+    CommandTimeout(String),
+    #[error("Redis pool exhaustion: {0}")]
+    PoolExhaustion(String),
+    #[error("Redis operation failed: {0}")]
+    OperationFailed(String),
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
+}
 
 pub struct CacheConfig {
     pub max_capacity: u64,
@@ -52,7 +67,9 @@ impl LocalCache {
     }
 
     pub fn set(&self, token: &str, claims: &Claims) {
-        if let Ok(s) = serde_json::to_string(claims) {
+        if let Err(e) = serde_json::to_string(claims) {
+            tracing::error!(target: "cache", "Failed to serialize claims: {}", e);
+        } else if let Some(s) = serde_json::to_string(claims).ok() {
             self.cache.insert(token.to_string(), s);
         }
     }
@@ -90,36 +107,79 @@ impl RedisCache {
 
     pub async fn get(&self, key: &str) -> Option<String> {
         let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await;
-        if let Ok(Ok(mut conn)) = conn_result {
-            let cmd_result = timeout(REDIS_TIMEOUT, conn.get::<_, Option<String>>(key)).await;
-            if let Ok(Ok(val)) = cmd_result {
-                return val;
+        match conn_result {
+            Ok(Ok(mut conn)) => {
+                let cmd_result = timeout(REDIS_TIMEOUT, conn.get::<_, Option<String>>(key)).await;
+                match cmd_result {
+                    Ok(Ok(val)) => val,
+                    Ok(Err(e)) => {
+                        tracing::error!(target: "cache", "Redis GET command failed: {}", e);
+                        None
+                    }
+                    Err(_) => {
+                        tracing::warn!(target: "cache", "Redis GET command timed out");
+                        None
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                tracing::error!(target: "cache", "Redis connection failed: {}", e);
+                None
+            }
+            Err(_) => {
+                tracing::warn!(target: "cache", "Redis connection timed out");
+                None
             }
         }
-        None
     }
 
-    pub async fn set(&self, key: &str, value: &str, ttl: u64) {
-        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await;
-        if let Ok(Ok(mut conn)) = conn_result {
-            if ttl > 0 {
-                let _: Result<(), _> = timeout(REDIS_TIMEOUT, conn.set_ex(key, value, ttl))
-                    .await
-                    .unwrap_or(Ok(()));
-            } else {
-                let _: Result<(), _> = timeout(REDIS_TIMEOUT, conn.set(key, value))
-                    .await
-                    .unwrap_or(Ok(()));
+    pub async fn set(&self, key: &str, value: &str, ttl: u64) -> Result<(), CacheError> {
+        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get())
+            .await
+            .map_err(|_| CacheError::ConnectionTimeout("Redis pool get timeout".to_string()))?;
+
+        let mut conn = conn_result.map_err(|e| CacheError::PoolExhaustion(e.to_string()))?;
+
+        let set_result = if ttl > 0 {
+            timeout(REDIS_TIMEOUT, conn.set_ex(key, value, ttl)).await
+        } else {
+            timeout(REDIS_TIMEOUT, conn.set(key, value)).await
+        };
+
+        match set_result {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => {
+                tracing::error!(target: "cache", "Redis SET command failed: {}", e);
+                Err(CacheError::OperationFailed(e.to_string()))
+            }
+            Err(_) => {
+                tracing::warn!(target: "cache", "Redis SET command timed out");
+                Err(CacheError::CommandTimeout(
+                    "Redis SET command timeout".to_string(),
+                ))
             }
         }
     }
 
-    pub async fn delete(&self, key: &str) {
-        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await;
-        if let Ok(Ok(mut conn)) = conn_result {
-            let _: Result<(), _> = timeout(REDIS_TIMEOUT, conn.del(key))
-                .await
-                .unwrap_or(Ok(()));
+    pub async fn delete(&self, key: &str) -> Result<(), CacheError> {
+        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get())
+            .await
+            .map_err(|_| CacheError::ConnectionTimeout("Redis pool get timeout".to_string()))?;
+
+        let mut conn = conn_result.map_err(|e| CacheError::PoolExhaustion(e.to_string()))?;
+
+        match timeout(REDIS_TIMEOUT, conn.del(key)).await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => {
+                tracing::error!(target: "cache", "Redis DELETE command failed: {}", e);
+                Err(CacheError::OperationFailed(e.to_string()))
+            }
+            Err(_) => {
+                tracing::warn!(target: "cache", "Redis DELETE command timed out");
+                Err(CacheError::CommandTimeout(
+                    "Redis DELETE command timeout".to_string(),
+                ))
+            }
         }
     }
 
@@ -328,7 +388,7 @@ impl CacheManager {
         if self.use_redis {
             if let Some(redis) = &self.redis {
                 if let Ok(val) = serde_json::to_string(claims) {
-                    redis.set(token, &val, ttl).await;
+                    let _ = redis.set(token, &val, ttl).await;
                 }
             }
         }
@@ -337,7 +397,7 @@ impl CacheManager {
     pub async fn delete_token(&self, token: &str) {
         self.local.remove(token);
         if let Some(redis) = &self.redis {
-            redis.delete(token).await;
+            let _ = redis.delete(token).await;
         }
     }
 
@@ -356,7 +416,7 @@ impl CacheManager {
     pub async fn delete(&self, key: &str) {
         self.local.remove(key);
         if let Some(redis) = &self.redis {
-            redis.delete(key).await;
+            let _ = redis.delete(key).await;
         }
     }
 
@@ -385,7 +445,7 @@ impl CacheManager {
             self.local.set_raw(key, &val);
             if self.use_redis {
                 if let Some(redis) = &self.redis {
-                    redis.set(key, &val, ttl).await;
+                    let _ = redis.set(key, &val, ttl).await;
                 }
             }
         }

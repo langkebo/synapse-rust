@@ -133,7 +133,7 @@ async fn download_media(
                 "errcode": e.code(),
                 "error": e.message()
             }))
-            .unwrap();
+            .expect("Failed to serialize error response to JSON");
             let headers = [
                 ("Content-Type".to_string(), "application/json".to_string()),
                 ("Content-Length".to_string(), error_body.len().to_string()),
@@ -190,7 +190,7 @@ async fn get_thumbnail(
                 "errcode": e.code(),
                 "error": e.message()
             }))
-            .unwrap();
+            .expect("Failed to serialize error response to JSON");
             let headers = [
                 ("Content-Type".to_string(), "application/json".to_string()),
                 ("Content-Length".to_string(), error_body.len().to_string()),
@@ -262,7 +262,7 @@ async fn download_media_v1(
                 "errcode": e.code(),
                 "error": e.message()
             }))
-            .unwrap();
+            .expect("Failed to serialize error response to JSON");
             let headers = [
                 ("Content-Type", "application/json".to_string()),
                 ("Content-Length", error_body.len().to_string()),
