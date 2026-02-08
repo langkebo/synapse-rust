@@ -58,7 +58,7 @@ impl VoiceUsageStatsStorage {
     ) -> Result<Vec<VoiceUsageStats>, sqlx::Error> {
         let date_threshold = chrono::Utc::now() - chrono::Duration::days(days);
 
-        let rows = sqlx::query(
+        let stats = sqlx::query_as::<_, VoiceUsageStats>(
             r#"
             SELECT * FROM voice_usage_stats
             WHERE user_id = $1 AND date >= $2
@@ -69,20 +69,6 @@ impl VoiceUsageStatsStorage {
         .bind(date_threshold.naive_utc())
         .fetch_all(&*self.pool)
         .await?;
-
-        let mut stats = Vec::new();
-        for row in rows {
-            stats.push(VoiceUsageStats {
-                id: row.get("id"),
-                user_id: row.get("user_id"),
-                date: row.get("date"),
-                message_count: row.get("message_count"),
-                total_duration_ms: row.get("total_duration_ms"),
-                total_file_size: row.get("total_file_size"),
-                created_ts: row.get("created_ts"),
-                updated_ts: row.get("updated_ts"),
-            });
-        }
 
         Ok(stats)
     }
@@ -399,12 +385,12 @@ impl VoiceMessageStorage {
     ) -> Result<Vec<VoiceMessage>, sqlx::Error> {
         let start_ts = start_date
             .and_hms_opt(0, 0, 0)
-            .unwrap()
+            .expect("Invalid start time constant")
             .and_utc()
             .timestamp_millis();
         let end_ts = end_date
             .and_hms_opt(23, 59, 59)
-            .unwrap()
+            .expect("Invalid end time constant")
             .and_utc()
             .timestamp_millis();
 

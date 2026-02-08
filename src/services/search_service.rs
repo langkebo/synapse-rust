@@ -73,7 +73,8 @@ impl SearchService {
         if !self.enabled {
             return Ok(());
         }
-        let client = self.client.as_ref().unwrap();
+        let client = self.client.as_ref()
+            .ok_or_else(|| ApiError::internal("Elasticsearch client not initialized".to_string()))?;
 
         let exists = client
             .indices()
