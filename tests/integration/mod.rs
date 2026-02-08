@@ -9,6 +9,7 @@ mod concurrency_tests;
 mod metrics_tests;
 mod regex_cache_tests;
 mod protocol_compliance_tests;
+mod voice_routes_tests;
 
 use std::sync::Arc;
 use synapse_rust::services::DatabaseInitService;

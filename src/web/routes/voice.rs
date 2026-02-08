@@ -39,6 +39,58 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/voice/user/{user_id}/stats",
             get(get_user_voice_stats),
         )
+        .route(
+            "/_matrix/client/r0/voice/config",
+            get(get_voice_config),
+        )
+        .route(
+            "/_matrix/client/r0/voice/convert",
+            post(convert_voice_message),
+        )
+        .route(
+            "/_matrix/client/r0/voice/optimize",
+            post(optimize_voice_message),
+        )
+}
+
+#[axum::debug_handler]
+async fn get_voice_config() -> Result<Json<Value>, ApiError> {
+    Ok(Json(serde_json::json!({
+        "supported_formats": ["audio/ogg", "audio/mpeg", "audio/wav"],
+        "max_size_bytes": 104857600, // 100MB
+        "max_duration_ms": 600000,   // 10 minutes
+        "default_sample_rate": 48000,
+        "default_channels": 2
+    })))
+}
+
+#[axum::debug_handler]
+async fn convert_voice_message(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Json(_body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    // Stub implementation: Just echo back mock success
+    // In a real implementation, this would use ffmpeg
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "message": "Conversion simulation successful. (Backend FFmpeg not connected)",
+        "converted_content": null // Placeholder
+    })))
+}
+
+#[axum::debug_handler]
+async fn optimize_voice_message(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Json(_body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    // Stub implementation
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "message": "Optimization simulation successful. (Backend FFmpeg not connected)",
+        "optimized_content": null // Placeholder
+    })))
 }
 
 #[axum::debug_handler]
