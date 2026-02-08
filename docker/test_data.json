@@ -81,7 +81,7 @@
     {
       "id": 1,
       "name": "核心功能测试房间",
-      "room_id": "!TestRoom001:cjystx.top",
+      "room_id": "!S1G22nzHWJW6yPmh9mMROB3y:cjystx.top",
       "purpose": "测试房间创建、消息发送、状态事件等核心功能",
       "is_public": false,
       "members": ["testuser1", "testuser2", "testuser3"],
@@ -90,7 +90,7 @@
     {
       "id": 2,
       "name": "好友测试房间",
-      "room_id": "!TestRoom002:cjystx.top",
+      "room_id": "!EW-kKDLCGAwNsABC7ILNgW-Y:cjystx.top",
       "purpose": "测试好友关系、私聊功能",
       "is_public": false,
       "members": ["testuser1", "testuser2"],
@@ -99,7 +99,7 @@
     {
       "id": 3,
       "name": "联邦测试房间",
-      "room_id": "!TestRoom003:cjystx.top",
+      "room_id": "!CZCjidUUpt1hSxCtiRwrdtIu:cjystx.top",
       "purpose": "测试联邦API端点（房间状态、成员列表等）",
       "is_public": true,
       "members": ["testuser1", "testuser2", "testuser3", "testuser4"],
@@ -108,7 +108,7 @@
     {
       "id": 4,
       "name": "设备测试房间",
-      "room_id": "!TestRoom004:cjystx.top",
+      "room_id": "!NzYF8372_NPlNBmzJrjJX5gV:cjystx.top",
       "purpose": "测试设备管理、密钥交换",
       "is_public": false,
       "members": ["testuser1", "testuser5"],
@@ -117,7 +117,7 @@
     {
       "id": 5,
       "name": "公共测试房间",
-      "room_id": "!TestRoom005:cjystx.top",
+      "room_id": "!zssB-Il0YHxhox8j7JPlCHxf:cjystx.top",
       "purpose": "测试公共房间API、房间目录",
       "is_public": true,
       "members": ["testuser1", "testuser2", "testuser3", "testuser4", "testuser5", "testuser6"],

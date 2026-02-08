@@ -1,10 +1,9 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceKey {
-    pub id: Uuid,
+    pub id: i64,
     pub user_id: String,
     pub device_id: String,
     pub display_name: Option<String>,
@@ -69,7 +68,7 @@ mod tests {
     #[test]
     fn test_device_key_creation() {
         let key = DeviceKey {
-            id: uuid::Uuid::new_v4(),
+            id: 0, // 数据库自动生成
             user_id: "@test:example.com".to_string(),
             device_id: "DEVICE123".to_string(),
             display_name: Some("My Device".to_string()),

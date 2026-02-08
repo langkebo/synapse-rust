@@ -76,7 +76,7 @@ impl DeviceKeyService {
             if let Some(keys) = device_keys.keys.as_object() {
                 for (key_id, public_key) in keys {
                     let key = DeviceKey {
-                        id: uuid::Uuid::new_v4(),
+                        id: 0, // 数据库自动生成
                         user_id: user_id.clone(),
                         device_id: device_id.clone(),
                         display_name: None,
@@ -87,7 +87,8 @@ impl DeviceKeyService {
                         },
                         key_id: key_id.clone(),
                         public_key: public_key.as_str().unwrap_or_default().to_string(),
-                        signatures: serde_json::to_value(&device_keys.signatures).unwrap_or(serde_json::json!({})),
+                        signatures: serde_json::to_value(&device_keys.signatures)
+                            .unwrap_or(serde_json::json!({})),
                         created_at: Utc::now(),
                         updated_at: Utc::now(),
                     };
@@ -122,7 +123,7 @@ impl DeviceKeyService {
                     };
 
                     let key = DeviceKey {
-                        id: uuid::Uuid::new_v4(),
+                        id: 0, // 数据库自动生成
                         user_id: user_id.clone(),
                         device_id: device_id.clone(),
                         display_name: None,

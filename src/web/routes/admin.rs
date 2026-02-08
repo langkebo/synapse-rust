@@ -31,6 +31,10 @@ pub fn create_admin_router(_state: AppState) -> Router<AppState> {
             post(deactivate_user),
         )
         .route(
+            "/_synapse/admin/v1/users/{user_id}/password",
+            post(reset_user_password),
+        )
+        .route(
             "/_synapse/admin/v1/users/{user_id}/rooms",
             get(get_user_rooms_admin),
         )
@@ -789,6 +793,35 @@ pub async fn deactivate_user(
     Ok(Json(serde_json::json!({
         "id_server_unbind_result": "success"
     })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetPasswordBody {
+    #[serde(alias = "newPassword", alias = "new_password")]
+    pub new_password: String,
+}
+
+#[axum::debug_handler]
+pub async fn reset_user_password(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+    Json(body): Json<ResetPasswordBody>,
+) -> Result<Json<Value>, ApiError> {
+    state
+        .services
+        .auth_service
+        .validator
+        .validate_password(&body.new_password)?;
+
+    state
+        .services
+        .registration_service
+        .change_password(&user_id, &body.new_password)
+        .await?;
+
+    Ok(Json(serde_json::json!({})))
 }
 
 #[axum::debug_handler]

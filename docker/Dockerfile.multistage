@@ -22,14 +22,16 @@ FROM rust:1-alpine AS builder
 RUN apk add --no-cache \
     musl-dev \
     openssl-dev \
+    openssl-libs-static \
     postgresql-dev \
     pkgconfig
 
 # Set working directory
 WORKDIR /build
 
-# Copy source code
-COPY . .
+# Copy source code from parent directory (synapse_rust root)
+# Build context is docker/, so we copy from parent (..) to /build
+COPY .. /build
 
 # Build with optimizations for production
 # - LTO (Link Time Optimization) for smaller binary size
@@ -80,13 +82,13 @@ COPY --from=builder /build/target/release/generate_test_keypair /usr/local/bin/g
 # ============================================================================
 # Copy Configuration Files
 # ============================================================================
-COPY --chown=synapse:synapse docker/config/homeserver.yaml /app/config/homeserver.yaml
+COPY docker/config/homeserver.yaml /app/config/homeserver.yaml
 
 # ============================================================================
 # Security: Drop Capabilities and Restrict Permissions
 # ============================================================================
-RUN chmod 500 /usr/local/bin/synapse-rust && \
-    chmod 500 /usr/local/bin/generate_test_keypair
+RUN chmod 755 /usr/local/bin/synapse-rust && \
+    chmod 755 /usr/local/bin/generate_test_keypair
 
 # ============================================================================
 # Environment Variables

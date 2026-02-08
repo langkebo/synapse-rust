@@ -120,6 +120,22 @@ impl DatabaseInitService {
             }
         }
 
+        match self.step_create_e2ee_tables().await {
+            Ok(msg) => report.steps.push(msg),
+            Err(e) => {
+                report.success = false;
+                report.errors.push(format!("E2EE表创建失败: {}", e));
+            }
+        }
+
+        match self.step_create_private_chat_tables().await {
+            Ok(msg) => report.steps.push(msg),
+            Err(e) => {
+                report.success = false;
+                report.errors.push(format!("私聊表创建失败: {}", e));
+            }
+        }
+
         let should_skip_validation = self.check_cache_valid().await?;
         if should_skip_validation {
             debug!("数据库初始化缓存有效，跳过详细验证");
@@ -255,6 +271,101 @@ impl DatabaseInitService {
 
     async fn step_create_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
         self.schema_validator.create_missing_indexes().await
+    }
+
+    async fn step_create_e2ee_tables(&self) -> Result<String, sqlx::Error> {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS device_keys (
+                id BIGSERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                device_id VARCHAR(255) NOT NULL,
+                display_name TEXT,
+                algorithm VARCHAR(255) NOT NULL,
+                key_id VARCHAR(255) NOT NULL,
+                public_key TEXT NOT NULL,
+                signatures TEXT,
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL,
+                ts_updated_ms BIGINT NOT NULL,
+                key_json TEXT DEFAULT '{}',
+                ts_added_ms BIGINT NOT NULL,
+                ts_last_accessed BIGINT,
+                UNIQUE (user_id, device_id, key_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_device_keys_user_id ON device_keys(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_device_keys_device_id ON device_keys(device_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        Ok("E2EE设备密钥表创建完成".to_string())
+    }
+
+    async fn step_create_private_chat_tables(&self) -> Result<String, sqlx::Error> {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS private_sessions (
+                id VARCHAR(255) PRIMARY KEY,
+                user_id_1 VARCHAR(255) NOT NULL,
+                user_id_2 VARCHAR(255) NOT NULL,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT NOT NULL,
+                last_activity_ts BIGINT,
+                unread_count INT DEFAULT 0
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS private_messages (
+                id BIGSERIAL PRIMARY KEY,
+                session_id VARCHAR(255) NOT NULL,
+                sender_id VARCHAR(255) NOT NULL,
+                message_type VARCHAR(50) NOT NULL,
+                content TEXT NOT NULL,
+                encrypted_content TEXT,
+                read_by_receiver BOOLEAN DEFAULT FALSE,
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS session_keys (
+                id BIGSERIAL PRIMARY KEY,
+                session_id VARCHAR(255) NOT NULL,
+                sender_id VARCHAR(255) NOT NULL,
+                key_data TEXT NOT NULL,
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        Ok("私聊会话表创建完成".to_string())
     }
 }
 

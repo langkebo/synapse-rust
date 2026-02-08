@@ -86,9 +86,13 @@ impl KeyRotationManager {
 
         sqlx::query(
             r#"
-            INSERT INTO federation_signing_keys (server_name, key_id, key_json, ts_added_ms, ts_valid_until_ms)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO federation_signing_keys (server_name, key_id, secret_key, public_key, created_at, expires_at, key_json, ts_added_ms, ts_valid_until_ms)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (server_name, key_id) DO UPDATE SET
+                secret_key = EXCLUDED.secret_key,
+                public_key = EXCLUDED.public_key,
+                created_at = EXCLUDED.created_at,
+                expires_at = EXCLUDED.expires_at,
                 key_json = EXCLUDED.key_json,
                 ts_added_ms = EXCLUDED.ts_added_ms,
                 ts_valid_until_ms = EXCLUDED.ts_valid_until_ms
@@ -96,6 +100,10 @@ impl KeyRotationManager {
         )
         .bind(&self.server_name)
         .bind(&signing_key.key_id)
+        .bind(&signing_key.secret_key)
+        .bind(&signing_key.public_key)
+        .bind(signing_key.created_at)
+        .bind(signing_key.expires_at)
         .bind(key_json)
         .bind(signing_key.created_at)
         .bind(signing_key.expires_at)

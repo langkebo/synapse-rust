@@ -1,41 +1,855 @@
-time="2026-02-06T12:37:44+08:00" level=warning msg="/home/hula/synapse_rust/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
- Image synapse_rust-synapse-rust Building 
-#1 [internal] load local bake definitions
-#1 reading from stdin 532B done
-#1 DONE 0.0s
+#0 building with "default" instance using docker driver
 
-#2 [internal] load build definition from Dockerfile
-#2 transferring dockerfile: 8.24kB done
-#2 DONE 0.0s
-Dockerfile:144
+#1 [internal] load build definition from Dockerfile.multistage
+#1 transferring dockerfile: 7.25kB done
+#1 DONE 0.1s
 
+#2 [internal] load metadata for docker.io/library/rust:1-alpine
+#2 DONE 0.2s
+
+#3 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#3 DONE 0.2s
+
+#4 [builder 1/5] FROM docker.io/library/rust:1-alpine@sha256:69d7b9d9aeaf108a1419d9a7fcf7860dcc043e9dbd1ab7ce88e44228774d99e9
+#4 resolve docker.io/library/rust:1-alpine@sha256:69d7b9d9aeaf108a1419d9a7fcf7860dcc043e9dbd1ab7ce88e44228774d99e9 0.0s done
+#4 DONE 0.0s
+
+#5 [runtime 1/9] FROM docker.io/library/debian:bookworm-slim@sha256:98f4b71de414932439ac6ac690d7060df1f27161073c5036a7553723881bffbe
+#5 resolve docker.io/library/debian:bookworm-slim@sha256:98f4b71de414932439ac6ac690d7060df1f27161073c5036a7553723881bffbe 0.0s done
+#5 DONE 0.0s
+
+#6 [runtime 3/9] RUN groupadd --system synapse &&     useradd --system --gid synapse --home-dir /app --shell /usr/sbin/nologin synapse
+#6 CACHED
+
+#7 [runtime 2/9] RUN apt-get update && apt-get install -y --no-install-recommends     libpq5     libssl3     ca-certificates     curl     && rm -rf /var/lib/apt/lists/*     && apt-get clean
+#7 CACHED
+
+#8 [runtime 4/9] RUN mkdir -p /app/bin /app/data /app/logs /app/config &&     chown -R synapse:synapse /app &&     chmod 755 /app
+#8 CACHED
+
+#9 [builder 2/5] RUN apk add --no-cache     musl-dev     openssl-dev     postgresql-dev     pkgconfig
+#9 CACHED
+
+#10 [builder 3/5] WORKDIR /build
+#10 CACHED
+
+#11 [internal] load .dockerignore
+#11 transferring context: 185B done
+#11 DONE 0.0s
+
+#12 [internal] load build context
+#12 transferring context: 118.33MB 5.0s
+#12 transferring context: 329.85MB 10.0s
+#12 transferring context: 546.85MB 15.2s
+#12 transferring context: 795.68MB 20.2s
+#12 transferring context: 1.06GB 25.4s
+#12 transferring context: 1.35GB 30.4s
+#12 transferring context: 1.60GB 35.5s
+#12 transferring context: 1.89GB 40.5s
+#12 transferring context: 2.18GB 45.6s
+#12 transferring context: 2.45GB 50.6s
+#12 transferring context: 2.72GB 55.8s
+#12 transferring context: 2.99GB 60.8s
+#12 transferring context: 3.22GB 66.0s
+#12 transferring context: 3.49GB 71.0s
+#12 transferring context: 3.76GB 76.1s
+#12 transferring context: 4.00GB 81.3s
+#12 transferring context: 4.26GB 86.3s
+#12 transferring context: 4.53GB 91.4s
+#12 transferring context: 4.81GB 96.5s
+#12 transferring context: 5.09GB 101.5s
+#12 transferring context: 5.37GB 106.5s
+#12 transferring context: 5.66GB 111.6s
+#12 transferring context: 5.93GB 116.7s
+#12 transferring context: 6.22GB 121.8s
+#12 transferring context: 6.44GB 127.0s
+#12 transferring context: 6.70GB 132.1s
+#12 transferring context: 6.98GB 137.3s
+#12 transferring context: 7.25GB 142.3s
+#12 transferring context: 7.28GB 143.4s done
+#12 DONE 143.5s
+
+#13 [builder 4/5] COPY . .
+#13 DONE 83.9s
+
+#14 [builder 5/5] RUN cargo build --release     --locked     --features "server"     && strip --strip-all target/release/synapse-rust     && strip --strip-all target/release/generate_test_keypair
+#14 1.837 info: syncing channel updates for '1.93.0-x86_64-unknown-linux-musl'
+#14 7.174 info: latest update on 2026-01-22, rust version 1.93.0 (254b59607 2026-01-19)
+#14 7.268 info: downloading component 'clippy'
+#14 25.65 info: downloading component 'rust-src'
+#14 43.23 info: downloading component 'rust-std' for 'x86_64-unknown-linux-gnu'
+#14 186.6 info: downloading component 'rustfmt'
+#14 200.0 info: installing component 'clippy'
+#14 200.4 info: installing component 'rust-src'
+#14 201.2 info: installing component 'rust-std' for 'x86_64-unknown-linux-gnu'
+#14 203.9 info: installing component 'rustfmt'
+#14 204.5     Updating crates.io index
+#14 340.4  Downloading crates ...
+#14 341.5   Downloaded aead v0.5.2
+#14 341.7   Downloaded adler2 v2.0.1
+#14 341.7   Downloaded atoi v2.0.0
+#14 341.8   Downloaded atomic-waker v1.1.2
+#14 342.6   Downloaded cfg-if v1.0.4
+#14 343.6   Downloaded compression-core v0.4.31
+#14 343.6   Downloaded crypto-common v0.1.7
+#14 343.6   Downloaded heck v0.5.0
+#14 343.6   Downloaded crunchy v0.2.4
+#14 343.6   Downloaded crossbeam-queue v0.3.12
+#14 343.7   Downloaded cpufeatures v0.2.17
+#14 344.5   Downloaded event-listener-strategy v0.5.4
+#14 344.6   Downloaded equivalent v1.0.2
+#14 344.7   Downloaded darling_macro v0.21.3
+#14 345.1   Downloaded deadpool-redis v0.18.0
+#14 345.4   Downloaded dyn-clone v1.0.20
+#14 345.6   Downloaded foreign-types-shared v0.1.1
+#14 345.6   Downloaded futures-macro v0.3.31
+#14 345.6   Downloaded futures-io v0.3.31
+#14 345.6   Downloaded form_urlencoded v1.2.2
+#14 345.7   Downloaded fnv v1.0.7
+#14 345.9   Downloaded errno v0.3.14
+#14 346.0   Downloaded futures-task v0.3.31
+#14 346.1   Downloaded foreign-types v0.3.2
+#14 346.1   Downloaded deadpool-runtime v0.1.4
+#14 346.1   Downloaded forwarded-header-value v0.1.1
+#14 346.2   Downloaded futures-sink v0.3.31
+#14 346.2   Downloaded futures-core v0.3.31
+#14 347.1   Downloaded httpdate v1.0.3
+#14 347.2   Downloaded block-buffer v0.10.4
+#14 347.2   Downloaded curve25519-dalek-derive v0.1.1
+#14 347.2   Downloaded const-random v0.1.18
+#14 347.2   Downloaded hyper-tls v0.6.0
+#14 347.2   Downloaded const-random-macro v0.1.16
+#14 347.2   Downloaded crc-catalog v2.4.0
+#14 347.3   Downloaded http-body v1.0.1
+#14 347.4   Downloaded inout v0.1.4
+#14 347.4   Downloaded ident_case v1.0.1
+#14 347.5   Downloaded idna_adapter v1.2.1
+#14 348.6   Downloaded itoa v1.0.17
+#14 348.7   Downloaded arraydeque v0.5.1
+#14 349.8   Downloaded byteorder v1.5.0
+#14 349.8   Downloaded axum-core v0.5.6
+#14 349.8   Downloaded opaque-debug v0.3.1
+#14 349.8   Downloaded autocfg v1.5.0
+#14 349.9   Downloaded num-iter v0.1.45
+#14 349.9   Downloaded nonempty v0.7.0
+#14 350.0   Downloaded generic-array v0.14.7
+#14 350.0   Downloaded ordered-float v2.10.1
+#14 350.0   Downloaded percent-encoding v2.3.2
+#14 350.0   Downloaded openssl-macros v0.1.1
+#14 352.0   Downloaded cipher v0.4.4
+#14 352.2   Downloaded ed25519 v2.2.3
+#14 352.2   Downloaded fallible-iterator v0.2.0
+#14 352.2   Downloaded displaydoc v0.2.5
+#14 352.2   Downloaded pathdiff v0.2.3
+#14 352.2   Downloaded num-conv v0.2.0
+#14 352.2   Downloaded digest v0.10.7
+#14 352.2   Downloaded dashmap v6.1.0
+#14 353.3   Downloaded either v1.15.0
+#14 353.3   Downloaded futures-executor v0.3.31
+#14 353.3   Downloaded foldhash v0.2.0
+#14 353.3   Downloaded deadpool-postgres v0.12.1
+#14 354.1   Downloaded futures-timer v3.0.3
+#14 354.1   Downloaded async-trait v0.1.89
+#14 354.9   Downloaded ctr v0.9.2
+#14 354.9   Downloaded concurrent-queue v2.5.0
+#14 355.0   Downloaded crc v3.4.0
+#14 355.1   Downloaded dlv-list v0.5.2
+#14 355.2   Downloaded deadpool v0.10.0
+#14 356.0   Downloaded base64ct v1.8.3
+#14 356.1   Downloaded ghash v0.5.1
+#14 356.2   Downloaded argon2 v0.5.3
+#14 356.5   Downloaded async-lock v3.4.2
+#14 357.1   Downloaded http-range-header v0.4.2
+#14 357.2   Downloaded pem-rfc7468 v0.7.0
+#14 357.2   Downloaded hex v0.4.3
+#14 357.2   Downloaded convert_case v0.6.0
+#14 357.3   Downloaded crossbeam-epoch v0.9.18
+#14 357.8   Downloaded event-listener v5.4.1
+#14 357.9   Downloaded find-msvc-tools v0.1.8
+#14 358.0   Downloaded darling v0.21.3
+#14 358.0   Downloaded foldhash v0.1.5
+#14 358.0   Downloaded dotenvy v0.15.7
+#14 358.9   Downloaded futures-channel v0.3.31
+#14 359.2   Downloaded axum-macros v0.5.0
+#14 359.3   Downloaded blake2 v0.10.6
+#14 359.6   Downloaded integer-encoding v3.0.4
+#14 359.6   Downloaded bitflags v2.10.0
+#14 360.1   Downloaded json5 v0.4.1
+#14 360.2   Downloaded crossbeam-utils v0.8.21
+#14 360.2   Downloaded const-oid v0.9.6
+#14 360.5   Downloaded mime v0.3.17
+#14 360.8   Downloaded deranged v0.5.5
+#14 361.0   Downloaded deadpool v0.12.3
+#14 361.4   Downloaded anyhow v1.0.100
+#14 361.5   Downloaded lazy_static v1.5.0
+#14 361.9   Downloaded matchers v0.2.0
+#14 361.9   Downloaded parking v2.2.1
+#14 362.5   Downloaded crc32fast v1.5.0
+#14 362.8   Downloaded openssl-probe v0.1.6
+#14 363.1   Downloaded futures v0.3.31
+#14 363.1   Downloaded ahash v0.8.12
+#14 363.4   Downloaded home v0.5.12
+#14 363.5   Downloaded hyper-timeout v0.5.2
+#14 363.7   Downloaded http-body-util v0.1.3
+#14 363.8   Downloaded hashlink v0.10.0
+#14 364.0   Downloaded config v0.14.1
+#14 364.0   Downloaded compression-codecs v0.4.36
+#14 364.8   Downloaded bytes v1.11.0
+#14 364.9   Downloaded base64 v0.22.1
+#14 365.2   Downloaded num_cpus v1.17.0
+#14 365.2   Downloaded lru v0.16.3
+#14 365.2   Downloaded lock_api v0.4.14
+#14 365.3   Downloaded allocator-api2 v0.2.21
+#14 365.7   Downloaded password-hash v0.5.0
+#14 365.9   Downloaded pem v3.0.6
+#14 365.9   Downloaded nu-ansi-term v0.50.3
+#14 366.3   Downloaded flate2 v1.1.8
+#14 366.4   Downloaded flume v0.11.1
+#14 366.7   Downloaded glob v0.3.3
+#14 366.8   Downloaded num-integer v0.1.46
+#14 367.6   Downloaded ordered-multimap v0.7.3
+#14 368.1   Downloaded async-compression v0.4.37
+#14 368.6   Downloaded crossbeam-channel v0.5.15
+#14 369.0   Downloaded der v0.7.10
+#14 369.0   Downloaded futures-intrusive v0.5.0
+#14 369.0   Downloaded darling_core v0.21.3
+#14 369.0   Downloaded base64 v0.21.7
+#14 369.0   Downloaded arc-swap v1.8.0
+#14 369.4   Downloaded ed25519-dalek v2.2.0
+#14 369.7   Downloaded mime_guess v2.0.5
+#14 370.1   Downloaded ipnet v2.11.0
+#14 370.5   Downloaded cc v1.2.54
+#14 371.2   Downloaded aes-gcm v0.10.3
+#14 371.5   Downloaded native-tls v0.2.14
+#14 372.3   Downloaded md-5 v0.10.6
+#14 372.5   Downloaded opentelemetry-semantic-conventions v0.13.0
+#14 372.6   Downloaded ordered-float v4.6.0
+#14 373.0   Downloaded nonzero_ext v0.3.0
+#14 373.4   Downloaded combine v4.6.7
+#14 373.4   Downloaded aes v0.8.4
+#14 373.5   Downloaded hyper-rustls v0.27.7
+#14 373.8   Downloaded ipnetwork v0.20.0
+#14 374.2   Downloaded iana-time-zone v0.1.65
+#14 374.6   Downloaded axum v0.8.8
+#14 375.1   Downloaded parking_lot_core v0.9.12
+#14 375.1   Downloaded once_cell v1.21.3
+#14 375.1   Downloaded getrandom v0.2.17
+#14 375.8   Downloaded hashlink v0.8.4
+#14 376.4   Downloaded aho-corasick v1.1.4
+#14 376.6   Downloaded httparse v1.10.1
+#14 377.5   Downloaded pin-utils v0.1.0
+#14 378.5   Downloaded potential_utf v0.1.4
+#14 378.6   Downloaded matchit v0.8.4
+#14 378.7   Downloaded powerfmt v0.2.0
+#14 379.6   Downloaded quote v1.0.44
+#14 380.1   Downloaded phf v0.13.1
+#14 380.1   Downloaded pest_generator v2.8.5
+#14 380.2   Downloaded hmac v0.12.1
+#14 380.3   Downloaded indexmap v1.9.3
+#14 380.4   Downloaded phf_shared v0.13.1
+#14 380.7   Downloaded pin-project-lite v0.2.16
+#14 380.8   Downloaded pkg-config v0.3.32
+#14 380.8   Downloaded pkcs8 v0.10.2
+#14 381.0   Downloaded polyval v0.6.2
+#14 381.5   Downloaded ppv-lite86 v0.2.21
+#14 381.5   Downloaded log v0.4.29
+#14 382.0   Downloaded parking_lot v0.12.5
+#14 382.2   Downloaded pest_meta v2.8.5
+#14 382.2   Downloaded pest_derive v2.8.5
+#14 382.5   Downloaded pkcs1 v0.7.5
+#14 383.1   Downloaded postgres-types v0.2.12
+#14 383.1   Downloaded postgres-protocol v0.6.10
+#14 383.2   Downloaded quanta v0.12.6
+#14 383.5   Downloaded icu_provider v2.1.1
+#14 383.7   Downloaded pin-project v1.1.10
+#14 383.7   Downloaded icu_properties v2.1.2
+#14 384.7   Downloaded jsonwebtoken v9.3.1
+#14 385.3   Downloaded proc-macro2 v1.0.106
+#14 385.5   Downloaded num-traits v0.2.19
+#14 385.7   Downloaded chrono v0.4.43
+#14 385.9   Downloaded elasticsearch v8.15.0-alpha.1
+#14 386.1   Downloaded getrandom v0.3.4
+#14 386.7   Downloaded curve25519-dalek v4.1.3
+#14 386.8   Downloaded pin-project-internal v1.1.10
+#14 386.8   Downloaded litemap v0.8.1
+#14 387.0   Downloaded openssl-sys v0.9.111
+#14 389.2   Downloaded icu_normalizer_data v2.1.1
+#14 389.2   Downloaded icu_normalizer v2.1.1
+#14 389.6   Downloaded miniz_oxide v0.8.9
+#14 391.5   Downloaded opentelemetry v0.21.0
+#14 391.9   Downloaded icu_collections v2.1.1
+#14 394.5   Downloaded icu_locale_core v2.1.1
+#14 396.1   Downloaded indexmap v2.13.0
+#14 396.2   Downloaded minimal-lexical v0.2.1
+#14 396.5   Downloaded rand_chacha v0.3.1
+#14 396.6   Downloaded num-bigint v0.4.6
+#14 397.7   Downloaded memchr v2.7.6
+#14 398.9   Downloaded ref-cast v1.0.25
+#14 399.0   Downloaded ref-cast-impl v1.0.25
+#14 400.2   Downloaded scopeguard v1.2.0
+#14 400.8   Downloaded serde_spanned v0.6.9
+#14 400.9   Downloaded serde_urlencoded v0.7.1
+#14 401.3   Downloaded http v1.4.0
+#14 401.6   Downloaded sha1 v0.10.6
+#14 401.6   Downloaded sha1_smol v1.0.1
+#14 401.9   Downloaded hyper-util v0.1.19
+#14 402.2   Downloaded mio v1.1.1
+#14 402.5   Downloaded encoding_rs v0.8.35
+#14 402.9   Downloaded futures-util v0.3.31
+#14 403.4   Downloaded nom v7.1.3
+#14 403.5   Downloaded siphasher v1.0.2
+#14 404.1   Downloaded rust-ini v0.20.0
+#14 404.1   Downloaded sqlx-macros v0.8.6
+#14 404.2   Downloaded rustversion v1.0.22
+#14 404.6   Downloaded serde_path_to_error v0.1.20
+#14 404.6   Downloaded strsim v0.11.1
+#14 404.7   Downloaded threadpool v1.8.1
+#14 404.7   Downloaded subtle v2.6.1
+#14 405.1   Downloaded hashbrown v0.12.3
+#14 405.2   Downloaded tagptr v0.2.0
+#14 406.7   Downloaded tinyvec_macros v0.1.1
+#14 406.8   Downloaded tower-layer v0.3.3
+#14 406.8   Downloaded toml_write v0.1.2
+#14 406.8   Downloaded tower-service v0.3.3
+#14 407.3   Downloaded sync_wrapper v1.0.2
+#14 407.3   Downloaded stable_deref_trait v1.2.1
+#14 408.0   Downloaded rand_core v0.6.4
+#14 408.0   Downloaded rand_chacha v0.9.0
+#14 409.1   Downloaded rustc_version v0.4.1
+#14 410.0   Downloaded toml_datetime v0.6.11
+#14 410.0   Downloaded semver v1.0.27
+#14 410.8   Downloaded tracing-serde v0.2.0
+#14 410.8   Downloaded sha2 v0.10.9
+#14 410.9   Downloaded shlex v1.3.0
+#14 411.1   Downloaded signature v2.2.0
+#14 411.1   Downloaded signal-hook-registry v1.4.8
+#14 411.3   Downloaded num-bigint-dig v0.8.6
+#14 411.5   Downloaded try-lock v0.2.5
+#14 412.1   Downloaded slab v0.4.11
+#14 412.1   Downloaded simd-adler32 v0.3.8
+#14 412.2   Downloaded rustls-pki-types v1.14.0
+#14 412.2   Downloaded simple_asn1 v0.6.3
+#14 412.3   Downloaded spki v0.7.3
+#14 412.8   Downloaded sqlx-macros-core v0.8.6
+#14 413.1   Downloaded universal-hash v0.5.1
+#14 413.1   Downloaded urlencoding v2.1.3
+#14 413.1   Downloaded untrusted v0.9.0
+#14 413.3   Downloaded utf8_iter v1.0.4
+#14 413.4   Downloaded stringprep v0.1.5
+#14 413.6   Downloaded thiserror v1.0.69
+#14 413.6   Downloaded synstructure v0.13.2
+#14 413.6   Downloaded thread_local v1.1.9
+#14 414.3   Downloaded hashbrown v0.16.1
+#14 414.3   Downloaded thiserror-impl v1.0.69
+#14 414.3   Downloaded hashbrown v0.14.5
+#14 414.4   Downloaded idna v1.1.0
+#14 414.9   Downloaded tokio-macros v2.6.0
+#14 415.1   Downloaded opentelemetry_sdk v0.21.2
+#14 415.2   Downloaded tower_governor v0.8.0
+#14 415.4   Downloaded tracing-appender v0.2.4
+#14 415.8   Downloaded tracing-log v0.2.0
+#14 416.0   Downloaded opentelemetry-jaeger v0.20.0
+#14 416.0   Downloaded void v1.0.2
+#14 416.1   Downloaded version_check v0.9.5
+#14 416.1   Downloaded want v0.3.1
+#14 416.2   Downloaded thiserror v2.0.18
+#14 416.3   Downloaded time-core v0.1.8
+#14 416.3   Downloaded thiserror-impl v2.0.18
+#14 416.6   Downloaded tinystr v0.8.2
+#14 416.6   Downloaded tiny-keccak v2.0.2
+#14 416.6   Downloaded time-macros v0.2.27
+#14 416.7   Downloaded tokio-native-tls v0.3.1
+#14 416.8   Downloaded rand_core v0.9.5
+#14 417.6   Downloaded pest v2.8.5
+#14 417.9   Downloaded serde_with_macros v3.16.1
+#14 419.3   Downloaded yoke-derive v0.8.1
+#14 419.3   Downloaded zerofrom v0.1.6
+#14 419.3   Downloaded iri-string v0.7.10
+#14 419.3   Downloaded zerofrom-derive v0.1.6
+#14 419.4   Downloaded serde_derive v1.0.228
+#14 421.1   Downloaded zeroize_derive v1.4.3
+#14 421.2   Downloaded spin v0.9.8
+#14 421.7   Downloaded governor v0.10.4
+#14 422.7   Downloaded hashbrown v0.15.5
+#14 422.7   Downloaded thrift v0.17.0
+#14 422.7   Downloaded itertools v0.13.0
+#14 423.1   Downloaded libm v0.2.16
+#14 423.4   Downloaded rand v0.8.5
+#14 423.5   Downloaded smallvec v1.15.1
+#14 423.6   Downloaded tokio-stream v0.1.18
+#14 423.9   Downloaded tokio-rustls v0.26.4
+#14 424.0   Downloaded toml v0.8.23
+#14 424.1   Downloaded tracing-attributes v0.1.31
+#14 424.4   Downloaded web-time v1.1.0
+#14 424.6   Downloaded whoami v2.1.0
+#14 424.7   Downloaded yoke v0.8.1
+#14 425.6   Downloaded unicase v2.9.0
+#14 425.6   Downloaded ryu v1.0.22
+#14 425.9   Downloaded unicode-ident v1.0.22
+#14 426.0   Downloaded sharded-slab v0.1.7
+#14 426.2   Downloaded writeable v0.6.2
+#14 426.2   Downloaded h2 v0.4.13
+#14 426.3   Downloaded icu_properties_data v2.1.2
+#14 426.3   Downloaded hyper v1.8.1
+#14 426.3   Downloaded hkdf v0.12.4
+#14 426.6   Downloaded serde_core v1.0.228
+#14 426.9   Downloaded unicode-properties v0.1.4
+#14 427.3   Downloaded zeroize v1.8.2
+#14 427.3   Downloaded socket2 v0.6.2
+#14 427.6   Downloaded zerovec-derive v0.11.2
+#14 427.7   Downloaded zmij v1.0.17
+#14 427.7   Downloaded spinning_top v0.3.0
+#14 427.7   Downloaded socket2 v0.5.10
+#14 428.7   Downloaded tinyvec v1.10.0
+#14 428.7   Downloaded rand v0.9.2
+#14 429.1   Downloaded ucd-trie v0.1.7
+#14 429.1   Downloaded unicode-bidi v0.3.18
+#14 429.2   Downloaded uuid v1.20.0
+#14 429.4   Downloaded tracing-core v0.1.36
+#14 429.9   Downloaded whoami v1.6.1
+#14 430.1   Downloaded ron v0.8.1
+#14 431.9   Downloaded schemars v0.9.0
+#14 433.2   Downloaded serde v1.0.228
+#14 435.3   Downloaded rustls-webpki v0.103.9
+#14 435.3   Downloaded schemars v1.2.0
+#14 435.3   Downloaded moka v0.12.13
+#14 435.3   Downloaded rsa v0.9.10
+#14 435.4   Downloaded sqlx-mysql v0.8.6
+#14 436.3   Downloaded toml_edit v0.22.27
+#14 438.0   Downloaded sqlx-sqlite v0.8.6
+#14 439.0   Downloaded raw-cpuid v11.6.0
+#14 440.5   Downloaded openssl v0.10.75
+#14 440.5   Downloaded sqlx-core v0.8.6
+#14 440.6   Downloaded portable-atomic v1.13.0
+#14 441.0   Downloaded regex v1.12.2
+#14 441.3   Downloaded reqwest v0.12.28
+#14 441.4   Downloaded tokio-postgres v0.7.16
+#14 442.8   Downloaded serde_json v1.0.149
+#14 443.7   Downloaded sqlx-postgres v0.8.6
+#14 444.0   Downloaded tonic v0.14.3
+#14 445.7   Downloaded tower v0.5.3
+#14 445.8   Downloaded typenum v1.19.0
+#14 446.2   Downloaded tokio-util v0.7.18
+#14 446.9   Downloaded serde_with v3.16.1
+#14 447.7   Downloaded url v2.5.8
+#14 448.1   Downloaded tracing-opentelemetry v0.22.0
+#14 448.1   Downloaded tower-http v0.6.8
+#14 449.1   Downloaded zerotrie v0.2.3
+#14 449.1   Downloaded sqlx v0.8.6
+#14 450.2   Downloaded unicode-segmentation v1.12.0
+#14 451.5   Downloaded unicode-normalization v0.1.25
+#14 451.6   Downloaded x25519-dalek v2.0.1
+#14 452.4   Downloaded tracing-subscriber v0.3.22
+#14 454.0   Downloaded time v0.3.47
+#14 454.4   Downloaded yaml-rust2 v0.8.1
+#14 454.8   Downloaded zerocopy-derive v0.8.35
+#14 455.0   Downloaded redis v0.27.6
+#14 455.1   Downloaded regex-syntax v0.8.8
+#14 455.7   Downloaded zerovec v0.11.5
+#14 455.8   Downloaded vcpkg v0.2.15
+#14 455.8   Downloaded rustls v0.23.36
+#14 455.9   Downloaded syn v2.0.114
+#14 457.0   Downloaded winnow v0.7.14
+#14 462.9   Downloaded zerocopy v0.8.35
+#14 463.3   Downloaded regex-automata v0.4.13
+#14 464.5   Downloaded libc v0.2.180
+#14 464.8   Downloaded tracing v0.1.44
+#14 472.1   Downloaded tokio v1.49.0
+#14 478.2   Downloaded ring v0.17.14
+#14 492.9   Downloaded libsqlite3-sys v0.30.1
+#14 493.2    Compiling proc-macro2 v1.0.106
+#14 493.2    Compiling quote v1.0.44
+#14 493.2    Compiling unicode-ident v1.0.22
+#14 493.2    Compiling libc v0.2.180
+#14 493.3    Compiling cfg-if v1.0.4
+#14 493.4    Compiling serde v1.0.228
+#14 493.7    Compiling serde_core v1.0.228
+#14 494.0    Compiling version_check v0.9.5
+#14 494.6    Compiling pin-project-lite v0.2.16
+#14 494.7    Compiling typenum v1.19.0
+#14 495.4    Compiling generic-array v0.14.7
+#14 495.6    Compiling parking_lot_core v0.9.12
+#14 495.8    Compiling syn v2.0.114
+#14 495.9    Compiling memchr v2.7.6
+#14 495.9    Compiling once_cell v1.21.3
+#14 496.3    Compiling futures-core v0.3.31
+#14 496.5    Compiling getrandom v0.2.17
+#14 496.8    Compiling scopeguard v1.2.0
+#14 496.9    Compiling allocator-api2 v0.2.21
+#14 497.7    Compiling lock_api v0.4.14
+#14 498.0    Compiling bytes v1.11.0
+#14 498.2    Compiling zerocopy v0.8.35
+#14 498.8    Compiling rand_core v0.6.4
+#14 499.2    Compiling futures-sink v0.3.31
+#14 499.3    Compiling equivalent v1.0.2
+#14 499.4    Compiling itoa v1.0.17
+#14 500.1    Compiling errno v0.3.14
+#14 500.4    Compiling autocfg v1.5.0
+#14 500.9    Compiling signal-hook-registry v1.4.8
+#14 501.4    Compiling socket2 v0.6.2
+#14 501.6    Compiling mio v1.1.1
+#14 502.6    Compiling foldhash v0.2.0
+#14 502.6    Compiling slab v0.4.11
+#14 502.8    Compiling log v0.4.29
+#14 502.9    Compiling hashbrown v0.16.1
+#14 503.0    Compiling futures-channel v0.3.31
+#14 503.3    Compiling pin-utils v0.1.0
+#14 503.4    Compiling crypto-common v0.1.7
+#14 503.6    Compiling futures-task v0.3.31
+#14 503.6    Compiling futures-io v0.3.31
+#14 503.9    Compiling tracing-core v0.1.36
+#14 504.9    Compiling indexmap v2.13.0
+#14 505.8    Compiling synstructure v0.13.2
+#14 506.8    Compiling icu_normalizer_data v2.1.1
+#14 506.8    Compiling icu_properties_data v2.1.2
+#14 507.1    Compiling zmij v1.0.17
+#14 507.6    Compiling subtle v2.6.1
+#14 507.9    Compiling percent-encoding v2.3.2
+#14 508.3    Compiling crossbeam-utils v0.8.21
+#14 508.8    Compiling serde_json v1.0.149
+#14 509.2    Compiling stable_deref_trait v1.2.1
+#14 509.3    Compiling num-traits v0.2.19
+#14 509.6    Compiling serde_derive v1.0.228
+#14 509.7    Compiling zerofrom-derive v0.1.6
+#14 510.7    Compiling yoke-derive v0.8.1
+#14 513.4    Compiling zerovec-derive v0.11.2
+#14 513.6    Compiling displaydoc v0.2.5
+#14 514.1    Compiling tokio-macros v2.6.0
+#14 515.2    Compiling tracing-attributes v0.1.31
+#14 516.0    Compiling futures-macro v0.3.31
+#14 516.0    Compiling zerofrom v0.1.6
+#14 516.3    Compiling yoke v0.8.1
+#14 517.8    Compiling futures-util v0.3.31
+#14 518.0    Compiling smallvec v1.15.1
+#14 518.5    Compiling tracing v0.1.44
+#14 519.1    Compiling parking_lot v0.12.5
+#14 520.3    Compiling tokio v1.49.0
+#14 520.6    Compiling zerovec v0.11.5
+#14 522.5    Compiling block-buffer v0.10.4
+#14 522.9    Compiling base64 v0.22.1
+#14 523.7    Compiling digest v0.10.7
+#14 524.2    Compiling getrandom v0.3.4
+#14 524.9    Compiling shlex v1.3.0
+#14 525.0    Compiling cpufeatures v0.2.17
+#14 525.0    Compiling find-msvc-tools v0.1.8
+#14 525.3    Compiling cc v1.2.54
+#14 526.8    Compiling ppv-lite86 v0.2.21
+#14 527.1    Compiling bitflags v2.10.0
+#14 527.6    Compiling thiserror v2.0.18
+#14 528.2    Compiling tinystr v0.8.2
+#14 528.4    Compiling http v1.4.0
+#14 528.5    Compiling writeable v0.6.2
+#14 528.6    Compiling litemap v0.8.1
+#14 528.9    Compiling icu_locale_core v2.1.1
+#14 531.8    Compiling tokio-util v0.7.18
+#14 532.7    Compiling potential_utf v0.1.4
+#14 532.9    Compiling zerotrie v0.2.3
+#14 533.5    Compiling thiserror-impl v2.0.18
+#14 536.2    Compiling icu_provider v2.1.1
+#14 536.6    Compiling icu_collections v2.1.1
+#14 536.7    Compiling http-body v1.0.1
+#14 537.2    Compiling form_urlencoded v1.2.2
+#14 538.2    Compiling async-trait v0.1.89
+#14 538.9    Compiling ahash v0.8.12
+#14 539.2    Compiling tower-service v0.3.3
+#14 539.3    Compiling pkg-config v0.3.32
+#14 540.2    Compiling httparse v1.10.1
+#14 540.5    Compiling vcpkg v0.2.15
+#14 540.9    Compiling icu_properties v2.1.2
+#14 541.2    Compiling icu_normalizer v2.1.1
+#14 542.1    Compiling openssl-sys v0.9.111
+#14 542.9    Compiling fnv v1.0.7
+#14 543.0    Compiling atomic-waker v1.1.2
+#14 543.1    Compiling httpdate v1.0.3
+#14 543.1    Compiling try-lock v0.2.5
+#14 543.2    Compiling want v0.3.1
+#14 543.4    Compiling h2 v0.4.13
+#14 543.7    Compiling idna_adapter v1.2.1
+#14 544.4    Compiling tinyvec_macros v0.1.1
+#14 544.4    Compiling utf8_iter v1.0.4
+#14 544.6    Compiling semver v1.0.27
+#14 544.6    Compiling crunchy v0.2.4
+#14 545.0    Compiling thiserror v1.0.69
+#14 545.0    Compiling idna v1.1.0
+#14 545.2    Compiling rustc_version v0.4.1
+#14 545.7    Compiling tinyvec v1.10.0
+#14 546.0    Compiling hashbrown v0.14.5
+#14 549.0    Compiling http-body-util v0.1.3
+#14 549.1    Compiling rand_core v0.9.5
+#14 549.6    Compiling sha2 v0.10.9
+#14 549.8    Compiling thiserror-impl v1.0.69
+#14 550.4    Compiling sync_wrapper v1.0.2
+#14 550.7    Compiling byteorder v1.5.0
+#14 551.4    Compiling ryu v1.0.22
+#14 551.4    Compiling crc32fast v1.5.0
+#14 551.8    Compiling tiny-keccak v2.0.2
+#14 551.9    Compiling tower-layer v0.3.3
+#14 552.0    Compiling mime v0.3.17
+#14 552.3    Compiling ipnet v2.11.0
+#14 553.2    Compiling hyper v1.8.1
+#14 554.7    Compiling rand_chacha v0.9.0
+#14 556.0    Compiling unicode-normalization v0.1.25
+#14 557.6    Compiling hyper-util v0.1.19
+#14 559.2    Compiling url v2.5.8
+#14 560.6    Compiling hmac v0.12.1
+#14 560.9    Compiling concurrent-queue v2.5.0
+#14 561.3    Compiling zeroize_derive v1.4.3
+#14 563.1    Compiling num_cpus v1.17.0
+#14 563.4    Compiling unicode-properties v0.1.4
+#14 563.6    Compiling unicode-bidi v0.3.18
+#14 563.8    Compiling adler2 v2.0.1
+#14 564.0    Compiling parking v2.2.1
+#14 564.2    Compiling foreign-types-shared v0.1.1
+#14 564.6    Compiling openssl v0.10.75
+#14 564.8    Compiling lazy_static v1.5.0
+#14 564.8    Compiling foldhash v0.1.5
+#14 564.9    Compiling simd-adler32 v0.3.8
+#14 565.2    Compiling miniz_oxide v0.8.9
+#14 565.6    Compiling hashbrown v0.15.5
+#14 566.7    Compiling stringprep v0.1.5
+#14 567.8    Compiling foreign-types v0.3.2
+#14 567.8    Compiling event-listener v5.4.1
+#14 568.9    Compiling zeroize v1.8.2
+#14 569.4    Compiling rand v0.9.2
+#14 570.5    Compiling tower v0.5.3
+#14 572.7    Compiling rand_chacha v0.3.1
+#14 573.2    Compiling md-5 v0.10.6
+#14 573.2    Compiling either v1.15.0
+#14 573.4    Compiling openssl-macros v0.1.1
+#14 573.7    Compiling aho-corasick v1.1.4
+#14 574.4    Compiling native-tls v0.2.14
+#14 574.4    Compiling regex-syntax v0.8.8
+#14 574.7    Compiling unicase v2.9.0
+#14 574.9    Compiling iana-time-zone v0.1.65
+#14 575.3    Compiling strsim v0.11.1
+#14 576.2    Compiling ucd-trie v0.1.7
+#14 578.2    Compiling crc-catalog v2.4.0
+#14 579.1    Compiling ident_case v1.0.1
+#14 579.2    Compiling darling_core v0.21.3
+#14 582.0    Compiling regex-automata v0.4.13
+#14 584.8    Compiling crc v3.4.0
+#14 585.4    Compiling pest v2.8.5
+#14 586.5    Compiling tokio-stream v0.1.18
+#14 587.3    Compiling chrono v0.4.43
+#14 587.5    Compiling mime_guess v2.0.5
+#14 590.4    Compiling rand v0.8.5
+#14 592.0    Compiling flate2 v1.1.8
+#14 592.4    Compiling futures-intrusive v0.5.0
+#14 593.3    Compiling const-random-macro v0.1.16
+#14 593.9    Compiling hashlink v0.10.0
+#14 594.7    Compiling serde_urlencoded v0.7.1
+#14 595.2    Compiling crossbeam-queue v0.3.12
+#14 596.2    Compiling ipnetwork v0.20.0
+#14 597.1    Compiling num-integer v0.1.46
+#14 597.4    Compiling crossbeam-channel v0.5.15
+#14 598.5    Compiling openssl-probe v0.1.6
+#14 599.0    Compiling uuid v1.20.0
+#14 600.0    Compiling num-conv v0.2.0
+#14 600.1    Compiling powerfmt v0.2.0
+#14 600.3    Compiling compression-core v0.4.31
+#14 600.5    Compiling rustversion v1.0.22
+#14 600.5    Compiling portable-atomic v1.13.0
+#14 600.6    Compiling time-core v0.1.8
+#14 601.1    Compiling urlencoding v2.1.3
+#14 601.4    Compiling opentelemetry v0.21.0
+#14 601.4    Compiling time-macros v0.2.27
+#14 602.8    Compiling compression-codecs v0.4.36
+#14 603.4    Compiling deranged v0.5.5
+#14 605.1    Compiling sqlx-core v0.8.6
+#14 605.7    Compiling num-bigint v0.4.6
+#14 605.9    Compiling hkdf v0.12.4
+#14 606.0    Compiling const-random v0.1.18
+#14 606.9    Compiling pest_meta v2.8.5
+#14 607.6    Compiling darling_macro v0.21.3
+#14 609.3    Compiling atoi v2.0.0
+#14 609.5    Compiling curve25519-dalek v4.1.3
+#14 610.1    Compiling deadpool-runtime v0.1.4
+#14 610.7    Compiling futures-executor v0.3.31
+#14 611.3    Compiling inout v0.1.4
+#14 611.4    Compiling encoding_rs v0.8.35
+#14 611.8    Compiling fallible-iterator v0.2.0
+#14 612.0    Compiling home v0.5.12
+#14 612.1    Compiling siphasher v1.0.2
+#14 612.1    Compiling hex v0.4.3
+#14 612.8    Compiling whoami v1.6.1
+#14 613.0    Compiling dotenvy v0.15.7
+#14 613.3    Compiling time v0.3.47
+#14 613.5    Compiling sqlx-postgres v0.8.6
+#14 614.5    Compiling postgres-protocol v0.6.10
+#14 616.4    Compiling phf_shared v0.13.1
+#14 618.3    Compiling cipher v0.4.4
+#14 618.9    Compiling darling v0.21.3
+#14 619.0    Compiling pest_generator v2.8.5
+#14 619.5    Compiling dlv-list v0.5.2
+#14 620.2    Compiling tokio-native-tls v0.3.1
+#14 620.4    Compiling async-compression v0.4.37
+#14 622.6    Compiling matchers v0.2.0
+#14 622.8    Compiling sharded-slab v0.1.7
+#14 622.8    Compiling axum-core v0.5.6
+#14 624.1    Compiling ring v0.17.14
+#14 624.3    Compiling raw-cpuid v11.6.0
+#14 625.4    Compiling ordered-float v4.6.0
+#14 627.6    Compiling serde_spanned v0.6.9
+#14 627.8    Compiling toml_datetime v0.6.11
+#14 628.4    Compiling tracing-serde v0.2.0
+#14 628.7    Compiling axum-macros v0.5.0
+#14 628.9    Compiling curve25519-dalek-derive v0.1.1
+#14 629.3    Compiling pin-project-internal v1.1.10
+#14 630.1    Compiling universal-hash v0.5.1
+#14 630.4    Compiling tracing-log v0.2.0
+#14 630.8    Compiling serde_path_to_error v0.1.20
+#14 631.0    Compiling thread_local v1.1.9
+#14 631.4    Compiling iri-string v0.7.10
+#14 631.9    Compiling glob v0.3.3
+#14 632.1    Compiling toml_write v0.1.2
+#14 632.5    Compiling http-range-header v0.4.2
+#14 632.7    Compiling opaque-debug v0.3.1
+#14 632.8    Compiling winnow v0.7.14
+#14 633.1    Compiling matchit v0.8.4
+#14 634.2    Compiling heck v0.5.0
+#14 634.3    Compiling nu-ansi-term v0.50.3
+#14 634.6    Compiling sqlx-macros-core v0.8.6
+#14 635.0    Compiling tracing-subscriber v0.3.22
+#14 637.4    Compiling tower-http v0.6.8
+#14 638.2    Compiling toml_edit v0.22.27
+#14 638.3    Compiling axum v0.8.8
+#14 645.8    Compiling polyval v0.6.2
+#14 646.2    Compiling opentelemetry_sdk v0.21.2
+#14 646.4    Compiling pin-project v1.1.10
+#14 650.8    Compiling quanta v0.12.6
+#14 655.0    Compiling arc-swap v1.8.0
+#14 655.6    Compiling pest_derive v2.8.5
+#14 656.5    Compiling hyper-tls v0.6.0
+#14 656.9    Compiling ordered-multimap v0.7.3
+#14 657.5    Compiling serde_with_macros v3.16.1
+#14 660.2    Compiling phf v0.13.1
+#14 660.5    Compiling postgres-types v0.2.12
+#14 661.6    Compiling itertools v0.13.0
+#14 661.7    Compiling rustls-pki-types v1.14.0
+#14 662.9    Compiling event-listener-strategy v0.5.4
+#14 663.0    Compiling threadpool v1.8.1
+#14 664.0    Compiling hyper-timeout v0.5.2
+#14 664.8    Compiling dashmap v6.1.0
+#14 665.1    Compiling hashlink v0.8.4
+#14 665.2    Compiling elasticsearch v8.15.0-alpha.1
+#14 665.7    Compiling combine v4.6.7
+#14 665.7    Compiling ordered-float v2.10.1
+#14 666.2    Compiling spinning_top v0.3.0
+#14 666.3    Compiling socket2 v0.5.10
+#14 666.4    Compiling base64 v0.21.7
+#14 666.5    Compiling whoami v2.1.0
+#14 667.3    Compiling unicode-segmentation v1.12.0
+#14 667.9    Compiling untrusted v0.9.0
+#14 668.1    Compiling integer-encoding v3.0.4
+#14 668.5    Compiling nonempty v0.7.0
+#14 668.5    Compiling minimal-lexical v0.2.1
+#14 668.7    Compiling web-time v1.1.0
+#14 668.9    Compiling base64ct v1.8.3
+#14 669.2    Compiling signature v2.2.0
+#14 669.4    Compiling nonzero_ext v0.3.0
+#14 669.5    Compiling futures-timer v3.0.3
+#14 669.5    Compiling arraydeque v0.5.1
+#14 669.8    Compiling anyhow v1.0.100
+#14 670.1    Compiling sha1_smol v1.0.1
+#14 670.5    Compiling governor v0.10.4
+#14 670.6    Compiling yaml-rust2 v0.8.1
+#14 671.2    Compiling password-hash v0.5.0
+#14 672.6    Compiling ed25519 v2.2.3
+#14 673.0    Compiling nom v7.1.3
+#14 675.8    Compiling redis v0.27.6
+#14 676.5    Compiling forwarded-header-value v0.1.1
+#14 677.4    Compiling thrift v0.17.0
+#14 677.6    Compiling convert_case v0.6.0
+#14 680.2    Compiling tokio-postgres v0.7.16
+#14 686.3    Compiling ron v0.8.1
+#14 689.9    Compiling tonic v0.14.3
+#14 690.7    Compiling async-lock v3.4.2
+#14 692.5    Compiling reqwest v0.12.28
+#14 704.0    Compiling serde_with v3.16.1
+#14 704.5    Compiling rust-ini v0.20.0
+#14 705.4    Compiling json5 v0.4.1
+#14 706.8    Compiling ghash v0.5.1
+#14 706.9    Compiling toml v0.8.23
+#14 709.8    Compiling sqlx-macros v0.8.6
+#14 709.8    Compiling ctr v0.9.2
+#14 710.1    Compiling aes v0.8.4
+#14 710.8    Compiling simple_asn1 v0.6.3
+#14 711.5    Compiling deadpool v0.12.3
+#14 712.1    Compiling deadpool v0.10.0
+#14 712.5    Compiling opentelemetry-semantic-conventions v0.13.0
+#14 712.8    Compiling blake2 v0.10.6
+#14 712.9    Compiling pem v3.0.6
+#14 713.4    Compiling crossbeam-epoch v0.9.18
+#14 713.6    Compiling aead v0.5.2
+#14 713.7    Compiling void v1.0.2
+#14 713.7    Compiling tagptr v0.2.0
+#14 713.8    Compiling pathdiff v0.2.3
+#14 713.9    Compiling dyn-clone v1.0.20
+#14 714.0    Compiling config v0.14.1
+#14 714.1    Compiling moka v0.12.13
+#14 714.3    Compiling aes-gcm v0.10.3
+#14 714.7    Compiling argon2 v0.5.3
+#14 716.7    Compiling sqlx v0.8.6
+#14 717.5    Compiling jsonwebtoken v9.3.1
+#14 720.3    Compiling opentelemetry-jaeger v0.20.0
+#14 722.5    Compiling deadpool-postgres v0.12.1
+#14 723.2    Compiling deadpool-redis v0.18.0
+#14 723.8    Compiling tower_governor v0.8.0
+#14 725.7    Compiling ed25519-dalek v2.2.0
+#14 726.5    Compiling tracing-opentelemetry v0.22.0
+#14 727.7    Compiling x25519-dalek v2.0.1
+#14 727.9    Compiling tracing-appender v0.2.4
+#14 728.2    Compiling futures v0.3.31
+#14 728.4    Compiling regex v1.12.2
+#14 729.0    Compiling lru v0.16.3
+#14 743.4    Compiling synapse-rust v0.1.0 (/build)
+#14 847.6 error: linking with `cc` failed: exit status: 1
+#14 847.6   |
+#14 847.6   = note:  "cc" "-m64" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/rcrt1.o" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/crti.o" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/crtbeginS.o" "<1 object files omitted>" "-Wl,--as-needed" "-Wl,-Bstatic" "-lssl" "-lcrypto" "/tmp/rustcN9SESN/libring-363db7b0ce8e6ed8.rlib" "-lunwind" "-lc" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/libcompiler_builtins-*.rlib" "-L" "/tmp/rustcN9SESN/raw-dylibs" "-Wl,-Bdynamic" "-Wl,--eh-frame-hdr" "-Wl,-z,noexecstack" "-nostartfiles" "-L" "/build/target/release/build/ring-183f58155a9eb22e/out" "-L" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained" "-L" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib" "-o" "/build/target/release/deps/generate_test_keypair-c30ca2faf325aa18" "-Wl,--gc-sections" "-static-pie" "-Wl,-z,relro,-z,now" "-Wl,-O1" "-Wl,--strip-all" "-nodefaultlibs" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/crtendS.o" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/crtn.o"
+#14 847.6   = note: some arguments are omitted. use `--verbose` to show all linker arguments
+#14 847.6   = note: /usr/lib/gcc/x86_64-alpine-linux-musl/15.2.0/../../../../x86_64-alpine-linux-musl/bin/ld: cannot find -lssl: No such file or directory
+#14 847.6           /usr/lib/gcc/x86_64-alpine-linux-musl/15.2.0/../../../../x86_64-alpine-linux-musl/bin/ld: have you installed the static version of the ssl library ?
+#14 847.6           /usr/lib/gcc/x86_64-alpine-linux-musl/15.2.0/../../../../x86_64-alpine-linux-musl/bin/ld: cannot find -lcrypto: No such file or directory
+#14 847.6           /usr/lib/gcc/x86_64-alpine-linux-musl/15.2.0/../../../../x86_64-alpine-linux-musl/bin/ld: have you installed the static version of the crypto library ?
+#14 847.6           collect2: error: ld returned 1 exit status
+#14 847.6           
+#14 847.6 
+#14 847.7 error: could not compile `synapse-rust` (bin "generate_test_keypair") due to 1 previous error
+#14 847.7 warning: build failed, waiting for other jobs to finish...
+#14 988.1 error: linking with `cc` failed: exit status: 1
+#14 988.1   |
+#14 988.1   = note:  "cc" "-m64" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/rcrt1.o" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/crti.o" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/crtbeginS.o" "<1 object files omitted>" "-Wl,--as-needed" "-Wl,-Bstatic" "-lssl" "-lcrypto" "/tmp/rustcLdW2mf/libring-363db7b0ce8e6ed8.rlib" "-lunwind" "-lc" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/libcompiler_builtins-*.rlib" "-L" "/tmp/rustcLdW2mf/raw-dylibs" "-Wl,-Bdynamic" "-Wl,--eh-frame-hdr" "-Wl,-z,noexecstack" "-nostartfiles" "-L" "/build/target/release/build/ring-183f58155a9eb22e/out" "-L" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained" "-L" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib" "-o" "/build/target/release/deps/synapse_rust-0915fefa53e618be" "-Wl,--gc-sections" "-static-pie" "-Wl,-z,relro,-z,now" "-Wl,-O1" "-Wl,--strip-all" "-nodefaultlibs" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/crtendS.o" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/crtn.o"
+#14 988.1   = note: some arguments are omitted. use `--verbose` to show all linker arguments
+#14 988.1   = note: /usr/lib/gcc/x86_64-alpine-linux-musl/15.2.0/../../../../x86_64-alpine-linux-musl/bin/ld: cannot find -lssl: No such file or directory
+#14 988.1           /usr/lib/gcc/x86_64-alpine-linux-musl/15.2.0/../../../../x86_64-alpine-linux-musl/bin/ld: have you installed the static version of the ssl library ?
+#14 988.1           /usr/lib/gcc/x86_64-alpine-linux-musl/15.2.0/../../../../x86_64-alpine-linux-musl/bin/ld: cannot find -lcrypto: No such file or directory
+#14 988.1           /usr/lib/gcc/x86_64-alpine-linux-musl/15.2.0/../../../../x86_64-alpine-linux-musl/bin/ld: have you installed the static version of the crypto library ?
+#14 988.1           collect2: error: ld returned 1 exit status
+#14 988.1           
+#14 988.1 
+#14 988.2 error: could not compile `synapse-rust` (bin "synapse-rust") due to 1 previous error
+#14 ERROR: process "/bin/sh -c cargo build --release     --locked     --features \"server\"     && strip --strip-all target/release/synapse-rust     && strip --strip-all target/release/generate_test_keypair" did not complete successfully: exit code: 101
+------
+ > [builder 5/5] RUN cargo build --release     --locked     --features "server"     && strip --strip-all target/release/synapse-rust     && strip --strip-all target/release/generate_test_keypair:
+988.1   = note:  "cc" "-m64" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/rcrt1.o" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/crti.o" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/crtbeginS.o" "<1 object files omitted>" "-Wl,--as-needed" "-Wl,-Bstatic" "-lssl" "-lcrypto" "/tmp/rustcLdW2mf/libring-363db7b0ce8e6ed8.rlib" "-lunwind" "-lc" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/libcompiler_builtins-*.rlib" "-L" "/tmp/rustcLdW2mf/raw-dylibs" "-Wl,-Bdynamic" "-Wl,--eh-frame-hdr" "-Wl,-z,noexecstack" "-nostartfiles" "-L" "/build/target/release/build/ring-183f58155a9eb22e/out" "-L" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained" "-L" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib" "-o" "/build/target/release/deps/synapse_rust-0915fefa53e618be" "-Wl,--gc-sections" "-static-pie" "-Wl,-z,relro,-z,now" "-Wl,-O1" "-Wl,--strip-all" "-nodefaultlibs" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/crtendS.o" "<sysroot>/lib/rustlib/x86_64-unknown-linux-musl/lib/self-contained/crtn.o"
+988.1   = note: some arguments are omitted. use `--verbose` to show all linker arguments
+988.1   = note: /usr/lib/gcc/x86_64-alpine-linux-musl/15.2.0/../../../../x86_64-alpine-linux-musl/bin/ld: cannot find -lssl: No such file or directory
+988.1           /usr/lib/gcc/x86_64-alpine-linux-musl/15.2.0/../../../../x86_64-alpine-linux-musl/bin/ld: have you installed the static version of the ssl library ?
+988.1           /usr/lib/gcc/x86_64-alpine-linux-musl/15.2.0/../../../../x86_64-alpine-linux-musl/bin/ld: cannot find -lcrypto: No such file or directory
+988.1           /usr/lib/gcc/x86_64-alpine-linux-musl/15.2.0/../../../../x86_64-alpine-linux-musl/bin/ld: have you installed the static version of the crypto library ?
+988.1           collect2: error: ld returned 1 exit status
+988.1           
+988.1 
+988.2 error: could not compile `synapse-rust` (bin "synapse-rust") due to 1 previous error
+------
+Dockerfile.multistage:39
 --------------------
-
- 143 |     # ============================================================================
-
- 144 | >>> LABEL org.opencontainers.image.title="Synapse Rust" \
-
- 145 | >>>       org.opencontainers.image.description="Matrix Homeserver implemented in Rust - Production Ready" \
-
- 146 | >>>       org.opencontainers.image.version="0.1.0" \
-
- 147 | >>>       org.opencontainers.image.source="https://github.com/synapse-rust/synapse-rust" \
-
- 148 | >>>       org.opencontainers.image.vendor="Synapse Rust Team" \
-
- 149 | >>>       org.opencontainers.image.licenses="MIT" \
-
- 150 | >>>       maintainer="Synapse Rust Team <dev@cjystx.top>" \
-
- 151 | >>>       com.matrix.server="cjystx.top" \
-
- 152 | >>>       com.matrix.domain="matrix.cjystx.top" \
-
- 153 | >>>       org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-
- 154 |     
-
+  38 |     # - server feature enables the web server components
+  39 | >>> RUN cargo build --release \
+  40 | >>>     --locked \
+  41 | >>>     --features "server" \
+  42 | >>>     && strip --strip-all target/release/synapse-rust \
+  43 | >>>     && strip --strip-all target/release/generate_test_keypair
+  44 |     
 --------------------
-
-failed to solve: Syntax error - can't find = in "-u". Must be of the form: name=value
-
+ERROR: failed to build: failed to solve: process "/bin/sh -c cargo build --release     --locked     --features \"server\"     && strip --strip-all target/release/synapse-rust     && strip --strip-all target/release/generate_test_keypair" did not complete successfully: exit code: 101

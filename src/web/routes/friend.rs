@@ -60,8 +60,11 @@ pub fn create_friend_router(_state: AppState) -> Router<AppState> {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SendFriendRequestBody {
+    #[serde(alias = "userId", alias = "user_id")]
     pub user_id: String,
+    #[serde(alias = "message")]
     pub message: Option<String>,
 }
 
@@ -252,12 +255,15 @@ async fn get_friend_requests(
 #[axum::debug_handler]
 async fn accept_friend_request(
     State(state): State<AppState>,
-    Path(request_id): Path<i64>,
+    Path(request_id): Path<String>,
     auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id_i64: i64 = request_id
+        .parse()
+        .map_err(|_| ApiError::bad_request("Invalid request ID format".to_string()))?;
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     friend_storage
-        .accept_request(request_id, &auth_user.user_id)
+        .accept_request(request_id_i64, &auth_user.user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     Ok(Json(json!({ "status": "accepted" })))
@@ -266,12 +272,15 @@ async fn accept_friend_request(
 #[axum::debug_handler]
 async fn decline_friend_request(
     State(state): State<AppState>,
-    Path(request_id): Path<i64>,
+    Path(request_id): Path<String>,
     auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id_i64: i64 = request_id
+        .parse()
+        .map_err(|_| ApiError::bad_request("Invalid request ID format".to_string()))?;
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     friend_storage
-        .decline_request(request_id, &auth_user.user_id)
+        .decline_request(request_id_i64, &auth_user.user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     Ok(Json(json!({ "status": "declined" })))

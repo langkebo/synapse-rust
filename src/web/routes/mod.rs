@@ -166,6 +166,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/health", get(health_check))
         .route("/_matrix/client/versions", get(get_client_versions))
+        .route("/_matrix/client/r0/version", get(get_server_version))
         .route("/_matrix/client/r0/register", post(register))
         .route(
             "/_matrix/client/r0/register/available",
@@ -349,6 +350,12 @@ async fn get_client_versions() -> Json<Value> {
             "m.require_identity_server": false,
             "m.supports_login_via_phone_number": true
         }
+    }))
+}
+
+async fn get_server_version() -> Json<Value> {
+    Json(json!({
+        "version": "0.1.0"
     }))
 }
 

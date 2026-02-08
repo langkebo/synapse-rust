@@ -1,0 +1,575 @@
+{
+  "test_time": "2026-02-07T22:10:49.088026",
+  "base_url": "http://localhost:8008",
+  "categories": [
+    {
+      "category": "管理员API",
+      "tested": 12,
+      "passed": 12,
+      "failed": 0,
+      "unknown_limit": 0,
+      "details": [
+        {
+          "name": "获取用户房间",
+          "endpoint": "/_synapse/admin/v1/users/@testuser1:cjystx.top/rooms",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"rooms\":[\"!oixYHsGtabPLtg1q2MJtRKYP:cjystx.top\",\"!tV9YEn8EPeHZSgyDWm0AT5dz:cjystx.top\",\"!amxtjIglw0pzYkKgdTcMJ7HU:cjystx.top\",\"!r62dr5Blubi9iFEsrIrmw9Bq:cjystx.top\",\"!8SF_PDMjzs9FllXOgDKDgcOs:cjystx.top\",\"!sgOyHwfZt17Kmuz3wU6ozx3w:cjystx.top\",\"!k9ukZMX87p04E-y1HFk9rYNu:cjystx.top\",\"!b4xpUV42VsVNZWIYYjOO5_EI:cjystx.top\",\"!S1G22nzHWJW6yPmh9mMROB3y:cjystx.top\",\"!EW-kKDLCGAwNsABC7ILNgW-Y:cjystx.top\",\"!CZCjidUUpt1hSxCtiRwrdtIu:cjystx.top\",\"!NzYF8372_NPlNBmzJrjJX5gV:cjystx.top\",\"!zssB-Il0YHxhox8j7JPlCHxf:cjystx.top\",\"!AfJORcfN1pNuzMfhPnpozglw:cjystx.top\",\"!i10nL1nZkqCmhEMOU1QPrwVf:cjystx.top\",\"!2BrBN_AofhxDS0gxJJWwzep7:cjystx.top\"]}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取指定用户的所有房间"
+        },
+        {
+          "name": "设置用户为管理员",
+          "endpoint": "/_synapse/admin/v1/users/@testuser2:cjystx.top/admin",
+          "method": "PUT",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"success\":true}200"
+          },
+          "result": "✅ 通过",
+          "description": "将用户设置为管理员"
+        },
+        {
+          "name": "停用用户",
+          "endpoint": "/_synapse/admin/v1/users/@testuser6:cjystx.top/deactivate",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"id_server_unbind_result\":\"success\"}200"
+          },
+          "result": "✅ 通过",
+          "description": "停用指定用户账户"
+        },
+        {
+          "name": "获取服务器统计",
+          "endpoint": "/_synapse/admin/v1/server_stats",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"cache_enabled\":true,\"database_pool_size\":20,\"room_count\":42,\"total_message_count\":7,\"user_count\":57}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取服务器运行统计信息"
+        },
+        {
+          "name": "获取服务器配置",
+          "endpoint": "/_synapse/admin/v1/config",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"guest_registration_enabled\":false,\"password_policy\":{\"enabled\":true,\"minimum_length\":8,\"require_digit\":true,\"require_lowercase\":true,\"require_symbol\":true,\"require_uppercase\":true},\"rate_limiting\":{\"burst_size\":50,\"enabled\":true,\"per_second\":10},\"registration_enabled\":true,\"server_name\":\"cjystx.top\",\"version\":\"1.0.0\"}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取服务器配置信息"
+        },
+        {
+          "name": "获取用户统计",
+          "endpoint": "/_synapse/admin/v1/user_stats",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"active_users\":57,\"admin_users\":1,\"average_rooms_per_user\":1.0,\"deactivated_users\":0,\"guest_users\":0,\"total_users\":57,\"user_registration_enabled\":true}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取用户相关统计"
+        },
+        {
+          "name": "获取媒体统计",
+          "endpoint": "/_synapse/admin/v1/media_stats",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"file_count\":9,\"max_upload_size_mb\":50,\"media_directory\":\"/app/data/media\",\"thumbnail_enabled\":true,\"total_storage_bytes\":4338,\"total_storage_human\":\"4.24 KB\"}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取媒体存储统计"
+        },
+        {
+          "name": "删除房间",
+          "endpoint": "/_synapse/admin/v1/rooms/!test_delete_room:cjystx.top",
+          "method": "DELETE",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"deleted\":true,\"room_id\":\"!test_delete_room:cjystx.top\"}200"
+          },
+          "result": "✅ 通过",
+          "description": "删除指定房间"
+        },
+        {
+          "name": "关闭房间",
+          "endpoint": "/_synapse/admin/v1/shutdown_room",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"closed_room\":true,\"failed_to_kick_users\":[],\"kicked_users\":[]}200"
+          },
+          "result": "✅ 通过",
+          "description": "关闭指定房间"
+        },
+        {
+          "name": "清理房间历史",
+          "endpoint": "/_synapse/admin/v1/purge_history",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"deleted_events\":0,\"success\":true}200"
+          },
+          "result": "✅ 通过",
+          "description": "清理房间历史消息"
+        },
+        {
+          "name": "获取服务器版本",
+          "endpoint": "/_synapse/admin/v1/server_version",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"python_version\":\"3.9.0\",\"version\":\"1.0.0\"}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取Synapse服务器版本"
+        },
+        {
+          "name": "获取服务器状态",
+          "endpoint": "/_synapse/admin/v1/status",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"rooms\":42,\"status\":\"running\",\"uptime\":0,\"users\":57,\"version\":\"1.0.0\"}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取服务器运行状态"
+        }
+      ]
+    },
+    {
+      "category": "联邦通信API",
+      "tested": 10,
+      "passed": 3,
+      "failed": 7,
+      "unknown_limit": 0,
+      "details": [
+        {
+          "name": "获取服务器密钥",
+          "endpoint": "/_matrix/key/v2/server",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"old_verify_keys\":{},\"server_name\":\"cjystx.top\",\"valid_until_ts\":1770477049326,\"verify_keys\":{\"ed25519:testkb1OUw\":{\"key\":\"JJA5LWDoOmITjR+0tyqcdhgdWcFJU8RqQdS2ZJhmDSA\"}}}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取服务器的公钥信息"
+        },
+        {
+          "name": "联邦密钥查询",
+          "endpoint": "/_matrix/key/v2/query/cjystx.top/ed25519:0",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"old_verify_keys\":{},\"server_name\":\"cjystx.top\",\"valid_until_ts\":1770477049339,\"verify_keys\":{\"ed25519:testkb1OUw\":{\"key\":\"JJA5LWDoOmITjR+0tyqcdhgdWcFJU8RqQdS2ZJhmDSA\"}}}200"
+          },
+          "result": "✅ 通过",
+          "description": "查询指定服务器的密钥"
+        },
+        {
+          "name": "联邦密钥交换",
+          "endpoint": "/_matrix/federation/v1/keys/query",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_UNAUTHORIZED\",\"error\":\"Missing federation signature\"}401"
+          },
+          "result": "✅ 通过",
+          "description": "执行联邦密钥交换"
+        },
+        {
+          "name": "声明密钥",
+          "endpoint": "/_matrix/federation/v1/keys/claim",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_UNAUTHORIZED\",\"error\":\"Missing federation signature\"}401"
+          },
+          "result": "❌ 失败",
+          "description": "声明一次性密钥"
+        },
+        {
+          "name": "上传联邦密钥",
+          "endpoint": "/_matrix/federation/v1/keys/upload",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_UNAUTHORIZED\",\"error\":\"Missing federation signature\"}401"
+          },
+          "result": "❌ 失败",
+          "description": "上传设备密钥到联邦"
+        },
+        {
+          "name": "回填事件",
+          "endpoint": "/_matrix/federation/v1/backfill/!test_room:cjystx.top",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_UNAUTHORIZED\",\"error\":\"Missing federation signature\"}401"
+          },
+          "result": "❌ 失败",
+          "description": "回填房间历史事件"
+        },
+        {
+          "name": "生成加入模板",
+          "endpoint": "/_matrix/federation/v1/make_join/!test_room:cjystx.top/@testuser1:cjystx.top",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_UNAUTHORIZED\",\"error\":\"Missing federation signature\"}401"
+          },
+          "result": "❌ 失败",
+          "description": "生成加入房间的模板"
+        },
+        {
+          "name": "生成离开模板",
+          "endpoint": "/_matrix/federation/v1/make_leave/!test_room:cjystx.top/@testuser1:cjystx.top",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_UNAUTHORIZED\",\"error\":\"Missing federation signature\"}401"
+          },
+          "result": "❌ 失败",
+          "description": "生成离开房间的模板"
+        },
+        {
+          "name": "获取缺失事件",
+          "endpoint": "/_matrix/federation/v1/get_missing_events/!test_room:cjystx.top",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_UNAUTHORIZED\",\"error\":\"Missing federation signature\"}401"
+          },
+          "result": "❌ 失败",
+          "description": "获取房间中缺失的事件"
+        },
+        {
+          "name": "获取事件授权",
+          "endpoint": "/_matrix/federation/v1/get_event_auth/!test_room:cjystx.top/$event_id",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_UNAUTHORIZED\",\"error\":\"Missing federation signature\"}401"
+          },
+          "result": "❌ 失败",
+          "description": "获取事件的授权链"
+        }
+      ]
+    },
+    {
+      "category": "增强API",
+      "tested": 16,
+      "passed": 3,
+      "failed": 13,
+      "unknown_limit": 0,
+      "details": [
+        {
+          "name": "接受好友请求",
+          "endpoint": "/_synapse/enhanced/friend/request/test_request_001/accept",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "Invalid URL: Cannot parse `test_request_001` to a `i64`400"
+          },
+          "result": "❌ 失败",
+          "description": "接受指定的好友请求"
+        },
+        {
+          "name": "拒绝好友请求",
+          "endpoint": "/_synapse/enhanced/friend/request/test_request_001/decline",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "Invalid URL: Cannot parse `test_request_001` to a `i64`400"
+          },
+          "result": "❌ 失败",
+          "description": "拒绝指定的好友请求"
+        },
+        {
+          "name": "封禁用户",
+          "endpoint": "/_synapse/enhanced/friend/blocks/@testuser9:cjystx.top",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "Expected request with `Content-Type: application/json`415"
+          },
+          "result": "❌ 失败",
+          "description": "封禁指定用户"
+        },
+        {
+          "name": "解除用户封禁",
+          "endpoint": "/_synapse/enhanced/friend/blocks/@testuser9:cjystx.top/@blocked_user:cjystx.top",
+          "method": "DELETE",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"status\":\"unblocked\"}200"
+          },
+          "result": "❌ 失败",
+          "description": "解除对指定用户的封禁"
+        },
+        {
+          "name": "获取好友分类",
+          "endpoint": "/_synapse/enhanced/friend/categories/@testuser1:cjystx.top",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"categories\":[]}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取用户的好友分类"
+        },
+        {
+          "name": "创建好友分类",
+          "endpoint": "/_synapse/enhanced/friend/categories/@testuser1:cjystx.top",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"category_id\":4}200"
+          },
+          "result": "✅ 通过",
+          "description": "创建新的好友分类"
+        },
+        {
+          "name": "获取私聊详情",
+          "endpoint": "/_matrix/client/r0/rooms/!test_dm_room:cjystx.top/dm",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_NOT_FOUND\",\"error\":\"Room not found\"}404"
+          },
+          "result": "❌ 失败",
+          "description": "获取私聊房间的详细信息"
+        },
+        {
+          "name": "获取未读消息",
+          "endpoint": "/_matrix/client/r0/rooms/!test_dm_room:cjystx.top/unread",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"highlight_count\":0,\"notification_count\":0,\"room_id\":\"!test_dm_room:cjystx.top\"}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取私聊房间的未读消息"
+        },
+        {
+          "name": "获取会话详情",
+          "endpoint": "/_synapse/enhanced/private/sessions/test_session_001",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_NOT_FOUND\",\"error\":\"Session not found\"}404"
+          },
+          "result": "❌ 失败",
+          "description": "获取私聊会话的详细信息"
+        },
+        {
+          "name": "删除会话",
+          "endpoint": "/_synapse/enhanced/private/sessions/test_session_001",
+          "method": "DELETE",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{}200"
+          },
+          "result": "❌ 失败",
+          "description": "删除指定的私聊会话"
+        },
+        {
+          "name": "获取会话消息",
+          "endpoint": "/_synapse/enhanced/private/sessions/test_session_001/messages",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"count\":0,\"messages\":[]}200"
+          },
+          "result": "❌ 失败",
+          "description": "获取私聊会话的消息历史"
+        },
+        {
+          "name": "发送会话消息",
+          "endpoint": "/_synapse/enhanced/private/sessions/test_session_001/messages",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_UNKNOWN\",\"error\":\"Internal server error\"}500"
+          },
+          "result": "❌ 失败",
+          "description": "在私聊会话中发送消息"
+        },
+        {
+          "name": "删除私聊消息",
+          "endpoint": "/_synapse/enhanced/private/messages/test_msg_001",
+          "method": "DELETE",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_BAD_JSON\",\"error\":\"Invalid message ID\"}400"
+          },
+          "result": "❌ 失败",
+          "description": "删除指定的私聊消息"
+        },
+        {
+          "name": "标记消息已读",
+          "endpoint": "/_synapse/enhanced/private/messages/test_msg_001/read",
+          "method": "POST",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{}200"
+          },
+          "result": "❌ 失败",
+          "description": "将私聊消息标记为已读"
+        },
+        {
+          "name": "获取房间密钥",
+          "endpoint": "/_matrix/client/r0/room_keys/version_001",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_NOT_FOUND\",\"error\":\"Backup version 'version_001' not found\"}404"
+          },
+          "result": "❌ 失败",
+          "description": "获取指定版本的房间密钥备份"
+        },
+        {
+          "name": "上传房间密钥",
+          "endpoint": "/_matrix/client/r0/room_keys/version_001",
+          "method": "PUT",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_NOT_FOUND\",\"error\":\"Backup not found\"}404"
+          },
+          "result": "❌ 失败",
+          "description": "上传房间密钥备份"
+        }
+      ]
+    },
+    {
+      "category": "媒体文件API",
+      "tested": 4,
+      "passed": 0,
+      "failed": 4,
+      "unknown_limit": 0,
+      "details": [
+        {
+          "name": "下载媒体文件",
+          "endpoint": "/_matrix/media/v3/download/cjystx.top/test_media_id",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_NOT_FOUND\",\"error\":\"Not found: Media not found\"}200"
+          },
+          "result": "❌ 失败",
+          "description": "下载指定媒体文件"
+        },
+        {
+          "name": "获取缩略图",
+          "endpoint": "/_matrix/media/v3/thumbnail/cjystx.top/test_media_id",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_NOT_FOUND\",\"error\":\"Not found: Media not found\"}200"
+          },
+          "result": "❌ 失败",
+          "description": "获取媒体文件的缩略图"
+        },
+        {
+          "name": "v1版本下载",
+          "endpoint": "/_matrix/media/v1/download/cjystx.top/test_media_id",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_NOT_FOUND\",\"error\":\"Not found: Media not found\"}200"
+          },
+          "result": "❌ 失败",
+          "description": "使用v1 API下载媒体文件"
+        },
+        {
+          "name": "r1版本下载",
+          "endpoint": "/_matrix/media/r1/download/cjystx.top/test_media_id",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_NOT_FOUND\",\"error\":\"Not found: Media not found\"}200"
+          },
+          "result": "❌ 失败",
+          "description": "使用r1 API下载媒体文件"
+        }
+      ]
+    },
+    {
+      "category": "语音消息API",
+      "tested": 5,
+      "passed": 3,
+      "failed": 2,
+      "unknown_limit": 0,
+      "details": [
+        {
+          "name": "获取语音消息",
+          "endpoint": "/_matrix/client/r0/voice/test_voice_message_001",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"errcode\":\"M_NOT_FOUND\",\"error\":\"Voice message not found\"}404"
+          },
+          "result": "❌ 失败",
+          "description": "获取指定语音消息"
+        },
+        {
+          "name": "删除语音消息",
+          "endpoint": "/_matrix/client/r0/voice/test_voice_message_001",
+          "method": "DELETE",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"deleted\":false,\"message_id\":\"test_voice_message_001\"}200"
+          },
+          "result": "❌ 失败",
+          "description": "删除指定语音消息"
+        },
+        {
+          "name": "获取用户语音消息",
+          "endpoint": "/_matrix/client/r0/voice/user/@testuser1:cjystx.top",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"count\":0,\"messages\":[]}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取用户的所有语音消息"
+        },
+        {
+          "name": "获取房间语音消息",
+          "endpoint": "/_matrix/client/r0/voice/room/!test_room:cjystx.top",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"count\":0,\"messages\":[]}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取房间中的所有语音消息"
+        },
+        {
+          "name": "获取用户语音统计",
+          "endpoint": "/_matrix/client/r0/voice/user/@testuser1:cjystx.top/stats",
+          "method": "GET",
+          "status_code": 200,
+          "response": {
+            "raw_response": "{\"daily_stats\":[],\"total_duration_ms\":0,\"total_file_size\":0,\"total_message_count\":0,\"user_id\":\"@testuser1:cjystx.top\"}200"
+          },
+          "result": "✅ 通过",
+          "description": "获取用户的语音消息统计"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_tested": 47,
+    "total_passed": 21,
+    "total_failed": 26,
+    "total_unknown_limit": 0,
+    "pass_rate": "44.7%"
+  }
+}

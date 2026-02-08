@@ -47,8 +47,7 @@ RUN mkdir -p /app/bin /app/data /app/logs /app/config && \
 # ============================================================================
 # Copy Pre-compiled Binaries
 # ============================================================================
-# Copy the pre-compiled binaries from the build context
-# Build context is parent directory, so paths are relative to parent
+# Build context is parent directory (synapse_rust/), so paths are relative to parent
 COPY --chown=synapse:synapse target/release/synapse-rust /usr/local/bin/synapse-rust
 COPY --chown=synapse:synapse target/release/generate_test_keypair /usr/local/bin/generate_test_keypair
 

@@ -1,9 +1,6 @@
 services:
   synapse-rust:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    image: synapse-rust:latest
+    image: synapse-rust:prod
     container_name: synapse-rust
     restart: unless-stopped
     ports:

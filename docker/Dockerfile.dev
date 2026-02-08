@@ -1,0 +1,101 @@
+# ============================================================================
+# Synapse Rust - Development/Testing Build
+# ============================================================================
+# Purpose: Fast rebuild for development and testing cycles
+# Features:
+# - Debug build for faster compilation (~30s-1min rebuilds)
+# - Full cache utilization between builds
+# - Optimized layer caching
+#
+# Usage: 
+#   cd /home/hula/synapse_rust/docker
+#   docker build -f Dockerfile.dev -t synapse-rust:dev .
+#
+# Switch to release mode when ready for production:
+#   docker build -f Dockerfile.multistage -t synapse-rust:prod .
+# ============================================================================
+
+# ============================================================================
+# Stage 1: Builder - Fast debug compilation
+# ============================================================================
+FROM rust:1-alpine AS builder
+
+# Install minimal build dependencies
+RUN apk add --no-cache \
+    musl-dev \
+    openssl-dev \
+    postgresql-dev \
+    pkgconfig
+
+WORKDIR /build
+
+# Copy only essential files first (better layer caching)
+COPY Cargo.toml Cargo.lock ./
+
+# Create dummy source files to cache dependency resolution
+RUN mkdir -p src/web/routes && \
+    echo "pub mod dummy;" > src/lib.rs && \
+    echo "fn main() {}" > src/main.rs
+
+# Download and compile dependencies (cached in Docker layer)
+RUN cargo fetch && \
+    cargo build --features "server" --lib
+
+# Copy actual source code
+COPY src/ ./src/
+
+# Build binary (faster debug mode)
+RUN cargo build --features "server" --bin synapse-rust
+
+# ============================================================================
+# Stage 2: Runtime - Minimal runtime image
+# ============================================================================
+FROM debian:bookworm-slim AS runtime
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libssl3 \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user
+RUN groupadd --system synapse && \
+    useradd --system --gid synapse --home-dir /app --shell /usr/sbin/nologin synapse
+
+# Directory structure
+RUN mkdir -p /app/bin /app/data /app/logs /app/config && \
+    chown -R synapse:synapse /app && \
+    chmod 755 /app
+
+# Copy binary from builder
+COPY --from=builder /build/target/debug/synapse-rust /usr/local/bin/synapse-rust
+
+# Copy configuration
+COPY config/homeserver.yaml /app/config/homeserver.yaml
+
+# Binary permissions (no strip for faster builds)
+RUN chmod 755 /usr/local/bin/synapse-rust
+
+# Environment variables
+ENV DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
+ENV REDIS_URL=redis://redis:6379
+ENV RUST_LOG=info
+ENV RUST_BACKTRACE=1
+ENV SERVER_NAME=cjystx.top
+ENV SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8008/health || exit 1
+
+# Switch to non-root user
+USER synapse
+
+# Expose ports
+EXPOSE 8008 8448
+
+# Start server
+CMD ["synapse-rust"]

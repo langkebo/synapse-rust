@@ -13,14 +13,60 @@ impl DeviceKeyStorage {
         Self { pool: pool.clone() }
     }
 
+    pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS device_keys (
+                id BIGSERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                device_id VARCHAR(255) NOT NULL,
+                display_name TEXT,
+                algorithm VARCHAR(255) NOT NULL,
+                key_id VARCHAR(255) NOT NULL,
+                public_key TEXT NOT NULL,
+                signatures TEXT,
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL,
+                ts_updated_ms BIGINT NOT NULL,
+                key_json TEXT DEFAULT '{}',
+                ts_added_ms BIGINT NOT NULL,
+                ts_last_accessed BIGINT,
+                UNIQUE (user_id, device_id, key_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_device_keys_user_id ON device_keys(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_device_keys_device_id ON device_keys(device_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError> {
         let now_ms = key.updated_at.timestamp_millis();
         sqlx::query(
             r#"
             INSERT INTO device_keys (user_id, device_id, display_name, algorithm, key_id, public_key, signatures, created_at, updated_at, ts_updated_ms, key_json, ts_added_ms, ts_last_accessed)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            ON CONFLICT (user_id, device_id, key_id) DO UPDATE
+            ON CONFLICT (user_id, device_id) DO UPDATE
             SET display_name = EXCLUDED.display_name,
+                algorithm = EXCLUDED.algorithm,
+                key_id = EXCLUDED.key_id,
                 public_key = EXCLUDED.public_key,
                 signatures = EXCLUDED.signatures,
                 updated_at = EXCLUDED.updated_at,
