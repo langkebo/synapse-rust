@@ -96,6 +96,22 @@ impl SecurityStorage {
         Self { pool: pool.clone() }
     }
 
+    fn parse_ip_address(ip_address: &str) -> Option<IpNetwork> {
+        if let Ok(net) = ip_address.parse() {
+            return Some(net);
+        }
+
+        if let Ok(v4) = ip_address.parse::<Ipv4Addr>() {
+            return Ipv4Network::new(v4, 32).ok().map(IpNetwork::V4);
+        }
+
+        if let Ok(v6) = ip_address.parse::<Ipv6Addr>() {
+            return Ipv6Network::new(v6, 128).ok().map(IpNetwork::V6);
+        }
+
+        None
+    }
+
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -235,21 +251,8 @@ impl SecurityStorage {
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
 
-        let ip_network: IpNetwork = if let Ok(net) = ip_address.parse() {
-            net
-        } else if let Ok(v4) = ip_address.parse::<Ipv4Addr>() {
-            IpNetwork::V4(
-                Ipv4Network::new(v4, 32).map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
-            )
-        } else if let Ok(v6) = ip_address.parse::<Ipv6Addr>() {
-            IpNetwork::V6(
-                Ipv6Network::new(v6, 128).map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
-            )
-        } else if ip_address.contains(':') {
-            IpNetwork::V6(Ipv6Network::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1), 128).unwrap())
-        } else {
-            IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(127, 0, 0, 1), 32).unwrap())
-        };
+        let ip_network = Self::parse_ip_address(ip_address)
+            .ok_or_else(|| sqlx::Error::Protocol("Invalid IP address format".to_string()))?;
 
         let expires_at_ts = expires_at.map(|t| t.and_utc().timestamp());
         sqlx::query(r#"DELETE FROM ip_blocks WHERE ip_range = $1"#)
@@ -273,19 +276,8 @@ impl SecurityStorage {
     }
 
     pub async fn unblock_ip(&self, ip_address: &str) -> Result<bool, sqlx::Error> {
-        let ip_network: IpNetwork = if let Ok(net) = ip_address.parse() {
-            net
-        } else if let Ok(v4) = ip_address.parse::<Ipv4Addr>() {
-            IpNetwork::V4(
-                Ipv4Network::new(v4, 32).map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
-            )
-        } else if let Ok(v6) = ip_address.parse::<Ipv6Addr>() {
-            IpNetwork::V6(
-                Ipv6Network::new(v6, 128).map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
-            )
-        } else {
-            return Ok(false);
-        };
+        let ip_network = Self::parse_ip_address(ip_address)
+            .ok_or_else(|| sqlx::Error::Protocol("Invalid IP address format".to_string()))?;
 
         let result = sqlx::query(r#"DELETE FROM ip_blocks WHERE ip_range = $1"#)
             .bind(ip_network)
