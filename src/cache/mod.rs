@@ -69,7 +69,7 @@ impl LocalCache {
     pub fn set(&self, token: &str, claims: &Claims) {
         if let Err(e) = serde_json::to_string(claims) {
             tracing::error!(target: "cache", "Failed to serialize claims: {}", e);
-        } else if let Some(s) = serde_json::to_string(claims).ok() {
+        } else if let Ok(s) = serde_json::to_string(claims) {
             self.cache.insert(token.to_string(), s);
         }
     }

@@ -109,7 +109,7 @@ impl ServiceContainer {
             &config.security,
             &config.server.name,
         );
-        let device_key_storage = crate::e2ee::device_keys::DeviceKeyStorage::new(&pool);
+        let device_key_storage = crate::e2ee::device_keys::DeviceKeyStorage::new(pool);
         let device_keys_service = DeviceKeyService::new(device_key_storage, cache.clone());
         let megolm_storage = crate::e2ee::megolm::MegolmSessionStorage::new(pool);
         let encryption_key = generate_encryption_key();

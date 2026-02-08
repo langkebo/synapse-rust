@@ -12,6 +12,9 @@ use tokio::sync::RwLock;
 const DEVICE_SYNC_CACHE_TTL: u64 = 3600;
 const DEVICE_KEY_EXPIRY_DAYS: i64 = 365;
 
+type DeviceCacheEntry = (Vec<DeviceInfo>, u128);
+type DeviceCache = HashMap<String, DeviceCacheEntry>;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
     pub device_id: String,
@@ -28,7 +31,7 @@ pub struct DeviceInfo {
 pub struct DeviceSyncManager {
     pool: Arc<Pool<Postgres>>,
     http_client: Client,
-    local_cache: Arc<RwLock<HashMap<String, (Vec<DeviceInfo>, u128)>>>,
+    local_cache: Arc<RwLock<DeviceCache>>,
     cache_manager: Option<Arc<CacheManager>>,
 }
 

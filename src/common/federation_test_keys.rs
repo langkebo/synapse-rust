@@ -17,7 +17,7 @@ pub fn generate_federation_test_keypair() -> FederationTestKeypair {
     let verifying_key = signing_key.verifying_key();
 
     let key_id = format!("ed25519:test{}", generate_random_string(6));
-    let secret_key = STANDARD_NO_PAD.encode(&secret_bytes);
+    let secret_key = STANDARD_NO_PAD.encode(secret_bytes);
     let public_key = STANDARD_NO_PAD.encode(verifying_key.as_bytes());
 
     FederationTestKeypair {

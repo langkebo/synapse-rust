@@ -9,6 +9,10 @@ const AUTH_CHAIN_CACHE_SIZE: usize = 1000;
 const DEPTH_CACHE_SIZE: usize = 2000;
 const STATE_RESOLUTION_MAX_HOPS: usize = 100;
 
+type StateKey = String;
+type StateEntry = (i64, String, i64, Option<String>);
+type StateByKey = HashMap<StateKey, Vec<StateEntry>>;
+
 #[derive(Debug, Clone)]
 pub struct EventAuthChain {
     auth_chain_cache: Arc<RwLock<LruCache<String, bool>>>,
@@ -118,7 +122,7 @@ impl EventAuthChain {
         for event_id in auth_chain {
             match events.get(event_id) {
                 Some(event) => {
-                    if &event.room_id != room_id {
+                    if event.room_id != room_id {
                         return false;
                     }
                     seen_events.insert(event_id.clone());
@@ -498,8 +502,7 @@ impl EventAuthChain {
         power_levels: Option<&HashMap<String, i64>>,
     ) -> Vec<ConflictInfo> {
         let mut conflicts = Vec::new();
-        let mut state_by_key: HashMap<String, Vec<(i64, String, i64, Option<String>)>> =
-            HashMap::new();
+        let mut state_by_key: StateByKey = HashMap::new();
 
         for event in state_events {
             let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
