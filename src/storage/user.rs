@@ -1,7 +1,9 @@
+use crate::cache::CacheManager;
+use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct User {
     pub user_id: String,
     pub username: String,
@@ -31,11 +33,15 @@ impl User {
 #[derive(Clone)]
 pub struct UserStorage {
     pub pool: Arc<Pool<Postgres>>,
+    pub cache: Arc<CacheManager>,
 }
 
 impl UserStorage {
-    pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
-        Self { pool: pool.clone() }
+    pub fn new(pool: &Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> Self {
+        Self {
+            pool: pool.clone(),
+            cache,
+        }
     }
 
     pub async fn create_user(
@@ -190,6 +196,10 @@ impl UserStorage {
             .bind(user_id)
             .execute(&*self.pool)
             .await?;
+        
+        let key = format!("user:profile:{}", user_id);
+        self.cache.delete(&key).await;
+
         Ok(())
     }
 
@@ -203,6 +213,10 @@ impl UserStorage {
             .bind(user_id)
             .execute(&*self.pool)
             .await?;
+        
+        let key = format!("user:profile:{}", user_id);
+        self.cache.delete(&key).await;
+
         Ok(())
     }
 
@@ -281,6 +295,13 @@ impl UserStorage {
         &self,
         user_id: &str,
     ) -> Result<Option<UserProfile>, sqlx::Error> {
+        let key = format!("user:profile:{}", user_id);
+        
+        // Try to get from cache
+        if let Ok(Some(profile)) = self.cache.get::<UserProfile>(&key).await {
+            return Ok(Some(profile));
+        }
+
         let result = sqlx::query_as::<_, UserProfile>(
             r#"
             SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
@@ -291,6 +312,12 @@ impl UserStorage {
         .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
+        
+        // Set cache if found
+        if let Some(profile) = &result {
+            let _ = self.cache.set(&key, profile, 3600).await;
+        }
+
         Ok(result)
     }
 
@@ -323,7 +350,7 @@ impl UserStorage {
     }
 }
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct UserSearchResult {
     pub user_id: String,
     pub username: String,
@@ -332,7 +359,7 @@ pub struct UserSearchResult {
     pub creation_ts: i64,
 }
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct UserProfile {
     pub user_id: String,
     pub username: String,

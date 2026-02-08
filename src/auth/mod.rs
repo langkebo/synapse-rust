@@ -48,7 +48,7 @@ impl AuthService {
         server_name: &str,
     ) -> Self {
         Self {
-            user_storage: UserStorage::new(pool),
+            user_storage: UserStorage::new(pool, cache.clone()),
             device_storage: DeviceStorage::new(pool),
             token_storage: AccessTokenStorage::new(pool),
             refresh_token_storage: RefreshTokenStorage::new(pool),

@@ -8,6 +8,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use validator::{Validate, ValidationError};
 
 pub fn create_friend_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -59,30 +60,51 @@ pub fn create_friend_router(_state: AppState) -> Router<AppState> {
         )
 }
 
-#[derive(Debug, Deserialize)]
+fn validate_color(color: &str) -> Result<(), ValidationError> {
+    if !color.starts_with('#') {
+        return Err(ValidationError::new("Color must start with #"));
+    }
+    if color.len() != 7 {
+        return Err(ValidationError::new("Color must be 7 characters long"));
+    }
+    if !color.chars().skip(1).all(|c| c.is_ascii_hexdigit()) {
+        return Err(ValidationError::new("Color must be valid hex"));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct SendFriendRequestBody {
     #[serde(alias = "userId", alias = "user_id")]
+    #[validate(length(min = 1, max = 255, message = "User ID must be between 1 and 255 characters"))]
     pub user_id: String,
     #[serde(alias = "message")]
+    #[validate(length(max = 500, message = "Message must not exceed 500 characters"))]
     pub message: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct CreateCategoryBody {
+    #[validate(length(min = 1, max = 50, message = "Category name must be between 1 and 50 characters"))]
     pub name: String,
+    #[validate(custom(function = "validate_color"))]
     pub color: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct BlockUserBody {
+    #[validate(length(min = 1, max = 255))]
     pub user_id: String,
+    #[validate(length(max = 200))]
     pub reason: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct UpdateCategoryBody {
+    #[validate(length(min = 1, max = 50))]
     pub name: Option<String>,
+    #[validate(custom(function = "validate_color"))]
     pub color: Option<String>,
 }
 
@@ -143,6 +165,9 @@ async fn send_friend_request(
     auth_user: crate::web::routes::AuthenticatedUser,
     Json(body): Json<SendFriendRequestBody>,
 ) -> Result<Json<Value>, ApiError> {
+    if let Err(e) = body.validate() {
+        return Err(ApiError::bad_request(e.to_string()));
+    }
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     let receiver_id = &body.user_id;
 
@@ -334,6 +359,9 @@ async fn block_user(
     auth_user: crate::web::routes::AuthenticatedUser,
     Json(body): Json<BlockUserBody>,
 ) -> Result<Json<Value>, ApiError> {
+    if let Err(e) = body.validate() {
+        return Err(ApiError::bad_request(e.to_string()));
+    }
     if auth_user.user_id != user_id && !auth_user.is_admin {
         return Err(ApiError::forbidden(
             "Cannot modify blocked users for another user".to_string(),
@@ -395,6 +423,9 @@ async fn create_friend_category(
     auth_user: crate::web::routes::AuthenticatedUser,
     Json(body): Json<CreateCategoryBody>,
 ) -> Result<Json<Value>, ApiError> {
+    if let Err(e) = body.validate() {
+        return Err(ApiError::bad_request(e.to_string()));
+    }
     if auth_user.user_id != user_id && !auth_user.is_admin {
         return Err(ApiError::forbidden(
             "Cannot create categories for another user".to_string(),
@@ -416,6 +447,9 @@ async fn update_friend_category(
     auth_user: crate::web::routes::AuthenticatedUser,
     Json(body): Json<UpdateCategoryBody>,
 ) -> Result<Json<Value>, ApiError> {
+    if let Err(e) = body.validate() {
+        return Err(ApiError::bad_request(e.to_string()));
+    }
     if auth_user.user_id != user_id && !auth_user.is_admin {
         return Err(ApiError::forbidden(
             "Cannot update categories for another user".to_string(),

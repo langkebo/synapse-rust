@@ -1,6 +1,7 @@
 use crate::common::*;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use serde_json::json;
 
 #[derive(Debug, Clone)]
 pub struct ReputationConfig {
@@ -180,7 +181,7 @@ impl ModerationService {
             .bind(reputation.last_update_ts)
             .bind(reputation.warnings_count)
             .bind(reputation.is_banned)
-            .bind(reputation.ban_reason)
+            .bind(&reputation.ban_reason)
             .bind(reputation.ban_expires_at)
             .execute(&*self.pool)
             .await?;
@@ -233,7 +234,7 @@ impl ModerationService {
                 .execute(&*self.pool)
                 .await?;
 
-            let warn_id = self
+            let _warn_id = self
                 .create_moderation_action(
                     user_id,
                     "warning",
@@ -266,7 +267,7 @@ impl ModerationService {
             )
             .await?;
 
-            let ban_id = self
+            let _ban_id = self
                 .create_moderation_action(
                     user_id,
                     "ban",
@@ -421,7 +422,7 @@ impl ModerationService {
     ) -> Result<i64, ApiError> {
         let now = chrono::Utc::now().timestamp();
 
-        let row = sqlx::query_as::<_, (i64)>(
+        let id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO moderation_actions (user_id, action_type, reason, report_id, created_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -437,7 +438,7 @@ impl ModerationService {
         .fetch_one(&*self.pool)
         .await?;
 
-        Ok(row.0)
+        Ok(id)
     }
 
     pub async fn check_user_status(&self, user_id: &str) -> Result<UserReputation, ApiError> {
@@ -531,12 +532,12 @@ impl ModerationService {
     }
 
     pub async fn get_reputation_stats(&self) -> Result<serde_json::Value, ApiError> {
-        let total_users = sqlx::query_as::<_, (i64)>("SELECT COUNT(*) FROM user_reputations")
+        let total_users = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM user_reputations")
             .fetch_one(&*self.pool)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        let banned_users = sqlx::query_as::<_, (i64)>(
+        let banned_users = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM user_reputations WHERE is_banned = TRUE",
         )
         .fetch_one(&*self.pool)
@@ -544,15 +545,15 @@ impl ModerationService {
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         let avg_score =
-            sqlx::query_as::<_, (f64)>("SELECT AVG(reputation_score) FROM user_reputations")
+            sqlx::query_scalar::<_, f64>("SELECT AVG(reputation_score) FROM user_reputations")
                 .fetch_one(&*self.pool)
                 .await
                 .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         Ok(json!({
-            "total_users": total_users.0,
-            "banned_users": banned_users.0,
-            "average_score": avg_score.0,
+            "total_users": total_users,
+            "banned_users": banned_users,
+            "average_score": avg_score,
             "config": {
                 "initial_score": self.config.initial_score,
                 "auto_warn_threshold": self.config.auto_warn_threshold,

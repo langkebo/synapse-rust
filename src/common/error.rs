@@ -4,8 +4,62 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use thiserror::Error;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiResponse<T> {
+    pub status: String, // "ok" or "error"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errcode: Option<String>,
+}
+
+impl<T> ApiResponse<T> {
+    pub fn success(data: T) -> Self {
+        Self {
+            status: "ok".to_string(),
+            data: Some(data),
+            error: None,
+            errcode: None,
+        }
+    }
+
+    pub fn error(error: String, errcode: String) -> Self {
+        Self {
+            status: "error".to_string(),
+            data: None,
+            error: Some(error),
+            errcode: Some(errcode),
+        }
+    }
+}
+
+impl<T> IntoResponse for ApiResponse<T>
+where
+    T: Serialize,
+{
+    fn into_response(self) -> Response {
+        let status_code = if self.status == "ok" {
+            StatusCode::OK
+        } else {
+            match self.errcode.as_deref() {
+                Some("M_NOT_FOUND") => StatusCode::NOT_FOUND,
+                Some("M_FORBIDDEN") => StatusCode::FORBIDDEN,
+                Some("M_UNAUTHORIZED") | Some("M_UNKNOWN_TOKEN") => StatusCode::UNAUTHORIZED,
+                Some("M_LIMIT_EXCEEDED") => StatusCode::TOO_MANY_REQUESTS,
+                Some("M_BAD_JSON") | Some("M_INVALID_PARAM") | Some("M_INVALID_INPUT") => {
+                    StatusCode::BAD_REQUEST
+                }
+                Some("M_USER_IN_USE") => StatusCode::CONFLICT,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            }
+        };
+        (status_code, Json(self)).into_response()
+    }
+}
 
 #[derive(Debug, Error, Serialize, Deserialize, Clone, PartialEq)]
 pub enum ApiError {
@@ -115,8 +169,8 @@ impl ApiError {
             ApiError::Internal(_) => "M_INTERNAL_ERROR",
             ApiError::Database(_) => "M_DB_ERROR",
             ApiError::Cache(_) => "M_CACHE_ERROR",
-            ApiError::Authentication(_) => "M_AUTH_FAILED",
-            ApiError::Validation(_) => "M_VALIDATION_FAILED",
+            ApiError::Authentication(_) => "M_UNKNOWN_TOKEN",
+            ApiError::Validation(_) => "M_INVALID_PARAM",
             ApiError::InvalidInput(_) => "M_INVALID_INPUT",
             ApiError::DecryptionError(_) => "M_DECRYPTION_FAILED",
             ApiError::EncryptionError(_) => "M_ENCRYPTION_FAILED",
@@ -124,68 +178,35 @@ impl ApiError {
         }
     }
 
-    fn to_server_error_response(
-        log_msg: &str,
-        user_msg: &str,
-    ) -> (StatusCode, &'static str, String) {
-        tracing::error!("{}", log_msg);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "M_UNKNOWN",
-            user_msg.to_string(),
-        )
-    }
-
     pub fn message(&self) -> String {
-        self.to_string()
+        match self {
+            ApiError::BadRequest(msg) => msg.clone(),
+            ApiError::Unauthorized(msg) => msg.clone(),
+            ApiError::Forbidden(msg) => msg.clone(),
+            ApiError::NotFound(msg) => msg.clone(),
+            ApiError::Conflict(msg) => msg.clone(),
+            ApiError::RateLimited => "Rate limited".to_string(),
+            ApiError::Internal(msg) => format!("Internal error: {}", msg),
+            ApiError::Database(msg) => format!("Database error: {}", msg),
+            ApiError::Cache(msg) => format!("Cache error: {}", msg),
+            ApiError::Authentication(msg) => msg.clone(),
+            ApiError::Validation(msg) => msg.clone(),
+            ApiError::InvalidInput(msg) => msg.clone(),
+            ApiError::DecryptionError(msg) => msg.clone(),
+            ApiError::EncryptionError(msg) => msg.clone(),
+            ApiError::Crypto(msg) => msg.clone(),
+        }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, errcode, error) = match self {
-            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "M_BAD_JSON", msg),
-            ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "M_UNAUTHORIZED", msg),
-            ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, "M_FORBIDDEN", msg),
-            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "M_NOT_FOUND", msg),
-            ApiError::Conflict(msg) => (StatusCode::CONFLICT, "M_USER_IN_USE", msg),
-            ApiError::RateLimited => (
-                StatusCode::TOO_MANY_REQUESTS,
-                "M_LIMIT_EXCEEDED",
-                "Rate limited".to_string(),
-            ),
-            ApiError::Internal(msg) => Self::to_server_error_response(
-                &format!("Internal error: {}", msg),
-                "Internal server error",
-            ),
-            ApiError::Database(msg) => Self::to_server_error_response(
-                &format!("Database error: {}", msg),
-                "Database operation failed",
-            ),
-            ApiError::Cache(msg) => Self::to_server_error_response(
-                &format!("Cache error: {}", msg),
-                "Cache operation failed",
-            ),
-            ApiError::Authentication(msg) => (StatusCode::UNAUTHORIZED, "M_UNKNOWN_TOKEN", msg),
-            ApiError::Validation(msg) => (StatusCode::BAD_REQUEST, "M_INVALID_PARAM", msg),
-            ApiError::InvalidInput(msg) => (StatusCode::BAD_REQUEST, "M_BAD_JSON", msg),
-            ApiError::DecryptionError(msg) => (StatusCode::UNAUTHORIZED, "M_UNKNOWN", msg),
-            ApiError::EncryptionError(msg) => Self::to_server_error_response(
-                &format!("Encryption error: {}", msg),
-                "Encryption operation failed",
-            ),
-            ApiError::Crypto(msg) => Self::to_server_error_response(
-                &format!("Crypto error: {}", msg),
-                "Cryptographic operation failed",
-            ),
-        };
-
-        let body = json!({
-            "errcode": errcode,
-            "error": error
-        });
-
-        (status, Json(body)).into_response()
+        let errcode = self.code().to_string();
+        let error_msg = self.message();
+        
+        // Use the new ApiResponse structure for consistent error responses
+        let response = ApiResponse::<()>::error(error_msg, errcode);
+        response.into_response()
     }
 }
 
@@ -261,33 +282,6 @@ impl From<crate::e2ee::crypto::CryptoError> for ApiError {
 }
 
 pub type ApiResult<T> = Result<T, ApiError>;
-
-#[derive(Debug)]
-pub struct ApiResponse<T>(pub Result<T, ApiError>);
-
-impl<T> ApiResponse<T> {
-    pub fn into_result(self) -> Result<T, ApiError> {
-        self.0
-    }
-}
-
-impl<T> From<ApiResponse<T>> for Response
-where
-    T: IntoResponse,
-{
-    fn from(resp: ApiResponse<T>) -> Self {
-        match resp.0 {
-            Ok(value) => value.into_response(),
-            Err(err) => err.into_response(),
-        }
-    }
-}
-
-impl<T> From<Result<T, ApiError>> for ApiResponse<T> {
-    fn from(result: Result<T, ApiError>) -> Self {
-        ApiResponse(result)
-    }
-}
 
 #[cfg(test)]
 mod tests {

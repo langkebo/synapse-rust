@@ -1,5 +1,6 @@
 use super::{AppState, AuthenticatedUser};
 use crate::ApiError;
+use crate::web::routes::MatrixJson;
 use axum::{
     extract::{Path, Query, State},
     routing::{get, post, put},
@@ -27,7 +28,7 @@ pub fn create_e2ee_router(_state: AppState) -> Router<AppState> {
 async fn upload_keys(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let device_id = auth_user
         .device_id
@@ -67,7 +68,7 @@ async fn upload_keys(
 async fn query_keys(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body)
         .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {}", e)))?;
@@ -88,7 +89,7 @@ async fn query_keys(
 async fn claim_keys(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
         .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {}", e)))?;
@@ -158,8 +159,8 @@ async fn room_key_distribution(
 async fn send_to_device(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((_event_type, transaction_id)): Path<(String, String)>,
-    Json(body): Json<Value>,
+    Path((_event_type, _transaction_id)): Path<(String, String)>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let messages = body.get("messages").ok_or_else(|| {
         crate::error::ApiError::bad_request("Missing 'messages' field".to_string())
@@ -171,7 +172,5 @@ async fn send_to_device(
         .send_messages(&auth_user.user_id, messages)
         .await?;
 
-    Ok(Json(serde_json::json!({
-        "txn_id": transaction_id
-    })))
+    Ok(Json(serde_json::json!({})))
 }

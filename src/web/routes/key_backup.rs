@@ -4,7 +4,9 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::Value;
+use validator::Validate;
 
 pub fn create_key_backup_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -44,14 +46,37 @@ pub fn create_key_backup_router(_state: AppState) -> Router<AppState> {
         )
 }
 
+#[derive(Debug, Deserialize, Validate)]
+pub struct CreateBackupVersionBody {
+    #[validate(length(max = 255, message = "Algorithm name too long"))]
+    pub algorithm: Option<String>,
+    pub auth_data: Option<Value>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct UpdateBackupVersionBody {
+    pub auth_data: Option<Value>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct PutRoomKeysBody {
+    #[validate(length(min = 1, max = 255))]
+    pub room_id: Option<String>,
+    pub sessions: Option<Vec<Value>>,
+}
+
 #[axum::debug_handler]
 async fn create_backup_version(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    Json(body): Json<CreateBackupVersionBody>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let algorithm = body["algorithm"].as_str().unwrap_or("m.megolm.v1.aes-sha2");
-    let auth_data = body.get("auth_data").cloned();
+    if let Err(e) = body.validate() {
+        return Err(crate::error::ApiError::bad_request(e.to_string()));
+    }
+
+    let algorithm = body.algorithm.as_deref().unwrap_or("m.megolm.v1.aes-sha2");
+    let auth_data = body.auth_data;
 
     let version = state
         .services
@@ -121,9 +146,13 @@ async fn update_backup_version(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
-    Json(body): Json<Value>,
+    Json(body): Json<UpdateBackupVersionBody>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let auth_data = body.get("auth_data").cloned();
+    if let Err(e) = body.validate() {
+        return Err(crate::error::ApiError::bad_request(e.to_string()));
+    }
+
+    let auth_data = body.auth_data;
 
     state
         .services
@@ -186,9 +215,14 @@ async fn put_room_keys(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
-    Json(body): Json<Value>,
+    Json(body): Json<PutRoomKeysBody>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let room_id = body["room_id"].as_str().unwrap_or("");
+    if let Err(e) = body.validate() {
+        return Err(crate::error::ApiError::bad_request(e.to_string()));
+    }
+
+    let room_id = body.room_id.as_deref().unwrap_or("");
+    let sessions = body.sessions.unwrap_or_default();
 
     state
         .services
@@ -197,12 +231,12 @@ async fn put_room_keys(
             &auth_user.user_id,
             room_id,
             &version,
-            body["sessions"].as_array().cloned().unwrap_or_default(),
+            sessions.clone(),
         )
         .await?;
 
     Ok(Json(serde_json::json!({
-        "count": body["sessions"].as_array().map(|s| s.len() as i64).unwrap_or(0),
+        "count": sessions.len(),
         "etag": format!("{}_{}", version, chrono::Utc::now().timestamp())
     })))
 }

@@ -4,6 +4,7 @@ pub mod federation;
 pub mod friend;
 pub mod key_backup;
 pub mod media;
+pub mod private_chat;
 pub mod voice;
 
 pub use admin::create_admin_router;
@@ -12,6 +13,7 @@ pub use federation::create_federation_router;
 pub use friend::create_friend_router;
 pub use key_backup::create_key_backup_router;
 pub use media::create_media_router;
+pub use private_chat::create_private_chat_router;
 pub use voice::create_voice_router;
 
 use crate::cache::*;
@@ -87,6 +89,7 @@ impl AppState {
     }
 }
 
+
 #[derive(Clone)]
 pub struct AuthenticatedUser {
     pub user_id: String,
@@ -105,40 +108,58 @@ pub struct AdminUser {
 impl FromRequestParts<AppState> for AuthenticatedUser {
     type Rejection = ApiError;
 
-    async fn from_request_parts(
+    fn from_request_parts(
         parts: &mut Parts,
         state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let token = extract_token_from_headers(&parts.headers)?;
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let token_result = extract_token_from_headers(&parts.headers);
+        let state = state.clone();
 
-        let (user_id, device_id, is_admin) =
-            state.services.auth_service.validate_token(&token).await?;
+        async move {
+            let token = token_result?;
+            let (user_id, device_id, is_admin) =
+                state.services.auth_service.validate_token(&token).await?;
 
-        Ok(AuthenticatedUser {
-            user_id,
-            device_id,
-            is_admin,
-            access_token: token,
-        })
+            Ok(AuthenticatedUser {
+                user_id,
+                device_id,
+                is_admin,
+                access_token: token,
+            })
+        }
     }
 }
 
 impl FromRequestParts<AppState> for AdminUser {
     type Rejection = ApiError;
 
-    async fn from_request_parts(
+    fn from_request_parts(
         parts: &mut Parts,
         state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let auth = AuthenticatedUser::from_request_parts(parts, state).await?;
-        if !auth.is_admin {
-            return Err(ApiError::forbidden("Admin access required".to_string()));
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let auth_future = AuthenticatedUser::from_request_parts(parts, state);
+        
+        async move {
+            let auth = auth_future.await?;
+            if !auth.is_admin {
+                return Err(ApiError::forbidden("Admin access required".to_string()));
+            }
+            Ok(AdminUser {
+                user_id: auth.user_id,
+                device_id: auth.device_id,
+                access_token: auth.access_token,
+            })
         }
-        Ok(AdminUser {
-            user_id: auth.user_id,
-            device_id: auth.device_id,
-            access_token: auth.access_token,
-        })
+    }
+}
+
+pub trait AuthExtractor {
+    fn extract_token(&self) -> Result<String, ApiError>;
+}
+
+impl AuthExtractor for HeaderMap {
+    fn extract_token(&self) -> Result<String, ApiError> {
+        extract_token_from_headers(self)
     }
 }
 
@@ -329,6 +350,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_media_router(state.clone()))
         .merge(create_e2ee_router(state.clone()))
         .merge(create_key_backup_router(state.clone()))
+        .merge(create_private_chat_router(state.clone()))
         .merge(create_admin_router(state.clone()))
         .merge(create_federation_router(state.clone()))
         .layer(CompressionLayer::new())
