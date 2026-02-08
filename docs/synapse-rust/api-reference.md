@@ -521,7 +521,51 @@ curl -X POST http://localhost:8008/_matrix/client/r0/login \
 
 ---
 
-## 10. 密钥备份 API ✅
+## 10. 私密聊天 (Private Chat) ✅
+
+> 私密聊天功能已架构升级，现在完全基于标准的 Matrix 房间机制实现，无需额外的自定义 API。这确保了与标准 Matrix 客户端的完全兼容性以及端到端加密支持。
+
+### 10.1 核心机制
+
+私密聊天本质上是一个具有特定配置（Preset）的 Matrix 房间：
+1.  **基于标准 API**: 使用 `createRoom` 创建，`invite` 邀请成员，`send` 发送消息。
+2.  **Trusted Private Chat Preset**: 通过设置 `preset` 为 `trusted_private_chat` 启用。
+3.  **自动隐私保护**: 后端会自动配置以下状态：
+    - `join_rules`: `invite` (仅限邀请)
+    - `history_visibility`: `invited` (仅成员可见历史)
+    - `guest_access`: `forbidden` (禁止访客)
+    - `com.hula.privacy`: `block_screenshot` (防截屏标记)
+
+### 10.2 关键操作示例
+
+#### 创建私密聊天
+
+使用标准 `createRoom` 接口，但指定特殊的 `preset`。
+
+- **端点**: `POST /_matrix/client/r0/createRoom`
+- **请求体**:
+```json
+{
+  "preset": "trusted_private_chat",
+  "visibility": "private",
+  "invite": ["@friend:cjystx.top"],
+  "is_direct": true,
+  "name": "Private Chat",
+  "topic": "Encrypted & Secure"
+}
+```
+
+#### 其他操作
+
+所有其他操作（发送消息、上传文件、语音消息等）均直接使用标准的 Matrix API：
+
+- **发送消息**: `PUT /_matrix/client/r0/rooms/{room_id}/send/m.room.message/{txn_id}`
+- **发送语音**: `POST /_matrix/client/r0/voice/upload` 后发送 `m.audio` 消息
+- **邀请用户**: `POST /_matrix/client/r0/rooms/{room_id}/invite`
+
+---
+
+## 11. 密钥备份 API ✅
 
 | 序号 | 端点 | 方法 | 描述 | 状态 |
 |------|------|------|------|------|
@@ -535,7 +579,7 @@ curl -X POST http://localhost:8008/_matrix/client/r0/login \
 
 ---
 
-## 11. API 统计
+## 12. API 统计
 
 | 分类 | 端点数量 |
 |------|---------|
@@ -546,12 +590,13 @@ curl -X POST http://localhost:8008/_matrix/client/r0/login \
 | 媒体文件 API | 6 |
 | 语音消息 API | 10 |
 | 好友系统 API | 13 |
+| 私密聊天 (标准API复用) | - |
 | 密钥备份 API | 7 |
 | **总计** | **152** |
 
 ---
 
-## 12. 相关文件
+## 13. 相关文件
 
 - 测试数据: [docker/test_data.json](../docker/test_data.json)
 - 验证脚本: [docker/verify_test_data.sh](../docker/verify_test_data.sh)
