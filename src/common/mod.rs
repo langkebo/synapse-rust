@@ -1,3 +1,4 @@
+pub mod background_job;
 pub mod collections;
 pub mod concurrency;
 pub mod config;
@@ -17,6 +18,8 @@ pub mod transaction;
 pub mod types;
 pub mod validation;
 
+#[allow(ambiguous_glob_reexports)]
+pub use background_job::*;
 #[allow(ambiguous_glob_reexports)]
 pub use collections::*;
 #[allow(ambiguous_glob_reexports)]

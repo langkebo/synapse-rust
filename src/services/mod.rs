@@ -1,6 +1,7 @@
 use crate::auth::*;
 use crate::cache::*;
 use crate::common::metrics::MetricsCollector;
+use crate::common::task_queue::RedisTaskQueue;
 use crate::common::*;
 use crate::e2ee::backup::KeyBackupService;
 use crate::e2ee::cross_signing::CrossSigningService;
@@ -66,6 +67,8 @@ pub struct ServiceContainer {
     pub media_service: MediaService,
     /// 缓存管理器
     pub cache: Arc<CacheManager>,
+    /// 任务队列
+    pub task_queue: Option<Arc<RedisTaskQueue>>,
     /// 指标收集器
     pub metrics: Arc<MetricsCollector>,
     /// 服务器名称
@@ -95,11 +98,17 @@ impl ServiceContainer {
     /// * `pool` - PostgreSQL 数据库连接池
     /// * `cache` - 缓存管理器实例
     /// * `config` - 服务器配置
+    /// * `task_queue` - 可选的任务队列实例
     ///
     /// # 返回值
     ///
     /// 返回完全配置的服务容器实例
-    pub fn new(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>, config: Config) -> Self {
+    pub fn new(
+        pool: &Arc<sqlx::PgPool>, 
+        cache: Arc<CacheManager>, 
+        config: Config,
+        task_queue: Option<Arc<RedisTaskQueue>>,
+    ) -> Self {
         let presence_pool = pool.clone();
         let metrics = Arc::new(MetricsCollector::new());
         let auth_service = AuthService::new(
@@ -146,6 +155,7 @@ impl ServiceContainer {
             metrics.clone(),
             config.server.name.clone(),
             config.server.enable_registration,
+            task_queue.clone(),
         ));
         let room_service = Arc::new(RoomService::new(
             room_storage.clone(),
@@ -161,7 +171,7 @@ impl ServiceContainer {
             event_storage.clone(),
             room_storage.clone(),
         ));
-        let media_service = MediaService::new("/app/data/media");
+        let media_service = MediaService::new("/app/data/media", task_queue.clone());
         let admin_registration_service = AdminRegistrationService::new(
             auth_service.clone(),
             config.admin_registration.clone(),
@@ -174,7 +184,7 @@ impl ServiceContainer {
         let event_auth_chain = EventAuthChain::new();
         let server_name = config.server.name.clone();
         let key_rotation_manager = KeyRotationManager::new(pool, &server_name);
-        let device_sync_manager = DeviceSyncManager::new(pool, Some(cache.clone()));
+        let device_sync_manager = DeviceSyncManager::new(pool, Some(cache.clone()), task_queue.clone());
 
         Self {
             user_storage,
@@ -200,6 +210,7 @@ impl ServiceContainer {
             search_service,
             media_service,
             cache,
+            task_queue,
             metrics,
             server_name: config.server.name.clone(),
             config,
@@ -310,7 +321,7 @@ impl ServiceContainer {
             cors: CorsConfig::default(),
             smtp: SmtpConfig::default(),
         };
-        Self::new(&pool, cache, config)
+        Self::new(&pool, cache, config, None)
     }
 }
 

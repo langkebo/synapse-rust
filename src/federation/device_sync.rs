@@ -1,4 +1,6 @@
 use crate::cache::CacheManager;
+use crate::common::task_queue::RedisTaskQueue;
+use crate::common::background_job::BackgroundJob;
 use crate::common::ApiError;
 use chrono::{Duration, TimeZone, Utc};
 use reqwest::{Client, StatusCode};
@@ -33,10 +35,15 @@ pub struct DeviceSyncManager {
     http_client: Client,
     local_cache: Arc<RwLock<DeviceCache>>,
     cache_manager: Option<Arc<CacheManager>>,
+    task_queue: Option<Arc<RedisTaskQueue>>,
 }
 
 impl DeviceSyncManager {
-    pub fn new(pool: &Arc<Pool<Postgres>>, cache_manager: Option<Arc<CacheManager>>) -> Self {
+    pub fn new(
+        pool: &Arc<Pool<Postgres>>, 
+        cache_manager: Option<Arc<CacheManager>>,
+        task_queue: Option<Arc<RedisTaskQueue>>
+    ) -> Self {
         let http_client = Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .build()
@@ -50,6 +57,7 @@ impl DeviceSyncManager {
             http_client,
             local_cache: Arc::new(RwLock::new(HashMap::new())),
             cache_manager,
+            task_queue,
         }
     }
 
@@ -209,6 +217,36 @@ impl DeviceSyncManager {
         user_id: &str,
         device_id: &str,
     ) -> Result<(), ApiError> {
+        // If we have a task queue, offload this to the worker
+        if let Some(queue) = &self.task_queue {
+            // To properly handle the revocation payload, we should probably serialize it into a Generic job
+            // or update the FederationTransaction variant.
+            // Let's use Generic for now to carry the full payload.
+             let payload = json!({
+                "type": "m.device_list_update",
+                "sender": user_id,
+                "content": {
+                    "device_id": device_id,
+                    "deleted": true
+                },
+                "destination": origin
+            });
+
+            let job = BackgroundJob::Generic { 
+                name: "notify_device_revocation".to_string(),
+                payload 
+            };
+
+            if let Err(e) = queue.submit(job).await {
+                tracing::warn!("Failed to submit revocation task: {}", e);
+                // Fallback to sync execution if queue fails? Or just log error.
+                // For robustness, let's fall through to the sync implementation below if queue fails.
+            } else {
+                tracing::info!("Submitted device revocation task for {} to {}", device_id, origin);
+                return Ok(());
+            }
+        }
+
         let payload = json!({
             "type": "m.device_list_update",
             "sender": user_id,
@@ -437,7 +475,7 @@ mod tests {
     #[tokio::test]
     async fn test_device_sync_cache() {
         let pool = create_test_pool().await;
-        let manager = DeviceSyncManager::new(&pool, None);
+        let manager = DeviceSyncManager::new(&pool, None, None);
 
         let devices = manager
             .get_local_devices("@test:example.com")
@@ -449,7 +487,7 @@ mod tests {
     #[tokio::test]
     async fn test_device_revocation() {
         let pool = create_test_pool().await;
-        let manager = DeviceSyncManager::new(&pool, None);
+        let manager = DeviceSyncManager::new(&pool, None, None);
 
         let result = manager
             .revoke_device("DEVICE123", "@test:example.com")

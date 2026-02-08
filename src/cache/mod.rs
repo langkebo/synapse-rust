@@ -93,8 +93,10 @@ pub struct RedisCache {
 }
 
 impl RedisCache {
-    pub async fn new(conn_str: &str) -> Result<Self, redis::RedisError> {
+    pub async fn new(config: &crate::common::config::RedisConfig) -> Result<Self, redis::RedisError> {
+        let conn_str = format!("redis://{}:{}", config.host, config.port);
         let cfg = Config::from_url(conn_str);
+        
         let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
             redis::RedisError::from((
                 redis::ErrorKind::IoError,
@@ -102,7 +104,16 @@ impl RedisCache {
                 e.to_string(),
             ))
         })?;
+        
+        // Note: deadpool-redis Config doesn't directly expose pool size in the same way as deadpool-postgres
+        // We might need to adjust the pool builder if we want to enforce config.pool_size
+        // For now, using default builder which is reasonable.
+        
         Ok(Self { pool })
+    }
+
+    pub fn from_pool(pool: Pool) -> Self {
+        Self { pool }
     }
 
     pub async fn get(&self, key: &str) -> Option<String> {
@@ -348,12 +359,12 @@ impl CacheManager {
     }
 
     pub async fn with_redis(
-        conn_str: &str,
-        config: CacheConfig,
+        config: &crate::common::config::RedisConfig,
+        cache_config: CacheConfig,
     ) -> Result<Self, redis::RedisError> {
-        match RedisCache::new(conn_str).await {
+        match RedisCache::new(config).await {
             Ok(redis_cache) => Ok(Self {
-                local: LocalCache::new(&config),
+                local: LocalCache::new(&cache_config),
                 redis: Some(Arc::new(redis_cache)),
                 use_redis: true,
                 rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
@@ -361,7 +372,7 @@ impl CacheManager {
             Err(e) => {
                 tracing::warn!("Failed to connect to Redis: {}, using local cache only", e);
                 Ok(Self {
-                    local: LocalCache::new(&config),
+                    local: LocalCache::new(&cache_config),
                     redis: None,
                     use_redis: false,
                     rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
@@ -370,21 +381,44 @@ impl CacheManager {
         }
     }
 
+    pub fn with_redis_pool(
+        pool: Pool,
+        cache_config: CacheConfig,
+    ) -> Self {
+        let redis_cache = RedisCache::from_pool(pool);
+        Self {
+            local: LocalCache::new(&cache_config),
+            redis: Some(Arc::new(redis_cache)),
+            use_redis: true,
+            rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+        }
+    }
+
     pub async fn get_token(&self, token: &str) -> Option<Claims> {
+        // L1: Local Cache
+        if let Some(claims) = self.local.get(token) {
+            return Some(claims);
+        }
+
+        // L2: Redis Cache
         if self.use_redis {
             if let Some(redis) = &self.redis {
                 if let Some(val) = redis.get(token).await {
                     if let Ok(claims) = serde_json::from_str(&val) {
+                        // Populate L1
+                        self.local.set(token, &claims);
                         return Some(claims);
                     }
                 }
             }
         }
-        self.local.get(token)
+        None
     }
 
     pub async fn set_token(&self, token: &str, claims: &Claims, ttl: u64) {
+        // Update L1
         self.local.set(token, claims);
+        // Update L2
         if self.use_redis {
             if let Some(redis) = &self.redis {
                 if let Ok(val) = serde_json::to_string(claims) {
@@ -425,19 +459,27 @@ impl CacheManager {
         key: &str,
     ) -> Result<Option<T>, ApiError> {
         let key = key.to_string();
+        
+        // L1: Local Cache
+        if let Some(val) = self.local.get_raw(&key) {
+            if let Ok(result) = serde_json::from_str(&val) {
+                return Ok(Some(result));
+            }
+        }
+
+        // L2: Redis Cache
         if self.use_redis {
             if let Some(redis) = &self.redis {
                 if let Some(val) = redis.get(&key).await {
                     if let Ok(result) = serde_json::from_str(&val) {
+                        // Populate L1
+                        self.local.set_raw(&key, &val);
                         return Ok(Some(result));
                     }
                 }
             }
         }
-        Ok(self
-            .local
-            .get_raw(&key)
-            .and_then(|s| serde_json::from_str(&s).ok()))
+        Ok(None)
     }
 
     pub async fn set<T: Serialize>(&self, key: &str, value: T, ttl: u64) -> Result<(), ApiError> {

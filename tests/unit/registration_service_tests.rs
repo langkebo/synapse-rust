@@ -159,6 +159,7 @@ mod registration_service_tests {
                 metrics,
                 "localhost".to_string(),
                 true,
+                None,
             );
 
             let result = registration_service
@@ -197,6 +198,7 @@ mod registration_service_tests {
                 metrics,
                 "localhost".to_string(),
                 true,
+                None,
             );
 
             registration_service
@@ -249,6 +251,7 @@ mod registration_service_tests {
                 metrics,
                 "localhost".to_string(),
                 true,
+                None,
             );
 
             let result = registration_service.get_profile("@alice:localhost").await;

@@ -29,6 +29,8 @@ pub struct SynapseServer {
     metrics_collector: Arc<TaskMetricsCollector>,
 }
 
+use crate::common::task_queue::RedisTaskQueue;
+
 impl SynapseServer {
     pub async fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
         let pool_options = PgPoolOptions::new()
@@ -55,13 +57,39 @@ impl SynapseServer {
         let db_init_service = DatabaseInitService::new(pool.clone());
         db_init_service.initialize().await?;
 
-        let cache = if config.redis.enabled {
-            Arc::new(CacheManager::with_redis(&config.redis_url(), CacheConfig::default()).await?)
+        // Shared Redis logic
+        let cache: Option<Arc<CacheManager>>;
+        let mut task_queue: Option<Arc<RedisTaskQueue>> = None;
+
+        if config.redis.enabled {
+            info!("Redis enabled. Connecting to: {}:{}", config.redis.host, config.redis.port);
+            
+            // Optimization: Create shared pool manually
+            let conn_str = format!("redis://{}:{}", config.redis.host, config.redis.port);
+            let redis_cfg = deadpool_redis::Config::from_url(conn_str);
+            let redis_pool = redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
+            
+            info!("Redis pool created.");
+
+            // Create CacheManager with shared pool
+            let cm = CacheManager::with_redis_pool(redis_pool.clone(), CacheConfig::default());
+            cache = Some(Arc::new(cm));
+
+            // Create RedisTaskQueue with shared pool
+            let tq = RedisTaskQueue::from_pool(redis_pool);
+            task_queue = Some(Arc::new(tq));
         } else {
-            Arc::new(CacheManager::new(CacheConfig::default()))
-        };
-        let services = ServiceContainer::new(&pool, cache.clone(), config.clone());
-        let app_state = Arc::new(AppState::new(services, cache.clone()));
+            info!("Redis disabled. Using local in-memory cache.");
+            cache = Some(Arc::new(CacheManager::new(CacheConfig::default())));
+        }
+
+        let services = ServiceContainer::new(
+            &pool, 
+            cache.as_ref().expect("Cache manager must be initialized").clone(), 
+            config.clone(),
+            task_queue
+        );
+        let app_state = Arc::new(AppState::new(services, cache.expect("Cache manager must be initialized")));
 
         let scheduled_tasks = Arc::new(ScheduledTasks::new(Arc::new(Database::from_pool(
             (*pool).clone(),

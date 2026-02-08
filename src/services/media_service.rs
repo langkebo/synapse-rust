@@ -1,14 +1,18 @@
 use crate::common::*;
+use crate::common::task_queue::RedisTaskQueue;
+use crate::common::background_job::BackgroundJob;
 use crate::services::*;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct MediaService {
     media_path: PathBuf,
+    task_queue: Option<Arc<RedisTaskQueue>>,
 }
 
 impl MediaService {
-    pub fn new(media_path: &str) -> Self {
+    pub fn new(media_path: &str, task_queue: Option<Arc<RedisTaskQueue>>) -> Self {
         let path = PathBuf::from(media_path);
         ::tracing::info!("MediaService::new called with path: {}", media_path);
         ::tracing::info!("Media path exists: {}", path.exists());
@@ -21,7 +25,7 @@ impl MediaService {
                 ::tracing::info!("Created media directory: {}", path.display());
             }
         }
-        Self { media_path: path }
+        Self { media_path: path, task_queue }
     }
 
     pub async fn upload_media(
@@ -41,6 +45,16 @@ impl MediaService {
             .await
             .map_err(|e| ApiError::internal(format!("Write task panicked: {}", e)))?
             .map_err(|e| ApiError::internal(format!("Failed to save media: {}", e)))?;
+
+        // Submit background job for media processing (e.g., thumbnail generation)
+        if let Some(queue) = &self.task_queue {
+            let job = BackgroundJob::ProcessMedia { file_id: file_name.clone() };
+            if let Err(e) = queue.submit(job).await {
+                ::tracing::warn!("Failed to submit media processing task for {}: {}", file_name, e);
+            } else {
+                ::tracing::info!("Submitted media processing task for {}", file_name);
+            }
+        }
 
         let media_url = format!("/_matrix/media/v3/download/{}", file_name);
 

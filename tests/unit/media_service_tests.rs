@@ -9,7 +9,7 @@ mod media_service_tests {
     fn create_test_media_service() -> (MediaService, tempfile::TempDir) {
         let temp_dir = tempdir().expect("Failed to create temp directory");
         let media_path = temp_dir.path().to_str().expect("Invalid path");
-        let media_service = MediaService::new(media_path);
+        let media_service = MediaService::new(media_path, None);
         (media_service, temp_dir)
     }
 

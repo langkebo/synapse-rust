@@ -4,6 +4,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinHandle;
+use super::background_job::BackgroundJob;
 
 #[cfg(test)]
 use tokio::sync::oneshot;
@@ -180,6 +181,161 @@ impl BackgroundTaskManager {
 
         Ok(task_id)
     }
+}
+
+use redis::AsyncCommands;
+use deadpool_redis::{Config, Pool, Runtime};
+
+pub struct RedisTaskQueue {
+    pool: Pool,
+}
+
+impl RedisTaskQueue {
+    pub async fn new(config: &crate::common::config::RedisConfig) -> Result<Self, TaskQueueError> {
+        let conn_str = format!("redis://{}:{}", config.host, config.port);
+        let cfg = Config::from_url(conn_str);
+        
+        let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
+            TaskQueueError::SubmissionError(format!("Failed to create Redis pool: {}", e))
+        })?;
+        Ok(Self { pool })
+    }
+
+    pub fn from_pool(pool: Pool) -> Self {
+        Self { pool }
+    }
+
+    pub async fn submit(&self, job: BackgroundJob) -> Result<String, TaskQueueError> {
+        let payload = serde_json::to_string(&job).map_err(|e| {
+            TaskQueueError::SubmissionError(format!("Failed to serialize job: {}", e))
+        })?;
+
+        let mut conn = self.pool.get().await.map_err(|e| {
+            TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {}", e))
+        })?;
+
+        // XADD mq:tasks:default * payload {json}
+        let id: String = conn.xadd(
+            "mq:tasks:default",
+            "*",
+            &[("payload", &payload)],
+        ).await.map_err(|e| {
+            TaskQueueError::SubmissionError(format!("Failed to XADD job: {}", e))
+        })?;
+
+        tracing::info!("Submitted background job to Redis Stream: {} -> {}", id, payload);
+        Ok(id)
+    }
+
+    pub async fn consume_loop<F, Fut>(&self, group_name: &str, consumer_name: &str, handler: F) -> Result<(), TaskQueueError>
+    where
+        F: Fn(BackgroundJob) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), String>> + Send,
+    {
+        // Ensure consumer group exists
+        let mut conn = self.pool.get().await.map_err(|e| {
+            TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {}", e))
+        })?;
+
+        let _: Result<(), _> = conn.xgroup_create_mkstream("mq:tasks:default", group_name, "$").await;
+
+        loop {
+            // XREADGROUP GROUP group_name consumer_name COUNT 1 BLOCK 2000 STREAMS mq:tasks:default >
+            let opts = redis::streams::StreamReadOptions::default()
+                .group(group_name, consumer_name)
+                .count(1)
+                .block(2000);
+
+            let result: Result<redis::streams::StreamReadReply, _> = conn.xread_options(
+                &["mq:tasks:default"],
+                &[">"],
+                &opts,
+            ).await;
+
+            match result {
+                Ok(reply) => {
+                    for stream_key in reply.keys {
+                        for stream_id in stream_key.ids {
+                            if let Some(payload_val) = stream_id.map.get("payload") {
+                                if let Ok(payload_str) = redis::from_redis_value::<String>(payload_val) {
+                                    if let Ok(job) = serde_json::from_str::<BackgroundJob>(&payload_str) {
+                                        tracing::info!("Processing job {}: {:?}", stream_id.id, job);
+                                        match handler(job).await {
+                                            Ok(_) => {
+                                                // XACK
+                                                let _: Result<(), _> = conn.xack("mq:tasks:default", group_name, &[&stream_id.id]).await;
+                                            }
+                                            Err(e) => {
+                                                tracing::error!("Job processing failed: {}", e);
+                                                // Logic for retry or dead letter queue could go here
+                                            }
+                                        }
+                                    } else {
+                                        tracing::error!("Failed to deserialize job payload: {}", payload_str);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Redis XREADGROUP error (timeout or connection): {}", e);
+                    // Add a small delay to avoid tight loop on error
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                    // Re-acquire connection if needed
+                    if let Ok(new_conn) = self.pool.get().await {
+                         conn = new_conn;
+                    }
+                }
+            }
+        }
+    }
+    pub async fn get_metrics(&self, group_name: &str) -> Result<QueueMetrics, TaskQueueError> {
+        let mut conn = self.pool.get().await.map_err(|e| {
+            TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {}", e))
+        })?;
+
+        // 1. Get Stream Length (XLEN)
+        let queue_length: u64 = conn.xlen("mq:tasks:default").await.map_err(|e| {
+            TaskQueueError::SubmissionError(format!("Failed to get queue length: {}", e))
+        })?;
+
+        // 2. Get Pending Info (XPENDING)
+        // redis::streams::StreamPendingCountReply struct in `redis` crate 0.27 might have different fields or we are using it wrong.
+        // Actually, `xpending` usually returns (count, min_id, max_id, consumers).
+        // Let's use `redis::Value` to be safe and parse manually or check docs.
+        // The `redis` crate defines `StreamPendingCountReply` as having `count`, `min_id`, `max_id`, `consumers`.
+        // Wait, the error says `available field is: ids`. This means I might be using `xpending` which returns `StreamPendingReply` (the detailed one) instead of count?
+        // Ah, `xpending` with just stream and group returns summary. `xpending` with count returns details.
+        // The `redis` crate mapping might be tricky.
+        
+        // Let's use `xpending_count` if available, or just parse generic Value.
+        // Looking at the error: "available field is: `ids`". This suggests `StreamPendingReply` which is the result of XPENDING with start/end/count.
+        // But I called `xpending("mq:tasks:default", group_name)`.
+        
+        // Let's try to map to `redis::Value` and inspect/parse manually to avoid struct mismatch issues.
+        let info_val: redis::Value = conn.xpending("mq:tasks:default", group_name).await.map_err(|e| {
+             TaskQueueError::SubmissionError(format!("Failed to get pending info: {}", e))
+        })?;
+        
+        // Parse the summary response: [count, min_id, max_id, [[consumer, count], ...]]
+        let (count, _min, _max, consumers_list): (u64, String, String, Vec<(String, u64)>) = redis::from_redis_value(&info_val).map_err(|e| {
+             TaskQueueError::SubmissionError(format!("Failed to parse pending info: {}", e))
+        })?;
+
+        Ok(QueueMetrics {
+            queue_length,
+            consumer_lag: count,
+            consumers: consumers_list,
+        })
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct QueueMetrics {
+    pub queue_length: u64,
+    pub consumer_lag: u64,
+    pub consumers: Vec<(String, u64)>,
 }
 
 impl Default for BackgroundTaskManager {

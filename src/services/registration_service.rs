@@ -1,23 +1,27 @@
 use crate::common::metrics::MetricsCollector;
+use crate::common::task_queue::RedisTaskQueue;
+use crate::common::background_job::BackgroundJob;
 use crate::common::*;
 use crate::services::*;
 use std::sync::Arc;
 
 pub struct RegistrationService {
-    user_storage: UserStorage,
-    auth_service: AuthService,
+    user_storage: crate::storage::UserStorage,
+    auth_service: crate::auth::AuthService,
     metrics: Arc<MetricsCollector>,
     server_name: String,
     enable_registration: bool,
+    task_queue: Option<Arc<RedisTaskQueue>>,
 }
 
 impl RegistrationService {
     pub fn new(
-        user_storage: UserStorage,
-        auth_service: AuthService,
+        user_storage: crate::storage::UserStorage,
+        auth_service: crate::auth::AuthService,
         metrics: Arc<MetricsCollector>,
         server_name: String,
         enable_registration: bool,
+        task_queue: Option<Arc<RedisTaskQueue>>,
     ) -> Self {
         Self {
             user_storage,
@@ -25,6 +29,7 @@ impl RegistrationService {
             metrics,
             server_name,
             enable_registration,
+            task_queue,
         }
     }
 
@@ -64,6 +69,22 @@ impl RegistrationService {
                 .metrics
                 .register_counter("registration_success_total".to_string());
             counter.inc();
+        }
+
+        // Async Task: Send Welcome Email
+        if let Some(queue) = &self.task_queue {
+            let email_job = BackgroundJob::SendEmail {
+                to: user.user_id.clone(), // Assuming user_id can be an email or we look it up
+                subject: "Welcome to Synapse!".to_string(),
+                body: format!("Hello {}, welcome to our Matrix server!", displayname.unwrap_or(username)),
+            };
+            
+            if let Err(e) = queue.submit(email_job).await {
+                ::tracing::warn!("Failed to submit welcome email task: {}", e);
+                // Non-blocking error, continue
+            } else {
+                ::tracing::info!("Submitted welcome email task for user {}", user.user_id);
+            }
         }
 
         Ok(serde_json::json!({
@@ -221,6 +242,7 @@ mod tests {
             services.metrics.clone(),
             services.server_name.clone(),
             services.config.server.enable_registration,
+            None,
         );
     }
 
@@ -254,6 +276,7 @@ mod tests {
             services.metrics.clone(),
             services.server_name.clone(),
             false, // disabled
+            None,
         );
 
         let result = registration_service
