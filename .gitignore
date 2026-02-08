@@ -3,3 +3,17 @@ Cargo.lock
 *.local
 docker/postgres_data/
 docker/imags/*.tar
+
+# 临时文件和日志
+*.log
+*.tmp
+*.bak
+*~
+docker_build*.log
+test_*.log
+
+# 测试媒体文件
+docker/data/media/test/
+docker/data/media/*.jpg
+docker/data/media/*.mp3
+docker/data/media/*.ogg
