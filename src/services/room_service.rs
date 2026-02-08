@@ -1,3 +1,5 @@
+use crate::common::background_job::BackgroundJob;
+use crate::common::task_queue::RedisTaskQueue;
 use crate::common::validation::Validator;
 use crate::common::{generate_event_id, generate_room_id};
 use crate::services::*;
@@ -5,6 +7,7 @@ use crate::storage::CreateEventParams;
 use crate::storage::UserStorage;
 use serde_json::json;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug, Default, Clone)]
 pub struct CreateRoomConfig {
@@ -25,6 +28,7 @@ pub struct RoomService {
     user_storage: UserStorage,
     validator: Arc<Validator>,
     server_name: String,
+    task_queue: Option<Arc<RedisTaskQueue>>,
 }
 
 impl RoomService {
@@ -35,6 +39,7 @@ impl RoomService {
         user_storage: UserStorage,
         validator: Arc<Validator>,
         server_name: String,
+        task_queue: Option<Arc<RedisTaskQueue>>,
     ) -> Self {
         Self {
             room_storage,
@@ -43,6 +48,7 @@ impl RoomService {
             user_storage,
             validator,
             server_name,
+            task_queue,
         }
     }
 
@@ -58,8 +64,14 @@ impl RoomService {
         }
 
         let room_id = self.generate_room_id();
-        let join_rule = self.determine_join_rule(config.preset.as_deref());
+        let mut join_rule = self.determine_join_rule(config.preset.as_deref());
         let is_public = self.is_public_visibility(config.visibility.as_deref());
+        
+        // Handle trusted_private_chat preset
+        let is_trusted_private = config.preset.as_deref() == Some("trusted_private_chat");
+        if is_trusted_private {
+            join_rule = "invite";
+        }
 
         self.create_room_in_db(&room_id, user_id, join_rule, is_public)
             .await?;
@@ -68,6 +80,46 @@ impl RoomService {
             .await?;
         self.process_invites(&room_id, config.invite_list.as_ref())
             .await?;
+
+        // Handle trusted private chat specific logic
+        if is_trusted_private {
+            // Set history visibility to invited
+            let now = chrono::Utc::now().timestamp_millis();
+            let history_content = json!({ "history_visibility": "invited" });
+            self.event_storage.create_event(CreateEventParams {
+                event_id: generate_event_id(&self.server_name),
+                room_id: room_id.clone(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.history_visibility".to_string(),
+                content: history_content,
+                state_key: Some("".to_string()),
+                origin_server_ts: now,
+            }).await.map_err(|e| ApiError::internal(format!("Failed to set history visibility: {}", e)))?;
+
+            // Set guest access to forbidden
+            let guest_content = json!({ "guest_access": "forbidden" });
+            self.event_storage.create_event(CreateEventParams {
+                event_id: generate_event_id(&self.server_name),
+                room_id: room_id.clone(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.guest_access".to_string(),
+                content: guest_content,
+                state_key: Some("".to_string()),
+                origin_server_ts: now,
+            }).await.map_err(|e| ApiError::internal(format!("Failed to set guest access: {}", e)))?;
+
+            // Set privacy marker for anti-screenshot
+            let privacy_content = json!({ "action": "block_screenshot" });
+            self.event_storage.create_event(CreateEventParams {
+                event_id: generate_event_id(&self.server_name),
+                room_id: room_id.clone(),
+                user_id: user_id.to_string(),
+                event_type: "com.hula.privacy".to_string(),
+                content: privacy_content,
+                state_key: Some("".to_string()),
+                origin_server_ts: now,
+            }).await.map_err(|e| ApiError::internal(format!("Failed to set privacy marker: {}", e)))?;
+        }
 
         let room_alias = self.format_room_alias(config.room_alias_name.as_deref());
         Ok(self.build_room_response(&room_id, room_alias))
@@ -592,6 +644,42 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to remove room from directory: {}", e)))
     }
+
+    pub async fn process_read_receipt(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        _user_id: &str,
+    ) -> ApiResult<()> {
+        // Check if event exists and has burn_after_read metadata
+        if let Ok(Some(event)) = self.event_storage.get_event(event_id).await {
+            if let Some(content) = event.content.as_object() {
+                if content.contains_key("burn_after_read") {
+                    if let Some(queue) = self.task_queue.clone() {
+                        let rid = room_id.to_string();
+                        let eid = event_id.to_string();
+                        ::tracing::info!("Scheduling burn-after-read for event {} in room {}", eid, rid);
+                        
+                        // Spawn a delayed task
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_secs(30)).await;
+                            let job = BackgroundJob::RedactEvent {
+                                event_id: eid.clone(),
+                                room_id: rid.clone(),
+                                reason: Some("Burn after read".to_string()),
+                            };
+                            if let Err(e) = queue.submit(job).await {
+                                ::tracing::error!("Failed to submit redaction job for event {}: {}", eid, e);
+                            } else {
+                                ::tracing::info!("Submitted redaction job for event {}", eid);
+                            }
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -602,11 +690,6 @@ mod tests {
     #[ignore]
     fn test_room_service_creation() {
         // Skip this test as it requires full ServiceContainer setup with database pool
-        // To re-enable, provide proper mock pool, cache, jwt_secret, and server_name
-        // let pool = Arc::new(sqlx::PgPool::connect("postgres://...").await?);
-        // let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        // let services = ServiceContainer::new(&pool, cache, "secret", "example.com");
-        // let _room_service = RoomService::new(&services);
     }
 
     #[test]
@@ -669,6 +752,40 @@ mod tests {
     fn test_join_rule_invite() {
         let join_rule = "invite";
         assert_eq!(join_rule, "invite");
+    }
+
+    #[test]
+    fn test_join_rule_trusted_private() {
+        let preset = "trusted_private_chat";
+        let join_rule = match preset {
+            "trusted_private_chat" => "invite",
+            _ => "other",
+        };
+        assert_eq!(join_rule, "invite");
+    }
+
+    #[test]
+    fn test_trusted_private_chat_preset_config() {
+        let config = CreateRoomConfig {
+            preset: Some("trusted_private_chat".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(config.preset.as_deref(), Some("trusted_private_chat"));
+    }
+
+    #[test]
+    fn test_burn_after_read_metadata_detection() {
+        let content = json!({
+            "body": "secret message",
+            "msgtype": "m.text",
+            "burn_after_read": true
+        });
+        
+        let has_metadata = content.as_object()
+            .map(|c| c.contains_key("burn_after_read"))
+            .unwrap_or(false);
+            
+        assert!(has_metadata);
     }
 
     #[test]

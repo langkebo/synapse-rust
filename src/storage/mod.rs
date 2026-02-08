@@ -8,7 +8,6 @@ pub mod event;
 pub mod maintenance;
 pub mod membership;
 pub mod monitoring;
-pub mod private_chat;
 pub mod room;
 pub mod schema_validator;
 pub mod token;
@@ -24,7 +23,6 @@ pub use self::monitoring::{
     DuplicateEntry, ForeignKeyViolation, NullConstraintViolation, OrphanedRecord,
     PerformanceMetrics, VacuumStats,
 };
-pub use self::private_chat::*;
 pub use self::room::*;
 pub use self::schema_validator::*;
 pub use self::token::*;

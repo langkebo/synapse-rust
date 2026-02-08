@@ -51,16 +51,12 @@ pub struct ServiceContainer {
     pub to_device_service: ToDeviceService,
     /// 语音消息服务
     pub voice_service: VoiceService,
-    /// 私聊服务
-    pub private_chat_service: Arc<PrivateChatService>,
     /// 注册服务
     pub registration_service: Arc<RegistrationService>,
     /// 房间服务
     pub room_service: Arc<RoomService>,
     /// 同步服务
     pub sync_service: Arc<SyncService>,
-    /// 私聊存储
-    pub private_chat_storage: PrivateChatStorage,
     /// 搜索服务
     pub search_service: Arc<crate::services::search_service::SearchService>,
     /// 媒体服务
@@ -142,13 +138,7 @@ impl ServiceContainer {
         let room_storage = RoomStorage::new(pool);
         let event_storage = EventStorage::new(pool);
         let presence_storage = PresenceStorage::new(presence_pool.clone(), cache.clone());
-        let private_chat_storage = PrivateChatStorage::new(pool);
 
-        let private_chat_service = Arc::new(PrivateChatService::new(
-            pool,
-            search_service.clone(),
-            config.server.name.clone(),
-        ));
         let registration_service = Arc::new(RegistrationService::new(
             user_storage.clone(),
             auth_service.clone(),
@@ -164,6 +154,7 @@ impl ServiceContainer {
             user_storage.clone(),
             auth_service.validator.clone(),
             config.server.name.clone(),
+            task_queue.clone(),
         ));
         let sync_service = Arc::new(SyncService::new(
             presence_storage.clone(),
@@ -202,11 +193,9 @@ impl ServiceContainer {
             backup_service,
             to_device_service,
             voice_service,
-            private_chat_service,
             registration_service,
             room_service,
             sync_service,
-            private_chat_storage,
             search_service,
             media_service,
             cache,
@@ -430,7 +419,6 @@ pub mod admin_registration_service;
 pub mod database_initializer;
 pub mod friend_service;
 pub mod media_service;
-pub mod private_chat_service;
 pub mod registration_service;
 pub mod room_service;
 pub mod search_service;
@@ -441,7 +429,6 @@ pub use admin_registration_service::*;
 pub use database_initializer::*;
 pub use friend_service::*;
 pub use media_service::*;
-pub use private_chat_service::*;
 pub use registration_service::*;
 pub use room_service::*;
 pub use sync_service::*;

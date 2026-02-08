@@ -937,24 +937,9 @@ async fn room_directory_query(
     }
 
     // 2. Try private sessions (Federation might ask for DM room info)
+    // Deprecated: Private chat module removed.
     if room_id.starts_with("ps_") {
-        let session = state
-            .services
-            .private_chat_storage
-            .get_session_info(&room_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-        if let Some(session) = session {
-            return Ok(Json(json!({
-                "room_id": session.session_id,
-                "servers": [state.services.server_name],
-                "name": "Private Chat",
-                "topic": "Encrypted direct message session",
-                "guest_can_join": false,
-                "world_readable": false
-            })));
-        }
+         return Err(ApiError::not_found("Private session not supported".to_string()));
     }
 
     Err(ApiError::not_found("Room not found".to_string()))

@@ -182,6 +182,7 @@ mod room_service_tests {
                 UserStorage::new(&pool),
                 Arc::new(Validator::default()),
                 "localhost".to_string(),
+                None,
             );
 
             let config = CreateRoomConfig {
@@ -223,6 +224,7 @@ mod room_service_tests {
                 UserStorage::new(&pool),
                 Arc::new(Validator::default()),
                 "localhost".to_string(),
+                None,
             );
 
             let config = CreateRoomConfig::default();
@@ -261,6 +263,7 @@ mod room_service_tests {
                 UserStorage::new(&pool),
                 Arc::new(Validator::default()),
                 "localhost".to_string(),
+                None,
             );
 
             let config = CreateRoomConfig::default();
@@ -307,6 +310,7 @@ mod room_service_tests {
                 UserStorage::new(&pool),
                 Arc::new(Validator::default()),
                 "localhost".to_string(),
+                None,
             );
 
             let config = CreateRoomConfig::default();
@@ -349,6 +353,7 @@ mod room_service_tests {
                 UserStorage::new(&pool),
                 Arc::new(Validator::default()),
                 "localhost".to_string(),
+                None,
             );
 
             let config = CreateRoomConfig::default();

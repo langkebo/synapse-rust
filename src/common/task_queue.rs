@@ -116,6 +116,20 @@ impl TaskQueue {
             .send(Box::new(task))
             .map_err(|e| TaskQueueError::SubmissionError(e.to_string()))
     }
+
+    pub fn submit_delayed<F, Fut>(&self, task: F, delay: std::time::Duration) -> Result<(), TaskQueueError>
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = TaskResultValue> + Send + 'static,
+    {
+        // For simple delayed tasks without persistence, we spawn a tokio task that waits then submits
+        let sender = self.sender.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            let _ = sender.send(Box::new(task));
+        });
+        Ok(())
+    }
 }
 
 pub struct BackgroundTaskManager {
@@ -178,6 +192,29 @@ impl BackgroundTaskManager {
                 }
             })
             .map_err(|e| TaskQueueError::SubmissionError(e.to_string()))?;
+
+        Ok(task_id)
+    }
+
+    pub fn submit_delayed_task<F, Fut>(&self, name: String, task: F, delay: std::time::Duration) -> Result<TaskId, TaskQueueError>
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = TaskResultValue> + Send + 'static,
+    {
+        let task_id = self
+            .task_counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let name_clone = name.clone();
+
+        self.task_queue
+            .submit_delayed(move || async move {
+                let result = task().await;
+                TaskResultValue {
+                    task_id,
+                    success: result.success,
+                    message: format!("Task '{}': {}", name_clone, result.message),
+                }
+            }, delay)?;
 
         Ok(task_id)
     }

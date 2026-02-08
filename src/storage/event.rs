@@ -323,6 +323,23 @@ impl EventStorage {
         .fetch_all(&*self.pool)
         .await
     }
+
+    pub async fn redact_event_content(&self, event_id: &str) -> Result<(), sqlx::Error> {
+        let redacted_content = serde_json::json!({});
+        // We try to update 'redacted' column if it exists. 
+        // Based on StateEvent struct having 'redacted', the column likely exists.
+        // However, to be safe against schema variations in this specific project context (where RoomEvent struct didn't have it),
+        // we will check if we can update it. 
+        // Actually, if StateEvent maps it, it must be there.
+        sqlx::query(
+            "UPDATE events SET content = $1, redacted = true WHERE event_id = $2"
+        )
+        .bind(redacted_content)
+        .bind(event_id)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

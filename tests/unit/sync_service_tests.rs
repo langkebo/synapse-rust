@@ -216,6 +216,7 @@ mod sync_service_tests {
                 user_storage.clone(),
                 Arc::new(Validator::default()),
                 "localhost".to_string(),
+                None,
             );
 
             let sync_service = SyncService::new(

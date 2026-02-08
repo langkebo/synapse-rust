@@ -19,4 +19,9 @@ pub enum BackgroundJob {
         name: String,
         payload: serde_json::Value,
     },
+    RedactEvent {
+        room_id: String,
+        event_id: String,
+        reason: Option<String>,
+    },
 }
