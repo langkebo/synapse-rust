@@ -258,9 +258,20 @@ async fn accept_friend_request(
     Path(request_id): Path<String>,
     auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id_i64: i64 = request_id
-        .parse()
-        .map_err(|_| ApiError::bad_request("Invalid request ID format".to_string()))?;
+    let request_id_i64: i64 = request_id.parse().unwrap_or_else(|_| {
+        if request_id.chars().all(|c| c.is_ascii_digit()) {
+            request_id.parse().unwrap_or(0)
+        } else {
+            0
+        }
+    });
+
+    if request_id_i64 == 0 {
+        return Err(ApiError::bad_request(
+            "Invalid request ID format".to_string(),
+        ));
+    }
+
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     friend_storage
         .accept_request(request_id_i64, &auth_user.user_id)
@@ -275,9 +286,20 @@ async fn decline_friend_request(
     Path(request_id): Path<String>,
     auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id_i64: i64 = request_id
-        .parse()
-        .map_err(|_| ApiError::bad_request("Invalid request ID format".to_string()))?;
+    let request_id_i64: i64 = request_id.parse().unwrap_or_else(|_| {
+        if request_id.chars().all(|c| c.is_ascii_digit()) {
+            request_id.parse().unwrap_or(0)
+        } else {
+            0
+        }
+    });
+
+    if request_id_i64 == 0 {
+        return Err(ApiError::bad_request(
+            "Invalid request ID format".to_string(),
+        ));
+    }
+
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
     friend_storage
         .decline_request(request_id_i64, &auth_user.user_id)
