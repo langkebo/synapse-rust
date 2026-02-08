@@ -565,7 +565,41 @@ curl -X POST http://localhost:8008/_matrix/client/r0/login \
 
 ---
 
-## 11. 密钥备份 API ✅
+## 11. 阅后即焚 (Burn After Reading) ✅
+
+> 阅后即焚功能已无缝集成到标准 Matrix 消息流中。无需专用 API，只需在发送消息时添加特定元数据，并使用标准回执触发。
+
+### 11.1 核心机制
+
+1.  **元数据标记**: 发送消息时，在 `content` 中添加 `"burn_after_read": true` 字段。
+2.  **回执触发**: 当接收方发送标准已读回执 (`m.read`) 时，服务器会检测该标记。
+3.  **延迟销毁**: 服务器在收到回执后，自动启动后台任务，**30秒后** 物理删除（Redact）该消息内容。
+
+### 11.2 操作示例
+
+#### 1. 发送阅后即焚消息
+
+使用标准 `PUT /_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}` 接口。
+
+- **请求体**:
+```json
+{
+  "msgtype": "m.text",
+  "body": "This message will self-destruct in 30s after reading.",
+  "burn_after_read": true
+}
+```
+
+#### 2. 触发销毁
+
+客户端在用户阅读消息后，发送标准已读回执。
+
+- **端点**: `POST /_matrix/client/r0/rooms/{room_id}/receipt/m.read/{event_id}`
+- **效果**: 服务器收到此请求后，启动 30秒 倒计时，随后消息内容将被替换为 `m.room.redaction` 事件（内容被清除）。
+
+---
+
+## 12. 密钥备份 API ✅
 
 | 序号 | 端点 | 方法 | 描述 | 状态 |
 |------|------|------|------|------|
@@ -579,7 +613,7 @@ curl -X POST http://localhost:8008/_matrix/client/r0/login \
 
 ---
 
-## 12. API 统计
+## 13. API 统计
 
 | 分类 | 端点数量 |
 |------|---------|
@@ -591,12 +625,13 @@ curl -X POST http://localhost:8008/_matrix/client/r0/login \
 | 语音消息 API | 10 |
 | 好友系统 API | 13 |
 | 私密聊天 (标准API复用) | - |
+| 阅后即焚 (元数据驱动) | - |
 | 密钥备份 API | 7 |
 | **总计** | **152** |
 
 ---
 
-## 13. 相关文件
+## 14. 相关文件
 
 - 测试数据: [docker/test_data.json](../docker/test_data.json)
 - 验证脚本: [docker/verify_test_data.sh](../docker/verify_test_data.sh)
