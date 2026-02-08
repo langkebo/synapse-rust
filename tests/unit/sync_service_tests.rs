@@ -207,7 +207,7 @@ mod sync_service_tests {
             let member_storage = RoomMemberStorage::new(&pool);
             let event_storage = EventStorage::new(&pool);
             let room_storage = RoomStorage::new(&pool);
-            let user_storage = UserStorage::new(&pool);
+            let user_storage = UserStorage::new(&pool, cache.clone());
 
             let room_service = RoomService::new(
                 room_storage.clone(),

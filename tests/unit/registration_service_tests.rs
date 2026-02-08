@@ -152,9 +152,9 @@ mod registration_service_tests {
             let cache = Arc::new(CacheManager::new(CacheConfig::default()));
             let metrics = Arc::new(MetricsCollector::new());
             let auth_service =
-                AuthService::new(&pool, cache, metrics.clone(), &security, "localhost");
+                AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
             let registration_service = RegistrationService::new(
-                UserStorage::new(&pool),
+                UserStorage::new(&pool, cache.clone()),
                 auth_service,
                 metrics,
                 "localhost".to_string(),
@@ -191,9 +191,9 @@ mod registration_service_tests {
             let cache = Arc::new(CacheManager::new(CacheConfig::default()));
             let metrics = Arc::new(MetricsCollector::new());
             let auth_service =
-                AuthService::new(&pool, cache, metrics.clone(), &security, "localhost");
+                AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
             let registration_service = RegistrationService::new(
-                UserStorage::new(&pool),
+                UserStorage::new(&pool, cache.clone()),
                 auth_service,
                 metrics,
                 "localhost".to_string(),
@@ -223,7 +223,8 @@ mod registration_service_tests {
                 Some(pool) => Arc::new(pool),
                 None => return,
             };
-            let user_storage = UserStorage::new(&pool);
+            let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+            let user_storage = UserStorage::new(&pool, cache.clone());
             user_storage
                 .create_user("@alice:localhost", "alice", None, false)
                 .await
@@ -241,10 +242,8 @@ mod registration_service_tests {
                 argon2_t_cost: 1,
                 argon2_p_cost: 1,
             };
-            let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-            let metrics = Arc::new(MetricsCollector::new());
             let auth_service =
-                AuthService::new(&pool, cache, metrics.clone(), &security, "localhost");
+                AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
             let registration_service = RegistrationService::new(
                 user_storage,
                 auth_service,

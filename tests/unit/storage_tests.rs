@@ -5,6 +5,7 @@ mod storage_tests {
     use tokio::runtime::Runtime;
 
     use synapse_rust::storage::user::UserStorage;
+    use synapse_rust::cache::{CacheConfig, CacheManager};
 
     async fn setup_test_database() -> Option<Pool<Postgres>> {
         let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
@@ -70,7 +71,8 @@ mod storage_tests {
                 Some(pool) => pool,
                 None => return,
             };
-            let storage = UserStorage::new(&Arc::new(pool));
+            let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+            let storage = UserStorage::new(&Arc::new(pool), cache);
 
             let user = storage
                 .create_user("@alice:localhost", "alice", Some("hash"), false)
@@ -91,7 +93,8 @@ mod storage_tests {
                 Some(pool) => pool,
                 None => return,
             };
-            let storage = UserStorage::new(&Arc::new(pool));
+            let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+            let storage = UserStorage::new(&Arc::new(pool), cache);
 
             storage
                 .create_user("@alice:localhost", "alice", None, false)
@@ -118,7 +121,8 @@ mod storage_tests {
                 Some(pool) => pool,
                 None => return,
             };
-            let storage = UserStorage::new(&Arc::new(pool));
+            let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+            let storage = UserStorage::new(&Arc::new(pool), cache);
 
             storage
                 .create_user("@alice:localhost", "alice", None, false)
@@ -138,7 +142,8 @@ mod storage_tests {
                 Some(pool) => pool,
                 None => return,
             };
-            let storage = UserStorage::new(&Arc::new(pool));
+            let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+            let storage = UserStorage::new(&Arc::new(pool), cache);
 
             storage
                 .create_user("@alice:localhost", "alice", None, false)
