@@ -72,6 +72,80 @@ cargo run --release
 - API 参考：`docs/synapse-rust/api-reference.md`
 - 实现指南：`docs/synapse-rust/implementation-guide.md`
 
+## 私密聊天功能集成指南 (Private Chat Features)
+
+本项目对标准 Matrix 协议进行了增强，支持高隐私的私密聊天功能。前端无需调用额外的专有 API，只需遵循标准 Matrix 规范并使用特定的配置即可自动激活。
+
+### 1. 启用私密聊天 (Trusted Private Chat)
+
+创建房间时，通过指定 `preset` 为 `trusted_private_chat`，后端将自动配置一系列高隐私保护策略。
+
+**前端实现：**
+
+```javascript
+// 创建私密聊天
+client.createRoom({
+    preset: "trusted_private_chat", // 关键：激活私密模式
+    visibility: "private",
+    invite: ["@target_user:domain.com"],
+    is_direct: true,
+    name: "Private Chat",
+    initial_state: []
+});
+```
+
+**后端自动行为：**
+- **加入规则**：自动设置为 `invite`（仅限邀请）。
+- **历史可见性**：自动设置为 `invited`（仅成员可见）。
+- **访客访问**：自动设置为 `forbidden`。
+- **隐私标记**：自动发送 `com.hula.privacy` 状态事件，用于通知客户端启用防截屏等保护。
+
+### 2. 防截屏功能 (Anti-Screenshot)
+
+当房间被标记为私密聊天时，后端会下发特定的状态事件。前端需监听此事件并启用防截屏保护（如 Android `FLAG_SECURE`）。
+
+**前端实现：**
+
+监听 `com.hula.privacy` 状态事件：
+
+```javascript
+// 伪代码示例
+const privacyEvent = room.currentState.getStateEvents("com.hula.privacy", "");
+if (privacyEvent && privacyEvent.getContent().action === "block_screenshot") {
+    // 启用防截屏
+    AndroidInterface.enableSecureFlag(); 
+    // 或在 Web 端显示水印/遮罩
+}
+```
+
+### 3. 阅后即焚 (Burn After Reading)
+
+支持对单条消息启用阅后即焚。无需专用 API，通过消息元数据（Metadata）驱动。
+
+**前端实现：**
+
+1.  **发送消息**：在 `content` 中添加 `burn_after_read: true`。
+
+```javascript
+client.sendMessage(roomId, {
+    msgtype: "m.text",
+    body: "This message will self-destruct.",
+    burn_after_read: true // 关键：标记为阅后即焚
+});
+```
+
+2.  **触发销毁**：当用户阅读消息后，发送标准的已读回执 (`m.read`)。
+
+```javascript
+// 当消息出现在视口中时
+client.sendReadReceipt(event);
+```
+
+**后端自动行为：**
+- 后端收到 `m.read` 回执后，检测到目标消息带有 `burn_after_read` 标记。
+- 启动 **30秒** 倒计时。
+- 倒计时结束后，自动执行 `Redaction`（物理删除）操作，消息内容将被永久清除。
+
 ## 项目任务与状态追踪
 
 为确保项目按计划推进，我们使用自动化工具跟踪未完成的任务和文档TODO。
