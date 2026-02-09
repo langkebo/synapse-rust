@@ -14,11 +14,13 @@ use validator::{Validate, ValidationError};
 use once_cell::sync::Lazy;
 
 static UNIQUE_VIOLATION_PATTERNS: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r"(?i)(duplicate key|unique constraint|23505|duplicatekeyvalue|duplicate_key|violates unique constraint)").unwrap()
+    regex::Regex::new(r"(?i)(duplicate key|unique constraint|23505|duplicatekeyvalue|duplicate_key|violates unique constraint)")
+        .expect("Unique violation regex pattern is invalid")
 });
 
 static FOREIGN_KEY_PATTERNS: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r"(?i)(foreign key constraint|23503)").unwrap()
+    regex::Regex::new(r"(?i)(foreign key constraint|23503)")
+        .expect("Foreign key violation regex pattern is invalid")
 });
 
 /// Check if a database error indicates a unique constraint violation

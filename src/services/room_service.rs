@@ -59,7 +59,8 @@ impl RoomService {
 
     /// Clean up completed tasks and return count of remaining active tasks
     pub async fn cleanup_completed_tasks(&self) -> usize {
-        let mut tasks = self.active_tasks.write().unwrap();
+        let mut tasks = self.active_tasks.write()
+            .expect("Task manager lock poisoned - cannot recover");
         tasks.retain(|_key, handle| {
             !handle.is_finished()
         });
@@ -68,7 +69,8 @@ impl RoomService {
 
     /// Abort a specific delayed task
     pub async fn abort_task(&self, task_id: &str) -> bool {
-        let mut tasks = self.active_tasks.write().unwrap();
+        let mut tasks = self.active_tasks.write()
+            .expect("Task manager lock poisoned - cannot recover");
         if let Some(handle) = tasks.remove(task_id) {
             handle.abort();
             true
@@ -79,7 +81,8 @@ impl RoomService {
 
     /// Graceful shutdown - abort all active delayed tasks
     pub async fn shutdown(&self) {
-        let mut tasks = self.active_tasks.write().unwrap();
+        let mut tasks = self.active_tasks.write()
+            .expect("Task manager lock poisoned - cannot recover during shutdown");
         for (task_id, handle) in tasks.drain() {
             ::tracing::info!("Aborting delayed task: {}", task_id);
             handle.abort();
@@ -733,7 +736,9 @@ impl RoomService {
         });
 
         // Store the task handle for later cleanup/management
-        self.active_tasks.write().unwrap().insert(task_id, handle);
+        self.active_tasks.write()
+            .expect("Task manager lock poisoned - cannot store task handle")
+            .insert(task_id, handle);
 
         Ok(())
     }

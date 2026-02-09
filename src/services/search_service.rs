@@ -131,7 +131,8 @@ impl SearchService {
         if !self.enabled {
             return Ok(());
         }
-        let client = self.client.as_ref().unwrap();
+        let client = self.client.as_ref()
+            .ok_or_else(|| ApiError::internal("Elasticsearch client not initialized".to_string()))?;
 
         client
             .index(IndexParts::IndexId(
@@ -184,7 +185,8 @@ impl SearchService {
         if !self.enabled {
             return Err(ApiError::internal("Elasticsearch is disabled".to_string()));
         }
-        let client = self.client.as_ref().unwrap();
+        let client = self.client.as_ref()
+            .ok_or_else(|| ApiError::internal("Elasticsearch client not initialized".to_string()))?;
 
         let mut must_clauses = Vec::new();
         let mut filter_clauses = Vec::new();
@@ -297,7 +299,8 @@ impl SearchService {
         if !self.enabled {
             return Err(ApiError::internal("Elasticsearch is disabled".to_string()));
         }
-        let client = self.client.as_ref().unwrap();
+        let client = self.client.as_ref()
+            .ok_or_else(|| ApiError::internal("Elasticsearch client not initialized".to_string()))?;
 
         let response = client
             .search(SearchParts::Index(&["users"]))
@@ -342,7 +345,8 @@ impl SearchService {
         if !self.enabled {
             return Err(ApiError::internal("Elasticsearch is disabled".to_string()));
         }
-        let client = self.client.as_ref().unwrap();
+        let client = self.client.as_ref()
+            .ok_or_else(|| ApiError::internal("Elasticsearch client not initialized".to_string()))?;
 
         let response = client
             .search(SearchParts::Index(&["users"]))
