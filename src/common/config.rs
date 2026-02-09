@@ -828,6 +828,12 @@ mod tests {
                 name: "test".to_string(),
                 host: "127.0.0.1".to_string(),
                 port: 8000,
+                public_baseurl: None,
+                signing_key_path: None,
+                macaroon_secret_key: None,
+                form_secret: None,
+                server_name: None,
+                suppress_key_server_warning: false,
                 registration_shared_secret: None,
                 admin_contact: None,
                 max_upload_size: 1000000,
@@ -914,6 +920,12 @@ mod tests {
                 name: "test".to_string(),
                 host: "127.0.0.1".to_string(),
                 port: 8000,
+                public_baseurl: None,
+                signing_key_path: None,
+                macaroon_secret_key: None,
+                form_secret: None,
+                server_name: None,
+                suppress_key_server_warning: false,
                 registration_shared_secret: None,
                 admin_contact: None,
                 max_upload_size: 1000000,
@@ -999,6 +1011,12 @@ mod tests {
             name: "test".to_string(),
             host: "0.0.0.0".to_string(),
             port: 8080,
+            public_baseurl: None,
+            signing_key_path: None,
+            macaroon_secret_key: None,
+            form_secret: None,
+            server_name: None,
+            suppress_key_server_warning: false,
             registration_shared_secret: Some("secret".to_string()),
             admin_contact: Some("admin@example.com".to_string()),
             max_upload_size: 50000000,
@@ -1188,6 +1206,7 @@ fn default_smtp_per_hour() -> u32 {
 // 文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html
 // ============================================================================
 
+/*
 /// 媒体存储配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#media_store
@@ -1211,7 +1230,6 @@ fn default_smtp_per_hour() -> u32 {
 ///   max_thumbnail_size: "10M"
 ///   min_thumbnail_size: "10K"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct MediaStoreConfig {
     /// 是否启用媒体存储功能
@@ -1271,6 +1289,7 @@ pub struct StorageProviderConfig {
 }
 */
 
+/*
 /// 监听器配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#listeners
@@ -1299,7 +1318,6 @@ pub struct StorageProviderConfig {
 ///     resources:
 ///       - names: [metrics]
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct ListenersConfig {
     #[serde(default)]
@@ -1361,6 +1379,7 @@ fn default_compress() -> bool {
 }
 */
 
+/*
 /// URL 预览配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#url_preview
@@ -1386,7 +1405,6 @@ fn default_compress() -> bool {
 ///   oembed_enabled: true
 ///   max_spider_size: "10M"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct UrlPreviewConfig {
     /// 是否启用 URL 预览
@@ -1436,6 +1454,7 @@ fn default_preview_cache_duration() -> u64 {
 }
 */
 
+/*
 /// 限制配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#limits
@@ -1459,7 +1478,6 @@ fn default_preview_cache_duration() -> u64 {
 ///   event_size_limit: "10M"
 ///   batch_size_limit: 50
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct LimitsConfig {
     /// 最大上传大小
@@ -1511,6 +1529,7 @@ fn default_batch_size() -> u64 {
 }
 */
 
+/*
 /// 密码配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#password_config
@@ -1536,7 +1555,6 @@ fn default_batch_size() -> u64 {
 ///     - module: "argon2"
 ///     - module: "bcrypt"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct PasswordConfig {
     /// 是否启用密码认证
@@ -1586,6 +1604,7 @@ fn default_min_password_length() -> u32 {
 }
 */
 
+/*
 /// OpenID Connect 配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#oidc_config
@@ -1611,7 +1630,6 @@ fn default_min_password_length() -> u32 {
 ///     displayname: "name"
 ///     email: "email"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct OidcConfig {
     /// 是否启用 OIDC
@@ -1651,6 +1669,7 @@ fn default_oidc_scopes() -> Vec<String> {
 }
 */
 
+/*
 /// VoIP 配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#voip
@@ -1678,7 +1697,6 @@ fn default_oidc_scopes() -> Vec<String> {
 ///     stun_uris:
 ///       - "stun:stun.example.com:3478"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct VoipConfig {
     /// TURN 服务器配置
@@ -1720,6 +1738,7 @@ fn default_turn_user_lifetime() -> String {
 }
 */
 
+/*
 /// 推送配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#push
@@ -1744,7 +1763,6 @@ fn default_turn_user_lifetime() -> String {
 ///     cert_file: "/path/to/cert.pem"
 ///     key_file: "/path/to/key.pem"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct PushConfig {
     /// 是否启用推送
@@ -1787,6 +1805,7 @@ fn default_group_unread() -> bool {
 }
 */
 
+/*
 /// 账户有效性配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#account_validity
@@ -1807,7 +1826,6 @@ fn default_group_unread() -> bool {
 ///   renew_at: "7d"
 ///   renewal_email_subject: "Renew your account"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct AccountValidityConfig {
     /// 是否启用账户有效性
@@ -1838,6 +1856,7 @@ fn default_renew_at() -> String {
 }
 */
 
+/*
 /// CAS 认证配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#cas_config
@@ -1856,7 +1875,6 @@ fn default_renew_at() -> String {
 ///   server_url: "https://cas.example.com"
 ///   service_url: "https://matrix.example.com"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct CasConfig {
     /// 是否启用 CAS
@@ -1871,6 +1889,7 @@ pub struct CasConfig {
 }
 */
 
+/*
 /// SAML2 认证配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#saml2_config
@@ -1899,7 +1918,6 @@ pub struct CasConfig {
 ///     displayname: "displayName"
 ///     email: "emailAddress"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct Saml2Config {
     /// 是否启用 SAML2
@@ -1950,6 +1968,7 @@ impl Default for SamlAttributeMapping {
 }
 */
 
+/*
 /// UI 认证配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#ui_auth
@@ -1967,7 +1986,6 @@ impl Default for SamlAttributeMapping {
 ///   session_timeout: "15m"
 ///   maximum_sessions: 100
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct UiAuthConfig {
     /// 会话超时时间
@@ -1988,6 +2006,7 @@ fn default_max_ui_auth_sessions() -> u32 {
 }
 */
 
+/*
 /// 房间配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#rooms
@@ -2008,7 +2027,6 @@ fn default_max_ui_auth_sessions() -> u32 {
 ///   export_metrics: false
 ///   state_event_limit: 1000
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct RoomsConfig {
     /// 默认房间版本
@@ -2037,6 +2055,7 @@ fn default_state_event_limit() -> u64 {
 }
 */
 
+/*
 /// 消息保留配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#retention
@@ -2059,7 +2078,6 @@ fn default_state_event_limit() -> u64 {
 ///   allowed_lifetime_min: "1d"
 ///   allowed_lifetime_max: "365d"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct RetentionConfig {
     /// 是否启用消息保留
@@ -2084,6 +2102,7 @@ pub struct RetentionPolicy {
 }
 */
 
+/*
 /// 用户目录配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#user_directory
@@ -2104,7 +2123,6 @@ pub struct RetentionPolicy {
 ///   prefer_local_users: true
 ///   indexing_interval: "1h"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct UserDirectoryConfig {
     /// 是否启用用户目录
@@ -2137,6 +2155,7 @@ fn default_indexing_interval() -> String {
 }
 */
 
+/*
 /// 性能指标配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#metrics
@@ -2157,7 +2176,6 @@ fn default_indexing_interval() -> String {
 ///   labels:
 ///     - "instance:production"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct MetricsConfig {
     /// 是否启用指标
@@ -2178,6 +2196,7 @@ fn default_metrics_port() -> u16 {
 }
 */
 
+/*
 /// 客户端配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#client
@@ -2199,7 +2218,6 @@ fn default_metrics_port() -> u16 {
 ///     client_name: "Synapse (Rust)"
 ///     client_url: "https://github.com/element-hq/synapse"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct ClientConfig {
     /// 最大请求大小
@@ -2230,6 +2248,8 @@ fn default_max_sync_events() -> u64 {
 }
 */
 
+/*
+/*
 /// 服务器通知配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#server_notices
@@ -2248,7 +2268,6 @@ fn default_max_sync_events() -> u64 {
 ///   system_display_name: "Server Notices"
 ///   server_notices_room: "!notices:example.com"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerNoticesConfig {
     /// 系统通知用户的 MXID 本地部分
@@ -2262,6 +2281,7 @@ pub struct ServerNoticesConfig {
 }
 */
 
+/*
 /// 第三方协议规则配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#third_party_rules
@@ -2280,7 +2300,6 @@ pub struct ServerNoticesConfig {
 ///     fields:
 ///       - network: "freenode"
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct ThirdPartyRulesConfig {
     pub rules: Vec<ThirdPartyRule>,
@@ -2298,6 +2317,7 @@ pub struct ThirdPartyField {
 }
 */
 
+/*
 /// 实验性功能配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#experimental
@@ -2315,7 +2335,6 @@ pub struct ThirdPartyField {
 ///     - "msc2815"  # Broadcast to device
 ///     - "msc3785"  # Read receipts
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExperimentalConfig {
     /// 启用的 MSC 列表
@@ -2343,7 +2362,6 @@ pub struct ExperimentalConfig {
 ///   environment: "production"
 ///   sample_rate: 0.1
 /// ```
-/*
 #[derive(Debug, Clone, Deserialize)]
 pub struct SentryConfig {
     /// 是否启用 Sentry

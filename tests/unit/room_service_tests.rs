@@ -179,7 +179,7 @@ mod room_service_tests {
             let cache = Arc::new(CacheManager::new(CacheConfig::default()));
             let room_service = RoomService::new(
                 RoomStorage::new(&pool),
-                RoomMemberStorage::new(&pool),
+                RoomMemberStorage::new(&pool, "localhost"),
                 EventStorage::new(&pool),
                 UserStorage::new(&pool, cache.clone()),
                 Arc::new(Validator::default()),
@@ -222,7 +222,7 @@ mod room_service_tests {
             let cache = Arc::new(CacheManager::new(CacheConfig::default()));
             let room_service = RoomService::new(
                 RoomStorage::new(&pool),
-                RoomMemberStorage::new(&pool),
+                RoomMemberStorage::new(&pool, "localhost"),
                 EventStorage::new(&pool),
                 UserStorage::new(&pool, cache.clone()),
                 Arc::new(Validator::default()),
@@ -262,7 +262,7 @@ mod room_service_tests {
             let cache = Arc::new(CacheManager::new(CacheConfig::default()));
             let room_service = RoomService::new(
                 RoomStorage::new(&pool),
-                RoomMemberStorage::new(&pool),
+                RoomMemberStorage::new(&pool, "localhost"),
                 EventStorage::new(&pool),
                 UserStorage::new(&pool, cache.clone()),
                 Arc::new(Validator::default()),
@@ -310,7 +310,7 @@ mod room_service_tests {
             let cache = Arc::new(CacheManager::new(CacheConfig::default()));
             let room_service = RoomService::new(
                 RoomStorage::new(&pool),
-                RoomMemberStorage::new(&pool),
+                RoomMemberStorage::new(&pool, "localhost"),
                 EventStorage::new(&pool),
                 UserStorage::new(&pool, cache.clone()),
                 Arc::new(Validator::default()),
@@ -330,7 +330,7 @@ mod room_service_tests {
                 .await;
             assert!(result.is_ok());
 
-            let member_storage = RoomMemberStorage::new(&pool);
+            let member_storage = RoomMemberStorage::new(&pool, "localhost");
             let member = member_storage
                 .get_member(room_id, "@bob:localhost")
                 .await
@@ -354,7 +354,7 @@ mod room_service_tests {
             let cache = Arc::new(CacheManager::new(CacheConfig::default()));
             let room_service = RoomService::new(
                 RoomStorage::new(&pool),
-                RoomMemberStorage::new(&pool),
+                RoomMemberStorage::new(&pool, "localhost"),
                 EventStorage::new(&pool),
                 UserStorage::new(&pool, cache.clone()),
                 Arc::new(Validator::default()),
@@ -374,7 +374,7 @@ mod room_service_tests {
                 .await;
             assert!(result.is_ok());
 
-            let member_storage = RoomMemberStorage::new(&pool);
+            let member_storage = RoomMemberStorage::new(&pool, "localhost");
             let member = member_storage
                 .get_member(room_id, "@bob:localhost")
                 .await

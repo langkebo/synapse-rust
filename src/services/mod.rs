@@ -3,6 +3,12 @@ use crate::cache::*;
 use crate::common::metrics::MetricsCollector;
 use crate::common::task_queue::RedisTaskQueue;
 use crate::common::*;
+// Import config types explicitly to avoid conflicts with the external `config` crate
+use crate::common::config::{
+    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, FederationConfig,
+    RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig,
+    WorkerConfig,
+};
 use crate::e2ee::backup::KeyBackupService;
 use crate::e2ee::cross_signing::CrossSigningService;
 use crate::e2ee::device_keys::DeviceKeyService;
@@ -136,7 +142,8 @@ impl ServiceContainer {
             config.search.enabled,
         ));
 
-        let member_storage = RoomMemberStorage::new(pool);
+        let server_name_for_storage = config.server.get_server_name().to_string();
+        let member_storage = RoomMemberStorage::new(pool, &server_name_for_storage);
         let room_storage = RoomStorage::new(pool);
         let event_storage = EventStorage::new(pool);
         let presence_storage = PresenceStorage::new(presence_pool.clone(), cache.clone());
@@ -244,6 +251,12 @@ impl ServiceContainer {
                 name: "localhost".to_string(),
                 host: "0.0.0.0".to_string(),
                 port: 8008,
+                public_baseurl: None,
+                signing_key_path: None,
+                macaroon_secret_key: None,
+                form_secret: None,
+                server_name: None,
+                suppress_key_server_warning: false,
                 registration_shared_secret: None,
                 admin_contact: None,
                 max_upload_size: 1000000,

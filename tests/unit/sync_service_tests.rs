@@ -204,7 +204,7 @@ mod sync_service_tests {
 
             let cache = Arc::new(CacheManager::new(CacheConfig::default()));
             let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
-            let member_storage = RoomMemberStorage::new(&pool);
+            let member_storage = RoomMemberStorage::new(&pool, "localhost");
             let event_storage = EventStorage::new(&pool);
             let room_storage = RoomStorage::new(&pool);
             let user_storage = UserStorage::new(&pool, cache.clone());

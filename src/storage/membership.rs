@@ -28,11 +28,16 @@ pub struct RoomMember {
 #[derive(Clone)]
 pub struct RoomMemberStorage {
     pub pool: Arc<Pool<Postgres>>,
+    /// 服务器名称，用于生成事件 ID
+    pub server_name: String,
 }
 
 impl RoomMemberStorage {
-    pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
-        Self { pool: pool.clone() }
+    pub fn new(pool: &Arc<Pool<Postgres>>, server_name: &str) -> Self {
+        Self {
+            pool: pool.clone(),
+            server_name: server_name.to_string(),
+        }
     }
 
     pub async fn add_member(
@@ -44,7 +49,7 @@ impl RoomMemberStorage {
         join_reason: Option<&str>,
     ) -> Result<RoomMember, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let event_id = format!("${}", generate_event_id("localhost"));
+        let event_id = format!("${}", generate_event_id(&self.server_name));
         let sender = user_id;
 
         sqlx::query_as::<_, RoomMember>(
