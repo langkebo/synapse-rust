@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::common::constants::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -61,10 +62,10 @@ impl Validator {
             ));
         }
 
-        if username.len() > 255 {
+        if username.len() > MAX_USERNAME_LENGTH {
             return Err(ValidationError::new(
                 "username",
-                "Username must be at most 255 characters",
+                &format!("Username must be at most {} characters", MAX_USERNAME_LENGTH),
                 "TOO_LONG",
             ));
         }
@@ -89,18 +90,18 @@ impl Validator {
             ));
         }
 
-        if password.len() < 8 {
+        if password.len() < MIN_PASSWORD_LENGTH {
             return Err(ValidationError::new(
                 "password",
-                "Password must be at least 8 characters",
+                &format!("Password must be at least {} characters", MIN_PASSWORD_LENGTH),
                 "TOO_SHORT",
             ));
         }
 
-        if password.len() > 128 {
+        if password.len() > MAX_PASSWORD_LENGTH {
             return Err(ValidationError::new(
                 "password",
-                "Password must be at most 128 characters",
+                &format!("Password must be at most {} characters", MAX_PASSWORD_LENGTH),
                 "TOO_LONG",
             ));
         }
@@ -216,10 +217,10 @@ impl Validator {
             ));
         }
 
-        if device_id.len() > 255 {
+        if device_id.len() > MAX_DEVICE_ID_LENGTH {
             return Err(ValidationError::new(
                 "device_id",
-                "Device ID must be at most 255 characters",
+                &format!("Device ID must be at most {} characters", MAX_DEVICE_ID_LENGTH),
                 "TOO_LONG",
             ));
         }
@@ -258,10 +259,10 @@ impl Validator {
         min: usize,
         max: usize,
     ) -> ValidationResult {
-        if value.is_empty() {
+        if min > 0 && value.is_empty() {
             return Err(ValidationError::new(
                 field,
-                format!("{} cannot be empty", field).as_str(),
+                &format!("{} cannot be empty", field),
                 "EMPTY",
             ));
         }
@@ -269,7 +270,7 @@ impl Validator {
         if value.len() < min {
             return Err(ValidationError::new(
                 field,
-                format!("{} must be at least {} characters", field, min).as_str(),
+                &format!("{} must be at least {} characters", field, min),
                 "TOO_SHORT",
             ));
         }
@@ -277,7 +278,7 @@ impl Validator {
         if value.len() > max {
             return Err(ValidationError::new(
                 field,
-                format!("{} must be at most {} characters", field, max).as_str(),
+                &format!("{} must be at most {} characters", field, max),
                 "TOO_LONG",
             ));
         }
@@ -286,15 +287,15 @@ impl Validator {
     }
 
     pub fn validate_display_name(&self, display_name: &str) -> ValidationResult {
-        self.validate_string_length("display_name", display_name, 1, 256)
+        self.validate_string_length("display_name", display_name, 1, MAX_DISPLAY_NAME_LENGTH)
     }
 
     pub fn validate_reason(&self, reason: &str) -> ValidationResult {
-        self.validate_string_length("reason", reason, 0, 512)
+        self.validate_string_length("reason", reason, 0, MAX_REASON_LENGTH)
     }
 
     pub fn validate_message(&self, message: &str) -> ValidationResult {
-        self.validate_string_length("message", message, 1, 65536)
+        self.validate_string_length("message", message, 1, MAX_MESSAGE_LENGTH)
     }
 
     pub fn validate_limit(&self, limit: i64, min: i64, max: i64) -> ValidationResult {
@@ -319,10 +320,11 @@ impl Validator {
 
     pub fn validate_timestamp(&self, timestamp: i64) -> ValidationResult {
         let now = chrono::Utc::now().timestamp();
-        let one_year_ago = now - 365 * 24 * 60 * 60;
-        let one_year_future = now + 365 * 24 * 60 * 60;
+        let window = TIMESTAMP_WINDOW_SECONDS;
+        let min_valid = now - window;
+        let max_valid = now + window;
 
-        if timestamp < one_year_ago {
+        if timestamp < min_valid {
             return Err(ValidationError::new(
                 "timestamp",
                 "Timestamp is too old",
@@ -330,7 +332,7 @@ impl Validator {
             ));
         }
 
-        if timestamp > one_year_future {
+        if timestamp > max_valid {
             return Err(ValidationError::new(
                 "timestamp",
                 "Timestamp is too far in the future",

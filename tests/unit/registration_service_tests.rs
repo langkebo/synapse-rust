@@ -242,6 +242,7 @@ mod registration_service_tests {
                 argon2_t_cost: 1,
                 argon2_p_cost: 1,
             };
+            let metrics = Arc::new(MetricsCollector::new());
             let auth_service =
                 AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
             let registration_service = RegistrationService::new(

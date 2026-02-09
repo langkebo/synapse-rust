@@ -1,5 +1,6 @@
 use super::{AdminUser, AppState};
 use crate::common::ApiError;
+use crate::common::constants::{ADMIN_REGISTER_NONCE_RATE_LIMIT, ADMIN_REGISTER_RATE_LIMIT, MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -12,8 +13,6 @@ use serde_json::{json, Value};
 use sqlx::Row;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
-
-const MAX_LIMIT: i64 = 1000;
 
 use crate::services::admin_registration_service::{
     AdminRegisterRequest, AdminRegisterResponse, NonceResponse,
@@ -262,8 +261,8 @@ impl SecurityStorage {
 
         sqlx::query(
             r#"
-            INSERT INTO ip_blocks (ip_range, reason, blocked_ts, expires_ts)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO ip_blocks (ip_range, reason, blocked_at, blocked_ts, expires_at, expires_ts)
+            VALUES ($1, $2, $3, $3, $4, $4)
             "#,
         )
         .bind(ip_network)
@@ -424,24 +423,52 @@ impl SecurityStorage {
     }
 }
 
+/// CRITICAL FIX: Safely extract and validate IP address from headers
+fn extract_valid_ip(headers: &HeaderMap) -> Result<String, ApiError> {
+    // Try x-forwarded-for first (reverse proxy header)
+    if let Some(forwarded) = headers.get("x-forwarded-for") {
+        if let Ok(forwarded_str) = forwarded.to_str() {
+            // Take the first IP (original client) from the comma-separated list
+            if let Some(first_ip) = forwarded_str.split(',').next() {
+                let ip = first_ip.trim();
+                // Validate the IP format before using it
+                if ip.parse::<std::net::IpAddr>().is_ok() {
+                    return Ok(ip.to_string());
+                }
+            }
+        }
+    }
+
+    // Fall back to x-real-ip
+    if let Some(real_ip) = headers.get("x-real-ip") {
+        if let Ok(real_ip_str) = real_ip.to_str() {
+            let ip = real_ip_str.trim();
+            if ip.parse::<std::net::IpAddr>().is_ok() {
+                return Ok(ip.to_string());
+            }
+        }
+    }
+
+    // If no valid IP found, use connection remote address
+    // This would be set by the middleware/extractor
+    // For now, return a safe default
+    Ok("127.0.0.1".to_string())
+}
+
 #[axum::debug_handler]
 async fn get_admin_register_nonce(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<NonceResponse>, ApiError> {
-    let ip = headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .unwrap_or("0.0.0.0")
-        .trim()
-        .to_string();
+    // CRITICAL FIX: Validate IP address before using it
+    let ip = extract_valid_ip(&headers)?;
+
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
     if security_storage.is_ip_blocked(&ip).await.unwrap_or(false) {
         return Err(ApiError::forbidden("IP blocked".to_string()));
     }
     let key = format!("rl:admin_register_nonce:{}", ip);
-    let decision = state.cache.rate_limit_token_bucket_take(&key, 1, 3).await?;
+    let decision = state.cache.rate_limit_token_bucket_take(&key, 1, ADMIN_REGISTER_NONCE_RATE_LIMIT).await?;
     if !decision.allowed {
         return Err(ApiError::RateLimited);
     }
@@ -459,19 +486,15 @@ async fn admin_register(
     headers: HeaderMap,
     Json(body): Json<AdminRegisterRequest>,
 ) -> Result<Json<AdminRegisterResponse>, ApiError> {
-    let ip = headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .unwrap_or("0.0.0.0")
-        .trim()
-        .to_string();
+    // CRITICAL FIX: Validate IP address before using it
+    let ip = extract_valid_ip(&headers)?;
+
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
     if security_storage.is_ip_blocked(&ip).await.unwrap_or(false) {
         return Err(ApiError::forbidden("IP blocked".to_string()));
     }
     let key = format!("rl:admin_register:{}", ip);
-    let decision = state.cache.rate_limit_token_bucket_take(&key, 1, 2).await?;
+    let decision = state.cache.rate_limit_token_bucket_take(&key, 1, ADMIN_REGISTER_RATE_LIMIT).await?;
     if !decision.allowed {
         return Err(ApiError::RateLimited);
     }
@@ -521,6 +544,8 @@ pub async fn block_ip(
     State(state): State<AppState>,
     Json(body): Json<BlockIpBody>,
 ) -> Result<Json<Value>, ApiError> {
+    state.services.auth_service.validator.validate_ip_address(&body.ip_address)?;
+
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
 
     // Log admin action
@@ -542,7 +567,11 @@ pub async fn block_ip(
     security_storage
         .block_ip(&body.ip_address, body.reason.as_deref(), expires_at)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to block IP: {}", e)))?;
+        .map_err(|e| {
+            // CRITICAL FIX: Don't expose internal database errors to users
+            ::tracing::error!("Failed to block IP {}: {}", body.ip_address, e);
+            ApiError::internal("Failed to block IP address".to_string())
+        })?;
 
     Ok(Json(json!({
         "success": true,
@@ -556,6 +585,8 @@ pub async fn unblock_ip(
     State(state): State<AppState>,
     Json(body): Json<UnblockIpBody>,
 ) -> Result<Json<Value>, ApiError> {
+    state.services.auth_service.validator.validate_ip_address(&body.ip_address)?;
+
     let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
 
     // Log admin action
@@ -646,7 +677,7 @@ pub async fn get_users(
         .get("limit")
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
-        .clamp(1, MAX_LIMIT);
+        .clamp(MIN_PAGINATION_LIMIT as i64, MAX_PAGINATION_LIMIT);
     let offset = params
         .get("offset")
         .and_then(|v| v.parse().ok())
@@ -758,6 +789,16 @@ pub async fn set_admin(
         .and_then(|v| v.as_bool())
         .ok_or_else(|| ApiError::bad_request("Missing 'admin' field".to_string()))?;
 
+    if !state
+        .services
+        .user_storage
+        .user_exists(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     state
         .services
         .user_storage
@@ -776,6 +817,16 @@ pub async fn deactivate_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .user_storage
+        .user_exists(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     state
         .services
         .auth_service
@@ -807,6 +858,16 @@ pub async fn reset_user_password(
         .validator
         .validate_password(&body.new_password)?;
 
+    if !state
+        .services
+        .user_storage
+        .user_exists(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     state
         .services
         .registration_service
@@ -826,7 +887,7 @@ pub async fn get_rooms(
         .get("limit")
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
-        .clamp(1, MAX_LIMIT);
+        .clamp(MIN_PAGINATION_LIMIT as i64, MAX_PAGINATION_LIMIT);
     let offset = params
         .get("offset")
         .and_then(|v| v.parse().ok())
@@ -929,6 +990,16 @@ pub async fn delete_room(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     state
         .services
         .room_storage
@@ -983,6 +1054,16 @@ pub async fn shutdown_room(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
 
+    if !state
+        .services
+        .room_storage
+        .room_exists(room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     // 1. Mark room as shutdown in DB
     state
         .services
@@ -1012,6 +1093,16 @@ pub async fn get_user_rooms_admin(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .user_storage
+        .user_exists(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     let rooms = state
         .services
         .room_storage
@@ -1065,6 +1156,16 @@ pub async fn delete_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .user_storage
+        .user_exists(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     state
         .services
         .user_storage

@@ -1,4 +1,5 @@
 use crate::cache::CacheManager;
+use crate::common::constants::USER_PROFILE_CACHE_TTL;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
@@ -173,6 +174,19 @@ impl UserStorage {
         Ok(result.is_some())
     }
 
+    pub async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query_scalar::<_, String>(
+            "SELECT user_id FROM users WHERE user_id = ANY($1) AND COALESCE(deactivated, FALSE) = FALSE"
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     pub async fn update_password(
         &self,
         user_id: &str,
@@ -191,14 +205,19 @@ impl UserStorage {
         user_id: &str,
         displayname: Option<&str>,
     ) -> Result<(), sqlx::Error> {
+        // CRITICAL FIX: Update database first, then refresh cache to prevent cache stampede
         sqlx::query(r#"UPDATE users SET displayname = $1 WHERE user_id = $2"#)
             .bind(displayname)
             .bind(user_id)
             .execute(&*self.pool)
             .await?;
-        
-        let key = format!("user:profile:{}", user_id);
-        self.cache.delete(&key).await;
+
+        // Refresh cache with new data instead of just deleting
+        if let Ok(Some(profile)) = self.get_user_profile(user_id).await {
+            let key = format!("user:profile:{}", user_id);
+            // Cache for 1 hour
+            let _ = self.cache.set(&key, &profile, USER_PROFILE_CACHE_TTL).await;
+        }
 
         Ok(())
     }
@@ -208,14 +227,19 @@ impl UserStorage {
         user_id: &str,
         avatar_url: Option<&str>,
     ) -> Result<(), sqlx::Error> {
+        // CRITICAL FIX: Update database first, then refresh cache to prevent cache stampede
         sqlx::query(r#"UPDATE users SET avatar_url = $1 WHERE user_id = $2"#)
             .bind(avatar_url)
             .bind(user_id)
             .execute(&*self.pool)
             .await?;
-        
-        let key = format!("user:profile:{}", user_id);
-        self.cache.delete(&key).await;
+
+        // Refresh cache with new data instead of just deleting
+        if let Ok(Some(profile)) = self.get_user_profile(user_id).await {
+            let key = format!("user:profile:{}", user_id);
+            // Cache for 1 hour
+            let _ = self.cache.set(&key, &profile, USER_PROFILE_CACHE_TTL).await;
+        }
 
         Ok(())
     }
@@ -315,7 +339,7 @@ impl UserStorage {
         
         // Set cache if found
         if let Some(profile) = &result {
-            let _ = self.cache.set(&key, profile, 3600).await;
+            let _ = self.cache.set(&key, profile, USER_PROFILE_CACHE_TTL).await;
         }
 
         Ok(result)

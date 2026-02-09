@@ -10,6 +10,8 @@ pub struct RegistrationService {
     auth_service: crate::auth::AuthService,
     metrics: Arc<MetricsCollector>,
     server_name: String,
+    // HP-2 FIX: Make base URL configurable instead of hardcoded
+    base_url: String,
     enable_registration: bool,
     task_queue: Option<Arc<RedisTaskQueue>>,
 }
@@ -23,11 +25,17 @@ impl RegistrationService {
         enable_registration: bool,
         task_queue: Option<Arc<RedisTaskQueue>>,
     ) -> Self {
+        // HP-2 FIX: Construct base URL from server_name, but make it configurable
+        // Default to HTTPS for production, can be overridden via environment variable
+        let base_url = std::env::var("HOMESERVER_BASE_URL")
+            .unwrap_or_else(|_| format!("https://{}:8448", server_name));
+
         Self {
             user_storage,
             auth_service,
             metrics,
             server_name,
+            base_url,
             enable_registration,
             task_queue,
         }
@@ -95,7 +103,7 @@ impl RegistrationService {
             "user_id": user.user_id(),
             "well_known": {
                 "m.homeserver": {
-                    "base_url": format!("http://{}:8008", self.server_name)
+                    "base_url": self.base_url
                 }
             }
         }))
@@ -143,7 +151,7 @@ impl RegistrationService {
             "user_id": user.user_id(),
             "well_known": {
                 "m.homeserver": {
-                    "base_url": format!("http://{}:8008", self.server_name)
+                    "base_url": self.base_url
                 }
             }
         }))
@@ -201,7 +209,13 @@ impl RegistrationService {
         self.user_storage
             .update_displayname(user_id, Some(displayname))
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update displayname: {}", e)))?;
+            .map_err(|e| {
+                if e.to_string().contains("too long") {
+                    ApiError::bad_request("Displayname too long (max 255 characters)".to_string())
+                } else {
+                    ApiError::internal(format!("Failed to update displayname: {}", e))
+                }
+            })?;
         Ok(())
     }
 
@@ -209,7 +223,13 @@ impl RegistrationService {
         self.user_storage
             .update_avatar_url(user_id, Some(avatar_url))
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update avatar: {}", e)))?;
+            .map_err(|e| {
+                if e.to_string().contains("too long") {
+                    ApiError::bad_request("Avatar URL too long (max 255 characters)".to_string())
+                } else {
+                    ApiError::internal(format!("Failed to update avatar: {}", e))
+                }
+            })?;
         Ok(())
     }
 

@@ -8,6 +8,7 @@ pub mod event;
 pub mod maintenance;
 pub mod membership;
 pub mod monitoring;
+pub mod performance;
 pub mod private_chat;
 pub mod room;
 pub mod schema_validator;
@@ -24,6 +25,7 @@ pub use self::monitoring::{
     DuplicateEntry, ForeignKeyViolation, NullConstraintViolation, OrphanedRecord,
     PerformanceMetrics, VacuumStats,
 };
+pub use self::performance::{PerformanceMonitor, PoolStatistics, QueryMetrics, time_query};
 pub use self::private_chat::*;
 pub use self::room::*;
 pub use self::schema_validator::*;
@@ -248,6 +250,7 @@ mod tests {
             member_count: 0,
             history_visibility: "shared".to_string(),
             creation_ts: 1234567890,
+            avatar_url: None,
         };
         assert_eq!(room.room_id, "!test:example.com");
         assert_eq!(room.join_rule, "invite");

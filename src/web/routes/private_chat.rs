@@ -36,11 +36,11 @@ pub fn create_private_chat_router(state: AppState) -> Router<AppState> {
             get(get_sessions).post(create_session),
         )
         .route(
-            "/_synapse/enhanced/private/sessions/:session_id",
+            "/_synapse/enhanced/private/sessions/{session_id}",
             get(get_session).delete(delete_session),
         )
         .route(
-            "/_synapse/enhanced/private/sessions/:session_id/messages",
+            "/_synapse/enhanced/private/sessions/{session_id}/messages",
             get(get_messages).post(send_message),
         )
         .with_state(state)

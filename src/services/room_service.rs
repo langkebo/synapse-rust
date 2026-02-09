@@ -1,4 +1,5 @@
 use crate::common::background_job::BackgroundJob;
+use crate::common::constants::{BURN_AFTER_READ_DELAY_SECS, DEFAULT_GUEST_ACCESS, DEFAULT_HISTORY_VISIBILITY, DEFAULT_JOIN_RULE};
 use crate::common::task_queue::RedisTaskQueue;
 use crate::common::validation::Validator;
 use crate::common::{generate_event_id, generate_room_id};
@@ -6,8 +7,9 @@ use crate::services::*;
 use crate::storage::CreateEventParams;
 use crate::storage::UserStorage;
 use serde_json::json;
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::RwLock;
 
 #[derive(Debug, Default, Clone)]
 pub struct CreateRoomConfig {
@@ -29,6 +31,8 @@ pub struct RoomService {
     validator: Arc<Validator>,
     server_name: String,
     task_queue: Option<Arc<RedisTaskQueue>>,
+    // CRITICAL FIX: Track spawned tasks to prevent memory leaks and enable graceful shutdown
+    active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
 
 impl RoomService {
@@ -49,6 +53,36 @@ impl RoomService {
             validator,
             server_name,
             task_queue,
+            active_tasks: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Clean up completed tasks and return count of remaining active tasks
+    pub async fn cleanup_completed_tasks(&self) -> usize {
+        let mut tasks = self.active_tasks.write().unwrap();
+        tasks.retain(|_key, handle| {
+            !handle.is_finished()
+        });
+        tasks.len()
+    }
+
+    /// Abort a specific delayed task
+    pub async fn abort_task(&self, task_id: &str) -> bool {
+        let mut tasks = self.active_tasks.write().unwrap();
+        if let Some(handle) = tasks.remove(task_id) {
+            handle.abort();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Graceful shutdown - abort all active delayed tasks
+    pub async fn shutdown(&self) {
+        let mut tasks = self.active_tasks.write().unwrap();
+        for (task_id, handle) in tasks.drain() {
+            ::tracing::info!("Aborting delayed task: {}", task_id);
+            handle.abort();
         }
     }
 
@@ -195,10 +229,12 @@ impl RoomService {
         invite_list: Option<&Vec<String>>,
     ) -> ApiResult<()> {
         if let Some(invites) = invite_list {
+            let existing_users = self.user_storage.filter_existing_users(invites).await.map_err(|e| {
+                ApiError::internal(format!("Failed to check users existence: {}", e))
+            })?;
+
             for invitee in invites {
-                if !self.user_storage.user_exists(invitee).await.map_err(|e| {
-                    ApiError::internal(format!("Failed to check user existence: {}", e))
-                })? {
+                if !existing_users.contains(invitee) {
                     ::tracing::warn!("Skipping invite for non-existent user: {}", invitee);
                     continue;
                 }
@@ -401,18 +437,18 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get rooms: {}", e)))?;
 
-        let mut rooms = Vec::new();
-        for room_id in room_ids {
-            if let Ok(Some(room)) = self.room_storage.get_room(&room_id).await {
-                rooms.push(json!({
-                    "room_id": room.room_id,
-                    "name": room.name,
-                    "topic": room.topic,
-                    "is_public": room.is_public,
-                    "join_rule": room.join_rule
-                }));
-            }
-        }
+        let rooms_data = self.room_storage.get_rooms_batch(&room_ids).await
+            .map_err(|e| ApiError::internal(format!("Failed to fetch rooms batch: {}", e)))?;
+
+        let rooms: Vec<serde_json::Value> = rooms_data.into_iter().map(|room| {
+            json!({
+                "room_id": room.room_id,
+                "name": room.name,
+                "topic": room.topic,
+                "is_public": room.is_public,
+                "join_rule": room.join_rule
+            })
+        }).collect();
 
         Ok(json!(rooms))
     }
@@ -651,33 +687,54 @@ impl RoomService {
         event_id: &str,
         _user_id: &str,
     ) -> ApiResult<()> {
-        // Check if event exists and has burn_after_read metadata
-        if let Ok(Some(event)) = self.event_storage.get_event(event_id).await {
-            if let Some(content) = event.content.as_object() {
-                if content.contains_key("burn_after_read") {
-                    if let Some(queue) = self.task_queue.clone() {
-                        let rid = room_id.to_string();
-                        let eid = event_id.to_string();
-                        ::tracing::info!("Scheduling burn-after-read for event {} in room {}", eid, rid);
-                        
-                        // Spawn a delayed task
-                        tokio::spawn(async move {
-                            tokio::time::sleep(Duration::from_secs(30)).await;
-                            let job = BackgroundJob::RedactEvent {
-                                event_id: eid.clone(),
-                                room_id: rid.clone(),
-                                reason: Some("Burn after read".to_string()),
-                            };
-                            if let Err(e) = queue.submit(job).await {
-                                ::tracing::error!("Failed to submit redaction job for event {}: {}", eid, e);
-                            } else {
-                                ::tracing::info!("Submitted redaction job for event {}", eid);
-                            }
-                        });
-                    }
+        let event = match self.event_storage.get_event(event_id).await {
+            Ok(Some(e)) => e,
+            _ => return Ok(()),
+        };
+
+        let content = match event.content.as_object() {
+            Some(c) => c,
+            None => return Ok(()),
+        };
+
+        if !content.contains_key("burn_after_read") {
+            return Ok(());
+        }
+
+        let queue = match self.task_queue.clone() {
+            Some(q) => q,
+            None => return Ok(()),
+        };
+
+        let rid = room_id.to_string();
+        let eid = event_id.to_string();
+        let task_id = format!("burn_after_read:{}:{}", rid, eid);
+
+        ::tracing::info!("Scheduling burn-after-read for event {} in room {}", eid, rid);
+
+        // CRITICAL FIX: Track spawned task to prevent memory leaks
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(secs(BURN_AFTER_READ_DELAY_SECS)).await;
+
+            let job = BackgroundJob::RedactEvent {
+                event_id: eid.clone(),
+                room_id: rid.clone(),
+                reason: Some("Burn after read".to_string()),
+            };
+
+            match queue.submit(job).await {
+                Ok(_) => {
+                    ::tracing::info!("Submitted redaction job for event {}", eid);
+                }
+                Err(e) => {
+                    ::tracing::error!("Failed to submit redaction job for event {}: {}", eid, e);
                 }
             }
-        }
+        });
+
+        // Store the task handle for later cleanup/management
+        self.active_tasks.write().unwrap().insert(task_id, handle);
+
         Ok(())
     }
 }

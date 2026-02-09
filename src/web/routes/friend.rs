@@ -10,10 +10,32 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use validator::{Validate, ValidationError};
 
+// HP-5 FIX: Efficient error pattern matching using pre-compiled regex
+use once_cell::sync::Lazy;
+
+static UNIQUE_VIOLATION_PATTERNS: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r"(?i)(duplicate key|unique constraint|23505|duplicatekeyvalue|duplicate_key|violates unique constraint)").unwrap()
+});
+
+static FOREIGN_KEY_PATTERNS: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r"(?i)(foreign key constraint|23503)").unwrap()
+});
+
+/// Check if a database error indicates a unique constraint violation
+fn is_unique_violation_error(error_msg: &str) -> bool {
+    UNIQUE_VIOLATION_PATTERNS.is_match(error_msg)
+}
+
+/// Check if a database error indicates a foreign key constraint violation
+fn is_foreign_key_violation_error(error_msg: &str) -> bool {
+    FOREIGN_KEY_PATTERNS.is_match(error_msg)
+}
+
 pub fn create_friend_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/enhanced/friends/search", get(search_users))
         .route("/_synapse/enhanced/friends", get(get_friends))
+        .route("/_synapse/enhanced/friends/batch", post(get_friends_batch))
         .route(
             "/_synapse/enhanced/friend/request",
             post(send_friend_request),
@@ -106,6 +128,32 @@ pub struct UpdateCategoryBody {
     pub name: Option<String>,
     #[validate(custom(function = "validate_color"))]
     pub color: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct BatchGetFriendsBody {
+    #[validate(length(min = 1, message = "Must provide at least one user ID"))]
+    pub user_ids: Vec<String>,
+}
+
+#[axum::debug_handler]
+async fn get_friends_batch(
+    State(state): State<AppState>,
+    auth_user: crate::web::routes::AuthenticatedUser,
+    Json(body): Json<BatchGetFriendsBody>,
+) -> Result<Json<Value>, ApiError> {
+    if let Err(e) = body.validate() {
+        return Err(ApiError::bad_request(e.to_string()));
+    }
+    
+    let friend_service = crate::services::FriendService::new(&state.services, &state.services.user_storage.pool);
+    let friends_data = friend_service
+        .get_friends_batch(&auth_user.user_id, body.user_ids)
+        .await?;
+
+    Ok(Json(json!({
+        "friends": friends_data
+    })))
 }
 
 #[axum::debug_handler]
@@ -283,15 +331,12 @@ async fn accept_friend_request(
     Path(request_id): Path<String>,
     auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id_i64: i64 = request_id.parse().unwrap_or_else(|_| {
-        if request_id.chars().all(|c| c.is_ascii_digit()) {
-            request_id.parse().unwrap_or(0)
-        } else {
-            0
-        }
-    });
+    // CRITICAL FIX: Simplified and safe parsing
+    let request_id_i64: i64 = request_id
+        .parse()
+        .map_err(|_| ApiError::bad_request("Invalid request ID format".to_string()))?;
 
-    if request_id_i64 == 0 {
+    if request_id_i64 <= 0 {
         return Err(ApiError::bad_request(
             "Invalid request ID format".to_string(),
         ));
@@ -311,15 +356,12 @@ async fn decline_friend_request(
     Path(request_id): Path<String>,
     auth_user: crate::web::routes::AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id_i64: i64 = request_id.parse().unwrap_or_else(|_| {
-        if request_id.chars().all(|c| c.is_ascii_digit()) {
-            request_id.parse().unwrap_or(0)
-        } else {
-            0
-        }
-    });
+    // CRITICAL FIX: Simplified and safe parsing
+    let request_id_i64: i64 = request_id
+        .parse()
+        .map_err(|_| ApiError::bad_request("Invalid request ID format".to_string()))?;
 
-    if request_id_i64 == 0 {
+    if request_id_i64 <= 0 {
         return Err(ApiError::bad_request(
             "Invalid request ID format".to_string(),
         ));
@@ -482,22 +524,14 @@ async fn update_friend_category(
         .await
         .map_err(|e| {
             let error_msg = format!("{:?}", e);
-            let error_msg_lower = error_msg.to_lowercase();
 
-            if error_msg_lower.contains("duplicate key")
-                || error_msg_lower.contains("unique constraint")
-                || error_msg_lower.contains("23505")
-                || error_msg_lower.contains("violates unique constraint")
-                || error_msg_lower.contains("duplicatekeyvalue")
-                || error_msg_lower.contains("duplicate_key")
-            {
+            // HP-5 FIX: Use efficient regex matching instead of multiple contains
+            if is_unique_violation_error(&error_msg) {
                 ApiError::bad_request(format!(
                     "Category '{}' already exists. Please choose a different name.",
                     new_name.unwrap_or(&category_name)
                 ))
-            } else if error_msg_lower.contains("foreign key constraint")
-                || error_msg_lower.contains("23503")
-            {
+            } else if is_foreign_key_violation_error(&error_msg) {
                 ApiError::bad_request(
                     "Cannot update category: referenced data not found".to_string(),
                 )
@@ -559,23 +593,30 @@ async fn search_users(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let mut results = Vec::new();
+    // HP-1 FIX: Use batch queries to avoid N+1 problem
+    let user_ids: Vec<String> = users.iter().map(|u| u.user_id.clone()).collect();
     let friend_storage = crate::services::FriendStorage::new(&state.services.user_storage.pool);
 
+    // Single batch query for all friendship checks
+    let friend_set = friend_storage
+        .batch_check_friends(&auth_user.user_id, &user_ids)
+        .await
+        .map_err(|_e| ApiError::internal("Database error: failed to check friendships"))?;
+
+    // Single batch query for all blocked checks
+    let blocked_set = friend_storage
+        .batch_check_blocked(&auth_user.user_id, &user_ids)
+        .await
+        .map_err(|_e| ApiError::internal("Database error: failed to check blocked users"))?;
+
+    let mut results = Vec::new();
     for user in users {
         if user.user_id == auth_user.user_id {
             continue;
         }
 
-        let is_friend = friend_storage
-            .is_friend(&auth_user.user_id, &user.user_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-        let is_blocked = friend_storage
-            .is_blocked(&auth_user.user_id, &user.user_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let is_friend = friend_set.contains(&user.user_id);
+        let is_blocked = blocked_set.contains(&user.user_id);
 
         let profile = json!({
             "user_id": user.user_id,

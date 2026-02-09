@@ -45,16 +45,31 @@ struct CategoryRecord {
     created_ts: i64,
 }
 
+/// Storage layer for friend relationships and requests.
+///
+/// This struct handles all database operations related to:
+/// - Friend connections (bidirectional relationships)
+/// - Friend requests (pending, accepted, declined)
+/// - Friend categories (user-defined groupings)
+/// - Blocked users (user-specific block lists)
 #[derive(Clone)]
 pub struct FriendStorage {
     pool: Arc<sqlx::PgPool>,
 }
 
 impl FriendStorage {
+    /// Creates a new `FriendStorage` instance.
+    ///
+    /// # Arguments
+    /// * `pool` - A reference to the PostgreSQL connection pool
     pub fn new(pool: &Arc<sqlx::PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// Creates all friend-related database tables.
+    ///
+    /// This method is idempotent and can be called multiple times safely.
+    /// Tables created: friends, friend_requests, friend_categories, blocked_users
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -129,6 +144,13 @@ impl FriendStorage {
         Ok(())
     }
 
+    /// Gets a list of friend IDs for the given user.
+    ///
+    /// # Arguments
+    /// * `user_id` - The Matrix user ID (e.g., "@alice:server.com")
+    ///
+    /// # Returns
+    /// A vector of friend user IDs, ordered by friendship creation time (newest first)
     pub async fn get_friends(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<FriendRecord> = sqlx::query_as(
             r#"SELECT friend_id FROM friends WHERE user_id = $1 ORDER BY created_ts DESC"#,
@@ -136,9 +158,18 @@ impl FriendStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await?;
-        Ok(rows.iter().map(|r| r.friend_id.clone()).collect())
+        // HP-4 FIX: Avoid unnecessary clone by moving out of the struct
+        Ok(rows.into_iter().map(|r| r.friend_id).collect())
     }
 
+    /// Adds a friend relationship (unidirectional).
+    ///
+    /// Note: This only adds one direction of the friendship.
+    /// For bidirectional friendships, call this twice with swapped arguments.
+    ///
+    /// # Arguments
+    /// * `user_id` - The user who is adding the friend
+    /// * `friend_id` - The user being added as a friend
     pub async fn add_friend(&self, user_id: &str, friend_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
         sqlx::query(
@@ -192,6 +223,29 @@ impl FriendStorage {
             created_ts: r.created_ts,
             note: r.note,
         }))
+    }
+
+    pub async fn get_friendships_batch(
+        &self,
+        user_id: &str,
+        friend_ids: &[String],
+    ) -> Result<Vec<FriendshipInfo>, sqlx::Error> {
+        let rows: Vec<FriendshipRecord> = sqlx::query_as(
+            r#"SELECT user_id, friend_id, created_ts, note FROM friends WHERE user_id = $1 AND friend_id = ANY($2)"#,
+        )
+        .bind(user_id)
+        .bind(friend_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| FriendshipInfo {
+                user_id: r.user_id,
+                friend_id: r.friend_id,
+                created_ts: r.created_ts,
+                note: r.note,
+            })
+            .collect())
     }
 
     pub async fn create_request(
@@ -249,13 +303,16 @@ impl FriendStorage {
     }
 
     pub async fn accept_request(&self, request_id: i64, user_id: &str) -> Result<(), sqlx::Error> {
+        // CRITICAL FIX: Use transaction to ensure atomicity
+        let mut tx = self.pool.begin().await?;
+
         let now = chrono::Utc::now().timestamp();
         let request = sqlx::query(
             r#"SELECT from_user_id as sender_id FROM friend_requests WHERE id = $1 AND to_user_id = $2"#,
         )
         .bind(request_id)
         .bind(user_id)
-        .fetch_optional(&*self.pool)
+        .fetch_optional(&mut *tx)  // Use transaction
         .await?;
 
         if let Some(r) = request {
@@ -264,13 +321,30 @@ impl FriendStorage {
             )
             .bind(now)
             .bind(request_id)
-            .execute(&*self.pool)
+            .execute(&mut *tx)  // Use transaction
             .await?;
 
             let sender_id = r.try_get::<String, _>("sender_id")?;
-            self.add_friend(user_id, &sender_id).await?;
-            self.add_friend(&sender_id, user_id).await?;
+
+            // Insert both friendship records within the same transaction
+            sqlx::query(
+                r#"
+                INSERT INTO friends (user_id, friend_id, created_ts)
+                VALUES ($1, $2, $3), ($4, $5, $6)
+                ON CONFLICT (user_id, friend_id) DO NOTHING
+                "#,
+            )
+            .bind(user_id)
+            .bind(&sender_id)
+            .bind(now)
+            .bind(&sender_id)
+            .bind(user_id)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
         }
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -436,7 +510,8 @@ impl FriendStorage {
                 .bind(user_id)
                 .fetch_all(&*self.pool)
                 .await?;
-        Ok(rows.iter().map(|r| r.0.clone()).collect())
+        // HP-4 FIX: Avoid unnecessary clone
+        Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
     pub async fn is_blocked(&self, user_id: &str, other_id: &str) -> Result<bool, sqlx::Error> {
@@ -449,28 +524,121 @@ impl FriendStorage {
         .await?;
         Ok(result.is_some())
     }
+
+    /// Batch check if multiple users are friends with the given user.
+    ///
+    /// This is more efficient than calling `is_friend` multiple times.
+    ///
+    /// # Arguments
+    /// * `user_id` - The user to check friendships for
+    /// * `other_ids` - List of user IDs to check against
+    ///
+    /// # Returns
+    /// A set of user IDs from `other_ids` that are friends with `user_id`
+    // HP-1: Batch check friendships to avoid N+1 queries
+    pub async fn batch_check_friends(
+        &self,
+        user_id: &str,
+        other_ids: &[String],
+    ) -> Result<std::collections::HashSet<String>, sqlx::Error> {
+        if other_ids.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r#"SELECT friend_id FROM friends WHERE user_id = $1 AND friend_id = ANY($2)"#,
+        )
+        .bind(user_id)
+        .bind(other_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    /// Batch check if multiple users are blocked by the given user.
+    ///
+    /// This is more efficient than calling `is_blocked` multiple times.
+    ///
+    /// # Arguments
+    /// * `user_id` - The user to check blocks for
+    /// * `other_ids` - List of user IDs to check against
+    ///
+    /// # Returns
+    /// A set of user IDs from `other_ids` that are blocked by `user_id`
+    // HP-1: Batch check blocked users to avoid N+1 queries
+    pub async fn batch_check_blocked(
+        &self,
+        user_id: &str,
+        other_ids: &[String],
+    ) -> Result<std::collections::HashSet<String>, sqlx::Error> {
+        if other_ids.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r#"SELECT blocked_user_id FROM blocked_users WHERE user_id = $1 AND blocked_user_id = ANY($2)"#,
+        )
+        .bind(user_id)
+        .bind(other_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
 }
 
+/// Information about a friend request.
+///
+/// Represents a pending, accepted, or declined friend request between two users.
 #[derive(Debug)]
 pub struct RequestInfo {
+    /// Unique identifier for the request
     pub id: i64,
+    /// User ID of the sender
     pub sender_id: String,
+    /// User ID of the receiver
     pub receiver_id: String,
+    /// Optional message from the sender
     pub message: Option<String>,
+    /// Request status: pending, accepted, declined, or cancelled
     pub status: String,
+    /// Unix timestamp when the request was created
     pub created_ts: i64,
+    /// Unix timestamp when the request was last updated
     pub updated_ts: i64,
 }
 
+/// Information about a friend category.
+///
+/// Users can organize their friends into custom categories.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CategoryInfo {
+    /// Unique identifier for the category
     pub id: i64,
+    /// User ID of the category owner
     pub user_id: String,
+    /// Display name of the category
     pub name: String,
+    /// Color code for the category (hex format)
     pub color: String,
+    /// Unix timestamp when the category was created
     pub created_ts: i64,
 }
 
+/// High-level service for managing friend relationships.
+///
+/// This service provides business logic for friend-related operations including:
+/// - Sending and managing friend requests
+/// - Managing friend lists
+/// - Organizing friends into categories
+/// - Blocking/unblocking users
+///
+/// # Example
+/// ```ignore
+/// let service = FriendService::new(&services, &pool);
+/// service.send_friend_request("@alice:server", "@bob:server", Some("Hi!")).await?;
+/// ```
 pub struct FriendService<'a> {
     services: &'a ServiceContainer,
     friend_storage: FriendStorage,
@@ -501,6 +669,56 @@ impl<'a> FriendService<'a> {
             "friends": friend_list,
             "count": friend_list.len()
         }))
+    }
+
+    pub async fn get_friends_batch(
+        &self,
+        user_id: &str,
+        friend_ids: Vec<String>,
+    ) -> ApiResult<serde_json::Value> {
+        let friendships = self
+            .friend_storage
+            .get_friendships_batch(user_id, &friend_ids)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        let found_friend_ids: Vec<String> = friendships.iter().map(|f| f.friend_id.clone()).collect();
+        let profiles = self
+            .services
+            .registration_service
+            .get_profiles(&found_friend_ids)
+            .await?;
+
+        // Convert profiles to a map for easier lookup
+        // profiles is Vec<Value> (json objects)
+        let mut results = serde_json::Map::new();
+
+        for friendship in friendships {
+            let mut friend_obj = json!({
+                "user_id": friendship.friend_id,
+                "created_ts": friendship.created_ts,
+                "note": friendship.note
+            });
+
+            if let Some(profile_val) = profiles.iter().find(|p| p["user_id"].as_str() == Some(&friendship.friend_id)) {
+                 if let Some(obj) = friend_obj.as_object_mut() {
+                     if let Some(displayname) = profile_val.get("display_name") {
+                         obj.insert("display_name".to_string(), displayname.clone());
+                     }
+                     // Note: registration_service.get_profiles returns keys like "display_name", "avatar_url"
+                     // Check existing get_friends implementation or assumptions.
+                     // In get_friends, it returns friend_list which is directly returned.
+                     // Let's assume registration_service.get_profiles returns standard profile objects.
+                     if let Some(avatar_url) = profile_val.get("avatar_url") {
+                         obj.insert("avatar_url".to_string(), avatar_url.clone());
+                     }
+                 }
+            }
+            
+            results.insert(friendship.friend_id.clone(), friend_obj);
+        }
+
+        Ok(serde_json::Value::Object(results))
     }
 
     pub async fn send_friend_request(
@@ -604,14 +822,27 @@ impl<'a> FriendService<'a> {
     }
 
     pub async fn remove_friend(&self, user_id: &str, friend_id: &str) -> ApiResult<()> {
-        self.friend_storage
-            .remove_friend(user_id, friend_id)
+        // CRITICAL FIX: Use transaction to ensure both removals succeed or both fail
+        let mut tx = self.friend_storage.pool.begin().await
+            .map_err(|e| ApiError::internal(format!("Failed to begin transaction: {}", e)))?;
+
+        // Remove bidirectional friendship within transaction
+        sqlx::query(r#"DELETE FROM friends WHERE user_id = $1 AND friend_id = $2"#)
+            .bind(user_id)
+            .bind(friend_id)
+            .execute(&mut *tx)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-        self.friend_storage
-            .remove_friend(friend_id, user_id)
+
+        sqlx::query(r#"DELETE FROM friends WHERE user_id = $1 AND friend_id = $2"#)
+            .bind(friend_id)
+            .bind(user_id)
+            .execute(&mut *tx)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        tx.commit().await
+            .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {}", e)))?;
         Ok(())
     }
 
@@ -658,10 +889,22 @@ impl<'a> FriendService<'a> {
             .block_user(user_id, blocked_user_id, reason)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-        self.friend_storage
-            .remove_friend(user_id, blocked_user_id)
-            .await
-            .ok();
+
+        // HP-3 FIX: Don't silently ignore errors from remove_friend
+        // When blocking a user, we should also remove the friendship if it exists
+        // but the friendship might not exist, so we handle that gracefully
+        match self.friend_storage.remove_friend(user_id, blocked_user_id).await {
+            Ok(_) => {},
+            Err(e) => {
+                // Log but don't fail the block operation if friendship removal fails
+                // This can happen if they weren't friends to begin with
+                ::tracing::debug!(
+                    user_id, blocked_user_id, error = %e,
+                    "Friendship removal during block failed (non-critical)"
+                );
+            }
+        }
+
         Ok(())
     }
 

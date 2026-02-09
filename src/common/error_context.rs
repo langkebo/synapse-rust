@@ -13,6 +13,33 @@ pub enum ErrorSeverity {
     Low,
 }
 
+/// CRITICAL FIX: Safe error handling helper that logs internal errors
+/// while returning sanitized messages to users
+pub fn safe_db_error<T: std::fmt::Display>(
+    context: &str,
+    operation: &str,
+    error: T,
+) -> ApiError {
+    // Log the full error for debugging
+    tracing::error!(
+        context = context,
+        operation = operation,
+        error = %error,
+        "Database operation failed"
+    );
+
+    // Return sanitized message to user
+    ApiError::internal(format!("An error occurred while {}", operation.to_lowercase()))
+}
+
+/// Helper for handling database errors in web handlers
+pub fn handle_db_error<T: std::fmt::Display>(
+    error: T,
+    operation: &str,
+) -> ApiError {
+    safe_db_error("web_handler", operation, error)
+}
+
 pub trait ErrorContext {
     fn layer(&self) -> ErrorLayer;
     fn severity(&self) -> ErrorSeverity;

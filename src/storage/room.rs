@@ -11,6 +11,7 @@ pub struct Room {
     pub room_id: String,
     pub name: Option<String>,
     pub topic: Option<String>,
+    pub avatar_url: Option<String>,
     pub canonical_alias: Option<String>,
     pub join_rule: String,
     pub creator: String,
@@ -27,6 +28,7 @@ struct RoomRecord {
     room_id: String,
     name: Option<String>,
     topic: Option<String>,
+    avatar_url: Option<String>,
     canonical_alias: Option<String>,
     join_rule: Option<String>,
     creator: String,
@@ -43,6 +45,7 @@ struct RoomWithMembersRecord {
     room_id: String,
     name: Option<String>,
     topic: Option<String>,
+    avatar_url: Option<String>,
     canonical_alias: Option<String>,
     join_rule: Option<String>,
     creator: String,
@@ -91,7 +94,7 @@ impl RoomStorage {
         .await?;
         let row = sqlx::query_as::<_, RoomRecord>(
             r#"
-            SELECT room_id, name, topic, canonical_alias, join_rule, creator, version,
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rule, creator, version,
                    encryption, is_public, member_count, history_visibility, creation_ts
             FROM rooms WHERE room_id = $1
             "#,
@@ -103,6 +106,7 @@ impl RoomStorage {
             room_id: row.room_id,
             name: row.name,
             topic: row.topic,
+            avatar_url: row.avatar_url,
             canonical_alias: row.canonical_alias,
             join_rule: row
                 .join_rule
@@ -122,7 +126,7 @@ impl RoomStorage {
     pub async fn get_room(&self, room_id: &str) -> Result<Option<Room>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRecord>(
             r#"
-            SELECT room_id, name, topic, canonical_alias, join_rule, creator, version,
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rule, creator, version,
                   encryption, is_public, member_count, history_visibility, creation_ts
             FROM rooms WHERE room_id = $1
             "#,
@@ -135,6 +139,7 @@ impl RoomStorage {
                 room_id: row.room_id,
                 name: row.name,
                 topic: row.topic,
+                avatar_url: row.avatar_url,
                 canonical_alias: row.canonical_alias,
                 join_rule: row
                     .join_rule
@@ -154,6 +159,49 @@ impl RoomStorage {
         }
     }
 
+    pub async fn get_rooms_batch(&self, room_ids: &[String]) -> Result<Vec<Room>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let rows: Vec<RoomRecord> = sqlx::query_as(
+            r#"
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rule, creator, version,
+                  encryption, is_public, member_count, history_visibility, creation_ts
+            FROM rooms
+            WHERE room_id = ANY($1)
+            "#,
+        )
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|row| Room {
+                room_id: row.room_id.clone(),
+                name: row.name.clone(),
+                topic: row.topic.clone(),
+                avatar_url: row.avatar_url.clone(),
+                canonical_alias: row.canonical_alias.clone(),
+                join_rule: row
+                    .join_rule
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                creator: row.creator.clone(),
+                version: row.version.clone().unwrap_or_else(|| "1".to_string()),
+                encryption: row.encryption.clone(),
+                is_public: row.is_public.unwrap_or(false),
+                member_count: row.member_count.unwrap_or(0),
+                history_visibility: row
+                    .history_visibility
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
+                creation_ts: row.creation_ts,
+            })
+            .collect())
+    }
+
     pub async fn room_exists(&self, room_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r#"
@@ -169,7 +217,7 @@ impl RoomStorage {
     pub async fn get_public_rooms(&self, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT room_id, name, topic, canonical_alias, join_rule, creator, version,
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rule, creator, version,
                   encryption, is_public, member_count, history_visibility, creation_ts
             FROM rooms WHERE is_public = TRUE
             ORDER BY creation_ts DESC
@@ -185,6 +233,7 @@ impl RoomStorage {
                 room_id: row.room_id.clone(),
                 name: row.name.clone(),
                 topic: row.topic.clone(),
+                avatar_url: row.avatar_url.clone(),
                 canonical_alias: row.canonical_alias.clone(),
                 join_rule: row
                     .join_rule
@@ -211,7 +260,7 @@ impl RoomStorage {
     ) -> Result<Vec<(Room, i64)>, sqlx::Error> {
         let rows: Vec<RoomWithMembersRecord> = sqlx::query_as(
             r#"
-            SELECT r.room_id, r.name, r.topic, r.canonical_alias, r.join_rule, r.creator,
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rule, r.creator,
                    r.version, r.encryption, r.is_public, r.member_count, r.history_visibility,
                    r.creation_ts, COUNT(rm.user_id) as joined_members
             FROM rooms r
@@ -233,6 +282,7 @@ impl RoomStorage {
                         room_id: row.room_id.clone(),
                         name: row.name.clone(),
                         topic: row.topic.clone(),
+                        avatar_url: row.avatar_url.clone(),
                         canonical_alias: row.canonical_alias.clone(),
                         join_rule: row
                             .join_rule

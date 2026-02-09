@@ -617,6 +617,15 @@ async fn login(
         ));
     }
 
+    if username.len() > 255 {
+        return Err(ApiError::bad_request("Username too long".to_string()));
+    }
+    
+    // Check password length to prevent DoS - must match Validator::validate_password max (128)
+    if password.len() > 128 {
+        return Err(ApiError::bad_request("Password too long (max 128 characters)".to_string()));
+    }
+
     let device_id = body.get("device_id").and_then(|v| v.as_str());
     let initial_display_name = body.get("initial_display_name").and_then(|v| v.as_str());
 
@@ -708,11 +717,74 @@ async fn whoami(
     })))
 }
 
+fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
+    // Basic format check
+    if user_id.is_empty() {
+        return Err(ApiError::bad_request("user_id is required".to_string()));
+    }
+    
+    // Detailed validation using common validator logic regex
+    // We can't access state here easily without changing signature, so we keep basic logic consistent with validator
+    // or we just instantiate a local regex if needed, but simple string parsing is faster for basic checks
+    
+    if !user_id.starts_with('@') {
+        return Err(ApiError::bad_request("Invalid user_id format: must start with @".to_string()));
+    }
+    
+    if user_id.len() > 255 {
+        return Err(ApiError::bad_request("user_id too long (max 255 characters)".to_string()));
+    }
+    
+    let parts: Vec<&str> = user_id.split(':').collect();
+    if parts.len() < 2 {
+        return Err(ApiError::bad_request("Invalid user_id format: must be @username:server".to_string()));
+    }
+    
+    let username = &parts[0][1..];
+    if username.is_empty() {
+        return Err(ApiError::bad_request("Invalid user_id format: username cannot be empty".to_string()));
+    }
+    
+    if parts[1].is_empty() {
+        return Err(ApiError::bad_request("Invalid user_id format: server cannot be empty".to_string()));
+    }
+    
+    Ok(())
+}
+
+fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
+    if room_id.is_empty() {
+        return Err(ApiError::bad_request("room_id is required".to_string()));
+    }
+    if !room_id.starts_with('!') {
+        return Err(ApiError::bad_request("Invalid room_id format: must start with !".to_string()));
+    }
+    if room_id.len() > 255 {
+        return Err(ApiError::bad_request("room_id too long (max 255 characters)".to_string()));
+    }
+    Ok(())
+}
+
+fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
+    if event_id.is_empty() {
+        return Err(ApiError::bad_request("event_id is required".to_string()));
+    }
+    if !event_id.starts_with('$') {
+        return Err(ApiError::bad_request("Invalid event_id format: must start with $".to_string()));
+    }
+    if event_id.len() > 255 {
+        return Err(ApiError::bad_request("event_id too long (max 255 characters)".to_string()));
+    }
+    Ok(())
+}
+
 async fn get_profile(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+    
     Ok(Json(
         state
             .services
@@ -728,14 +800,31 @@ async fn update_displayname(
     Path(user_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    if user_id != auth_user.user_id && !auth_user.is_admin {
-        return Err(ApiError::forbidden("Access denied".to_string()));
-    }
+    validate_user_id(&user_id)?;
 
     let displayname = body
         .get("displayname")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Displayname required".to_string()))?;
+
+    if displayname.len() > 255 {
+        return Err(ApiError::bad_request("Displayname too long (max 255 characters)".to_string()));
+    }
+
+    if user_id != auth_user.user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden("Access denied".to_string()));
+    }
+
+    let user_exists = state
+        .services
+        .user_storage
+        .user_exists(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?;
+    
+    if !user_exists {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
 
     state
         .services
@@ -751,14 +840,31 @@ async fn update_avatar(
     Path(user_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    if user_id != auth_user.user_id && !auth_user.is_admin {
-        return Err(ApiError::forbidden("Access denied".to_string()));
-    }
+    validate_user_id(&user_id)?;
 
     let avatar_url = body
         .get("avatar_url")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Avatar URL required".to_string()))?;
+
+    if avatar_url.len() > 255 {
+        return Err(ApiError::bad_request("Avatar URL too long (max 255 characters)".to_string()));
+    }
+
+    if user_id != auth_user.user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden("Access denied".to_string()));
+    }
+
+    let user_exists = state
+        .services
+        .user_storage
+        .user_exists(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?;
+    
+    if !user_exists {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
 
     state
         .services
@@ -903,6 +1009,9 @@ async fn report_event(
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+    validate_event_id(&event_id)?;
+
     let reason = body.get("reason").and_then(|v| v.as_str());
     let score = body.get("score").and_then(|v| v.as_i64()).unwrap_or(-100) as i32;
 
@@ -943,6 +1052,8 @@ async fn update_report_score(
     Path((_room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_event_id(&event_id)?;
+
     let score =
         body.get("score")
             .and_then(|v| v.as_i64())
@@ -993,6 +1104,8 @@ async fn get_messages(
     Path(room_id): Path<String>,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let from = params
         .get("from")
         .and_then(|v| v.as_str())
@@ -1016,6 +1129,8 @@ async fn send_message(
     Path((room_id, _event_type, _txn_id)): Path<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let msgtype = body
         .get("msgtype")
         .and_then(|v| v.as_str())
@@ -1023,6 +1138,18 @@ async fn send_message(
     let content = body
         .get("body")
         .ok_or_else(|| ApiError::bad_request("Message body required".to_string()))?;
+
+    // Validate content length to prevent DoS
+    if let Some(s) = content.as_str() {
+        if s.len() > 65536 {
+             return Err(ApiError::bad_request("Message body too long (max 64KB)".to_string()));
+        }
+    } else {
+        let s = content.to_string();
+        if s.len() > 65536 {
+             return Err(ApiError::bad_request("Message body too long (max 64KB)".to_string()));
+        }
+    }
 
     Ok(Json(
         state
@@ -1038,6 +1165,8 @@ async fn join_room(
     headers: HeaderMap,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let token = extract_token_from_headers(&headers)?;
     let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
 
@@ -1054,6 +1183,8 @@ async fn leave_room(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     state
         .services
         .room_service
@@ -1067,6 +1198,8 @@ async fn get_room_members(
     headers: HeaderMap,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let token = extract_token_from_headers(&headers)?;
     let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
 
@@ -1084,10 +1217,14 @@ async fn invite_user(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let invitee = body
         .get("user_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+
+    validate_user_id(invitee)?;
 
     state
         .services
@@ -1115,8 +1252,32 @@ async fn create_room(
     }
 
     let room_alias = body.get("room_alias_name").and_then(|v| v.as_str());
+    if let Some(alias) = room_alias {
+        if alias.len() > 255 {
+            return Err(ApiError::bad_request("Room alias name too long".to_string()));
+        }
+        // Validate alias format (localpart only, usually)
+        // But spec says room_alias_name is the local part.
+        // Let's rely on basic char check if needed, but length is most important for DoS.
+        if !alias.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.') {
+             return Err(ApiError::bad_request("Invalid characters in room alias name".to_string()));
+        }
+    }
+
     let name = body.get("name").and_then(|v| v.as_str());
+    if let Some(n) = name {
+        if n.len() > 255 {
+             return Err(ApiError::bad_request("Room name too long".to_string()));
+        }
+    }
+
     let topic = body.get("topic").and_then(|v| v.as_str());
+    if let Some(t) = topic {
+        if t.len() > 4096 {
+             return Err(ApiError::bad_request("Room topic too long".to_string()));
+        }
+    }
+
     let invite = body.get("invite").and_then(|v| v.as_array()).map(|arr| {
         arr.iter()
             .filter_map(|x| x.as_str().map(String::from))
@@ -1530,6 +1691,9 @@ async fn set_typing(
     Path((room_id, user_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+    validate_user_id(&user_id)?;
+
     if auth_user.user_id != user_id && !auth_user.is_admin {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
@@ -1553,6 +1717,8 @@ async fn get_room_state(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let room_exists = state
         .services
         .room_service
@@ -1591,6 +1757,8 @@ async fn get_state_by_type(
     _auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let room_exists = state
         .services
         .room_service
@@ -1630,6 +1798,8 @@ async fn get_state_event(
     _auth_user: AuthenticatedUser,
     Path((room_id, event_type, state_key)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let events = state
         .services
         .event_storage
@@ -1657,6 +1827,8 @@ async fn send_state_event(
     Path((room_id, event_type)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let content = body;
 
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
@@ -1690,6 +1862,8 @@ async fn put_state_event(
     Path((room_id, event_type, state_key)): Path<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
@@ -1721,6 +1895,9 @@ async fn send_receipt(
     Path((room_id, receipt_type, event_id)): Path<(String, String, String)>,
     Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+    validate_event_id(&event_id)?;
+
     let event = state
         .services
         .event_storage
@@ -1751,6 +1928,8 @@ async fn set_read_markers(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let event_id = body
         .get("event_id")
         .and_then(|v| v.as_str())
@@ -1773,6 +1952,8 @@ async fn get_membership_events(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as i64;
 
     let memberships = state
@@ -1806,9 +1987,12 @@ async fn get_membership_events(
 async fn redact_event(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+    validate_event_id(&event_id)?;
+
     let reason = body.get("reason").and_then(|v| v.as_str());
 
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
@@ -1844,11 +2028,21 @@ async fn kick_user(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let target = body
         .get("user_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+    
+    validate_user_id(target)?;
+
     let reason = body.get("reason").and_then(|v| v.as_str());
+    if let Some(r) = reason {
+        if r.len() > 512 {
+             return Err(ApiError::bad_request("Reason too long".to_string()));
+        }
+    }
 
     let event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let content = json!({
@@ -1887,11 +2081,21 @@ async fn ban_user(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let target = body
         .get("user_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+
+    validate_user_id(target)?;
+
     let reason = body.get("reason").and_then(|v| v.as_str());
+    if let Some(r) = reason {
+        if r.len() > 512 {
+             return Err(ApiError::bad_request("Reason too long".to_string()));
+        }
+    }
 
     let event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let content = json!({
@@ -1930,10 +2134,14 @@ async fn unban_user(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let target = body
         .get("user_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+
+    validate_user_id(target)?;
 
     state
         .services

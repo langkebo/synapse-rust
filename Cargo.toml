@@ -115,6 +115,10 @@ incremental = false
 inherits = "release"
 debug = true
 
+[[bench]]
+name = "database_bench"
+harness = false
+
 [workspace]
 
 [[test]]
