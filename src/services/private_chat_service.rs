@@ -89,4 +89,16 @@ impl PrivateChatService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to fetch messages: {}", e)))
     }
+
+    /// 删除会话及其所有消息
+    /// 返回删除的消息数量
+    pub async fn delete_session(&self, user_id: &str, session_id: &str) -> Result<u64, ApiError> {
+        self.storage
+            .delete_session(user_id, session_id)
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => ApiError::not_found("Session not found or you don't have permission"),
+                _ => ApiError::internal(format!("Failed to delete session: {}", e)),
+            })
+    }
 }

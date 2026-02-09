@@ -195,10 +195,20 @@ async fn get_messages(
 
 #[axum::debug_handler]
 async fn delete_session(
-    _auth_user: AuthenticatedUser,
-    State(_state): State<AppState>,
-    Path(_session_id): Path<String>,
+    auth_user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // 删除会话
-    Ok(Json(serde_json::json!({})))
+    // 删除会话及其所有消息
+    let deleted_count = state
+        .services
+        .private_chat_service
+        .delete_session(&auth_user.user_id, &session_id)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "deleted": true,
+        "session_id": session_id,
+        "messages_deleted": deleted_count
+    })))
 }

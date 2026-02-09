@@ -137,11 +137,51 @@ impl PrivateChatStorage {
         Ok(message)
     }
 
+    /// 删除会话及其所有消息
+    /// 返回删除的消息数量
+    pub async fn delete_session(&self, user_id: &str, session_id: &str) -> Result<u64, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+
+        // 验证会话属于该用户
+        let session_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM private_sessions WHERE session_id = $1 AND (user_id_1 = $2 OR user_id_2 = $2))"
+        )
+        .bind(session_id)
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if !session_exists {
+            return Err(sqlx::Error::RowNotFound);
+        }
+
+        // 先删除会话的所有消息
+        let delete_count = sqlx::query(
+            "DELETE FROM private_messages WHERE session_id = $1"
+        )
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        // 删除会话
+        sqlx::query(
+            "DELETE FROM private_sessions WHERE session_id = $1"
+        )
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        Ok(delete_count)
+    }
+
     /// 获取会话历史消息
     pub async fn get_messages(
-        &self, 
-        session_id: &str, 
-        limit: i64, 
+        &self,
+        session_id: &str,
+        limit: i64,
         before_id: Option<String>
     ) -> Result<Vec<PrivateMessage>, sqlx::Error> {
         if let Some(before) = before_id {
