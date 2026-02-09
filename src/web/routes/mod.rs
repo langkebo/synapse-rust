@@ -510,8 +510,9 @@ async fn request_email_verification(
     let sid = format!("{}", token_id);
 
     let submit_url = format!(
-        "https://{}:8008/_matrix/client/r0/register/email/submitToken",
-        state.services.config.server.host
+        "https://{}:{}/_matrix/client/r0/register/email/submitToken",
+        state.services.config.server.host,
+        state.services.config.server.port
     );
 
     Ok(Json(json!({
@@ -643,7 +644,11 @@ async fn login(
         "user_id": user.user_id(),
         "well_known": {
             "m.homeserver": {
-                "base_url": format!("http://{}:8008", state.services.server_name)
+                "base_url": format!(
+                    "http://{}:{}",
+                    state.services.config.server.host,
+                    state.services.config.server.port
+                )
             }
         }
     })))
