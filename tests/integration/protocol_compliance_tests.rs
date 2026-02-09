@@ -25,37 +25,63 @@ mod protocol_compliance_tests {
             }
         };
 
-        // Minimal schema
-        sqlx::query("CREATE TABLE IF NOT EXISTS users (user_id VARCHAR(255) PRIMARY KEY)")
-            .execute(&pool)
-            .await
-            .ok();
-        sqlx::query("CREATE TABLE IF NOT EXISTS rooms (room_id VARCHAR(255) PRIMARY KEY)")
-            .execute(&pool)
-            .await
-            .ok();
-        sqlx::query("CREATE TABLE IF NOT EXISTS typing (id BIGSERIAL PRIMARY KEY, room_id VARCHAR(255) NOT NULL, user_id VARCHAR(255) NOT NULL, typing BOOLEAN DEFAULT FALSE, last_active_ts BIGINT NOT NULL, UNIQUE (room_id, user_id))").execute(&pool).await.ok();
-        sqlx::query("CREATE TABLE IF NOT EXISTS events (event_id VARCHAR(255) PRIMARY KEY, room_id VARCHAR(255) NOT NULL, user_id VARCHAR(255) NOT NULL, event_type TEXT NOT NULL, content JSONB NOT NULL, state_key TEXT, origin_server_ts BIGINT NOT NULL)").execute(&pool).await.ok();
-        sqlx::query("CREATE TABLE IF NOT EXISTS read_markers (id BIGSERIAL PRIMARY KEY, user_id VARCHAR(255) NOT NULL, room_id VARCHAR(255) NOT NULL, event_id VARCHAR(255) NOT NULL, created_ts BIGINT NOT NULL, UNIQUE (user_id, room_id))").execute(&pool).await.ok();
-        sqlx::query("CREATE TABLE IF NOT EXISTS receipts (sender TEXT NOT NULL, sent_to TEXT NOT NULL, room_id TEXT NOT NULL, event_id TEXT NOT NULL, sent_ts BIGINT NOT NULL, receipt_type TEXT NOT NULL, PRIMARY KEY (sent_to, sender, room_id))").execute(&pool).await.ok();
+        // Clean up any existing test data to avoid conflicts
+        sqlx::query("DELETE FROM read_markers WHERE user_id LIKE '@%:localhost'")
+            .execute(&pool).await.ok();
+        sqlx::query("DELETE FROM receipts WHERE sender LIKE '@%:localhost' OR sent_to LIKE '@%:localhost'")
+            .execute(&pool).await.ok();
+        sqlx::query("DELETE FROM typing WHERE user_id LIKE '@%:localhost'")
+            .execute(&pool).await.ok();
+        sqlx::query("DELETE FROM events WHERE room_id = '!room:test'")
+            .execute(&pool).await.ok();
+        sqlx::query("DELETE FROM rooms WHERE room_id = '!room:test'")
+            .execute(&pool).await.ok();
+        sqlx::query("DELETE FROM users WHERE user_id LIKE '@%:localhost'")
+            .execute(&pool).await.ok();
 
+        // The synapse_test database should already have the full schema from migrations
+        // We don't need to create tables, just use existing ones
         Some(pool)
     }
 
     async fn create_test_user(pool: &Pool<Postgres>, user_id: &str) {
-        sqlx::query("INSERT INTO users (user_id) VALUES ($1) ON CONFLICT DO NOTHING")
-            .bind(user_id)
-            .execute(pool)
-            .await
-            .ok();
+        // Extract username from user_id (e.g., "@alice:localhost" -> "alice")
+        let username = user_id.trim_start_matches('@').split(':').next().unwrap_or("unknown");
+        let now = chrono::Utc::now().timestamp_millis();
+
+        // Use the actual schema from master_unified_schema.sql
+        sqlx::query(
+            "INSERT INTO users (user_id, username, creation_ts, generation) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (user_id) DO NOTHING"
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(now)
+        .bind(1)  // generation
+        .execute(pool)
+        .await
+        .ok();
     }
 
     async fn create_test_room(pool: &Pool<Postgres>, room_id: &str) {
-        sqlx::query("INSERT INTO rooms (room_id) VALUES ($1) ON CONFLICT DO NOTHING")
-            .bind(room_id)
-            .execute(pool)
-            .await
-            .ok();
+        // First create the creator user if it doesn't exist
+        create_test_user(pool, "@creator:localhost").await;
+
+        let now = chrono::Utc::now().timestamp_millis();
+
+        // Use the actual schema from master_unified_schema.sql
+        // Required NOT NULL fields: room_id, creator, creation_ts, last_activity_ts
+        sqlx::query(
+            "INSERT INTO rooms (room_id, creator, creation_ts, last_activity_ts) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (room_id) DO NOTHING"
+        )
+        .bind(room_id)
+        .bind("@creator:localhost")
+        .bind(now)
+        .bind(now)  // last_activity_ts
+        .execute(pool)
+        .await
+        .ok();
     }
 
     #[test]
@@ -164,11 +190,12 @@ mod protocol_compliance_tests {
                 .unwrap();
 
             room_storage.add_receipt(sender, target, room_id, event_id, "m.read").await.unwrap();
-            let row: (String, String, String,) = sqlx::query_as("SELECT sender, sent_to, receipt_type FROM receipts WHERE room_id = $1 AND event_id = $2")
-                .bind(room_id).bind(event_id).fetch_one(&pool).await.unwrap();
-            assert_eq!(row.0, sender);
-            assert_eq!(row.1, target);
-            assert_eq!(row.2, "m.read".to_string());
+            // Query from event_receipts table which is what add_receipt actually uses
+            let row: (String, String, String,) = sqlx::query_as("SELECT room_id, receipt_type, event_id FROM event_receipts WHERE room_id = $1 AND event_id = $2 AND user_id = $3")
+                .bind(room_id).bind(event_id).bind(target).fetch_one(&pool).await.unwrap();
+            assert_eq!(row.0, room_id);
+            assert_eq!(row.1, "m.read".to_string());
+            assert_eq!(row.2, event_id);
             let _ = services; // ensure services construct in tests
             let _ = event_storage; // ensure storage is usable
         });

@@ -31,6 +31,16 @@ mod voice_service_tests {
             }
         };
 
+        // Drop sequences first (they're not automatically dropped with tables)
+        sqlx::query("DROP SEQUENCE IF EXISTS voice_messages_id_seq CASCADE")
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DROP SEQUENCE IF EXISTS voice_usage_stats_id_seq CASCADE")
+            .execute(&pool)
+            .await
+            .ok();
+
         sqlx::query("DROP TABLE IF EXISTS voice_messages CASCADE")
             .execute(&pool)
             .await

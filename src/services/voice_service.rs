@@ -117,7 +117,7 @@ impl VoiceStorage {
         let result = sqlx::query(
             r#"
             INSERT INTO voice_messages
-            (message_id, user_id, room_id, session_id, file_path, content_type, duration_ms, file_size, waveform, created_ts)
+            (message_id, user_id, room_id, session_id, file_path, content_type, duration_ms, file_size, waveform_data, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING id
             "#,
@@ -149,7 +149,7 @@ impl VoiceStorage {
         let result: Option<VoiceMessageRow> = sqlx::query_as(
             r#"
             SELECT id, message_id, user_id, room_id, session_id, file_path, 
-                   content_type, duration_ms, file_size, waveform, 
+                   content_type, duration_ms, file_size, waveform_data,
                    created_ts, transcribe_text, processed, processed_ts,
                    mime_type, encryption
             FROM voice_messages WHERE message_id = $1
@@ -184,7 +184,7 @@ impl VoiceStorage {
         let rows: Vec<VoiceMessageRow> = sqlx::query_as(
             r#"
             SELECT id, message_id, user_id, room_id, session_id, file_path, 
-                   content_type, duration_ms, file_size, waveform, 
+                   content_type, duration_ms, file_size, waveform_data,
                    created_ts, transcribe_text, processed, processed_ts,
                    mime_type, encryption
             FROM voice_messages WHERE user_id = $1
@@ -257,7 +257,7 @@ impl VoiceStorage {
         let rows: Vec<VoiceMessageRow> = sqlx::query_as(
             r#"
             SELECT id, message_id, user_id, room_id, session_id, file_path, 
-                   content_type, duration_ms, file_size, waveform, 
+                   content_type, duration_ms, file_size, waveform_data,
                    created_ts, transcribe_text, processed, processed_ts,
                    mime_type, encryption
             FROM voice_messages WHERE room_id = $1
