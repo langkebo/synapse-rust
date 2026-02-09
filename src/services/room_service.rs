@@ -1,5 +1,5 @@
 use crate::common::background_job::BackgroundJob;
-use crate::common::constants::{BURN_AFTER_READ_DELAY_SECS, DEFAULT_GUEST_ACCESS, DEFAULT_HISTORY_VISIBILITY, DEFAULT_JOIN_RULE};
+use crate::common::constants::BURN_AFTER_READ_DELAY_SECS;
 use crate::common::task_queue::RedisTaskQueue;
 use crate::common::validation::Validator;
 use crate::common::{generate_event_id, generate_room_id};

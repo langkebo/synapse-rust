@@ -9,7 +9,6 @@ pub struct RegistrationService {
     user_storage: crate::storage::UserStorage,
     auth_service: crate::auth::AuthService,
     metrics: Arc<MetricsCollector>,
-    server_name: String,
     // HP-2 FIX: Make base URL configurable instead of hardcoded
     base_url: String,
     enable_registration: bool,
@@ -34,7 +33,6 @@ impl RegistrationService {
             user_storage,
             auth_service,
             metrics,
-            server_name,
             base_url,
             enable_registration,
             task_queue,
