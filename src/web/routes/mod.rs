@@ -2075,6 +2075,9 @@ async fn kick_user(
             origin_server_ts: chrono::Utc::now().timestamp_millis(),
         })
         .await
+        .map_err(|e| {
+            ::tracing::warn!("Failed to create membership event for room {}: {}", room_id, e);
+        })
         .ok();
 
     Ok(Json(json!({})))
@@ -2128,6 +2131,9 @@ async fn ban_user(
             origin_server_ts: chrono::Utc::now().timestamp_millis(),
         })
         .await
+        .map_err(|e| {
+            ::tracing::warn!("Failed to create membership event for room {}: {}", room_id, e);
+        })
         .ok();
 
     Ok(Json(json!({})))
@@ -2173,6 +2179,9 @@ async fn unban_user(
             origin_server_ts: chrono::Utc::now().timestamp_millis(),
         })
         .await
+        .map_err(|e| {
+            ::tracing::warn!("Failed to create membership event for room {}: {}", room_id, e);
+        })
         .ok();
 
     Ok(Json(json!({})))
