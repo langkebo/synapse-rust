@@ -223,7 +223,7 @@ fn bench_collection_operations(c: &mut Criterion) {
     group.throughput(Throughput::Elements(10));
     group.bench_function("map_collect_100", |b| {
         b.iter(|| {
-            users.iter().map(|u| u.clone()).collect::<Vec<_>>()
+            users.to_vec()
         })
     });
 
@@ -261,7 +261,7 @@ fn bench_format_operations(c: &mut Criterion) {
 
     group.bench_function("format_with_insert", |b| {
         b.iter(|| {
-            format!("INSERT INTO users (user_id) VALUES ($1, $2)")
+            "INSERT INTO users (user_id) VALUES ($1, $2)".to_string()
         })
     });
 

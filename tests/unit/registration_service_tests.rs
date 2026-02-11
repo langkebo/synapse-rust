@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod registration_service_tests {
+
     use sqlx::{Pool, Postgres};
     use std::sync::Arc;
     use synapse_rust::auth::AuthService;
@@ -260,4 +260,3 @@ mod registration_service_tests {
             assert_eq!(val["displayname"], "Alice");
         });
     }
-}

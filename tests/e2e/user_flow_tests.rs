@@ -50,43 +50,22 @@ mod e2e_tests {
     }
 
     #[derive(Debug, Serialize, Deserialize)]
-    struct CreateSessionResponse {
-        session_id: String,
-    }
-
-    #[derive(Debug, Serialize, Deserialize)]
-    struct SendMessageResponsePrivate {
-        message_id: i64,
-    }
-
-    #[derive(Debug, Serialize, Deserialize)]
+    #[allow(dead_code)]
     struct GetFriendsResponse {
         data: Option<FriendsData>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
+    #[allow(dead_code)]
     struct FriendsData {
         friends: Vec<FriendData>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
+    #[allow(dead_code)]
     struct FriendData {
         user_id: String,
         dm_room_id: Option<String>,
-    }
-
-    #[derive(Debug, Serialize, Deserialize)]
-    struct RoomMessagesResponse {
-        chunk: Vec<MessageEvent>,
-    }
-
-    #[derive(Debug, Serialize, Deserialize)]
-    struct MessageEvent {
-        event_id: String,
-        #[serde(rename = "type")]
-        msg_type: String,
-        content: serde_json::Value,
-        sender: String,
     }
 
     async fn register_user(username: &str, password: &str) -> RegisterResponse {

@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod media_service_tests {
+
     use std::fs;
     use tempfile::tempdir;
     use tokio::runtime::Runtime;
@@ -117,7 +117,7 @@ mod media_service_tests {
 
             let metadata = result.unwrap();
             let content_uri = metadata["content_uri"].as_str().unwrap();
-            let filename = content_uri.split('/').last().unwrap();
+            let filename = content_uri.split('/').next_back().unwrap();
 
             let file_path = temp_dir.path().join(filename);
             assert!(file_path.exists(), "Media file should be created on disk");
@@ -387,4 +387,3 @@ mod media_service_tests {
             assert_eq!(size, 1024 * 1024);
         });
     }
-}

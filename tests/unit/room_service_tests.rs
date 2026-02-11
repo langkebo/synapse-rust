@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod room_service_tests {
+
     use serde_json::json;
     use sqlx::{Pool, Postgres};
     use std::sync::Arc;
@@ -384,4 +384,3 @@ mod room_service_tests {
             assert_eq!(member.banned_by, Some("@alice:localhost".to_string()));
         });
     }
-}

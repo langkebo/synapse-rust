@@ -350,7 +350,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let mut secret_bytes = [0u8; 32];
         rng.fill_bytes(&mut secret_bytes);
-        base64::engine::general_purpose::STANDARD_NO_PAD.encode(&secret_bytes)
+        base64::engine::general_purpose::STANDARD_NO_PAD.encode(secret_bytes)
     }
 
     #[tokio::test]

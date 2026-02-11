@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn test_pool_stats_calculation() {
         // Test utilization calculation
-        let util = ((10 - 2) as f64 / 10 as f64) * 100.0;
+        let util = ((10 - 2) as f64 / 10_f64) * 100.0;
         assert_eq!(util, 80.0);
     }
 

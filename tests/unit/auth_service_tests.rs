@@ -1,14 +1,13 @@
 #[cfg(test)]
-mod auth_service_tests {
-    use sqlx::{Pool, Postgres};
-    use std::sync::Arc;
-    use tokio::runtime::Runtime;
+use sqlx::{Pool, Postgres};
+use std::sync::Arc;
+use tokio::runtime::Runtime;
 
-    use synapse_rust::auth::AuthService;
-    use synapse_rust::cache::{CacheConfig, CacheManager};
-    use synapse_rust::common::config::SecurityConfig;
-    use synapse_rust::common::metrics::MetricsCollector;
-    use synapse_rust::common::ApiError;
+use synapse_rust::auth::AuthService;
+use synapse_rust::cache::{CacheConfig, CacheManager};
+use synapse_rust::common::config::SecurityConfig;
+use synapse_rust::common::metrics::MetricsCollector;
+use synapse_rust::common::ApiError;
 
     async fn setup_test_database() -> Option<Pool<Postgres>> {
         let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
@@ -133,4 +132,3 @@ mod auth_service_tests {
             assert!(matches!(result, Err(ApiError::Unauthorized(_))));
         });
     }
-}

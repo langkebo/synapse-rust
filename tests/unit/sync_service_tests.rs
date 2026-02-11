@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod sync_service_tests {
+
     use serde_json::json;
     use sqlx::{Pool, Postgres};
     use std::sync::Arc;
@@ -257,4 +257,3 @@ mod sync_service_tests {
             assert_eq!(room_data["timeline"]["events"].as_array().unwrap().len(), 1);
         });
     }
-}

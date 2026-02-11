@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod voice_service_tests {
+
     use sqlx::{Pool, Postgres};
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -132,4 +132,3 @@ mod voice_service_tests {
             std::fs::remove_dir_all(voice_path).ok();
         });
     }
-}

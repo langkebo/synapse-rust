@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod exception_tests {
+
     use std::sync::Arc;
     use synapse_rust::auth::AuthService;
     use synapse_rust::cache::{CacheConfig, CacheManager};
@@ -64,4 +64,3 @@ mod exception_tests {
             assert!(result.is_err());
         });
     }
-}

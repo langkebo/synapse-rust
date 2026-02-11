@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod search_service_tests {
+
     use synapse_rust::common::ApiError;
     use synapse_rust::services::search_service::SearchService;
     use tokio::runtime::Runtime;
@@ -34,4 +34,3 @@ mod search_service_tests {
         // Depending on implementation, it might still be "enabled" but fail on calls
         // In current implementation, Transport::single_node might fail
     }
-}

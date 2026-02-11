@@ -6,15 +6,13 @@ mod regex_cache_integration_tests {
     fn test_regex_cache_multiple_patterns() {
         let cache = RegexCache::new();
 
-        let patterns = vec![
-            r"\d+",
+        let patterns = [r"\d+",
             r"[a-z]+",
             r"\w+",
             r"\d{4}-\d{2}-\d{2}",
-            r"[A-Z][a-z]+",
-        ];
+            r"[A-Z][a-z]+"];
 
-        let test_strings = vec!["123", "abc", "test_123", "2023-10-27", "Hello"];
+        let test_strings = ["123", "abc", "test_123", "2023-10-27", "Hello"];
 
         for (pattern, test_str) in patterns.iter().zip(test_strings.iter()) {
             let regex = cache.get_or_create(pattern).unwrap();

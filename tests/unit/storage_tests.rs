@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod storage_tests {
+
     use sqlx::{Pool, Postgres};
     use std::sync::Arc;
     use tokio::runtime::Runtime;
@@ -162,4 +162,3 @@ mod storage_tests {
             assert_eq!(user.displayname, Some("Alice".to_string()));
         });
     }
-}

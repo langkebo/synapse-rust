@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod protocol_compliance_tests {
+
     use serde_json::json;
     use sqlx::{Pool, Postgres};
     use std::sync::Arc;
@@ -221,4 +221,3 @@ mod protocol_compliance_tests {
             let _ = event_storage; // ensure storage is usable
         });
     }
-}

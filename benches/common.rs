@@ -154,7 +154,7 @@ pub fn benchmark_id(name: &str, size: usize) -> BenchmarkId {
 }
 
 /// Setup function that returns a mock database pool for benchmarks.
-#[cfg(feature = "benchmark")]
+#[cfg(feature = "server")]
 pub fn setup_benchmark_pool() -> sqlx::PgPool {
     use std::env;
 

@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod device_storage_tests {
+
     use sqlx::{Pool, Postgres};
     use std::sync::Arc;
     use tokio::runtime::Runtime;
@@ -172,4 +172,3 @@ mod device_storage_tests {
             assert!(!storage.device_exists("D1").await.unwrap());
         });
     }
-}
