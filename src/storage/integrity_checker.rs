@@ -144,9 +144,6 @@ impl IntegrityChecker {
             ("room_memberships", "user_id", "users", "user_id"),
             ("events", "room_id", "rooms", "room_id"),
             ("events", "user_id", "users", "user_id"),
-            ("private_messages", "sender_id", "users", "user_id"),
-            ("private_sessions", "user_id_1", "users", "user_id"),
-            ("private_sessions", "user_id_2", "users", "user_id"),
         ];
 
         for (table, column, referenced_table, referenced_column) in &foreign_key_checks {

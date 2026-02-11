@@ -312,53 +312,6 @@ CREATE TABLE IF NOT EXISTS friend_categories (
 CREATE INDEX IF NOT EXISTS idx_friend_categories_user ON friend_categories(user_id);
 CREATE INDEX IF NOT EXISTS idx_friend_categories_sort ON friend_categories(user_id, sort_order);
 
--- 私聊会话表 (统一Schema - 修复版)
-CREATE TABLE IF NOT EXISTS private_sessions (
-    id BIGSERIAL PRIMARY KEY,
-    session_id VARCHAR(255) NOT NULL UNIQUE,
-    user_id_1 VARCHAR(255) NOT NULL,
-    user_id_2 VARCHAR(255) NOT NULL,
-    room_id VARCHAR(255),
-    last_message_id VARCHAR(255),
-    last_message_content TEXT,
-    unread_count INTEGER NOT NULL DEFAULT 0,
-    created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
-    updated_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
-    last_activity_ts BIGINT,
-    FOREIGN KEY (user_id_1) REFERENCES users(user_id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id_2) REFERENCES users(user_id) ON DELETE CASCADE
-);
-
--- 私聊会话索引
-CREATE INDEX IF NOT EXISTS idx_private_sessions_user ON private_sessions(user_id_1);
-CREATE INDEX IF NOT EXISTS idx_private_sessions_other ON private_sessions(user_id_2);
-CREATE INDEX IF NOT EXISTS idx_private_sessions_users ON private_sessions(user_id_1, user_id_2);
-CREATE INDEX IF NOT EXISTS idx_private_sessions_updated ON private_sessions(updated_ts DESC);
-CREATE INDEX IF NOT EXISTS idx_private_sessions_list ON private_sessions(user_id_1, updated_ts DESC);
-CREATE INDEX IF NOT EXISTS idx_private_sessions_unread ON private_sessions(user_id_1, unread_count) WHERE unread_count > 0;
-
--- 私聊消息表 (统一Schema - 修复版)
-CREATE TABLE IF NOT EXISTS private_messages (
-    id BIGSERIAL PRIMARY KEY,
-    message_id VARCHAR(255) NOT NULL UNIQUE,
-    session_id VARCHAR(255) NOT NULL,
-    sender_id VARCHAR(255) NOT NULL,
-    content TEXT NOT NULL,
-    content_type VARCHAR(128) NOT NULL DEFAULT 'm.text',
-    is_read BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
-    read_at BIGINT,
-    FOREIGN KEY (session_id) REFERENCES private_sessions(session_id) ON DELETE CASCADE,
-    FOREIGN KEY (sender_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
-
--- 私聊消息索引
-CREATE INDEX IF NOT EXISTS idx_private_messages_session ON private_messages(session_id);
-CREATE INDEX IF NOT EXISTS idx_private_messages_created ON private_messages(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_private_messages_sender ON private_messages(sender_id);
-CREATE INDEX IF NOT EXISTS idx_private_messages_list ON private_messages(session_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_private_messages_unread ON private_messages(session_id, is_read) WHERE is_read = FALSE;
-
 -- 用户封禁表
 CREATE TABLE IF NOT EXISTS user_blocks (
     id BIGSERIAL PRIMARY KEY,

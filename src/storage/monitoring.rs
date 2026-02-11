@@ -217,8 +217,6 @@ impl DatabaseMonitor {
             "room_events",
             "room_memberships",
             "events",
-            "private_messages",
-            "private_sessions",
         ];
 
         let mut vacuum_stats = Vec::new();
@@ -311,8 +309,6 @@ impl DatabaseMonitor {
             ("room_memberships", "user_id", "users"),
             ("events", "room_id", "rooms"),
             ("events", "user_id", "users"),
-            ("private_messages", "session_id", "private_sessions"),
-            ("private_messages", "sender_id", "users"),
         ];
 
         for (table, column, referenced_table) in fk_checks {
@@ -369,23 +365,6 @@ impl DatabaseMonitor {
                     } else {
                         sqlx::query_as::<_, (i64,)>(
                             "SELECT COUNT(*) FROM events WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT user_id FROM users)",
-                        )
-                        .fetch_one(&self.pool)
-                        .await?
-                        .0
-                    }
-                },
-                "private_messages" => {
-                    if column == "session_id" {
-                        sqlx::query_as::<_, (i64,)>(
-                            "SELECT COUNT(*) FROM private_messages WHERE session_id IS NOT NULL AND session_id NOT IN (SELECT session_id FROM private_sessions)",
-                        )
-                        .fetch_one(&self.pool)
-                        .await?
-                        .0
-                    } else {
-                        sqlx::query_as::<_, (i64,)>(
-                            "SELECT COUNT(*) FROM private_messages WHERE sender_id IS NOT NULL AND sender_id NOT IN (SELECT user_id FROM users)",
                         )
                         .fetch_one(&self.pool)
                         .await?

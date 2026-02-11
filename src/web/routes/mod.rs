@@ -4,7 +4,6 @@ pub mod federation;
 pub mod friend;
 pub mod key_backup;
 pub mod media;
-pub mod private_chat;
 pub mod voice;
 
 pub use admin::create_admin_router;
@@ -13,7 +12,6 @@ pub use federation::create_federation_router;
 pub use friend::create_friend_router;
 pub use key_backup::create_key_backup_router;
 pub use media::create_media_router;
-pub use private_chat::create_private_chat_router;
 pub use voice::create_voice_router;
 
 use crate::cache::*;
@@ -350,7 +348,6 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_media_router(state.clone()))
         .merge(create_e2ee_router(state.clone()))
         .merge(create_key_backup_router(state.clone()))
-        .merge(create_private_chat_router(state.clone()))
         .merge(create_admin_router(state.clone()))
         .merge(create_federation_router(state.clone()))
         .layer(CompressionLayer::new())

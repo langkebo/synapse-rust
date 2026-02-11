@@ -111,7 +111,7 @@ fn test_friend_system_extended() {
 }
 
 #[test]
-fn test_private_chat_extended() {
+fn test_trusted_private_chat_preset() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let app = match setup_test_app().await {
@@ -120,20 +120,39 @@ fn test_private_chat_extended() {
         };
         let alice_token = register_user(&app, &format!("alice_{}", rand::random::<u32>())).await;
 
-        // 1. Get Sessions
+        // Create a trusted private chat room using the standard Matrix API
         let request = Request::builder()
-            .uri("/_synapse/enhanced/private/sessions")
+            .method("POST")
+            .uri("/_matrix/client/r0/createRoom")
             .header("Authorization", format!("Bearer {}", alice_token))
-            .body(Body::empty())
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "preset": "trusted_private_chat",
+                    "visibility": "private",
+                    "name": "Private Chat",
+                    "topic": "Encrypted & Secure",
+                    "is_direct": true
+                })
+                .to_string(),
+            ))
             .unwrap();
         let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        // 2. Unread Notifications
+        // Verify room was created
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert!(json["room_id"].is_str());
+
+        // Get room state to verify privacy settings were applied
+        let room_id = json["room_id"].as_str().unwrap();
         let request = Request::builder()
-            .uri("/_synapse/enhanced/private/unread-count")
+            .uri(format!("/_matrix/client/r0/rooms/{}/state", room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();

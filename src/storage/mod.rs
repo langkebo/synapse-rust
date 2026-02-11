@@ -9,7 +9,6 @@ pub mod maintenance;
 pub mod membership;
 pub mod monitoring;
 pub mod performance;
-pub mod private_chat;
 pub mod room;
 pub mod schema_validator;
 pub mod token;
@@ -26,7 +25,6 @@ pub use self::monitoring::{
     PerformanceMetrics, VacuumStats,
 };
 pub use self::performance::{PerformanceMonitor, PoolStatistics, QueryMetrics, time_query};
-pub use self::private_chat::*;
 pub use self::room::*;
 pub use self::schema_validator::*;
 pub use self::token::*;

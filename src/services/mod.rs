@@ -87,8 +87,6 @@ pub struct ServiceContainer {
     pub key_rotation_manager: KeyRotationManager,
     /// 设备同步管理服务
     pub device_sync_manager: DeviceSyncManager,
-    /// 私聊服务
-    pub private_chat_service: Arc<PrivateChatService>,
 }
 
 impl ServiceContainer {
@@ -185,9 +183,6 @@ impl ServiceContainer {
         let server_name = config.server.name.clone();
         let key_rotation_manager = KeyRotationManager::new(pool, &server_name);
         let device_sync_manager = DeviceSyncManager::new(pool, Some(cache.clone()), task_queue.clone());
-        
-        let private_chat_storage = PrivateChatStorage::new(pool.clone());
-        let private_chat_service = Arc::new(PrivateChatService::new(private_chat_storage, user_storage.clone()));
 
         Self {
             user_storage,
@@ -220,7 +215,6 @@ impl ServiceContainer {
             event_auth_chain,
             key_rotation_manager,
             device_sync_manager,
-            private_chat_service,
         }
     }
 
@@ -439,7 +433,6 @@ pub mod database_initializer;
 pub mod friend_service;
 pub mod media_service;
 pub mod moderation_service;
-pub mod private_chat_service;
 pub mod registration_service;
 pub mod room_service;
 pub mod search_service;
@@ -451,7 +444,6 @@ pub use database_initializer::*;
 pub use friend_service::*;
 pub use media_service::*;
 pub use moderation_service::*;
-pub use private_chat_service::*;
 pub use registration_service::*;
 pub use room_service::*;
 pub use sync_service::*;

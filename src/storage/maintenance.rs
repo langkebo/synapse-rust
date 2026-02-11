@@ -1,4 +1,4 @@
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use sqlx::{Pool, Postgres};
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
@@ -42,14 +42,6 @@ impl DatabaseMaintenance {
             }
         }
 
-        match self.cleanup_expired_sessions().await {
-            Ok(count) => report.expired_sessions_cleaned = count,
-            Err(e) => {
-                error!("过期会话清理失败: {}", e);
-                report.errors.push(format!("会话清理: {}", e));
-            }
-        }
-
         report.duration_ms = start_time.elapsed().as_millis() as i64;
         report.completed_at = Utc::now();
 
@@ -69,8 +61,6 @@ impl DatabaseMaintenance {
             "rooms",
             "room_memberships",
             "events",
-            "private_messages",
-            "private_sessions",
         ];
 
         for table in tables {
@@ -100,9 +90,6 @@ impl DatabaseMaintenance {
             "idx_memberships_user",
             "idx_events_room",
             "idx_events_sender",
-            "idx_private_messages_session",
-            "idx_private_sessions_user1",
-            "idx_private_sessions_user2",
         ];
 
         for index in indexes {
@@ -170,22 +157,6 @@ impl DatabaseMaintenance {
         Ok(stats)
     }
 
-    async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
-        let thirty_days_ago = Utc::now().naive_utc() - Duration::days(30);
-        let cutoff_timestamp: i64 = thirty_days_ago.and_utc().timestamp();
-
-        let result = sqlx::query(
-            r#"
-            DELETE FROM private_sessions 
-            WHERE last_activity_ts < $1
-            "#,
-        )
-        .bind(cutoff_timestamp)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(result.rows_affected())
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -196,7 +167,6 @@ pub struct MaintenanceReport {
     pub vacuum_results: VacuumResult,
     pub reindexed_tables: Vec<String>,
     pub table_stats: Vec<TableStats>,
-    pub expired_sessions_cleaned: u64,
     pub errors: Vec<String>,
 }
 
@@ -209,7 +179,6 @@ impl MaintenanceReport {
             vacuum_results: VacuumResult::new(),
             reindexed_tables: Vec::new(),
             table_stats: Vec::new(),
-            expired_sessions_cleaned: 0,
             errors: Vec::new(),
         }
     }

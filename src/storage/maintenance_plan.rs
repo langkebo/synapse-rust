@@ -202,29 +202,6 @@ impl MaintenanceManager {
             }
         }
 
-        match self.clear_expired_sessions().await {
-            Ok(result) => {
-                tasks_executed += 1;
-                if result.status == TaskStatus::Success {
-                    tasks_succeeded += 1;
-                } else {
-                    tasks_failed += 1;
-                }
-                results.push(result);
-            }
-            Err(e) => {
-                results.push(MaintenanceTaskResult {
-                    task: "Clear Expired Sessions".to_string(),
-                    status: TaskStatus::Failed,
-                    duration_ms: 0,
-                    affected_rows: None,
-                    details: Some(format!("Error: {}", e)),
-                });
-                tasks_executed += 1;
-                tasks_failed += 1;
-            }
-        }
-
         if tasks_failed > 0 {
             recommendations.push("Check failed maintenance tasks and resolve underlying issues".to_string());
         }
@@ -248,7 +225,6 @@ impl MaintenanceManager {
         let tables = vec![
             "users", "devices", "access_tokens", "refresh_tokens",
             "rooms", "events", "room_memberships", "presence",
-            "private_sessions", "private_messages",
         ];
 
         let mut total_pages = 0u64;
@@ -284,7 +260,6 @@ impl MaintenanceManager {
         let tables = vec![
             "users", "devices", "access_tokens", "refresh_tokens",
             "rooms", "events", "room_memberships", "presence",
-            "private_sessions", "private_messages",
         ];
 
         for table in &tables {
@@ -301,30 +276,6 @@ impl MaintenanceManager {
             duration_ms,
             affected_rows: Some(tables.len() as u64),
             details: Some(format!("Analyzed {} tables", tables.len())),
-        })
-    }
-
-    async fn clear_expired_sessions(&self) -> Result<MaintenanceTaskResult, sqlx::Error> {
-        let start = std::time::Instant::now();
-
-        let thirty_days_ago = Utc::now().naive_utc() - Duration::days(30);
-        let cutoff_timestamp = thirty_days_ago.timestamp();
-
-        let result = sqlx::query(
-            "DELETE FROM private_sessions WHERE updated_ts < $1 AND last_message IS NULL",
-        )
-        .bind(cutoff_timestamp)
-        .execute(&self.pool)
-        .await?;
-
-        let duration_ms = start.elapsed().as_millis() as u64;
-
-        Ok(MaintenanceTaskResult {
-            task: "Clear Expired Sessions".to_string(),
-            status: TaskStatus::Success,
-            duration_ms,
-            affected_rows: Some(result.rows_affected()),
-            details: Some(format!("Cleared {} expired sessions", result.rows_affected())),
         })
     }
 

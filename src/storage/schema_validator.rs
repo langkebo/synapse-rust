@@ -60,8 +60,6 @@ impl SchemaValidator {
     /// - rooms
     /// - room_memberships
     /// - room_events
-    /// - private_sessions
-    /// - private_messages
     /// - friends
     /// - friend_requests
     /// - blocked_users
@@ -85,8 +83,6 @@ impl SchemaValidator {
             "rooms",
             "room_memberships",
             "events",
-            "private_sessions",
-            "private_messages",
             "friends",
             "friend_requests",
             "blocked_users",
@@ -213,27 +209,6 @@ impl SchemaValidator {
                 "origin_server_ts".to_string(),
                 "processed_ts".to_string(),
             ],
-            "private_sessions" => vec![
-                "id".to_string(),
-                "user_id_1".to_string(),
-                "user_id_2".to_string(),
-                "session_type".to_string(),
-                "encryption_key".to_string(),
-                "created_ts".to_string(),
-                "last_activity_ts".to_string(),
-                "updated_ts".to_string(),
-                "unread_count".to_string(),
-            ],
-            "private_messages" => vec![
-                "id".to_string(),
-                "session_id".to_string(),
-                "sender_id".to_string(),
-                "message_type".to_string(),
-                "content".to_string(),
-                "encrypted_content".to_string(),
-                "read_by_receiver".to_string(),
-                "created_ts".to_string(),
-            ],
             "friends" => vec![
                 "user_id".to_string(),
                 "friend_id".to_string(),
@@ -332,29 +307,6 @@ impl SchemaValidator {
 
     fn get_column_definition(&self, table_name: &str, column_name: &str) -> Result<String, String> {
         match table_name {
-            "private_sessions" => match column_name {
-                "id" => Ok("VARCHAR(255)".to_string()),
-                "user_id_1" => Ok("VARCHAR(255)".to_string()),
-                "user_id_2" => Ok("VARCHAR(255)".to_string()),
-                "session_type" => Ok("VARCHAR(50) DEFAULT 'direct'".to_string()),
-                "encryption_key" => Ok("VARCHAR(255)".to_string()),
-                "created_ts" => Ok("BIGINT NOT NULL".to_string()),
-                "last_activity_ts" => Ok("BIGINT".to_string()),
-                "updated_ts" => Ok("BIGINT".to_string()),
-                "unread_count" => Ok("INT DEFAULT 0".to_string()),
-                _ => Err(format!("Unknown column: {}", column_name)),
-            },
-            "private_messages" => match column_name {
-                "id" => Ok("BIGSERIAL PRIMARY KEY".to_string()),
-                "session_id" => Ok("VARCHAR(255)".to_string()),
-                "sender_id" => Ok("VARCHAR(255)".to_string()),
-                "message_type" => Ok("VARCHAR(50) DEFAULT 'text'".to_string()),
-                "content" => Ok("TEXT".to_string()),
-                "encrypted_content" => Ok("TEXT".to_string()),
-                "read_by_receiver" => Ok("BOOLEAN DEFAULT FALSE".to_string()),
-                "created_ts" => Ok("BIGINT NOT NULL".to_string()),
-                _ => Err(format!("Unknown column: {}", column_name)),
-            },
             "device_keys" => match column_name {
                 "id" => Ok("UUID DEFAULT gen_random_uuid()".to_string()),
                 "user_id" => Ok("VARCHAR(255) NOT NULL".to_string()),
@@ -391,11 +343,6 @@ impl SchemaValidator {
         let mut issues = Vec::new();
 
         let required_indexes = vec![
-            ("private_sessions", "idx_private_sessions_user1"),
-            ("private_sessions", "idx_private_sessions_user2"),
-            ("private_sessions", "idx_private_sessions_activity"),
-            ("private_messages", "idx_private_messages_session"),
-            ("private_messages", "idx_private_messages_sender"),
             ("friends", "idx_friends_user"),
             ("friends", "idx_friends_friend"),
             ("friend_requests", "idx_friend_requests_target"),
@@ -430,11 +377,6 @@ impl SchemaValidator {
         let mut created = Vec::new();
 
         let index_creations = vec![
-            ("idx_private_sessions_user1", "CREATE INDEX IF NOT EXISTS idx_private_sessions_user1 ON private_sessions(user_id_1)"),
-            ("idx_private_sessions_user2", "CREATE INDEX IF NOT EXISTS idx_private_sessions_user2 ON private_sessions(user_id_2)"),
-            ("idx_private_sessions_activity", "CREATE INDEX IF NOT EXISTS idx_private_sessions_activity ON private_sessions(last_activity_ts DESC)"),
-            ("idx_private_messages_session", "CREATE INDEX IF NOT EXISTS idx_private_messages_session ON private_messages(session_id)"),
-            ("idx_private_messages_sender", "CREATE INDEX IF NOT EXISTS idx_private_messages_sender ON private_messages(sender_id)"),
             ("idx_friends_user", "CREATE INDEX IF NOT EXISTS idx_friends_user ON friends(user_id)"),
             ("idx_friends_friend", "CREATE INDEX IF NOT EXISTS idx_friends_friend ON friends(friend_id)"),
             ("idx_friend_requests_target", "CREATE INDEX IF NOT EXISTS idx_friend_requests_target ON friend_requests(to_user_id)"),

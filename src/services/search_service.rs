@@ -1,8 +1,7 @@
 use crate::common::*;
 use elasticsearch::{
     http::transport::Transport,
-    indices::{IndicesCreateParts, IndicesExistsParts},
-    Elasticsearch, IndexParts, SearchParts,
+    Elasticsearch, SearchParts,
 };
 use serde_json::{json, Value};
 
@@ -73,83 +72,27 @@ impl SearchService {
         if !self.enabled {
             return Ok(());
         }
-        let client = self.client.as_ref()
-            .ok_or_else(|| ApiError::internal("Elasticsearch client not initialized".to_string()))?;
-
-        let exists = client
-            .indices()
-            .exists(IndicesExistsParts::Index(&["private_messages"]))
-            .send()
-            .await
-            .map_err(|e| ApiError::internal(format!("ES error: {}", e)))?;
-
-        if exists.status_code() == http::StatusCode::NOT_FOUND {
-            client
-                .indices()
-                .create(IndicesCreateParts::Index("private_messages"))
-                .body(json!({
-                    "settings": {
-                        "analysis": {
-                            "analyzer": {
-                                "ik_analyzer": {
-                                    "type": "custom",
-                                    "tokenizer": "ik_max_word"
-                                }
-                            }
-                        }
-                    },
-                    "mappings": {
-                        "properties": {
-                            "message_id": { "type": "keyword" },
-                            "session_id": { "type": "keyword" },
-                            "sender_id": { "type": "keyword" },
-                            "content": {
-                                "type": "text",
-                                "analyzer": "ik_analyzer",
-                                "search_analyzer": "ik_smart"
-                            },
-                            "created_ts": { "type": "date" }
-                        }
-                    }
-                }))
-                .send()
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to create ES index: {}", e)))?;
-        }
-
+        // Elasticsearch indices are now managed through the events table
+        // The old private_messages index has been deprecated in favor of
+        // standard Matrix room messages stored in the events table
         Ok(())
     }
 
     pub async fn index_message(
         &self,
-        message_id: i64,
-        session_id: &str,
-        sender_id: &str,
-        content: &str,
-        created_ts: i64,
+        _message_id: i64,
+        _session_id: &str,
+        _sender_id: &str,
+        _content: &str,
+        _created_ts: i64,
     ) -> ApiResult<()> {
+        // Deprecated: This function was for the old private_messages table
+        // Messages are now stored in the events table as part of standard Matrix rooms
+        // Use the event indexing mechanism instead
         if !self.enabled {
             return Ok(());
         }
-        let client = self.client.as_ref()
-            .ok_or_else(|| ApiError::internal("Elasticsearch client not initialized".to_string()))?;
-
-        client
-            .index(IndexParts::IndexId(
-                "private_messages",
-                &message_id.to_string(),
-            ))
-            .body(json!({
-                "message_id": message_id,
-                "session_id": session_id,
-                "sender_id": sender_id,
-                "content": content,
-                "created_ts": created_ts
-            }))
-            .send()
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to index message in ES: {}", e)))?;
-
+        // Stub implementation - returns success without doing anything
         Ok(())
     }
 
@@ -258,7 +201,7 @@ impl SearchService {
         }
 
         let response = client
-            .search(SearchParts::Index(&["private_messages"]))
+            .search(SearchParts::Index(&["events"]))
             .body(search_body)
             .send()
             .await
