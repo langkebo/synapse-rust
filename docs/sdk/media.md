@@ -17,32 +17,15 @@
 
 **需要认证:** 是
 
-**请求格式:** `multipart/form-data`
+**请求格式:** `application/json`
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| file | File | 是 | 媒体文件 |
-| filename | string | 否 | 文件名 |
-| content_type | string | 否 | MIME 类型 |
-
-**请求示例 (FormData):**
+**请求体:**
 ```typescript
-const uploadMedia = async (file: File, accessToken: string) => {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('filename', file.name);
-
-  const response = await fetch(`${BASE_URL}/_matrix/media/v3/upload`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`
-    },
-    body: formData
-  });
-  return handleApiResponse<{
-    content_uri: string;
-  }>(response);
-};
+interface UploadMediaRequest {
+  content: string | number[];  // Base64 编码的字符串或字节数组
+  filename?: string;           // 文件名
+  content_type?: string;       // MIME 类型 (默认: application/octet-stream)
+}
 ```
 
 **请求示例 (Base64):**
@@ -63,6 +46,49 @@ const uploadMediaBase64 = async (base64Content: string, filename: string, mimeTy
   return handleApiResponse<{
     content_uri: string;
   }>(response);
+};
+```
+
+**请求示例 (字节数组):**
+```typescript
+const uploadMediaBytes = async (bytes: number[], filename: string, mimeType: string, accessToken: string) => {
+  const response = await fetch(`${BASE_URL}/_matrix/media/v3/upload`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      content: bytes,
+      filename,
+      content_type: mimeType
+    })
+  });
+  return handleApiResponse<{
+    content_uri: string;
+  }>(response);
+};
+```
+
+**从 File 对象转换为 Base64 上传:**
+```typescript
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // 移除 data:image/xxx;base64, 前缀
+      const base64 = result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
+
+const uploadFile = async (file: File, accessToken: string) => {
+  const base64 = await fileToBase64(file);
+  return uploadMediaBase64(base64, file.name, file.type, accessToken);
 };
 ```
 
@@ -93,7 +119,8 @@ const uploadMediaBase64 = async (base64Content: string, filename: string, mimeTy
 const downloadMedia = (contentUri: string) => {
   // 解析 content_uri: mxc://server/media_id
   const url = new URL(contentUri);
-  const [server, mediaId] = url.hostname + url.pathname.slice(1);
+  const server = url.hostname;
+  const mediaId = url.pathname.slice(1);
 
   return `${BASE_URL}/_matrix/media/v3/download/${server}/${mediaId}`;
 };
@@ -114,14 +141,14 @@ const downloadFile = async (contentUri: string, filename: string, accessToken: s
   });
 
   const blob = await response.blob();
-  const url = window.URL.createObjectURL(blob);
+  const blobUrl = window.URL.createObjectURL(blob);
 
   const a = document.createElement('a');
-  a.href = url;
+  a.href = blobUrl;
   a.download = filename;
   a.click();
 
-  window.URL.revokeObjectURL(url);
+  window.URL.revokeObjectURL(blobUrl);
 };
 ```
 
@@ -136,9 +163,9 @@ const downloadFile = async (contentUri: string, filename: string, accessToken: s
 **查询参数:**
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| width | number | 否 | 期望宽度 |
-| height | number | 否 | 期望高度 |
-| method | string | 否 | 缩放方法 (crop, scale) |
+| width | number | 否 | 期望宽度 (默认 800) |
+| height | number | 否 | 期望高度 (默认 600) |
+| method | string | 否 | 缩放方法 (crop, scale，默认 scale) |
 
 **请求示例:**
 ```typescript
@@ -179,11 +206,7 @@ const ThumbnailImage: React.FC<{ uri: string; width?: number; height?: number }>
 **响应:**
 ```json
 {
-  "status": "ok",
-  "data": {
-    "m.upload.size": 52428800,
-    "m.upload.quota": 52428800
-  }
+  "m.upload.size": 52428800
 }
 ```
 
@@ -194,8 +217,7 @@ const getMediaConfig = async (accessToken: string) => {
     headers: { 'Authorization': `Bearer ${accessToken}` }
   });
   return handleApiResponse<{
-    'm.upload.size': number;   // 最大上传大小 (字节)
-    'm.upload.quota': number;   // 上传配额
+    'm.upload.size': number;   // 最大上传大小 (字节，默认 50MB)
   }>(response);
 };
 ```
@@ -207,24 +229,6 @@ const getMediaConfig = async (accessToken: string) => {
 ```typescript
 class MediaService {
   constructor(private auth: AuthService) {}
-
-  // 上传文件
-  async uploadFile(file: File): Promise<string> {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('filename', file.name);
-
-    const response = await fetch(`${BASE_URL}/_matrix/media/v3/upload`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.auth.accessToken}`
-      },
-      body: formData
-    });
-
-    const result = await this.auth.handleResponse<{ content_uri: string }>(response);
-    return result.data.content_uri;
-  }
 
   // 上传 Base64 数据
   async uploadBase64(
@@ -246,7 +250,49 @@ class MediaService {
     });
 
     const result = await this.auth.handleResponse<{ content_uri: string }>(response);
-    return result.data.content_uri;
+    return result.content_uri;
+  }
+
+  // 上传字节数组
+  async uploadBytes(
+    bytes: number[],
+    filename: string,
+    mimeType: string
+  ): Promise<string> {
+    const response = await fetch(`${BASE_URL}/_matrix/media/v3/upload`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.auth.accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        content: bytes,
+        filename,
+        content_type: mimeType
+      })
+    });
+
+    const result = await this.auth.handleResponse<{ content_uri: string }>(response);
+    return result.content_uri;
+  }
+
+  // 从 File 对象上传
+  async uploadFile(file: File): Promise<string> {
+    const base64 = await this.fileToBase64(file);
+    return this.uploadBase64(base64, file.name, file.type);
+  }
+
+  private fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        const base64 = result.split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   }
 
   // 获取下载 URL
@@ -288,7 +334,6 @@ class MediaService {
     });
     return this.auth.handleResponse<{
       'm.upload.size': number;
-      'm.upload.quota': number;
     }>(response);
   }
 }
@@ -306,6 +351,7 @@ interface UseMediaResult {
   uploading: boolean;
   progress: number;
   upload: (file: File) => Promise<string>;
+  uploadBase64: (base64: string, filename: string, mimeType: string) => Promise<string>;
   getThumbnail: (uri: string, width?: number, height?: number) => string;
   download: (uri: string) => Promise<void>;
   getDownloadUrl: (uri: string) => string;
@@ -322,13 +368,25 @@ export function useMedia(accessToken: string): UseMediaResult {
     setProgress(0);
 
     try {
-      // 模拟上传进度
       const contentUri = await mediaService.uploadFile(file);
       setProgress(100);
       return contentUri;
     } finally {
       setUploading(false);
       setProgress(0);
+    }
+  }, [accessToken]);
+
+  const uploadBase64 = useCallback(async (
+    base64: string,
+    filename: string,
+    mimeType: string
+  ) => {
+    setUploading(true);
+    try {
+      return await mediaService.uploadBase64(base64, filename, mimeType);
+    } finally {
+      setUploading(false);
     }
   }, [accessToken]);
 
@@ -362,6 +420,7 @@ export function useMedia(accessToken: string): UseMediaResult {
     uploading,
     progress,
     upload,
+    uploadBase64,
     getThumbnail,
     download,
     getDownloadUrl
@@ -379,7 +438,8 @@ export const SUPPORTED_IMAGE_TYPES = [
   'image/jpeg',
   'image/png',
   'image/gif',
-  'image/webp'
+  'image/webp',
+  'image/svg+xml'
 ];
 
 export const SUPPORTED_AUDIO_TYPES = [
@@ -414,3 +474,13 @@ export function validateVideoFile(file: File): boolean {
          file.size <= MAX_FILE_SIZE;
 }
 ```
+
+---
+
+## 注意事项
+
+1. **上传格式**: 此服务器使用 JSON 格式上传媒体，支持 Base64 编码字符串或字节数组
+2. **文件大小限制**: 默认最大上传大小为 50MB
+3. **认证**: 所有媒体上传操作需要认证
+4. **内容 URI**: 上传成功后返回的 `content_uri` 格式为 `mxc://server_name/media_id`
+5. **缩略图**: 缩略图默认尺寸为 800x600，可通过查询参数自定义

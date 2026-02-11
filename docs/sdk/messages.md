@@ -269,15 +269,15 @@ const sendReadReceipt = async (roomId: string, eventId: string, accessToken: str
 **请求体:**
 ```typescript
 interface ReadMarkers {
-  'm.read'?: string;           // 已读事件 ID
-  'm.fully_read'?: string;     // 完全已读事件 ID
-  'm.hidden'?: string;         // 隐藏消息事件 ID
+  event_id?: string;         // 已读事件 ID
+  'm.read'?: string;         // 已读事件 ID (别名)
+  'm.fully_read'?: string;   // 完全已读事件 ID
 }
 ```
 
 **请求示例:**
 ```typescript
-const setReadMarkers = async (roomId: string, readEventId: string, fullyReadEventId: string, accessToken: string) => {
+const setReadMarkers = async (roomId: string, eventId: string, accessToken: string) => {
   const response = await fetch(
     `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/read_markers`,
     {
@@ -287,8 +287,7 @@ const setReadMarkers = async (roomId: string, readEventId: string, fullyReadEven
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        'm.read': readEventId,
-        'm.fully_read': fullyReadEventId
+        event_id: eventId
       })
     }
   );
@@ -306,6 +305,8 @@ const setReadMarkers = async (roomId: string, readEventId: string, fullyReadEven
 
 **需要认证:** 是
 
+**注意:** 此端点不需要事务 ID，服务器会自动生成。
+
 **请求体:**
 ```typescript
 interface RedactEvent {
@@ -316,9 +317,8 @@ interface RedactEvent {
 **请求示例:**
 ```typescript
 const redactMessage = async (roomId: string, eventId: string, reason?: string, accessToken: string) => {
-  const txnId = Date.now().toString();
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/redact/${eventId}/${txnId}`,
+    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/redact/${eventId}`,
     {
       method: 'PUT',
       headers: {
@@ -436,7 +436,7 @@ const setStateEvent = async (
   accessToken: string
 ) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/v0/rooms/${encodeURIComponent(roomId)}/state/${encodeURIComponent(eventType)}/${encodeURIComponent(stateKey)}`,
+    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/state/${encodeURIComponent(eventType)}/${encodeURIComponent(stateKey)}`,
     {
       method: 'PUT',
       headers: {
@@ -506,9 +506,8 @@ class MessageService {
   }
 
   async redactMessage(roomId: string, eventId: string, reason?: string) {
-    const txnId = Date.now().toString();
     const response = await fetch(
-      `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/redact/${eventId}/${txnId}`,
+      `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/redact/${eventId}`,
       {
         method: 'PUT',
         headers: this.auth.getAuthHeaders(),

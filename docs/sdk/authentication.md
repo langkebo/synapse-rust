@@ -132,21 +132,33 @@ const login = async (username: string, password: string) => {
 };
 
 interface LoginResponse {
-  user_id: string;
   access_token: string;
-  refresh_token?: string;
+  refresh_token: string;
+  expires_in: number;
   device_id: string;
+  user_id: string;
+  well_known?: {
+    m: {
+      homeserver: {
+        base_url: string;
+      }
+    }
+  };
 }
 ```
 
 **成功响应:**
 ```json
 {
-  "status": "ok",
-  "data": {
-    "user_id": "@alice:cjystx.top",
-    "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
-    "device_id": "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+  "refresh_token": "refresh_token_value",
+  "expires_in": 3600000,
+  "device_id": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+  "user_id": "@alice:cjystx.top",
+  "well_known": {
+    "m.homeserver": {
+      "base_url": "http://localhost:8008"
+    }
   }
 }
 ```
@@ -432,13 +444,15 @@ class AuthService {
       })
     });
 
-    const data = await this.handleResponse(response);
+    const data = await this.handleResponse<LoginResponse>(response);
     this.accessToken = data.access_token;
     this.refreshToken = data.refresh_token;
 
     // 保存到本地存储
     localStorage.setItem('access_token', this.accessToken);
     localStorage.setItem('refresh_token', this.refreshToken);
+    localStorage.setItem('user_id', data.user_id);
+    localStorage.setItem('device_id', data.device_id);
 
     return data;
   }
