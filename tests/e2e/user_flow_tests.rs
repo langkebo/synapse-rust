@@ -59,6 +59,36 @@ mod e2e_tests {
         message_id: i64,
     }
 
+    #[derive(Debug, Serialize, Deserialize)]
+    struct GetFriendsResponse {
+        data: Option<FriendsData>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct FriendsData {
+        friends: Vec<FriendData>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct FriendData {
+        user_id: String,
+        dm_room_id: Option<String>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct RoomMessagesResponse {
+        chunk: Vec<MessageEvent>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct MessageEvent {
+        event_id: String,
+        #[serde(rename = "type")]
+        msg_type: String,
+        content: serde_json::Value,
+        sender: String,
+    }
+
     async fn register_user(username: &str, password: &str) -> RegisterResponse {
         let client = Client::new();
         let response = client
@@ -227,67 +257,70 @@ mod e2e_tests {
             .expect("Failed to parse accept friend request response")
     }
 
-    async fn create_private_session(
-        access_token: &str,
-        other_user_id: &str,
-    ) -> CreateSessionResponse {
+    async fn get_dm_room(access_token: &str, other_user_id: &str) -> Option<String> {
         let client = Client::new();
         let response = client
-            .post(format!("{}/_matrix/client/r0/private/sessions", BASE_URL))
+            .get(format!("{}/_matrix/client/v1/friends", BASE_URL))
             .header("Authorization", format!("Bearer {}", access_token))
-            .json(&json!({"other_user_id": other_user_id}))
             .send()
             .await
-            .expect("Failed to create private session");
+            .expect("Failed to get friends");
 
-        response
+        let friends_response: GetFriendsResponse = response
             .json()
             .await
-            .expect("Failed to parse create session response")
+            .expect("Failed to parse friends response");
+
+        friends_response.data?.friends.iter().find(|f| f.user_id == other_user_id).and_then(|f| f.dm_room_id.clone())
     }
 
-    async fn send_private_message(
+    async fn send_message_to_room(
         access_token: &str,
-        session_id: &str,
+        room_id: &str,
         message: &str,
-    ) -> SendMessageResponsePrivate {
+    ) -> SendMessageResponse {
         let client = Client::new();
         let response = client
             .post(format!(
-                "{}/_matrix/client/r0/private/sessions/{}/messages",
-                BASE_URL, session_id
+                "{}/_matrix/client/r0/rooms/{}/send/m.room.message",
+                BASE_URL, room_id
             ))
             .header("Authorization", format!("Bearer {}", access_token))
             .json(&json!({
-                "message_type": "text",
-                "content": message
+                "msgtype": "m.text",
+                "body": message
             }))
             .send()
             .await
-            .expect("Failed to send private message");
+            .expect("Failed to send message");
 
         response
             .json()
             .await
-            .expect("Failed to parse send private message response")
+            .expect("Failed to parse send message response")
     }
 
-    async fn delete_private_message(access_token: &str, message_id: &str) -> serde_json::Value {
+    async fn redact_event(
+        access_token: &str,
+        room_id: &str,
+        event_id: &str,
+    ) -> serde_json::Value {
         let client = Client::new();
         let response = client
-            .delete(format!(
-                "{}/_matrix/client/r0/private/messages/{}",
-                BASE_URL, message_id
+            .put(format!(
+                "{}/_matrix/client/r0/rooms/{}/redact/{}",
+                BASE_URL, room_id, event_id
             ))
             .header("Authorization", format!("Bearer {}", access_token))
+            .json(&json!({"reason": "Delete message"}))
             .send()
             .await
-            .expect("Failed to delete private message");
+            .expect("Failed to redact event");
 
         response
             .json()
             .await
-            .expect("Failed to parse delete private message response")
+            .expect("Failed to parse redact response")
     }
 
     #[test]
@@ -380,29 +413,32 @@ mod e2e_tests {
                 .as_str()
                 .expect("User ID should be string");
 
+            // Send friend request
             let friend_request = send_friend_request(&alice.access_token, bob_user_id, None).await;
             accept_friend_request(&bob.access_token, &friend_request.request_id).await;
 
-            let session = create_private_session(&alice.access_token, bob_user_id).await;
+            // Get the DM room that was automatically created when friend request was accepted
+            let dm_room_id = get_dm_room(&alice.access_token, bob_user_id)
+                .await
+                .expect("DM room should be created after accepting friend request");
 
-            assert!(!session.session_id.is_empty());
+            assert!(!dm_room_id.is_empty(), "DM room ID should not be empty");
 
-            let msg_response = send_private_message(
+            // Send a message to the DM room using standard Matrix API
+            let msg_response = send_message_to_room(
                 &alice.access_token,
-                &session.session_id,
+                &dm_room_id,
                 "Private message from Alice",
             )
             .await;
 
-            assert!(msg_response.message_id > 0);
+            assert!(!msg_response.event_id.is_empty(), "Event ID should not be empty");
 
-            let delete_response =
-                delete_private_message(&alice.access_token, &msg_response.message_id.to_string())
-                    .await;
+            // Redact (delete) the message
+            let redact_response = redact_event(&alice.access_token, &dm_room_id, &msg_response.event_id).await;
+            assert_eq!(redact_response["event_id"], msg_response.event_id, "Redaction should return same event ID");
 
-            assert_eq!(delete_response["status"], "success");
-
-            println!("✅ E2E test passed: Private chat flow");
+            println!("✅ E2E test passed: Private chat flow (using Matrix rooms)");
         });
     }
 

@@ -352,7 +352,7 @@ impl FriendRoomStorage {
     ) -> Result<String, sqlx::Error> {
         // Generate a deterministic room ID for the DM
         // Sort user IDs to ensure both users get the same room ID
-        let mut users = vec![user_id, friend_id];
+        let mut users = [user_id, friend_id];
         users.sort();
         let room_id = format!("!dm:{}:{}",
             users[0].trim_start_matches('@').replace(':', "_"),
@@ -449,7 +449,7 @@ impl FriendRoomStorage {
         user_id: &str,
         friend_id: &str,
     ) -> Result<Option<String>, sqlx::Error> {
-        let mut users = vec![user_id, friend_id];
+        let mut users = [user_id, friend_id];
         users.sort();
 
         // Try to find an existing DM room
@@ -494,7 +494,7 @@ impl FriendRoomStorage {
         .fetch_one(&*self.pool)
         .await?;
 
-        Ok(row.try_get::<i64, _>("id")?)
+        row.try_get::<i64, _>("id")
     }
 
     /// Accept a friend request and add to both users' friend lists
@@ -617,11 +617,16 @@ mod tests {
 
     #[test]
     fn test_friend_list_room_id_format() {
+        // The helper trims the @ prefix to match the actual implementation
         let room_id = get_friend_list_room_id_static("@alice:example.com");
-        assert_eq!(room_id, "!friends:@alice:example.com");
+        assert_eq!(room_id, "!friends:alice:example.com");
 
         let room_id = get_friend_list_room_id_static("@bob:other.server.com");
-        assert_eq!(room_id, "!friends:@bob:other.server.com");
+        assert_eq!(room_id, "!friends:bob:other.server.com");
+
+        // Test with user_id that doesn't start with @
+        let room_id = get_friend_list_room_id_static("charlie:example.com");
+        assert_eq!(room_id, "!friends:charlie:example.com");
     }
 
     #[test]
@@ -633,13 +638,154 @@ mod tests {
         assert_eq!(room1, room2);
     }
 
+    #[test]
+    fn test_dm_room_id_different_servers() {
+        // Test cross-server DM room IDs
+        let room1 = get_dm_room_id_static("@alice:server1.com", "@bob:server2.com");
+        let room2 = get_dm_room_id_static("@bob:server2.com", "@alice:server1.com");
+
+        assert_eq!(room1, room2);
+        // The room ID should contain both users (with colons replaced by underscores)
+        assert!(room1.starts_with("!dm:"));
+        assert!(room1.contains("alice"));
+        assert!(room1.contains("bob"));
+    }
+
+    #[test]
+    fn test_dm_room_id_with_special_chars() {
+        // Test with user IDs that contain periods in server names
+        let room1 = get_dm_room_id_static("@user:name.server.com", "@other:server.example.com");
+        let room2 = get_dm_room_id_static("@other:server.example.com", "@user:name.server.com");
+
+        assert_eq!(room1, room2);
+    }
+
+    #[test]
+    fn test_friend_info_serialization() {
+        let friend = FriendInfo {
+            user_id: "@bob:example.com".to_string(),
+            display_name: Some("Bob".to_string()),
+            avatar_url: Some("mxc://example.com/abc123".to_string()),
+            since: 1234567890,
+            status: Some("online".to_string()),
+            last_active: Some(1234567890),
+            note: Some("My friend Bob".to_string()),
+            is_private: Some(false),
+        };
+
+        let json = serde_json::to_string(&friend).unwrap();
+        assert!(json.contains("@bob:example.com"));
+        assert!(json.contains("Bob"));
+        assert!(json.contains("online"));
+
+        // Test deserialization
+        let deserialized: FriendInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.user_id, "@bob:example.com");
+        assert_eq!(deserialized.display_name, Some("Bob".to_string()));
+    }
+
+    #[test]
+    fn test_friend_list_content_serialization() {
+        let content = FriendListContent {
+            friends: vec![
+                FriendInfo {
+                    user_id: "@alice:example.com".to_string(),
+                    display_name: Some("Alice".to_string()),
+                    avatar_url: None,
+                    since: 1234567890,
+                    status: None,
+                    last_active: None,
+                    note: None,
+                    is_private: None,
+                },
+            ],
+            version: 5,
+        };
+
+        let json = serde_json::to_string(&content).unwrap();
+        assert!(json.contains("version"));
+        assert!(json.contains("5"));
+
+        let deserialized: FriendListContent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.version, 5);
+        assert_eq!(deserialized.friends.len(), 1);
+        assert_eq!(deserialized.friends[0].user_id, "@alice:example.com");
+    }
+
+    #[test]
+    fn test_friend_request_content_serialization() {
+        let request = FriendRequestContent {
+            requester: "@alice:example.com".to_string(),
+            recipient: "@bob:example.com".to_string(),
+            message: Some("Let's be friends!".to_string()),
+            status: "pending".to_string(),
+            created_ts: 1234567890,
+            updated_ts: Some(1234567895),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("pending"));
+
+        let deserialized: FriendRequestContent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.status, "pending");
+        assert_eq!(deserialized.requester, "@alice:example.com");
+        assert_eq!(deserialized.recipient, "@bob:example.com");
+    }
+
+    #[test]
+    fn test_related_users_content_serialization() {
+        let content = RelatedUsersContent {
+            related_users: vec!["@alice:example.com".to_string(), "@bob:example.com".to_string()],
+            is_private: Some(true),
+        };
+
+        let json = serde_json::to_string(&content).unwrap();
+        assert!(json.contains("related_users"));
+
+        let deserialized: RelatedUsersContent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.related_users.len(), 2);
+        assert_eq!(deserialized.is_private, Some(true));
+    }
+
+    #[test]
+    fn test_event_type_constants() {
+        assert_eq!(EVENT_TYPE_FRIENDS_LIST, "m.friends.list");
+        assert_eq!(EVENT_TYPE_FRIEND_REQUEST, "m.friend.request");
+        assert_eq!(EVENT_TYPE_FRIENDS_RELATED, "m.friends.related_users");
+    }
+
+    #[test]
+    fn test_room_type_constants() {
+        assert_eq!(ROOM_TYPE_FRIEND_LIST, "m.friends.list");
+        assert_eq!(ROOM_TYPE_DIRECT_MESSAGE, "m.direct");
+        assert_eq!(ROOM_TYPE_PRIVATE_FRIEND, "m.private");
+    }
+
+    #[test]
+    fn test_friend_info_defaults() {
+        let friend = FriendInfo {
+            user_id: "@test:example.com".to_string(),
+            display_name: None,
+            avatar_url: None,
+            since: 0,
+            status: None,
+            last_active: None,
+            note: None,
+            is_private: None,
+        };
+
+        assert!(friend.display_name.is_none());
+        assert!(friend.status.is_none());
+        assert!(friend.is_private.is_none());
+    }
+
     // Helper functions for testing (non-async versions)
     fn get_friend_list_room_id_static(user_id: &str) -> String {
         format!("!friends:{}", user_id.trim_start_matches('@'))
     }
 
     fn get_dm_room_id_static(user_id: &str, friend_id: &str) -> String {
-        let mut users = vec![user_id, friend_id];
+        let mut users = [user_id, friend_id];
         users.sort();
         format!("!dm:{}:{}",
             users[0].trim_start_matches('@').replace(':', "_"),
