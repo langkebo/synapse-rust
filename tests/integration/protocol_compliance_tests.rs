@@ -1,6 +1,6 @@
-#[cfg(test)]
+#![cfg(test)]
 
-    use serde_json::json;
+use serde_json::json;
     use sqlx::{Pool, Postgres};
     use std::sync::Arc;
     use synapse_rust::cache::{CacheConfig, CacheManager};
@@ -206,7 +206,7 @@
                     content: json!({"body":"hi"}),
                     state_key: None,
                     origin_server_ts: now,
-                })
+                }, None)
                 .await
                 .unwrap();
 

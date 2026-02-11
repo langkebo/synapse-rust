@@ -1,6 +1,6 @@
-#[cfg(test)]
+#![cfg(test)]
 
-    use std::sync::Arc;
+use std::sync::Arc;
     use synapse_rust::auth::AuthService;
     use synapse_rust::cache::{CacheConfig, CacheManager};
     use synapse_rust::common::config::SecurityConfig;

@@ -1,8 +1,6 @@
 pub mod admin;
 pub mod e2ee_routes;
 pub mod federation;
-pub mod friend;
-pub mod friend_room;
 pub mod key_backup;
 pub mod media;
 pub mod voice;
@@ -10,8 +8,6 @@ pub mod voice;
 pub use admin::create_admin_router;
 pub use e2ee_routes::create_e2ee_router;
 pub use federation::create_federation_router;
-pub use friend::create_friend_router;
-pub use friend_room::create_friend_room_router;
 pub use key_backup::create_key_backup_router;
 pub use media::create_media_router;
 pub use voice::create_voice_router;
@@ -89,7 +85,6 @@ impl AppState {
     }
 }
 
-
 #[derive(Clone)]
 pub struct AuthenticatedUser {
     pub user_id: String,
@@ -138,7 +133,7 @@ impl FromRequestParts<AppState> for AdminUser {
         state: &AppState,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let auth_future = AuthenticatedUser::from_request_parts(parts, state);
-        
+
         async move {
             let auth = auth_future.await?;
             if !auth.is_admin {
@@ -186,6 +181,29 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(health_check))
         .route("/_matrix/client/versions", get(get_client_versions))
         .route("/_matrix/client/r0/version", get(get_server_version))
+        .merge(create_auth_router())
+        .merge(create_account_router())
+        .merge(create_directory_router())
+        .merge(create_room_router())
+        .merge(create_presence_router())
+        .merge(create_device_router())
+        // Merge sub-routers
+        .merge(create_voice_router(state.clone()))
+        .merge(create_media_router(state.clone()))
+        .merge(create_e2ee_router(state.clone()))
+        .merge(create_key_backup_router(state.clone()))
+        .merge(create_admin_router(state.clone()))
+        .merge(create_federation_router(state.clone()))
+        .layer(CompressionLayer::new())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit_middleware,
+        ))
+        .with_state(state)
+}
+
+fn create_auth_router() -> Router<AppState> {
+    Router::new()
         .route("/_matrix/client/r0/register", post(register))
         .route(
             "/_matrix/client/r0/register/available",
@@ -203,6 +221,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/r0/logout", post(logout))
         .route("/_matrix/client/r0/logout/all", post(logout_all))
         .route("/_matrix/client/r0/refresh", post(refresh_token))
+}
+
+fn create_account_router() -> Router<AppState> {
+    Router::new()
         .route("/_matrix/client/r0/account/whoami", get(whoami))
         .route(
             "/_matrix/client/r0/account/profile/{user_id}",
@@ -221,6 +243,10 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/r0/account/deactivate",
             post(deactivate_account),
         )
+}
+
+fn create_directory_router() -> Router<AppState> {
+    Router::new()
         .route(
             "/_matrix/client/r0/user_directory/search",
             post(search_user_directory),
@@ -229,6 +255,34 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/r0/user_directory/list",
             post(list_user_directory),
         )
+        .route(
+            "/_matrix/client/r0/directory/room/alias/{room_alias}",
+            get(get_room_by_alias),
+        )
+        .route(
+            "/_matrix/client/r0/directory/room/{param}",
+            get(get_room)
+                .put(set_room_directory)
+                .delete(delete_room_directory),
+        )
+        .route(
+            "/_matrix/client/r0/directory/room/{room_id}/alias",
+            get(get_room_aliases),
+        )
+        .route(
+            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
+            put(set_room_alias),
+        )
+        .route(
+            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
+            delete(delete_room_alias),
+        )
+        .route("/_matrix/client/r0/publicRooms", get(get_public_rooms))
+        .route("/_matrix/client/r0/publicRooms", post(create_public_room))
+}
+
+fn create_room_router() -> Router<AppState> {
+    Router::new()
         .route(
             "/_matrix/client/r0/rooms/{room_id}/report/{event_id}",
             post(report_event),
@@ -266,48 +320,8 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/_matrix/client/r0/createRoom", post(create_room))
         .route(
-            "/_matrix/client/r0/directory/room/alias/{room_alias}",
-            get(get_room_by_alias),
-        )
-        .route(
-            "/_matrix/client/r0/directory/room/{param}",
-            get(get_room)
-                .put(set_room_directory)
-                .delete(delete_room_directory),
-        )
-        .route(
-            "/_matrix/client/r0/directory/room/{room_id}/alias",
-            get(get_room_aliases),
-        )
-        .route(
-            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
-            put(set_room_alias),
-        )
-        .route(
-            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
-            delete(delete_room_alias),
-        )
-        .route("/_matrix/client/r0/publicRooms", get(get_public_rooms))
-        .route("/_matrix/client/r0/publicRooms", post(create_public_room))
-        .route(
             "/_matrix/client/r0/user/{user_id}/rooms",
             get(get_user_rooms),
-        )
-        .route("/_matrix/client/r0/devices", get(get_devices))
-        .route("/_matrix/client/r0/delete_devices", post(delete_devices))
-        .route("/_matrix/client/r0/devices/{device_id}", get(get_device))
-        .route("/_matrix/client/r0/devices/{device_id}", put(update_device))
-        .route(
-            "/_matrix/client/r0/devices/{device_id}",
-            delete(delete_device),
-        )
-        .route(
-            "/_matrix/client/r0/presence/{user_id}/status",
-            get(get_presence),
-        )
-        .route(
-            "/_matrix/client/r0/presence/{user_id}/status",
-            put(set_presence),
         )
         .route(
             "/_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}",
@@ -344,21 +358,30 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}",
             put(send_message),
         )
-        // Merge sub-routers
-        .merge(create_friend_router(state.clone()))
-        .merge(create_friend_room_router())
-        .merge(create_voice_router(state.clone()))
-        .merge(create_media_router(state.clone()))
-        .merge(create_e2ee_router(state.clone()))
-        .merge(create_key_backup_router(state.clone()))
-        .merge(create_admin_router(state.clone()))
-        .merge(create_federation_router(state.clone()))
-        .layer(CompressionLayer::new())
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            rate_limit_middleware,
-        ))
-        .with_state(state)
+}
+
+fn create_presence_router() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/_matrix/client/r0/presence/{user_id}/status",
+            get(get_presence),
+        )
+        .route(
+            "/_matrix/client/r0/presence/{user_id}/status",
+            put(set_presence),
+        )
+}
+
+fn create_device_router() -> Router<AppState> {
+    Router::new()
+        .route("/_matrix/client/r0/devices", get(get_devices))
+        .route("/_matrix/client/r0/delete_devices", post(delete_devices))
+        .route("/_matrix/client/r0/devices/{device_id}", get(get_device))
+        .route("/_matrix/client/r0/devices/{device_id}", put(update_device))
+        .route(
+            "/_matrix/client/r0/devices/{device_id}",
+            delete(delete_device),
+        )
 }
 
 async fn get_client_versions() -> Json<Value> {
@@ -511,8 +534,7 @@ async fn request_email_verification(
 
     let submit_url = format!(
         "https://{}:{}/_matrix/client/r0/register/email/submitToken",
-        state.services.config.server.host,
-        state.services.config.server.port
+        state.services.config.server.host, state.services.config.server.port
     );
 
     Ok(Json(json!({
@@ -621,10 +643,12 @@ async fn login(
     if username.len() > 255 {
         return Err(ApiError::bad_request("Username too long".to_string()));
     }
-    
+
     // Check password length to prevent DoS - must match Validator::validate_password max (128)
     if password.len() > 128 {
-        return Err(ApiError::bad_request("Password too long (max 128 characters)".to_string()));
+        return Err(ApiError::bad_request(
+            "Password too long (max 128 characters)".to_string(),
+        ));
     }
 
     let device_id = body.get("device_id").and_then(|v| v.as_str());
@@ -727,33 +751,43 @@ fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
     if user_id.is_empty() {
         return Err(ApiError::bad_request("user_id is required".to_string()));
     }
-    
+
     // Detailed validation using common validator logic regex
     // We can't access state here easily without changing signature, so we keep basic logic consistent with validator
     // or we just instantiate a local regex if needed, but simple string parsing is faster for basic checks
-    
+
     if !user_id.starts_with('@') {
-        return Err(ApiError::bad_request("Invalid user_id format: must start with @".to_string()));
+        return Err(ApiError::bad_request(
+            "Invalid user_id format: must start with @".to_string(),
+        ));
     }
-    
+
     if user_id.len() > 255 {
-        return Err(ApiError::bad_request("user_id too long (max 255 characters)".to_string()));
+        return Err(ApiError::bad_request(
+            "user_id too long (max 255 characters)".to_string(),
+        ));
     }
-    
+
     let parts: Vec<&str> = user_id.split(':').collect();
     if parts.len() < 2 {
-        return Err(ApiError::bad_request("Invalid user_id format: must be @username:server".to_string()));
+        return Err(ApiError::bad_request(
+            "Invalid user_id format: must be @username:server".to_string(),
+        ));
     }
-    
+
     let username = &parts[0][1..];
     if username.is_empty() {
-        return Err(ApiError::bad_request("Invalid user_id format: username cannot be empty".to_string()));
+        return Err(ApiError::bad_request(
+            "Invalid user_id format: username cannot be empty".to_string(),
+        ));
     }
-    
+
     if parts[1].is_empty() {
-        return Err(ApiError::bad_request("Invalid user_id format: server cannot be empty".to_string()));
+        return Err(ApiError::bad_request(
+            "Invalid user_id format: server cannot be empty".to_string(),
+        ));
     }
-    
+
     Ok(())
 }
 
@@ -762,10 +796,14 @@ fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("room_id is required".to_string()));
     }
     if !room_id.starts_with('!') {
-        return Err(ApiError::bad_request("Invalid room_id format: must start with !".to_string()));
+        return Err(ApiError::bad_request(
+            "Invalid room_id format: must start with !".to_string(),
+        ));
     }
     if room_id.len() > 255 {
-        return Err(ApiError::bad_request("room_id too long (max 255 characters)".to_string()));
+        return Err(ApiError::bad_request(
+            "room_id too long (max 255 characters)".to_string(),
+        ));
     }
     Ok(())
 }
@@ -775,10 +813,14 @@ fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("event_id is required".to_string()));
     }
     if !event_id.starts_with('$') {
-        return Err(ApiError::bad_request("Invalid event_id format: must start with $".to_string()));
+        return Err(ApiError::bad_request(
+            "Invalid event_id format: must start with $".to_string(),
+        ));
     }
     if event_id.len() > 255 {
-        return Err(ApiError::bad_request("event_id too long (max 255 characters)".to_string()));
+        return Err(ApiError::bad_request(
+            "event_id too long (max 255 characters)".to_string(),
+        ));
     }
     Ok(())
 }
@@ -789,7 +831,7 @@ async fn get_profile(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    
+
     Ok(Json(
         state
             .services
@@ -813,7 +855,9 @@ async fn update_displayname(
         .ok_or_else(|| ApiError::bad_request("Displayname required".to_string()))?;
 
     if displayname.len() > 255 {
-        return Err(ApiError::bad_request("Displayname too long (max 255 characters)".to_string()));
+        return Err(ApiError::bad_request(
+            "Displayname too long (max 255 characters)".to_string(),
+        ));
     }
 
     if user_id != auth_user.user_id && !auth_user.is_admin {
@@ -826,7 +870,7 @@ async fn update_displayname(
         .user_exists(&user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?;
-    
+
     if !user_exists {
         return Err(ApiError::not_found("User not found".to_string()));
     }
@@ -853,7 +897,9 @@ async fn update_avatar(
         .ok_or_else(|| ApiError::bad_request("Avatar URL required".to_string()))?;
 
     if avatar_url.len() > 255 {
-        return Err(ApiError::bad_request("Avatar URL too long (max 255 characters)".to_string()));
+        return Err(ApiError::bad_request(
+            "Avatar URL too long (max 255 characters)".to_string(),
+        ));
     }
 
     if user_id != auth_user.user_id && !auth_user.is_admin {
@@ -866,7 +912,7 @@ async fn update_avatar(
         .user_exists(&user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?;
-    
+
     if !user_exists {
         return Err(ApiError::not_found("User not found".to_string()));
     }
@@ -1147,12 +1193,16 @@ async fn send_message(
     // Validate content length to prevent DoS
     if let Some(s) = content.as_str() {
         if s.len() > 65536 {
-             return Err(ApiError::bad_request("Message body too long (max 64KB)".to_string()));
+            return Err(ApiError::bad_request(
+                "Message body too long (max 64KB)".to_string(),
+            ));
         }
     } else {
         let s = content.to_string();
         if s.len() > 65536 {
-             return Err(ApiError::bad_request("Message body too long (max 64KB)".to_string()));
+            return Err(ApiError::bad_request(
+                "Message body too long (max 64KB)".to_string(),
+            ));
         }
     }
 
@@ -1259,35 +1309,51 @@ async fn create_room(
     let room_alias = body.get("room_alias_name").and_then(|v| v.as_str());
     if let Some(alias) = room_alias {
         if alias.len() > 255 {
-            return Err(ApiError::bad_request("Room alias name too long".to_string()));
+            return Err(ApiError::bad_request(
+                "Room alias name too long".to_string(),
+            ));
         }
         // Validate alias format (localpart only, usually)
         // But spec says room_alias_name is the local part.
         // Let's rely on basic char check if needed, but length is most important for DoS.
-        if !alias.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.') {
-             return Err(ApiError::bad_request("Invalid characters in room alias name".to_string()));
+        if !alias
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+        {
+            return Err(ApiError::bad_request(
+                "Invalid characters in room alias name".to_string(),
+            ));
         }
     }
 
     let name = body.get("name").and_then(|v| v.as_str());
     if let Some(n) = name {
         if n.len() > 255 {
-             return Err(ApiError::bad_request("Room name too long".to_string()));
+            return Err(ApiError::bad_request("Room name too long".to_string()));
         }
     }
 
     let topic = body.get("topic").and_then(|v| v.as_str());
     if let Some(t) = topic {
         if t.len() > 4096 {
-             return Err(ApiError::bad_request("Room topic too long".to_string()));
+            return Err(ApiError::bad_request("Room topic too long".to_string()));
         }
     }
 
     let invite = body.get("invite").and_then(|v| v.as_array()).map(|arr| {
         arr.iter()
             .filter_map(|x| x.as_str().map(String::from))
-            .collect()
+            .collect::<Vec<String>>()
     });
+
+    if let Some(ref inv) = invite {
+        if inv.len() > 100 {
+            return Err(ApiError::bad_request(
+                "Too many invites (max 100)".to_string(),
+            ));
+        }
+    }
+
     let preset = body.get("preset").and_then(|v| v.as_str());
 
     let config = CreateRoomConfig {
@@ -1477,8 +1543,17 @@ async fn create_public_room(
     let invite = body.get("invite").and_then(|v| v.as_array()).map(|arr| {
         arr.iter()
             .filter_map(|x| x.as_str().map(String::from))
-            .collect()
+            .collect::<Vec<String>>()
     });
+
+    if let Some(ref inv) = invite {
+        if inv.len() > 100 {
+            return Err(ApiError::bad_request(
+                "Too many invites (max 100)".to_string(),
+            ));
+        }
+    }
+
     let preset = body.get("preset").and_then(|v| v.as_str());
 
     let config = CreateRoomConfig {
@@ -1842,15 +1917,18 @@ async fn send_state_event(
     let state_event = state
         .services
         .event_storage
-        .create_event(CreateEventParams {
-            event_id: new_event_id.clone(),
-            room_id: room_id.clone(),
-            user_id: auth_user.user_id.clone(),
-            event_type: format!("m.room.{}", event_type),
-            content,
-            state_key: Some(auth_user.user_id),
-            origin_server_ts: now,
-        })
+        .create_event(
+            CreateEventParams {
+                event_id: new_event_id.clone(),
+                room_id: room_id.clone(),
+                user_id: auth_user.user_id.clone(),
+                event_type: format!("m.room.{}", event_type),
+                content,
+                state_key: Some(auth_user.user_id),
+                origin_server_ts: now,
+            },
+            None,
+        )
         .await
         .map_err(|e| ApiError::internal(format!("Failed to send state event: {}", e)))?;
 
@@ -1875,15 +1953,18 @@ async fn put_state_event(
     let event = state
         .services
         .event_storage
-        .create_event(CreateEventParams {
-            event_id: new_event_id.clone(),
-            room_id: room_id.clone(),
-            user_id: auth_user.user_id.clone(),
-            event_type: format!("m.room.{}", event_type),
-            content: body,
-            state_key: Some(state_key),
-            origin_server_ts: now,
-        })
+        .create_event(
+            CreateEventParams {
+                event_id: new_event_id.clone(),
+                room_id: room_id.clone(),
+                user_id: auth_user.user_id.clone(),
+                event_type: format!("m.room.{}", event_type),
+                content: body,
+                state_key: Some(state_key),
+                origin_server_ts: now,
+            },
+            None,
+        )
         .await
         .map_err(|e| ApiError::internal(format!("Failed to put state event: {}", e)))?;
 
@@ -2010,15 +2091,18 @@ async fn redact_event(
     state
         .services
         .event_storage
-        .create_event(CreateEventParams {
-            event_id: new_event_id.clone(),
-            room_id: room_id.clone(),
-            user_id: auth_user.user_id,
-            event_type: "m.room.redaction".to_string(),
-            content,
-            state_key: None,
-            origin_server_ts: now,
-        })
+        .create_event(
+            CreateEventParams {
+                event_id: new_event_id.clone(),
+                room_id: room_id.clone(),
+                user_id: auth_user.user_id,
+                event_type: "m.room.redaction".to_string(),
+                content,
+                state_key: None,
+                origin_server_ts: now,
+            },
+            None,
+        )
         .await
         .map_err(|e| ApiError::internal(format!("Failed to redact event: {}", e)))?;
 
@@ -2039,13 +2123,13 @@ async fn kick_user(
         .get("user_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
-    
+
     validate_user_id(target)?;
 
     let reason = body.get("reason").and_then(|v| v.as_str());
     if let Some(r) = reason {
         if r.len() > 512 {
-             return Err(ApiError::bad_request("Reason too long".to_string()));
+            return Err(ApiError::bad_request("Reason too long".to_string()));
         }
     }
 
@@ -2065,18 +2149,25 @@ async fn kick_user(
     state
         .services
         .event_storage
-        .create_event(CreateEventParams {
-            event_id,
-            room_id: room_id.clone(),
-            user_id: auth_user.user_id,
-            event_type: "m.room.member".to_string(),
-            content,
-            state_key: Some(target.to_string()),
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
-        })
+        .create_event(
+            CreateEventParams {
+                event_id,
+                room_id: room_id.clone(),
+                user_id: auth_user.user_id,
+                event_type: "m.room.member".to_string(),
+                content,
+                state_key: Some(target.to_string()),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            },
+            None,
+        )
         .await
         .map_err(|e| {
-            ::tracing::warn!("Failed to create membership event for room {}: {}", room_id, e);
+            ::tracing::warn!(
+                "Failed to create membership event for room {}: {}",
+                room_id,
+                e
+            );
         })
         .ok();
 
@@ -2101,7 +2192,7 @@ async fn ban_user(
     let reason = body.get("reason").and_then(|v| v.as_str());
     if let Some(r) = reason {
         if r.len() > 512 {
-             return Err(ApiError::bad_request("Reason too long".to_string()));
+            return Err(ApiError::bad_request("Reason too long".to_string()));
         }
     }
 
@@ -2114,25 +2205,32 @@ async fn ban_user(
     state
         .services
         .member_storage
-        .add_member(&room_id, target, "ban", None, None)
+        .add_member(&room_id, target, "ban", None, None, None)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to ban user: {}", e)))?;
 
     state
         .services
         .event_storage
-        .create_event(CreateEventParams {
-            event_id,
-            room_id: room_id.clone(),
-            user_id: auth_user.user_id,
-            event_type: "m.room.member".to_string(),
-            content,
-            state_key: Some(target.to_string()),
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
-        })
+        .create_event(
+            CreateEventParams {
+                event_id,
+                room_id: room_id.clone(),
+                user_id: auth_user.user_id,
+                event_type: "m.room.member".to_string(),
+                content,
+                state_key: Some(target.to_string()),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            },
+            None,
+        )
         .await
         .map_err(|e| {
-            ::tracing::warn!("Failed to create membership event for room {}: {}", room_id, e);
+            ::tracing::warn!(
+                "Failed to create membership event for room {}: {}",
+                room_id,
+                e
+            );
         })
         .ok();
 
@@ -2169,18 +2267,25 @@ async fn unban_user(
     state
         .services
         .event_storage
-        .create_event(CreateEventParams {
-            event_id,
-            room_id: room_id.clone(),
-            user_id: auth_user.user_id,
-            event_type: "m.room.member".to_string(),
-            content,
-            state_key: Some(target.to_string()),
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
-        })
+        .create_event(
+            CreateEventParams {
+                event_id,
+                room_id: room_id.clone(),
+                user_id: auth_user.user_id,
+                event_type: "m.room.member".to_string(),
+                content,
+                state_key: Some(target.to_string()),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            },
+            None,
+        )
         .await
         .map_err(|e| {
-            ::tracing::warn!("Failed to create membership event for room {}: {}", room_id, e);
+            ::tracing::warn!(
+                "Failed to create membership event for room {}: {}",
+                room_id,
+                e
+            );
         })
         .ok();
 

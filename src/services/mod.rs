@@ -430,7 +430,6 @@ impl PresenceStorage {
 
 pub mod admin_registration_service;
 pub mod database_initializer;
-pub mod friend_room_service;
 pub mod media_service;
 pub mod moderation_service;
 pub mod registration_service;
@@ -441,7 +440,6 @@ pub mod voice_service;
 
 pub use admin_registration_service::*;
 pub use database_initializer::*;
-pub use friend_room_service::*;
 pub use media_service::*;
 pub use moderation_service::*;
 pub use registration_service::*;

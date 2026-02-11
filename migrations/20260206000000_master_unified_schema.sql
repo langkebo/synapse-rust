@@ -563,14 +563,20 @@ CREATE INDEX IF NOT EXISTS idx_voice_user_created ON voice_messages(user_id, cre
 CREATE TABLE IF NOT EXISTS voice_usage_stats (
     id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL,
+    room_id VARCHAR(255),
     date DATE NOT NULL,
+    period_start DATE,
+    period_end DATE,
     message_count INTEGER DEFAULT 0,
     total_duration_ms BIGINT DEFAULT 0,
     total_file_size BIGINT DEFAULT 0,
+    last_activity_ts BIGINT,
+    last_active_ts BIGINT,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-    UNIQUE (user_id, date)
+    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE SET NULL,
+    UNIQUE (user_id, room_id, date)
 );
 
 -- 语音使用统计索引

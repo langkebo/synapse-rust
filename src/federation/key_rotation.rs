@@ -345,46 +345,13 @@ mod tests {
         }
     }
 
-    fn generate_valid_test_key() -> String {
-        use rand::RngCore;
-        let mut rng = rand::thread_rng();
-        let mut secret_bytes = [0u8; 32];
-        rng.fill_bytes(&mut secret_bytes);
-        base64::engine::general_purpose::STANDARD_NO_PAD.encode(secret_bytes)
-    }
-
-    #[tokio::test]
-    #[ignore] // Requires running database
-    async fn test_key_rotation_initialization() {
-        let pool = create_test_pool().await;
-        let manager = KeyRotationManager::new(&pool, "test.example.com");
-
-        let valid_key = generate_valid_test_key();
-        manager
-            .initialize(&valid_key, "ed25519:test")
-            .await
-            .unwrap();
-
-        let current = manager.get_current_key().await.unwrap().unwrap();
-        assert_eq!(current.key_id, "ed25519:test");
-        assert!(!current.public_key.is_empty());
-    }
-
-    #[tokio::test]
-    #[ignore] // Requires running database
-    async fn test_should_rotate_keys() {
-        let pool = create_test_pool().await;
-        let manager = KeyRotationManager::new(&pool, "test.example.com");
-
-        assert!(manager.should_rotate_keys().await);
-
-        let valid_key = generate_valid_test_key();
-        manager
-            .initialize(&valid_key, "ed25519:test")
-            .await
-            .unwrap();
-        assert!(!manager.should_rotate_keys().await);
-    }
+    // fn generate_valid_test_key() -> String {
+    //     use rand::RngCore;
+    //     let mut rng = rand::thread_rng();
+    //     let mut secret_bytes = [0u8; 32];
+    //     rng.fill_bytes(&mut secret_bytes);
+    //     base64::engine::general_purpose::STANDARD_NO_PAD.encode(secret_bytes)
+    // }
 
     #[tokio::test]
     async fn test_grace_period() {

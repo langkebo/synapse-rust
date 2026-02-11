@@ -1,6 +1,6 @@
-#[cfg(test)]
+#![cfg(test)]
 
-    use serde_json::json;
+use serde_json::json;
     use sqlx::{Pool, Postgres};
     use std::sync::Arc;
     use tokio::runtime::Runtime;

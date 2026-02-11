@@ -54,12 +54,12 @@ CREATE INDEX IF NOT EXISTS idx_devices_display_name ON devices(user_id, display_
 -- Critical index for token validation
 -- Used by: every authenticated request
 CREATE INDEX IF NOT EXISTS idx_access_tokens_valid ON access_tokens(token, invalidated)
-    WHERE invalidated = FALSE AND (expired_ts IS NULL OR expired_ts > EXTRACT(EPOCH FROM NOW()) * 1000);
+    WHERE invalidated = FALSE AND (expires_ts IS NULL OR expires_ts > (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT);
 
 -- Index for cleaning up expired tokens
 -- Used by: maintenance jobs
-CREATE INDEX IF NOT EXISTS idx_access_tokens_expired ON access_tokens(expired_ts)
-    WHERE expired_ts IS NOT NULL AND expired_ts < EXTRACT(EPOCH FROM NOW()) * 1000;
+CREATE INDEX IF NOT EXISTS idx_access_tokens_expired ON access_tokens(expires_ts)
+    WHERE expires_ts IS NOT NULL AND expires_ts < (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT;
 
 -- Index for user's active tokens
 -- Used by: session management
@@ -73,7 +73,7 @@ CREATE INDEX IF NOT EXISTS idx_access_tokens_user_valid ON access_tokens(user_id
 -- Index for refresh token lookup
 -- Used by: token refresh flow
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_valid ON refresh_tokens(token, invalidated)
-    WHERE invalidated = FALSE AND (expired_ts IS NULL OR expired_ts > EXTRACT(EPOCH FROM NOW()) * 1000);
+    WHERE invalidated = FALSE AND (expires_ts IS NULL OR expires_ts > (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT);
 
 -- Index for user's refresh tokens
 -- Used by: token rotation, logout all devices
@@ -86,22 +86,19 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_device ON refresh_tokens(user
 -- Index for public room discovery
 -- Used by: public room directory
 CREATE INDEX IF NOT EXISTS idx_rooms_public ON rooms(is_public, creation_ts DESC)
-    WHERE is_public = TRUE AND deleted_ts IS NULL;
+    WHERE is_public = TRUE;
 
 -- Index for room creator queries
 -- Used by: admin operations, room ownership verification
-CREATE INDEX IF NOT EXISTS idx_rooms_creator ON rooms(creator, creation_ts DESC)
-    WHERE deleted_ts IS NULL;
+CREATE INDEX IF NOT EXISTS idx_rooms_creator ON rooms(creator, creation_ts DESC);
 
 -- Index for room visibility filtering
 -- Used by: room search, directory
-CREATE INDEX IF NOT EXISTS idx_rooms_visibility ON rooms(visibility, is_public)
-    WHERE deleted_ts IS NULL;
+CREATE INDEX IF NOT EXISTS idx_rooms_visibility ON rooms(visibility, is_public);
 
 -- Index for spotlight/featured rooms
 -- Used by: home page featured rooms
-CREATE INDEX IF NOT EXISTS idx_rooms_spotlight ON rooms(is_spotlight, creation_ts DESC)
-    WHERE is_spotlight = TRUE AND deleted_ts IS NULL;
+-- (Skipped: column is_spotlight not present in current schema)
 
 -- ====================================================================
 -- ROOM MEMBERSHIPS INDEXES
@@ -215,13 +212,11 @@ CREATE INDEX IF NOT EXISTS idx_device_keys_algorithm ON device_keys(user_id, alg
 
 -- Index for room's voice messages
 -- Used by: voice message history
-CREATE INDEX IF NOT EXISTS idx_voice_messages_room ON voice_messages(room_id, created_ts DESC)
-    WHERE deleted IS NULL OR deleted = FALSE;
+CREATE INDEX IF NOT EXISTS idx_voice_messages_room ON voice_messages(room_id, created_ts DESC);
 
 -- Index for user's voice messages
 -- Used by: user's voice history
-CREATE INDEX IF NOT EXISTS idx_voice_messages_sender ON voice_messages(sender_id, created_ts DESC)
-    WHERE deleted IS NULL OR deleted = FALSE;
+CREATE INDEX IF NOT EXISTS idx_voice_messages_sender ON voice_messages(sender_id, created_ts DESC);
 
 -- ====================================================================
 -- IP BLOCKS INDEXES
@@ -229,13 +224,13 @@ CREATE INDEX IF NOT EXISTS idx_voice_messages_sender ON voice_messages(sender_id
 
 -- Index for active IP blocks
 -- Used by: IP blocking checks (every request)
-CREATE INDEX IF NOT EXISTS idx_ip_blocks_active ON ip_blocks(ip_address, blocked_until)
-    WHERE blocked_until IS NULL OR blocked_until > NOW();
+CREATE INDEX IF NOT EXISTS idx_ip_blocks_active ON ip_blocks(ip_range, expires_ts)
+    WHERE expires_ts IS NULL OR expires_ts > (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT;
 
 -- Index for expired blocks cleanup
 -- Used by: maintenance jobs
-CREATE INDEX IF NOT EXISTS idx_ip_blocks_expires ON ip_blocks(blocked_until)
-    WHERE blocked_until IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ip_blocks_expires ON ip_blocks(expires_ts)
+    WHERE expires_ts IS NOT NULL AND expires_ts <= (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT;
 
 -- ====================================================================
 -- SECURITY EVENTS INDEXES
@@ -243,16 +238,16 @@ CREATE INDEX IF NOT EXISTS idx_ip_blocks_expires ON ip_blocks(blocked_until)
 
 -- Index for recent security events
 -- Used by: security dashboard
-CREATE INDEX IF NOT EXISTS idx_security_events_recent ON security_events(event_type, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_security_events_recent ON security_events(event_type, created_at DESC);
 
 -- Index for user's security events
 -- Used by: user security audit
-CREATE INDEX IF NOT EXISTS idx_security_events_user ON security_events(user_id, timestamp DESC)
+CREATE INDEX IF NOT EXISTS idx_security_events_user ON security_events(user_id, created_at DESC)
     WHERE user_id IS NOT NULL;
 
 -- Index for IP-based security events
 -- Used by: IP security analysis
-CREATE INDEX IF NOT EXISTS idx_security_events_ip ON security_events(ip_address, timestamp DESC)
+CREATE INDEX IF NOT EXISTS idx_security_events_ip ON security_events(ip_address, created_at DESC)
     WHERE ip_address IS NOT NULL;
 
 -- ====================================================================
@@ -274,11 +269,10 @@ CREATE INDEX IF NOT EXISTS idx_perf_stats_recent ON synapse_performance_stats(ti
 
 -- Index for non-deleted content
 -- Useful for any table with soft deletes
-CREATE INDEX IF NOT EXISTS idx_rooms_not_deleted ON rooms(room_id, deleted_ts)
-    WHERE deleted_ts IS NULL;
+-- (Skipped: rooms.deleted_ts not present)
 
 -- Index for active sessions
-CREATE INDEX IF NOT EXISTS idx_access_tokens_active ON access_tokens(user_id, expired_ts)
+CREATE INDEX IF NOT EXISTS idx_access_tokens_active ON access_tokens(user_id, expires_ts)
     WHERE invalidated = FALSE;
 
 -- ====================================================================

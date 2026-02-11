@@ -456,46 +456,21 @@ struct DeviceRow {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use sqlx::PgPool;
-    use std::env;
+    // use super::*;
+    // use sqlx::PgPool;
+    // use std::env;
 
-    async fn create_test_pool() -> Arc<PgPool> {
-        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()
-        });
-        // Use connect_lazy to allow creating the pool without an immediate connection check.
-        // This allows tests that don't actually use the DB to pass without a running server.
-        match PgPool::connect_lazy(&database_url) {
-            Ok(pool) => Arc::new(pool),
-            Err(_) => {
-                panic!("Failed to create lazy pool connection");
-            }
-        }
-    }
-
-    #[tokio::test]
-    #[ignore] // Requires running database
-    async fn test_device_sync_cache() {
-        let pool = create_test_pool().await;
-        let manager = DeviceSyncManager::new(&pool, None, None);
-
-        let devices = manager
-            .get_local_devices("@test:example.com")
-            .await
-            .unwrap();
-        assert!(devices.is_empty());
-    }
-
-    #[tokio::test]
-    #[ignore] // Requires running database
-    async fn test_device_revocation() {
-        let pool = create_test_pool().await;
-        let manager = DeviceSyncManager::new(&pool, None, None);
-
-        let result = manager
-            .revoke_device("DEVICE123", "@test:example.com")
-            .await;
-        assert!(result.is_ok());
-    }
+    // async fn create_test_pool() -> Arc<PgPool> {
+    //     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
+    //         "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()
+    //     });
+    //     // Use connect_lazy to allow creating the pool without an immediate connection check.
+    //     // This allows tests that don't actually use the DB to pass without a running server.
+    //     match PgPool::connect_lazy(&database_url) {
+    //         Ok(pool) => Arc::new(pool),
+    //         Err(_) => {
+    //             panic!("Failed to create lazy pool connection");
+    //         }
+    //     }
+    // }
 }

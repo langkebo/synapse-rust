@@ -524,6 +524,27 @@ impl ValidationContext {
 mod tests {
     use super::*;
 
+    #[cfg(test)]
+    mod property_tests {
+        use super::*;
+        use quickcheck_macros::quickcheck;
+
+        #[quickcheck]
+        fn test_validate_limit_property(limit: i64) -> bool {
+            let validator = Validator::new().unwrap();
+            let min = 10;
+            let max = 100;
+            
+            let result = validator.validate_limit(limit, min, max);
+            
+            if limit >= min && limit <= max {
+                result.is_ok()
+            } else {
+                result.is_err()
+            }
+        }
+    }
+
     #[test]
     fn test_validate_username_valid() {
         let validator = Validator::new().unwrap();

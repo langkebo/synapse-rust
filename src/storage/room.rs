@@ -75,51 +75,58 @@ impl RoomStorage {
         join_rule: &str,
         version: &str,
         is_public: bool,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<Room, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        sqlx::query(
-            r#"
+        
+        let query = r#"
             INSERT INTO rooms (room_id, creator, join_rule, version, is_public, member_count, history_visibility, creation_ts, last_activity_ts)
             VALUES ($1, $2, $3, $4, $5, 1, 'joined', $6, $7)
-            "#,
-        )
-        .bind(room_id)
-        .bind(creator)
-        .bind(join_rule)
-        .bind(version)
-        .bind(is_public)
-        .bind(now)
-        .bind(now)
-        .execute(&*self.pool)
-        .await?;
-        let row = sqlx::query_as::<_, RoomRecord>(
-            r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rule, creator, version,
-                   encryption, is_public, member_count, history_visibility, creation_ts
-            FROM rooms WHERE room_id = $1
-            "#,
-        )
-        .bind(room_id)
-        .fetch_one(&*self.pool)
-        .await?;
+            "#;
+
+        if let Some(tx) = tx {
+            sqlx::query(query)
+                .bind(room_id)
+                .bind(creator)
+                .bind(join_rule)
+                .bind(version)
+                .bind(is_public)
+                .bind(now)
+                .bind(now)
+                .execute(&mut **tx)
+                .await?;
+        } else {
+            sqlx::query(query)
+                .bind(room_id)
+                .bind(creator)
+                .bind(join_rule)
+                .bind(version)
+                .bind(is_public)
+                .bind(now)
+                .bind(now)
+                .execute(&*self.pool)
+                .await?;
+        }
+
+        // Fetch back the room record. Note: if inside a transaction, we must use the transaction to read it back
+        // to see the uncommitted changes, unless read isolation allows otherwise.
+        // But sqlx transaction reuse is tricky for select if we want to return the object.
+        // For simplicity, we construct the Room object manually since we know what we inserted.
+        
         Ok(Room {
-            room_id: row.room_id,
-            name: row.name,
-            topic: row.topic,
-            avatar_url: row.avatar_url,
-            canonical_alias: row.canonical_alias,
-            join_rule: row
-                .join_rule
-                .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
-            creator: row.creator,
-            version: row.version.unwrap_or_else(|| "1".to_string()),
-            encryption: row.encryption,
-            is_public: row.is_public.unwrap_or(false),
-            member_count: row.member_count.unwrap_or(0) as i64,
-            history_visibility: row
-                .history_visibility
-                .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
-            creation_ts: row.creation_ts,
+            room_id: room_id.to_string(),
+            name: None,
+            topic: None,
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: join_rule.to_string(),
+            creator: creator.to_string(),
+            version: version.to_string(),
+            encryption: None,
+            is_public,
+            member_count: 1,
+            history_visibility: DEFAULT_HISTORY_VISIBILITY.to_string(),
+            creation_ts: now,
         })
     }
 

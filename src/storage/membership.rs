@@ -47,13 +47,13 @@ impl RoomMemberStorage {
         membership: &str,
         display_name: Option<&str>,
         join_reason: Option<&str>,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomMember, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let event_id = format!("${}", generate_event_id(&self.server_name));
         let sender = user_id;
 
-        sqlx::query_as::<_, RoomMember>(
-            r#"
+        let query = r#"
             INSERT INTO room_memberships (room_id, user_id, sender, membership, event_id, event_type, display_name, join_reason, updated_ts, joined_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (room_id, user_id) DO UPDATE SET
@@ -62,20 +62,37 @@ impl RoomMemberStorage {
                 join_reason = EXCLUDED.join_reason,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
-            "#,
-        )
-        .bind(room_id)
-        .bind(user_id)
-        .bind(sender)
-        .bind(membership)
-        .bind(event_id)
-        .bind("m.room.member")
-        .bind(display_name)
-        .bind(join_reason)
-        .bind(now)
-        .bind(now)
-        .fetch_one(&*self.pool)
-        .await
+            "#;
+
+        if let Some(tx) = tx {
+             sqlx::query_as::<_, RoomMember>(query)
+                .bind(room_id)
+                .bind(user_id)
+                .bind(sender)
+                .bind(membership)
+                .bind(event_id)
+                .bind("m.room.member")
+                .bind(display_name)
+                .bind(join_reason)
+                .bind(now)
+                .bind(now)
+                .fetch_one(&mut **tx)
+                .await
+        } else {
+             sqlx::query_as::<_, RoomMember>(query)
+                .bind(room_id)
+                .bind(user_id)
+                .bind(sender)
+                .bind(membership)
+                .bind(event_id)
+                .bind("m.room.member")
+                .bind(display_name)
+                .bind(join_reason)
+                .bind(now)
+                .bind(now)
+                .fetch_one(&*self.pool)
+                .await
+        }
     }
 
     pub async fn get_member(

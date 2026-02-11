@@ -57,11 +57,17 @@ jobs:
         run: |
           export DATABASE_URL=postgres://synapse:synapse_password@localhost:5432/synapse_test
           sqlx migrate run
-      - name: Run Tests
+      - name: Run Unit Tests
         run: |
           export DATABASE_URL=postgres://synapse:synapse_password@localhost:5432/synapse_test
           export RUST_TEST_THREADS=1
-          cargo test --verbose
+          cargo test --lib --verbose
+
+      - name: Run Integration Tests
+        run: |
+          export DATABASE_URL=postgres://synapse:synapse_password@localhost:5432/synapse_test
+          export RUST_TEST_THREADS=1
+          cargo test --test integration --verbose
 
   lint:
     name: Linting

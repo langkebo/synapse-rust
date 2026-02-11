@@ -119,23 +119,6 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route(
             "/_matrix/federation/v2/user/keys/query",
             post(user_keys_query),
-        )
-        // Friend federation endpoints
-        .route(
-            "/_matrix/federation/v1/friends/query/{user_id}",
-            get(friend_query),
-        )
-        .route(
-            "/_matrix/federation/v1/friends/relationship/{user_id}/{friend_id}",
-            get(friend_relationship_query),
-        )
-        .route(
-            "/_matrix/federation/v1/friends/request",
-            post(friend_request),
-        )
-        .route(
-            "/_matrix/federation/v1/friends/accept/{request_id}",
-            post(friend_request_accept),
         );
 
     let protected = protected.layer(middleware::from_fn_with_state(
@@ -225,7 +208,7 @@ async fn knock_room(
     state
         .services
         .event_storage
-        .create_event(params)
+        .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create knock event: {}", e)))?;
 
@@ -279,7 +262,7 @@ async fn thirdparty_invite(
     state
         .services
         .event_storage
-        .create_event(params)
+        .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create invite event: {}", e)))?;
 
@@ -451,7 +434,7 @@ async fn invite_v2(
     state
         .services
         .event_storage
-        .create_event(params)
+        .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create invite event: {}", e)))?;
 
@@ -514,7 +497,7 @@ async fn send_transaction(
             origin_server_ts,
         };
 
-        match state.services.event_storage.create_event(params).await {
+        match state.services.event_storage.create_event(params, None).await {
             Ok(_) => {
                 results.push(json!({
                     "event_id": event_id,
@@ -648,7 +631,7 @@ async fn send_join(
     state
         .services
         .event_storage
-        .create_event(params)
+        .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to persist join event: {}", e)))?;
 
@@ -656,7 +639,7 @@ async fn send_join(
     state
         .services
         .member_storage
-        .add_member(&room_id, user_id, "join", display_name, None)
+        .add_member(&room_id, user_id, "join", display_name, None, None)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to update membership: {}", e)))?;
 
@@ -703,7 +686,7 @@ async fn send_leave(
     state
         .services
         .event_storage
-        .create_event(params)
+        .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to persist leave event: {}", e)))?;
 
@@ -711,7 +694,7 @@ async fn send_leave(
     state
         .services
         .member_storage
-        .add_member(&room_id, user_id, "leave", None, None)
+        .add_member(&room_id, user_id, "leave", None, None, None)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to update membership: {}", e)))?;
 
@@ -1249,162 +1232,4 @@ async fn user_keys_query(
     Ok(Json(json!({
         "device_keys": {}
     })))
-}
-
-// ==============================================================================
-// Friend Federation Handlers
-// ==============================================================================
-
-/// Query a user's friend list
-///
-/// GET /_matrix/federation/v1/friends/query/{user_id}
-/// Returns the friend list for a user, primarily used for cross-server friend discovery.
-async fn friend_query(
-    State(state): State<AppState>,
-    Path(user_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    ::tracing::info!("Processing friend query for user: {}", user_id);
-
-    use crate::federation::friend::friend_queries::FriendFederationQueries;
-
-    let queries = FriendFederationQueries::new(
-        &state.services.user_storage.pool,
-        state.services.server_name.clone(),
-    );
-
-    let response = queries
-        .query_friend_list(&user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Friend query failed: {}", e)))?;
-
-    Ok(Json(json!(response)))
-}
-
-/// Query friend relationship between two users
-///
-/// GET /_matrix/federation/v1/friends/relationship/{user_id}/{friend_id}
-/// Verifies if two users have a friend relationship.
-async fn friend_relationship_query(
-    State(state): State<AppState>,
-    Path((user_id, friend_id)): Path<(String, String)>,
-) -> Result<Json<Value>, ApiError> {
-    ::tracing::info!(
-        "Processing friend relationship query: {} -> {}",
-        user_id,
-        friend_id
-    );
-
-    use crate::federation::friend::friend_queries::FriendFederationQueries;
-
-    let queries = FriendFederationQueries::new(
-        &state.services.user_storage.pool,
-        state.services.server_name.clone(),
-    );
-
-    let response = queries
-        .verify_friend_relationship(&user_id, &friend_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Relationship query failed: {}", e)))?;
-
-    Ok(Json(json!(response)))
-}
-
-/// Handle incoming friend request from another server
-///
-/// POST /_matrix/federation/v1/friends/request
-/// Processes a friend request from a remote user to a local user.
-async fn friend_request(
-    State(state): State<AppState>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    ::tracing::info!("Processing incoming friend request");
-
-    use crate::federation::friend::friend_federation::{FriendFederation, IncomingFriendRequest};
-
-    // Parse the request
-    let sender_id = body
-        .get("sender_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing sender_id".to_string()))?;
-
-    let recipient_id = body
-        .get("recipient_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing recipient_id".to_string()))?;
-
-    let message = body.get("message").and_then(|v| v.as_str());
-
-    let request = IncomingFriendRequest {
-        sender_id: sender_id.to_string(),
-        recipient_id: recipient_id.to_string(),
-        message: message.map(|s| s.to_string()),
-        request_ts: body.get("request_ts").and_then(|v| v.as_i64()),
-    };
-
-    let friend_room_service = crate::services::friend_room_service::FriendRoomService::new(
-        &state.services.user_storage.pool,
-        state.services.registration_service.clone(),
-        state.services.user_storage.clone(),
-        state.services.server_name.clone(),
-    );
-
-    let federation = FriendFederation::new(
-        &state.services.user_storage.pool,
-        state.services.server_name.clone(),
-        friend_room_service,
-    );
-
-    let response = federation
-        .handle_incoming_friend_request(request)
-        .await?;
-
-    Ok(Json(json!(response)))
-}
-
-/// Handle acceptance of a friend request from a remote server
-///
-/// POST /_matrix/federation/v1/friends/accept/{request_id}
-/// Processes acceptance of a friend request from a local user to a remote user.
-async fn friend_request_accept(
-    State(state): State<AppState>,
-    Path(request_id): Path<String>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    ::tracing::info!("Processing friend request acceptance: {}", request_id);
-
-    use crate::federation::friend::friend_federation::FriendFederation;
-
-    let request_id_i64: i64 = request_id
-        .parse()
-        .map_err(|_| ApiError::bad_request("Invalid request ID".to_string()))?;
-
-    let local_user_id = body
-        .get("local_user_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing local_user_id".to_string()))?;
-
-    let remote_user_id = body
-        .get("remote_user_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing remote_user_id".to_string()))?;
-
-    let friend_room_service = crate::services::friend_room_service::FriendRoomService::new(
-        &state.services.user_storage.pool,
-        state.services.registration_service.clone(),
-        state.services.user_storage.clone(),
-        state.services.server_name.clone(),
-    );
-
-    let federation = FriendFederation::new(
-        &state.services.user_storage.pool,
-        state.services.server_name.clone(),
-        friend_room_service,
-    );
-
-    let dm_info = federation
-        .handle_remote_request_acceptance(request_id_i64, local_user_id, remote_user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to accept request: {}", e)))?;
-
-    Ok(Json(json!(dm_info)))
 }

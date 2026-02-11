@@ -1,6 +1,6 @@
-#[cfg(test)]
+#![cfg(test)]
 
-    use serde_json::json;
+use serde_json::json;
     use sqlx::{Pool, Postgres};
     use std::sync::Arc;
     use tokio::runtime::Runtime;
@@ -164,6 +164,31 @@
         .execute(pool)
         .await
         .expect("Failed to create test user");
+    }
+
+    #[test]
+    fn test_room_service_creation() {
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = match setup_test_database().await {
+                Some(pool) => Arc::new(pool),
+                None => return,
+            };
+            
+            let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+            let room_service = RoomService::new(
+                RoomStorage::new(&pool),
+                RoomMemberStorage::new(&pool, "localhost"),
+                EventStorage::new(&pool),
+                UserStorage::new(&pool, cache.clone()),
+                Arc::new(Validator::default()),
+                "localhost".to_string(),
+                None,
+            );
+            
+            // Just verify we can create the service and it has the right server name
+            assert_eq!(room_service.server_name, "localhost");
+        });
     }
 
     #[test]

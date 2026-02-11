@@ -1,6 +1,6 @@
-#[cfg(test)]
+#![cfg(test)]
 
-    use std::fs;
+use std::fs;
     use tempfile::tempdir;
     use tokio::runtime::Runtime;
 

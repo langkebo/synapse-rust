@@ -5,7 +5,6 @@ use tokio::sync::RwLock;
 pub mod device;
 pub mod email_verification;
 pub mod event;
-pub mod friend_room;
 pub mod maintenance;
 pub mod membership;
 pub mod monitoring;

@@ -49,5 +49,9 @@
     },
     "search.exclude": {
         "**/target": true
-    }
+    },
+    "cSpell.words": [
+        "displayname",
+        "unban"
+    ]
 }

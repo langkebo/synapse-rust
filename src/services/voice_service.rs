@@ -8,24 +8,29 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
 
-type VoiceMessageRow = (
-    i64,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    String,
-    String,
-    Option<i64>,
-    Option<i64>,
-    Option<sqlx::types::Json<serde_json::Value>>,
-    i64,
-    Option<String>,
-    Option<bool>,
-    Option<i64>,
-    Option<String>,
-    Option<sqlx::types::Json<serde_json::Value>>,
-);
+#[derive(Debug, sqlx::FromRow)]
+struct VoiceMessageDBRow {
+    id: i64,
+    message_id: String,
+    user_id: String,
+    room_id: Option<String>,
+    session_id: Option<String>,
+    file_path: String,
+    content_type: String,
+    duration_ms: Option<i32>, // Changed to i32 to match schema/usage
+    file_size: Option<i64>,
+    waveform_data: Option<sqlx::types::Json<serde_json::Value>>,
+    created_ts: i64,
+    transcribe_text: Option<String>,
+    #[allow(dead_code)]
+    processed: Option<bool>,
+    #[allow(dead_code)]
+    processed_ts: Option<i64>,
+    #[allow(dead_code)]
+    mime_type: Option<String>,
+    #[allow(dead_code)]
+    encryption: Option<sqlx::types::Json<serde_json::Value>>,
+}
 
 #[derive(Debug, Clone)]
 pub struct VoiceMessageSaveParams {
@@ -91,11 +96,18 @@ impl VoiceStorage {
             CREATE TABLE IF NOT EXISTS voice_usage_stats (
                 id BIGSERIAL PRIMARY KEY,
                 user_id VARCHAR(255) NOT NULL,
+                room_id VARCHAR(255),
                 date DATE NOT NULL,
+                period_start TIMESTAMP,
+                period_end TIMESTAMP,
                 total_duration_ms BIGINT DEFAULT 0,
                 total_file_size BIGINT DEFAULT 0,
-                message_count INT DEFAULT 0,
-                UNIQUE(user_id, date)
+                message_count BIGINT DEFAULT 0,
+                last_activity_ts BIGINT,
+                last_active_ts BIGINT,
+                created_ts BIGINT,
+                updated_ts BIGINT,
+                UNIQUE(user_id, room_id, period_start)
             )
             "#,
         )
@@ -146,7 +158,7 @@ impl VoiceStorage {
         &self,
         message_id: &str,
     ) -> Result<Option<VoiceMessageInfo>, sqlx::Error> {
-        let result: Option<VoiceMessageRow> = sqlx::query_as(
+        let result: Option<VoiceMessageDBRow> = sqlx::query_as(
             r#"
             SELECT id, message_id, user_id, room_id, session_id, file_path, 
                    content_type, duration_ms, file_size, waveform_data,
@@ -160,18 +172,18 @@ impl VoiceStorage {
         .await?;
 
         Ok(result.map(|r| VoiceMessageInfo {
-            id: r.0,
-            message_id: r.1,
-            user_id: r.2,
-            room_id: r.3,
-            session_id: r.4,
-            file_path: r.5,
-            content_type: r.6,
-            duration_ms: r.7.unwrap_or(0) as i32,
-            file_size: r.8.unwrap_or(0),
-            waveform_data: r.9.map(|w| w.0),
-            transcribe_text: r.11,
-            created_ts: r.10,
+            id: r.id,
+            message_id: r.message_id,
+            user_id: r.user_id,
+            room_id: r.room_id,
+            session_id: r.session_id,
+            file_path: r.file_path,
+            content_type: r.content_type,
+            duration_ms: r.duration_ms.unwrap_or(0),
+            file_size: r.file_size.unwrap_or(0),
+            waveform_data: r.waveform_data.map(|w| w.0),
+            transcribe_text: r.transcribe_text,
+            created_ts: r.created_ts,
         }))
     }
 
@@ -181,7 +193,7 @@ impl VoiceStorage {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<VoiceMessageInfo>, sqlx::Error> {
-        let rows: Vec<VoiceMessageRow> = sqlx::query_as(
+        let rows: Vec<VoiceMessageDBRow> = sqlx::query_as(
             r#"
             SELECT id, message_id, user_id, room_id, session_id, file_path, 
                    content_type, duration_ms, file_size, waveform_data,
@@ -200,18 +212,18 @@ impl VoiceStorage {
         Ok(rows
             .iter()
             .map(|r| VoiceMessageInfo {
-                id: r.0,
-                message_id: r.1.clone(),
-                user_id: r.2.clone(),
-                room_id: r.3.clone(),
-                session_id: r.4.clone(),
-                file_path: r.5.clone(),
-                content_type: r.6.clone(),
-                duration_ms: r.7.unwrap_or(0) as i32,
-                file_size: r.8.unwrap_or(0),
-                waveform_data: r.9.clone().map(|w| w.0),
-                transcribe_text: r.11.clone(),
-                created_ts: r.10,
+                id: r.id,
+                message_id: r.message_id.clone(),
+                user_id: r.user_id.clone(),
+                room_id: r.room_id.clone(),
+                session_id: r.session_id.clone(),
+                file_path: r.file_path.clone(),
+                content_type: r.content_type.clone(),
+                duration_ms: r.duration_ms.unwrap_or(0),
+                file_size: r.file_size.unwrap_or(0),
+                waveform_data: r.waveform_data.clone().map(|w| w.0),
+                transcribe_text: r.transcribe_text.clone(),
+                created_ts: r.created_ts,
             })
             .collect())
     }
@@ -254,7 +266,7 @@ impl VoiceStorage {
         room_id: &str,
         limit: i64,
     ) -> Result<Vec<VoiceMessageInfo>, sqlx::Error> {
-        let rows: Vec<VoiceMessageRow> = sqlx::query_as(
+        let rows: Vec<VoiceMessageDBRow> = sqlx::query_as(
             r#"
             SELECT id, message_id, user_id, room_id, session_id, file_path, 
                    content_type, duration_ms, file_size, waveform_data,
@@ -272,18 +284,18 @@ impl VoiceStorage {
         Ok(rows
             .iter()
             .map(|r| VoiceMessageInfo {
-                id: r.0,
-                message_id: r.1.clone(),
-                user_id: r.2.clone(),
-                room_id: r.3.clone(),
-                session_id: r.4.clone(),
-                file_path: r.5.clone(),
-                content_type: r.6.clone(),
-                duration_ms: r.7.unwrap_or(0) as i32,
-                file_size: r.8.unwrap_or(0),
-                waveform_data: r.9.clone().map(|w| w.0),
-                transcribe_text: r.11.clone(),
-                created_ts: r.10,
+                id: r.id,
+                message_id: r.message_id.clone(),
+                user_id: r.user_id.clone(),
+                room_id: r.room_id.clone(),
+                session_id: r.session_id.clone(),
+                file_path: r.file_path.clone(),
+                content_type: r.content_type.clone(),
+                duration_ms: r.duration_ms.unwrap_or(0),
+                file_size: r.file_size.unwrap_or(0),
+                waveform_data: r.waveform_data.clone().map(|w| w.0),
+                transcribe_text: r.transcribe_text.clone(),
+                created_ts: r.created_ts,
             })
             .collect())
     }
@@ -325,18 +337,27 @@ impl VoiceStorage {
 
         tokio::spawn(async move {
             let list_cache_key = format!("voice_stats:{}", user_id);
-            let _ = cache.delete(&list_cache_key).await;
+            // Ignore delete error as it's cache invalidation
+            cache.delete(&list_cache_key).await;
 
             // Use Redis Hash for today's stats (Fast write)
             let daily_key = format!("voice_stats_daily:{}:{}", user_id, today_str);
-            let _ = cache
-                .hincrby(&daily_key, "total_duration_ms", duration_delta)
-                .await;
-            let _ = cache
-                .hincrby(&daily_key, "total_file_size", size_delta)
-                .await;
-            let _ = cache.hincrby(&daily_key, "message_count", 1).await;
-            let _ = cache.expire(&daily_key, 86400 * 2).await; // 2 days TTL
+            
+            // Execute updates with basic error logging
+            // We don't abort on one failure to try to keep stats as consistent as possible
+            if let Err(e) = cache.hincrby(&daily_key, "total_duration_ms", duration_delta).await {
+                ::tracing::error!("Failed to update total_duration_ms in Redis for {}: {}", daily_key, e);
+            }
+            
+            if let Err(e) = cache.hincrby(&daily_key, "total_file_size", size_delta).await {
+                 ::tracing::error!("Failed to update total_file_size in Redis for {}: {}", daily_key, e);
+            }
+            
+            if let Err(e) = cache.hincrby(&daily_key, "message_count", 1).await {
+                 ::tracing::error!("Failed to update message_count in Redis for {}: {}", daily_key, e);
+            }
+            
+            cache.expire(&daily_key, 86400 * 2).await;
         });
 
         Ok(())
@@ -498,10 +519,44 @@ impl VoiceService {
         &self,
         params: VoiceMessageUploadParams,
     ) -> ApiResult<serde_json::Value> {
+        // Validate content type whitelist
+        let allowed_types = [
+            "audio/ogg", "audio/mp4", "audio/mpeg", "audio/webm", "audio/wav", "audio/aac", "audio/flac"
+        ];
+        
+        // Simple check if it starts with any of the allowed types (to handle parameters like ; codecs=...)
+        if !allowed_types.iter().any(|t| params.content_type.starts_with(t)) {
+             return Err(ApiError::bad_request(format!(
+                "Unsupported audio content type: {}. Allowed: {:?}", 
+                params.content_type, allowed_types
+            )));
+        }
+
+        // Validate content size (e.g. max 50MB)
+        const MAX_SIZE: usize = 50 * 1024 * 1024;
+        if params.content.len() > MAX_SIZE {
+             return Err(ApiError::bad_request(format!(
+                "Voice message too large: {} bytes (max {} bytes)", 
+                params.content.len(), MAX_SIZE
+            )));
+        }
+
         let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
         let message_id = format!("vm_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
         let extension = self.get_extension_from_content_type(&params.content_type);
+        
+        // Ensure message_id contains only safe characters (it's a UUID hex string, so safe by definition, but good practice)
+        if !message_id.chars().all(|c| c.is_alphanumeric() || c == '_') {
+             return Err(ApiError::internal("Generated invalid message ID".to_string()));
+        }
+
         let file_name = format!("{}.{}", message_id, extension);
+        
+        // Path traversal check (redundant since we generated the filename, but critical for security reviews)
+        if file_name.contains("..") || file_name.contains("/") || file_name.contains("\\") {
+             return Err(ApiError::internal("Security check failed: Invalid file name generated".to_string()));
+        }
+
         let file_path = self.voice_path.join(&file_name);
 
         ::tracing::info!("Voice path: {:?}", self.voice_path);

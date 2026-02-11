@@ -1,6 +1,6 @@
-#[cfg(test)]
+#![cfg(test)]
 
-    use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres};
     use std::sync::Arc;
     use synapse_rust::auth::AuthService;
     use synapse_rust::cache::{CacheConfig, CacheManager};

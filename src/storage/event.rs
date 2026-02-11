@@ -26,7 +26,7 @@ pub struct StateEvent {
     pub event_type: String,
     pub content: serde_json::Value,
     pub state_key: Option<String>,
-    pub unsigned: serde_json::Value,
+    pub unsigned: Option<serde_json::Value>,
     pub redacted: Option<bool>,
     pub origin_server_ts: i64,
     pub depth: Option<i64>,
@@ -59,29 +59,43 @@ impl EventStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_event(&self, params: CreateEventParams) -> Result<RoomEvent, sqlx::Error> {
+    pub async fn create_event(&self, params: CreateEventParams, tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>) -> Result<RoomEvent, sqlx::Error> {
         let processed_ts = chrono::Utc::now().timestamp_millis();
-        let event = sqlx::query_as(
-            r#"
-            INSERT INTO events (event_id, room_id, user_id, sender, event_type, content, state_key, origin_server_ts, processed_ts)
-            VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8)
+        
+        let query = r#"
+            INSERT INTO events (event_id, room_id, user_id, sender, event_type, content, state_key, origin_server_ts, processed_ts, unsigned)
+            VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, '{}')
             RETURNING event_id, room_id, user_id, event_type, content, state_key, 
                       COALESCE(depth, 0) as depth, origin_server_ts, processed_ts, 
                       COALESCE(not_before, 0) as not_before, status, reference_image, 
                       COALESCE(origin, 'self') as origin
-            "#,
-        )
-        .bind(&params.event_id)
-        .bind(&params.room_id)
-        .bind(&params.user_id)
-        .bind(&params.event_type)
-        .bind(&params.content)
-        .bind(params.state_key.as_deref())
-        .bind(params.origin_server_ts)
-        .bind(processed_ts)
-        .fetch_one(&*self.pool)
-        .await?;
-        Ok(event)
+            "#;
+
+        if let Some(tx) = tx {
+            sqlx::query_as(query)
+                .bind(&params.event_id)
+                .bind(&params.room_id)
+                .bind(&params.user_id)
+                .bind(&params.event_type)
+                .bind(&params.content)
+                .bind(params.state_key.as_deref())
+                .bind(params.origin_server_ts)
+                .bind(processed_ts)
+                .fetch_one(&mut **tx)
+                .await
+        } else {
+            sqlx::query_as(query)
+                .bind(&params.event_id)
+                .bind(&params.room_id)
+                .bind(&params.user_id)
+                .bind(&params.event_type)
+                .bind(&params.content)
+                .bind(params.state_key.as_deref())
+                .bind(params.origin_server_ts)
+                .bind(processed_ts)
+                .fetch_one(&*self.pool)
+                .await
+        }
     }
 
     pub async fn get_event(&self, event_id: &str) -> Result<Option<RoomEvent>, sqlx::Error> {

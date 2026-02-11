@@ -77,12 +77,21 @@ END $$;
 -- MARKER FOR COMPLETED MIGRATION
 -- ==============================================================================
 
--- Insert a marker record to track migration completion
-INSERT INTO migrations (name, executed_at)
-VALUES ('friends_to_rooms_migration_completed', NOW())
-ON CONFLICT (name) DO UPDATE SET executed_at = NOW();
+-- Record completion in db_metadata (no separate migrations table)
+DO $$
+BEGIN
+    INSERT INTO db_metadata (key, value, updated_ts)
+    VALUES (
+        'friends_to_rooms_migration_completed',
+        'true',
+        (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+    )
+    ON CONFLICT (key) DO UPDATE
+    SET value = 'true',
+        updated_ts = (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT;
 
-RAISE NOTICE '✓ Migration marker inserted';
+    RAISE NOTICE '✓ Migration completion recorded in db_metadata';
+END $$;
 
 -- ==============================================================================
 -- POST-CLEANUP VALIDATION

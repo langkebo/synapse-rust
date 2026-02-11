@@ -314,39 +314,35 @@ impl EventAuthChain {
         conflicts
     }
 
-    pub fn calculate_event_depth_with_cache(
+    pub async fn calculate_event_depth_with_cache(
         &self,
         events: &[EventInfo],
         event_id: &str,
     ) -> Option<i64> {
         let cache_key = format!("depth:{}", event_id);
-        let rt = tokio::runtime::Handle::current();
-        if let Some(cached) = rt.block_on(async { self.get_cached_depth(&cache_key).await }) {
+        
+        if let Some(cached) = self.get_cached_depth(&cache_key).await {
             return Some(cached);
         }
 
         let depth_map = self.calculate_event_depth(events);
 
         if let Some(&depth) = depth_map.get(event_id) {
-            rt.block_on(async {
-                self.cache_depth(&cache_key, depth).await;
-            });
+            self.cache_depth(&cache_key, depth).await;
             Some(depth)
         } else {
             None
         }
     }
 
-    pub fn build_auth_chain_with_cache(
+    pub async fn build_auth_chain_with_cache(
         &self,
         events: &HashMap<String, EventData>,
         event_id: &str,
     ) -> Vec<String> {
         let cache_key = format!("auth_chain:{}", event_id);
-        let rt = tokio::runtime::Handle::current();
 
-        let cached_result: Option<bool> =
-            rt.block_on(async { self.get_cached_auth_chain(&cache_key).await });
+        let cached_result: Option<bool> = self.get_cached_auth_chain(&cache_key).await;
 
         if cached_result.is_some() {
             tracing::debug!("Auth chain cache hit for {}", event_id);
@@ -354,10 +350,8 @@ impl EventAuthChain {
 
         let result = self.build_auth_chain_from_events(events, event_id);
 
-        rt.block_on(async {
-            self.cache_auth_chain_result(&cache_key, !result.is_empty())
-                .await;
-        });
+        self.cache_auth_chain_result(&cache_key, !result.is_empty())
+            .await;
 
         result
     }

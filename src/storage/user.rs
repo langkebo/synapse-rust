@@ -5,39 +5,62 @@ use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+/// Represents a user entity in the database.
 pub struct User {
+    /// The unique Matrix user ID (e.g., @user:example.com)
     pub user_id: String,
+    /// The local username part
     pub username: String,
+    /// The hashed password
     pub password_hash: Option<String>,
+    /// The display name of the user
     pub displayname: Option<String>,
+    /// The URL of the user's avatar
     pub avatar_url: Option<String>,
+    /// Whether the user is an admin
     pub is_admin: Option<bool>,
+    /// Whether the user account is deactivated
     pub deactivated: Option<bool>,
+    /// Whether the user is a guest
     pub is_guest: Option<bool>,
+    /// The version of the terms of service consented to
     pub consent_version: Option<String>,
+    /// The ID of the appservice that created this user
     pub appservice_id: Option<String>,
+    /// The type of user (e.g., bot, support)
     pub user_type: Option<String>,
+    /// Whether the user is shadow banned
     pub shadow_banned: Option<bool>,
+    /// The generation ID for this user record
     pub generation: i64,
+    /// Timestamp when the user data was invalidated
     pub invalid_update_ts: Option<i64>,
+    /// The state of migration for this user
     pub migration_state: Option<String>,
+    /// The timestamp when the user was created (milliseconds)
     pub creation_ts: i64,
+    /// The timestamp when the user was last updated (milliseconds)
     pub updated_ts: Option<i64>,
 }
 
 impl User {
+    /// Returns the user ID.
     pub fn user_id(&self) -> String {
         self.user_id.clone()
     }
 }
 
 #[derive(Clone)]
+/// Handles database operations for user management.
 pub struct UserStorage {
+    /// The database connection pool
     pub pool: Arc<Pool<Postgres>>,
+    /// The cache manager
     pub cache: Arc<CacheManager>,
 }
 
 impl UserStorage {
+    /// Creates a new `UserStorage` instance.
     pub fn new(pool: &Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> Self {
         Self {
             pool: pool.clone(),
@@ -45,6 +68,18 @@ impl UserStorage {
         }
     }
 
+    /// Creates a new user in the database.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The full Matrix user ID
+    /// * `username` - The local username part
+    /// * `password_hash` - The hashed password (optional)
+    /// * `is_admin` - Whether the user should be an admin
+    ///
+    /// # Returns
+    ///
+    /// The created `User` object.
     pub async fn create_user(
         &self,
         user_id: &str,

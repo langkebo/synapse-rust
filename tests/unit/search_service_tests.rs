@@ -1,6 +1,6 @@
-#[cfg(test)]
+#![cfg(test)]
 
-    use synapse_rust::common::ApiError;
+use synapse_rust::common::ApiError;
     use synapse_rust::services::search_service::SearchService;
     use tokio::runtime::Runtime;
 
