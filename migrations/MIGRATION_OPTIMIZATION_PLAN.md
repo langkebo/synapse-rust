@@ -28,16 +28,17 @@
 
 ## 优化方案
 
-### 优化后的文件 (6个)
+### 优化后的文件 (7个)
 
 ```
 migrations/
-├── 20260206000000_master_unified_schema.sql     # 主Schema（完整表定义）
-├── 20260206000002_add_e2ee_constraints.sql       # E2EE外键修复（仅ALTER）
-├── 20260206000003_alter_voice_messages.sql       # 语音消息修复（仅ALTER）
-├── 20260206000004_alter_voice_usage_stats.sql     # 语音统计修复
-├── 20260208000002_drop_private_chat_tables.sql   # 删除私聊旧表
-├── 20260209100000_add_performance_indexes.sql     # 性能索引
+├── 20260206000000_master_unified_schema.sql         # 主Schema（完整表定义）
+├── 20260206000002_add_e2ee_constraints.sql           # E2EE外键修复（仅ALTER）
+├── 20260206000003_alter_voice_messages.sql           # 语音消息修复（仅ALTER）
+├── 20260206000004_alter_voice_usage_stats.sql         # 语音统计修复
+├── 20260208000002_drop_private_chat_tables.sql       # 删除私聊旧表
+├── 20260209100000_add_performance_indexes.sql         # 性能索引
+├── 20260211000001_migrate_friends_to_rooms.sql       # 迁移好友到房间（新增）
 ```
 
 ### 需要删除的文件 (5个)
@@ -73,6 +74,8 @@ rm migrations/20260209110000_fix_schema_consistency.sql  # 合并到master或创
 20260208000002 (删除私聊表)
     ↓
 20260209100000 (性能索引)
+    ↓
+20260211000001 (好友系统迁移到房间)
 ```
 
 ## 执行步骤

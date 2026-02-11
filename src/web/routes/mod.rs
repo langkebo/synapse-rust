@@ -2,6 +2,7 @@ pub mod admin;
 pub mod e2ee_routes;
 pub mod federation;
 pub mod friend;
+pub mod friend_room;
 pub mod key_backup;
 pub mod media;
 pub mod voice;
