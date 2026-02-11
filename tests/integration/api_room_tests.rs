@@ -5,14 +5,136 @@ use axum::{
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::ServiceContainer;
+use synapse_rust::common::config::{
+    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, FederationConfig,
+    RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig,
+    WorkerConfig,
+};
+use synapse_rust::services::{DatabaseInitService, ServiceContainer};
 use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> axum::Router {
-    let container = ServiceContainer::new_test();
+    // First, initialize the database to ensure all tables exist
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
+    let pool = match sqlx::PgPool::connect(&database_url).await {
+        Ok(p) => Arc::new(p),
+        Err(e) => {
+            panic!("Failed to connect to test database: {}", e);
+        }
+    };
+
+    let init_service = DatabaseInitService::new(pool.clone());
+    if let Err(e) = init_service.initialize().await {
+        panic!("Database initialization failed: {}", e);
+    }
+
+    // Manually ensure missing columns exist (in case init failed silently)
+    let columns = vec![
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS consent_version TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS appservice_id TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS user_type TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS shadow_banned BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS migration_state TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_ts BIGINT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS invalid_update_ts BIGINT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 1",
+    ];
+    for sql in columns {
+        let _ = sqlx::query(sql).execute(&*pool).await;
+    }
+
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+
+    // Create a test config similar to new_test()
+    let config = Config {
+        server: ServerConfig {
+            name: "localhost".to_string(),
+            host: "0.0.0.0".to_string(),
+            port: 8008,
+            public_baseurl: None,
+            signing_key_path: None,
+            macaroon_secret_key: None,
+            form_secret: None,
+            server_name: None,
+            suppress_key_server_warning: false,
+            registration_shared_secret: None,
+            admin_contact: None,
+            max_upload_size: 1000000,
+            max_image_resolution: 1000000,
+            enable_registration: true,
+            enable_registration_captcha: false,
+            background_tasks_interval: 60,
+            expire_access_token: true,
+            expire_access_token_lifetime: 3600,
+            refresh_token_lifetime: 604800,
+            refresh_token_sliding_window_size: 1000,
+            session_duration: 86400,
+            warmup_pool: true,
+        },
+        database: DatabaseConfig {
+            host: "localhost".to_string(),
+            port: 5432,
+            username: "synapse".to_string(),
+            password: "synapse".to_string(),
+            name: "synapse".to_string(),
+            pool_size: 10,
+            max_size: 20,
+            min_idle: Some(5),
+            connection_timeout: 30,
+        },
+        redis: RedisConfig {
+            host: "localhost".to_string(),
+            port: 6379,
+            key_prefix: "test:".to_string(),
+            pool_size: 10,
+            enabled: false,
+        },
+        logging: synapse_rust::common::config::LoggingConfig {
+            level: "info".to_string(),
+            format: "json".to_string(),
+            log_file: None,
+            log_dir: None,
+        },
+        federation: FederationConfig {
+            enabled: true,
+            allow_ingress: false,
+            server_name: "test.example.com".to_string(),
+            federation_port: 8448,
+            connection_pool_size: 10,
+            max_transaction_payload: 50000,
+            ca_file: None,
+            client_ca_file: None,
+            signing_key: None,
+            key_id: None,
+        },
+        security: SecurityConfig {
+            secret: "test_secret".to_string(),
+            expiry_time: 3600,
+            refresh_token_expiry: 604800,
+            argon2_m_cost: 2048,
+            argon2_t_cost: 1,
+            argon2_p_cost: 1,
+        },
+        search: SearchConfig {
+            elasticsearch_url: "http://localhost:9200".to_string(),
+            enabled: false,
+        },
+        rate_limit: RateLimitConfig::default(),
+        admin_registration: AdminRegistrationConfig {
+            enabled: true,
+            shared_secret: "test_shared_secret".to_string(),
+            nonce_timeout_seconds: 60,
+        },
+        worker: WorkerConfig::default(),
+        cors: CorsConfig::default(),
+        smtp: SmtpConfig::default(),
+    };
+
+    let container = ServiceContainer::new(&pool, cache.clone(), config, None);
     let state = AppState::new(container, cache);
     create_router(state)
 }

@@ -128,6 +128,14 @@ impl DatabaseInitService {
             }
         }
 
+        match self.step_ensure_additional_tables().await {
+            Ok(msg) => report.steps.push(msg),
+            Err(e) => {
+                report.success = false;
+                report.errors.push(format!("附加表检查失败: {}", e));
+            }
+        }
+
         let should_skip_validation = self.check_cache_valid().await?;
         if should_skip_validation {
             debug!("数据库初始化缓存有效，跳过详细验证");
@@ -307,6 +315,30 @@ impl DatabaseInitService {
         .await?;
 
         Ok("E2EE设备密钥表创建完成".to_string())
+    }
+
+    async fn step_ensure_additional_tables(&self) -> Result<String, sqlx::Error> {
+        // Ensure typing table exists
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS typing (
+                user_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                typing BOOLEAN DEFAULT FALSE,
+                last_active_ts BIGINT NOT NULL,
+                UNIQUE (user_id, room_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure is_guest column exists in users table
+        sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN DEFAULT FALSE")
+            .execute(&*self.pool)
+            .await?;
+
+        Ok("附加表和列检查完成".to_string())
     }
 }
 

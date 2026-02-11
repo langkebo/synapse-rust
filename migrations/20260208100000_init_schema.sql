@@ -390,3 +390,14 @@ CREATE TABLE IF NOT EXISTS database_health_history (
     details JSONB,
     checked_at BIGINT NOT NULL
 );
+
+-- Typing table
+CREATE TABLE IF NOT EXISTS typing (
+    user_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    typing BOOLEAN DEFAULT FALSE,
+    last_active_ts BIGINT NOT NULL,
+    UNIQUE (user_id, room_id),
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
+);

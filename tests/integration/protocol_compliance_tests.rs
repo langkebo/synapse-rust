@@ -25,6 +25,29 @@ mod protocol_compliance_tests {
             }
         };
 
+        // Run database initialization to ensure all tables exist
+        let init_service = synapse_rust::services::DatabaseInitService::new(std::sync::Arc::new(pool.clone()));
+        if let Err(e) = init_service.initialize().await {
+            eprintln!("Database initialization failed: {}", e);
+        }
+
+        // Manually ensure typing table exists (in case init failed silently)
+        let _ = sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS typing (
+                user_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                typing BOOLEAN DEFAULT FALSE,
+                last_active_ts BIGINT NOT NULL,
+                UNIQUE (user_id, room_id)
+            )
+            "#,
+        ).execute(&pool).await;
+
+        // Manually ensure is_guest column exists
+        let _ = sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN DEFAULT FALSE")
+            .execute(&pool).await;
+
         // Clean up any existing test data to avoid conflicts
         sqlx::query("DELETE FROM read_markers WHERE user_id LIKE '@%:localhost'")
             .execute(&pool).await.ok();
@@ -39,8 +62,6 @@ mod protocol_compliance_tests {
         sqlx::query("DELETE FROM users WHERE user_id LIKE '@%:localhost'")
             .execute(&pool).await.ok();
 
-        // The synapse_test database should already have the full schema from migrations
-        // We don't need to create tables, just use existing ones
         Some(pool)
     }
 
