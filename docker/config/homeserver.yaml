@@ -29,16 +29,16 @@ database:
   username: "synapse"
   password: "synapse"
   name: "synapse_test"
-  pool_size: 20
-  max_size: 40
-  min_idle: 10
+  pool_size: 10
+  max_size: 20
+  min_idle: 5
   connection_timeout: 30
 
 redis:
   host: "redis"
   port: 6379
   key_prefix: "synapse:cjystx.top:"
-  pool_size: 20
+  pool_size: 10
   enabled: true
 
 logging:
@@ -52,7 +52,7 @@ federation:
   allow_ingress: true
   server_name: "cjystx.top"
   federation_port: 8448
-  connection_pool_size: 10
+  connection_pool_size: 5
   max_transaction_payload: 50000
   signing_key: "5XVPWT8O/DyaXT17qJpUnEO5aRl1Cmevojx0+8uPYV8="
   key_id: "ed25519:testkb1OUw"
@@ -63,9 +63,9 @@ security:
   secret: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
   expiry_time: 3600
   refresh_token_expiry: 604800
-  argon2_m_cost: 8192
+  argon2_m_cost: 4096
   argon2_t_cost: 3
-  argon2_p_cost: 2
+  argon2_p_cost: 1
 
 search:
   elasticsearch_url: "http://localhost:9200"
