@@ -62,6 +62,7 @@ impl ErrorContext for ApiError {
             ApiError::Unauthorized(_)
             | ApiError::Forbidden(_)
             | ApiError::NotFound(_)
+            | ApiError::Gone(_)
             | ApiError::Conflict(_)
             | ApiError::RateLimited => ErrorLayer::BusinessLogic,
             ApiError::Internal(_)
@@ -83,7 +84,7 @@ impl ErrorContext for ApiError {
             ApiError::Unauthorized(_) | ApiError::Forbidden(_) | ApiError::RateLimited => {
                 ErrorSeverity::High
             }
-            ApiError::NotFound(_) | ApiError::Conflict(_) | ApiError::Validation(_) => {
+            ApiError::Gone(_) | ApiError::NotFound(_) | ApiError::Conflict(_) | ApiError::Validation(_) => {
                 ErrorSeverity::Medium
             }
             ApiError::BadRequest(_) | ApiError::InvalidInput(_) => ErrorSeverity::Low,
@@ -100,6 +101,7 @@ impl ErrorContext for ApiError {
             ApiError::Unauthorized(msg) => msg.clone(),
             ApiError::Forbidden(msg) => msg.clone(),
             ApiError::NotFound(msg) => msg.clone(),
+            ApiError::Gone(msg) => msg.clone(),
             ApiError::Conflict(msg) => msg.clone(),
             ApiError::RateLimited => "Too many requests. Please try again later.".to_string(),
             ApiError::Internal(_) => {

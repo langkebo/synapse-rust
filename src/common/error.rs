@@ -4,6 +4,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use thiserror::Error;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -107,6 +108,9 @@ pub enum ApiError {
 
     #[error("Crypto error: {0}")]
     Crypto(String),
+
+    #[error("Gone: {0}")]
+    Gone(String),
 }
 
 impl ApiError {
@@ -142,6 +146,10 @@ impl ApiError {
         Self::Cache(message.into())
     }
 
+    pub fn gone(message: impl Into<String>) -> Self {
+        Self::Gone(message.into())
+    }
+
     pub fn authentication(message: impl Into<String>) -> Self {
         Self::Authentication(message.into())
     }
@@ -175,6 +183,7 @@ impl ApiError {
             ApiError::DecryptionError(_) => "M_DECRYPTION_FAILED",
             ApiError::EncryptionError(_) => "M_ENCRYPTION_FAILED",
             ApiError::Crypto(_) => "M_CRYPTO_ERROR",
+            ApiError::Gone(_) => "M_GONE",
         }
     }
 
@@ -195,15 +204,25 @@ impl ApiError {
             ApiError::DecryptionError(msg) => msg.clone(),
             ApiError::EncryptionError(msg) => msg.clone(),
             ApiError::Crypto(msg) => msg.clone(),
+            ApiError::Gone(msg) => msg.clone(),
         }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        // For Gone errors, we want to return the JSON directly with 410 status
+        // Parse the message as JSON if it's a JSON string
+        if matches!(self, ApiError::Gone(_)) {
+            let status_code = StatusCode::GONE;
+            return (status_code, Json(serde_json::from_str::<serde_json::Value>(&self.message()).unwrap_or_else(|_| {
+                json!({"error": "Gone", "message": self.message()})
+            }))).into_response();
+        }
+
         let errcode = self.code().to_string();
         let error_msg = self.message();
-        
+
         // Use the new ApiResponse structure for consistent error responses
         let response = ApiResponse::<()>::error(error_msg, errcode);
         response.into_response()
