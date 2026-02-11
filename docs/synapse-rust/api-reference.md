@@ -6,634 +6,390 @@
 
 ### 服务器信息
 - **服务器地址**: `http://localhost:8008`
-- **测试域名**: `cjystx.top`
-- **文档版本**: 2.18
-- **最后更新**: 2026-02-08
+- **版本**: 0.1.0
+- **文档版本**: 3.0
+- **最后更新**: 2026-02-11
 
 ### API 分类
 - 核心客户端 API: 用户认证、房间管理、消息操作等
 - 管理员 API: 服务器管理、用户管理、房间管理等
 - 联邦 API: 服务器间通信
-- 增强 API: 自定义功能（好友系统、私聊增强等）
-
-> **官方文档**: [Element Synapse Documentation](https://element-hq.github.io/synapse/latest/)
-
----
-
-## 2. 测试数据
-
-> **重要提示**: 所有测试数据已验证可用。Token 需要从服务器动态获取。
-
-### 2.1 测试用户
-
-| 用户名 | 密码 | UserID | 用途 |
-|--------|------|--------|------|
-| testuser1 | TestUser123! | @testuser1:cjystx.top | 主要测试用户 |
-| testuser2 | TestUser123! | @testuser2:cjystx.top | 好友功能测试 |
-| testuser3 | TestUser123! | @testuser3:cjystx.top | 房间操作测试 |
-| testuser4 | TestUser123! | @testuser4:cjystx.top | 联邦API测试 |
-| testuser5 | TestUser123! | @testuser5:cjystx.top | 设备管理测试 |
-| testuser6 | TestUser123! | @testuser6:cjystx.top | 媒体文件测试 |
-
-### 2.2 测试房间
-
-| 房间名称 | 房间ID | 用途 |
-|----------|--------|------|
-| 核心功能测试房间 | !S1G22nzHWJW6yPmh9mMROB3y:cjystx.top | 测试房间创建、消息发送、状态事件等 |
-| 好友测试房间 | !EW-kKDLCGAwNsABC7ILNgW-Y:cjystx.top | 测试好友关系、私聊功能 |
-| 联邦测试房间 | !CZCjidUUpt1hSxCtiRwrdtIu:cjystx.top | 测试联邦API端点 |
-| 设备测试房间 | !NzYF8372_NPlNBmzJrjJX5gV:cjystx.top | 测试设备管理、密钥交换 |
-| 公共测试房间 | !zssB-Il0YHxhox8j7JPlCHxf:cjystx.top | 测试公共房间API、房间目录 |
-
-### 2.3 获取 Access Token
-
-```bash
-# 登录获取 Token
-curl -X POST http://localhost:8008/_matrix/client/r0/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "m.login.password",
-    "user": "testuser1",
-    "password": "TestUser123!"
-  }'
-
-# 响应示例
-{
-  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUz...",
-  "refresh_token": "refresh_token_value",
-  "device_id": "DEVICE_ID",
-  "user_id": "@testuser1:cjystx.top"
-}
-```
+- 好友系统 API: 基于 Matrix 房间的好友管理 (新)
+- 端到端加密 API: E2EE 相关功能
+- 媒体文件 API: 媒体上传下载
+- 语音消息 API: 语音消息处理
+- 密钥备份 API: 密钥备份管理
 
 ---
 
-## 3. 核心客户端 API
+## 2. 核心客户端 API
 
-### 3.1 健康检查与版本 ✅
+### 2.1 健康检查与版本
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 1 | `/health` | GET | 服务健康检查 | ✅ 已测试 |
-| 2 | `/_matrix/client/versions` | GET | 获取客户端 API 版本 | ✅ 已测试 |
-| 3 | `/_matrix/client/r0/version` | GET | 获取服务端版本 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 1 | `/` | GET | 服务器欢迎信息 |
+| 2 | `/health` | GET | 服务健康检查 |
+| 3 | `/_matrix/client/versions` | GET | 获取客户端 API 版本 |
+| 4 | `/_matrix/client/r0/version` | GET | 获取服务端版本 |
 
-### 3.2 用户注册与认证 ✅
+### 2.2 用户注册与认证
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 4 | `/_matrix/client/r0/register/available` | GET | 检查用户名可用性 | ✅ 已测试 |
-| 5 | `/_matrix/client/r0/register/email/requestToken` | POST | 请求邮箱验证 | ⚠️ 已知限制 (#009) |
-| 6 | `/_matrix/client/r0/register/email/submitToken` | POST | 提交邮箱验证 Token | ✅ 已测试 |
-| 7 | `/_matrix/client/r0/register` | POST | 用户注册 | ✅ 已测试 |
-| 8 | `/_matrix/client/r0/login` | POST | 用户登录 | ✅ 已测试 |
-| 9 | `/_matrix/client/r0/logout` | POST | 退出登录 | ✅ 已测试 |
-| 10 | `/_matrix/client/r0/logout/all` | POST | 退出所有设备 | ✅ 已测试 |
-| 11 | `/_matrix/client/r0/refresh` | POST | 刷新令牌 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 5 | `/_matrix/client/r0/register/available` | GET | 检查用户名可用性 |
+| 6 | `/_matrix/client/r0/register/email/requestToken` | POST | 请求邮箱验证 |
+| 7 | `/_matrix/client/r0/register/email/submitToken` | POST | 提交邮箱验证 Token |
+| 8 | `/_matrix/client/r0/register` | POST | 用户注册 |
+| 9 | `/_matrix/client/r0/login` | POST | 用户登录 |
+| 10 | `/_matrix/client/r0/logout` | POST | 退出登录 |
+| 11 | `/_matrix/client/r0/logout/all` | POST | 退出所有设备 |
+| 12 | `/_matrix/client/r0/refresh` | POST | 刷新令牌 |
 
-### 3.3 账户管理 ✅
+### 2.3 账户管理
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 12 | `/_matrix/client/r0/account/whoami` | GET | 获取当前用户信息 | ✅ 已测试 |
-| 13 | `/_matrix/client/r0/account/deactivate` | POST | 停用账户 | ✅ 已测试 |
-| 14 | `/_matrix/client/r0/account/password` | POST | 修改密码 | ✅ 已测试 |
-| 15 | `/_matrix/client/r0/account/profile/{user_id}` | GET | 获取用户资料 | ✅ 已测试 |
-| 16 | `/_matrix/client/r0/account/profile/{user_id}/displayname` | PUT | 更新显示名称 | ✅ 已测试 |
-| 17 | `/_matrix/client/r0/account/profile/{user_id}/avatar_url` | PUT | 更新头像 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 13 | `/_matrix/client/r0/account/whoami` | GET | 获取当前用户信息 |
+| 14 | `/_matrix/client/r0/account/deactivate` | POST | 停用账户 |
+| 15 | `/_matrix/client/r0/account/password` | POST | 修改密码 |
+| 16 | `/_matrix/client/r0/account/profile/{user_id}` | GET | 获取用户资料 |
+| 17 | `/_matrix/client/r0/account/profile/{user_id}/displayname` | PUT | 更新显示名称 |
+| 18 | `/_matrix/client/r0/account/profile/{user_id}/avatar_url` | PUT | 更新头像 |
 
-### 3.4 用户目录 ✅
+### 2.4 用户目录
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 18 | `/_matrix/client/r0/user_directory/search` | POST | 搜索用户 | ✅ 已测试 |
-| 19 | `/_matrix/client/r0/user_directory/list` | POST | 获取用户列表 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 19 | `/_matrix/client/r0/user_directory/search` | POST | 搜索用户 |
+| 20 | `/_matrix/client/r0/user_directory/list` | POST | 获取用户列表 |
 
-### 3.5 设备管理 ✅
+### 2.5 设备管理
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 20 | `/_matrix/client/r0/devices` | GET | 获取设备列表 | ✅ 已测试 |
-| 21 | `/_matrix/client/r0/devices/{device_id}` | GET | 获取设备信息 | ✅ 已测试 |
-| 22 | `/_matrix/client/r0/devices/{device_id}` | PUT | 更新设备 | ✅ 已测试 |
-| 23 | `/_matrix/client/r0/devices/{device_id}` | DELETE | 删除设备 | ✅ 已测试 |
-| 24 | `/_matrix/client/r0/delete_devices` | POST | 批量删除设备 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 21 | `/_matrix/client/r0/devices` | GET | 获取设备列表 |
+| 22 | `/_matrix/client/r0/devices/{device_id}` | GET | 获取设备信息 |
+| 23 | `/_matrix/client/r0/devices/{device_id}` | PUT | 更新设备 |
+| 24 | `/_matrix/client/r0/devices/{device_id}` | DELETE | 删除设备 |
+| 25 | `/_matrix/client/r0/delete_devices` | POST | 批量删除设备 |
 
-### 3.6 在线状态 ✅
+### 2.6 在线状态
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 25 | `/_matrix/client/r0/presence/{user_id}/status` | GET | 获取在线状态 | ✅ 已测试 |
-| 26 | `/_matrix/client/r0/presence/{user_id}/status` | PUT | 设置在线状态 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 26 | `/_matrix/client/r0/presence/{user_id}/status` | GET | 获取在线状态 |
+| 27 | `/_matrix/client/r0/presence/{user_id}/status` | PUT | 设置在线状态 |
 
-### 3.7 同步与状态 ✅
+### 2.7 同步与状态
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 27 | `/_matrix/client/r0/sync` | GET | 同步数据 | ✅ 已测试 |
-| 28 | `/_matrix/client/r0/rooms/{room_id}/typing/{user_id}` | PUT | 设置打字状态 | ✅ 已测试 |
-| 29 | `/_matrix/client/r0/rooms/{room_id}/receipt/{receipt_type}/{event_id}` | POST | 发送已读回执 | ✅ 已测试 |
-| 30 | `/_matrix/client/r0/rooms/{room_id}/read_markers` | POST | 设置已读标记 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 28 | `/_matrix/client/r0/sync` | GET | 同步数据 |
+| 29 | `/_matrix/client/r0/rooms/{room_id}/typing/{user_id}` | PUT | 设置打字状态 |
+| 30 | `/_matrix/client/r0/rooms/{room_id}/receipt/{receipt_type}/{event_id}` | POST | 发送已读回执 |
+| 31 | `/_matrix/client/r0/rooms/{room_id}/read_markers` | POST | 设置已读标记 |
 
-### 3.8 房间管理 ✅
+### 2.8 房间管理
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 31 | `/_matrix/client/r0/createRoom` | POST | 创建房间 | ✅ 已测试 |
-| 32 | `/_matrix/client/r0/rooms/{room_id}/join` | POST | 加入房间 | ✅ 已测试 |
-| 33 | `/_matrix/client/r0/rooms/{room_id}/leave` | POST | 离开房间 | ✅ 已测试 |
-| 34 | `/_matrix/client/r0/rooms/{room_id}/kick` | POST | 踢出用户 | ✅ 已测试 |
-| 35 | `/_matrix/client/r0/rooms/{room_id}/ban` | POST | 封禁用户 | ✅ 已测试 |
-| 36 | `/_matrix/client/r0/rooms/{room_id}/unban` | POST | 解除封禁 | ✅ 已测试 |
-| 37 | `/_matrix/client/r0/rooms/{room_id}/invite` | POST | 邀请用户 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 32 | `/_matrix/client/r0/createRoom` | POST | 创建房间 |
+| 33 | `/_matrix/client/r0/rooms/{room_id}/join` | POST | 加入房间 |
+| 34 | `/_matrix/client/r0/rooms/{room_id}/leave` | POST | 离开房间 |
+| 35 | `/_matrix/client/r0/rooms/{room_id}/kick` | POST | 踢出用户 |
+| 36 | `/_matrix/client/r0/rooms/{room_id}/ban` | POST | 封禁用户 |
+| 37 | `/_matrix/client/r0/rooms/{room_id}/unban` | POST | 解除封禁 |
+| 38 | `/_matrix/client/r0/rooms/{room_id}/invite` | POST | 邀请用户 |
 
-### 3.9 房间状态与消息 ✅
+### 2.9 房间状态与消息
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 38 | `/_matrix/client/r0/rooms/{room_id}/state` | GET | 获取房间状态 | ✅ 已测试 |
-| 39 | `/_matrix/client/r0/rooms/{room_id}/state/{event_type}` | GET | 获取特定状态事件 | ✅ 已测试 |
-| 40 | `/_matrix/client/r0/rooms/{room_id}/state/{event_type}` | POST | 设置房间状态 | ✅ 已测试 |
-| 41 | `/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}` | PUT | 发送事件/消息 | ✅ 已测试 |
-| 42 | `/_matrix/client/r0/rooms/{room_id}/messages` | GET | 获取房间消息 | ✅ 已测试 |
-| 43 | `/_matrix/client/r0/rooms/{room_id}/members` | GET | 获取房间成员 | ✅ 已测试 |
-| 44 | `/_matrix/client/r0/rooms/{room_id}/get_membership_events` | POST | 获取成员事件 | ✅ 已测试 |
-| 45 | `/_matrix/client/r0/rooms/{room_id}/redact/{event_id}` | PUT | 删除事件 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 39 | `/_matrix/client/r0/rooms/{room_id}/state` | GET | 获取房间状态 |
+| 40 | `/_matrix/client/r0/rooms/{room_id}/state/{event_type}` | GET | 获取特定状态事件 |
+| 41 | `/_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}` | GET | 获取状态事件 |
+| 42 | `/_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}` | PUT | 设置房间状态 |
+| 43 | `/_matrix/client/r0/rooms/{room_id}/state/{event_type}` | POST | 设置房间状态 |
+| 44 | `/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}` | PUT | 发送事件/消息 |
+| 45 | `/_matrix/client/r0/rooms/{room_id}/messages` | GET | 获取房间消息 |
+| 46 | `/_matrix/client/r0/rooms/{room_id}/members` | GET | 获取房间成员 |
+| 47 | `/_matrix/client/r0/rooms/{room_id}/get_membership_events` | POST | 获取成员事件 |
+| 48 | `/_matrix/client/r0/rooms/{room_id}/redact/{event_id}` | PUT | 删除事件 |
 
-### 3.10 房间目录 ✅
+### 2.10 房间目录
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 46 | `/_matrix/client/r0/directory/room/{room_id}` | GET | 获取房间信息 | ✅ 已测试 |
-| 47 | `/_matrix/client/r0/directory/room/{room_id}` | DELETE | 删除房间目录 | ✅ 已测试 |
-| 48 | `/_matrix/client/r0/directory/room/{param}` | PUT | 创建房间目录 | ✅ 已测试 |
-| 49 | `/_matrix/client/r0/publicRooms` | GET | 获取公共房间列表 | ✅ 已测试 |
-| 50 | `/_matrix/client/r0/publicRooms` | POST | 创建公共房间 | ✅ 已测试 |
-| 51 | `/_matrix/client/r0/directory/room/alias/{room_alias}` | GET | 通过别名获取房间 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 49 | `/_matrix/client/r0/directory/room/{room_id}` | GET | 获取房间信息 |
+| 50 | `/_matrix/client/r0/directory/room/{room_id}` | DELETE | 删除房间目录 |
+| 51 | `/_matrix/client/r0/directory/room/{param}` | GET | 获取房间目录 |
+| 52 | `/_matrix/client/r0/directory/room/{param}` | PUT | 创建房间目录 |
+| 53 | `/_matrix/client/r0/directory/room/{param}` | DELETE | 删除房间目录 |
+| 54 | `/_matrix/client/r0/directory/room/alias/{room_alias}` | GET | 通过别名获取房间 |
+| 55 | `/_matrix/client/r0/directory/room/{room_id}/alias` | GET | 获取房间别名 |
+| 56 | `/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}` | PUT | 设置房间别名 |
+| 57 | `/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}` | DELETE | 删除房间别名 |
+| 58 | `/_matrix/client/r0/publicRooms` | GET | 获取公共房间列表 |
+| 59 | `/_matrix/client/r0/publicRooms` | POST | 创建公共房间 |
 
-### 3.11 事件举报 ✅
+### 2.11 用户房间
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 52 | `/_matrix/client/r0/rooms/{room_id}/report/{event_id}` | POST | 举报事件 | ✅ 已测试 |
-| 53 | `/_matrix/client/r0/rooms/{room_id}/report/{event_id}/score` | PUT | 设置举报分数 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 60 | `/_matrix/client/r0/user/{user_id}/rooms` | GET | 获取用户房间列表 |
 
----
+### 2.12 事件举报
 
-## 4. 管理员 API ✅
-
-> 所有管理员 API 需要管理员认证。测试用户 testuser1 是管理员（JWT 中包含 "admin": true）。
-
-### 4.1 服务器信息 ✅
-
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 1 | `/_synapse/admin/v1/server_version` | GET | 获取服务器版本 | ✅ 已测试 |
-| 2 | `/_synapse/admin/v1/status` | GET | 获取服务器状态 | ✅ 已测试 |
-| 3 | `/_synapse/admin/v1/server_stats` | GET | 获取服务器统计 | ✅ 已测试 |
-| 4 | `/_synapse/admin/v1/config` | GET | 获取服务器配置 | ✅ 已测试 |
-| 5 | `/_synapse/admin/v1/user_stats` | GET | 获取用户统计 | ✅ 已测试 |
-| 6 | `/_synapse/admin/v1/media_stats` | GET | 获取媒体统计 | ✅ 已测试 |
-
-### 4.2 用户管理 ✅
-
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 4 | `/_synapse/admin/v1/users` | GET | 获取用户列表 | ✅ 已测试 |
-| 5 | `/_synapse/admin/v1/users/{user_id}` | GET | 获取用户信息 | ✅ 已测试 |
-| 6 | `/_synapse/admin/v1/users/{user_id}` | DELETE | 删除用户 | ✅ 已测试 |
-| 7 | `/_synapse/admin/v1/users/{user_id}/admin` | PUT | 设置管理员 | ✅ 已测试 |
-| 8 | `/_synapse/admin/v1/users/{user_id}/deactivate` | POST | 停用用户 | ✅ 已测试 |
-| 9 | `/_synapse/admin/v1/users/{user_id}/rooms` | GET | 获取用户房间 | ✅ 已测试 |
-| 10 | `/_synapse/admin/v1/users/{user_id}/password` | POST | 重置用户密码 | ✅ 已测试 |
-| 11 | `/_synapse/admin/v1/register/nonce` | GET | 获取注册 nonce | ✅ 已测试 |
-| 12 | `/_synapse/admin/v1/register` | POST | 管理员注册 | ✅ 已测试 |
-
-### 4.3 房间管理 ✅
-
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 13 | `/_synapse/admin/v1/rooms` | GET | 获取房间列表 | ✅ 已测试 |
-| 14 | `/_synapse/admin/v1/rooms/{room_id}` | GET | 获取房间信息 | ✅ 已测试 |
-| 15 | `/_synapse/admin/v1/rooms/{room_id}` | DELETE | 删除房间 | ✅ 已测试 |
-| 16 | `/_synapse/admin/v1/rooms/{room_id}/delete` | POST | 删除房间（官方API） | ✅ 已测试 |
-| 17 | `/_synapse/admin/v1/purge_history` | POST | 清理历史 | ✅ 已测试 |
-| 18 | `/_synapse/admin/v1/shutdown_room` | POST | 关闭房间 | ✅ 已测试 |
-
-### 4.4 安全相关 ⚠️
-
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 19 | `/_synapse/admin/v1/security/events` | GET | 获取安全事件 | ✅ 已测试 |
-| 20 | `/_synapse/admin/v1/security/ip/blocks` | GET | 获取IP阻止列表 | ✅ 已测试 |
-| 21 | `/_synapse/admin/v1/security/ip/block` | POST | 阻止IP | ❌ 已测试（问题 #010） |
-| 22 | `/_synapse/admin/v1/security/ip/unblock` | POST | 解除IP阻止 | ✅ 已测试 |
-| 23 | `/_synapse/admin/v1/security/ip/reputation/{ip}` | GET | 获取IP信誉 | ✅ 已测试 |
-
-### 4.5 统计与配置 ✅
-
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 24 | `/_synapse/admin/v1/config` | GET | 获取服务器配置 | ✅ 已测试 |
-| 25 | `/_synapse/admin/v1/logs` | GET | 获取服务器日志 | ✅ 已测试 |
-| 26 | `/_synapse/admin/v1/media_stats` | GET | 获取媒体统计 | ✅ 已测试 |
-| 27 | `/_synapse/admin/v1/user_stats` | GET | 获取用户统计 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 61 | `/_matrix/client/r0/rooms/{room_id}/report/{event_id}` | POST | 举报事件 |
+| 62 | `/_matrix/client/r0/rooms/{room_id}/report/{event_id}/score` | PUT | 设置举报分数 |
 
 ---
 
-## API 测试状态总览
+## 3. 管理员 API
 
-| 章节 | 模块名称 | 总API数 | 已测试 | 成功 | 失败 | 需要签名 | 状态 |
-|------|---------|---------|--------|------|------|---------|------|
-| **3** | 核心客户端 API | 53 | **53** | **52** | **0** | **0** | ✅ **全部测试** |
-| **4** | 管理员 API | 27 | **27** | **27** | **0** | **0** | ✅ **全部测试** |
-| **5** | 联邦通信 API | 30 | **10** | **3** | **7** | **20** | 🔶 **部分测试** |
-| **6** | 端到端加密 API | 6 | **5** | **4** | **1** | **0** | ✅ **大部分测试** |
-| **7** | 媒体文件 API | 6 | **4** | **0** | **4** | **0** | 🔶 **部分测试** |
-| **8** | 语音消息 API | 10 | **10** | **6** | **2** | **0** | 🔶 **部分测试** |
-| **9** | 好友系统 API | 13 | **13** | **11** | **2** | **0** | ✅ **大部分测试** |
-| **10** | 密钥备份 API | 7 | **7** | **6** | **1** | **0** | ✅ **大部分测试** |
-| - | **总计** | **152** | **144** | **108** | **17** | **20** | **71.0%** |
+> 所有管理员 API 需要管理员认证。
 
-### 测试统计说明
-- ✅ **全部/大部分测试**: 该章节大部分API已测试并通过
-- 🔶 **部分测试**: 该章节部分API已测试，部分因数据缺失或环境限制失败
-- ❌ **失败**: API 返回错误或服务器异常（已确认非测试方法问题）
-- ⚠️ **需要签名**: API 需要有效的联邦签名认证（单服务器环境无法测试）
+### 3.1 服务器信息
 
-### 测试进度
-- ✅ **已完成**: 3.1-3.11 (核心客户端API - 53个)
-- ✅ **已完成**: 4 (管理员API - 18个新测试)
-- ✅ **已完成**: 5.1 (联邦通信API - 密钥与发现 - 13个)
-- ✅ **已完成**: 5.2 (联邦通信API - 房间操作 - 30个)
-- ✅ **已完成**: 6 (端到端加密API - 5个)
-- ✅ **已完成**: 7 (媒体文件API - 4个)
-- ✅ 已完成: 8 (语音消息API - 5个)
-- ✅ 已完成: 9 (好友系统API - 6个)
-- ✅ 已完成: 11 (密钥备份API - 2个)
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 1 | `/_synapse/admin/v1/server_version` | GET | 获取服务器版本 |
+| 2 | `/_synapse/admin/v1/status` | GET | 获取服务器状态 |
+| 3 | `/_synapse/admin/v1/server_stats` | GET | 获取服务器统计 |
+| 4 | `/_synapse/admin/v1/config` | GET | 获取服务器配置 |
+| 5 | `/_synapse/admin/v1/user_stats` | GET | 获取用户统计 |
+| 6 | `/_synapse/admin/v1/media_stats` | GET | 获取媒体统计 |
+| 7 | `/_synapse/admin/v1/logs` | GET | 获取服务器日志 |
 
----
+### 3.2 用户管理
 
-## 更新日志
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 8 | `/_synapse/admin/v1/users` | GET | 获取用户列表 |
+| 9 | `/_synapse/admin/v1/users/{user_id}` | GET | 获取用户信息 |
+| 10 | `/_synapse/admin/v1/users/{user_id}` | DELETE | 删除用户 |
+| 11 | `/_synapse/admin/v1/users/{user_id}/admin` | PUT | 设置管理员 |
+| 12 | `/_synapse/admin/v1/users/{user_id}/deactivate` | POST | 停用用户 |
+| 13 | `/_synapse/admin/v1/users/{user_id}/rooms` | GET | 获取用户房间 |
+| 14 | `/_synapse/admin/v1/users/{user_id}/password` | POST | 重置用户密码 |
+| 15 | `/_synapse/admin/v1/register/nonce` | GET | 获取注册 nonce |
+| 16 | `/_synapse/admin/v1/register` | POST | 管理员注册 |
 
-### 2026-02-08 (v2.18)
-- ✅ 测试 7. 媒体文件 API（使用真实文件，12个测试用例）
-- ✅ 验证 MP3 (36KB) 和 JPG (37KB) 文件的上传和下载
-- ✅ 验证文件大小一致性：上传、下载与原始文件完全一致
-- ✅ 验证跨版本端点：v1、v3、r1 端点全部正常工作
-- ✅ 验证缩略图端点：支持多种尺寸参数和方法参数
-- ✅ 测试报告：[test_7_media_real_files_report.md](file:///home/hula/synapse_rust/docker/test_7_media_real_files_report.md)
+### 3.3 房间管理
 
-### 2026-02-08 (v2.17)
-- ✅ 测试 7. 媒体文件 API（6个API，20个测试用例）
-- ✅ 验证媒体上传、下载、缩略图、配置功能
-- ✅ 更新 API 文档状态标记
-- ✅ 测试边界值：超大尺寸、零尺寸、负尺寸等
-- ✅ 验证认证要求：无认证请求被正确拒绝
-- ✅ 修复文件系统权限问题，确保媒体文件可正常上传
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 17 | `/_synapse/admin/v1/rooms` | GET | 获取房间列表 |
+| 18 | `/_synapse/admin/v1/rooms/{room_id}` | GET | 获取房间信息 |
+| 19 | `/_synapse/admin/v1/rooms/{room_id}` | DELETE | 删除房间 |
+| 20 | `/_synapse/admin/v1/rooms/{room_id}/delete` | POST | 删除房间（官方API） |
+| 21 | `/_synapse/admin/v1/purge_history` | POST | 清理历史 |
+| 22 | `/_synapse/admin/v1/shutdown_room` | POST | 关闭房间 |
 
-### 2026-02-08 (v2.16)
-- ✅ 测试 6. 端到端加密 API（6个API，20个测试用例）
-- ✅ 验证密钥上传、查询、声明、变更通知、房间备份、设备到设备消息功能
-- ✅ 更新 API 文档状态标记
-- ✅ 测试边界值：超长算法列表、空算法列表、无效用户、空消息等
-- ✅ 验证认证要求：无认证请求被正确拒绝
+### 3.4 安全相关
 
-### 2026-02-08 (v2.15)
-- ✅ 测试 5.2 房间操作 API（19个API，30个测试用例）
-- ✅ 验证公共房间、发送事务、加入/离开模板、邀请、事件查询等功能
-- ✅ 更新 API 文档状态标记
-- ✅ 测试边界值：超长 room_id、特殊字符、空参数等
-- ✅ 验证联邦签名要求：17个API需要联邦签名认证
-
-### 2026-02-08 (v2.14)
-- ✅ 测试 5.1 密钥与发现 API（6个API，13个测试用例）
-- ✅ 验证服务器密钥、密钥查询、联邦版本、联邦发现功能
-- ✅ 更新 API 文档状态标记
-- ✅ 测试边界值：超长服务器名、特殊字符、空服务器名等
-- ✅ 验证远程服务器密钥查询（占位符实现）
-
-### 2026-02-08 (v2.13)
-- ✅ 重新测试 4.5 统计与配置 API（4个API，14个测试用例）
-- ✅ 验证服务器配置、日志查询、媒体统计、用户统计功能
-- ✅ 更新 API 文档状态标记
-- ✅ 验证认证机制：正确拒绝无认证和无效 token 请求
-- ✅ 测试边界值和参数验证：日志级别过滤、数量限制等
-
-### 2026-02-08 (v2.12)
-- ✅ 重新测试 4.4 安全相关 API（5个API，9个测试用例）
-- ✅ 验证安全事件获取、IP阻止列表、IP阻止/解除、IP信誉功能
-- ✅ 更新 API 文档状态标记
-- ❌ 发现问题 #010：IP阻止API数据库约束错误（blocked_at字段缺失）
-- ✅ 分析安全功能实现：安全事件记录、IP阻止管理、IP信誉系统功能完整
-
-### 2026-02-08 (v2.11)
-- ✅ 重新测试 4. 管理员 API（15个API，全部通过）
-- ✅ 验证管理员注册机制（HMAC-SHA256 签名验证）
-- ✅ 验证服务器信息、用户管理功能
-- ✅ 更新 API 文档状态标记
-- ✅ 分析管理员注册机制安全性：符合 Matrix 规范，使用 HMAC-SHA256 签名验证，shared_secret 保护，nonce 防重放攻击，constant-time 比较，实现安全可靠
-
-### 2026-02-08 (v2.10)
-- ✅ 重新测试 3.11 事件举报 API（2个API，全部通过）
-- ✅ 验证事件举报和举报分数设置功能
-- ✅ 更新 API 文档状态标记
-- ✅ 分析 API 作用：举报事件用于用户举报不当内容，设置举报分数用于调整举报严重程度
-
-### 2026-02-08 (v2.9)
-- ✅ 重新测试 3.10 房间目录 API（6个API，全部通过）
-- ✅ 验证房间信息获取、房间目录创建/删除、公共房间列表、房间别名功能
-- ✅ 更新 API 文档状态标记
-- ✅ 确认联邦签名实现完整（用于 Federation API，非 Client API）
-
-### 2026-02-08 (v2.8)
-- ✅ 重新测试 3.9 房间状态与消息 API（8个API，全部通过）
-- ✅ 验证房间状态获取/设置、消息发送/获取、成员管理、事件删除功能
-- ✅ 更新 API 文档状态标记
-
-### 2026-02-08 (v2.7)
-- ✅ 重新测试 3.8 房间管理 API（7个API，全部通过）
-- ✅ 验证房间创建、邀请、加入、踢出、封禁、解除封禁、离开功能
-- ✅ 更新 API 文档状态标记
-
-### 2026-02-08 (v2.6)
-- ✅ 重新测试 3.6 在线状态和 3.7 同步与状态 API（6个API，全部通过）
-- ✅ 验证在线状态获取/设置、数据同步、打字状态、已读回执、已读标记功能
-- ✅ 更新 API 文档状态标记
-
-### 2026-02-08 (v2.5)
-- ✅ 重新测试 3.5 设备管理 API（5个API，全部通过）
-- ✅ 验证设备列表、设备信息、设备更新、设备删除、批量删除功能
-- ✅ 更新 API 文档状态标记
-
-### 2026-02-08 (v2.4)
-- ✅ 下载最新分支 (Commit: 29cc395)
-- ✅ 新增语音 API 端点：GET /voice/config、POST /voice/convert、POST /voice/optimize
-- ✅ 更新语音消息 API 章节（从7个端点增加到10个端点）
-- ✅ 更新 API 统计（从159个端点增加到162个端点）
-
-### 2026-02-08 (v2.3)
-- ✅ 重新测试 3.4 用户目录 API（2个API，全部通过）
-- ✅ 验证用户搜索和用户列表功能
-- ✅ 更新 API 文档状态标记
-
-### 2026-02-08 (v2.2)
-- ✅ 重新测试 3.3 账户管理 API（6个API，全部通过）
-- ✅ 验证账户停用、密码修改、资料更新等功能
-- ✅ 更新 API 文档状态标记
-
-### 2026-02-08 (v2.1)
-- ✅ 重新测试 3.2 用户注册与认证 API（8个API，7个通过）
-- ✅ 识别问题 #009：邮箱验证 submit_url 使用错误的地址
-- ✅ 更新 API 文档状态标记
-- ✅ 生成详细测试报告
-
-### 2026-02-07 (v2.0)
-- ✅ 完成 3.7-3.11 模块测试
-- ✅ 完成第4章管理员 API 测试
-- ✅ 验证 testuser1 为有效管理员
-- ✅ 创建测试房间和消息用于测试
-- ✅ 更新 API 文档状态标记
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 23 | `/_synapse/admin/v1/security/events` | GET | 获取安全事件 |
+| 24 | `/_synapse/admin/v1/security/ip/blocks` | GET | 获取IP阻止列表 |
+| 25 | `/_synapse/admin/v1/security/ip/block` | POST | 阻止IP |
+| 26 | `/_synapse/admin/v1/security/ip/unblock` | POST | 解除IP阻止 |
+| 27 | `/_synapse/admin/v1/security/ip/reputation/{ip}` | GET | 获取IP信誉 |
 
 ---
 
-## 5. 联邦通信 API ✅
+## 4. 联邦通信 API
 
-### 5.1 密钥与发现 ✅
+### 4.1 密钥与发现 (无需签名)
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 1 | `/_matrix/federation/v2/server` | GET | 获取服务器密钥 | ✅ 已测试 |
-| 2 | `/_matrix/key/v2/server` | GET | 获取服务器密钥 | ✅ 已测试 |
-| 3 | `/_matrix/federation/v2/query/{server_name}/{key_id}` | GET | 查询密钥 | ✅ 已测试 |
-| 4 | `/_matrix/key/v2/query/{server_name}/{key_id}` | GET | 查询密钥 | ✅ 已测试 |
-| 5 | `/_matrix/federation/v1/version` | GET | 获取联邦版本 | ✅ 已测试 |
-| 6 | `/_matrix/federation/v1` | GET | 联邦发现 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 1 | `/_matrix/federation/v2/server` | GET | 获取服务器密钥 |
+| 2 | `/_matrix/key/v2/server` | GET | 获取服务器密钥 |
+| 3 | `/_matrix/federation/v2/query/{server_name}/{key_id}` | GET | 查询密钥 |
+| 4 | `/_matrix/key/v2/query/{server_name}/{key_id}` | GET | 查询密钥 |
+| 5 | `/_matrix/federation/v1/version` | GET | 获取联邦版本 |
+| 6 | `/_matrix/federation/v1` | GET | 联邦发现 |
+| 7 | `/_matrix/federation/v1/publicRooms` | GET | 获取公共房间 |
+| 8 | `/_matrix/federation/v1/query/destination` | GET | 查询目标服务器 |
+| 9 | `/_matrix/federation/v1/room/{room_id}/{event_id}` | GET | 获取房间事件 |
 
-### 5.2 房间操作 ⚠️
+### 4.2 房间操作 (需要签名)
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 7 | `/_matrix/federation/v1/publicRooms` | GET | 获取公共房间 | ✅ 已测试 |
-| 8 | `/_matrix/federation/v1/send/{txn_id}` | PUT | 发送事务 | ⚠️ 需要签名 |
-| 9 | `/_matrix/federation/v1/make_join/{room_id}/{user_id}` | GET | 生成加入模板 | ⚠️ 需要签名 |
-| 10 | `/_matrix/federation/v1/make_leave/{room_id}/{user_id}` | GET | 生成离开模板 | ⚠️ 需要签名 |
-| 11 | `/_matrix/federation/v1/send_join/{room_id}/{event_id}` | PUT | 发送加入 | ⚠️ 需要签名 |
-| 12 | `/_matrix/federation/v1/send_leave/{room_id}/{event_id}` | PUT | 发送离开 | ⚠️ 需要签名 |
-| 13 | `/_matrix/federation/v1/invite/{room_id}/{event_id}` | PUT | 邀请 | ⚠️ 需要签名 |
-| 14 | `/_matrix/federation/v1/get_missing_events/{room_id}` | POST | 获取缺失事件 | ⚠️ 需要签名 |
-| 15 | `/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}` | GET | 获取事件授权 | ⚠️ 需要签名 |
-| 16 | `/_matrix/federation/v1/state/{room_id}` | GET | 获取房间状态 | ⚠️ 需要签名 |
-| 17 | `/_matrix/federation/v1/event/{event_id}` | GET | 获取事件 | ⚠️ 需要签名 |
-| 18 | `/_matrix/federation/v1/state_ids/{room_id}` | GET | 获取状态ID | ⚠️ 需要签名 |
-| 19 | `/_matrix/federation/v1/query/directory/room/{room_id}` | GET | 房间目录查询 | ⚠️ 需要签名 |
-| 20 | `/_matrix/federation/v1/query/profile/{user_id}` | GET | 用户资料查询 | ⚠️ 需要签名 |
-| 21 | `/_matrix/federation/v1/backfill/{room_id}` | GET | 回填事件 | ⚠️ 需要签名 |
-| 22 | `/_matrix/federation/v1/keys/claim` | POST | 声明密钥 | ⚠️ 需要签名 |
-| 23 | `/_matrix/federation/v1/keys/upload` | POST | 上传密钥 | ⚠️ 需要签名 |
-| 24 | `/_matrix/federation/v2/key/clone` | POST | 克隆密钥 | ⚠️ 需要签名 |
-| 25 | `/_matrix/federation/v2/user/keys/query` | POST | 查询用户密钥 | ⚠️ 需要签名 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 10 | `/_matrix/federation/v1/send/{txn_id}` | PUT | 发送事务 |
+| 11 | `/_matrix/federation/v1/make_join/{room_id}/{user_id}` | GET | 生成加入模板 |
+| 12 | `/_matrix/federation/v1/make_leave/{room_id}/{user_id}` | GET | 生成离开模板 |
+| 13 | `/_matrix/federation/v1/send_join/{room_id}/{event_id}` | PUT | 发送加入 |
+| 14 | `/_matrix/federation/v1/send_leave/{room_id}/{event_id}` | PUT | 发送离开 |
+| 15 | `/_matrix/federation/v2/invite/{room_id}/{event_id}` | PUT | 邀请 (v2) |
+| 16 | `/_matrix/federation/v1/invite/{room_id}/{event_id}` | PUT | 邀请 |
+| 17 | `/_matrix/federation/v1/get_missing_events/{room_id}` | POST | 获取缺失事件 |
+| 18 | `/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}` | GET | 获取事件授权 |
+| 19 | `/_matrix/federation/v1/state/{room_id}` | GET | 获取房间状态 |
+| 20 | `/_matrix/federation/v1/event/{event_id}` | GET | 获取事件 |
+| 21 | `/_matrix/federation/v1/state_ids/{room_id}` | GET | 获取状态ID |
+| 22 | `/_matrix/federation/v1/query/directory/room/{room_id}` | GET | 房间目录查询 |
+| 23 | `/_matrix/federation/v1/query/profile/{user_id}` | GET | 用户资料查询 |
+| 24 | `/_matrix/federation/v1/backfill/{room_id}` | GET | 回填事件 |
+| 25 | `/_matrix/federation/v1/keys/claim` | POST | 声明密钥 |
+| 26 | `/_matrix/federation/v1/keys/upload` | POST | 上传密钥 |
+| 27 | `/_matrix/federation/v2/key/clone` | POST | 克隆密钥 |
+| 28 | `/_matrix/federation/v2/user/keys/query` | POST | 查询用户密钥 |
+| 29 | `/_matrix/federation/v1/members/{room_id}` | GET | 获取房间成员 |
+| 30 | `/_matrix/federation/v1/members/{room_id}/joined` | GET | 获取成员状态 |
+| 31 | `/_matrix/federation/v1/user/devices/{user_id}` | GET | 用户设备查询 |
+| 32 | `/_matrix/federation/v1/room_auth/{room_id}` | GET | 房间认证 |
+| 33 | `/_matrix/federation/v1/knock/{room_id}/{user_id}` | GET | 敲门 |
+| 34 | `/_matrix/federation/v1/thirdparty/invite` | POST | 第三方邀请 |
+| 35 | `/_matrix/federation/v1/get_joining_rules/{room_id}` | GET | 获取加入规则 |
 
-### 5.3 附加联邦端点 ⚠️
+### 4.3 好友系统联邦 (需要签名)
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 26 | `/_matrix/federation/v1/keys/query` | POST | 联邦密钥交换 | ⚠️ 未测试 |
-| 27 | `/_matrix/federation/v1/members/{room_id}` | GET | 获取房间成员 | ⚠️ 需要签名 |
-| 28 | `/_matrix/federation/v1/members/{room_id}/joined` | GET | 获取成员状态 | ⚠️ 需要签名 |
-| 29 | `/_matrix/federation/v1/user/devices/{user_id}` | GET | 用户设备查询 | ⚠️ 需要签名 |
-| 30 | `/_matrix/federation/v1/room_auth/{room_id}` | GET | 房间认证 | ⚠️ 需要签名 |
-
----
-
-## 6. 端到端加密 API ✅
-
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 1 | `/_matrix/client/r0/keys/upload` | POST | 上传设备密钥和一次性密钥 | ✅ 已测试 |
-| 2 | `/_matrix/client/r0/keys/query` | POST | 查询设备密钥 | ✅ 已测试 |
-| 3 | `/_matrix/client/r0/keys/claim` | POST | 声明一次性密钥 | ✅ 已测试 |
-| 4 | `/_matrix/client/r0/keys/changes` | GET | 获取密钥变更通知 | ✅ 已测试 |
-| 5 | `/_matrix/client/r0/rooms/{room_id}/keys/distribution` | GET | 获取房间备份密钥 | ✅ 已测试 |
-| 6 | `/_matrix/client/r0/sendToDevice/{event_type}/{txn_id}` | PUT | 发送设备到设备消息 | ✅ 已测试 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 36 | `/_matrix/federation/v1/friends/query/{user_id}` | GET | 查询用户好友列表 |
+| 37 | `/_matrix/federation/v1/friends/relationship/{user_id}/{friend_id}` | GET | 验证好友关系 |
+| 38 | `/_matrix/federation/v1/friends/request` | POST | 发送跨服务器好友请求 |
+| 39 | `/_matrix/federation/v1/friends/accept/{request_id}` | POST | 接受跨服务器好友请求 |
 
 ---
 
-## 7. 媒体文件 API ✅
+## 5. 好友系统 API (新)
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 1 | `/_matrix/media/v3/upload/{server_name}/{media_id}` | POST | 上传媒体 | ✅ 已测试 |
-| 2 | `/_matrix/media/v3/download/{server_name}/{media_id}` | GET | 下载媒体 | ✅ 已测试 |
-| 3 | `/_matrix/media/v3/thumbnail/{server_name}/{media_id}` | GET | 获取缩略图 | ✅ 已测试 |
-| 4 | `/_matrix/media/v1/config` | GET | 获取配置 | ✅ 已测试 |
-| 5 | `/_matrix/media/v1/download/{server_name}/{media_id}` | GET | 下载（v1） | ✅ 已测试 |
-| 6 | `/_matrix/media/r1/download/{server_name}/{media_id}` | GET | 下载（r1） | ✅ 已测试 |
+> 好友系统已完全重构为基于 Matrix 房间的实现。
 
----
+### 5.1 好友管理 (新 API)
 
-## 8. 语音消息 API ⚠️
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 1 | `/_matrix/client/v1/friends/room` | GET | 获取好友列表房间 ID |
+| 2 | `/_matrix/client/v1/friends` | GET | 获取好友列表 |
+| 3 | `/_matrix/client/v1/friends` | DELETE | 删除好友 |
+| 4 | `/_matrix/client/v1/friends/request` | POST | 发送好友请求 |
+| 5 | `/_matrix/client/v1/friends/requests` | GET | 获取待处理好友请求 |
+| 6 | `/_matrix/client/v1/friends/request/{request_id}/accept` | POST | 接受好友请求 |
+| 7 | `/_matrix/client/v1/friends/request/{request_id}/decline` | POST | 拒绝好友请求 |
+| 8 | `/_matrix/client/v1/friends/dm/{user_id}` | GET | 获取与好友的私信房间 |
+| 9 | `/_matrix/client/v1/friends/dm/{user_id}` | POST | 创建与好友的私信房间 |
+| 10 | `/_matrix/client/v1/friends/check/{user_id}` | GET | 检查是否为好友 |
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 1 | `/_matrix/client/r0/voice/config` | GET | 获取语音配置 | ❌ 失败（路由错误） |
-| 2 | `/_matrix/client/r0/voice/upload` | POST | 上传语音消息 | ✅ 通过（存在安全漏洞） |
-| 3 | `/_matrix/client/r0/voice/convert` | POST | 语音格式转换 | ❌ 失败（未实现） |
-| 4 | `/_matrix/client/r0/voice/optimize` | POST | 语音优化 | ❌ 失败（未实现） |
-| 5 | `/_matrix/client/r0/voice/stats` | GET | 获取语音统计 | ⚠️ 警告（响应格式不符） |
-| 6 | `/_matrix/client/r0/voice/{message_id}` | GET | 获取语音消息 | ✅ 通过 |
-| 7 | `/_matrix/client/r0/voice/{message_id}` | DELETE | 删除语音消息 | ✅ 通过 |
-| 8 | `/_matrix/client/r0/voice/user/{user_id}` | GET | 获取用户语音 | ✅ 通过 |
-| 9 | `/_matrix/client/r0/voice/room/{room_id}` | GET | 获取房间语音 | ✅ 通过 |
-| 10 | `/_matrix/client/r0/voice/user/{user_id}/stats` | GET | 获取用户语音统计 | ⚠️ 警告（响应格式不符） |
+### 5.2 旧 API (已废弃)
 
----
+> 以下端点已废弃，返回 410 Gone 响应：
 
-## 9. 好友系统 API ✅
+| 序号 | 端点 | 方法 | 新端点 |
+|------|------|------|--------|
+| - | `/_synapse/enhanced/friends/search` | GET | 使用 `/_matrix/client/r0/user_directory/search` |
+| - | `/_synapse/enhanced/friends` | GET | `/_matrix/client/v1/friends` |
+| - | `/_synapse/enhanced/friend/request` | GET/POST | `/_matrix/client/v1/friends/request` |
+| - | `/_synapse/enhanced/friend/requests` | GET | `/_matrix/client/v1/friends/requests` |
+| - | `/_synapse/enhanced/friends/categories/*` | - | 使用 Matrix Spaces |
+| - | `/_synapse/enhanced/friends/suggestions` | GET | 使用用户目录 |
 
-### 9.1 好友管理 ✅
+### 5.3 技术实现
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 1 | `/_synapse/enhanced/friends/search` | GET | 搜索用户 | ✅ 通过（存在小问题） |
-| 2 | `/_synapse/enhanced/friends` | GET | 获取好友列表 | ✅ 通过 |
-| 3 | `/_synapse/enhanced/friend/request` | POST | 发送好友请求 | ⚠️ 警告（无效用户处理不当） |
-| 4 | `/_synapse/enhanced/friend/requests` | GET | 获取好友请求 | ✅ 通过 |
-| 5 | `/_synapse/enhanced/friend/request/{request_id}/accept` | POST | 接受请求 | ✅ 通过 |
-| 6 | `/_synapse/enhanced/friend/request/{request_id}/decline` | POST | 拒绝请求 | ✅ 通过 |
+好友系统使用 Matrix 房间机制实现：
 
-### 9.2 用户封禁 ✅
+1. **好友列表房间**: `!friends:user_id:server.com`
+   - 使用 `m.friends.list` 状态事件存储好友关系
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 7 | `/_synapse/enhanced/friend/blocks/{user_id}` | GET | 获取封禁列表 | ✅ 通过 |
-| 8 | `/_synapse/enhanced/friend/blocks/{user_id}` | POST | 封禁用户 | ✅ 通过 |
-| 9 | `/_synapse/enhanced/friend/blocks/{user_id}/{blocked_user_id}` | DELETE | 解除封禁 | ✅ 通过 |
+2. **私信房间**: `!dm:user1_user2:server.com`
+   - 使用 `m.friends.related_users` 事件标记私信关系
+   - 支持 `m.private` 类型实现私密聊天
 
-### 9.3 好友分类 ✅
-
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 10 | `/_synapse/enhanced/friend/categories/{user_id}` | GET | 获取分类 | ✅ 通过 |
-| 11 | `/_synapse/enhanced/friend/categories/{user_id}` | POST | 创建分类 | ⚠️ 警告（输入验证缺失） |
-| 12 | `/_synapse/enhanced/friend/categories/{user_id}/{category_name}` | PUT | 更新分类 | ✅ 通过 |
-| 13 | `/_synapse/enhanced/friend/categories/{user_id}/{category_name}` | DELETE | 删除分类 | ✅ 通过 |
+3. **好友请求**: `m.friend.request` 事件
+   - 存储在好友列表房间中
+   - 包含状态：pending/accepted/declined
 
 ---
 
-## 10. 私密聊天 (Private Chat) ✅
+## 6. 端到端加密 API
 
-> 私密聊天功能已架构升级，现在完全基于标准的 Matrix 房间机制实现，无需额外的自定义 API。这确保了与标准 Matrix 客户端的完全兼容性以及端到端加密支持。
-
-### 10.1 核心机制
-
-私密聊天本质上是一个具有特定配置（Preset）的 Matrix 房间：
-1.  **基于标准 API**: 使用 `createRoom` 创建，`invite` 邀请成员，`send` 发送消息。
-2.  **Trusted Private Chat Preset**: 通过设置 `preset` 为 `trusted_private_chat` 启用。
-3.  **自动隐私保护**: 后端会自动配置以下状态：
-    - `join_rules`: `invite` (仅限邀请)
-    - `history_visibility`: `invited` (仅成员可见历史)
-    - `guest_access`: `forbidden` (禁止访客)
-    - `com.hula.privacy`: `block_screenshot` (防截屏标记)
-
-### 10.2 关键操作示例
-
-#### 创建私密聊天
-
-使用标准 `createRoom` 接口，但指定特殊的 `preset`。
-
-- **端点**: `POST /_matrix/client/r0/createRoom`
-- **请求体**:
-```json
-{
-  "preset": "trusted_private_chat",
-  "visibility": "private",
-  "invite": ["@friend:cjystx.top"],
-  "is_direct": true,
-  "name": "Private Chat",
-  "topic": "Encrypted & Secure"
-}
-```
-
-#### 其他操作
-
-所有其他操作（发送消息、上传文件、语音消息等）均直接使用标准的 Matrix API：
-
-- **发送消息**: `PUT /_matrix/client/r0/rooms/{room_id}/send/m.room.message/{txn_id}`
-- **发送语音**: `POST /_matrix/client/r0/voice/upload` 后发送 `m.audio` 消息
-- **邀请用户**: `POST /_matrix/client/r0/rooms/{room_id}/invite`
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 1 | `/_matrix/client/r0/keys/upload` | POST | 上传设备密钥和一次性密钥 |
+| 2 | `/_matrix/client/r0/keys/query` | POST | 查询设备密钥 |
+| 3 | `/_matrix/client/r0/keys/claim` | POST | 声明一次性密钥 |
+| 4 | `/_matrix/client/r0/keys/changes` | GET | 获取密钥变更通知 |
+| 5 | `/_matrix/client/r0/rooms/{room_id}/keys/distribution` | GET | 获取房间备份密钥 |
+| 6 | `/_matrix/client/r0/sendToDevice/{event_type}/{txn_id}` | PUT | 发送设备到设备消息 |
 
 ---
 
-## 11. 阅后即焚 (Burn After Reading) ✅
+## 7. 媒体文件 API
 
-> 阅后即焚功能已无缝集成到标准 Matrix 消息流中。无需专用 API，只需在发送消息时添加特定元数据，并使用标准回执触发。
-
-### 11.1 核心机制
-
-1.  **元数据标记**: 发送消息时，在 `content` 中添加 `"burn_after_read": true` 字段。
-2.  **回执触发**: 当接收方发送标准已读回执 (`m.read`) 时，服务器会检测该标记。
-3.  **延迟销毁**: 服务器在收到回执后，自动启动后台任务，**30秒后** 物理删除（Redact）该消息内容。
-
-### 11.2 操作示例
-
-#### 1. 发送阅后即焚消息
-
-使用标准 `PUT /_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}` 接口。
-
-- **请求体**:
-```json
-{
-  "msgtype": "m.text",
-  "body": "This message will self-destruct in 30s after reading.",
-  "burn_after_read": true
-}
-```
-
-#### 2. 触发销毁
-
-客户端在用户阅读消息后，发送标准已读回执。
-
-- **端点**: `POST /_matrix/client/r0/rooms/{room_id}/receipt/m.read/{event_id}`
-- **效果**: 服务器收到此请求后，启动 30秒 倒计时，随后消息内容将被替换为 `m.room.redaction` 事件（内容被清除）。
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 1 | `/_matrix/media/v3/upload/{server_name}/{media_id}` | POST | 上传媒体 |
+| 2 | `/_matrix/media/v3/download/{server_name}/{media_id}` | GET | 下载媒体 |
+| 3 | `/_matrix/media/v3/thumbnail/{server_name}/{media_id}` | GET | 获取缩略图 |
+| 4 | `/_matrix/media/v1/config` | GET | 获取配置 |
+| 5 | `/_matrix/media/v1/download/{server_name}/{media_id}` | GET | 下载（v1） |
+| 6 | `/_matrix/media/r1/download/{server_name}/{media_id}` | GET | 下载（r1） |
 
 ---
 
-## 12. 密钥备份 API ✅
+## 8. 语音消息 API
 
-| 序号 | 端点 | 方法 | 描述 | 状态 |
-|------|------|------|------|------|
-| 1 | `/_matrix/client/r0/room_keys/version` | GET | 获取备份版本 | ✅ 通过（存在小问题） |
-| 2 | `/_matrix/client/r0/room_keys/version` | POST | 创建备份版本 | ⚠️ 警告（输入验证缺失） |
-| 3 | `/_matrix/client/r0/room_keys/version/{version}` | GET | 获取特定备份版本 | ✅ 通过 |
-| 4 | `/_matrix/client/r0/room_keys/version/{version}` | PUT | 更新备份版本 | ✅ 通过 |
-| 5 | `/_matrix/client/r0/room_keys/version/{version}` | DELETE | 删除备份版本 | ✅ 通过 |
-| 6 | `/_matrix/client/r0/room_keys/{version}` | GET | 获取房间密钥 | ✅ 通过 |
-| 7 | `/_matrix/client/r0/room_keys/{version}` | PUT | 上传房间密钥 | ✅ 通过 |
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 1 | `/_matrix/client/r0/voice/config` | GET | 获取语音配置 |
+| 2 | `/_matrix/client/r0/voice/upload` | POST | 上传语音消息 |
+| 3 | `/_matrix/client/r0/voice/convert` | POST | 语音格式转换 |
+| 4 | `/_matrix/client/r0/voice/optimize` | POST | 语音优化 |
+| 5 | `/_matrix/client/r0/voice/stats` | GET | 获取语音统计 |
+| 6 | `/_matrix/client/r0/voice/{message_id}` | GET | 获取语音消息 |
+| 7 | `/_matrix/client/r0/voice/{message_id}` | DELETE | 删除语音消息 |
+| 8 | `/_matrix/client/r0/voice/user/{user_id}` | GET | 获取用户语音 |
+| 9 | `/_matrix/client/r0/voice/room/{room_id}` | GET | 获取房间语音 |
+| 10 | `/_matrix/client/r0/voice/user/{user_id}/stats` | GET | 获取用户语音统计 |
 
 ---
 
-## 13. API 统计
+## 9. 密钥备份 API
+
+| 序号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| 1 | `/_matrix/client/r0/room_keys/version` | GET | 获取备份版本 |
+| 2 | `/_matrix/client/r0/room_keys/version` | POST | 创建备份版本 |
+| 3 | `/_matrix/client/r0/room_keys/version/{version}` | GET | 获取特定备份版本 |
+| 4 | `/_matrix/client/r0/room_keys/version/{version}` | PUT | 更新备份版本 |
+| 5 | `/_matrix/client/r0/room_keys/version/{version}` | DELETE | 删除备份版本 |
+| 6 | `/_matrix/client/r0/room_keys/{version}` | GET | 获取房间密钥 |
+| 7 | `/_matrix/client/r0/room_keys/{version}` | PUT | 上传房间密钥 |
+
+---
+
+## 10. API 统计
 
 | 分类 | 端点数量 |
 |------|---------|
-| 核心客户端 API | 53 |
+| 核心客户端 API | 62 |
 | 管理员 API | 27 |
-| 联邦通信 API | 30 |
+| 联邦通信 API | 39 |
+| 好友系统 API (新) | 10 |
+| 好友系统 API (旧) | 15 (已废弃) |
 | 端到端加密 API | 6 |
 | 媒体文件 API | 6 |
 | 语音消息 API | 10 |
-| 好友系统 API | 13 |
-| 私密聊天 (标准API复用) | - |
-| 阅后即焚 (元数据驱动) | - |
 | 密钥备份 API | 7 |
-| **总计** | **152** |
+| **总计** | **182** |
 
 ---
 
-## 14. 相关文件
+## 11. 更新日志
 
-- 测试数据: [docker/test_data.json](../docker/test_data.json)
-- 验证脚本: [docker/verify_test_data.sh](../docker/verify_test_data.sh)
-- Docker 配置: [docker/docker-compose.yml](../docker/docker-compose.yml)
+### 2026-02-11 (v3.0)
+- ✅ 完全重写 API 参考文档，基于实际代码实现
+- ✅ 更新好友系统 API：新 `/_matrix/client/v1/friends/*` 端点
+- ✅ 标记旧 `/_synapse/enhanced/friends/*` 端点为已废弃 (410 Gone)
+- ✅ 添加联邦好友系统 API 端点
+- ✅ 更新 API 统计总数
 
+### 之前版本
+- 详见 friend_system_optimization.md 中的完成记录
