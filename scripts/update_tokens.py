@@ -31,7 +31,6 @@ test_scripts = [
     "scripts/test_voice_message_api.py",
     "scripts/test_friend_system_api.py",
     "scripts/test_media_file_api.py",
-    "scripts/test_private_chat_api.py",
     "scripts/test_key_backup_api.py",
     "scripts/test_authentication_error_handling.py",
 ]

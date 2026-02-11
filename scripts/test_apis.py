@@ -38,16 +38,12 @@ endpoints = [
     # Devices
     {"method": "GET", "path": "/_matrix/client/r0/devices", "desc": "List devices", "auth": True},
     
-    # Friends (Enhanced)
-    {"method": "GET", "path": "/_synapse/enhanced/friends", "desc": "List friends", "auth": True},
-    {"method": "GET", "path": "/_synapse/enhanced/friends/search?query=admin", "desc": "Search friends", "auth": True},
-    
+    # Friends (New Matrix-based API)
+    {"method": "GET", "path": "/_matrix/client/v1/friends", "desc": "List friends", "auth": True},
+    {"method": "POST", "path": "/_matrix/client/v1/friends/request", "desc": "Send friend request", "auth": True},
+
     # Voice (Enhanced)
     {"method": "GET", "path": "/_matrix/client/r0/voice/user/@admin_tester:matrix.cjystx.top/stats", "desc": "Voice stats", "auth": True},
-    
-    # Private Chat (Enhanced)
-    {"method": "GET", "path": "/_synapse/enhanced/private/sessions", "desc": "List private sessions", "auth": True},
-    {"method": "GET", "path": "/_synapse/enhanced/private/unread-count", "desc": "Unread count", "auth": True},
 ]
 
 results = []
