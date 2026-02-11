@@ -147,7 +147,7 @@ fn test_trusted_private_chat_preset() {
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
-        assert!(json["room_id"].is_str());
+        assert!(json["room_id"].is_string());
 
         // Get room state to verify privacy settings were applied
         let room_id = json["room_id"].as_str().unwrap();

@@ -76,7 +76,7 @@ fn validate_bitrate(bitrate: i32) -> Result<(), String> {
     }
     const MIN_BITRATE: i32 = 64000;
     const MAX_BITRATE: i32 = 320000;
-    if bitrate < MIN_BITRATE || bitrate > MAX_BITRATE {
+    if !(MIN_BITRATE..=MAX_BITRATE).contains(&bitrate) {
         return Err(format!(
             "Bitrate must be between {} and {} bps",
             MIN_BITRATE, MAX_BITRATE
@@ -91,7 +91,7 @@ fn validate_quality(quality: i32) -> Result<(), String> {
     }
     const MIN_QUALITY: i32 = 32;
     const MAX_QUALITY: i32 = 320;
-    if quality < MIN_QUALITY || quality > MAX_QUALITY {
+    if !(MIN_QUALITY..=MAX_QUALITY).contains(&quality) {
         return Err(format!(
             "Quality must be between {} and {} kbps",
             MIN_QUALITY, MAX_QUALITY
@@ -106,7 +106,7 @@ fn validate_target_size_kb(size: i32) -> Result<(), String> {
     }
     const MIN_SIZE: i32 = 10;
     const MAX_SIZE: i32 = 10000;
-    if size < MIN_SIZE || size > MAX_SIZE {
+    if !(MIN_SIZE..=MAX_SIZE).contains(&size) {
         return Err(format!(
             "Target size must be between {} and {} KB",
             MIN_SIZE, MAX_SIZE

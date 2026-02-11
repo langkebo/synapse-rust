@@ -677,7 +677,7 @@ pub async fn get_users(
         .get("limit")
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
-        .clamp(MIN_PAGINATION_LIMIT as i64, MAX_PAGINATION_LIMIT);
+        .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let offset = params
         .get("offset")
         .and_then(|v| v.parse().ok())
@@ -887,7 +887,7 @@ pub async fn get_rooms(
         .get("limit")
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
-        .clamp(MIN_PAGINATION_LIMIT as i64, MAX_PAGINATION_LIMIT);
+        .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let offset = params
         .get("offset")
         .and_then(|v| v.parse().ok())
