@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod e2ee_routes;
 pub mod federation;
+pub mod friend_room;
 pub mod key_backup;
 pub mod media;
 pub mod voice;
@@ -8,6 +9,7 @@ pub mod voice;
 pub use admin::create_admin_router;
 pub use e2ee_routes::create_e2ee_router;
 pub use federation::create_federation_router;
+pub use friend_room::create_friend_router;
 pub use key_backup::create_key_backup_router;
 pub use media::create_media_router;
 pub use voice::create_voice_router;
@@ -194,6 +196,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_key_backup_router(state.clone()))
         .merge(create_admin_router(state.clone()))
         .merge(create_federation_router(state.clone()))
+        .merge(create_friend_router(state.clone()))
         .layer(CompressionLayer::new())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

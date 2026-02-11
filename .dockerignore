@@ -1,13 +1,9 @@
-# target/
-docker/postgres_data/
-docker/redis_data/
-docker/data/
-docker/media/
-media/
-ssl/
-.git/
-.vscode/
-.idea/
-.DS_Store
-*.log
-postgres_data/
+target
+**/*.rs.bk
+.git
+.vscode
+.idea
+docker/data
+docker/logs
+docker/media
+docker/bin

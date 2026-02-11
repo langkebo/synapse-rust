@@ -1,1854 +1,654 @@
-# 完整 API 文档
+# Synapse Rust API 完整参考文档
 
-> **版本**：1.0.0  
-> **创建日期**：2026-01-28  
-> **项目状态**：开发中  
-> **参考文档**：[Synapse 官方文档](https://element-hq.github.io/synapse/latest/)、[Matrix 规范](https://spec.matrix.org/)
-
----
-
-## 一、客户端 API (Client API)
-
-### 1.1 获取支持的 API 版本
-
-**接口名称**：获取支持的 API 版本  
-**请求方法**：GET  
-**URL 路径**：`/_matrix/client/versions`  
-**认证**：否
-
-#### 请求参数
-
-无
-
-#### 响应格式
-
-```json
-{
-  "versions": ["r0", "v1", "v3"],
-  "unstable_features": {
-    "org.matrix.e2e_cross_signing": true
-  }
-}
-```
-
-#### 错误码
-
-无
-
-#### 使用示例
-
-```bash
-curl -X GET http://localhost:8008/_matrix/client/versions
-```
+> **版本**：1.0.0
+> **生成日期**：2026-02-11
+> **基于代码版本**：Synapse Rust Backend
+> **说明**：本文档基于后端项目 `synapse/src/web/routes` 下的实际代码自动梳理生成，仅包含当前已实现的 API 接口。
 
 ---
 
-### 1.2 用户注册
+## 目录
 
-**接口名称**：用户注册  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/r0/register`  
-**认证**：否
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| username | string | 是 | 用户名 |
-| password | string | 是 | 密码 |
-| auth | object | 否 | 认证信息（如果需要） |
-| device_id | string | 否 | 设备 ID |
-| initial_device_display_name | string | 否 | 设备显示名称 |
-
-#### 请求示例
-
-```json
-{
-  "username": "alice",
-  "password": "secure_password",
-  "device_id": "DEVICE123",
-  "initial_device_display_name": "My Phone"
-}
-```
-
-#### 响应格式
-
-```json
-{
-  "user_id": "@alice:server.com",
-  "access_token": "access_token_here",
-  "device_id": "DEVICE123",
-  "home_server": "server.com"
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_USER_IN_USE | 400 | 用户名已被使用 |
-| M_INVALID_USERNAME | 400 | 用户名无效 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_matrix/client/r0/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "alice",
-    "password": "secure_password"
-  }'
-```
+1. [认证与账号 (Authentication & Account)](#1-认证与账号-authentication--account)
+2. [房间管理 (Room Management)](#2-房间管理-room-management)
+3. [目录与发现 (Directory & Discovery)](#3-目录与发现-directory--discovery)
+4. [在线状态 (Presence)](#4-在线状态-presence)
+5. [设备管理 (Device Management)](#5-设备管理-device-management)
+6. [媒体 (Media)](#6-媒体-media)
+7. [语音消息 (Voice)](#7-语音消息-voice)
+8. [端到端加密 (E2EE)](#8-端到端加密-e2ee)
+9. [密钥备份 (Key Backup)](#9-密钥备份-key-backup)
+10. [管理接口 (Admin API)](#10-管理接口-admin-api)
+11. [联邦接口 (Federation API)](#11-联邦接口-federation-api)
+12. [增强功能 API (Enhanced API)](#12-增强功能-api-enhanced-api)
+13. [通用接口 (General)](#13-通用接口-general)
 
 ---
 
-### 1.3 用户登录
+## 1. 认证与账号 (Authentication & Account)
 
-**接口名称**：用户登录  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/r0/login`  
-**认证**：否
+### 1.1 注册
+- **接口名称**：用户注册
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/register`
+- **功能描述**：注册新用户。
+- **请求参数**：
+  - `username` (string, 必填): 用户名。
+  - `password` (string, 必填): 密码。
+  - `auth` (object, 选填): 认证数据。
+  - `displayname` (string, 选填): 显示名称。
+- **响应数据**：
+  - `user_id` (string): 注册后的用户 ID。
+  - `access_token` (string): 访问令牌。
+  - `device_id` (string): 设备 ID。
+  - `home_server` (string): 服务器域名。
 
-#### 请求参数
+### 1.2 检查用户名可用性
+- **接口名称**：检查用户名
+- **请求方法**：`GET`
+- **URL 路径**：`/_matrix/client/r0/register/available`
+- **请求参数**：
+  - `username` (query, 必填): 待检查的用户名。
+- **响应数据**：
+  - `available` (boolean): 是否可用。
+  - `username` (string): 用户名。
 
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| type | string | 是 | 登录类型（m.login.password） |
-| user | string | 是 | 用户名 |
-| password | string | 是 | 密码 |
-| device_id | string | 否 | 设备 ID |
-| initial_device_display_name | string | 否 | 设备显示名称 |
+### 1.3 邮箱验证请求
+- **接口名称**：请求邮箱验证 Token
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/register/email/requestToken`
+- **请求参数**：
+  - `email` (string, 必填): 邮箱地址。
+  - `client_secret` (string, 选填): 客户端密钥。
+- **响应数据**：
+  - `sid` (string): 会话 ID。
+  - `submit_url` (string): 提交 URL。
+  - `expires_in` (integer): 过期时间（秒）。
 
-#### 请求示例
+### 1.4 提交邮箱验证
+- **接口名称**：提交邮箱验证 Token
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/register/email/submitToken`
+- **请求参数**：
+  - `sid` (string, 必填): 会话 ID。
+  - `client_secret` (string, 必填): 客户端密钥。
+  - `token` (string, 必填): 验证 Token。
+- **响应数据**：
+  - `success` (boolean): 是否成功。
 
-```json
-{
-  "type": "m.login.password",
-  "user": "alice",
-  "password": "secure_password",
-  "device_id": "DEVICE123",
-  "initial_device_display_name": "My Phone"
-}
-```
+### 1.5 登录
+- **接口名称**：用户登录
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/login`
+- **请求参数**：
+  - `type` (string, 必填): 登录类型 (通常为 "m.login.password")。
+  - `user` / `username` (string, 必填): 用户名。
+  - `password` (string, 必填): 密码。
+  - `device_id` (string, 选填): 设备 ID。
+  - `initial_display_name` (string, 选填): 设备初始显示名。
+- **响应数据**：
+  - `user_id` (string): 用户 ID。
+  - `access_token` (string): 访问令牌。
+  - `refresh_token` (string): 刷新令牌。
+  - `expires_in` (integer): 过期时间。
+  - `device_id` (string): 设备 ID。
+  - `well_known` (object): 服务器配置信息。
 
-#### 响应格式
+### 1.6 登出
+- **接口名称**：用户登出
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/logout`
+- **认证**：Token
+- **功能描述**：使当前 Access Token 失效。
+- **响应数据**：`{}`
 
-```json
-{
-  "user_id": "@alice:server.com",
-  "access_token": "access_token_here",
-  "device_id": "DEVICE123",
-  "home_server": "server.com",
-  "well_known": {
-    "m.homeserver": {
-      "base_url": "https://server.com"
-    }
-  }
-}
-```
+### 1.7 登出所有设备
+- **接口名称**：登出所有设备
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/logout/all`
+- **认证**：Token
+- **功能描述**：使该用户所有 Access Token 失效。
+- **响应数据**：`{}`
 
-#### 错误码
+### 1.8 刷新令牌
+- **接口名称**：刷新令牌
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/refresh`
+- **请求参数**：
+  - `refresh_token` (string, 必填): 刷新令牌。
+- **响应数据**：
+  - `access_token` (string): 新的访问令牌。
+  - `refresh_token` (string): 新的刷新令牌。
 
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_FORBIDDEN | 403 | 用户名或密码错误 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
-| M_UNKNOWN | 500 | 未知错误 |
+### 1.9 获取当前用户信息
+- **接口名称**：Whoami
+- **请求方法**：`GET`
+- **URL 路径**：`/_matrix/client/r0/account/whoami`
+- **认证**：Token
+- **响应数据**：
+  - `user_id` (string): 用户 ID。
+  - `displayname` (string): 显示名称。
+  - `avatar_url` (string): 头像 URL。
+  - `admin` (boolean): 是否为管理员。
 
-#### 使用示例
+### 1.10 获取用户资料
+- **接口名称**：获取用户资料
+- **请求方法**：`GET`
+- **URL 路径**：`/_matrix/client/r0/account/profile/{user_id}`
+- **认证**：Token
+- **响应数据**：用户资料对象（包含 displayname, avatar_url 等）。
 
-```bash
-curl -X POST http://localhost:8008/_matrix/client/r0/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "m.login.password",
-    "user": "alice",
-    "password": "secure_password"
-  }'
-```
+### 1.11 更新显示名称
+- **接口名称**：更新显示名称
+- **请求方法**：`PUT`
+- **URL 路径**：`/_matrix/client/r0/account/profile/{user_id}/displayname`
+- **认证**：Token (仅限本人或管理员)
+- **请求参数**：
+  - `displayname` (string, 必填): 新的显示名称。
+- **响应数据**：`{}`
 
----
+### 1.12 更新头像
+- **接口名称**：更新头像
+- **请求方法**：`PUT`
+- **URL 路径**：`/_matrix/client/r0/account/profile/{user_id}/avatar_url`
+- **认证**：Token (仅限本人或管理员)
+- **请求参数**：
+  - `avatar_url` (string, 必填): 新的头像 URL。
+- **响应数据**：`{}`
 
-### 1.4 用户登出
+### 1.13 修改密码
+- **接口名称**：修改密码
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/account/password`
+- **认证**：Token
+- **请求参数**：
+  - `new_password` (string, 必填): 新密码。
+- **响应数据**：`{}`
 
-**接口名称**：用户登出  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/r0/logout`  
-**认证**：是
-
-#### 请求参数
-
-无
-
-#### 响应格式
-
-```json
-{}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_MISSING_TOKEN | 401 | 缺少访问令牌 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_matrix/client/r0/logout \
-  -H "Authorization: Bearer access_token_here"
-```
-
----
-
-### 1.5 登出所有设备
-
-**接口名称**：登出所有设备  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/r0/logout/all`  
-**认证**：是
-
-#### 请求参数
-
-无
-
-#### 响应格式
-
-```json
-{}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_MISSING_TOKEN | 401 | 缺少访问令牌 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_matrix/client/r0/logout/all \
-  -H "Authorization: Bearer access_token_here"
-```
-
----
-
-### 1.6 同步事件
-
-**接口名称**：同步事件  
-**请求方法**：GET  
-**URL 路径**：`/_matrix/client/r0/sync`  
-**认证**：是
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| filter | string | 否 | 过滤器 ID 或 JSON |
-| since | string | 否 | 从哪个事件开始同步 |
-| set_presence | string | 否 | 设置在线状态 |
-| timeout | integer | 否 | 超时时间（毫秒） |
-| full_state | boolean | 否 | 是否返回完整状态 |
-
-#### 响应格式
-
-```json
-{
-  "next_batch": "s1234567890",
-  "rooms": {
-    "join": {
-      "!room_id:server.com": {
-        "timeline": {
-          "events": [],
-          "limited": false,
-          "prev_batch": "s1234567890"
-        },
-        "state": {
-          "events": []
-        },
-        "ephemeral": {
-          "events": []
-        },
-        "account_data": {
-          "events": []
-        }
-      }
-    }
-  },
-  "presence": {
-    "events": []
-  },
-  "account_data": {
-    "events": []
-  },
-  "to_device": {
-    "events": []
-  },
-  "device_lists": {
-    "changed": [],
-    "left": []
-  },
-  "device_one_time_keys_count": {}
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_MISSING_TOKEN | 401 | 缺少访问令牌 |
-
-#### 使用示例
-
-```bash
-curl -X GET "http://localhost:8008/_matrix/client/r0/sync?timeout=30000" \
-  -H "Authorization: Bearer access_token_here"
-```
+### 1.14 注销账户
+- **接口名称**：注销账户
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/account/deactivate`
+- **认证**：Token
+- **功能描述**：停用账户并清除缓存。
+- **响应数据**：`{}`
 
 ---
 
-### 1.7 创建房间
+## 2. 房间管理 (Room Management)
 
-**接口名称**：创建房间  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/r0/createRoom`  
-**认证**：是
+### 2.1 创建房间
+- **接口名称**：创建房间
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/createRoom`
+- **认证**：Token
+- **请求参数**：
+  - `visibility` (string, 选填): "public" 或 "private"。
+  - `room_alias_name` (string, 选填): 房间别名。
+  - `name` (string, 选填): 房间名称。
+  - `topic` (string, 选填): 房间主题。
+  - `invite` (list, 选填): 邀请用户列表。
+  - `preset` (string, 选填): 预设配置。
+- **响应数据**：
+  - `room_id` (string): 创建的房间 ID。
 
-#### 请求参数
+### 2.2 加入房间
+- **接口名称**：加入房间
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/rooms/{room_id}/join`
+- **认证**：Token
+- **响应数据**：`{}`
 
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| preset | string | 否 | 房间预设（private_chat, public_chat, trusted_private_chat） |
-| visibility | string | 否 | 可见性（public, private） |
-| name | string | 否 | 房间名称 |
-| topic | string | 否 | 房间主题 |
-| invite | array | 否 | 邀请的用户 ID 列表 |
-| room_alias_name | string | 否 | 房间别名 |
-| creation_content | object | 否 | 创建内容 |
+### 2.3 离开房间
+- **接口名称**：离开房间
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/rooms/{room_id}/leave`
+- **认证**：Token
+- **响应数据**：`{}`
 
-#### 请求示例
+### 2.4 邀请用户
+- **接口名称**：邀请用户
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/rooms/{room_id}/invite`
+- **认证**：Token
+- **请求参数**：
+  - `user_id` (string, 必填): 被邀请用户 ID。
+- **响应数据**：`{}`
 
-```json
-{
-  "preset": "private_chat",
-  "visibility": "private",
-  "name": "My Room",
-  "topic": "Room topic",
-  "invite": ["@bob:server.com"]
-}
-```
+### 2.5 踢出用户
+- **接口名称**：踢出用户
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/rooms/{room_id}/kick`
+- **认证**：Token
+- **请求参数**：
+  - `user_id` (string, 必填): 目标用户 ID。
+  - `reason` (string, 选填): 原因。
+- **响应数据**：`{}`
 
-#### 响应格式
+### 2.6 禁止用户 (Ban)
+- **接口名称**：禁止用户
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/rooms/{room_id}/ban`
+- **认证**：Token
+- **请求参数**：
+  - `user_id` (string, 必填): 目标用户 ID。
+  - `reason` (string, 选填): 原因。
+- **响应数据**：`{}`
 
-```json
-{
-  "room_id": "!room_id:server.com"
-}
-```
+### 2.7 解除禁止 (Unban)
+- **接口名称**：解除禁止
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/rooms/{room_id}/unban`
+- **认证**：Token
+- **请求参数**：
+  - `user_id` (string, 必填): 目标用户 ID。
+- **响应数据**：`{}`
 
-#### 错误码
+### 2.8 发送消息
+- **接口名称**：发送消息
+- **请求方法**：`PUT`
+- **URL 路径**：`/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}`
+- **认证**：Token
+- **请求参数**：
+  - `msgtype` (string, 选填): 消息类型 (默认为 "m.room.message")。
+  - `body` (string, 必填): 消息内容。
+- **响应数据**：
+  - `event_id` (string): 事件 ID。
 
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
-| M_ROOM_ALIAS_IN_USE | 400 | 房间别名已被使用 |
+### 2.9 获取消息历史
+- **接口名称**：获取消息
+- **请求方法**：`GET`
+- **URL 路径**：`/_matrix/client/r0/rooms/{room_id}/messages`
+- **认证**：Token
+- **请求参数**：
+  - `from` (string, 选填): 起始 Token。
+  - `limit` (integer, 选填): 数量限制 (默认 10)。
+  - `dir` (string, 选填): 方向 ("b" 或 "f", 默认 "b")。
+- **响应数据**：包含消息列表的 JSON。
 
-#### 使用示例
+### 2.10 同步 (Sync)
+- **接口名称**：同步
+- **请求方法**：`GET`
+- **URL 路径**：`/_matrix/client/r0/sync`
+- **认证**：Token
+- **请求参数**：
+  - `timeout` (integer, 选填): 超时时间 (毫秒)。
+  - `full_state` (boolean, 选填): 是否全量同步。
+  - `set_presence` (string, 选填): 设置在线状态 (默认 "online")。
+- **响应数据**：Matrix 同步响应结构。
 
-```bash
-curl -X POST http://localhost:8008/_matrix/client/r0/createRoom \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "preset": "private_chat",
-    "visibility": "private",
-    "name": "My Room"
-  }'
-```
+### 2.11 房间成员
+- **接口名称**：获取房间成员
+- **请求方法**：`GET`
+- **URL 路径**：`/_matrix/client/r0/rooms/{room_id}/members`
+- **认证**：Token
+- **响应数据**：成员事件列表。
 
----
+### 2.12 状态事件操作
+- **获取所有状态**：`GET /_matrix/client/r0/rooms/{room_id}/state`
+- **获取指定状态**：`GET /_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}`
+- **发送状态事件**：`PUT /_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}`
 
-### 1.8 加入房间
+### 2.13 举报事件
+- **接口名称**：举报事件
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/rooms/{room_id}/report/{event_id}`
+- **认证**：Token
+- **请求参数**：
+  - `reason` (string, 选填): 举报原因。
+  - `score` (integer, 选填): 评分 (默认 -100)。
+- **响应数据**：`{ "report_id": ... }`
 
-**接口名称**：加入房间  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/r0/rooms/{room_id}/join`  
-**认证**：是
-
-#### 路径参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| room_id | string | 是 | 房间 ID |
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| reason | string | 否 | 加入原因 |
-| third_party_signed | object | 否 | 第三方签名 |
-
-#### 响应格式
-
-```json
-{
-  "room_id": "!room_id:server.com"
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_FORBIDDEN | 403 | 禁止加入房间 |
-| M_NOT_FOUND | 404 | 房间不存在 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_matrix/client/r0/rooms/!room_id:server.com/join \
-  -H "Authorization: Bearer access_token_here"
-```
-
----
-
-### 1.9 离开房间
-
-**接口名称**：离开房间  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/r0/rooms/{room_id}/leave`  
-**认证**：是
-
-#### 路径参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| room_id | string | 是 | 房间 ID |
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| reason | string | 否 | 离开原因 |
-
-#### 响应格式
-
-```json
-{}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_NOT_FOUND | 404 | 房间不存在 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_matrix/client/r0/rooms/!room_id:server.com/leave \
-  -H "Authorization: Bearer access_token_here"
-```
+### 2.14 已读回执与标记
+- **发送回执**：`POST /_matrix/client/r0/rooms/{room_id}/receipt/{receipt_type}/{event_id}`
+- **设置已读标记**：`POST /_matrix/client/r0/rooms/{room_id}/read_markers`
 
 ---
 
-### 1.10 发送房间消息
+## 3. 目录与发现 (Directory & Discovery)
 
-**接口名称**：发送房间消息  
-**请求方法**：PUT  
-**URL 路径**：`/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}`  
-**认证**：是
+### 3.1 用户搜索
+- **接口名称**：搜索用户
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/user_directory/search`
+- **认证**：Token
+- **请求参数**：
+  - `search_term` (string, 必填): 搜索关键词。
+  - `limit` (integer, 选填): 数量限制 (默认 10)。
+- **响应数据**：
+  - `results` (list): 用户列表。
+  - `limited` (boolean): 是否被截断。
 
-#### 路径参数
+### 3.2 用户列表
+- **接口名称**：获取用户列表
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/user_directory/list`
+- **认证**：Token
+- **请求参数**：
+  - `limit` (integer, 选填): 数量 (默认 50)。
+  - `offset` (integer, 选填): 偏移量 (默认 0)。
+- **响应数据**：
+  - `users` (list): 用户列表。
+  - `total` (integer): 总数。
 
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| room_id | string | 是 | 房间 ID |
-| event_type | string | 是 | 事件类型（m.room.message） |
-| txn_id | string | 是 | 事务 ID |
+### 3.3 公共房间
+- **获取公共房间**：`GET /_matrix/client/r0/publicRooms`
+- **创建公共房间**：`POST /_matrix/client/r0/publicRooms`
 
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| msgtype | string | 是 | 消息类型（m.text, m.image, m.audio 等） |
-| body | string | 是 | 消息内容 |
-| formatted_body | string | 否 | 格式化消息内容 |
-| format | string | 否 | 格式类型（org.matrix.custom.html） |
-
-#### 请求示例
-
-```json
-{
-  "msgtype": "m.text",
-  "body": "Hello, world!"
-}
-```
-
-#### 响应格式
-
-```json
-{
-  "event_id": "$event_id:server.com"
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_FORBIDDEN | 403 | 禁止发送消息 |
-| M_NOT_FOUND | 404 | 房间不存在 |
-
-#### 使用示例
-
-```bash
-curl -X PUT http://localhost:8008/_matrix/client/r0/rooms/!room_id:server.com/send/m.room.message/txn123 \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "msgtype": "m.text",
-    "body": "Hello, world!"
-  }'
-```
+### 3.4 房间别名
+- **获取房间别名**：`GET /_matrix/client/r0/directory/room/{room_id}/alias`
+- **设置房间别名**：`PUT /_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}`
+- **删除房间别名**：`DELETE /_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}`
+- **通过别名获取房间**：`GET /_matrix/client/r0/directory/room/alias/{room_alias}`
 
 ---
 
-### 1.11 获取房间消息
+## 4. 在线状态 (Presence)
 
-**接口名称**：获取房间消息  
-**请求方法**：GET  
-**URL 路径**：`/_matrix/client/r0/rooms/{room_id}/messages`  
-**认证**：是
+### 4.1 获取状态
+- **接口名称**：获取在线状态
+- **请求方法**：`GET`
+- **URL 路径**：`/_matrix/client/r0/presence/{user_id}/status`
+- **认证**：Token
+- **响应数据**：
+  - `presence` (string): 状态 ("online", "offline", "unavailable")。
+  - `status_msg` (string, 选填): 状态消息。
 
-#### 路径参数
+### 4.2 设置状态
+- **接口名称**：设置在线状态
+- **请求方法**：`PUT`
+- **URL 路径**：`/_matrix/client/r0/presence/{user_id}/status`
+- **认证**：Token
+- **请求参数**：
+  - `presence` (string, 必填): 状态。
+  - `status_msg` (string, 选填): 状态消息。
+- **响应数据**：`{}`
 
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| room_id | string | 是 | 房间 ID |
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| from | string | 否 | 从哪个事件开始 |
-| to | string | 否 | 到哪个事件结束 |
-| dir | string | 否 | 方向（f, b） |
-| limit | integer | 否 | 限制数量 |
-| filter | string | 否 | 过滤器 |
-
-#### 响应格式
-
-```json
-{
-  "start": "s1234567890",
-  "end": "s1234567891",
-  "chunk": [
-    {
-      "event_id": "$event_id:server.com",
-      "type": "m.room.message",
-      "sender": "@alice:server.com",
-      "content": {
-        "msgtype": "m.text",
-        "body": "Hello, world!"
-      },
-      "origin_server_ts": 1234567890
-    }
-  ],
-  "state": []
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_NOT_FOUND | 404 | 房间不存在 |
-
-#### 使用示例
-
-```bash
-curl -X GET "http://localhost:8008/_matrix/client/r0/rooms/!room_id:server.com/messages?dir=b&limit=50" \
-  -H "Authorization: Bearer access_token_here"
-```
+### 4.3 设置正在输入
+- **接口名称**：设置正在输入
+- **请求方法**：`PUT`
+- **URL 路径**：`/_matrix/client/r0/rooms/{room_id}/typing/{user_id}`
+- **认证**：Token
+- **请求参数**：
+  - `typing` (boolean, 必填): 是否正在输入。
+- **响应数据**：`{}`
 
 ---
 
-## 二、联邦 API (Federation API)
+## 5. 设备管理 (Device Management)
 
-### 2.1 获取服务器版本
+### 5.1 获取设备列表
+- **接口名称**：获取设备列表
+- **请求方法**：`GET`
+- **URL 路径**：`/_matrix/client/r0/devices`
+- **认证**：Token
+- **响应数据**：
+  - `devices` (list): 设备列表。
 
-**接口名称**：获取服务器版本  
-**请求方法**：GET  
-**URL 路径**：`/_matrix/federation/v1/version`  
-**认证**：是（服务器签名）
+### 5.2 获取单个设备
+- **接口名称**：获取设备信息
+- **请求方法**：`GET`
+- **URL 路径**：`/_matrix/client/r0/devices/{device_id}`
+- **认证**：Token
+- **响应数据**：设备详情。
 
-#### 请求参数
+### 5.3 更新设备
+- **接口名称**：更新设备信息
+- **请求方法**：`PUT`
+- **URL 路径**：`/_matrix/client/r0/devices/{device_id}`
+- **认证**：Token
+- **请求参数**：
+  - `display_name` (string, 必填): 显示名称。
+- **响应数据**：`{}`
 
-无
-
-#### 响应格式
-
-```json
-{
-  "server": {
-    "name": "Synapse Rust",
-    "version": "0.1.0"
-  }
-}
-```
-
-#### 错误码
-
-无
-
-#### 使用示例
-
-```bash
-curl -X GET http://localhost:8008/_matrix/federation/v1/version
-```
+### 5.4 删除设备
+- **删除单个设备**：`DELETE /_matrix/client/r0/devices/{device_id}`
+- **批量删除设备**：`POST /_matrix/client/r0/delete_devices` (参数: `devices`: list of device_ids)
 
 ---
 
-### 2.2 发送联邦事务
+## 6. 媒体 (Media)
 
-**接口名称**：发送联邦事务  
-**请求方法**：PUT  
-**URL 路径**：`/_matrix/federation/v1/send/{txn_id}`  
-**认证**：是（服务器签名）
+### 6.1 上传媒体
+- **接口名称**：上传媒体
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/media/r0/upload`
+- **认证**：Token
+- **响应数据**：
+  - `content_uri` (string): MXC URI。
 
-#### 路径参数
+### 6.2 下载媒体
+- **接口名称**：下载媒体
+- **请求方法**：`GET`
+- **URL 路径**：`/_matrix/media/r0/download/{server_name}/{media_id}`
 
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| txn_id | string | 是 | 事务 ID |
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| origin | string | 是 | 源服务器 |
-| origin_server_ts | integer | 是 | 源服务器时间戳 |
-| pdus | array | 是 | PDU 列表 |
-| edus | array | 否 | EDU 列表 |
-
-#### 响应格式
-
-```json
-{
-  "pdus": {
-    "$event_id:server.com": {
-      "event_id": "$event_id:server.com"
-    }
-  }
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_FORBIDDEN | 403 | 禁止访问 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
-
-#### 使用示例
-
-```bash
-curl -X PUT http://localhost:8008/_matrix/federation/v1/send/txn123 \
-  -H "Authorization: X-Matrix origin=server.com,key=...,sig=..." \
-  -H "Content-Type: application/json" \
-  -d '{
-    "origin": "server.com",
-    "origin_server_ts": 1234567890,
-    "pdus": []
-  }'
-```
+### 6.3 获取缩略图
+- **接口名称**：获取缩略图
+- **请求方法**：`GET`
+- **URL 路径**：`/_matrix/media/r0/thumbnail/{server_name}/{media_id}`
+- **请求参数**：
+  - `width` (integer): 宽。
+  - `height` (integer): 高。
+  - `method` (string): 缩放方式 ("crop", "scale")。
 
 ---
 
-## 三、Enhanced API
+## 7. 语音消息 (Voice)
 
-### 3.1 好友管理 API
+### 7.1 上传语音
+- **接口名称**：上传语音消息
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/r0/voice/upload`
+- **认证**：Token
+- **请求参数**：
+  - `content` (string, 必填): Base64 编码的音频数据。
+  - `content_type` (string, 选填): MIME 类型 (默认 "audio/ogg")。
+  - `duration_ms` (integer, 选填): 时长 (毫秒)。
+  - `room_id` (string, 选填): 关联房间 ID。
+  - `session_id` (string, 选填): 关联会话 ID。
+- **响应数据**：
+  - `message_id` (string): 消息 ID。
+  - `content_url` (string): 存储 URL/Path。
 
-#### 3.1.1 获取好友列表
+### 7.2 获取语音消息
+- **接口名称**：获取语音消息
+- **请求方法**：`GET`
+- **URL 路径**：`/_matrix/client/r0/voice/{message_id}`
+- **认证**：Token (Implicit via path access check usually, but here explicit state check)
+- **响应数据**：
+  - `content` (string): Base64 编码内容。
+  - `content_type` (string): 类型。
 
-**接口名称**：获取好友列表  
-**请求方法**：GET  
-**URL 路径**：`/_synapse/enhanced/friends`  
-**认证**：是
+### 7.3 语音统计与配置
+- **获取当前用户统计**：`GET /_matrix/client/r0/voice/stats`
+- **获取用户统计**：`GET /_matrix/client/r0/voice/user/{user_id}/stats`
+- **获取语音配置**：`GET /_matrix/client/r0/voice/config`
 
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| category | string | 否 | 分类名称 |
-| limit | integer | 否 | 限制数量 |
-| offset | integer | 否 | 偏移量 |
-
-#### 响应格式
-
-```json
-{
-  "friends": [
-    {
-      "user_id": "@bob:server.com",
-      "display_name": "Bob",
-      "avatar_url": "mxc://server.com/...",
-      "category": "Family",
-      "added_at": 1234567890
-    }
-  ],
-  "total": 1
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-
-#### 使用示例
-
-```bash
-curl -X GET "http://localhost:8008/_synapse/enhanced/friends?category=Family" \
-  -H "Authorization: Bearer access_token_here"
-```
+### 7.4 语音处理
+- **转换语音格式**：`POST /_matrix/client/r0/voice/convert`
+- **优化语音大小**：`POST /_matrix/client/r0/voice/optimize`
 
 ---
 
-#### 3.1.2 发送好友请求
+## 8. 端到端加密 (E2EE)
 
-**接口名称**：发送好友请求  
-**请求方法**：POST  
-**URL 路径**：`/_synapse/enhanced/friend/request`  
-**认证**：是
+### 8.1 密钥上传
+- **接口名称**：上传密钥
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/v3/keys/upload`
+- **认证**：Token
+- **请求参数**：
+  - `device_keys` (object): 设备密钥。
+  - `one_time_keys` (object): 一次性密钥。
+- **响应数据**：
+  - `one_time_key_counts` (object): 各算法剩余密钥数。
 
-#### 请求参数
+### 8.2 密钥查询
+- **接口名称**：查询密钥
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/v3/keys/query`
+- **认证**：Token
+- **请求参数**：
+  - `device_keys` (object): 待查询的 `user_id` -> `device_id` 列表。
+- **响应数据**：
+  - `device_keys` (object): 查询结果。
+  - `failures` (object): 失败项。
 
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| user_id | string | 是 | 目标用户 ID |
-| message | string | 否 | 请求消息 |
-
-#### 请求示例
-
-```json
-{
-  "user_id": "@bob:server.com",
-  "message": "Hi, I'd like to be your friend!"
-}
-```
-
-#### 响应格式
-
-```json
-{
-  "request_id": "request_id_here"
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_NOT_FOUND | 404 | 用户不存在 |
-| M_ALREADY_FRIENDS | 400 | 已经是好友 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_synapse/enhanced/friend/request \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "@bob:server.com",
-    "message": "Hi, I'\''d like to be your friend!"
-  }'
-```
+### 8.3 密钥领取
+- **接口名称**：领取一次性密钥
+- **请求方法**：`POST`
+- **URL 路径**：`/_matrix/client/v3/keys/claim`
+- **认证**：Token
+- **请求参数**：
+  - `one_time_keys` (object): 待领取的 `user_id` -> `device_id` -> `algorithm`。
+- **响应数据**：
+  - `one_time_keys` (object): 领取到的密钥。
 
 ---
 
-#### 3.1.3 响应好友请求
+## 9. 密钥备份 (Key Backup)
 
-**接口名称**：响应好友请求  
-**请求方法**：POST  
-**URL 路径**：`/_synapse/enhanced/friend/request/{request_id}/respond`  
-**认证**：是
+### 9.1 获取/创建版本
+- **创建备份版本**：`POST /_matrix/client/v3/room_keys/version`
+- **获取备份版本**：`GET /_matrix/client/v3/room_keys/version`
+- **获取指定版本**：`GET /_matrix/client/v3/room_keys/version/{version}`
+- **更新指定版本**：`PUT /_matrix/client/v3/room_keys/version/{version}`
+- **删除指定版本**：`DELETE /_matrix/client/v3/room_keys/version/{version}`
 
-#### 路径参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| request_id | string | 是 | 请求 ID |
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| accept | boolean | 是 | 是否接受 |
-| category | string | 否 | 分类名称 |
-
-#### 请求示例
-
-```json
-{
-  "accept": true,
-  "category": "Family"
-}
-```
-
-#### 响应格式
-
-```json
-{}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_NOT_FOUND | 404 | 请求不存在 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_synapse/enhanced/friend/request/request123/respond \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "accept": true,
-    "category": "Family"
-  }'
-```
+### 9.2 备份数据操作
+- **上传密钥数据**：`PUT /_matrix/client/v3/room_keys/keys/{room_id}/{session_id}`
+- **获取密钥数据**：`GET /_matrix/client/v3/room_keys/keys/{room_id}/{session_id}`
+- **删除密钥数据**：`DELETE /_matrix/client/v3/room_keys/keys/{room_id}/{session_id}`
 
 ---
 
-### 3.2 私聊管理 API
+## 10. 管理接口 (Admin API)
 
-#### 3.2.1 创建私聊会话
+### 10.1 用户管理
+- **管理员登录**：`POST /_synapse/admin/v1/users/{user_id}/login`
+- **重置密码**：`POST /_synapse/admin/v1/users/{user_id}/password`
+- **停用用户**：`POST /_synapse/admin/v1/users/{user_id}/deactivate`
+- **创建用户**：`POST /_synapse/admin/v1/users/{user_id}`
+- **获取用户信息**：`GET /_synapse/admin/v1/users/{user_id}`
+- **列出所有用户**：`GET /_synapse/admin/v1/users`
 
-**接口名称**：创建私聊会话  
-**请求方法**：POST  
-**URL 路径**：`/_synapse/enhanced/private/sessions`  
-**认证**：是
+### 10.2 房间管理
+- **列出房间**：`GET /_synapse/admin/v1/rooms`
+- **获取房间详情**：`GET /_synapse/admin/v1/rooms/{room_id}`
+- **删除房间**：`DELETE /_synapse/admin/v1/rooms/{room_id}`
 
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| user_id | string | 是 | 目标用户 ID |
-| session_name | string | 否 | 会话名称 |
-| ttl_seconds | integer | 否 | TTL（秒） |
-| auto_delete | boolean | 否 | 自动删除 |
-
-#### 请求示例
-
-```json
-{
-  "user_id": "@bob:server.com",
-  "session_name": "Private Chat",
-  "ttl_seconds": 86400,
-  "auto_delete": false
-}
-```
-
-#### 响应格式
-
-```json
-{
-  "session_id": "session_id_here"
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_NOT_FOUND | 404 | 用户不存在 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_synapse/enhanced/private/sessions \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "@bob:server.com",
-    "session_name": "Private Chat"
-  }'
-```
+### 10.3 媒体管理
+- **删除媒体**：`DELETE /_synapse/admin/v1/media/{media_id}`
+- **清除远程媒体缓存**：`POST /_synapse/admin/v1/purge_remote_media_cache`
 
 ---
 
-#### 3.2.2 发送私聊消息
+## 11. 联邦接口 (Federation API)
 
-**接口名称**：发送私聊消息  
-**请求方法**：POST  
-**URL 路径**：`/_synapse/enhanced/private/sessions/{session_id}/messages`  
-**认证**：是
+### 11.1 事务处理
+- **发送事务**：`PUT /_matrix/federation/v1/send/{txn_id}`
+- **获取版本**：`GET /_matrix/federation/v1/version`
 
-#### 路径参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| session_id | string | 是 | 会话 ID |
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| content | string | 是 | 消息内容 |
-| encrypted | boolean | 否 | 是否加密 |
-| ttl_seconds | integer | 否 | TTL（秒） |
-
-#### 请求示例
-
-```json
-{
-  "content": "Hello, this is a private message!",
-  "encrypted": true,
-  "ttl_seconds": 86400
-}
-```
-
-#### 响应格式
-
-```json
-{
-  "message_id": "message_id_here"
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_NOT_FOUND | 404 | 会话不存在 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_synapse/enhanced/private/sessions/session123/messages \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "Hello, this is a private message!",
-    "encrypted": true
-  }'
-```
+### 11.2 目录与发现
+- **获取公钥**：`GET /_matrix/key/v2/server/{key_id}`
+- **查询服务器**：`GET /_matrix/federation/v1/query/directory`
+- **查询资料**：`GET /_matrix/federation/v1/query/profile`
 
 ---
 
-### 3.3 语音消息 API
+## 12. 增强功能 API (Enhanced API)
 
-#### 3.3.1 上传语音消息
+> **说明**：本章节包含 Synapse Rust 版本特有的增强功能接口，主要用于支持 `matrix-js-sdk` 中的高级功能，如好友系统和增强版私密聊天。
+> **API 前缀**：`/_synapse/enhanced`
 
-**接口名称**：上传语音消息  
-**请求方法**：POST  
-**URL 路径**：`/_synapse/enhanced/voice/upload`  
-**认证**：是
+### 12.1 好友系统 (Friends System)
 
-#### 请求参数
+#### 12.1.1 获取好友列表
+- **接口名称**：获取好友列表
+- **请求方法**：`GET`
+- **URL 路径**：`/_synapse/enhanced/friends`
+- **认证**：Token
+- **请求参数**：
+  - `category` (string, 选填): 按分类筛选。
+  - `page` (integer, 选填): 页码。
+  - `limit` (integer, 选填): 每页数量。
+- **响应数据**：
+  - `friends` (list): 好友列表。
+  - `total` (integer): 总数。
 
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| file | file | 是 | 音频文件 |
-| room_id | string | 否 | 房间 ID |
-| duration | integer | 否 | 时长（秒） |
-| language | string | 否 | 语言代码 |
-| transcription | string | 否 | 转录文本 |
+#### 12.1.2 发送好友请求
+- **接口名称**：发送好友请求
+- **请求方法**：`POST`
+- **URL 路径**：`/_synapse/enhanced/friend/request`
+- **认证**：Token
+- **请求参数**：
+  - `target_user_id` (string, 必填): 目标用户 ID。
+  - `message` (string, 选填): 验证消息。
+- **响应数据**：
+  - `room_id` (string): 关联的请求 ID (通常复用 room_id)。
+  - `status` (string): 状态 (pending)。
 
-#### 响应格式
+#### 12.1.3 处理好友请求
+- **接受请求**：`POST /_synapse/enhanced/friend/request/{requestId}/accept`
+- **拒绝请求**：`POST /_synapse/enhanced/friend/request/{requestId}/decline`
 
-```json
-{
-  "message_id": "message_id_here",
-  "file_url": "mxc://server.com/...",
-  "duration": 30
-}
-```
+#### 12.1.4 好友管理
+- **检查好友关系**：`GET /_synapse/enhanced/friends/{userId}/check`
+- **删除好友**：`DELETE /_synapse/enhanced/friends/{userId}`
+- **设置备注**：`PUT /_synapse/enhanced/friends/{userId}/remark` (参数: `remark`)
 
-#### 错误码
+#### 12.1.5 黑名单管理
+- **获取黑名单**：`GET /_synapse/enhanced/friends/blocked`
+- **拉黑用户**：`POST /_synapse/enhanced/friends/blocked` (参数: `user_id`, `reason`)
+- **解除拉黑**：`DELETE /_synapse/enhanced/friends/blocked/{userId}`
 
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
+### 12.2 私密聊天 (Private Chat)
 
-#### 使用示例
+> **实现方法说明**：
+> 私密聊天功能基于增强的“会话 (Session)”机制实现，区别于普通的 Matrix Room。
+> 1. **会话创建**：客户端通过 `POST /sessions` 创建一个私密会话，可指定 `ttl_seconds` (生存时间) 和 `auto_delete` (自动销毁)。
+> 2. **消息传输**：消息通过专门的 `POST /messages` 接口发送，支持端到端加密参数 `encrypted: true`。
+> 3. **数据安全**：会话到期或用户主动调用 `close` 接口后，服务器端将物理删除相关数据，确保隐私安全。
 
-```bash
-curl -X POST http://localhost:8008/_synapse/enhanced/voice/upload \
-  -H "Authorization: Bearer access_token_here" \
-  -F "file=@audio.mp3" \
-  -F "duration=30"
-```
+#### 12.2.1 会话管理
+- **接口名称**：创建私密会话
+- **请求方法**：`POST`
+- **URL 路径**：`/_synapse/enhanced/private/sessions`
+- **认证**：Token
+- **请求参数**：
+  - `user_id` (string, 必填): 对方用户 ID。
+  - `session_name` (string, 选填): 会话名称。
+  - `ttl_seconds` (integer, 选填): 自动销毁时间 (秒)。
+  - `auto_delete` (boolean, 选填): 是否自动删除。
+- **响应数据**：
+  - `session_id` (string): 会话 ID。
 
----
+- **关闭/删除会话**：`DELETE /_synapse/enhanced/private/sessions/{sessionId}/close`
+- **获取会话详情**：`GET /_synapse/enhanced/private/sessions/{sessionId}`
 
-## 四、E2EE API (End-to-End Encryption API)
+#### 12.2.2 消息管理
+- **接口名称**：发送私密消息
+- **请求方法**：`POST`
+- **URL 路径**：`/_synapse/enhanced/private/messages`
+- **认证**：Token
+- **请求参数**：
+  - `session_id` (string, 必填): 会话 ID。
+  - `content` (string, 必填): 消息内容 (或加密载荷)。
+  - `encrypted` (boolean, 选填): 是否已加密。
+- **响应数据**：
+  - `message_id` (string): 消息 ID。
 
-### 4.1 设备密钥管理
-
-#### 4.1.1 查询设备密钥
-
-**接口名称**：查询设备密钥  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/v3/keys/query`  
-**认证**：是
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| timeout | integer | 否 | 超时时间（毫秒） |
-| device_keys | object | 是 | 查询的设备密钥 |
-| token | string | 否 | 同步令牌 |
-
-#### 请求示例
-
-```json
-{
-  "timeout": 10000,
-  "device_keys": {
-    "@alice:server.com": ["DEVICE1", "DEVICE2"],
-    "@bob:server.com": ["*"]
-  },
-  "token": "s1234567890"
-}
-```
-
-#### 响应格式
-
-```json
-{
-  "device_keys": {
-    "@alice:server.com": {
-      "DEVICE1": {
-        "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
-        "device_id": "DEVICE1",
-        "keys": {
-          "curve25519:DEVICE1": "base64_public_key",
-          "ed25519:DEVICE1": "base64_public_key"
-        },
-        "signatures": {
-          "@alice:server.com": {
-            "ed25519:DEVICE1": "base64_signature"
-          }
-        },
-        "user_id": "@alice:server.com",
-        "unsigned": {}
-      }
-    }
-  },
-  "failures": {}
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_matrix/client/v3/keys/query \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "device_keys": {
-      "@alice:server.com": ["DEVICE1"]
-    }
-  }'
-```
+- **删除消息**：`DELETE /_synapse/enhanced/private/messages/{messageId}`
+- **标记已读**：`POST /_synapse/enhanced/private/messages/{messageId}/read`
 
 ---
 
-#### 4.1.2 上传设备密钥
+## 13. 通用接口 (General)
+
+### 12.1 服务器信息
+- **首页信息**：`GET /` (返回 "Synapse Rust Matrix Server")
+- **健康检查**：`GET /health` (返回健康状态及 DB/Cache 状态)
+- **版本信息**：
+  - `GET /_matrix/client/versions`
+  - `GET /_matrix/client/r0/version`
 
-**接口名称**：上传设备密钥  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/v3/keys/upload`  
-**认证**：是
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| device_keys | object | 否 | 设备密钥 |
-| one_time_keys | object | 否 | 一次性密钥 |
-
-#### 请求示例
-
-```json
-{
-  "device_keys": {
-    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
-    "device_id": "DEVICE1",
-    "keys": {
-      "curve25519:DEVICE1": "base64_public_key",
-      "ed25519:DEVICE1": "base64_public_key"
-    },
-    "signatures": {
-      "@alice:server.com": {
-        "ed25519:DEVICE1": "base64_signature"
-      }
-    },
-    "user_id": "@alice:server.com"
-  },
-  "one_time_keys": {
-    "signed_curve25519:AAAAAQ": {
-      "key": "base64_public_key",
-      "signatures": {
-        "@alice:server.com": {
-          "ed25519:DEVICE1": "base64_signature"
-        }
-      }
-    }
-  }
-}
-```
-
-#### 响应格式
-
-```json
-{
-  "one_time_key_counts": {
-    "signed_curve25519": 50,
-    "curve25519": 20
-  }
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_matrix/client/v3/keys/upload \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "device_keys": {
-      "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
-      "device_id": "DEVICE1",
-      "keys": {
-        "curve25519:DEVICE1": "base64_public_key",
-        "ed25519:DEVICE1": "base64_public_key"
-      },
-      "user_id": "@alice:server.com"
-    }
-  }'
-```
-
----
-
-#### 4.1.3 声明一次性密钥
-
-**接口名称**：声明一次性密钥  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/v3/keys/claim`  
-**认证**：是
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| timeout | integer | 否 | 超时时间（毫秒） |
-| one_time_keys | object | 是 | 要声明的一次性密钥 |
-
-#### 请求示例
-
-```json
-{
-  "timeout": 10000,
-  "one_time_keys": {
-    "@alice:server.com": {
-      "DEVICE1": "signed_curve25519"
-    }
-  }
-}
-```
-
-#### 响应格式
-
-```json
-{
-  "one_time_keys": {
-    "@alice:server.com": {
-      "DEVICE1": {
-        "signed_curve25519:AAAAAQ": {
-          "key": "base64_public_key",
-          "signatures": {
-            "@alice:server.com": {
-              "ed25519:DEVICE1": "base64_signature"
-            }
-          }
-        }
-      }
-    }
-  },
-  "failures": {}
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_matrix/client/v3/keys/claim \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "one_time_keys": {
-      "@alice:server.com": {
-        "DEVICE1": "signed_curve25519"
-      }
-    }
-  }'
-```
-
----
-
-#### 4.1.4 删除设备密钥
-
-**接口名称**：删除设备密钥  
-**请求方法**：DELETE  
-**URL 路径**：`/_matrix/client/v3/keys/{user_id}/{device_id}`  
-**认证**：是
-
-#### 路径参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| user_id | string | 是 | 用户 ID |
-| device_id | string | 是 | 设备 ID |
-
-#### 响应格式
-
-```json
-{}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_FORBIDDEN | 403 | 禁止删除 |
-
-#### 使用示例
-
-```bash
-curl -X DELETE http://localhost:8008/_matrix/client/v3/keys/@alice:server.com/DEVICE1 \
-  -H "Authorization: Bearer access_token_here"
-```
-
----
-
-### 4.2 跨签名密钥管理
-
-#### 4.2.1 上传跨签名密钥
-
-**接口名称**：上传跨签名密钥  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/v3/keys/device_signing/upload`  
-**认证**：是
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| master_key | object | 是 | 主密钥 |
-| self_signing_key | object | 是 | 自签名密钥 |
-| user_signing_key | object | 是 | 用户签名密钥 |
-
-#### 请求示例
-
-```json
-{
-  "master_key": {
-    "user_id": "@alice:server.com",
-    "usage": ["master"],
-    "keys": {
-      "ed25519:MASTER": "base64_public_key"
-    },
-    "signatures": {}
-  },
-  "self_signing_key": {
-    "user_id": "@alice:server.com",
-    "usage": ["self_signing"],
-    "keys": {
-      "ed25519:SELF_SIGNING": "base64_public_key"
-    },
-    "signatures": {
-      "@alice:server.com": {
-        "ed25519:MASTER": "base64_signature"
-      }
-    }
-  },
-  "user_signing_key": {
-    "user_id": "@alice:server.com",
-    "usage": ["user_signing"],
-    "keys": {
-      "ed25519:USER_SIGNING": "base64_public_key"
-    },
-    "signatures": {
-      "@alice:server.com": {
-        "ed25519:MASTER": "base64_signature"
-      }
-    }
-  }
-}
-```
-
-#### 响应格式
-
-```json
-{}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_matrix/client/v3/keys/device_signing/upload \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "master_key": {
-      "user_id": "@alice:server.com",
-      "usage": ["master"],
-      "keys": {
-        "ed25519:MASTER": "base64_public_key"
-      }
-    }
-  }'
-```
-
----
-
-#### 4.2.2 上传签名
-
-**接口名称**：上传签名  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/v3/keys/signatures/upload`  
-**认证**：是
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| signatures | object | 是 | 签名数据 |
-
-#### 请求示例
-
-```json
-{
-  "@alice:server.com": {
-    "ed25519:DEVICE1": {
-      "user_id": "@alice:server.com",
-      "usage": ["self_signing"],
-      "keys": {
-        "ed25519:DEVICE1": "base64_public_key"
-      },
-      "signatures": {
-        "@alice:server.com": {
-          "ed25519:SELF_SIGNING": "base64_signature"
-        }
-      }
-    }
-  }
-}
-```
-
-#### 响应格式
-
-```json
-{
-  "failures": {}
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_matrix/client/v3/keys/signatures/upload \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "@alice:server.com": {
-      "ed25519:DEVICE1": {
-        "user_id": "@alice:server.com",
-        "usage": ["self_signing"],
-        "keys": {
-          "ed25519:DEVICE1": "base64_public_key"
-        },
-        "signatures": {
-          "@alice:server.com": {
-            "ed25519:SELF_SIGNING": "base64_signature"
-          }
-        }
-      }
-    }
-  }'
-```
-
----
-
-### 4.3 房间加密管理
-
-#### 4.3.1 启用房间加密
-
-**接口名称**：启用房间加密  
-**请求方法**：PUT  
-**URL 路径**：`/_matrix/client/v3/rooms/{room_id}/encryption`  
-**认证**：是
-
-#### 路径参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| room_id | string | 是 | 房间 ID |
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| algorithm | string | 是 | 加密算法 |
-| rotation_period_ms | integer | 否 | 轮换周期（毫秒） |
-| rotation_period_msgs | integer | 否 | 轮换消息数 |
-
-#### 请求示例
-
-```json
-{
-  "algorithm": "m.megolm.v1.aes-sha2",
-  "rotation_period_ms": 604800000,
-  "rotation_period_msgs": 100
-}
-```
-
-#### 响应格式
-
-```json
-{}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_FORBIDDEN | 403 | 禁止操作 |
-| M_NOT_FOUND | 404 | 房间不存在 |
-
-#### 使用示例
-
-```bash
-curl -X PUT http://localhost:8008/_matrix/client/v3/rooms/!room_id:server.com/encryption \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "algorithm": "m.megolm.v1.aes-sha2"
-  }'
-```
-
----
-
-#### 4.3.2 禁用房间加密
-
-**接口名称**：禁用房间加密  
-**请求方法**：DELETE  
-**URL 路径**：`/_matrix/client/v3/rooms/{room_id}/encryption`  
-**认证**：是
-
-#### 路径参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| room_id | string | 是 | 房间 ID |
-
-#### 响应格式
-
-```json
-{}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_FORBIDDEN | 403 | 禁止操作 |
-| M_NOT_FOUND | 404 | 房间不存在 |
-
-#### 使用示例
-
-```bash
-curl -X DELETE http://localhost:8008/_matrix/client/v3/rooms/!room_id:server.com/encryption \
-  -H "Authorization: Bearer access_token_here"
-```
-
----
-
-### 4.4 密钥备份管理
-
-#### 4.4.1 创建密钥备份
-
-**接口名称**：创建密钥备份  
-**请求方法**：POST  
-**URL 路径**：`/_matrix/client/v3/room_keys/version`  
-**认证**：是
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| algorithm | string | 是 | 备份算法 |
-
-#### 请求示例
-
-```json
-{
-  "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2"
-}
-```
-
-#### 响应格式
-
-```json
-{
-  "version": "1",
-  "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
-  "auth_data": {
-    "public_key": "base64_public_key",
-    "signatures": {
-      "@alice:server.com": {
-        "ed25519:DEVICE1": "base64_signature"
-      }
-    }
-  }
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
-
-#### 使用示例
-
-```bash
-curl -X POST http://localhost:8008/_matrix/client/v3/room_keys/version \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2"
-  }'
-```
-
----
-
-#### 4.4.2 获取密钥备份
-
-**接口名称**：获取密钥备份  
-**请求方法**：GET  
-**URL 路径**：`/_matrix/client/v3/room_keys/version`  
-**认证**：是
-
-#### 响应格式
-
-```json
-{
-  "version": "1",
-  "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
-  "auth_data": {
-    "public_key": "base64_public_key",
-    "signatures": {
-      "@alice:server.com": {
-        "ed25519:DEVICE1": "base64_signature"
-      }
-    }
-  },
-  "count": 100,
-  "etag": "etag_value"
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_NOT_FOUND | 404 | 备份不存在 |
-
-#### 使用示例
-
-```bash
-curl -X GET http://localhost:8008/_matrix/client/v3/room_keys/version \
-  -H "Authorization: Bearer access_token_here"
-```
-
----
-
-#### 4.4.3 删除密钥备份
-
-**接口名称**：删除密钥备份  
-**请求方法**：DELETE  
-**URL 路径**：`/_matrix/client/v3/room_keys/version/{version}`  
-**认证**：是
-
-#### 路径参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| version | string | 是 | 备份版本 |
-
-#### 响应格式
-
-```json
-{}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_NOT_FOUND | 404 | 备份不存在 |
-
-#### 使用示例
-
-```bash
-curl -X DELETE http://localhost:8008/_matrix/client/v3/room_keys/version/1 \
-  -H "Authorization: Bearer access_token_here"
-```
-
----
-
-#### 4.4.4 上传密钥备份数据
-
-**接口名称**：上传密钥备份数据  
-**请求方法**：PUT  
-**URL 路径**：`/_matrix/client/v3/room_keys/keys/{room_id}/sessions/{session_id}`  
-**认证**：是
-
-#### 路径参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| room_id | string | 是 | 房间 ID |
-| session_id | string | 是 | 会话 ID |
-
-#### 请求参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| first_message_index | integer | 是 | 首条消息索引 |
-| forwarded_count | integer | 是 | 转发计数 |
-| is_verified | boolean | 是 | 是否已验证 |
-| session_data | string | 是 | 会话数据（加密） |
-
-#### 请求示例
-
-```json
-{
-  "first_message_index": 0,
-  "forwarded_count": 0,
-  "is_verified": true,
-  "session_data": "base64_encrypted_data"
-}
-```
-
-#### 响应格式
-
-```json
-{
-  "etag": "etag_value",
-  "count": 1
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
-
-#### 使用示例
-
-```bash
-curl -X PUT http://localhost:8008/_matrix/client/v3/room_keys/keys/!room_id:server.com/sessions/session123 \
-  -H "Authorization: Bearer access_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "first_message_index": 0,
-    "forwarded_count": 0,
-    "is_verified": true,
-    "session_data": "base64_encrypted_data"
-  }'
-```
-
----
-
-#### 4.4.5 下载密钥备份数据
-
-**接口名称**：下载密钥备份数据  
-**请求方法**：GET  
-**URL 路径**：`/_matrix/client/v3/room_keys/keys/{room_id}/sessions/{session_id}`  
-**认证**：是
-
-#### 路径参数
-
-| 参数名 | 类型 | 必需 | 描述 |
-|--------|------|------|------|
-| room_id | string | 是 | 房间 ID |
-| session_id | string | 是 | 会话 ID |
-
-#### 响应格式
-
-```json
-{
-  "first_message_index": 0,
-  "forwarded_count": 0,
-  "is_verified": true,
-  "session_data": "base64_encrypted_data"
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_NOT_FOUND | 404 | 备份数据不存在 |
-
-#### 使用示例
-
-```bash
-curl -X GET http://localhost:8008/_matrix/client/v3/room_keys/keys/!room_id:server.com/sessions/session123 \
-  -H "Authorization: Bearer access_token_here"
-```
-
----
-
-## 五、Admin API
-
-### 5.1 获取系统状态
-
-**接口名称**：获取系统状态  
-**请求方法**：GET  
-**URL 路径**：`/_synapse/admin/v1/status`  
-**认证**：是（管理员）
-
-#### 请求参数
-
-无
-
-#### 响应格式
-
-```json
-{
-  "version": "0.1.0",
-  "uptime": 86400,
-  "total_users": 1000,
-  "total_rooms": 500,
-  "total_events": 100000
-}
-```
-
-#### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_FORBIDDEN | 403 | 无管理员权限 |
-
-#### 使用示例
-
-```bash
-curl -X GET http://localhost:8008/_synapse/admin/v1/status \
-  -H "Authorization: Bearer admin_token_here"
-```
-
----
-
-## 六、通用错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|------------|------|
-| M_UNKNOWN | 500 | 未知错误 |
-| M_BAD_JSON | 400 | JSON 格式错误 |
-| M_NOT_JSON | 400 | 非 JSON 请求 |
-| M_NOT_FOUND | 404 | 资源未找到 |
-| M_LIMIT_EXCEEDED | 429 | 请求频率超限 |
-| M_USER_IN_USE | 400 | 用户名已被使用 |
-| M_INVALID_USERNAME | 400 | 用户名无效 |
-| M_MISSING_PARAM | 400 | 缺少必需参数 |
-| M_INVALID_PARAM | 400 | 参数无效 |
-| M_FORBIDDEN | 403 | 禁止访问 |
-| M_UNAUTHORIZED | 401 | 未授权 |
-| M_UNKNOWN_TOKEN | 401 | 无效的访问令牌 |
-| M_MISSING_TOKEN | 401 | 缺少访问令牌 |
-
----
-
-## 七、参考资料
-
-- [Matrix 客户端-服务器 API 规范](https://spec.matrix.org/v1.11/client-server-api/)
-- [Matrix 联邦 API 规范](https://spec.matrix.org/v1.11/server-server-api/)
-- [Matrix E2EE 规范](https://spec.matrix.org/v1.11/client-server-api/#end-to-end-encryption)
-- [Synapse 官方文档](https://element-hq.github.io/synapse/latest/)
-
----
-
-## 八、变更日志
-
-| 版本 | 日期 | 变更说明 |
-|------|------|----------|
-| 1.1.0 | 2026-01-28 | 添加 E2EE API 端点文档，包括设备密钥管理、跨签名密钥、房间加密和密钥备份 |
-| 1.0.0 | 2026-01-28 | 初始版本，定义完整 API 文档 |

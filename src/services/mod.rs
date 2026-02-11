@@ -14,7 +14,7 @@ use crate::e2ee::cross_signing::CrossSigningService;
 use crate::e2ee::device_keys::DeviceKeyService;
 use crate::e2ee::megolm::MegolmService;
 use crate::e2ee::to_device::ToDeviceService;
-use crate::federation::{DeviceSyncManager, EventAuthChain, KeyRotationManager};
+use crate::federation::{DeviceSyncManager, EventAuthChain, KeyRotationManager, FriendFederation};
 use crate::storage::email_verification::EmailVerificationStorage;
 use crate::storage::*;
 use sqlx::{Pool, Postgres};
@@ -87,6 +87,12 @@ pub struct ServiceContainer {
     pub key_rotation_manager: KeyRotationManager,
     /// 设备同步管理服务
     pub device_sync_manager: DeviceSyncManager,
+    /// 好友存储
+    pub friend_storage: FriendRoomStorage,
+    /// 好友房间服务
+    pub friend_room_service: Arc<FriendRoomService>,
+    /// 好友联邦服务
+    pub friend_federation: Arc<FriendFederation>,
 }
 
 impl ServiceContainer {
@@ -184,6 +190,15 @@ impl ServiceContainer {
         let key_rotation_manager = KeyRotationManager::new(pool, &server_name);
         let device_sync_manager = DeviceSyncManager::new(pool, Some(cache.clone()), task_queue.clone());
 
+        let friend_storage = FriendRoomStorage::new(pool.clone());
+        let friend_room_service = Arc::new(FriendRoomService::new(
+            friend_storage.clone(),
+            room_service.clone(),
+            event_storage.clone(),
+            config.server.name.clone(),
+        ));
+        let friend_federation = Arc::new(FriendFederation::new(friend_room_service.clone()));
+
         Self {
             user_storage,
             device_storage: DeviceStorage::new(pool),
@@ -215,6 +230,9 @@ impl ServiceContainer {
             event_auth_chain,
             key_rotation_manager,
             device_sync_manager,
+            friend_storage,
+            friend_room_service,
+            friend_federation,
         }
     }
 
@@ -430,6 +448,7 @@ impl PresenceStorage {
 
 pub mod admin_registration_service;
 pub mod database_initializer;
+pub mod friend_room_service;
 pub mod media_service;
 pub mod moderation_service;
 pub mod registration_service;
@@ -440,6 +459,7 @@ pub mod voice_service;
 
 pub use admin_registration_service::*;
 pub use database_initializer::*;
+pub use friend_room_service::*;
 pub use media_service::*;
 pub use moderation_service::*;
 pub use registration_service::*;

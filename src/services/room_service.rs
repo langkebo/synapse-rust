@@ -21,6 +21,7 @@ pub struct CreateRoomConfig {
     pub preset: Option<String>,
     pub encryption: Option<String>,
     pub history_visibility: Option<String>,
+    pub is_direct: Option<bool>,
 }
 
 pub struct RoomService {

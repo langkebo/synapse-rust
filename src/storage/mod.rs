@@ -5,6 +5,7 @@ use tokio::sync::RwLock;
 pub mod device;
 pub mod email_verification;
 pub mod event;
+pub mod friend_room;
 pub mod maintenance;
 pub mod membership;
 pub mod monitoring;
@@ -17,6 +18,7 @@ pub mod voice;
 
 pub use self::device::*;
 pub use self::event::*;
+pub use self::friend_room::*;
 pub use self::maintenance::*;
 pub use self::membership::*;
 pub use self::monitoring::{
