@@ -2,6 +2,7 @@ pub mod admin;
 pub mod e2ee_routes;
 pub mod federation;
 pub mod friend;
+pub mod friend_compat;
 pub mod friend_room;
 pub mod key_backup;
 pub mod media;
@@ -11,6 +12,8 @@ pub use admin::create_admin_router;
 pub use e2ee_routes::create_e2ee_router;
 pub use federation::create_federation_router;
 pub use friend::create_friend_router;
+pub use friend_compat::create_friend_compat_router;
+pub use friend_room::create_friend_room_router;
 pub use key_backup::create_key_backup_router;
 pub use media::create_media_router;
 pub use voice::create_voice_router;
@@ -343,8 +346,10 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}",
             put(send_message),
         )
-        // 合并子路由器
+        // Merge sub-routers
         .merge(create_friend_router(state.clone()))
+        .merge(create_friend_room_router())
+        .merge(create_friend_compat_router())
         .merge(create_voice_router(state.clone()))
         .merge(create_media_router(state.clone()))
         .merge(create_e2ee_router(state.clone()))

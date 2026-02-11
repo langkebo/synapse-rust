@@ -28,20 +28,20 @@ pub fn create_friend_room_router() -> Router<AppState> {
         .route("/_matrix/client/v1/friends/request", post(send_friend_request))
         .route("/_matrix/client/v1/friends/requests", get(get_pending_requests))
         .route(
-            "/_matrix/client/v1/friends/request/:request_id/accept",
+            "/_matrix/client/v1/friends/request/{request_id}/accept",
             post(accept_friend_request),
         )
         .route(
-            "/_matrix/client/v1/friends/request/:request_id/decline",
+            "/_matrix/client/v1/friends/request/{request_id}/decline",
             post(decline_friend_request),
         )
 
         // Direct message rooms
-        .route("/_matrix/client/v1/friends/dm/:user_id", get(get_dm_room))
-        .route("/_matrix/client/v1/friends/dm/:user_id", post(create_dm_room))
+        .route("/_matrix/client/v1/friends/dm/{user_id}", get(get_dm_room))
+        .route("/_matrix/client/v1/friends/dm/{user_id}", post(create_dm_room))
 
         // Friend check
-        .route("/_matrix/client/v1/friends/check/:user_id", get(check_friendship))
+        .route("/_matrix/client/v1/friends/check/{user_id}", get(check_friendship))
 }
 
 // ==============================================================================

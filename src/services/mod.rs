@@ -432,6 +432,7 @@ pub mod admin_registration_service;
 pub mod database_initializer;
 pub mod friend_room_service;
 pub mod friend_service;
+pub mod friend_sync_service;
 pub mod media_service;
 pub mod moderation_service;
 pub mod registration_service;
