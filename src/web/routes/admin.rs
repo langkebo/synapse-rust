@@ -449,10 +449,11 @@ fn extract_valid_ip(headers: &HeaderMap) -> Result<String, ApiError> {
         }
     }
 
-    // If no valid IP found, use connection remote address
-    // This would be set by the middleware/extractor
-    // For now, return a safe default
-    Ok("127.0.0.1".to_string())
+    // If no valid IP found, return an error instead of using a default
+    // This ensures IP-based security checks cannot be bypassed
+    Err(ApiError::bad_request(
+        "Unable to determine client IP address. Please ensure proper proxy headers are set.",
+    ))
 }
 
 #[axum::debug_handler]

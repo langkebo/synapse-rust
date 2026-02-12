@@ -1,5 +1,6 @@
 mod auth_service_tests;
 mod device_storage_tests;
+mod event_storage_tests;
 mod exception_tests;
 mod federation_service_tests;
 mod media_service_tests;

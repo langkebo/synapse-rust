@@ -12,6 +12,7 @@ pub mod health;
 pub mod logging;
 pub mod macros;
 pub mod metrics;
+pub mod rate_limit;
 pub mod regex_cache;
 pub mod task_queue;
 pub mod tracing;
@@ -43,6 +44,8 @@ pub use health::*;
 pub use logging::*;
 #[allow(ambiguous_glob_reexports)]
 pub use metrics::*;
+#[allow(ambiguous_glob_reexports)]
+pub use rate_limit::*;
 #[allow(ambiguous_glob_reexports)]
 pub use regex_cache::*;
 #[allow(ambiguous_glob_reexports)]

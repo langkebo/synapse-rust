@@ -340,11 +340,6 @@ impl EventStorage {
 
     pub async fn redact_event_content(&self, event_id: &str) -> Result<(), sqlx::Error> {
         let redacted_content = serde_json::json!({});
-        // We try to update 'redacted' column if it exists. 
-        // Based on StateEvent struct having 'redacted', the column likely exists.
-        // However, to be safe against schema variations in this specific project context (where RoomEvent struct didn't have it),
-        // we will check if we can update it. 
-        // Actually, if StateEvent maps it, it must be there.
         sqlx::query(
             "UPDATE events SET content = $1, redacted = true WHERE event_id = $2"
         )
@@ -353,6 +348,128 @@ impl EventStorage {
         .execute(&*self.pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn get_room_events_since(
+        &self,
+        room_id: &str,
+        since: i64,
+        limit: i64,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        let events = sqlx::query_as(
+            r#"
+            SELECT event_id, room_id, user_id, event_type, content, state_key, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_ts, 0) as processed_ts, 
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
+            FROM events WHERE room_id = $1 AND origin_server_ts > $2
+            ORDER BY origin_server_ts ASC
+            LIMIT $3
+            "#,
+        )
+        .bind(room_id)
+        .bind(since)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(events)
+    }
+
+    pub async fn get_events_since(
+        &self,
+        since: i64,
+        limit: i64,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        let events = sqlx::query_as(
+            r#"
+            SELECT event_id, room_id, user_id, event_type, content, state_key, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_ts, 0) as processed_ts, 
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
+            FROM events WHERE origin_server_ts > $1
+            ORDER BY origin_server_ts ASC
+            LIMIT $2
+            "#,
+        )
+        .bind(since)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(events)
+    }
+
+    pub async fn get_room_events_batch(
+        &self,
+        room_ids: &[String],
+        limit_per_room: i64,
+    ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let events: Vec<RoomEvent> = sqlx::query_as(
+            r#"
+            SELECT event_id, room_id, user_id, event_type, content, state_key, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_ts, 0) as processed_ts, 
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
+            FROM events 
+            WHERE room_id = ANY($1)
+            ORDER BY room_id, origin_server_ts DESC
+            "#,
+        )
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, Vec<RoomEvent>> = 
+            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+        
+        for event in events {
+            if let Some(room_events) = result.get_mut(&event.room_id) {
+                if room_events.len() < limit_per_room as usize {
+                    room_events.push(event);
+                }
+            }
+        }
+        
+        Ok(result)
+    }
+
+    pub async fn get_room_events_since_batch(
+        &self,
+        room_ids: &[String],
+        since: i64,
+        limit_per_room: i64,
+    ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let events: Vec<RoomEvent> = sqlx::query_as(
+            r#"
+            SELECT event_id, room_id, user_id, event_type, content, state_key, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_ts, 0) as processed_ts, 
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
+            FROM events 
+            WHERE room_id = ANY($1) AND origin_server_ts > $2
+            ORDER BY room_id, origin_server_ts DESC
+            "#,
+        )
+        .bind(room_ids)
+        .bind(since)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, Vec<RoomEvent>> = 
+            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+        
+        for event in events {
+            if let Some(room_events) = result.get_mut(&event.room_id) {
+                if room_events.len() < limit_per_room as usize {
+                    room_events.push(event);
+                }
+            }
+        }
+        
+        Ok(result)
     }
 }
 

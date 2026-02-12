@@ -19,6 +19,364 @@ pub enum ConfigError {
     ValidationError(String),
 }
 
+/// VoIP 配置。
+///
+/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#voip
+#[derive(Debug, Clone, Deserialize)]
+pub struct VoipConfig {
+    /// TURN 服务器 URL 列表
+    #[serde(default)]
+    pub turn_uris: Vec<String>,
+
+    /// TURN 共享密钥（用于生成临时凭证）
+    pub turn_shared_secret: Option<String>,
+
+    /// TURN 共享密钥文件路径
+    pub turn_shared_secret_path: Option<String>,
+
+    /// TURN 静态用户名（如果不使用共享密钥）
+    pub turn_username: Option<String>,
+
+    /// TURN 静态密码（如果不使用共享密钥）
+    pub turn_password: Option<String>,
+
+    /// TURN 凭证有效期
+    #[serde(default = "default_turn_user_lifetime")]
+    pub turn_user_lifetime: String,
+
+    /// 是否允许访客使用 TURN 服务器
+    #[serde(default = "default_turn_allow_guests")]
+    pub turn_allow_guests: bool,
+
+    /// STUN 服务器 URL 列表
+    #[serde(default)]
+    pub stun_uris: Vec<String>,
+}
+
+impl Default for VoipConfig {
+    fn default() -> Self {
+        Self {
+            turn_uris: Vec::new(),
+            turn_shared_secret: None,
+            turn_shared_secret_path: None,
+            turn_username: None,
+            turn_password: None,
+            turn_user_lifetime: default_turn_user_lifetime(),
+            turn_allow_guests: default_turn_allow_guests(),
+            stun_uris: Vec::new(),
+        }
+    }
+}
+
+fn default_turn_user_lifetime() -> String {
+    "1h".to_string()
+}
+
+fn default_turn_allow_guests() -> bool {
+    true
+}
+
+impl VoipConfig {
+    pub fn is_enabled(&self) -> bool {
+        !self.turn_uris.is_empty() || !self.stun_uris.is_empty()
+    }
+
+    pub fn lifetime_seconds(&self) -> i64 {
+        parse_duration(&self.turn_user_lifetime).unwrap_or(3600)
+    }
+}
+
+fn parse_duration(s: &str) -> Option<i64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    
+    let (num_part, unit) = if let Some(stripped) = s.strip_suffix('s') {
+        (stripped, 1i64)
+    } else if s.ends_with('m') && !s.ends_with("ms") {
+        (s.strip_suffix('m')?, 60i64)
+    } else if let Some(stripped) = s.strip_suffix('h') {
+        (stripped, 3600i64)
+    } else if let Some(stripped) = s.strip_suffix('d') {
+        (stripped, 86400i64)
+    } else if let Some(stripped) = s.strip_suffix('w') {
+        (stripped, 604800i64)
+    } else {
+        (s, 1i64)
+    };
+    
+    num_part.parse::<i64>().ok().map(|n| n * unit)
+}
+
+/// 推送配置。
+///
+/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#push
+#[derive(Debug, Clone, Deserialize)]
+pub struct PushConfig {
+    /// 是否启用推送
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// 按房间分组未读计数
+    #[serde(default = "default_group_unread")]
+    pub group_unread_count_by_room: bool,
+
+    /// 是否包含消息内容
+    #[serde(default)]
+    pub include_content: bool,
+
+    /// 应用 ID
+    pub app_id: Option<String>,
+
+    /// APNs 配置
+    #[serde(default)]
+    pub apns: Option<ApnsConfig>,
+
+    /// FCM 配置
+    #[serde(default)]
+    pub fcm: Option<FcmConfig>,
+
+    /// Web Push 配置
+    #[serde(default)]
+    pub web_push: Option<WebPushConfig>,
+
+    /// 推送网关 URL（用于 HTTP 推送）
+    #[serde(default)]
+    pub push_gateway_url: Option<String>,
+
+    /// 推送重试次数
+    #[serde(default = "default_push_retry_count")]
+    pub retry_count: u32,
+
+    /// 推送超时（秒）
+    #[serde(default = "default_push_timeout")]
+    pub timeout: u64,
+}
+
+impl Default for PushConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            group_unread_count_by_room: true,
+            include_content: false,
+            app_id: None,
+            apns: None,
+            fcm: None,
+            web_push: None,
+            push_gateway_url: None,
+            retry_count: default_push_retry_count(),
+            timeout: default_push_timeout(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ApnsConfig {
+    pub cert_file: Option<String>,
+    pub key_file: Option<String>,
+    pub topic: String,
+    #[serde(default = "default_apns_production")]
+    pub production: bool,
+    pub key_id: Option<String>,
+    pub team_id: Option<String>,
+    pub private_key_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FcmConfig {
+    pub api_key: Option<String>,
+    pub project_id: Option<String>,
+    pub service_account_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WebPushConfig {
+    pub vapid_public_key: String,
+    pub vapid_private_key: String,
+    pub subject: String,
+}
+
+fn default_group_unread() -> bool {
+    true
+}
+
+fn default_push_retry_count() -> u32 {
+    3
+}
+
+fn default_push_timeout() -> u64 {
+    10
+}
+
+fn default_apns_production() -> bool {
+    true
+}
+
+impl PushConfig {
+    pub fn is_enabled(&self) -> bool {
+        self.enabled && (self.fcm.is_some() || self.apns.is_some() || self.web_push.is_some() || self.push_gateway_url.is_some())
+    }
+}
+
+fn default_spider_enabled() -> bool { true }
+fn default_max_spider_size() -> String { "10M".to_string() }
+fn default_preview_cache_duration() -> u64 { 86400 }
+fn default_user_agent() -> String { "Synapse-Rust/0.1.0 (Matrix Homeserver)".to_string() }
+fn default_preview_timeout() -> u64 { 10 }
+fn default_max_redirects() -> u32 { 5 }
+
+fn default_ip_blacklist() -> Vec<String> {
+    vec![
+        "127.0.0.0/8".to_string(),
+        "10.0.0.0/8".to_string(),
+        "172.16.0.0/12".to_string(),
+        "192.168.0.0/16".to_string(),
+        "100.64.0.0/10".to_string(),
+        "169.254.0.0/16".to_string(),
+        "::1/128".to_string(),
+        "fe80::/10".to_string(),
+        "fc00::/7".to_string(),
+    ]
+}
+
+fn parse_size(s: &str) -> Option<usize> {
+    let s = s.trim();
+    if s.is_empty() { return None; }
+    let (num_part, multiplier) = if s.ends_with('K') || s.ends_with('k') {
+        (&s[..s.len()-1], 1024usize)
+    } else if s.ends_with('M') || s.ends_with('m') {
+        (&s[..s.len()-1], 1024 * 1024)
+    } else if s.ends_with('G') || s.ends_with('g') {
+        (&s[..s.len()-1], 1024 * 1024 * 1024)
+    } else {
+        (s, 1usize)
+    };
+    num_part.parse::<usize>().ok().map(|n| n * multiplier)
+}
+
+/// URL 预览配置。
+#[derive(Debug, Clone, Deserialize)]
+pub struct UrlPreviewConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_ip_blacklist")]
+    pub ip_range_blacklist: Vec<String>,
+    #[serde(default)]
+    pub ip_range_whitelist: Vec<String>,
+    #[serde(default)]
+    pub url_blacklist: Vec<UrlBlacklistRule>,
+    #[serde(default = "default_spider_enabled")]
+    pub spider_enabled: bool,
+    #[serde(default)]
+    pub oembed_enabled: bool,
+    #[serde(default = "default_max_spider_size")]
+    pub max_spider_size: String,
+    #[serde(default = "default_preview_cache_duration")]
+    pub cache_duration: u64,
+    #[serde(default = "default_user_agent")]
+    pub user_agent: String,
+    #[serde(default = "default_preview_timeout")]
+    pub timeout: u64,
+    #[serde(default = "default_max_redirects")]
+    pub max_redirects: u32,
+}
+
+impl Default for UrlPreviewConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ip_range_blacklist: default_ip_blacklist(),
+            ip_range_whitelist: Vec::new(),
+            url_blacklist: Vec::new(),
+            spider_enabled: true,
+            oembed_enabled: false,
+            max_spider_size: default_max_spider_size(),
+            cache_duration: default_preview_cache_duration(),
+            user_agent: default_user_agent(),
+            timeout: default_preview_timeout(),
+            max_redirects: default_max_redirects(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UrlBlacklistRule {
+    pub domain: Option<String>,
+    pub regex: Option<String>,
+}
+
+impl UrlPreviewConfig {
+    pub fn max_spider_size_bytes(&self) -> usize {
+        parse_size(&self.max_spider_size).unwrap_or(10 * 1024 * 1024)
+    }
+}
+
+/// OpenID Connect 配置。
+#[derive(Debug, Clone, Deserialize)]
+pub struct OidcConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub issuer: String,
+    pub client_id: String,
+    pub client_secret: Option<String>,
+    #[serde(default = "default_oidc_scopes")]
+    pub scopes: Vec<String>,
+    #[serde(default)]
+    pub attribute_mapping: OidcAttributeMapping,
+    pub callback_url: Option<String>,
+    #[serde(default)]
+    pub allow_existing_users: bool,
+    #[serde(default)]
+    pub block_unknown_users: bool,
+    pub authorization_endpoint: Option<String>,
+    pub token_endpoint: Option<String>,
+    pub userinfo_endpoint: Option<String>,
+    pub jwks_uri: Option<String>,
+    #[serde(default = "default_oidc_timeout")]
+    pub timeout: u64,
+}
+
+impl Default for OidcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            issuer: String::new(),
+            client_id: String::new(),
+            client_secret: None,
+            scopes: default_oidc_scopes(),
+            attribute_mapping: OidcAttributeMapping::default(),
+            callback_url: None,
+            allow_existing_users: false,
+            block_unknown_users: false,
+            authorization_endpoint: None,
+            token_endpoint: None,
+            userinfo_endpoint: None,
+            jwks_uri: None,
+            timeout: default_oidc_timeout(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct OidcAttributeMapping {
+    pub localpart: Option<String>,
+    pub displayname: Option<String>,
+    pub email: Option<String>,
+}
+
+fn default_oidc_scopes() -> Vec<String> {
+    vec!["openid".to_string(), "profile".to_string(), "email".to_string()]
+}
+
+fn default_oidc_timeout() -> u64 { 10 }
+
+impl OidcConfig {
+    pub fn is_enabled(&self) -> bool {
+        self.enabled && !self.issuer.is_empty() && !self.client_id.is_empty()
+    }
+}
+
 /// 服务器配置结构。
 ///
 /// Matrix Homeserver 的主配置类，包含所有配置子项。
@@ -54,6 +412,18 @@ pub struct Config {
     /// SMTP邮件配置
     #[serde(default)]
     pub smtp: SmtpConfig,
+    /// VoIP/TURN 配置
+    #[serde(default)]
+    pub voip: VoipConfig,
+    /// 推送通知配置
+    #[serde(default)]
+    pub push: PushConfig,
+    /// URL 预览配置
+    #[serde(default)]
+    pub url_preview: UrlPreviewConfig,
+    /// OIDC 单点登录配置
+    #[serde(default)]
+    pub oidc: OidcConfig,
 }
 
 /// 搜索服务配置。
@@ -907,6 +1277,10 @@ mod tests {
                 max_age_seconds: default_cors_max_age(),
             },
             smtp: SmtpConfig::default(),
+            voip: VoipConfig::default(),
+            push: PushConfig::default(),
+            url_preview: UrlPreviewConfig::default(),
+            oidc: OidcConfig::default(),
         };
 
         let url = config.database_url();
@@ -999,6 +1373,10 @@ mod tests {
                 max_age_seconds: default_cors_max_age(),
             },
             smtp: SmtpConfig::default(),
+            voip: VoipConfig::default(),
+            push: PushConfig::default(),
+            url_preview: UrlPreviewConfig::default(),
+            oidc: OidcConfig::default(),
         };
 
         let url = config.redis_url();
@@ -1377,22 +1755,20 @@ fn default_x_forwarded() -> bool {
 fn default_compress() -> bool {
     false
 }
-*/
 
-/*
 /// URL 预览配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#url_preview
 ///
 /// 配置 URL 预览功能，用于在客户端显示链接的预览信息。
 ///
-/// # 待实现功能
+/// # 功能
 /// - URL 内容抓取
 /// - Open Graph 解析
 /// - oEmbed 支持
 /// - URL 黑名单/白名单
 /// - 缓存配置
-/// - 图片下载代理
+/// - IP 范围黑名单（安全防护）
 ///
 /// # 配置示例
 /// ```yaml
@@ -1404,12 +1780,21 @@ fn default_compress() -> bool {
 ///   spider_enabled: true
 ///   oembed_enabled: true
 ///   max_spider_size: "10M"
+///   cache_duration: 86400
 /// ```
 #[derive(Debug, Clone, Deserialize)]
 pub struct UrlPreviewConfig {
     /// 是否启用 URL 预览
     #[serde(default)]
     pub enabled: bool,
+
+    /// IP 范围黑名单（防止 SSRF 攻击）
+    #[serde(default = "default_ip_blacklist")]
+    pub ip_range_blacklist: Vec<String>,
+
+    /// IP 范围白名单
+    #[serde(default)]
+    pub ip_range_whitelist: Vec<String>,
 
     /// URL 黑名单
     #[serde(default)]
@@ -1430,6 +1815,36 @@ pub struct UrlPreviewConfig {
     /// 预览缓存时间（秒）
     #[serde(default = "default_preview_cache_duration")]
     pub cache_duration: u64,
+
+    /// 用户代理字符串
+    #[serde(default = "default_user_agent")]
+    pub user_agent: String,
+
+    /// 请求超时（秒）
+    #[serde(default = "default_preview_timeout")]
+    pub timeout: u64,
+
+    /// 最大重定向次数
+    #[serde(default = "default_max_redirects")]
+    pub max_redirects: u32,
+}
+
+impl Default for UrlPreviewConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ip_range_blacklist: default_ip_blacklist(),
+            ip_range_whitelist: Vec::new(),
+            url_blacklist: Vec::new(),
+            spider_enabled: true,
+            oembed_enabled: false,
+            max_spider_size: default_max_spider_size(),
+            cache_duration: default_preview_cache_duration(),
+            user_agent: default_user_agent(),
+            timeout: default_preview_timeout(),
+            max_redirects: default_max_redirects(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1450,9 +1865,59 @@ fn default_max_spider_size() -> String {
 }
 
 fn default_preview_cache_duration() -> u64 {
-    86400 // 24小时
+    86400
 }
-*/
+
+fn default_user_agent() -> String {
+    format!("Synapse-Rust/0.1.0 (Matrix Homeserver)")
+}
+
+fn default_preview_timeout() -> u64 {
+    10
+}
+
+fn default_max_redirects() -> u32 {
+    5
+}
+
+fn default_ip_blacklist() -> Vec<String> {
+    vec![
+        "127.0.0.0/8".to_string(),
+        "10.0.0.0/8".to_string(),
+        "172.16.0.0/12".to_string(),
+        "192.168.0.0/16".to_string(),
+        "100.64.0.0/10".to_string(),
+        "169.254.0.0/16".to_string(),
+        "::1/128".to_string(),
+        "fe80::/10".to_string(),
+        "fc00::/7".to_string(),
+    ]
+}
+
+impl UrlPreviewConfig {
+    pub fn max_spider_size_bytes(&self) -> usize {
+        parse_size(&self.max_spider_size).unwrap_or(10 * 1024 * 1024)
+    }
+}
+
+fn parse_size(s: &str) -> Option<usize> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    
+    let (num_part, multiplier) = if s.ends_with('K') || s.ends_with('k') {
+        (&s[..s.len()-1], 1024usize)
+    } else if s.ends_with('M') || s.ends_with('m') {
+        (&s[..s.len()-1], 1024 * 1024)
+    } else if s.ends_with('G') || s.ends_with('g') {
+        (&s[..s.len()-1], 1024 * 1024 * 1024)
+    } else {
+        (s, 1usize)
+    };
+    
+    num_part.parse::<usize>().ok().map(|n| n * multiplier)
+}
 
 /*
 /// 限制配置。
@@ -1604,60 +2069,58 @@ fn default_min_password_length() -> u32 {
 }
 */
 
-/*
 /// OpenID Connect 配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#oidc_config
-///
-/// 配置 OpenID Connect 单点登录（SSO）。
-///
-/// # 待实现功能
-/// - OIDC 认证流程
-/// - Token 验证
-/// - 用户属性映射
-/// - 多提供者支持
-///
-/// # 配置示例
-/// ```yaml
-/// oidc:
-///   enabled: true
-///   issuer: "https://accounts.example.com"
-///   client_id: "your-client-id"
-///   client_secret: "your-client-secret"
-///   scopes: ["openid", "profile", "email"]
-///   attribute_mapping:
-///     localpart: "preferred_username"
-///     displayname: "name"
-///     email: "email"
-/// ```
 #[derive(Debug, Clone, Deserialize)]
 pub struct OidcConfig {
-    /// 是否启用 OIDC
     #[serde(default)]
     pub enabled: bool,
-
-    /// OIDC 提供者 URL
     pub issuer: String,
-
-    /// 客户端 ID
     pub client_id: String,
-
-    /// 客户端密钥
     pub client_secret: Option<String>,
-
-    /// 请求的 scopes
     #[serde(default = "default_oidc_scopes")]
     pub scopes: Vec<String>,
-
-    /// 用户属性映射
     #[serde(default)]
     pub attribute_mapping: OidcAttributeMapping,
-
-    /// 回调 URL
     pub callback_url: Option<String>,
+    #[serde(default)]
+    pub allow_existing_users: bool,
+    #[serde(default)]
+    pub block_unknown_users: bool,
+    #[serde(default)]
+    pub user_mapping_provider: Option<String>,
+    pub authorization_endpoint: Option<String>,
+    pub token_endpoint: Option<String>,
+    pub userinfo_endpoint: Option<String>,
+    pub jwks_uri: Option<String>,
+    #[serde(default = "default_oidc_timeout")]
+    pub timeout: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+impl Default for OidcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            issuer: String::new(),
+            client_id: String::new(),
+            client_secret: None,
+            scopes: default_oidc_scopes(),
+            attribute_mapping: OidcAttributeMapping::default(),
+            callback_url: None,
+            allow_existing_users: false,
+            block_unknown_users: false,
+            user_mapping_provider: None,
+            authorization_endpoint: None,
+            token_endpoint: None,
+            userinfo_endpoint: None,
+            jwks_uri: None,
+            timeout: default_oidc_timeout(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct OidcAttributeMapping {
     pub localpart: Option<String>,
     pub displayname: Option<String>,
@@ -1665,9 +2128,18 @@ pub struct OidcAttributeMapping {
 }
 
 fn default_oidc_scopes() -> Vec<String> {
-    vec!["openid".to_string(), "profile".to_string()]
+    vec!["openid".to_string(), "profile".to_string(), "email".to_string()]
 }
-*/
+
+fn default_oidc_timeout() -> u64 {
+    10
+}
+
+impl OidcConfig {
+    pub fn is_enabled(&self) -> bool {
+        self.enabled && !self.issuer.is_empty() && !self.client_id.is_empty()
+    }
+}
 
 /*
 /// VoIP 配置。
@@ -1685,58 +2157,100 @@ fn default_oidc_scopes() -> Vec<String> {
 /// # 配置示例
 /// ```yaml
 /// voip:
-///   turn:
-///     turn_uris:
-///       - "turn:turn.example.com:3478?transport=udp"
-///       - "turn:turn.example.com:3478?transport=tcp"
-///     turn_shared_secret: "YOUR_TURN_SECRET"
-///     turn_user_lifetime: "1h"
-///     turn_username: "turn_username"
-///     turn_password: "turn_password"
-///   stun:
-///     stun_uris:
-///       - "stun:stun.example.com:3478"
+///   turn_uris:
+///     - "turn:turn.example.com:3478?transport=udp"
+///     - "turn:turn.example.com:3478?transport=tcp"
+///   turn_shared_secret: "YOUR_TURN_SECRET"
+///   turn_user_lifetime: "1h"
+///   turn_allow_guests: true
 /// ```
 #[derive(Debug, Clone, Deserialize)]
 pub struct VoipConfig {
-    /// TURN 服务器配置
-    #[serde(default)]
-    pub turn: Option<TurnConfig>,
-
-    /// STUN 服务器配置
-    #[serde(default)]
-    pub stun: Option<StunConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct TurnConfig {
     /// TURN 服务器 URL 列表
+    #[serde(default)]
     pub turn_uris: Vec<String>,
 
-    /// TURN 共享密钥
+    /// TURN 共享密钥（用于生成临时凭证）
     pub turn_shared_secret: Option<String>,
 
-    /// TURN 用户名
+    /// TURN 共享密钥文件路径
+    pub turn_shared_secret_path: Option<String>,
+
+    /// TURN 静态用户名（如果不使用共享密钥）
     pub turn_username: Option<String>,
 
-    /// TURN 密码
+    /// TURN 静态密码（如果不使用共享密钥）
     pub turn_password: Option<String>,
 
     /// TURN 凭证有效期
     #[serde(default = "default_turn_user_lifetime")]
     pub turn_user_lifetime: String,
+
+    /// 是否允许访客使用 TURN 服务器
+    #[serde(default = "default_turn_allow_guests")]
+    pub turn_allow_guests: bool,
+
+    /// STUN 服务器 URL 列表
+    #[serde(default)]
+    pub stun_uris: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct StunConfig {
-    /// STUN 服务器 URL 列表
-    pub stun_uris: Vec<String>,
+impl Default for VoipConfig {
+    fn default() -> Self {
+        Self {
+            turn_uris: Vec::new(),
+            turn_shared_secret: None,
+            turn_shared_secret_path: None,
+            turn_username: None,
+            turn_password: None,
+            turn_user_lifetime: default_turn_user_lifetime(),
+            turn_allow_guests: default_turn_allow_guests(),
+            stun_uris: Vec::new(),
+        }
+    }
 }
 
 fn default_turn_user_lifetime() -> String {
     "1h".to_string()
 }
+
+fn default_turn_allow_guests() -> bool {
+    true
+}
+
+impl VoipConfig {
+    pub fn is_enabled(&self) -> bool {
+        !self.turn_uris.is_empty() || !self.stun_uris.is_empty()
+    }
+
+    pub fn lifetime_seconds(&self) -> i64 {
+        parse_duration(&self.turn_user_lifetime).unwrap_or(3600)
+    }
+}
 */
+
+fn parse_duration(s: &str) -> Option<i64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    
+    let (num_part, unit) = if let Some(stripped) = s.strip_suffix('s') {
+        (stripped, 1i64)
+    } else if s.ends_with('m') && !s.ends_with("ms") {
+        (s.strip_suffix('m')?, 60i64)
+    } else if let Some(stripped) = s.strip_suffix('h') {
+        (stripped, 3600i64)
+    } else if let Some(stripped) = s.strip_suffix('d') {
+        (stripped, 86400i64)
+    } else if let Some(stripped) = s.strip_suffix('w') {
+        (stripped, 604800i64)
+    } else {
+        (s, 1i64)
+    };
+    
+    num_part.parse::<i64>().ok().map(|n| n * unit)
+}
 
 /*
 /// 推送配置。
@@ -1751,6 +2265,7 @@ fn default_turn_user_lifetime() -> String {
 /// - Pushkey 管理
 /// - Apple Push Notification Service (APNs)
 /// - Firebase Cloud Messaging (FCM)
+/// - Web Push 支持
 ///
 /// # 配置示例
 /// ```yaml
@@ -1758,10 +2273,13 @@ fn default_turn_user_lifetime() -> String {
 ///   enabled: true
 ///   group_unread_count_by_room: true
 ///   include_content: false
-///   app_id: "io.element.matrix"
+///   fcm:
+///     api_key: "YOUR_FCM_API_KEY"
+///     project_id: "your-project-id"
 ///   apns:
 ///     cert_file: "/path/to/cert.pem"
 ///     key_file: "/path/to/key.pem"
+///     topic: "io.element.matrix"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
 pub struct PushConfig {
@@ -1787,21 +2305,110 @@ pub struct PushConfig {
     /// FCM 配置
     #[serde(default)]
     pub fcm: Option<FcmConfig>,
+
+    /// Web Push 配置
+    #[serde(default)]
+    pub web_push: Option<WebPushConfig>,
+
+    /// 推送网关 URL（用于 HTTP 推送）
+    #[serde(default)]
+    pub push_gateway_url: Option<String>,
+
+    /// 推送重试次数
+    #[serde(default = "default_push_retry_count")]
+    pub retry_count: u32,
+
+    /// 推送超时（秒）
+    #[serde(default = "default_push_timeout")]
+    pub timeout: u64,
+}
+
+impl Default for PushConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            group_unread_count_by_room: true,
+            include_content: false,
+            app_id: None,
+            apns: None,
+            fcm: None,
+            web_push: None,
+            push_gateway_url: None,
+            retry_count: default_push_retry_count(),
+            timeout: default_push_timeout(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApnsConfig {
-    pub cert_file: String,
-    pub key_file: String,
+    /// 证书文件路径（PEM 格式）
+    pub cert_file: Option<String>,
+
+    /// 密钥文件路径（PEM 格式）
+    pub key_file: Option<String>,
+
+    /// APNs 主题（通常是应用的 Bundle ID）
+    pub topic: String,
+
+    /// 是否使用生产环境
+    #[serde(default = "default_apns_production")]
+    pub production: bool,
+
+    /// APNs 密钥 ID（用于 Token 认证）
+    pub key_id: Option<String>,
+
+    /// APNs 团队 ID
+    pub team_id: Option<String>,
+
+    /// APNs 私钥路径（P8 格式，用于 Token 认证）
+    pub private_key_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct FcmConfig {
-    pub api_key: String,
+    /// FCM API 密钥
+    pub api_key: Option<String>,
+
+    /// FCM 项目 ID
+    pub project_id: Option<String>,
+
+    /// FCM 服务账号 JSON 文件路径
+    pub service_account_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WebPushConfig {
+    /// VAPID 公钥
+    pub vapid_public_key: String,
+
+    /// VAPID 私钥
+    pub vapid_private_key: String,
+
+    /// VAPID 主题邮件
+    pub subject: String,
 }
 
 fn default_group_unread() -> bool {
     true
+}
+
+fn default_push_retry_count() -> u32 {
+    3
+}
+
+fn default_push_timeout() -> u64 {
+    10
+}
+
+fn default_apns_production() -> bool {
+    true
+}
+
+impl PushConfig {
+    pub fn is_enabled(&self) -> bool {
+        self.enabled && (self.fcm.is_some() || self.apns.is_some() || self.web_push.is_some() || self.push_gateway_url.is_some())
+    }
 }
 */
 
@@ -2248,7 +2855,6 @@ fn default_max_sync_events() -> u64 {
 }
 */
 
-/*
 /*
 /// 服务器通知配置。
 ///

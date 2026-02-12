@@ -174,6 +174,7 @@ impl ServiceContainer {
             member_storage.clone(),
             event_storage.clone(),
             room_storage.clone(),
+            DeviceStorage::new(pool),
         ));
         let media_service = MediaService::new("/app/data/media", task_queue.clone());
         let admin_registration_service = AdminRegistrationService::new(
@@ -340,6 +341,10 @@ impl ServiceContainer {
             worker: WorkerConfig::default(),
             cors: CorsConfig::default(),
             smtp: SmtpConfig::default(),
+            voip: crate::common::config::VoipConfig::default(),
+            push: crate::common::config::PushConfig::default(),
+            url_preview: crate::common::config::UrlPreviewConfig::default(),
+            oidc: crate::common::config::OidcConfig::default(),
         };
         Self::new(&pool, cache, config, None)
     }
@@ -451,18 +456,29 @@ pub mod database_initializer;
 pub mod friend_room_service;
 pub mod media_service;
 pub mod moderation_service;
+pub mod oidc_service;
+pub mod push_service;
+pub mod read_receipt_service;
 pub mod registration_service;
 pub mod room_service;
 pub mod search_service;
 pub mod sync_service;
+pub mod url_preview_service;
 pub mod voice_service;
+pub mod voip_service;
 
 pub use admin_registration_service::*;
 pub use database_initializer::*;
 pub use friend_room_service::*;
 pub use media_service::*;
 pub use moderation_service::*;
+pub use oidc_service::*;
+pub use push_service::*;
+pub use read_receipt_service::*;
 pub use registration_service::*;
 pub use room_service::*;
+pub use search_service::*;
 pub use sync_service::*;
+pub use url_preview_service::*;
 pub use voice_service::*;
+pub use voip_service::*;

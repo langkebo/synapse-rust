@@ -9,9 +9,11 @@ use serde_json::json;
     use tokio::runtime::Runtime;
 
     async fn setup_test_database() -> Option<Pool<Postgres>> {
-        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://synapse:synapse@localhost:5432/synapse_test".to_string()
-        });
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .unwrap_or_else(|_| {
+                "postgresql://synapse:secret@localhost:5432/synapse_test".to_string()
+            });
         let pool = match sqlx::postgres::PgPoolOptions::new()
             .max_connections(5)
             .acquire_timeout(std::time::Duration::from_secs(5))

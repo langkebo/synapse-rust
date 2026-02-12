@@ -10,15 +10,18 @@ use serde_json::json;
     use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
     use synapse_rust::services::sync_service::SyncService;
     use synapse_rust::services::PresenceStorage;
+    use synapse_rust::storage::device::DeviceStorage;
     use synapse_rust::storage::event::EventStorage;
     use synapse_rust::storage::membership::RoomMemberStorage;
     use synapse_rust::storage::room::RoomStorage;
     use synapse_rust::storage::user::UserStorage;
 
     async fn setup_test_database() -> Option<Pool<Postgres>> {
-        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://synapse:synapse@localhost:5432/synapse_test".to_string()
-        });
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .unwrap_or_else(|_| {
+                "postgresql://synapse:secret@localhost:5432/synapse_test".to_string()
+            });
 
         let pool = match sqlx::postgres::PgPoolOptions::new()
             .max_connections(5)
@@ -224,6 +227,7 @@ use serde_json::json;
                 member_storage,
                 event_storage,
                 room_storage,
+                DeviceStorage::new(&pool),
             );
 
             // Create a room and send a message
@@ -244,16 +248,14 @@ use serde_json::json;
                 .unwrap();
 
             let result = sync_service
-                .sync("@alice:localhost", 0, false, "online")
+                .sync("@alice:localhost", 0, false, "online", None)
                 .await;
             assert!(result.is_ok());
             let val = result.unwrap();
-            assert!(val["rooms"]["join"].is_null()); // Wait, why join is null? Ah, sync_service.rs doesn't separate join/invite/leave yet.
+            assert!(val["rooms"]["join"].is_object());
 
-            // Let's check the current implementation of sync
-            // It puts rooms directly in "rooms" map, not under "join"
-            assert!(val["rooms"].as_object().unwrap().contains_key(room_id));
-            let room_data = &val["rooms"][room_id];
+            assert!(val["rooms"]["join"].as_object().unwrap().contains_key(room_id));
+            let room_data = &val["rooms"]["join"][room_id];
             assert_eq!(room_data["timeline"]["events"].as_array().unwrap().len(), 1);
         });
     }

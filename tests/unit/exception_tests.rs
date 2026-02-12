@@ -12,8 +12,10 @@ use std::sync::Arc;
     fn test_invalid_jwt() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-                "postgresql://synapse:synapse@localhost:5432/synapse_test".to_string()
+            let database_url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .unwrap_or_else(|_| {
+                "postgresql://synapse:secret@localhost:5432/synapse_test".to_string()
             });
             let pool = match sqlx::postgres::PgPoolOptions::new()
                 .max_connections(5)
@@ -57,9 +59,8 @@ use std::sync::Arc;
     fn test_database_connection_failure() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            // Use a non-existent database port to simulate failure
             let result =
-                sqlx::PgPool::connect("postgres://synapse:synapse@localhost:5433/synapse_test")
+                sqlx::PgPool::connect("postgres://synapse:secret@localhost:5433/synapse_test")
                     .await;
             assert!(result.is_err());
         });

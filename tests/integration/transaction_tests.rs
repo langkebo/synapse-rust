@@ -8,7 +8,7 @@ use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::{
     AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, FederationConfig,
     RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig,
-    WorkerConfig,
+    VoipConfig, WorkerConfig,
 };
 use synapse_rust::services::{DatabaseInitService, ServiceContainer};
 use synapse_rust::web::routes::create_router;
@@ -18,8 +18,9 @@ use tower::ServiceExt;
 async fn setup_test_app() -> axum::Router {
     // Reuse the setup logic from api_room_tests.rs
     // In a real project, this should be in a shared helper module
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
+    let database_url = std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .unwrap_or_else(|_| "postgres://synapse:secret@localhost:5432/synapse_test".to_string());
     let pool = match sqlx::PgPool::connect(&database_url).await {
         Ok(p) => Arc::new(p),
         Err(e) => {
@@ -205,6 +206,10 @@ async fn setup_test_app() -> axum::Router {
         worker: WorkerConfig::default(),
         cors: CorsConfig::default(),
         smtp: SmtpConfig::default(),
+        voip: VoipConfig::default(),
+        push: synapse_rust::common::config::PushConfig::default(),
+        url_preview: synapse_rust::common::config::UrlPreviewConfig::default(),
+        oidc: synapse_rust::common::config::OidcConfig::default(),
     };
 
     let container = ServiceContainer::new(&pool, cache.clone(), config, None);

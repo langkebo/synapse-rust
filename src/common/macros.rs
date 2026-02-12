@@ -25,3 +25,53 @@ macro_rules! impl_api_error {
         )+
     };
 }
+
+#[macro_export]
+macro_rules! map_internal {
+    ($result:expr, $msg:literal) => {
+        $result.map_err(|e| $crate::common::ApiError::internal(format!("{}: {}", $msg, e)))
+    };
+    ($result:expr, $msg:expr) => {
+        $result.map_err(|e| $crate::common::ApiError::internal(format!("{}: {}", $msg, e)))
+    };
+}
+
+#[macro_export]
+macro_rules! map_bad_request {
+    ($result:expr, $msg:literal) => {
+        $result.map_err(|e| $crate::common::ApiError::bad_request(format!("{}: {}", $msg, e)))
+    };
+    ($result:expr, $msg:expr) => {
+        $result.map_err(|e| $crate::common::ApiError::bad_request(format!("{}: {}", $msg, e)))
+    };
+}
+
+#[macro_export]
+macro_rules! map_not_found {
+    ($result:expr, $msg:literal) => {
+        $result.map_err(|e| $crate::common::ApiError::not_found(format!("{}: {}", $msg, e)))
+    };
+    ($result:expr, $msg:expr) => {
+        $result.map_err(|e| $crate::common::ApiError::not_found(format!("{}: {}", $msg, e)))
+    };
+}
+
+#[macro_export]
+macro_rules! map_unauthorized {
+    ($result:expr, $msg:literal) => {
+        $result.map_err(|e| $crate::common::ApiError::unauthorized(format!("{}: {}", $msg, e)))
+    };
+    ($result:expr, $msg:expr) => {
+        $result.map_err(|e| $crate::common::ApiError::unauthorized(format!("{}: {}", $msg, e)))
+    };
+}
+
+#[macro_export]
+macro_rules! map_forbidden {
+    ($result:expr, $msg:literal) => {
+        $result.map_err(|e| $crate::common::ApiError::forbidden(format!("{}: {}", $msg, e)))
+    };
+    ($result:expr, $msg:expr) => {
+        $result.map_err(|e| $crate::common::ApiError::forbidden(format!("{}: {}", $msg, e)))
+    };
+}

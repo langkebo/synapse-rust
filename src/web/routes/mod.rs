@@ -5,6 +5,7 @@ pub mod friend_room;
 pub mod key_backup;
 pub mod media;
 pub mod voice;
+pub mod voip;
 
 pub use admin::create_admin_router;
 pub use e2ee_routes::create_e2ee_router;
@@ -13,6 +14,9 @@ pub use friend_room::create_friend_router;
 pub use key_backup::create_key_backup_router;
 pub use media::create_media_router;
 pub use voice::create_voice_router;
+pub use voip::get_turn_server;
+pub use voip::get_voip_config;
+pub use voip::get_turn_credentials_guest;
 
 use crate::cache::*;
 use crate::common::*;
@@ -197,6 +201,9 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_admin_router(state.clone()))
         .merge(create_federation_router(state.clone()))
         .merge(create_friend_router(state.clone()))
+        .route("/_matrix/client/v3/voip/turnServer", get(get_turn_server))
+        .route("/_matrix/client/v3/voip/config", get(get_voip_config))
+        .route("/_matrix/client/v3/voip/turnServer/guest", get(get_turn_credentials_guest))
         .layer(CompressionLayer::new())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -529,7 +536,7 @@ async fn request_email_verification(
     let token_id = state
         .services
         .email_verification_storage
-        .create_verification_token(email, &token, 3600, session_data)
+        .create_verification_token(email, &token, 3600, None, session_data)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to store token: {}", e)))?;
 
@@ -592,7 +599,7 @@ async fn submit_email_token(
         ));
     }
 
-    if verification_token.expires_at < chrono::Utc::now().timestamp() {
+    if verification_token.expires_ts < chrono::Utc::now().timestamp() {
         return Err(ApiError::bad_request(
             "Verification token has expired".to_string(),
         ));
@@ -1142,12 +1149,15 @@ async fn sync(
         .get("set_presence")
         .and_then(|v| v.as_str())
         .unwrap_or("online");
+    let since = params
+        .get("since")
+        .and_then(|v| v.as_str());
 
     Ok(Json(
         state
             .services
             .sync_service
-            .sync(&user_id, timeout, full_state, set_presence)
+            .sync(&user_id, timeout, full_state, set_presence, since)
             .await?,
     ))
 }

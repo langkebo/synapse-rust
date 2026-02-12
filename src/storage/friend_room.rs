@@ -13,15 +13,15 @@ impl FriendRoomStorage {
 
     /// 查找用户的好友列表房间 ID
     pub async fn get_friend_list_room_id(&self, user_id: &str) -> Result<Option<String>, sqlx::Error> {
-        // 使用 runtime query 避免 SQLX_OFFLINE 问题
         let row = sqlx::query(
             r#"
             SELECT e.room_id
             FROM events e
-            JOIN state_events se ON e.event_id = se.event_id
-            WHERE e.type = 'm.room.create'
+            JOIN rooms r ON e.room_id = r.room_id
+            WHERE e.event_type = 'm.room.create'
             AND e.sender = $1
-            AND (e.content->>'type') = 'm.friends'
+            AND e.content->>'type' = 'm.friends'
+            ORDER BY e.origin_server_ts DESC
             LIMIT 1
             "#,
         )
@@ -37,11 +37,11 @@ impl FriendRoomStorage {
         let row = sqlx::query(
             r#"
             SELECT e.content
-            FROM current_state_events cse
-            JOIN events e ON cse.event_id = e.event_id
-            WHERE cse.room_id = $1
-            AND cse.type = 'm.friends.list'
-            AND cse.state_key = ''
+            FROM events e
+            WHERE e.room_id = $1
+            AND e.event_type = 'm.friends.list'
+            AND e.state_key = ''
+            ORDER BY e.origin_server_ts DESC
             LIMIT 1
             "#,
         )
@@ -50,5 +50,82 @@ impl FriendRoomStorage {
         .await?;
 
         Ok(row.map(|r| r.get("content")))
+    }
+
+    /// 获取好友请求列表
+    pub async fn get_friend_requests(
+        &self,
+        room_id: &str,
+        request_type: &str,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        let event_type = format!("m.friend_requests.{}", request_type);
+        
+        let row = sqlx::query(
+            r#"
+            SELECT e.content
+            FROM events e
+            WHERE e.room_id = $1
+            AND e.event_type = $2
+            AND e.state_key = ''
+            ORDER BY e.origin_server_ts DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(room_id)
+        .bind(&event_type)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row
+            .and_then(|r| r.get::<Option<serde_json::Value>, _>("content"))
+            .and_then(|c| c.get("requests").cloned())
+            .and_then(|r| r.as_array().cloned())
+            .unwrap_or_default())
+    }
+
+    /// 检查用户是否在好友列表中
+    pub async fn is_friend(&self, room_id: &str, friend_id: &str) -> Result<bool, sqlx::Error> {
+        let content = self.get_friend_list_content(room_id).await?;
+        
+        Ok(content
+            .and_then(|c| c.get("friends").cloned())
+            .and_then(|f| f.as_array().cloned())
+            .map(|friends| {
+                friends.iter().any(|f| {
+                    f.get("user_id")
+                        .and_then(|u| u.as_str())
+                        .map(|u| u == friend_id)
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false))
+    }
+
+    /// 获取好友信息
+    pub async fn get_friend_info(
+        &self,
+        room_id: &str,
+        friend_id: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        let content = self.get_friend_list_content(room_id).await?;
+        
+        Ok(content
+            .and_then(|c| c.get("friends").cloned())
+            .and_then(|f| f.as_array().cloned())
+            .and_then(|friends| {
+                friends.iter().find(|f| {
+                    f.get("user_id")
+                        .and_then(|u| u.as_str())
+                        .map(|u| u == friend_id)
+                        .unwrap_or(false)
+                }).cloned()
+            }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_storage_creation() {
     }
 }
