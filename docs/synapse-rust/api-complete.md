@@ -566,80 +566,43 @@
 #### 12.1.1 获取好友列表
 - **接口名称**：获取好友列表
 - **请求方法**：`GET`
-- **URL 路径**：`/_synapse/enhanced/friends`
+- **URL 路径**：`/_matrix/client/v1/friends`
 - **认证**：Token
-- **请求参数**：
-  - `category` (string, 选填): 按分类筛选。
-  - `page` (integer, 选填): 页码。
-  - `limit` (integer, 选填): 每页数量。
 - **响应数据**：
   - `friends` (list): 好友列表。
-  - `total` (integer): 总数。
 
-#### 12.1.2 发送好友请求
-- **接口名称**：发送好友请求
+#### 12.1.2 添加好友
+- **接口名称**：添加好友
 - **请求方法**：`POST`
-- **URL 路径**：`/_synapse/enhanced/friend/request`
+- **URL 路径**：`/_matrix/client/v1/friends/request`
 - **认证**：Token
 - **请求参数**：
-  - `target_user_id` (string, 必填): 目标用户 ID。
-  - `message` (string, 选填): 验证消息。
+  - `user_id` (string, 必填): 目标用户 ID。
 - **响应数据**：
-  - `room_id` (string): 关联的请求 ID (通常复用 room_id)。
-  - `status` (string): 状态 (pending)。
-
-#### 12.1.3 处理好友请求
-- **接受请求**：`POST /_synapse/enhanced/friend/request/{requestId}/accept`
-- **拒绝请求**：`POST /_synapse/enhanced/friend/request/{requestId}/decline`
-
-#### 12.1.4 好友管理
-- **检查好友关系**：`GET /_synapse/enhanced/friends/{userId}/check`
-- **删除好友**：`DELETE /_synapse/enhanced/friends/{userId}`
-- **设置备注**：`PUT /_synapse/enhanced/friends/{userId}/remark` (参数: `remark`)
-
-#### 12.1.5 黑名单管理
-- **获取黑名单**：`GET /_synapse/enhanced/friends/blocked`
-- **拉黑用户**：`POST /_synapse/enhanced/friends/blocked` (参数: `user_id`, `reason`)
-- **解除拉黑**：`DELETE /_synapse/enhanced/friends/blocked/{userId}`
+  - `room_id` (string): 关联的私聊房间 ID。
 
 ### 12.2 私密聊天 (Private Chat)
 
-> **实现方法说明**：
-> 私密聊天功能基于增强的“会话 (Session)”机制实现，区别于普通的 Matrix Room。
-> 1. **会话创建**：客户端通过 `POST /sessions` 创建一个私密会话，可指定 `ttl_seconds` (生存时间) 和 `auto_delete` (自动销毁)。
-> 2. **消息传输**：消息通过专门的 `POST /messages` 接口发送，支持端到端加密参数 `encrypted: true`。
-> 3. **数据安全**：会话到期或用户主动调用 `close` 接口后，服务器端将物理删除相关数据，确保隐私安全。
+> **说明**：在优化后的系统中，私密聊天功能已与标准 Matrix 房间机制融合。
+> 1. **创建私聊**：使用标准创建房间接口 `POST /_matrix/client/r0/createRoom`，并设置 `preset: "trusted_private_chat"` 和 `is_direct: true`。
+> 2. **消息传输**：使用标准发送消息接口 `PUT /_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}`。
+> 3. **端到端加密**：通过标准 E2EE 接口管理密钥，并在发送消息时使用 `m.room.encrypted` 事件类型。
 
-#### 12.2.1 会话管理
-- **接口名称**：创建私密会话
+之前的增强版 API (`/_synapse/enhanced/private/*`) 已被废弃，建议客户端全面迁移到标准 Matrix 房间 API。
+
+### 12.3 其他增强功能
+
+#### 12.3.1 语音消息增强
+- **接口名称**：转换语音格式
 - **请求方法**：`POST`
-- **URL 路径**：`/_synapse/enhanced/private/sessions`
-- **认证**：Token
-- **请求参数**：
-  - `user_id` (string, 必填): 对方用户 ID。
-  - `session_name` (string, 选填): 会话名称。
-  - `ttl_seconds` (integer, 选填): 自动销毁时间 (秒)。
-  - `auto_delete` (boolean, 选填): 是否自动删除。
-- **响应数据**：
-  - `session_id` (string): 会话 ID。
+- **URL 路径**：`/_matrix/client/r0/voice/convert`
+- **功能描述**：服务端协助转换音频格式（如 Silk 转 Ogg）。
 
-- **关闭/删除会话**：`DELETE /_synapse/enhanced/private/sessions/{sessionId}/close`
-- **获取会话详情**：`GET /_synapse/enhanced/private/sessions/{sessionId}`
-
-#### 12.2.2 消息管理
-- **接口名称**：发送私密消息
+#### 12.3.2 媒体优化
+- **接口名称**：优化媒体资源
 - **请求方法**：`POST`
-- **URL 路径**：`/_synapse/enhanced/private/messages`
-- **认证**：Token
-- **请求参数**：
-  - `session_id` (string, 必填): 会话 ID。
-  - `content` (string, 必填): 消息内容 (或加密载荷)。
-  - `encrypted` (boolean, 选填): 是否已加密。
-- **响应数据**：
-  - `message_id` (string): 消息 ID。
-
-- **删除消息**：`DELETE /_synapse/enhanced/private/messages/{messageId}`
-- **标记已读**：`POST /_synapse/enhanced/private/messages/{messageId}/read`
+- **URL 路径**：`/_matrix/client/r0/voice/optimize`
+- **功能描述**：压缩或优化媒体文件大小。
 
 ---
 
