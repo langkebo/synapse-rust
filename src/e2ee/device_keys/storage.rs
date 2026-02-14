@@ -59,11 +59,11 @@ impl DeviceKeyStorage {
 
     pub async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError> {
         let now_ms = key.updated_at.timestamp_millis();
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             INSERT INTO device_keys (user_id, device_id, display_name, algorithm, key_id, public_key, signatures, created_at, updated_at, ts_updated_ms, key_json, ts_added_ms, ts_last_accessed)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            ON CONFLICT (user_id, device_id) DO UPDATE
+            ON CONFLICT ON CONSTRAINT device_keys_user_device_unique DO UPDATE
             SET display_name = EXCLUDED.display_name,
                 algorithm = EXCLUDED.algorithm,
                 key_id = EXCLUDED.key_id,
@@ -89,9 +89,15 @@ impl DeviceKeyStorage {
         .bind(now_ms)
         .bind(now_ms)
         .execute(&*self.pool)
-        .await?;
+        .await;
 
-        Ok(())
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                tracing::error!("Failed to create/update device key: {}", e);
+                Err(ApiError::internal(format!("Failed to save device key: {}", e)))
+            }
+        }
     }
 
     pub async fn get_device_key(

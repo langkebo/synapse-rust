@@ -42,6 +42,73 @@ pub struct DeviceKeyInfo {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignatureUploadRequest {
+    pub user_id: String,
+    pub device_id: Option<String>,
+    pub key_type: String,
+    pub key_id: String,
+    pub signatures: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignatureUploadResponse {
+    pub fail: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceSignature {
+    pub user_id: String,
+    pub device_id: String,
+    pub signing_key_id: String,
+    pub target_user_id: String,
+    pub target_device_id: String,
+    pub target_key_id: String,
+    pub signature: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossSigningSetupRequest {
+    pub master_key: Option<serde_json::Value>,
+    pub self_signing_key: Option<serde_json::Value>,
+    pub user_signing_key: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossSigningSetupResponse {
+    pub master_key: serde_json::Value,
+    pub self_signing_key: serde_json::Value,
+    pub user_signing_key: serde_json::Value,
+    pub master_key_signature: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignatureVerificationRequest {
+    pub user_id: String,
+    pub device_id: String,
+    pub key_id: String,
+    pub signature: String,
+    pub signing_key_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignatureVerificationResponse {
+    pub valid: bool,
+    pub verified_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BulkSignatureUpload {
+    pub signatures: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserSignatures {
+    pub user_id: String,
+    pub signatures: Vec<DeviceSignature>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

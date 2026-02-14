@@ -491,7 +491,7 @@ impl AuthService {
         Ok(())
     }
 
-    async fn generate_access_token(
+    pub async fn generate_access_token(
         &self,
         user_id: &str,
         device_id: &str,

@@ -423,6 +423,49 @@ impl RoomService {
         Ok(())
     }
 
+    pub async fn forget_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        let membership = self
+            .member_storage
+            .get_room_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+        match membership {
+            Some(member) => {
+                match member.membership.as_str() {
+                    "join" => {
+                        return Err(ApiError::bad_request(
+                            "Cannot forget a room you are still joined to. Leave the room first.".to_string(),
+                        ));
+                    }
+                    "ban" => {
+                        return Err(ApiError::forbidden(
+                            "Cannot forget a room you have been banned from.".to_string(),
+                        ));
+                    }
+                    "leave" | "invite" => {
+                        self.member_storage
+                            .forget_member(room_id, user_id)
+                            .await
+                            .map_err(|e| ApiError::internal(format!("Failed to forget room: {}", e)))?;
+                    }
+                    _ => {
+                        return Err(ApiError::bad_request(
+                            format!("Unknown membership state: {}", member.membership),
+                        ));
+                    }
+                }
+            }
+            None => {
+                return Err(ApiError::not_found(
+                    "No membership record found for this room".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn get_room_members(
         &self,
         room_id: &str,

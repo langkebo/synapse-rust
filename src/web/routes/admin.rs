@@ -67,6 +67,20 @@ pub fn create_admin_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/logs", get(get_logs))
         .route("/_synapse/admin/v1/media_stats", get(get_media_stats))
         .route("/_synapse/admin/v1/user_stats", get(get_user_stats))
+        .route("/_synapse/admin/v2/users", get(get_users_v2))
+        .route("/_synapse/admin/v2/users/{user_id}", get(get_user_v2))
+        .route("/_synapse/admin/v2/users/{user_id}", put(create_or_update_user_v2))
+        .route("/_synapse/admin/v1/users/{user_id}/login", post(login_as_user))
+        .route("/_synapse/admin/v1/users/{user_id}/logout", post(logout_user_devices))
+        .route("/_synapse/admin/v1/users/{user_id}/devices", get(get_user_devices_admin))
+        .route("/_synapse/admin/v1/users/{user_id}/devices/{device_id}", delete(delete_user_device_admin))
+        .route("/_synapse/admin/v1/rooms/{room_id}/members", get(get_room_members_admin))
+        .route("/_synapse/admin/v1/rooms/{room_id}/state", get(get_room_state_admin))
+        .route("/_synapse/admin/v1/rooms/{room_id}/messages", get(get_room_messages_admin))
+        .route("/_synapse/admin/v1/rooms/{room_id}/block", post(block_room))
+        .route("/_synapse/admin/v1/rooms/{room_id}/block", get(get_room_block_status))
+        .route("/_synapse/admin/v1/rooms/{room_id}/unblock", post(unblock_room))
+        .route("/_synapse/admin/v1/rooms/{room_id}/make_admin", post(make_room_admin))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1342,4 +1356,570 @@ fn format_bytes(bytes: i64) -> String {
     } else {
         format!("{} B", bytes)
     }
+}
+
+#[axum::debug_handler]
+pub async fn get_users_v2(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100)
+        .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
+    let offset = params
+        .get("from")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+        .clamp(0, i64::MAX);
+    let name_filter = params.get("name").cloned();
+    let guests = params
+        .get("guests")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(true);
+
+    let mut query = sqlx::QueryBuilder::new(
+        "SELECT user_id, name, creation_ts, admin, upgrade_ts, is_guest, user_type, deactivated, displayname, avatar_url FROM users WHERE 1=1"
+    );
+
+    if !guests {
+        query.push(" AND (is_guest IS NULL OR is_guest = FALSE)");
+    }
+
+    if let Some(ref name) = name_filter {
+        query.push(" AND name LIKE ");
+        query.push_bind(format!("%{}%", name));
+    }
+
+    query.push(" ORDER BY creation_ts DESC LIMIT ");
+    query.push_bind(limit);
+    query.push(" OFFSET ");
+    query.push_bind(offset);
+
+    let rows = query
+        .build()
+        .fetch_all(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let users: Vec<Value> = rows
+        .iter()
+        .map(|row| {
+            json!({
+                "name": row.get::<Option<String>, _>("name"),
+                "user_id": row.get::<Option<String>, _>("user_id"),
+                "creation_ts": row.get::<Option<i64>, _>("creation_ts"),
+                "admin": row.get::<Option<bool>, _>("admin").unwrap_or(false),
+                "is_guest": row.get::<Option<bool>, _>("is_guest").unwrap_or(false),
+                "user_type": row.get::<Option<String>, _>("user_type"),
+                "deactivated": row.get::<Option<bool>, _>("deactivated").unwrap_or(false),
+                "displayname": row.get::<Option<String>, _>("displayname"),
+                "avatar_url": row.get::<Option<String>, _>("avatar_url")
+            })
+        })
+        .collect();
+
+    let total_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let next_token = if (offset + limit) < total_count {
+        Some(offset + limit)
+    } else {
+        None
+    };
+
+    Ok(Json(json!({
+        "users": users,
+        "total": total_count,
+        "next_token": next_token
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_user_v2(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    match user {
+        Some(u) => {
+            let devices = sqlx::query(
+                "SELECT device_id, display_name, last_seen_ts, user_id FROM devices WHERE user_id = $1"
+            )
+            .bind(&u.username)
+            .fetch_all(&*state.services.device_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+            let device_list: Vec<Value> = devices
+                .iter()
+                .map(|row| {
+                    json!({
+                        "device_id": row.get::<Option<String>, _>("device_id"),
+                        "display_name": row.get::<Option<String>, _>("display_name"),
+                        "last_seen_ts": row.get::<Option<i64>, _>("last_seen_ts")
+                    })
+                })
+                .collect();
+
+            Ok(Json(json!({
+                "name": u.username,
+                "user_id": u.username,
+                "is_guest": u.is_guest.unwrap_or(false),
+                "admin": u.is_admin.unwrap_or(false),
+                "deactivated": u.deactivated.unwrap_or(false),
+                "displayname": u.displayname,
+                "avatar_url": u.avatar_url,
+                "creation_ts": u.creation_ts,
+                "user_type": u.user_type,
+                "devices": device_list,
+                "threepids": [],
+                "external_ids": []
+            })))
+        }
+        None => Err(ApiError::not_found("User not found".to_string())),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateUpdateUserRequest {
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub admin: Option<bool>,
+    pub deactivated: Option<bool>,
+    pub user_type: Option<String>,
+    pub password: Option<String>,
+    pub threepids: Option<Vec<Threepid>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Threepid {
+    pub medium: String,
+    pub address: String,
+}
+
+#[axum::debug_handler]
+pub async fn create_or_update_user_v2(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+    Json(body): Json<CreateUpdateUserRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let now = chrono::Utc::now().timestamp_millis();
+
+    let existing_user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if let Some(_user) = existing_user {
+        sqlx::query(
+            r#"
+            UPDATE users SET
+                displayname = COALESCE($2, displayname),
+                avatar_url = COALESCE($3, avatar_url),
+                is_admin = COALESCE($4, is_admin),
+                deactivated = COALESCE($5, deactivated),
+                user_type = COALESCE($6, user_type),
+                updated_at = $7
+            WHERE username = $1 OR user_id = $1
+            "#,
+        )
+        .bind(&user_id)
+        .bind(&body.displayname)
+        .bind(&body.avatar_url)
+        .bind(body.admin)
+        .bind(body.deactivated)
+        .bind(&body.user_type)
+        .bind(now)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to update user: {}", e)))?;
+
+        Ok(Json(json!({})))
+    } else {
+        let user_id_full = if user_id.starts_with('@') {
+            user_id.clone()
+        } else {
+            format!("@{}:{}", user_id, state.services.config.server.name)
+        };
+
+        let username = user_id_full
+            .strip_prefix('@')
+            .and_then(|s| s.split(':').next())
+            .unwrap_or(&user_id)
+            .to_string();
+
+        let password_hash = if let Some(ref pwd) = body.password {
+            crate::common::crypto::hash_password(pwd)
+                .map_err(|e| ApiError::internal(format!("Password hashing failed: {}", e)))?
+        } else {
+            crate::common::crypto::hash_password(&crate::common::random_string(16))
+                .map_err(|e| ApiError::internal(format!("Password hashing failed: {}", e)))?
+        };
+
+        sqlx::query(
+            r#"
+            INSERT INTO users (user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated, user_type, creation_ts, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            "#,
+        )
+        .bind(&user_id_full)
+        .bind(&username)
+        .bind(&password_hash)
+        .bind(&body.displayname)
+        .bind(&body.avatar_url)
+        .bind(body.admin.unwrap_or(false))
+        .bind(body.deactivated.unwrap_or(false))
+        .bind(&body.user_type)
+        .bind(now)
+        .bind(now)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create user: {}", e)))?;
+
+        Ok(Json(json!({})))
+    }
+}
+
+#[axum::debug_handler]
+pub async fn login_as_user(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+
+    if user.deactivated.unwrap_or(false) {
+        return Err(ApiError::bad_request("User is deactivated".to_string()));
+    }
+
+    let device_id = crate::common::random_string(10);
+    let is_admin = user.is_admin.unwrap_or(false);
+
+    let token = state
+        .services
+        .auth_service
+        .generate_access_token(&user.username, &device_id, is_admin)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))?;
+
+    Ok(Json(json!({
+        "access_token": token,
+        "device_id": device_id,
+        "user_id": user.username
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn logout_user_devices(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let result = sqlx::query(
+        "DELETE FROM devices WHERE user_id = (SELECT username FROM users WHERE username = $1 OR user_id = $1)"
+    )
+    .bind(&user_id)
+    .execute(&*state.services.device_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(json!({
+        "devices_deleted": result.rows_affected()
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_user_devices_admin(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let devices = sqlx::query(
+        r#"
+        SELECT device_id, display_name, last_seen_ts, last_seen_ip, user_id
+        FROM devices 
+        WHERE user_id = (SELECT username FROM users WHERE username = $1 OR user_id = $1)
+        ORDER BY last_seen_ts DESC
+        "#
+    )
+    .bind(&user_id)
+    .fetch_all(&*state.services.device_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let device_list: Vec<Value> = devices
+        .iter()
+        .map(|row| {
+            json!({
+                "device_id": row.get::<Option<String>, _>("device_id"),
+                "display_name": row.get::<Option<String>, _>("display_name"),
+                "last_seen_ts": row.get::<Option<i64>, _>("last_seen_ts"),
+                "last_seen_ip": row.get::<Option<String>, _>("last_seen_ip")
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "devices": device_list,
+        "total": device_list.len()
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn delete_user_device_admin(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path((user_id, device_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let result = sqlx::query(
+        "DELETE FROM devices WHERE user_id = (SELECT username FROM users WHERE username = $1 OR user_id = $1) AND device_id = $2"
+    )
+    .bind(&user_id)
+    .bind(&device_id)
+    .execute(&*state.services.device_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Device not found".to_string()));
+    }
+
+    Ok(Json(json!({})))
+}
+
+#[axum::debug_handler]
+pub async fn get_room_members_admin(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let members = state
+        .services
+        .member_storage
+        .get_room_members(&room_id, "join")
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let member_list: Vec<Value> = members
+        .iter()
+        .map(|m| {
+            json!({
+                "user_id": m.user_id,
+                "displayname": m.display_name,
+                "avatar_url": m.avatar_url,
+                "membership": m.membership
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "members": member_list,
+        "total": member_list.len()
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_room_state_admin(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let events = state
+        .services
+        .event_storage
+        .get_state_events(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let state_events: Vec<Value> = events
+        .iter()
+        .map(|e| {
+            json!({
+                "type": e.event_type,
+                "state_key": e.state_key,
+                "content": e.content,
+                "sender": e.user_id,
+                "event_id": e.event_id
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "state": state_events
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_room_messages_admin(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100)
+        .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
+
+    let events = state
+        .services
+        .event_storage
+        .get_room_events(&room_id, limit)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let messages: Vec<Value> = events
+        .iter()
+        .map(|e| {
+            json!({
+                "event_id": e.event_id,
+                "type": e.event_type,
+                "content": e.content,
+                "sender": e.user_id,
+                "origin_server_ts": e.origin_server_ts
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "chunk": messages,
+        "start": params.get("from").unwrap_or(&"0".to_string()).clone(),
+        "end": messages.last().and_then(|m| m.get("event_id").and_then(|e| e.as_str()).map(|s| s.to_string()))
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BlockRoomRequest {
+    pub block: bool,
+}
+
+#[axum::debug_handler]
+pub async fn block_room(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    Json(body): Json<BlockRoomRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let now = chrono::Utc::now().timestamp_millis();
+
+    sqlx::query(
+        r#"
+        INSERT INTO blocked_rooms (room_id, blocked_at, blocked_by)
+        VALUES ($1, $2, 'admin')
+        ON CONFLICT (room_id) DO UPDATE SET blocked_at = $2
+        "#
+    )
+    .bind(&room_id)
+    .bind(now)
+    .execute(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(json!({
+        "block": body.block
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_room_block_status(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let result = sqlx::query(
+        "SELECT room_id, blocked_at FROM blocked_rooms WHERE room_id = $1"
+    )
+    .bind(&room_id)
+    .fetch_optional(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    match result {
+        Some(row) => Ok(Json(json!({
+            "block": true,
+            "blocked_at": row.get::<Option<i64>, _>("blocked_at")
+        }))),
+        None => Ok(Json(json!({
+            "block": false
+        }))),
+    }
+}
+
+#[axum::debug_handler]
+pub async fn unblock_room(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    sqlx::query("DELETE FROM blocked_rooms WHERE room_id = $1")
+        .bind(&room_id)
+        .execute(&*state.services.room_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(json!({
+        "block": false
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MakeRoomAdminRequest {
+    pub user_id: String,
+}
+
+#[axum::debug_handler]
+pub async fn make_room_admin(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    Json(body): Json<MakeRoomAdminRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let now = chrono::Utc::now().timestamp_millis();
+    let event_id = crate::common::crypto::generate_event_id(&state.services.config.server.name);
+    let user_id = body.user_id.clone();
+    let user_id_for_json = body.user_id.clone();
+
+    sqlx::query(
+        r#"
+        INSERT INTO events (event_id, room_id, user_id, event_type, content, state_key, origin_server_ts)
+        VALUES ($1, $2, $3, 'm.room.power_levels', $4, '', $5)
+        ON CONFLICT (event_id) DO UPDATE SET content = $4
+        "#
+    )
+    .bind(&event_id)
+    .bind(&room_id)
+    .bind(&user_id)
+    .bind(json!({
+        "users": {
+            user_id_for_json: 100
+        }
+    }))
+    .bind(now)
+    .execute(&*state.services.event_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(json!({})))
 }

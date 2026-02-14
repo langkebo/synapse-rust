@@ -100,7 +100,7 @@ Content-Type: application/json
 
 ### 3.1 健康检查与版本
 
-#### 3.1.1 服务器欢迎信息
+#### 3.1.1 服务器欢迎页面
 
 | 属性 | 值 |
 |------|-----|
@@ -108,12 +108,21 @@ Content-Type: application/json
 | **方法** | `GET` |
 | **认证** | 不需要 |
 
-**响应示例**:
-```json
-{
-  "name": "Synapse Rust",
-  "version": "0.1.0"
-}
+**说明**: 访问根路径会重定向到 Synapse 静态欢迎页面。
+
+**响应**:
+- **状态码**: 302 (重定向)
+- **Location**: `/_matrix/static`
+
+**重定向后响应示例**:
+```html
+<!DOCTYPE html>
+<html>
+  <body>
+    <h1>It works! Synapse is running</h1>
+    <p>Your Synapse server is listening on this port and is ready for messages.</p>
+  </body>
+</html>
 ```
 
 #### 3.1.2 健康检查
@@ -124,14 +133,22 @@ Content-Type: application/json
 | **方法** | `GET` |
 | **认证** | 不需要 |
 
+**说明**: 返回服务器健康状态，用于负载均衡器或监控系统检查。
+
+**响应**:
+- **状态码**: 200
+- **Content-Type**: `text/plain`
+
 **响应示例**:
-```json
-{
-  "status": "ok",
-  "database": "connected",
-  "cache": "connected"
-}
 ```
+OK
+```
+
+**状态码说明**:
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 | 服务器健康运行中 |
 
 #### 3.1.3 获取客户端 API 版本
 
@@ -141,32 +158,49 @@ Content-Type: application/json
 | **方法** | `GET` |
 | **认证** | 不需要 |
 
+**说明**: 获取服务器支持的 Matrix 客户端 API 版本列表。
+
 **响应示例**:
 ```json
 {
-  "versions": ["r0.5.0", "r0.6.0", "v1.0", "v1.1", "v1.2"],
+  "versions": ["r0.5.0", "r0.6.0", "v1.0", "v1.1", "v1.2", "v1.3", "v1.4", "v1.5", "v1.6", "v1.7", "v1.8", "v1.9", "v1.10", "v1.11", "v1.12"],
   "unstable_features": {
-    "org.matrix.label_based_auth": true
+    "org.matrix.label_based_filtering": true,
+    "org.matrix.e2e_cross_signing": true,
+    "org.matrix.msc2432": true
   }
 }
 ```
+
+**响应字段说明**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `versions` | array | 支持的 API 版本列表 |
+| `unstable_features` | object | 不稳定特性及其支持状态 |
 
 #### 3.1.4 获取服务端版本
 
 | 属性 | 值 |
 |------|-----|
-| **端点** | `/_matrix/client/r0/version` |
+| **端点** | `/_synapse/admin/v1/server_version` |
 | **方法** | `GET` |
 | **认证** | 不需要 |
+
+**说明**: 获取 Synapse 服务器版本信息。
 
 **响应示例**:
 ```json
 {
-  "server": {
-    "name": "Synapse Rust",
-    "version": "0.1.0"
-  }
+  "server_version": "1.146.0"
 }
+```
+
+**响应字段说明**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `server_version` | string | Synapse 服务器版本号 |
 ```
 
 ---
@@ -3221,7 +3255,7 @@ Content-Type: application/json
 
 | 属性 | 值 |
 |------|-----|
-| **端点** | `/_matrix/client/v0/voip/turnServer` |
+| **端点** | `/_matrix/client/v3/voip/turnServer` |
 | **方法** | `GET` |
 | **认证** | 需要 |
 
@@ -3238,11 +3272,20 @@ Content-Type: application/json
 }
 ```
 
+**错误响应**:
+```json
+{
+  "status": "error",
+  "error": "VoIP/TURN service is not configured",
+  "errcode": "M_NOT_FOUND"
+}
+```
+
 ### 10.2 获取 VoIP 配置
 
 | 属性 | 值 |
 |------|-----|
-| **端点** | `/_matrix/client/v0/voip/config` |
+| **端点** | `/_matrix/client/v3/voip/config` |
 | **方法** | `GET` |
 | **认证** | 不需要 |
 
@@ -3261,11 +3304,19 @@ Content-Type: application/json
 }
 ```
 
+**未配置时响应**:
+```json
+{
+  "turn_servers": null,
+  "stun_servers": null
+}
+```
+
 ### 10.3 获取访客 TURN 凭证
 
 | 属性 | 值 |
 |------|-----|
-| **端点** | `/_matrix/client/v0/voip/turnServer/guest` |
+| **端点** | `/_matrix/client/v3/voip/turnServer/guest` |
 | **方法** | `GET` |
 | **认证** | 不需要 |
 
@@ -3276,6 +3327,15 @@ Content-Type: application/json
   "password": "guest_credential",
   "uris": ["turn:turn.example.com:3478"],
   "ttl": 86400
+}
+```
+
+**错误响应**:
+```json
+{
+  "status": "error",
+  "error": "VoIP/TURN service is not configured",
+  "errcode": "M_NOT_FOUND"
 }
 ```
 
@@ -3459,6 +3519,88 @@ Content-Type: application/json
 {
   "count": 1,
   "etag": "1_1234567890"
+}
+```
+
+### 11.8 批量上传房间密钥
+
+| 属性 | 值 |
+|------|-----|
+| **端点** | `/_matrix/client/r0/room_keys/{version}/keys` |
+| **方法** | `POST` |
+| **认证** | 需要 |
+
+**请求体**:
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `{room_id}` | object | 否 | 房间ID作为键，包含sessions数组 |
+
+**请求示例**:
+```json
+{
+  "!room:example.com": {
+    "sessions": [
+      {
+        "session_id": "session_id_1",
+        "session_data": {}
+      }
+    ]
+  }
+}
+```
+
+**响应示例**:
+```json
+{
+  "count": 1,
+  "etag": "1_1234567890"
+}
+```
+
+### 11.9 获取指定房间密钥
+
+| 属性 | 值 |
+|------|-----|
+| **端点** | `/_matrix/client/r0/room_keys/{version}/keys/{room_id}` |
+| **方法** | `GET` |
+| **认证** | 需要 |
+
+**响应示例**:
+```json
+{
+  "rooms": {
+    "!room:example.com": {
+      "sessions": {
+        "session_id": {
+          "first_message_index": 0,
+          "forwarded_count": 0,
+          "is_verified": false,
+          "session_data": {}
+        }
+      }
+    }
+  }
+}
+```
+
+### 11.10 获取会话密钥
+
+| 属性 | 值 |
+|------|-----|
+| **端点** | `/_matrix/client/r0/room_keys/{version}/keys/{room_id}/{session_id}` |
+| **方法** | `GET` |
+| **认证** | 需要 |
+
+**响应示例**:
+```json
+{
+  "room_id": "!room:example.com",
+  "session_id": "session_id",
+  "first_message_index": 0,
+  "forwarded_count": 0,
+  "is_verified": false,
+  "session_data": {}
 }
 ```
 

@@ -1,22 +1,66 @@
+pub mod account_data;
 pub mod admin;
+pub mod app_service;
+pub mod background_update;
+pub mod cas;
+pub mod captcha;
 pub mod e2ee_routes;
+pub mod event_report;
 pub mod federation;
+pub mod federation_blacklist;
 pub mod friend_room;
 pub mod key_backup;
 pub mod media;
+pub mod media_quota;
+pub mod module;
+pub mod push;
+pub mod push_notification;
+pub mod refresh_token;
+pub mod registration_token;
+pub mod retention;
+pub mod room_summary;
+pub mod saml;
+pub mod search;
+pub mod server_notification;
+pub mod space;
+pub mod telemetry;
+pub mod thread;
 pub mod voice;
 pub mod voip;
+pub mod worker;
 
+pub use account_data::create_account_data_router;
 pub use admin::create_admin_router;
+pub use app_service::create_app_service_router;
+pub use background_update::create_background_update_router;
+pub use cas::cas_routes;
+pub use captcha::create_captcha_router;
 pub use e2ee_routes::create_e2ee_router;
+pub use event_report::create_event_report_router;
 pub use federation::create_federation_router;
+pub use federation_blacklist::create_federation_blacklist_router;
 pub use friend_room::create_friend_router;
 pub use key_backup::create_key_backup_router;
 pub use media::create_media_router;
+pub use media_quota::create_media_quota_router;
+pub use module::create_module_router;
+pub use push::create_push_router;
+pub use push_notification::create_push_notification_router;
+pub use refresh_token::create_refresh_token_router;
+pub use registration_token::create_registration_token_router;
+pub use retention::create_retention_router;
+pub use room_summary::create_room_summary_router;
+pub use saml::create_saml_router;
+pub use search::create_search_router;
+pub use server_notification::create_server_notification_router;
+pub use space::create_space_router;
+pub use telemetry::create_telemetry_router;
+pub use thread::create_thread_routes;
 pub use voice::create_voice_router;
 pub use voip::get_turn_server;
 pub use voip::get_voip_config;
 pub use voip::get_turn_credentials_guest;
+pub use worker::create_worker_router;
 
 use crate::cache::*;
 use crate::common::*;
@@ -187,8 +231,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(health_check))
         .route("/_matrix/client/versions", get(get_client_versions))
         .route("/_matrix/client/r0/version", get(get_server_version))
+        .route("/.well-known/matrix/server", get(get_well_known_server))
+        .route("/.well-known/matrix/client", get(get_well_known_client))
+        .route("/.well-known/matrix/support", get(get_well_known_support))
         .merge(create_auth_router())
         .merge(create_account_router())
+        .merge(create_account_data_router(state.clone()))
         .merge(create_directory_router())
         .merge(create_room_router())
         .merge(create_presence_router())
@@ -201,6 +249,27 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_admin_router(state.clone()))
         .merge(create_federation_router(state.clone()))
         .merge(create_friend_router(state.clone()))
+        .merge(create_push_router(state.clone()))
+        .merge(create_search_router(state.clone()))
+        .merge(create_space_router(state.clone()))
+        .merge(create_app_service_router(state.clone()))
+        .merge(create_worker_router(state.clone()))
+        .merge(create_room_summary_router(state.clone()))
+        .merge(create_retention_router(state.clone()))
+        .merge(create_refresh_token_router(state.clone()))
+        .merge(create_registration_token_router(state.clone()))
+        .merge(create_event_report_router(state.clone()))
+        .merge(create_background_update_router(state.clone()))
+        .merge(create_module_router())
+        .merge(create_saml_router())
+        .merge(cas_routes())
+        .merge(create_media_quota_router())
+        .merge(create_server_notification_router())
+        .merge(create_captcha_router())
+        .merge(create_federation_blacklist_router())
+        .merge(create_push_notification_router())
+        .merge(create_telemetry_router())
+        .merge(create_thread_routes(state.clone()))
         .route("/_matrix/client/v3/voip/turnServer", get(get_turn_server))
         .route("/_matrix/client/v3/voip/config", get(get_voip_config))
         .route("/_matrix/client/v3/voip/turnServer/guest", get(get_turn_credentials_guest))
@@ -319,7 +388,9 @@ fn create_room_router() -> Router<AppState> {
             post(set_read_markers),
         )
         .route("/_matrix/client/r0/rooms/{room_id}/join", post(join_room))
+        .route("/_matrix/client/r0/join/{room_id_or_alias}", post(join_room_by_id_or_alias))
         .route("/_matrix/client/r0/rooms/{room_id}/leave", post(leave_room))
+        .route("/_matrix/client/r0/rooms/{room_id}/forget", post(forget_room))
         .route(
             "/_matrix/client/r0/rooms/{room_id}/members",
             get(get_room_members),
@@ -408,6 +479,44 @@ async fn get_client_versions() -> Json<Value> {
 async fn get_server_version() -> Json<Value> {
     Json(json!({
         "version": "0.1.0"
+    }))
+}
+
+async fn get_well_known_server(State(state): State<AppState>) -> Json<Value> {
+    let server_name = &state.services.config.server.name;
+    let port = state.services.config.server.port;
+    
+    Json(json!({
+        "m.server": format!("{}:{}", server_name, port)
+    }))
+}
+
+async fn get_well_known_client(State(state): State<AppState>) -> Json<Value> {
+    let server_name = &state.services.config.server.name;
+    let base_url = format!("https://{}", server_name);
+    
+    Json(json!({
+        "m.homeserver": {
+            "base_url": base_url
+        },
+        "m.identity_server": {
+            "base_url": base_url
+        }
+    }))
+}
+
+async fn get_well_known_support(State(state): State<AppState>) -> Json<Value> {
+    let server_name = &state.services.config.server.name;
+    
+    Json(json!({
+        "contacts": [
+            {
+                "email_address": format!("admin@{}", server_name),
+                "matrix_id": format!("@admin:{}", server_name),
+                "role": "m.admin"
+            }
+        ],
+        "support_page": format!("https://{}/support", server_name)
     }))
 }
 
@@ -1246,6 +1355,58 @@ async fn join_room(
     Ok(Json(json!({})))
 }
 
+async fn join_room_by_id_or_alias(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(room_id_or_alias): Path<String>,
+    body: Option<Json<serde_json::Value>>,
+) -> Result<Json<Value>, ApiError> {
+    let token = extract_token_from_headers(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let room_id = if room_id_or_alias.starts_with('!') {
+        room_id_or_alias.clone()
+    } else if room_id_or_alias.starts_with('#') {
+        state
+            .services
+            .room_service
+            .get_room_by_alias(&room_id_or_alias)
+            .await
+            .map_err(|e| ApiError::not_found(format!("Room alias not found: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
+    } else {
+        let alias = format!("#{}:{}", room_id_or_alias, state.services.config.server.name);
+        state
+            .services
+            .room_service
+            .get_room_by_alias(&alias)
+            .await
+            .map_err(|e| ApiError::not_found(format!("Room alias not found: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
+    };
+
+    let via_servers = body
+        .and_then(|b| b.get("via_servers").and_then(|v| v.as_array()).cloned())
+        .unwrap_or_default();
+
+    ::tracing::info!(
+        "User {} joining room {} via {:?}",
+        user_id,
+        room_id,
+        via_servers
+    );
+
+    state
+        .services
+        .room_service
+        .join_room(&room_id, &user_id)
+        .await?;
+
+    Ok(Json(json!({
+        "room_id": room_id
+    })))
+}
+
 async fn leave_room(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -1257,6 +1418,21 @@ async fn leave_room(
         .services
         .room_service
         .leave_room(&room_id, &auth_user.user_id)
+        .await?;
+    Ok(Json(json!({})))
+}
+
+async fn forget_room(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    state
+        .services
+        .room_service
+        .forget_room(&room_id, &auth_user.user_id)
         .await?;
     Ok(Json(json!({})))
 }
@@ -1863,10 +2039,16 @@ async fn get_state_by_type(
         return Err(ApiError::not_found(format!("Room '{}' not found", room_id)));
     }
 
+    let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
+        event_type.clone()
+    } else {
+        format!("m.room.{}", event_type)
+    };
+
     let events = state
         .services
         .event_storage
-        .get_state_events_by_type(&room_id, &event_type)
+        .get_state_events_by_type(&room_id, &final_event_type)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
 
@@ -1893,10 +2075,16 @@ async fn get_state_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
+    let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
+        event_type.clone()
+    } else {
+        format!("m.room.{}", event_type)
+    };
+
     let events = state
         .services
         .event_storage
-        .get_state_events_by_type(&room_id, &event_type)
+        .get_state_events_by_type(&room_id, &final_event_type)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
 
@@ -1927,6 +2115,12 @@ async fn send_state_event(
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
+    let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
+        event_type.clone()
+    } else {
+        format!("m.room.{}", event_type)
+    };
+
     let state_event = state
         .services
         .event_storage
@@ -1935,9 +2129,9 @@ async fn send_state_event(
                 event_id: new_event_id.clone(),
                 room_id: room_id.clone(),
                 user_id: auth_user.user_id.clone(),
-                event_type: format!("m.room.{}", event_type),
+                event_type: final_event_type.clone(),
                 content,
-                state_key: Some(auth_user.user_id),
+                state_key: Some(auth_user.user_id.clone()),
                 origin_server_ts: now,
             },
             None,
@@ -1963,6 +2157,12 @@ async fn put_state_event(
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
+    let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
+        event_type.clone()
+    } else {
+        format!("m.room.{}", event_type)
+    };
+
     let event = state
         .services
         .event_storage
@@ -1971,7 +2171,7 @@ async fn put_state_event(
                 event_id: new_event_id.clone(),
                 room_id: room_id.clone(),
                 user_id: auth_user.user_id.clone(),
-                event_type: format!("m.room.{}", event_type),
+                event_type: final_event_type.clone(),
                 content: body,
                 state_key: Some(state_key),
                 origin_server_ts: now,

@@ -97,6 +97,9 @@ reqwest = { version = "0.12", features = ["json"] }
 validator = { version = "0.20.0", features = ["derive"] }
 infer = "0.19.0"
 
+# Image processing
+image = "0.25"
+
 [dev-dependencies]
 criterion = "0.5"
 fake = "2.9"

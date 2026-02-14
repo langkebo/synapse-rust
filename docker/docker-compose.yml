@@ -15,6 +15,7 @@ services:
       - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
     volumes:
       - ./data:/app/data
+      - media_data:/app/data/media
       - ./logs:/app/logs
       - ./config:/app/config:ro
     depends_on:
@@ -118,6 +119,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  media_data:
     driver: local
 
 networks:

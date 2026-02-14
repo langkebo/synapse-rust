@@ -1,4 +1,4 @@
-# Build context is /home/hula/synapse_rust/docker/
+# Build context is /home/hula/synapse_rust/synapse/
 # This .dockerignore controls what gets sent to Docker daemon
 
 # Exclude data directories (large, not needed for build)
@@ -7,6 +7,9 @@ redis_data/
 data/
 media/
 logs/
+docker/data/
+docker/media/
+docker/logs/
 
 # Exclude git data
 .git/
@@ -23,16 +26,10 @@ Thumbs.db
 # Exclude logs
 *.log
 
-# Include necessary project files
-!../Cargo.toml
-!../Cargo.lock
-!../src/
-!../.sqlx/
-
-# Exclude unnecessary large directories
-target/
-!../target/release/  # Include only release binary if pre-built
-
 # Test files (exclude during build)
 tests/
 *.test
+
+# Exclude debug builds but keep release
+target/debug/
+target/*/debug/
