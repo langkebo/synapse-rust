@@ -2,24 +2,47 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+pub mod application_service;
+pub mod background_update;
+pub mod cas;
+pub mod captcha;
 pub mod device;
 pub mod email_verification;
 pub mod event;
+pub mod event_report;
+pub mod federation_blacklist;
 pub mod friend_room;
 pub mod maintenance;
+pub mod media;
+pub mod media_quota;
 pub mod membership;
+pub mod module;
 pub mod monitoring;
 pub mod performance;
+pub mod push_notification;
+pub mod refresh_token;
+pub mod registration_token;
+pub mod retention;
 pub mod room;
+pub mod room_summary;
+pub mod saml;
 pub mod schema_validator;
+pub mod server_notification;
+pub mod space;
+pub mod thread;
 pub mod token;
 pub mod user;
 pub mod voice;
 
+pub use self::application_service::*;
+pub use self::cas::*;
+pub use self::captcha::*;
 pub use self::device::*;
 pub use self::event::*;
+pub use self::federation_blacklist::*;
 pub use self::friend_room::*;
 pub use self::maintenance::*;
+pub use self::media_quota::*;
 pub use self::membership::*;
 pub use self::monitoring::{
     ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor,
@@ -27,8 +50,13 @@ pub use self::monitoring::{
     PerformanceMetrics, VacuumStats,
 };
 pub use self::performance::{PerformanceMonitor, PoolStatistics, QueryMetrics, time_query};
+pub use self::push_notification::*;
 pub use self::room::*;
+pub use self::saml::*;
 pub use self::schema_validator::*;
+pub use self::server_notification::*;
+pub use self::space::*;
+pub use self::thread::*;
 pub use self::token::*;
 pub use self::user::*;
 pub use self::voice::*;

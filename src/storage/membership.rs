@@ -154,6 +154,40 @@ impl RoomMemberStorage {
         Ok(())
     }
 
+    pub async fn forget_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r#"
+            UPDATE room_memberships 
+            SET membership = 'forget', 
+                left_ts = $3,
+                updated_ts = $3
+            WHERE room_id = $1 AND user_id = $2 AND membership IN ('leave', 'invite')
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn is_forgotten(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query_scalar::<_, i32>(
+            r#"
+            SELECT 1 AS "exists" FROM room_memberships 
+            WHERE room_id = $1 AND user_id = $2 AND membership = 'forget' 
+            LIMIT 1
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.is_some())
+    }
+
     pub async fn remove_all_members(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"

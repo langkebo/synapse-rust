@@ -62,6 +62,72 @@ pub struct BackupKeyUpload {
     pub is_verified: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryRequest {
+    pub version: String,
+    pub rooms: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryResponse {
+    pub rooms: serde_json::Value,
+    pub total_keys: i64,
+    pub recovered_keys: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryProgress {
+    pub user_id: String,
+    pub version: String,
+    pub total_keys: i64,
+    pub recovered_keys: i64,
+    pub status: String,
+    pub started_ts: i64,
+    pub updated_ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoverySession {
+    pub user_id: String,
+    pub version: String,
+    pub room_id: String,
+    pub session_id: String,
+    pub session_data: serde_json::Value,
+    pub first_message_index: i64,
+    pub forwarded_count: i64,
+    pub is_verified: bool,
+    pub recovered_ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupVerificationRequest {
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupVerificationResponse {
+    pub valid: bool,
+    pub algorithm: String,
+    pub auth_data: serde_json::Value,
+    pub key_count: i64,
+    pub signatures: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchRecoveryRequest {
+    pub version: String,
+    pub room_ids: Vec<String>,
+    pub session_limit: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchRecoveryResponse {
+    pub rooms: serde_json::Map<String, serde_json::Value>,
+    pub total_sessions: i64,
+    pub has_more: bool,
+    pub next_batch: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

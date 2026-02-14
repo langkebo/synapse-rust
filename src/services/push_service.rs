@@ -21,7 +21,7 @@ pub struct NotificationCounts {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PushDevice {
+pub struct MatrixPushDevice {
     pub pushkey: String,
     pub kind: PushDeviceKind,
     pub app_id: String,
@@ -70,7 +70,7 @@ impl PushService {
 
     pub async fn send_notification(
         &self,
-        device: &PushDevice,
+        device: &MatrixPushDevice,
         notification: &PushNotification,
     ) -> Result<PushResponse, ApiError> {
         if !self.is_enabled() {
@@ -88,7 +88,7 @@ impl PushService {
 
     async fn send_http_push(
         &self,
-        device: &PushDevice,
+        device: &MatrixPushDevice,
         notification: &PushNotification,
     ) -> Result<PushResponse, ApiError> {
         let gateway_url: String = self.config.push_gateway_url.clone()
@@ -129,7 +129,7 @@ impl PushService {
 
     async fn send_fcm_push(
         &self,
-        device: &PushDevice,
+        device: &MatrixPushDevice,
         notification: &PushNotification,
     ) -> Result<PushResponse, ApiError> {
         let fcm_config = self.config.fcm.as_ref()
@@ -181,7 +181,7 @@ impl PushService {
 
     async fn send_apns_push(
         &self,
-        device: &PushDevice,
+        device: &MatrixPushDevice,
         notification: &PushNotification,
     ) -> Result<PushResponse, ApiError> {
         let apns_config = self.config.apns.as_ref()
@@ -236,7 +236,7 @@ impl PushService {
 
     async fn send_webpush(
         &self,
-        device: &PushDevice,
+        device: &MatrixPushDevice,
         notification: &PushNotification,
     ) -> Result<PushResponse, ApiError> {
         let _webpush_config = self.config.web_push.as_ref()
@@ -269,7 +269,7 @@ impl PushService {
         Ok(PushResponse { rejected: vec![] })
     }
 
-    fn build_push_payload(&self, device: &PushDevice, notification: &PushNotification) -> serde_json::Value {
+    fn build_push_payload(&self, device: &MatrixPushDevice, notification: &PushNotification) -> serde_json::Value {
         serde_json::json!({
             "notification": {
                 "id": notification.event_id,
@@ -358,8 +358,8 @@ mod tests {
         }
     }
 
-    fn create_test_device() -> PushDevice {
-        PushDevice {
+    fn create_test_device() -> MatrixPushDevice {
+        MatrixPushDevice {
             pushkey: "device_token_123".to_string(),
             kind: PushDeviceKind::Http,
             app_id: "io.element.matrix".to_string(),

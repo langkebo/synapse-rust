@@ -40,14 +40,16 @@ RUN groupadd --system synapse && \
 # ============================================================================
 # Directory Structure
 # ============================================================================
-RUN mkdir -p /app/bin /app/data /app/logs /app/config && \
+RUN mkdir -p /app/bin /app/data /app/data/media /app/data/media/thumbnails \
+    /app/data/media/quarantine /app/data/media/tmp /app/logs /app/config && \
     chown -R synapse:synapse /app && \
-    chmod 755 /app
+    chmod -R 755 /app && \
+    chmod 777 /app/data/media/tmp
 
 # ============================================================================
 # Copy Pre-compiled Binaries
 # ============================================================================
-# Build context is parent directory (synapse_rust/), so paths are relative to parent
+# Build context is synapse directory, so paths are relative to synapse/
 COPY --chown=synapse:synapse target/release/synapse-rust /usr/local/bin/synapse-rust
 COPY --chown=synapse:synapse target/release/generate_test_keypair /usr/local/bin/generate_test_keypair
 

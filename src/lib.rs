@@ -8,6 +8,7 @@ pub mod services;
 pub mod storage;
 pub mod tasks;
 pub mod web;
+pub mod worker;
 
 #[allow(ambiguous_glob_reexports)]
 pub use auth::*;

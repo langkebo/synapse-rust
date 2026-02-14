@@ -368,4 +368,214 @@ impl KeyBackupService {
             .get_backup_key(user_id, room_id, session_id)
             .await
     }
+
+    pub async fn recover_keys(
+        &self,
+        user_id: &str,
+        version: &str,
+        rooms: Option<Vec<String>>,
+    ) -> Result<RecoveryResponse, ApiError> {
+        let backup = self
+            .storage
+            .get_backup_version(user_id, version)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
+
+        let total_keys = self.get_backup_key_count(user_id).await?;
+
+        let all_keys = if let Some(ref room_list) = rooms {
+            let mut keys = Vec::new();
+            for room_id in room_list {
+                let room_keys = self
+                    .key_storage
+                    .get_room_backup_keys_by_backup_id(user_id, &backup.backup_id, room_id)
+                    .await?;
+                keys.extend(room_keys);
+            }
+            keys
+        } else {
+            self.get_all_backup_keys(user_id).await?
+        };
+
+        let mut rooms_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+        for key in &all_keys {
+            if !rooms_map.contains_key(&key.room_id) {
+                rooms_map.insert(key.room_id.clone(), serde_json::json!({}));
+            }
+            if let Some(room_obj) = rooms_map.get_mut(&key.room_id) {
+                if let Some(sessions) = room_obj.as_object_mut() {
+                    sessions.insert(
+                        key.session_id.clone(),
+                        serde_json::json!({
+                            "first_message_index": key.first_message_index,
+                            "forwarded_count": key.forwarded_count,
+                            "is_verified": key.is_verified,
+                            "session_data": key.backup_data,
+                        }),
+                    );
+                }
+            }
+        }
+
+        Ok(RecoveryResponse {
+            rooms: serde_json::Value::Object(rooms_map),
+            total_keys,
+            recovered_keys: all_keys.len() as i64,
+        })
+    }
+
+    pub async fn get_recovery_progress(
+        &self,
+        user_id: &str,
+        version: &str,
+    ) -> Result<RecoveryProgress, ApiError> {
+        let backup = self
+            .storage
+            .get_backup_version(user_id, version)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
+
+        let total_keys = self.get_backup_key_count(user_id).await?;
+        let now = chrono::Utc::now().timestamp_millis();
+
+        Ok(RecoveryProgress {
+            user_id: user_id.to_string(),
+            version: version.to_string(),
+            total_keys,
+            recovered_keys: total_keys,
+            status: if total_keys > 0 { "completed".to_string() } else { "empty".to_string() },
+            started_ts: backup.version * 1000,
+            updated_ts: now,
+        })
+    }
+
+    pub async fn verify_backup(
+        &self,
+        user_id: &str,
+        version: &str,
+    ) -> Result<BackupVerificationResponse, ApiError> {
+        let backup = self
+            .storage
+            .get_backup_version(user_id, version)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
+
+        let key_count = self.get_backup_key_count(user_id).await?;
+
+        let signatures = backup.backup_data.get("signatures").cloned().unwrap_or(serde_json::json!({}));
+
+        Ok(BackupVerificationResponse {
+            valid: !backup.algorithm.is_empty(),
+            algorithm: backup.algorithm,
+            auth_data: backup.backup_data,
+            key_count,
+            signatures,
+        })
+    }
+
+    pub async fn batch_recover_keys(
+        &self,
+        user_id: &str,
+        request: BatchRecoveryRequest,
+    ) -> Result<BatchRecoveryResponse, ApiError> {
+        let backup = self
+            .storage
+            .get_backup_version(user_id, &request.version)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
+
+        let session_limit = request.session_limit.unwrap_or(100) as usize;
+        let mut rooms_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+        let mut total_sessions = 0i64;
+        let mut has_more = false;
+
+        for room_id in &request.room_ids {
+            let keys = self
+                .key_storage
+                .get_room_backup_keys_by_backup_id(user_id, &backup.backup_id, room_id)
+                .await?;
+
+            let mut sessions: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+            for key in keys.iter().take(session_limit - total_sessions as usize) {
+                sessions.insert(
+                    key.session_id.clone(),
+                    serde_json::json!({
+                        "first_message_index": key.first_message_index,
+                        "forwarded_count": key.forwarded_count,
+                        "is_verified": key.is_verified,
+                        "session_data": key.backup_data,
+                    }),
+                );
+                total_sessions += 1;
+            }
+
+            if !sessions.is_empty() {
+                rooms_map.insert(room_id.clone(), serde_json::Value::Object(sessions));
+            }
+
+            if total_sessions >= session_limit as i64 {
+                has_more = keys.len() > session_limit;
+                break;
+            }
+        }
+
+        Ok(BatchRecoveryResponse {
+            rooms: rooms_map,
+            total_sessions,
+            has_more,
+            next_batch: if has_more { Some(format!("batch_{}", chrono::Utc::now().timestamp())) } else { None },
+        })
+    }
+
+    pub async fn recover_room_keys(
+        &self,
+        user_id: &str,
+        version: &str,
+        room_id: &str,
+    ) -> Result<serde_json::Value, ApiError> {
+        let backup = self
+            .storage
+            .get_backup_version(user_id, version)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
+
+        let keys = self
+            .key_storage
+            .get_room_backup_keys_by_backup_id(user_id, &backup.backup_id, room_id)
+            .await?;
+
+        let mut sessions: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+        for key in keys {
+            sessions.insert(
+                key.session_id.clone(),
+                serde_json::json!({
+                    "first_message_index": key.first_message_index,
+                    "forwarded_count": key.forwarded_count,
+                    "is_verified": key.is_verified,
+                    "session_data": key.backup_data,
+                }),
+            );
+        }
+
+        Ok(serde_json::Value::Object(sessions))
+    }
+
+    pub async fn recover_session_key(
+        &self,
+        user_id: &str,
+        version: &str,
+        room_id: &str,
+        session_id: &str,
+    ) -> Result<Option<serde_json::Value>, ApiError> {
+        let key = self.get_backup_key(user_id, room_id, session_id, version).await?;
+
+        Ok(key.map(|k| {
+            serde_json::json!({
+                "first_message_index": k.first_message_index,
+                "forwarded_count": k.forwarded_count,
+                "is_verified": k.is_verified,
+                "session_data": k.backup_data,
+            })
+        }))
+    }
 }

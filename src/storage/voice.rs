@@ -14,6 +14,14 @@ pub struct VoiceMessage {
     pub session_id: Option<String>,
     pub transcribe_text: Option<String>,
     pub created_ts: i64,
+    pub processed: Option<bool>,
+    pub processed_at: Option<i64>,
+    pub duration_seconds: Option<i32>,
+    pub sample_rate: Option<i32>,
+    pub channels: Option<i32>,
+    pub bitrate: Option<i32>,
+    pub format: Option<String>,
+    pub sender_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +48,32 @@ pub struct VoiceUsageStats {
     pub total_file_size: i64,
     pub created_ts: i64,
     pub updated_ts: i64,
+}
+
+impl VoiceMessage {
+    fn from_row(row: &sqlx::postgres::PgRow) -> Self {
+        Self {
+            message_id: row.get("message_id"),
+            room_id: row.get("room_id"),
+            user_id: row.get("user_id"),
+            duration_ms: row.get("duration_ms"),
+            file_size: row.get("file_size"),
+            content_type: row.get("content_type"),
+            waveform_data: row.get("waveform_data"),
+            file_path: row.get("file_path"),
+            session_id: row.get("session_id"),
+            transcribe_text: row.get("transcribe_text"),
+            created_ts: row.get("created_ts"),
+            processed: row.get("processed"),
+            processed_at: row.get("processed_at"),
+            duration_seconds: row.get("duration_seconds"),
+            sample_rate: row.get("sample_rate"),
+            channels: row.get("channels"),
+            bitrate: row.get("bitrate"),
+            format: row.get("format"),
+            sender_id: row.get("sender_id"),
+        }
+    }
 }
 
 pub struct VoiceUsageStatsStorage {
@@ -142,19 +176,7 @@ impl VoiceMessageStorage {
         .fetch_one(&*self.pool)
         .await?;
 
-        Ok(VoiceMessage {
-            message_id: row.get("message_id"),
-            room_id: row.get("room_id"),
-            user_id: row.get("user_id"),
-            duration_ms: row.get("duration_ms"),
-            file_size: row.get("file_size"),
-            content_type: row.get("content_type"),
-            waveform_data: row.get("waveform_data"),
-            file_path: row.get("file_path"),
-            session_id: row.get("session_id"),
-            transcribe_text: row.get("transcribe_text"),
-            created_ts: row.get("created_ts"),
-        })
+        Ok(VoiceMessage::from_row(&row))
     }
 
     pub async fn get_message(&self, message_id: &str) -> Result<Option<VoiceMessage>, sqlx::Error> {
@@ -181,6 +203,14 @@ impl VoiceMessageStorage {
                 session_id: row.get("session_id"),
                 transcribe_text: row.get("transcribe_text"),
                 created_ts: row.get("created_ts"),
+                processed: row.get("processed"),
+                processed_at: row.get("processed_at"),
+                duration_seconds: row.get("duration_seconds"),
+                sample_rate: row.get("sample_rate"),
+                channels: row.get("channels"),
+                bitrate: row.get("bitrate"),
+                format: row.get("format"),
+                sender_id: row.get("sender_id"),
             }))
         } else {
             Ok(None)
@@ -207,23 +237,7 @@ impl VoiceMessageStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        let mut messages = Vec::new();
-        for row in rows {
-            messages.push(VoiceMessage {
-                message_id: row.get("message_id"),
-                room_id: row.get("room_id"),
-                user_id: row.get("user_id"),
-                duration_ms: row.get("duration_ms"),
-                file_size: row.get("file_size"),
-                content_type: row.get("content_type"),
-                waveform_data: row.get("waveform_data"),
-                file_path: row.get("file_path"),
-                session_id: row.get("session_id"),
-                transcribe_text: row.get("transcribe_text"),
-                created_ts: row.get("created_ts"),
-            });
-        }
-        Ok(messages)
+        Ok(rows.iter().map(VoiceMessage::from_row).collect())
     }
 
     pub async fn get_room_messages(
@@ -246,23 +260,7 @@ impl VoiceMessageStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        let mut messages = Vec::new();
-        for row in rows {
-            messages.push(VoiceMessage {
-                message_id: row.get("message_id"),
-                room_id: row.get("room_id"),
-                user_id: row.get("user_id"),
-                duration_ms: row.get("duration_ms"),
-                file_size: row.get("file_size"),
-                content_type: row.get("content_type"),
-                waveform_data: row.get("waveform_data"),
-                file_path: row.get("file_path"),
-                session_id: row.get("session_id"),
-                transcribe_text: row.get("transcribe_text"),
-                created_ts: row.get("created_ts"),
-            });
-        }
-        Ok(messages)
+        Ok(rows.iter().map(VoiceMessage::from_row).collect())
     }
 
     pub async fn get_session_messages(
@@ -285,23 +283,7 @@ impl VoiceMessageStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        let mut messages = Vec::new();
-        for row in rows {
-            messages.push(VoiceMessage {
-                message_id: row.get("message_id"),
-                room_id: row.get("room_id"),
-                user_id: row.get("user_id"),
-                duration_ms: row.get("duration_ms"),
-                file_size: row.get("file_size"),
-                content_type: row.get("content_type"),
-                waveform_data: row.get("waveform_data"),
-                file_path: row.get("file_path"),
-                session_id: row.get("session_id"),
-                transcribe_text: row.get("transcribe_text"),
-                created_ts: row.get("created_ts"),
-            });
-        }
-        Ok(messages)
+        Ok(rows.iter().map(VoiceMessage::from_row).collect())
     }
 
     pub async fn delete_message(&self, message_id: &str) -> Result<(), sqlx::Error> {
@@ -358,23 +340,7 @@ impl VoiceMessageStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        let mut messages = Vec::new();
-        for row in rows {
-            messages.push(VoiceMessage {
-                message_id: row.get("message_id"),
-                room_id: row.get("room_id"),
-                user_id: row.get("user_id"),
-                duration_ms: row.get("duration_ms"),
-                file_size: row.get("file_size"),
-                content_type: row.get("content_type"),
-                waveform_data: row.get("waveform_data"),
-                file_path: row.get("file_path"),
-                session_id: row.get("session_id"),
-                transcribe_text: row.get("transcribe_text"),
-                created_ts: row.get("created_ts"),
-            });
-        }
-        Ok(messages)
+        Ok(rows.iter().map(VoiceMessage::from_row).collect())
     }
 
     pub async fn get_messages_by_date_range(
@@ -407,24 +373,7 @@ impl VoiceMessageStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        let mut messages = Vec::new();
-        for row in rows {
-            messages.push(VoiceMessage {
-                message_id: row.get("message_id"),
-                room_id: row.get("room_id"),
-                user_id: row.get("user_id"),
-                duration_ms: row.get("duration_ms"),
-                file_size: row.get("file_size"),
-                content_type: row.get("content_type"),
-                waveform_data: row.get("waveform_data"),
-                file_path: row.get("file_path"),
-                session_id: row.get("session_id"),
-                transcribe_text: row.get("transcribe_text"),
-                created_ts: row.get("created_ts"),
-            });
-        }
-
-        Ok(messages)
+        Ok(rows.iter().map(VoiceMessage::from_row).collect())
     }
 
     pub async fn get_message_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {

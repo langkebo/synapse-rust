@@ -15,6 +15,7 @@ pub mod metrics;
 pub mod rate_limit;
 pub mod regex_cache;
 pub mod task_queue;
+pub mod telemetry_config;
 pub mod tracing;
 pub mod transaction;
 pub mod types;

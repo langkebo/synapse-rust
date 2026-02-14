@@ -44,6 +44,30 @@ pub fn create_key_backup_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/room_keys/{version}/keys/{room_id}/{session_id}",
             get(get_room_key),
         )
+        .route(
+            "/_matrix/client/r0/room_keys/recover",
+            post(recover_keys),
+        )
+        .route(
+            "/_matrix/client/r0/room_keys/recovery/{version}/progress",
+            get(get_recovery_progress),
+        )
+        .route(
+            "/_matrix/client/r0/room_keys/verify/{version}",
+            get(verify_backup),
+        )
+        .route(
+            "/_matrix/client/r0/room_keys/batch_recover",
+            post(batch_recover_keys),
+        )
+        .route(
+            "/_matrix/client/r0/room_keys/recover/{version}/{room_id}",
+            get(recover_room_keys),
+        )
+        .route(
+            "/_matrix/client/r0/room_keys/recover/{version}/{room_id}/{session_id}",
+            get(recover_session_key),
+        )
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -345,6 +369,134 @@ async fn get_room_key(
             "forwarded_count": k.forwarded_count,
             "is_verified": k.is_verified,
             "session_data": k.backup_data.get("session_data").cloned().unwrap_or(k.backup_data)
+        }))),
+        None => Err(crate::error::ApiError::not_found(format!(
+            "Session '{}' not found in room '{}'",
+            session_id, room_id
+        ))),
+    }
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct RecoverKeysBody {
+    pub version: String,
+    pub rooms: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct BatchRecoverBody {
+    pub version: String,
+    pub room_ids: Vec<String>,
+    pub session_limit: Option<i32>,
+}
+
+#[axum::debug_handler]
+async fn recover_keys(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<RecoverKeysBody>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    if let Err(e) = body.validate() {
+        return Err(crate::error::ApiError::bad_request(e.to_string()));
+    }
+
+    let response = state
+        .services
+        .backup_service
+        .recover_keys(&auth_user.user_id, &body.version, body.rooms)
+        .await?;
+
+    Ok(Json(serde_json::to_value(response)?))
+}
+
+#[axum::debug_handler]
+async fn get_recovery_progress(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(version): Path<String>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let progress = state
+        .services
+        .backup_service
+        .get_recovery_progress(&auth_user.user_id, &version)
+        .await?;
+
+    Ok(Json(serde_json::to_value(progress)?))
+}
+
+#[axum::debug_handler]
+async fn verify_backup(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(version): Path<String>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let verification = state
+        .services
+        .backup_service
+        .verify_backup(&auth_user.user_id, &version)
+        .await?;
+
+    Ok(Json(serde_json::to_value(verification)?))
+}
+
+#[axum::debug_handler]
+async fn batch_recover_keys(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<BatchRecoverBody>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    if let Err(e) = body.validate() {
+        return Err(crate::error::ApiError::bad_request(e.to_string()));
+    }
+
+    let response = state
+        .services
+        .backup_service
+        .batch_recover_keys(&auth_user.user_id, crate::e2ee::backup::models::BatchRecoveryRequest {
+            version: body.version,
+            room_ids: body.room_ids,
+            session_limit: body.session_limit,
+        })
+        .await?;
+
+    Ok(Json(serde_json::to_value(response)?))
+}
+
+#[axum::debug_handler]
+async fn recover_room_keys(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((version, room_id)): Path<(String, String)>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let keys = state
+        .services
+        .backup_service
+        .recover_room_keys(&auth_user.user_id, &version, &room_id)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "room_id": room_id,
+        "sessions": keys
+    })))
+}
+
+#[axum::debug_handler]
+async fn recover_session_key(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((version, room_id, session_id)): Path<(String, String, String)>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let key = state
+        .services
+        .backup_service
+        .recover_session_key(&auth_user.user_id, &version, &room_id, &session_id)
+        .await?;
+
+    match key {
+        Some(k) => Ok(Json(serde_json::json!({
+            "room_id": room_id,
+            "session_id": session_id,
+            "session_data": k
         }))),
         None => Err(crate::error::ApiError::not_found(format!(
             "Session '{}' not found in room '{}'",

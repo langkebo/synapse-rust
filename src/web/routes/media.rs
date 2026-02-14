@@ -35,6 +35,26 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
             "/_matrix/media/r1/download/{server_name}/{media_id}",
             get(download_media_v1),
         )
+        .route(
+            "/_matrix/media/v3/preview_url",
+            get(preview_url),
+        )
+        .route(
+            "/_matrix/media/v1/preview_url",
+            get(preview_url),
+        )
+        .route(
+            "/_matrix/media/v3/config",
+            get(media_config),
+        )
+        .route(
+            "/_matrix/media/v1/delete/{server_name}/{media_id}",
+            post(delete_media),
+        )
+        .route(
+            "/_matrix/media/v3/delete/{server_name}/{media_id}",
+            post(delete_media),
+        )
 }
 
 async fn upload_media_v3(
@@ -288,4 +308,63 @@ fn guess_content_type(filename: &str) -> &'static str {
         "pdf" => "application/pdf",
         _ => "application/octet-stream",
     }
+}
+
+async fn preview_url(
+    State(state): State<AppState>,
+    Query(params): Query<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let url = params
+        .get("url")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
+
+    let ts = params
+        .get("ts")
+        .and_then(|v| v.as_i64())
+        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+
+    match state.services.media_service.preview_url(url, ts).await {
+        Ok(preview) => Ok(Json(preview)),
+        Err(e) => {
+            Ok(Json(json!({
+                "url": url,
+                "title": "Preview unavailable",
+                "description": format!("Could not generate preview: {}", e.message())
+            })))
+        }
+    }
+}
+
+async fn delete_media(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((server_name, media_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let is_admin = auth_user.is_admin;
+
+    if !is_admin {
+        let media_info = state
+            .services
+            .media_service
+            .get_media_info(&server_name, &media_id)
+            .await?;
+
+        let uploader = media_info
+            .get("uploader")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        if uploader != auth_user.user_id {
+            return Err(ApiError::forbidden("You can only delete your own media".to_string()));
+        }
+    }
+
+    state
+        .services
+        .media_service
+        .delete_media(&server_name, &media_id)
+        .await?;
+
+    Ok(Json(json!({})))
 }

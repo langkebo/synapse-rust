@@ -166,6 +166,10 @@ impl ApiError {
         Self::Crypto(message.into())
     }
 
+    pub fn rate_limited(_message: impl Into<String>) -> Self {
+        Self::RateLimited
+    }
+
     pub fn code(&self) -> &str {
         match self {
             ApiError::BadRequest(_) => "M_BAD_JSON",
