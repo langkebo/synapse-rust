@@ -137,6 +137,10 @@ async fn setup_test_app() -> axum::Router {
         push: synapse_rust::common::config::PushConfig::default(),
         url_preview: synapse_rust::common::config::UrlPreviewConfig::default(),
         oidc: synapse_rust::common::config::OidcConfig::default(),
+        saml: synapse_rust::common::config::SamlConfig::default(),
+        telemetry: synapse_rust::common::telemetry_config::OpenTelemetryConfig::default(),
+        jaeger: synapse_rust::common::telemetry_config::JaegerConfig::default(),
+        prometheus: synapse_rust::common::telemetry_config::PrometheusConfig::default(),
     };
 
     let container = ServiceContainer::new(&pool, cache.clone(), config, None);

@@ -3,6 +3,7 @@ mod tests {
     use synapse_rust::worker::types::*;
     use synapse_rust::worker::protocol::{ReplicationCommand, ReplicationProtocol};
     use synapse_rust::services::ServiceContainer;
+    use std::str::FromStr;
 
     #[test]
     fn test_worker_type_as_str() {
@@ -15,10 +16,10 @@ mod tests {
 
     #[test]
     fn test_worker_type_from_str() {
-        assert_eq!(WorkerType::from_str("master"), Some(WorkerType::Master));
-        assert_eq!(WorkerType::from_str("frontend"), Some(WorkerType::Frontend));
-        assert_eq!(WorkerType::from_str("event_persister"), Some(WorkerType::EventPersister));
-        assert_eq!(WorkerType::from_str("invalid"), None);
+        assert_eq!(WorkerType::from_str("master"), Ok(WorkerType::Master));
+        assert_eq!(WorkerType::from_str("frontend"), Ok(WorkerType::Frontend));
+        assert_eq!(WorkerType::from_str("event_persister"), Ok(WorkerType::EventPersister));
+        assert!(WorkerType::from_str("invalid").is_err());
     }
 
     #[test]
@@ -52,10 +53,10 @@ mod tests {
 
     #[test]
     fn test_worker_status_from_str() {
-        assert_eq!(WorkerStatus::from_str("starting"), Some(WorkerStatus::Starting));
-        assert_eq!(WorkerStatus::from_str("running"), Some(WorkerStatus::Running));
-        assert_eq!(WorkerStatus::from_str("stopped"), Some(WorkerStatus::Stopped));
-        assert_eq!(WorkerStatus::from_str("invalid"), None);
+        assert_eq!(WorkerStatus::from_str("starting"), Ok(WorkerStatus::Starting));
+        assert_eq!(WorkerStatus::from_str("running"), Ok(WorkerStatus::Running));
+        assert_eq!(WorkerStatus::from_str("stopped"), Ok(WorkerStatus::Stopped));
+        assert!(WorkerStatus::from_str("invalid").is_err());
     }
 
     #[test]

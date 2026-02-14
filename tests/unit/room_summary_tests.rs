@@ -246,7 +246,7 @@ mod tests {
         }
 
         let summaries = result.unwrap();
-        assert!(summaries.is_empty() || summaries.len() >= 0);
+        assert!(summaries.is_empty() || summaries.len() > 0);
     }
 
     #[tokio::test]
@@ -307,7 +307,7 @@ mod tests {
         }
 
         let members = result.unwrap();
-        assert!(members.is_empty() || members.len() >= 0);
+        assert!(members.is_empty() || members.len() > 0);
     }
 
     #[tokio::test]
@@ -354,7 +354,6 @@ mod tests {
             return;
         }
 
-        let processed = result.unwrap();
-        assert!(processed >= 0);
+        let _processed = result.unwrap();
     }
 }

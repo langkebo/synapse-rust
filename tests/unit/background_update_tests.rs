@@ -137,7 +137,7 @@ mod tests {
         }
 
         let updates = result.unwrap();
-        assert!(updates.is_empty() || updates.len() >= 0);
+        assert!(updates.is_empty() || updates.len() > 0);
     }
 
     #[tokio::test]
@@ -152,7 +152,7 @@ mod tests {
         }
 
         let updates = result.unwrap();
-        assert!(updates.is_empty() || updates.len() >= 0);
+        assert!(updates.is_empty() || updates.len() > 0);
     }
 
     #[tokio::test]
@@ -167,7 +167,7 @@ mod tests {
         }
 
         let updates = result.unwrap();
-        assert!(updates.is_empty() || updates.len() >= 0);
+        assert!(updates.is_empty() || updates.len() > 0);
     }
 
     #[tokio::test]
@@ -225,7 +225,7 @@ mod tests {
         }
 
         let history = result.unwrap();
-        assert!(history.is_empty() || history.len() >= 0);
+        assert!(history.is_empty() || history.len() > 0);
     }
 
     #[tokio::test]

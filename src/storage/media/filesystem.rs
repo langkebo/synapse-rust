@@ -242,10 +242,10 @@ impl MediaStorageBackend for FilesystemBackend {
                     if let Ok(modified) = metadata.modified() {
                         let datetime: chrono::DateTime<chrono::Utc> = modified.into();
                         
-                        if oldest.is_none() || datetime < oldest.unwrap() {
+                        if oldest.as_ref().map_or(true, |&old| datetime < old) {
                             *oldest = Some(datetime);
                         }
-                        if newest.is_none() || datetime > newest.unwrap() {
+                        if newest.as_ref().map_or(true, |&new| datetime > new) {
                             *newest = Some(datetime);
                         }
                     }

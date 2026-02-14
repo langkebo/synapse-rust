@@ -183,7 +183,7 @@ mod tests {
         }
 
         let tokens = result.unwrap();
-        assert!(tokens.is_empty() || tokens.len() >= 0);
+        assert!(tokens.is_empty() || tokens.len() > 0);
     }
 
     #[tokio::test]
@@ -198,7 +198,7 @@ mod tests {
         }
 
         let tokens = result.unwrap();
-        assert!(tokens.is_empty() || tokens.len() >= 0);
+        assert!(tokens.is_empty() || tokens.len() > 0);
     }
 
     #[tokio::test]
@@ -228,7 +228,7 @@ mod tests {
         }
 
         let history = result.unwrap();
-        assert!(history.is_empty() || history.len() >= 0);
+        assert!(history.is_empty() || history.len() > 0);
     }
 
     #[tokio::test]

@@ -96,7 +96,7 @@ impl RetentionService {
         let log = self.storage.create_cleanup_log(room_id).await
             .map_err(|e| ApiError::internal(format!("Failed to create cleanup log: {}", e)))?;
 
-        let max_lifetime = policy.max_lifetime.unwrap();
+        let max_lifetime = policy.max_lifetime.expect("max_lifetime already checked above");
         let cutoff_ts = chrono::Utc::now().timestamp_millis() - max_lifetime;
 
         match self.storage.delete_events_before(room_id, cutoff_ts).await {

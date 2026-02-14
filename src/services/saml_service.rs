@@ -90,7 +90,7 @@ impl SamlService {
         
         let authn_request = self.build_authn_request(&request_id, sp_entity_id, &acs_url);
         
-        let redirect_url = self.build_redirect_url(&sso_url, &authn_request, relay_state);
+        let redirect_url = self.build_redirect_url(&sso_url, &authn_request, relay_state)?;
         
         info!("Generated SAML auth redirect for request: {}", request_id);
         
@@ -203,7 +203,7 @@ impl SamlService {
         
         let logout_request = self.build_logout_request(&request_id, &session);
         
-        let redirect_url = self.build_redirect_url(&slo_url, &logout_request, None);
+        let redirect_url = self.build_redirect_url(&slo_url, &logout_request, None)?;
         
         self.storage.invalidate_session(session_id).await?;
         
@@ -384,8 +384,9 @@ impl SamlService {
         general_purpose::STANDARD.encode(request.as_bytes())
     }
 
-    fn build_redirect_url(&self, base_url: &str, saml_request: &str, relay_state: Option<&str>) -> String {
-        let mut url = url::Url::parse(base_url).unwrap();
+    fn build_redirect_url(&self, base_url: &str, saml_request: &str, relay_state: Option<&str>) -> Result<String, ApiError> {
+        let mut url = url::Url::parse(base_url)
+            .map_err(|e| ApiError::internal(format!("Invalid SAML base URL: {}", e)))?;
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("SAMLRequest", saml_request);
@@ -393,7 +394,7 @@ impl SamlService {
                 query.append_pair("RelayState", state);
             }
         }
-        url.to_string()
+        Ok(url.to_string())
     }
 
     fn decode_saml_response(response: &str) -> Result<String, ApiError> {
