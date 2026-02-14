@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use synapse_rust::storage::registration_token::*;
-    use synapse_rust::services::registration_token_service::RegistrationTokenService;
     use synapse_rust::services::ServiceContainer;
 
     #[test]
@@ -191,7 +190,7 @@ mod tests {
         }
 
         let tokens = result.unwrap();
-        assert!(tokens.is_empty() || tokens.len() >= 0);
+        assert!(tokens.is_empty() || tokens.len() > 0);
     }
 
     #[tokio::test]
@@ -206,7 +205,7 @@ mod tests {
         }
 
         let tokens = result.unwrap();
-        assert!(tokens.is_empty() || tokens.len() >= 0);
+        assert!(tokens.is_empty() || tokens.len() > 0);
     }
 
     #[tokio::test]
@@ -267,7 +266,7 @@ mod tests {
         }
 
         let usage = result.unwrap();
-        assert!(usage.is_empty() || usage.len() >= 0);
+        assert!(usage.is_empty() || usage.len() > 0);
     }
 
     #[tokio::test]

@@ -1492,6 +1492,9 @@ mod tests {
             url_preview: UrlPreviewConfig::default(),
             oidc: OidcConfig::default(),
             saml: SamlConfig::default(),
+            telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
+            jaeger: crate::common::telemetry_config::JaegerConfig::default(),
+            prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
         };
 
         let url = config.database_url();
@@ -1589,6 +1592,9 @@ mod tests {
             url_preview: UrlPreviewConfig::default(),
             oidc: OidcConfig::default(),
             saml: SamlConfig::default(),
+            telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
+            jaeger: crate::common::telemetry_config::JaegerConfig::default(),
+            prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
         };
 
         let url = config.redis_url();

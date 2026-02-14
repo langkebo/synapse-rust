@@ -109,7 +109,7 @@ impl OidcService {
         Ok(discovery)
     }
 
-    pub fn get_authorization_url(&self, state: &str, redirect_uri: &str) -> String {
+    pub fn get_authorization_url(&self, state: &str, redirect_uri: &str) -> Result<String, ApiError> {
         let scope = self.config.scopes.join(" ");
         
         let default_auth = format!("{}/authorize", self.config.issuer);
@@ -118,7 +118,8 @@ impl OidcService {
             .map(|s| s.as_str())
             .unwrap_or(&default_auth);
 
-        let mut url = url::Url::parse(auth_endpoint).unwrap();
+        let mut url = url::Url::parse(auth_endpoint)
+            .map_err(|e| ApiError::internal(format!("Invalid OIDC authorization endpoint: {}", e)))?;
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("client_id", &self.config.client_id);
@@ -128,7 +129,7 @@ impl OidcService {
             query.append_pair("state", state);
         }
 
-        url.to_string()
+        Ok(url.to_string())
     }
 
     pub async fn exchange_code(
@@ -298,7 +299,7 @@ mod tests {
     #[test]
     fn test_get_authorization_url() {
         let service = create_test_service();
-        let url = service.get_authorization_url("test-state", "https://matrix.example.com/callback");
+        let url = service.get_authorization_url("test-state", "https://matrix.example.com/callback").unwrap();
         
         assert!(url.contains("client_id=test-client-id"));
         assert!(url.contains("response_type=code"));

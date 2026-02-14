@@ -318,6 +318,7 @@ pub enum ReplicationError {
     ConnectionClosed,
 }
 
+#[derive(Clone)]
 pub struct ReplicationProtocol;
 
 impl ReplicationProtocol {

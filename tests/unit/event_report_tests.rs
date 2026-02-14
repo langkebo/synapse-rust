@@ -154,7 +154,7 @@ mod tests {
         }
 
         let reports = result.unwrap();
-        assert!(reports.is_empty() || reports.len() >= 0);
+        assert!(reports.is_empty() || reports.len() > 0);
     }
 
     #[tokio::test]
@@ -169,7 +169,7 @@ mod tests {
         }
 
         let reports = result.unwrap();
-        assert!(reports.is_empty() || reports.len() >= 0);
+        assert!(reports.is_empty() || reports.len() > 0);
     }
 
     #[tokio::test]
@@ -286,6 +286,6 @@ mod tests {
         }
 
         let history = result.unwrap();
-        assert!(history.is_empty() || history.len() >= 0);
+        assert!(history.is_empty() || history.len() > 0);
     }
 }
