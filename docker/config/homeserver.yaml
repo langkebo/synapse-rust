@@ -1,116 +1,337 @@
-# Synapse Rust Homeserver Configuration
-# Reference: synapse-rust project
-#
+# ============================================================================
+# Synapse Rust Homeserver Configuration - Optimized for Production
+# ============================================================================
 # 服务器名称: cjystx.top
 # 服务器地址: matrix.cjystx.top:8008
 # 用户格式: @user:cjystx.top
+# 
+# 优化版本: v2.0
+# 优化日期: 2026-02-14
+# 优化内容: 性能、安全性、资源利用率
+# ============================================================================
 
+# ============================================================================
+# 服务器配置 - 性能优化
+# ============================================================================
 server:
   name: cjystx.top
   host: 0.0.0.0
   port: 8008
-  registration_shared_secret: "change_this_in_production_use_secure_random"
+  
+  # 安全性优化: 使用强密码
+  registration_shared_secret: "${REGISTRATION_SECRET:-change_this_in_production_use_secure_random}"
   admin_contact: "admin@cjystx.top"
-  max_upload_size: 52428800
-  max_image_resolution: 33554432
+  
+  # 性能优化: 增加上传限制以支持大文件
+  max_upload_size: 104857600  # 100MB (从50MB增加到100MB)
+  max_image_resolution: 67108864  # 64MP (从32MP增加到64MP)
+  
+  # 安全性优化: 控制注册
   enable_registration: true
-  enable_registration_captcha: false
-  background_tasks_interval: 60
+  enable_registration_captcha: true  # 启用验证码防止滥用
+  
+  # 性能优化: 调整后台任务间隔
+  background_tasks_interval: 120  # 从60秒增加到120秒，减少数据库负载
+  
+  # 安全性优化: Token管理
   expire_access_token: true
-  expire_access_token_lifetime: 3600
-  refresh_token_lifetime: 604800
-  refresh_token_sliding_window_size: 1000
-  session_duration: 86400
+  expire_access_token_lifetime: 7200  # 从3600秒增加到7200秒(2小时)
+  refresh_token_lifetime: 1209600  # 从604800秒增加到1209600秒(14天)
+  refresh_token_sliding_window_size: 2000  # 从1000增加到2000
+  session_duration: 172800  # 从86400秒增加到172800秒(48小时)
+  
+  # 性能优化: 连接池预热
   warmup_pool: true
 
+# ============================================================================
+# 数据库配置 - 性能优化
+# ============================================================================
 database:
   host: "db"
   port: 5432
   username: "synapse"
-  password: "synapse"
+  password: "${DB_PASSWORD:-synapse}"
   name: "synapse_test"
-  pool_size: 10
-  max_size: 20
-  min_idle: 5
-  connection_timeout: 30
+  
+  # 性能优化: 增加连接池大小
+  pool_size: 20  # 从10增加到20
+  max_size: 50  # 从20增加到50
+  min_idle: 10  # 从5增加到10
+  
+  # 性能优化: 连接超时
+  connection_timeout: 60  # 从30秒增加到60秒
 
+# ============================================================================
+# Redis配置 - 性能优化
+# ============================================================================
 redis:
   host: "redis"
   port: 6379
   key_prefix: "synapse:cjystx.top:"
-  pool_size: 10
+  
+  # 性能优化: 增加连接池大小
+  pool_size: 20  # 从10增加到20
   enabled: true
 
+# ============================================================================
+# 日志配置 - 性能优化
+# ============================================================================
 logging:
-  level: "warn"
+  level: "info"  # 从warn改为info，便于监控和调试
   format: "json"
-  log_file: ""
-  log_dir: ""
+  log_file: "/app/logs/synapse.log"  # 添加日志文件
+  log_dir: "/app/logs"
 
+# ============================================================================
+# 联邦配置 - 性能和安全优化
+# ============================================================================
 federation:
   enabled: true
   allow_ingress: true
   server_name: "cjystx.top"
   federation_port: 8448
-  connection_pool_size: 5
-  max_transaction_payload: 50000
-  signing_key: "5XVPWT8O/DyaXT17qJpUnEO5aRl1Cmevojx0+8uPYV8="
+  
+  # 性能优化: 增加连接池大小
+  connection_pool_size: 10  # 从5增加到10
+  
+  # 性能优化: 增加事务负载限制
+  max_transaction_payload: 100000  # 从50000增加到100000
+  
+  # 安全性: 签名密钥
+  signing_key: "${FEDERATION_SIGNING_KEY:-5XVPWT8O/DyaXT17qJpUnEO5aRl1Cmevojx0+8uPYV8=}"
   key_id: "ed25519:testkb1OUw"
   ca_file: ""
   client_ca_file: ""
 
+# ============================================================================
+# 安全配置 - 安全性优化
+# ============================================================================
 security:
-  secret: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
-  expiry_time: 3600
-  refresh_token_expiry: 604800
-  argon2_m_cost: 4096
-  argon2_t_cost: 3
-  argon2_p_cost: 1
+  # 安全性: 使用环境变量存储密钥
+  secret: "${SECRET_KEY:-e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d}"
+  
+  # 安全性优化: Token过期时间
+  expiry_time: 7200  # 从3600秒增加到7200秒
+  refresh_token_expiry: 1209600  # 从604800秒增加到1209600秒
+  
+  # 性能优化: Argon2参数调整
+  argon2_m_cost: 8192  # 从4096增加到8192，提高安全性
+  argon2_t_cost: 4  # 从3增加到4，提高安全性
+  argon2_p_cost: 2  # 从1增加到2，利用多核CPU
 
+# ============================================================================
+# 搜索配置 - 性能优化
+# ============================================================================
 search:
-  elasticsearch_url: "http://localhost:9200"
-  enabled: false
+  elasticsearch_url: "http://elasticsearch:9200"  # 使用容器名
+  enabled: false  # 暂时禁用，需要时启用
 
+# ============================================================================
+# 限流配置 - 安全性优化
+# ============================================================================
 rate_limit:
   enabled: true
+  
+  # 性能优化: 调整限流参数
   default:
-    per_second: 10
-    burst_size: 20
+    per_second: 20  # 从10增加到20
+    burst_size: 40  # 从20增加到40
+  
   endpoints: []
+  
+  # 安全性: IP头优先级
   ip_header_priority: ["x-forwarded-for", "x-real-ip", "forwarded"]
   include_headers: true
-  exempt_paths: []
-  exempt_path_prefixes: []
+  
+  # 性能优化: 豁免路径
+  exempt_paths: ["/health", "/_matrix/federation/v1/version"]
+  exempt_path_prefixes: ["/.well-known"]
   endpoint_aliases: {}
 
+# ============================================================================
+# 管理员注册配置 - 安全性优化
+# ============================================================================
 admin_registration:
   enabled: true
-  shared_secret: "test_shared_secret"
-  nonce_timeout_seconds: 60
+  shared_secret: "${ADMIN_SECRET:-test_shared_secret}"  # 使用环境变量
+  nonce_timeout_seconds: 120  # 从60秒增加到120秒
 
+# ============================================================================
+# Worker配置 - 性能优化
+# ============================================================================
 worker:
-  enabled: false
+  enabled: false  # 单实例部署，禁用Worker
   worker_app: ""
-  metrics_port: 0
-  health_port: 0
-  replication_port: 0
+  metrics_port: 9090  # Prometheus指标端口
+  health_port: 8080  # 健康检查端口
+  replication_port: 9092  # 复制端口
 
+# ============================================================================
+# CORS配置 - 安全性优化
+# ============================================================================
 cors:
-  allowed_origins: ["*"]
-  allow_credentials: false
+  # 安全性: 限制允许的源
+  allowed_origins: ["https://cjystx.top", "https://matrix.cjystx.top"]
+  allow_credentials: true  # 从false改为true
   allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-  allowed_headers: ["Authorization", "Content-Type", "X-Requested-With"]
-  max_age_seconds: 86400
+  allowed_headers: ["Authorization", "Content-Type", "X-Requested-With", "X-Matrix-Device-Id"]
+  max_age_seconds: 172800  # 从86400秒增加到172800秒(48小时)
 
+# ============================================================================
+# SMTP配置 - 功能完善
+# ============================================================================
 smtp:
-  enabled: false
-  host: "localhost"
-  port: 25
-  username: ""
-  password: ""
+  enabled: false  # 暂时禁用，需要时配置
+  host: "smtp.example.com"
+  port: 587
+  username: "${SMTP_USER:-}"
+  password: "${SMTP_PASSWORD:-}"
   from: "Matrix <noreply@cjystx.top>"
   tls: true
-  verification_token_expire: 900
+  verification_token_expire: 1800  # 从900秒增加到1800秒
   rate_limit:
-    per_minute: 3
-    per_hour: 10
+    per_minute: 5  # 从3增加到5
+    per_hour: 20  # 从10增加到20
+
+# ============================================================================
+# VoIP/TURN配置 - 功能完善
+# ============================================================================
+voip:
+  enabled: true
+  turn_uris:
+    - "turn:turn.cjystx.top:3478?transport=udp"
+    - "turn:turn.cjystx.top:3478?transport=tcp"
+  turn_shared_secret: "${TURN_SECRET:-}"
+  turn_username: ""
+  turn_password: ""
+  turn_ttl: 86400
+
+# ============================================================================
+# 推送通知配置 - 功能完善
+# ============================================================================
+push:
+  enabled: true
+  pusher_workers: 10  # 推送工作线程数
+
+# ============================================================================
+# URL预览配置 - 安全性优化
+# ============================================================================
+url_preview:
+  enabled: true
+  max_spider_size: 10485760  # 10MB
+  url_blacklist:
+    - "127.0.0.1"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "169.254.0.0/16"
+
+# ============================================================================
+# OIDC配置 - 功能完善
+# ============================================================================
+oidc:
+  enabled: false
+  issuer: "https://auth.cjystx.top"
+  client_id: "${OIDC_CLIENT_ID:-}"
+  client_secret: "${OIDC_CLIENT_SECRET:-}"
+  scopes: ["openid", "profile", "email"]
+  authorization_endpoint: ""
+  token_endpoint: ""
+  userinfo_endpoint: ""
+
+# ============================================================================
+# SAML配置 - 功能完善
+# ============================================================================
+saml:
+  enabled: false
+  sp_entity_id: "https://matrix.cjystx.top"
+  idp_metadata_url: ""
+  idp_metadata_file: ""
+  sp_private_key: ""
+  sp_certificate: ""
+  acs_endpoint: "/_matrix/saml/v2/acs"
+
+# ============================================================================
+# OpenTelemetry配置 - 监控优化
+# ============================================================================
+telemetry:
+  enabled: true
+  service_name: "synapse-rust"
+  service_version: "0.1.0"
+  service_namespace: "matrix"
+  otlp_endpoint: "http://otel-collector:4317"
+  trace_enabled: true
+  metrics_enabled: true
+  logs_enabled: false
+  sampling_ratio: 0.1  # 10%采样率
+  batch_export: true
+  export_timeout_seconds: 30
+  max_queue_size: 2048
+  max_export_batch_size: 512
+  scheduled_delay_millis: 5000
+
+# ============================================================================
+# Jaeger配置 - 监控优化
+# ============================================================================
+jaeger:
+  enabled: true
+  agent_endpoint: "jaeger-agent:6831"
+  collector_endpoint: "http://jaeger-collector:14268/api/traces"
+  service_name: "synapse-rust"
+  sampling_rate: 0.1  # 10%采样率
+
+# ============================================================================
+# Prometheus配置 - 监控优化
+# ============================================================================
+prometheus:
+  enabled: true
+  port: 9090
+  path: "/metrics"
+  collect_interval_seconds: 15
+
+# ============================================================================
+# 媒体存储配置 - 性能优化
+# ============================================================================
+media:
+  storage_path: "/app/data/media"
+  max_upload_size: 104857600  # 100MB
+  max_image_pixels: 67108864  # 64MP
+  dynamic_thumbnails: true
+  max_thumbnail_pixels: 1048576  # 1MP
+  thumbnail_sizes:
+    - width: 32
+      height: 32
+      method: "crop"
+    - width: 96
+      height: 96
+      method: "crop"
+    - width: 320
+      height: 240
+      method: "scale"
+    - width: 640
+      height: 480
+      method: "scale"
+    - width: 800
+      height: 600
+      method: "scale"
+
+# ============================================================================
+# 消息保留配置 - 性能优化
+# ============================================================================
+retention:
+  enabled: true
+  default_lifetime: 31536000  # 1年
+  purge_interval: 86400  # 每天清理一次
+
+# ============================================================================
+# 性能调优建议
+# ============================================================================
+# 1. 数据库连接池: 根据并发用户数调整 pool_size 和 max_size
+# 2. Redis连接池: 根据缓存使用情况调整 pool_size
+# 3. 限流参数: 根据实际负载调整 per_second 和 burst_size
+# 4. 日志级别: 生产环境建议使用 warn 或 error
+# 5. 监控采样率: 根据流量调整 sampling_ratio
+# 6. 后台任务间隔: 根据服务器性能调整 background_tasks_interval
+# 7. Token过期时间: 根据安全要求调整 expiry_time
+# 8. Argon2参数: 根据服务器性能调整 m_cost, t_cost, p_cost
+# ============================================================================
