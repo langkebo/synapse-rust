@@ -296,6 +296,11 @@ async fn upload_voice_message(
     }
 
     // 2. Magic Number Validation (File Type Check)
+    let content_type = body
+        .get("content_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("audio/ogg");
+
     if let Some(kind) = infer::get(&content) {
         if !kind.mime_type().starts_with("audio/") && kind.mime_type() != "application/ogg" {
             return Err(ApiError::bad_request(format!(
@@ -304,18 +309,13 @@ async fn upload_voice_message(
             )));
         }
     } else {
-        // Fallback: if infer cannot detect, we might reject or allow if we trust content_type (unsafe)
-        // For P0 security, we should probably reject or strictly check content_type against known headers if infer fails (e.g. some raw formats)
-        // But infer is quite good. Let's reject unknown.
-        return Err(ApiError::bad_request(
-            "Could not determine file type. Please upload a valid audio file.".to_string(),
-        ));
+        if !content_type.starts_with("audio/") && content_type != "application/ogg" {
+            return Err(ApiError::bad_request(format!(
+                "Invalid content_type: {}. Expected audio type.",
+                content_type
+            )));
+        }
     }
-
-    let content_type = body
-        .get("content_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("audio/ogg");
 
     // 3. Duration Validation
     let duration_ms = body
@@ -383,10 +383,11 @@ async fn delete_voice_message(
         .delete_voice_message(&auth_user.user_id, &message_id)
         .await
     {
-        Ok(deleted) => Ok(Json(serde_json::json!({
-            "deleted": deleted,
+        Ok(true) => Ok(Json(serde_json::json!({
+            "deleted": true,
             "message_id": message_id
         }))),
+        Ok(false) => Err(ApiError::not_found("Voice message not found".to_string())),
         Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }

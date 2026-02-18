@@ -291,14 +291,9 @@ async fn set_push_rule(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let actions = body.get("actions")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
+    let actions = body.get("actions").cloned().unwrap_or(json!([]));
     
-    let conditions = body.get("conditions")
-        .and_then(|v| v.as_array())
-        .cloned();
+    let conditions = body.get("conditions").cloned();
     
     let pattern = body.get("pattern")
         .and_then(|v| v.as_str())
@@ -355,10 +350,7 @@ async fn set_push_rule_actions(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let actions = body.get("actions")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
+    let actions = body.get("actions").cloned().unwrap_or(json!([]));
 
     sqlx::query(
         "UPDATE push_rules SET actions = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5"
@@ -482,7 +474,7 @@ async fn get_user_push_rules(
         SELECT rule_id, pattern, conditions, actions, enabled, is_default
         FROM push_rules
         WHERE user_id = $1 AND scope = $2 AND kind = $3
-        ORDER BY priority DESC, created_at ASC
+        ORDER BY priority DESC, created_ts ASC
         "#
     )
     .bind(user_id)

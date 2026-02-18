@@ -262,7 +262,7 @@ impl EventStorage {
         &self,
         event_id: &str,
         room_id: &str,
-        user_id: &str,
+        _reported_user_id: &str,
         reporter_user_id: &str,
         reason: Option<&str>,
         score: i32,
@@ -270,18 +270,16 @@ impl EventStorage {
         let now = chrono::Utc::now().timestamp();
         let row = sqlx::query_as::<_, EventReportId>(
             r#"
-            INSERT INTO event_reports (event_id, room_id, user_id, reporter_user_id, reason, score, created_ts, updated_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO event_reports (event_id, room_id, reporter_id, reason, score, created_ts)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id
             "#,
         )
         .bind(event_id)
         .bind(room_id)
-        .bind(user_id)
         .bind(reporter_user_id)
         .bind(reason)
         .bind(score)
-        .bind(now)
         .bind(now)
         .fetch_one(&*self.pool)
         .await?;
@@ -329,7 +327,7 @@ impl EventStorage {
     pub async fn get_event_report(&self, event_id: &str) -> Result<Vec<EventReport>, sqlx::Error> {
         sqlx::query_as::<_, EventReport>(
             r#"
-            SELECT id, event_id, room_id, user_id, reporter_user_id, reason, score, created_ts, updated_ts
+            SELECT id, event_id, room_id, reporter_id, reason, score, created_ts, resolved_ts, resolved_by
             FROM event_reports WHERE event_id = $1 ORDER BY created_ts DESC
             "#,
         )
@@ -483,10 +481,10 @@ pub struct EventReport {
     pub id: i64,
     pub event_id: String,
     pub room_id: String,
-    pub user_id: String,
-    pub reporter_user_id: String,
+    pub reporter_id: String,
     pub reason: Option<String>,
     pub score: i32,
     pub created_ts: i64,
-    pub updated_ts: i64,
+    pub resolved_ts: Option<i64>,
+    pub resolved_by: Option<String>,
 }

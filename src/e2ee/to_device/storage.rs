@@ -13,6 +13,19 @@ impl ToDeviceStorage {
         Self { pool: pool.clone() }
     }
 
+    pub async fn device_exists(&self, user_id: &str, device_id: &str) -> Result<bool, ApiError> {
+        let result = sqlx::query(
+            "SELECT 1 FROM devices WHERE user_id = $1 AND device_id = $2",
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(result.is_some())
+    }
+
     pub async fn add_message(
         &self,
         user_id: &str,
@@ -20,6 +33,14 @@ impl ToDeviceStorage {
         message_type: &str,
         content: Value,
     ) -> Result<(), ApiError> {
+        if !self.device_exists(user_id, device_id).await? {
+            ::tracing::warn!(
+                "Skipping to-device message for non-existent device: {}:{}",
+                user_id, device_id
+            );
+            return Ok(());
+        }
+
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"

@@ -40,9 +40,9 @@ RUN groupadd --system synapse && \
 # ============================================================================
 # Directory Structure
 # ============================================================================
-RUN mkdir -p /app/bin /app/data /app/logs /app/config && \
+RUN mkdir -p /app/bin /app/data /app/data/media /app/logs /app/config && \
     chown -R synapse:synapse /app && \
-    chmod 755 /app
+    chmod -R 755 /app
 
 # ============================================================================
 # Copy Pre-compiled Binaries
@@ -52,6 +52,9 @@ COPY --chown=synapse:synapse target/release/generate_test_keypair /usr/local/bin
 
 # Copy Configuration Files
 COPY --chown=synapse:synapse docker/config/homeserver.yaml /app/config/homeserver.yaml
+
+# Copy Migrations Directory
+COPY --chown=synapse:synapse migrations /app/migrations
 
 # Make binaries executable
 RUN chmod +x /usr/local/bin/synapse-rust /usr/local/bin/generate_test_keypair

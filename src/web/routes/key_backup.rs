@@ -195,6 +195,19 @@ async fn delete_backup_version(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
+    let backup = state
+        .services
+        .backup_service
+        .get_backup(&auth_user.user_id, &version)
+        .await?;
+
+    if backup.is_none() {
+        return Err(crate::error::ApiError::not_found(format!(
+            "Backup version '{}' not found",
+            version
+        )));
+    }
+
     state
         .services
         .backup_service
@@ -315,6 +328,19 @@ async fn get_room_key_by_id(
     auth_user: AuthenticatedUser,
     Path((version, room_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| crate::error::ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(crate::error::ApiError::not_found(format!(
+            "Room '{}' not found",
+            room_id
+        )));
+    }
+
     let keys = state
         .services
         .backup_service

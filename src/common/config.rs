@@ -1,5 +1,6 @@
 use config::Config as ConfigBuilder;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use regex::Regex;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -1377,8 +1378,70 @@ impl Config {
             .add_source(config::Environment::with_prefix("SYNAPSE"))
             .build()?;
 
-        let config_values: Config = config.try_deserialize()?;
+        let mut config_values: Config = config.try_deserialize()?;
+        config_values.resolve_env_variables();
         Ok(config_values)
+    }
+
+    fn resolve_env_variables(&mut self) {
+        self.server.name = resolve_env_in_string(&self.server.name);
+        self.server.host = resolve_env_in_string(&self.server.host);
+        self.server.public_baseurl = self.server.public_baseurl.take().map(|v| resolve_env_in_string(&v));
+        self.server.signing_key_path = self.server.signing_key_path.take().map(|v| resolve_env_in_string(&v));
+        self.server.macaroon_secret_key = self.server.macaroon_secret_key.take().map(|v| resolve_env_in_string(&v));
+        self.server.form_secret = self.server.form_secret.take().map(|v| resolve_env_in_string(&v));
+        self.server.server_name = self.server.server_name.take().map(|v| resolve_env_in_string(&v));
+        self.server.registration_shared_secret = self.server.registration_shared_secret.take().map(|v| resolve_env_in_string(&v));
+        self.server.admin_contact = self.server.admin_contact.take().map(|v| resolve_env_in_string(&v));
+
+        self.database.host = resolve_env_in_string(&self.database.host);
+        self.database.username = resolve_env_in_string(&self.database.username);
+        self.database.password = resolve_env_in_string(&self.database.password);
+        self.database.name = resolve_env_in_string(&self.database.name);
+
+        self.redis.host = resolve_env_in_string(&self.redis.host);
+        self.redis.key_prefix = resolve_env_in_string(&self.redis.key_prefix);
+
+        self.logging.level = resolve_env_in_string(&self.logging.level);
+        self.logging.format = resolve_env_in_string(&self.logging.format);
+        self.logging.log_file = self.logging.log_file.take().map(|v| resolve_env_in_string(&v));
+        self.logging.log_dir = self.logging.log_dir.take().map(|v| resolve_env_in_string(&v));
+
+        self.federation.server_name = resolve_env_in_string(&self.federation.server_name);
+        self.federation.signing_key = self.federation.signing_key.take().map(|v| resolve_env_in_string(&v));
+        self.federation.key_id = self.federation.key_id.take().map(|v| resolve_env_in_string(&v));
+        self.federation.ca_file = self.federation.ca_file.take().map(|v| PathBuf::from(resolve_env_in_string(&v.to_string_lossy())));
+        self.federation.client_ca_file = self.federation.client_ca_file.take().map(|v| PathBuf::from(resolve_env_in_string(&v.to_string_lossy())));
+
+        self.security.secret = resolve_env_in_string(&self.security.secret);
+
+        self.search.elasticsearch_url = resolve_env_in_string(&self.search.elasticsearch_url);
+
+        if self.smtp.enabled {
+            self.smtp.host = resolve_env_in_string(&self.smtp.host);
+            self.smtp.username = resolve_env_in_string(&self.smtp.username);
+            self.smtp.password = resolve_env_in_string(&self.smtp.password);
+            self.smtp.from = resolve_env_in_string(&self.smtp.from);
+        }
+
+        if self.oidc.enabled {
+            self.oidc.issuer = resolve_env_in_string(&self.oidc.issuer);
+            self.oidc.client_id = resolve_env_in_string(&self.oidc.client_id);
+            self.oidc.client_secret = self.oidc.client_secret.take().map(|v| resolve_env_in_string(&v));
+        }
+
+        if self.saml.enabled {
+            self.saml.metadata_url = self.saml.metadata_url.take().map(|v| resolve_env_in_string(&v));
+            self.saml.sp_entity_id = resolve_env_in_string(&self.saml.sp_entity_id);
+        }
+
+        if self.voip.is_enabled() {
+            self.voip.turn_shared_secret = self.voip.turn_shared_secret.take().map(|v| resolve_env_in_string(&v));
+        }
+
+        if self.push.is_enabled() {
+            self.push.push_gateway_url = self.push.push_gateway_url.take().map(|v| resolve_env_in_string(&v));
+        }
     }
 
     pub fn database_url(&self) -> String {
@@ -1395,6 +1458,53 @@ impl Config {
     pub fn redis_url(&self) -> String {
         format!("redis://{}:{}", self.redis.host, self.redis.port)
     }
+}
+
+fn resolve_env_in_string(value: &str) -> String {
+    let re = Regex::new(r"\$\{([^}]+)\}").unwrap();
+    let mut result = value.to_string();
+    
+    for cap in re.captures_iter(value) {
+        let full_match = cap.get(0).unwrap().as_str();
+        let inner = cap.get(1).unwrap().as_str();
+        
+        let replacement = if inner.contains(":-") {
+            let parts: Vec<&str> = inner.splitn(2, ":-").collect();
+            let var_name = parts[0];
+            let default_value = parts[1];
+            
+            let resolved = std::env::var(var_name).unwrap_or_else(|_| default_value.to_string());
+            tracing::debug!("Resolved env var {} (with default): {} -> {}", var_name, full_match, resolved);
+            resolved
+        } else if inner.contains(":=") {
+            let parts: Vec<&str> = inner.splitn(2, ":=").collect();
+            let var_name = parts[0];
+            let default_value = parts[1];
+            
+            let val = std::env::var(var_name).unwrap_or_else(|_| default_value.to_string());
+            std::env::set_var(var_name, &val);
+            tracing::debug!("Resolved env var {} (with assign): {} -> {}", var_name, full_match, val);
+            val
+        } else if inner.contains(":?") {
+            let parts: Vec<&str> = inner.splitn(2, ":?").collect();
+            let var_name = parts[0];
+            let error_msg = parts[1];
+            
+            let val = std::env::var(var_name).unwrap_or_else(|_| {
+                panic!("Environment variable {} is required: {}", var_name, error_msg);
+            });
+            tracing::debug!("Resolved required env var {}: {} -> {}", var_name, full_match, val);
+            val
+        } else {
+            let resolved = std::env::var(inner).unwrap_or_else(|_| "".to_string());
+            tracing::debug!("Resolved env var {}: {} -> {}", inner, full_match, resolved);
+            resolved
+        };
+        
+        result = result.replace(full_match, &replacement);
+    }
+    
+    result
 }
 
 #[cfg(test)]

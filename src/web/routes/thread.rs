@@ -200,6 +200,20 @@ async fn delete_thread(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
+    let thread = state
+        .services
+        .thread_storage
+        .get_thread_root(&room_id, &thread_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if thread.is_none() {
+        return Err(ApiError::not_found(format!(
+            "Thread '{}' not found",
+            thread_id
+        )));
+    }
+
     state.services.thread_service.delete_thread(&room_id, &thread_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -208,6 +222,20 @@ async fn freeze_thread(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
+    let thread = state
+        .services
+        .thread_storage
+        .get_thread_root(&room_id, &thread_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if thread.is_none() {
+        return Err(ApiError::not_found(format!(
+            "Thread '{}' not found",
+            thread_id
+        )));
+    }
+
     state.services.thread_service.freeze_thread(&room_id, &thread_id).await?;
     Ok(StatusCode::OK)
 }
@@ -216,6 +244,20 @@ async fn unfreeze_thread(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
+    let thread = state
+        .services
+        .thread_storage
+        .get_thread_root(&room_id, &thread_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if thread.is_none() {
+        return Err(ApiError::not_found(format!(
+            "Thread '{}' not found",
+            thread_id
+        )));
+    }
+
     state.services.thread_service.unfreeze_thread(&room_id, &thread_id).await?;
     Ok(StatusCode::OK)
 }

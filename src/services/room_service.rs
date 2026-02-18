@@ -22,6 +22,7 @@ pub struct CreateRoomConfig {
     pub encryption: Option<String>,
     pub history_visibility: Option<String>,
     pub is_direct: Option<bool>,
+    pub room_type: Option<String>,
 }
 
 pub struct RoomService {
@@ -116,6 +117,26 @@ impl RoomService {
 
         self.create_room_in_db(&room_id, user_id, join_rule, is_public, Some(&mut tx))
             .await?;
+        
+        // Create m.room.create event
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut create_content = json!({
+            "creator": user_id,
+            "room_version": "1"
+        });
+        if let Some(ref room_type) = config.room_type {
+            create_content["type"] = json!(room_type);
+        }
+        self.event_storage.create_event(CreateEventParams {
+            event_id: generate_event_id(&self.server_name),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.create".to_string(),
+            content: create_content,
+            state_key: Some("".to_string()),
+            origin_server_ts: now,
+        }, Some(&mut tx)).await.map_err(|e| ApiError::internal(format!("Failed to create m.room.create event: {}", e)))?;
+        
         self.add_creator_to_room(&room_id, user_id, Some(&mut tx)).await?;
         self.set_room_metadata(&room_id, config.name.as_deref(), config.topic.as_deref(), Some(&mut tx))
             .await?;
@@ -471,6 +492,15 @@ impl RoomService {
         room_id: &str,
         user_id: &str,
     ) -> ApiResult<serde_json::Value> {
+        if !self
+            .room_storage
+            .room_exists(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        {
+            return Err(ApiError::not_found("Room not found".to_string()));
+        }
+
         if !self
             .member_storage
             .is_member(room_id, user_id)

@@ -92,14 +92,15 @@ impl MediaService {
 
     pub async fn upload_media(
         &self,
-        _user_id: &str,
+        user_id: &str,
         content: &[u8],
         content_type: &str,
         _filename: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let media_id = random_string(32);
         let extension = self.get_extension_from_content_type(content_type);
-        let file_name = format!("{}.{}", media_id, extension);
+        let user_id_encoded = user_id.replace('@', "_at_").replace(':', "_col_").replace('.', "_dot_");
+        let file_name = format!("{}.{}.{}", media_id, user_id_encoded, extension);
         let file_path = self.media_path.join(&file_name);
         let media_path_display = self.media_path.display().to_string();
 
@@ -406,13 +407,22 @@ impl MediaService {
                     if let Some(file_name) = entry.file_name().to_str() {
                         if file_name.starts_with(&media_id) {
                             if let Ok(metadata) = entry.metadata() {
+                                let parts: Vec<&str> = file_name.split('.').collect();
+                                let uploader = if parts.len() >= 3 {
+                                    parts[1]
+                                        .replace("_at_", "@")
+                                        .replace("_col_", ":")
+                                        .replace("_dot_", ".")
+                                } else {
+                                    String::new()
+                                };
                                 return Some(serde_json::json!({
                                     "media_id": media_id,
                                     "server_name": server_name,
                                     "content_uri": format!("mxc://{}/{}", server_name, media_id),
                                     "filename": file_name,
                                     "size": metadata.len(),
-                                    "uploader": "",
+                                    "uploader": uploader,
                                     "created_at": metadata.created()
                                         .map(|t| t.duration_since(std::time::UNIX_EPOCH)
                                             .map(|d| d.as_millis() as i64)

@@ -62,6 +62,14 @@ impl Validator {
             ));
         }
 
+        if username.len() < MIN_USERNAME_LENGTH {
+            return Err(ValidationError::new(
+                "username",
+                &format!("Username must be at least {} characters", MIN_USERNAME_LENGTH),
+                "TOO_SHORT",
+            ));
+        }
+
         if username.len() > MAX_USERNAME_LENGTH {
             return Err(ValidationError::new(
                 "username",
@@ -550,12 +558,14 @@ mod tests {
         let validator = Validator::new().unwrap();
         assert!(validator.validate_username("testuser").is_ok());
         assert!(validator.validate_username("test_user-123").is_ok());
+        assert!(validator.validate_username("abc").is_ok()); // minimum length
     }
 
     #[test]
     fn test_validate_username_invalid() {
         let validator = Validator::new().unwrap();
         assert!(validator.validate_username("").is_err());
+        assert!(validator.validate_username("ab").is_err()); // too short
         assert!(validator
             .validate_username("a".repeat(256).as_str())
             .is_err());

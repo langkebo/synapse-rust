@@ -259,9 +259,9 @@ async fn search_users(
 
     let rows = sqlx::query(
         r#"
-        SELECT user_id, display_name, avatar_url
+        SELECT user_id, displayname, avatar_url
         FROM users
-        WHERE LOWER(user_id) LIKE $1 OR LOWER(display_name) LIKE $1
+        WHERE LOWER(user_id) LIKE $1 OR LOWER(displayname) LIKE $1
         ORDER BY user_id
         LIMIT $2
         "#
@@ -277,7 +277,7 @@ async fn search_users(
         .map(|row| {
             json!({
                 "user_id": row.get::<Option<String>, _>("user_id"),
-                "display_name": row.get::<Option<String>, _>("display_name"),
+                "display_name": row.get::<Option<String>, _>("displayname"),
                 "avatar_url": row.get::<Option<String>, _>("avatar_url")
             })
         })
@@ -292,7 +292,7 @@ async fn search_users(
 async fn get_threads(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path((_user_id, room_id)): Path<(String, String)>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params
@@ -369,7 +369,7 @@ async fn get_room_hierarchy(
 
     let rooms = sqlx::query(
         r#"
-        SELECT room_id, name, topic, avatar_url, join_rules, guest_access, world_readable
+        SELECT room_id, name, topic, avatar_url, join_rules, guest_access, history_visibility
         FROM rooms
         WHERE room_id = $1 OR room_id IN (
             SELECT room_id FROM room_parents WHERE parent_room_id = $1
@@ -386,6 +386,8 @@ async fn get_room_hierarchy(
     let rooms_list: Vec<Value> = rooms
         .iter()
         .map(|row| {
+            let history_visibility = row.get::<Option<String>, _>("history_visibility").unwrap_or_else(|| "shared".to_string());
+            let world_readable = history_visibility == "world_readable";
             json!({
                 "room_id": row.get::<Option<String>, _>("room_id"),
                 "name": row.get::<Option<String>, _>("name"),
@@ -393,7 +395,7 @@ async fn get_room_hierarchy(
                 "avatar_url": row.get::<Option<String>, _>("avatar_url"),
                 "join_rule": row.get::<Option<String>, _>("join_rules").unwrap_or_else(|| "public".to_string()),
                 "guest_access": row.get::<Option<String>, _>("guest_access").unwrap_or_else(|| "can_join".to_string()),
-                "world_readable": row.get::<Option<bool>, _>("world_readable").unwrap_or(false),
+                "world_readable": world_readable,
                 "num_joined_members": 0,
                 "children_state": []
             })

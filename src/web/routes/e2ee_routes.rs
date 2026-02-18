@@ -133,6 +133,16 @@ async fn room_key_distribution(
     _auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| crate::error::ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(crate::error::ApiError::not_found("Room not found".to_string()));
+    }
+
     let session = state
         .services
         .megolm_service
