@@ -223,7 +223,7 @@ impl SecurityStorage {
             id: i64,
             event_type: String,
             user_id: Option<String>,
-            ip_address: Option<IpNetwork>,
+            ip_address: Option<String>,
             user_agent: Option<String>,
             details: Option<String>,
             created_at: i64,
@@ -247,7 +247,7 @@ impl SecurityStorage {
                     "id": r.id,
                     "event_type": r.event_type,
                     "user_id": r.user_id,
-                    "ip_address": r.ip_address.map(|ip| ip.ip().to_string()),
+                    "ip_address": r.ip_address,
                     "user_agent": r.user_agent,
                     "details": r.details,
                     "created_at": r.created_at
@@ -352,10 +352,10 @@ impl SecurityStorage {
     pub async fn get_ip_reputation(&self, ip_address: &str) -> Result<Option<Value>, sqlx::Error> {
         #[derive(sqlx::FromRow)]
         struct IpReputationRow {
-            ip_address: IpAddr,
+            ip_address: String,
             score: i32,
-            last_seen_at: i64,
-            updated_at: i64,
+            last_seen_at: Option<i64>,
+            updated_at: Option<i64>,
             details: Option<String>,
         }
         let row: Option<IpReputationRow> = sqlx::query_as(
@@ -365,17 +365,13 @@ impl SecurityStorage {
             WHERE ip_address = $1
             "#,
         )
-        .bind(
-            ip_address
-                .parse::<IpAddr>()
-                .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
-        )
+        .bind(ip_address)
         .fetch_optional(&*self.pool)
         .await?;
 
         Ok(row.map(|r| {
             json!({
-                "ip_address": r.ip_address.to_string(),
+                "ip_address": r.ip_address,
                 "score": r.score,
                 "last_seen_at": r.last_seen_at,
                 "updated_at": r.updated_at,
@@ -393,10 +389,6 @@ impl SecurityStorage {
         let now = chrono::Utc::now().timestamp();
         let details_str = details.map(|d| d.to_string());
 
-        let ip: IpAddr = ip_address
-            .parse::<IpAddr>()
-            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-        let ip: IpNetwork = ip.into();
         let base_score = 50;
         let initial_score = base_score + score_delta;
 
@@ -422,7 +414,7 @@ impl SecurityStorage {
                 details = COALESCE(EXCLUDED.details, ip_reputation.details)
             "#,
         )
-        .bind(ip)
+        .bind(ip_address)
         .bind(initial_score)
         .bind(initial_score)
         .bind(now)
@@ -1381,7 +1373,7 @@ pub async fn get_users_v2(
         .unwrap_or(true);
 
     let mut query = sqlx::QueryBuilder::new(
-        "SELECT user_id, name, creation_ts, admin, upgrade_ts, is_guest, user_type, deactivated, displayname, avatar_url FROM users WHERE 1=1"
+        "SELECT user_id, username, creation_ts, is_admin, updated_ts, is_guest, user_type, deactivated, displayname, avatar_url FROM users WHERE 1=1"
     );
 
     if !guests {
@@ -1389,7 +1381,7 @@ pub async fn get_users_v2(
     }
 
     if let Some(ref name) = name_filter {
-        query.push(" AND name LIKE ");
+        query.push(" AND username LIKE ");
         query.push_bind(format!("%{}%", name));
     }
 
@@ -1408,10 +1400,10 @@ pub async fn get_users_v2(
         .iter()
         .map(|row| {
             json!({
-                "name": row.get::<Option<String>, _>("name"),
+                "name": row.get::<Option<String>, _>("username"),
                 "user_id": row.get::<Option<String>, _>("user_id"),
                 "creation_ts": row.get::<Option<i64>, _>("creation_ts"),
-                "admin": row.get::<Option<bool>, _>("admin").unwrap_or(false),
+                "admin": row.get::<Option<bool>, _>("is_admin").unwrap_or(false),
                 "is_guest": row.get::<Option<bool>, _>("is_guest").unwrap_or(false),
                 "user_type": row.get::<Option<String>, _>("user_type"),
                 "deactivated": row.get::<Option<bool>, _>("deactivated").unwrap_or(false),
@@ -1534,7 +1526,7 @@ pub async fn create_or_update_user_v2(
                 is_admin = COALESCE($4, is_admin),
                 deactivated = COALESCE($5, deactivated),
                 user_type = COALESCE($6, user_type),
-                updated_at = $7
+                updated_ts = $7
             WHERE username = $1 OR user_id = $1
             "#,
         )
@@ -1573,8 +1565,8 @@ pub async fn create_or_update_user_v2(
 
         sqlx::query(
             r#"
-            INSERT INTO users (user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated, user_type, creation_ts, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO users (user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated, user_type, creation_ts, updated_ts, generation)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)
             "#,
         )
         .bind(&user_id_full)
@@ -1900,11 +1892,12 @@ pub async fn make_room_admin(
     let event_id = crate::common::crypto::generate_event_id(&state.services.config.server.name);
     let user_id = body.user_id.clone();
     let user_id_for_json = body.user_id.clone();
+    let admin_user = "@admin:".to_string() + &state.services.config.server.name;
 
     sqlx::query(
         r#"
-        INSERT INTO events (event_id, room_id, user_id, event_type, content, state_key, origin_server_ts)
-        VALUES ($1, $2, $3, 'm.room.power_levels', $4, '', $5)
+        INSERT INTO events (event_id, room_id, user_id, event_type, content, state_key, origin_server_ts, sender, unsigned)
+        VALUES ($1, $2, $3, 'm.room.power_levels', $4, '', $5, $6, '{}'::jsonb)
         ON CONFLICT (event_id) DO UPDATE SET content = $4
         "#
     )
@@ -1917,6 +1910,7 @@ pub async fn make_room_admin(
         }
     }))
     .bind(now)
+    .bind(&admin_user)
     .execute(&*state.services.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;

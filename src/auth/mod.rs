@@ -202,12 +202,12 @@ impl AuthService {
 
         let user = match user {
             Some(u) => u,
-            _ => return Err(ApiError::unauthorized("Invalid credentials".to_string())),
+            _ => return Err(ApiError::forbidden("Invalid credentials".to_string())),
         };
 
         let password_hash = match &user.password_hash {
             Some(h) => h,
-            _ => return Err(ApiError::unauthorized("Invalid credentials".to_string())),
+            _ => return Err(ApiError::forbidden("Invalid credentials".to_string())),
         };
 
         // P1 Performance: Run CPU-intensive verification in spawn_blocking
@@ -227,11 +227,11 @@ impl AuthService {
                 username = username,
                 reason = "invalid_credentials"
             );
-            return Err(ApiError::unauthorized("Invalid credentials".to_string()));
+            return Err(ApiError::forbidden("Invalid credentials".to_string()));
         }
 
         if user.deactivated == Some(true) {
-            return Err(ApiError::unauthorized("User is deactivated".to_string()));
+            return Err(ApiError::forbidden("User is deactivated".to_string()));
         }
 
         ::tracing::info!(

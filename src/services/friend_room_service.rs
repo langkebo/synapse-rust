@@ -41,6 +41,7 @@ impl FriendRoomService {
             visibility: Some("private".to_string()),
             preset: Some("private_chat".to_string()),
             topic: Some("User Friends List".to_string()),
+            room_type: Some("m.friends".to_string()),
             ..Default::default()
         };
 

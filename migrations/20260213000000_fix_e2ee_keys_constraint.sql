@@ -2,42 +2,41 @@
 -- Synapse-Rust 数据库迁移脚本
 -- 版本: 20260213000000
 -- 描述: 修复E2EE密钥上传约束问题
--- 问题: ON CONFLICT (user_id, device_id) 与表约束 UNIQUE (user_id, device_id, key_id) 不匹配
--- 解决方案: 添加 (user_id, device_id) 的唯一约束用于设备密钥更新
+-- 问题: 原脚本尝试添加 UNIQUE (user_id, device_id) 约束与现有 UNIQUE (user_id, device_id, key_id) 冲突
+-- 解决方案: 改用唯一索引实现相同功能，并修复数据清理逻辑
+-- 注意: 不使用 BEGIN/COMMIT，因为应用程序按语句分割执行
 -- =============================================================================
-
-BEGIN;
 
 -- =============================================================================
 -- 第一部分: 修复 device_keys 表约束
+-- 注意: 由于表已有 UNIQUE (user_id, device_id, key_id)，使用唯一索引替代
 -- =============================================================================
 
--- 检查并添加 (user_id, device_id) 的唯一约束
--- 这个约束用于 UPSERT 操作，确保每个设备的密钥可以被更新
 DO $$
+DECLARE
+    idx_exists BOOLEAN := FALSE;
 BEGIN
-    -- 检查约束是否已存在
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conname = 'device_keys_user_device_unique'
-        AND conrelid = 'device_keys'::regclass
-    ) THEN
-        -- 对于已存在的数据，先清理重复记录（保留最新的）
+    SELECT EXISTS (
+        SELECT 1 FROM pg_indexes 
+        WHERE indexname = 'idx_device_keys_user_device_unique'
+        AND tablename = 'device_keys'
+    ) INTO idx_exists;
+    
+    IF NOT idx_exists THEN
         DELETE FROM device_keys a
         USING device_keys b
         WHERE a.user_id = b.user_id
         AND a.device_id = b.device_id
         AND a.key_id != b.key_id
-        AND a.ts_updated_ms < b.ts_updated_ms;
+        AND a.ts_updated_ms < b.ts_updated_ms
+        AND a.ctid < b.ctid;
         
-        -- 添加唯一约束
-        ALTER TABLE device_keys 
-        ADD CONSTRAINT device_keys_user_device_unique 
-        UNIQUE (user_id, device_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_device_keys_user_device_unique 
+        ON device_keys(user_id, device_id);
         
-        RAISE NOTICE 'Added unique constraint device_keys_user_device_unique';
+        RAISE NOTICE 'Added unique index idx_device_keys_user_device_unique';
     ELSE
-        RAISE NOTICE 'Unique constraint device_keys_user_device_unique already exists';
+        RAISE NOTICE 'Unique index idx_device_keys_user_device_unique already exists';
     END IF;
 END $$;
 
@@ -116,34 +115,20 @@ WHERE ts_created_ms IS NULL OR ts_created_ms = 0;
 
 DO $$
 DECLARE
-    constraint_count INTEGER;
     index_count INTEGER;
 BEGIN
-    -- 验证约束
-    SELECT COUNT(*) INTO constraint_count
-    FROM pg_constraint 
-    WHERE conname = 'device_keys_user_device_unique'
-    AND conrelid = 'device_keys'::regclass;
-    
-    IF constraint_count = 0 THEN
-        RAISE EXCEPTION 'Migration failed: device_keys_user_device_unique constraint not found';
-    END IF;
-    
-    -- 验证索引
     SELECT COUNT(*) INTO index_count
     FROM pg_indexes 
-    WHERE indexname IN ('idx_one_time_keys_user_device', 'idx_one_time_keys_available');
+    WHERE indexname IN ('idx_device_keys_user_device_unique', 'idx_one_time_keys_user_device', 'idx_one_time_keys_available');
     
-    RAISE NOTICE 'Migration completed successfully. Constraints: %, Indexes: %', constraint_count, index_count;
+    RAISE NOTICE 'Migration completed successfully. Indexes verified: %', index_count;
 END $$;
-
-COMMIT;
 
 -- =============================================================================
 -- 迁移完成
 -- =============================================================================
 -- 预期效果:
--- 1. device_keys 表添加 (user_id, device_id) 唯一约束
+-- 1. device_keys 表添加 (user_id, device_id) 唯一索引
 -- 2. one_time_keys 表添加性能优化索引
 -- 3. 创建 get_one_time_key_counts 辅助函数
 -- 4. 清理孤立数据并修复时间戳

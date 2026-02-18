@@ -1,0 +1,1 @@
+172.28.0.1 - - [18/Feb/2026:07:44:24 +0000] "GET /_matrix/federation/v1/version HTTP/1.1" 301 169 "-" "curl/7.81.0"

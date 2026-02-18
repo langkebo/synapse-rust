@@ -3,6 +3,7 @@ use crate::common::ApiError;
 use crate::web::AuthenticatedUser;
 use axum::{
     extract::{Json, Path, Query, State},
+    http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
     Router,
@@ -133,7 +134,7 @@ async fn upload_media(
 async fn download_media(
     State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     match state
         .services
         .media_service
@@ -146,20 +147,9 @@ async fn download_media(
                 ("Content-Type".to_string(), content_type.to_string()),
                 ("Content-Length".to_string(), content.len().to_string()),
             ];
-            (headers, content)
+            Ok((StatusCode::OK, headers, content))
         }
-        Err(e) => {
-            let error_body = serde_json::to_vec(&json!({
-                "errcode": e.code(),
-                "error": e.message()
-            }))
-            .expect("Failed to serialize error response to JSON");
-            let headers = [
-                ("Content-Type".to_string(), "application/json".to_string()),
-                ("Content-Length".to_string(), error_body.len().to_string()),
-            ];
-            (headers, error_body)
-        }
+        Err(e) => Err(e),
     }
 }
 
@@ -183,7 +173,7 @@ async fn get_thumbnail(
     State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let width = params.get("width").and_then(|v| v.as_u64()).unwrap_or(800) as u32;
     let height = params.get("height").and_then(|v| v.as_u64()).unwrap_or(600) as u32;
     let method = params
@@ -203,20 +193,9 @@ async fn get_thumbnail(
                 ("Content-Type".to_string(), content_type.to_string()),
                 ("Content-Length".to_string(), content.len().to_string()),
             ];
-            (headers, content)
+            Ok((StatusCode::OK, headers, content))
         }
-        Err(e) => {
-            let error_body = serde_json::to_vec(&json!({
-                "errcode": e.code(),
-                "error": e.message()
-            }))
-            .expect("Failed to serialize error response to JSON");
-            let headers = [
-                ("Content-Type".to_string(), "application/json".to_string()),
-                ("Content-Length".to_string(), error_body.len().to_string()),
-            ];
-            (headers, error_body)
-        }
+        Err(e) => Err(e),
     }
 }
 
@@ -343,21 +322,19 @@ async fn delete_media(
 ) -> Result<Json<Value>, ApiError> {
     let is_admin = auth_user.is_admin;
 
-    if !is_admin {
-        let media_info = state
-            .services
-            .media_service
-            .get_media_info(&server_name, &media_id)
-            .await?;
+    let media_info = state
+        .services
+        .media_service
+        .get_media_info(&server_name, &media_id)
+        .await?;
 
-        let uploader = media_info
-            .get("uploader")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+    let uploader = media_info
+        .get("uploader")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
-        if uploader != auth_user.user_id {
-            return Err(ApiError::forbidden("You can only delete your own media".to_string()));
-        }
+    if !is_admin && uploader != auth_user.user_id {
+        return Err(ApiError::forbidden("You can only delete your own media".to_string()));
     }
 
     state
@@ -366,5 +343,8 @@ async fn delete_media(
         .delete_media(&server_name, &media_id)
         .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "deleted": true,
+        "media_id": media_id
+    })))
 }

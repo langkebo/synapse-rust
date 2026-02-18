@@ -1778,3 +1778,326 @@ conventional-changelog -p angular -i CHANGELOG.md -s
 | 1.0.0 | 2026-01-28 | 初始版本，定义项目规则和开发规范 |
 | 2.0.0 | 2026-01-29 | 重大更新，添加 Rust 版本规范、依赖管理策略、错误案例分析与预防策略 |
 | 3.0.0 | 2026-01-29 | 新增统一配置规范，包括路由认证中间件、请求处理、错误响应、日志记录、CORS配置等标准化配置项 |
+| 3.1.0 | 2026-02-18 | 新增Schema一致性测试、API回归测试、CI/CD集成规范、数据库迁移版本化管理要求 |
+
+---
+
+## 九、Schema一致性与回归测试规范
+
+### 9.1 强制测试要求
+
+**每次代码修改后必须运行的测试**：
+
+| 测试类型 | 脚本路径 | 执行时机 | 通过标准 |
+|---------|---------|---------|---------|
+| Schema一致性测试 | `tests/schema_consistency_test.sh` | 代码修改后、提交前、CI/CD | 100%通过 |
+| API回归测试 | `tests/api_regression_test.sh` | 代码修改后、提交前、CI/CD | 100%通过 |
+
+**执行命令**：
+
+```bash
+# 在项目根目录执行
+cd /home/hula/synapse_rust
+
+# 1. 运行Schema一致性测试
+./tests/schema_consistency_test.sh
+
+# 2. 运行API回归测试
+./tests/api_regression_test.sh
+
+# 3. 一键运行所有测试
+./tests/schema_consistency_test.sh && ./tests/api_regression_test.sh && echo "✅ 所有测试通过"
+```
+
+### 9.2 Schema一致性测试详情
+
+**测试目标**：确保代码中使用的数据库列名与实际数据库Schema完全一致
+
+**检查项**：
+
+| 类别 | 检查内容 | 关键表 |
+|------|---------|--------|
+| 表存在性 | 验证关键表是否存在 | users, devices, rooms, events, push_rules, pushers, notifications, federation_signing_keys, room_memberships, device_keys |
+| 列存在性 | 验证关键列是否存在 | 各表的业务关键字段 |
+| 数据类型 | 验证列的数据类型是否正确 | VARCHAR, BIGINT, JSONB, BOOLEAN等 |
+
+**常见问题及修复**：
+
+| 问题类型 | 示例 | 修复方法 |
+|---------|------|---------|
+| 列名不匹配 | 代码使用`display_name`，数据库为`displayname` | 修改代码使用正确的列名 |
+| 列不存在 | 代码查询`world_readable`列，但该列不存在 | 使用现有列计算或添加迁移脚本 |
+| 表不存在 | 代码查询`notifications`表，但该表不存在 | 创建迁移脚本添加表 |
+
+### 9.3 API回归测试详情
+
+**测试目标**：验证核心API端点功能正常，防止代码修改引入回归问题
+
+**测试覆盖**：
+
+| API类别 | 端点 | 预期状态码 |
+|---------|------|-----------|
+| 搜索API | `POST /_matrix/client/v3/search` | 200 |
+| 推送通知API | `GET /_matrix/client/v3/pushrules` | 200 |
+| 推送通知API | `GET /_matrix/client/v3/pushrules/global` | 200 |
+| 推送通知API | `GET /_matrix/client/v3/pushrules/global/content` | 200 |
+| 推送通知API | `PUT /_matrix/client/v3/pushrules/global/content/{rule_id}` | 200 |
+| 推送通知API | `GET /_matrix/client/v3/notifications` | 200 |
+| 房间API | `GET /_matrix/client/v1/rooms/{room_id}/hierarchy` | 200 |
+| 用户API | `GET /_matrix/client/r0/account/whoami` | 200 |
+| 用户API | `GET /_matrix/client/r0/devices` | 200 |
+
+### 9.4 测试失败处理流程
+
+```
+测试失败 → 分析错误日志 → 定位问题类型
+    │
+    ├── Schema问题 → 检查代码列名 → 对比数据库Schema → 修复代码或添加迁移
+    │
+    └── API问题 → 检查API响应 → 分析错误原因 → 修复代码逻辑
+    │
+    └── 修复后 → 重新运行测试 → 确认通过 → 提交代码
+```
+
+---
+
+## 十、CI/CD集成规范
+
+### 10.1 CI/CD流水线要求
+
+**必须包含的测试阶段**：
+
+```yaml
+# .github/workflows/ci.yml 示例
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse
+          POSTGRES_DB: synapse_test
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+          components: clippy, rustfmt
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Check formatting
+        run: cargo fmt --check
+      
+      - name: Run clippy
+        run: cargo clippy --all-features -- -D warnings
+      
+      - name: Run tests
+        run: cargo test
+      
+      - name: Build
+        run: cargo build --release
+      
+      - name: Start server for integration tests
+        run: |
+          cargo build --release
+          ./target/release/synapse-rust &
+          sleep 10
+      
+      - name: Run Schema Consistency Test
+        run: ./tests/schema_consistency_test.sh
+      
+      - name: Run API Regression Test
+        run: ./tests/api_regression_test.sh
+```
+
+### 10.2 提交前检查清单
+
+**每次提交前必须确认**：
+
+- [ ] `cargo fmt --check` 通过
+- [ ] `cargo clippy --all-features -- -D warnings` 通过
+- [ ] `cargo test` 通过
+- [ ] `./tests/schema_consistency_test.sh` 通过
+- [ ] `./tests/api_regression_test.sh` 通过
+- [ ] 数据库迁移脚本已版本化（如有Schema变更）
+
+### 10.3 分支保护规则
+
+**main分支保护**：
+
+1. 必须通过所有CI检查
+2. 必须通过Schema一致性测试
+3. 必须通过API回归测试
+4. 需要1个以上审核批准
+5. 禁止直接推送，必须通过PR合并
+
+---
+
+## 十一、数据库迁移版本化管理
+
+### 11.1 迁移文件命名规范
+
+**格式**：`YYYYMMDDHHMMSS_description.sql`
+
+```
+migrations/
+├── 20260206000000_master_unified_schema.sql      # 主Schema
+├── 20260219000000_unified_fix.sql                # 修复迁移
+├── 20260220000000_fix_push_notifications.sql     # 推送通知修复
+└── 20260220000001_add_room_parents.sql           # 添加room_parents表
+```
+
+### 11.2 迁移文件模板
+
+**标准模板**：
+
+```sql
+-- =============================================================================
+-- Synapse-Rust 数据库迁移脚本
+-- 版本: YYYYMMDDHHMMSS
+-- 描述: [简要描述本次迁移的目的]
+-- 问题来源: [相关Issue或测试记录]
+-- =============================================================================
+
+-- =============================================================================
+-- 第一部分: [功能模块名称]
+-- 问题: #[问题编号] - [问题描述]
+-- =============================================================================
+
+-- [SQL语句]
+CREATE TABLE IF NOT EXISTS example_table (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    created_ts BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000
+);
+
+CREATE INDEX IF NOT EXISTS idx_example_name ON example_table(name);
+
+-- =============================================================================
+-- 最后部分: 记录迁移版本
+-- =============================================================================
+
+INSERT INTO schema_migrations (version, success, executed_at)
+VALUES ('YYYYMMDDHHMMSS', true, NOW())
+ON CONFLICT (version) DO NOTHING;
+```
+
+### 11.3 迁移执行规范
+
+**执行顺序**：
+
+1. 备份数据库
+2. 执行迁移脚本
+3. 验证迁移结果
+4. 运行Schema一致性测试
+5. 运行API回归测试
+
+**执行命令**：
+
+```bash
+# 在Docker环境中执行迁移
+docker exec -i synapse-postgres psql -U synapse -d synapse_test < migrations/YYYYMMDDHHMMSS_description.sql
+
+# 验证迁移
+docker exec -i synapse-postgres psql -U synapse -d synapse_test -c "SELECT * FROM schema_migrations ORDER BY version DESC LIMIT 5;"
+```
+
+### 11.4 迁移版本记录表
+
+**必须维护`schema_migrations`表**：
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version VARCHAR(20) PRIMARY KEY,
+    success BOOLEAN NOT NULL,
+    executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    description TEXT
+);
+```
+
+### 11.5 禁止的操作
+
+**禁止直接修改生产数据库Schema**：
+
+```bash
+# 禁止：直接执行ALTER TABLE
+docker exec -it synapse-postgres psql -c "ALTER TABLE users ADD COLUMN test VARCHAR(255);"
+
+# 正确：创建迁移脚本并版本化
+# 1. 创建 migrations/20260220000002_add_user_test_column.sql
+# 2. 通过迁移脚本执行
+# 3. 记录到 schema_migrations 表
+```
+
+### 11.6 回滚策略
+
+**每个迁移脚本应包含回滚SQL**：
+
+```sql
+-- =============================================================================
+-- 回滚脚本 (如需回滚，请手动执行以下语句)
+-- =============================================================================
+-- DROP INDEX IF EXISTS idx_example_name;
+-- DROP TABLE IF EXISTS example_table;
+-- DELETE FROM schema_migrations WHERE version = 'YYYYMMDDHHMMSS';
+```
+
+---
+
+## 十二、常见问题与解决方案
+
+### 12.1 Schema不一致问题
+
+| 问题 | 原因 | 解决方案 |
+|------|------|---------|
+| `column "xxx" does not exist` | 代码列名与数据库不匹配 | 检查数据库实际列名，修改代码 |
+| `relation "xxx" does not exist` | 表不存在 | 创建迁移脚本添加表 |
+| `type mismatch` | 数据类型不匹配 | 检查代码中的类型定义 |
+
+### 12.2 API测试失败问题
+
+| 问题 | 原因 | 解决方案 |
+|------|------|---------|
+| HTTP 404 | 路由未注册或路径错误 | 检查路由定义 |
+| HTTP 500 | 内部错误，通常是数据库问题 | 检查日志，修复Schema问题 |
+| HTTP 401/403 | 认证或权限问题 | 检查Token有效性 |
+
+### 12.3 快速诊断命令
+
+```bash
+# 检查服务器日志
+docker logs synapse-rust 2>&1 | tail -50
+
+# 检查数据库表结构
+docker exec -i synapse-postgres psql -U synapse -d synapse_test -c "\d table_name"
+
+# 检查迁移记录
+docker exec -i synapse-postgres psql -U synapse -d synapse_test -c "SELECT * FROM schema_migrations ORDER BY version DESC;"
+
+# 测试API端点
+curl -s http://localhost:8008/_matrix/federation/v1/version | jq .
+```

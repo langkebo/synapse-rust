@@ -144,6 +144,14 @@ pub struct AuthenticatedUser {
 }
 
 #[derive(Clone)]
+pub struct OptionalAuthenticatedUser {
+    pub user_id: Option<String>,
+    pub device_id: Option<String>,
+    pub is_admin: bool,
+    pub access_token: Option<String>,
+}
+
+#[derive(Clone)]
 pub struct AdminUser {
     pub user_id: String,
     pub device_id: Option<String>,
@@ -198,6 +206,51 @@ impl FromRequestParts<AppState> for AdminUser {
     }
 }
 
+impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
+    type Rejection = std::convert::Infallible;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let token_result = extract_token_from_headers(&parts.headers);
+        let state = state.clone();
+
+        async move {
+            match token_result {
+                Ok(token) => {
+                    match state.services.auth_service.validate_token(&token).await {
+                        Ok((user_id, device_id, is_admin)) => {
+                            Ok(OptionalAuthenticatedUser {
+                                user_id: Some(user_id),
+                                device_id,
+                                is_admin,
+                                access_token: Some(token),
+                            })
+                        }
+                        Err(_) => {
+                            Ok(OptionalAuthenticatedUser {
+                                user_id: None,
+                                device_id: None,
+                                is_admin: false,
+                                access_token: None,
+                            })
+                        }
+                    }
+                }
+                Err(_) => {
+                    Ok(OptionalAuthenticatedUser {
+                        user_id: None,
+                        device_id: None,
+                        is_admin: false,
+                        access_token: None,
+                    })
+                }
+            }
+        }
+    }
+}
+
 pub trait AuthExtractor {
     fn extract_token(&self) -> Result<String, ApiError>;
 }
@@ -209,14 +262,20 @@ impl AuthExtractor for HeaderMap {
 }
 
 fn extract_token_from_headers(headers: &HeaderMap) -> Result<String, ApiError> {
-    headers
+    let token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.to_string())
         .ok_or_else(|| {
             ApiError::unauthorized("Missing or invalid authorization header".to_string())
-        })
+        })?;
+    
+    if token.trim().is_empty() {
+        return Err(ApiError::unauthorized("Empty authorization token".to_string()));
+    }
+    
+    Ok(token)
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -944,6 +1003,41 @@ fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+fn validate_device_id(device_id: &str) -> Result<(), ApiError> {
+    if device_id.is_empty() {
+        return Err(ApiError::bad_request("device_id is required".to_string()));
+    }
+    if device_id.len() > MAX_DEVICE_ID_LENGTH {
+        return Err(ApiError::bad_request(format!(
+            "device_id too long (max {} characters)",
+            MAX_DEVICE_ID_LENGTH
+        )));
+    }
+    Ok(())
+}
+
+fn validate_presence_status(presence: &str) -> Result<(), ApiError> {
+    let valid_statuses = ["online", "offline", "unavailable"];
+    if !valid_statuses.contains(&presence) {
+        return Err(ApiError::bad_request(format!(
+            "Invalid presence status. Must be one of: {}",
+            valid_statuses.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+fn validate_receipt_type(receipt_type: &str) -> Result<(), ApiError> {
+    let valid_types = ["m.read", "m.read.private"];
+    if !valid_types.contains(&receipt_type) {
+        return Err(ApiError::bad_request(format!(
+            "Invalid receipt type. Must be one of: {}",
+            valid_types.join(", ")
+        )));
+    }
+    Ok(())
+}
+
 async fn get_profile(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
@@ -1279,6 +1373,16 @@ async fn get_messages(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let from = params
         .get("from")
         .and_then(|v| v.as_str())
@@ -1586,6 +1690,16 @@ async fn delete_room_directory(
         return Err(ApiError::bad_request("Invalid room_id format".to_string()));
     }
 
+    if !state
+        .services
+        .room_storage
+        .room_exists(&param)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let is_creator = state
         .services
         .room_service
@@ -1613,27 +1727,43 @@ async fn set_room_directory(
     Path(param): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_id = body
-        .get("room_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("room_id required".to_string()))?;
-
-    let alias = if param.starts_with('#') {
+    let room_id = if param.starts_with('!') {
         param
     } else {
-        format!("#{}", param)
+        return Err(ApiError::bad_request("Invalid room_id format".to_string()));
     };
 
-    state
+    if !state
         .services
-        .room_service
-        .set_room_alias(room_id, &alias, &auth_user.user_id)
-        .await?;
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    let is_public = body.get("is_public").and_then(|v| v.as_bool()).unwrap_or(true);
+
+    if is_public {
+        let is_creator = state
+            .services
+            .room_service
+            .is_room_creator(&room_id, &auth_user.user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check room creator: {}", e)))?;
+
+        if !auth_user.is_admin && !is_creator {
+            return Err(ApiError::forbidden(
+                "Only room creator or server admin can add room to directory".to_string(),
+            ));
+        }
+    }
 
     state
         .services
         .room_service
-        .set_room_directory(room_id, true)
+        .set_room_directory(&room_id, is_public)
         .await?;
 
     Ok(Json(json!({})))
@@ -1644,6 +1774,16 @@ async fn get_room_aliases(
     _auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let aliases = state
         .services
         .room_service
@@ -1657,6 +1797,35 @@ async fn set_room_alias(
     auth_user: AuthenticatedUser,
     Path((room_id, room_alias)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    if room_alias.len() > 255 {
+        return Err(ApiError::bad_request(
+            "Alias too long (max 255 characters)".to_string(),
+        ));
+    }
+
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a room member to set an alias".to_string(),
+        ));
+    }
+
     state
         .services
         .room_service
@@ -1680,7 +1849,7 @@ async fn delete_room_alias(
 
 async fn get_room_by_alias(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: OptionalAuthenticatedUser,
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id = state
@@ -1696,7 +1865,7 @@ async fn get_room_by_alias(
 
 async fn get_public_rooms(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: OptionalAuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
@@ -1844,10 +2013,30 @@ async fn update_device(
     Path(device_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_device_id(&device_id)?;
+
     let display_name = body
         .get("display_name")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Display name required".to_string()))?;
+
+    if display_name.len() > MAX_DISPLAY_NAME_LENGTH {
+        return Err(ApiError::bad_request(format!(
+            "Display name too long (max {} characters)",
+            MAX_DISPLAY_NAME_LENGTH
+        )));
+    }
+
+    let exists = state
+        .services
+        .device_storage
+        .device_exists(&device_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check device existence: {}", e)))?;
+
+    if !exists {
+        return Err(ApiError::not_found("Device not found".to_string()));
+    }
 
     state
         .services
@@ -1864,6 +2053,19 @@ async fn delete_device(
     _auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_device_id(&device_id)?;
+
+    let exists = _state
+        .services
+        .device_storage
+        .device_exists(&device_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check device existence: {}", e)))?;
+
+    if !exists {
+        return Err(ApiError::not_found("Device not found".to_string()));
+    }
+
     _state
         .services
         .device_storage
@@ -1909,6 +2111,19 @@ async fn get_presence(
     _auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+
+    let user_exists = state
+        .services
+        .user_storage
+        .user_exists(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?;
+
+    if !user_exists {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     let presence = state
         .services
         .presence_storage
@@ -1934,6 +2149,8 @@ async fn set_presence(
     Path(user_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+
     if auth_user.user_id != user_id && !auth_user.is_admin {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
@@ -1942,7 +2159,19 @@ async fn set_presence(
         .get("presence")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Presence required".to_string()))?;
+
+    validate_presence_status(presence)?;
+
     let status_msg = body.get("status_msg").and_then(|v| v.as_str());
+
+    if let Some(msg) = status_msg {
+        if msg.len() > MAX_MESSAGE_LENGTH {
+            return Err(ApiError::bad_request(format!(
+                "Status message too long (max {} characters)",
+                MAX_MESSAGE_LENGTH
+            )));
+        }
+    }
 
     state
         .services
@@ -2196,6 +2425,7 @@ async fn send_receipt(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
+    validate_receipt_type(&receipt_type)?;
 
     let event = state
         .services
@@ -2235,6 +2465,8 @@ async fn set_read_markers(
         .or_else(|| body.get("m.fully_read").and_then(|v| v.as_str()))
         .or_else(|| body.get("m.read").and_then(|v| v.as_str()))
         .ok_or_else(|| ApiError::bad_request("Event ID required".to_string()))?;
+
+    validate_event_id(event_id)?;
 
     state
         .services
@@ -2292,6 +2524,20 @@ async fn redact_event(
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
+    let original_event = state
+        .services
+        .event_storage
+        .get_event(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+    if original_event.room_id != room_id {
+        return Err(ApiError::bad_request(
+            "Event does not belong to this room".to_string(),
+        ));
+    }
+
     let reason = body.get("reason").and_then(|v| v.as_str());
 
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
@@ -2343,6 +2589,41 @@ async fn kick_user(
     if let Some(r) = reason {
         if r.len() > 512 {
             return Err(ApiError::bad_request("Reason too long".to_string()));
+        }
+    }
+
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    if !state
+        .services
+        .user_storage
+        .user_exists(target)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?
+    {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?;
+
+    if let Some(room) = room {
+        if room.creator == target && !auth_user.is_admin {
+            return Err(ApiError::forbidden(
+                "Cannot kick the room creator".to_string(),
+            ));
         }
     }
 
@@ -2407,6 +2688,26 @@ async fn ban_user(
         if r.len() > 512 {
             return Err(ApiError::bad_request("Reason too long".to_string()));
         }
+    }
+
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    if !state
+        .services
+        .user_storage
+        .user_exists(target)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?
+    {
+        return Err(ApiError::not_found("User not found".to_string()));
     }
 
     let event_id = crate::common::crypto::generate_event_id(&state.services.server_name);

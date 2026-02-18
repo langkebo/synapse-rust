@@ -17,7 +17,7 @@ server:
   name: cjystx.top
   host: 0.0.0.0
   port: 8008
-  
+  pid_file: /data/homeserver.pid
   # 安全性优化: 使用强密码
   registration_shared_secret: "${REGISTRATION_SECRET:-change_this_in_production_use_secure_random}"
   admin_contact: "admin@cjystx.top"
@@ -47,10 +47,10 @@ server:
 # 数据库配置 - 性能优化
 # ============================================================================
 database:
-  host: "db"
+  host: "synapse-postgres"
   port: 5432
   username: "synapse"
-  password: "${DB_PASSWORD:-synapse}"
+  password: "synapse"
   name: "synapse_test"
   
   # 性能优化: 增加连接池大小
@@ -65,7 +65,7 @@ database:
 # Redis配置 - 性能优化
 # ============================================================================
 redis:
-  host: "redis"
+  host: "synapse-redis"
   port: 6379
   key_prefix: "synapse:cjystx.top:"
   
@@ -220,11 +220,11 @@ url_preview:
   enabled: true
   max_spider_size: 10485760  # 10MB
   url_blacklist:
-    - "127.0.0.1"
-    - "10.0.0.0/8"
-    - "172.16.0.0/12"
-    - "192.168.0.0/16"
-    - "169.254.0.0/16"
+    - domain: "127.0.0.1"
+    - domain: "10.0.0.0/8"
+    - domain: "172.16.0.0/12"
+    - domain: "192.168.0.0/16"
+    - domain: "169.254.0.0/16"
 
 # ============================================================================
 # OIDC配置 - 功能完善
@@ -287,6 +287,7 @@ prometheus:
   enabled: true
   port: 9090
   path: "/metrics"
+  include_namespace: true
   collect_interval_seconds: 15
 
 # ============================================================================
