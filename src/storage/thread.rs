@@ -328,7 +328,7 @@ impl ThreadStorage {
         room_id: &str,
         thread_id: &str,
     ) -> Result<i32, sqlx::Error> {
-        let result: Option<(i32,)> = sqlx::query_as(
+        let result: Option<(i64,)> = sqlx::query_as(
             r#"
             SELECT COUNT(*) FROM thread_replies
             WHERE room_id = $1 AND thread_id = $2
@@ -339,7 +339,7 @@ impl ThreadStorage {
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(result.map(|r| r.0).unwrap_or(0))
+        Ok(result.map(|r| r.0 as i32).unwrap_or(0))
     }
 
     pub async fn get_thread_participants(
@@ -804,5 +804,211 @@ impl ThreadStorage {
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_thread_root() -> ThreadRoot {
+        ThreadRoot {
+            id: 1,
+            room_id: "!test:example.com".to_string(),
+            root_event_id: "$event1".to_string(),
+            sender: "@user:example.com".to_string(),
+            thread_id: "thread-001".to_string(),
+            content: serde_json::json!({"body": "Test thread"}),
+            origin_server_ts: 1234567890,
+            last_reply_event_id: None,
+            last_reply_sender: None,
+            last_reply_ts: None,
+            reply_count: 0,
+            is_frozen: false,
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+        }
+    }
+
+    fn create_test_thread_reply() -> ThreadReply {
+        ThreadReply {
+            id: 1,
+            room_id: "!test:example.com".to_string(),
+            thread_id: "thread-001".to_string(),
+            event_id: "$reply1".to_string(),
+            root_event_id: "$event1".to_string(),
+            sender: "@user2:example.com".to_string(),
+            in_reply_to_event_id: Some("$event1".to_string()),
+            content: serde_json::json!({"body": "Reply"}),
+            origin_server_ts: 1234567891,
+            is_edited: false,
+            is_redacted: false,
+            created_ts: 1234567891,
+        }
+    }
+
+    fn create_test_thread_subscription() -> ThreadSubscription {
+        ThreadSubscription {
+            id: 1,
+            room_id: "!test:example.com".to_string(),
+            thread_id: "thread-001".to_string(),
+            user_id: "@user:example.com".to_string(),
+            notification_level: "all".to_string(),
+            is_muted: false,
+            subscribed_ts: 1234567890,
+            updated_ts: 1234567890,
+        }
+    }
+
+    #[test]
+    fn test_thread_root_creation() {
+        let thread = create_test_thread_root();
+        assert_eq!(thread.id, 1);
+        assert_eq!(thread.room_id, "!test:example.com");
+        assert_eq!(thread.sender, "@user:example.com");
+        assert_eq!(thread.reply_count, 0);
+        assert!(!thread.is_frozen);
+    }
+
+    #[test]
+    fn test_thread_reply_creation() {
+        let reply = create_test_thread_reply();
+        assert_eq!(reply.thread_id, "thread-001");
+        assert_eq!(reply.sender, "@user2:example.com");
+        assert!(reply.in_reply_to_event_id.is_some());
+        assert!(!reply.is_edited);
+        assert!(!reply.is_redacted);
+    }
+
+    #[test]
+    fn test_thread_subscription_creation() {
+        let subscription = create_test_thread_subscription();
+        assert_eq!(subscription.notification_level, "all");
+        assert!(!subscription.is_muted);
+    }
+
+    #[test]
+    fn test_thread_list_params_defaults() {
+        let params = ThreadListParams {
+            room_id: "!test:example.com".to_string(),
+            from: None,
+            limit: None,
+            include_all: false,
+        };
+        assert_eq!(params.room_id, "!test:example.com");
+        assert!(params.from.is_none());
+        assert!(params.limit.is_none());
+        assert!(!params.include_all);
+    }
+
+    #[test]
+    fn test_create_thread_root_params() {
+        let params = CreateThreadRootParams {
+            room_id: "!test:example.com".to_string(),
+            root_event_id: "$event1".to_string(),
+            sender: "@user:example.com".to_string(),
+            thread_id: "thread-001".to_string(),
+            content: serde_json::json!({"body": "Test"}),
+            origin_server_ts: 1234567890,
+        };
+        assert_eq!(params.room_id, "!test:example.com");
+        assert_eq!(params.root_event_id, "$event1");
+        assert_eq!(params.thread_id, "thread-001");
+    }
+
+    #[test]
+    fn test_create_thread_reply_params() {
+        let params = CreateThreadReplyParams {
+            room_id: "!test:example.com".to_string(),
+            thread_id: "thread-001".to_string(),
+            event_id: "$reply1".to_string(),
+            root_event_id: "$event1".to_string(),
+            sender: "@user2:example.com".to_string(),
+            in_reply_to_event_id: Some("$event1".to_string()),
+            content: serde_json::json!({"body": "Reply"}),
+            origin_server_ts: 1234567891,
+        };
+        assert_eq!(params.thread_id, "thread-001");
+        assert!(params.in_reply_to_event_id.is_some());
+    }
+
+    #[test]
+    fn test_thread_statistics() {
+        let stats = ThreadStatistics {
+            id: 1,
+            room_id: "!test:example.com".to_string(),
+            thread_id: "thread-001".to_string(),
+            total_replies: 100,
+            total_participants: 10,
+            total_edits: 5,
+            total_redactions: 2,
+            first_reply_ts: Some(1234567890),
+            last_reply_ts: Some(1234567999),
+            avg_reply_time_ms: Some(1000),
+            created_ts: 1234567890,
+            updated_ts: 1234567999,
+        };
+        assert_eq!(stats.total_replies, 100);
+        assert_eq!(stats.total_participants, 10);
+    }
+
+    #[test]
+    fn test_thread_summary() {
+        let summary = ThreadSummary {
+            id: 1,
+            room_id: "!test:example.com".to_string(),
+            thread_id: "thread-001".to_string(),
+            root_event_id: "$event1".to_string(),
+            root_sender: "@user:example.com".to_string(),
+            root_content: serde_json::json!({"body": "Test"}),
+            root_origin_server_ts: 1234567890,
+            latest_event_id: Some("$reply1".to_string()),
+            latest_sender: Some("@user2:example.com".to_string()),
+            latest_content: Some(serde_json::json!({"body": "Reply"})),
+            latest_origin_server_ts: Some(1234567999),
+            reply_count: 10,
+            participants: serde_json::json!(["@user:example.com", "@user2:example.com"]),
+            is_frozen: false,
+            created_ts: 1234567890,
+            updated_ts: 1234567999,
+        };
+        assert_eq!(summary.reply_count, 10);
+        assert_eq!(summary.root_sender, "@user:example.com");
+    }
+
+    #[test]
+    fn test_notification_level_values() {
+        let levels = vec!["all", "mentions", "none"];
+        for level in levels {
+            let subscription = ThreadSubscription {
+                id: 1,
+                room_id: "!test:example.com".to_string(),
+                thread_id: "thread-001".to_string(),
+                user_id: "@user:example.com".to_string(),
+                notification_level: level.to_string(),
+                is_muted: false,
+                subscribed_ts: 1234567890,
+                updated_ts: 1234567890,
+            };
+            assert_eq!(subscription.notification_level, level);
+        }
+    }
+
+    #[test]
+    fn test_thread_freeze_status() {
+        let mut thread = create_test_thread_root();
+        assert!(!thread.is_frozen);
+        
+        thread.is_frozen = true;
+        assert!(thread.is_frozen);
+    }
+
+    #[test]
+    fn test_thread_reply_edit_status() {
+        let mut reply = create_test_thread_reply();
+        assert!(!reply.is_edited);
+        
+        reply.is_edited = true;
+        assert!(reply.is_edited);
     }
 }

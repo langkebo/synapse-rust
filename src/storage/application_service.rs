@@ -90,6 +90,52 @@ pub struct RegisterApplicationServiceRequest {
     pub namespaces: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UpdateApplicationServiceRequest {
+    pub url: Option<String>,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub rate_limited: Option<bool>,
+    pub protocols: Option<Vec<String>>,
+    pub is_active: Option<bool>,
+}
+
+impl UpdateApplicationServiceRequest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into());
+        self
+    }
+
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    pub fn rate_limited(mut self, rate_limited: bool) -> Self {
+        self.rate_limited = Some(rate_limited);
+        self
+    }
+
+    pub fn protocols(mut self, protocols: Vec<String>) -> Self {
+        self.protocols = Some(protocols);
+        self
+    }
+
+    pub fn is_active(mut self, is_active: bool) -> Self {
+        self.is_active = Some(is_active);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Namespaces {
     pub users: Vec<NamespaceRule>,
@@ -268,12 +314,7 @@ impl ApplicationServiceStorage {
     pub async fn update(
         &self,
         as_id: &str,
-        url: Option<&str>,
-        name: Option<&str>,
-        description: Option<&str>,
-        rate_limited: Option<bool>,
-        protocols: Option<&[String]>,
-        is_active: Option<bool>,
+        request: &UpdateApplicationServiceRequest,
     ) -> Result<ApplicationService, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
             r#"
@@ -289,12 +330,12 @@ impl ApplicationServiceStorage {
             "#,
         )
         .bind(as_id)
-        .bind(url)
-        .bind(name)
-        .bind(description)
-        .bind(rate_limited)
-        .bind(protocols)
-        .bind(is_active)
+        .bind(&request.url)
+        .bind(&request.name)
+        .bind(&request.description)
+        .bind(request.rate_limited)
+        .bind(&request.protocols)
+        .bind(request.is_active)
         .fetch_one(&*self.pool)
         .await
     }

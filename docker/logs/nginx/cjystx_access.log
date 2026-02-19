@@ -1,0 +1,7 @@
+172.28.0.1 - - [18/Feb/2026:20:58:40 +0000] "GET /.well-known/matrix/server HTTP/2.0" 200 79 "-" "curl/7.81.0"
+172.28.0.1 - - [18/Feb/2026:20:58:40 +0000] "GET /.well-known/matrix/client HTTP/2.0" 200 42 "-" "curl/7.81.0"
+172.28.0.1 - - [18/Feb/2026:20:59:02 +0000] "HEAD /.well-known/matrix/server HTTP/2.0" 200 0 "-" "curl/7.81.0"
+172.28.0.1 - - [18/Feb/2026:20:59:03 +0000] "HEAD /.well-known/matrix/client HTTP/2.0" 200 0 "-" "curl/7.81.0"
+172.28.0.1 - - [18/Feb/2026:21:10:15 +0000] "GET /.well-known/matrix/server HTTP/2.0" 200 37 "-" "curl/7.81.0"
+172.28.0.1 - - [18/Feb/2026:21:10:16 +0000] "GET /.well-known/matrix/client HTTP/2.0" 200 110 "-" "curl/7.81.0"
+172.28.0.1 - - [18/Feb/2026:21:10:28 +0000] "HEAD /.well-known/matrix/server HTTP/2.0" 200 0 "-" "curl/7.81.0"

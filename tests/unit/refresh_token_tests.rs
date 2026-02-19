@@ -32,7 +32,7 @@ mod tests {
             device_id: Some("DEVICE123".to_string()),
             access_token_id: Some("access123".to_string()),
             scope: Some("openid".to_string()),
-            expires_at: 1234567890,
+            expires_at: Some(1234567890),
             created_ts: 1234560000,
             last_used_ts: Some(1234567000),
             use_count: 5,
@@ -95,11 +95,11 @@ mod tests {
             old_token_hash: Some("old_hash".to_string()),
             new_token_hash: "new_hash".to_string(),
             rotated_ts: 1234567890,
-            rotation_reason: "refresh".to_string(),
+            rotation_reason: Some("refresh".to_string()),
         };
 
         assert_eq!(rotation.family_id, "family123");
-        assert_eq!(rotation.rotation_reason, "refresh");
+        assert_eq!(rotation.rotation_reason, Some("refresh".to_string()));
     }
 
     #[test]
@@ -110,7 +110,7 @@ mod tests {
             token_type: "access".to_string(),
             user_id: "@user:example.com".to_string(),
             revoked_ts: 1234567890,
-            expires_at: 1234577890,
+            expires_at: Some(1234577890),
             reason: Some("User logout".to_string()),
         };
 

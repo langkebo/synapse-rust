@@ -13,8 +13,7 @@ use crate::storage::registration_token::{
     CreateRegistrationTokenRequest, UpdateRegistrationTokenRequest,
     RegistrationToken, RegistrationTokenUsage, RoomInvite,
 };
-use crate::web::routes::AuthenticatedUser;
-use crate::web::routes::AppState;
+use crate::web::routes::{AdminUser, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
@@ -174,7 +173,7 @@ pub struct BatchResponse {
 
 pub async fn create_token(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CreateTokenBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateRegistrationTokenRequest {
@@ -219,7 +218,7 @@ pub async fn get_token_by_id(
 pub async fn update_token(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<UpdateTokenBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = UpdateRegistrationTokenRequest {
@@ -237,7 +236,7 @@ pub async fn update_token(
 pub async fn delete_token(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state.services.registration_token_service.delete_token(id).await?;
 
@@ -247,7 +246,7 @@ pub async fn delete_token(
 pub async fn deactivate_token(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state.services.registration_token_service.deactivate_token(id).await?;
 
@@ -256,7 +255,7 @@ pub async fn deactivate_token(
 
 pub async fn get_all_tokens(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -271,7 +270,7 @@ pub async fn get_all_tokens(
 
 pub async fn get_active_tokens(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let tokens = state.services.registration_token_service.get_active_tokens().await?;
 
@@ -283,7 +282,7 @@ pub async fn get_active_tokens(
 pub async fn get_token_usage(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let usage = state.services.registration_token_service.get_token_usage(id).await?;
 
@@ -306,7 +305,7 @@ pub async fn validate_token(
 
 pub async fn create_batch(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CreateBatchBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let (batch_id, tokens) = state.services.registration_token_service.create_batch(
@@ -329,7 +328,7 @@ pub async fn create_batch(
 
 pub async fn cleanup_expired(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let count = state.services.registration_token_service.cleanup_expired_tokens().await?;
 
@@ -340,7 +339,7 @@ pub async fn cleanup_expired(
 
 pub async fn create_room_invite(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CreateRoomInviteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = crate::storage::registration_token::CreateRoomInviteRequest {
@@ -378,7 +377,7 @@ pub async fn use_room_invite(
 pub async fn revoke_room_invite(
     State(state): State<AppState>,
     Path(invite_code): Path<String>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<RevokeInviteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     state.services.registration_token_service.revoke_room_invite(&invite_code, &body.reason).await?;

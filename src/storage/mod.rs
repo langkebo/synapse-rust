@@ -249,21 +249,6 @@ mod tests {
     }
 
     #[test]
-    fn test_refresh_token_struct_fields() {
-        let token = RefreshToken {
-            id: 1,
-            token: "refresh_token_123".to_string(),
-            user_id: "@test:example.com".to_string(),
-            device_id: "DEVICE123".to_string(),
-            created_ts: 1234567890,
-            expires_ts: 1235171490,
-            invalidated_ts: None,
-        };
-        assert_eq!(token.id, 1);
-        assert_eq!(token.token, "refresh_token_123");
-    }
-
-    #[test]
     fn test_room_struct_fields() {
         let room = Room {
             room_id: "!test:example.com".to_string(),

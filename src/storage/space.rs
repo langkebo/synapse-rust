@@ -88,6 +88,52 @@ pub struct AddChildRequest {
     pub added_by: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UpdateSpaceRequest {
+    pub name: Option<String>,
+    pub topic: Option<String>,
+    pub avatar_url: Option<String>,
+    pub join_rule: Option<String>,
+    pub visibility: Option<String>,
+    pub is_public: Option<bool>,
+}
+
+impl UpdateSpaceRequest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn topic(mut self, topic: impl Into<String>) -> Self {
+        self.topic = Some(topic.into());
+        self
+    }
+
+    pub fn avatar_url(mut self, avatar_url: impl Into<String>) -> Self {
+        self.avatar_url = Some(avatar_url.into());
+        self
+    }
+
+    pub fn join_rule(mut self, join_rule: impl Into<String>) -> Self {
+        self.join_rule = Some(join_rule.into());
+        self
+    }
+
+    pub fn visibility(mut self, visibility: impl Into<String>) -> Self {
+        self.visibility = Some(visibility.into());
+        self
+    }
+
+    pub fn is_public(mut self, is_public: bool) -> Self {
+        self.is_public = Some(is_public);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpaceHierarchy {
     pub space: Space,
@@ -206,12 +252,7 @@ impl SpaceStorage {
     pub async fn update_space(
         &self,
         space_id: &str,
-        name: Option<&str>,
-        topic: Option<&str>,
-        avatar_url: Option<&str>,
-        join_rule: Option<&str>,
-        visibility: Option<&str>,
-        is_public: Option<bool>,
+        request: &UpdateSpaceRequest,
     ) -> Result<Space, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         
@@ -230,12 +271,12 @@ impl SpaceStorage {
             "#,
         )
         .bind(space_id)
-        .bind(name)
-        .bind(topic)
-        .bind(avatar_url)
-        .bind(join_rule)
-        .bind(visibility)
-        .bind(is_public)
+        .bind(&request.name)
+        .bind(&request.topic)
+        .bind(&request.avatar_url)
+        .bind(&request.join_rule)
+        .bind(&request.visibility)
+        .bind(request.is_public)
         .bind(now)
         .fetch_one(&*self.pool)
         .await

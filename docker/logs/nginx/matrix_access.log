@@ -1,0 +1,5 @@
+10.168.3.50 - - [18/Feb/2026:21:00:07 +0000] "GET /.well-known/matrix/server HTTP/2.0" 404 153 "-" "curl/7.81.0"
+172.28.0.1 - - [18/Feb/2026:21:00:31 +0000] "GET /_matrix/federation/v1/version HTTP/2.0" 200 69 "-" "curl/7.81.0"
+172.28.0.1 - - [18/Feb/2026:21:10:17 +0000] "GET /_matrix/federation/v1/version HTTP/2.0" 200 69 "-" "curl/7.81.0"
+172.28.0.1 - - [18/Feb/2026:21:10:26 +0000] "GET /_matrix/federation/v1/version HTTP/2.0" 200 69 "-" "curl/7.81.0"
+172.28.0.1 - - [18/Feb/2026:21:10:29 +0000] "HEAD /_matrix/federation/v1/version HTTP/2.0" 200 0 "-" "curl/7.81.0"

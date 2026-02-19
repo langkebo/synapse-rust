@@ -153,18 +153,34 @@ impl PushNotificationService {
 
         let response_time_ms = start.elapsed().as_millis() as i32;
 
-        self.storage.create_notification_log(
+        let log_request = CreateNotificationLogRequest::new(
             &notification.user_id,
             &notification.device_id,
-            notification.event_id.as_deref(),
-            notification.room_id.as_deref(),
-            notification.notification_type.as_deref(),
             push_type,
             success,
-            if success { None } else { error_message.as_deref() },
-            provider_response.as_deref(),
-            Some(response_time_ms),
-        ).await?;
+        )
+        .event_id(notification.event_id.as_deref().unwrap_or(""))
+        .room_id(notification.room_id.as_deref().unwrap_or(""))
+        .notification_type(notification.notification_type.as_deref().unwrap_or(""))
+        .response_time_ms(response_time_ms);
+
+        let log_request = if !success {
+            if let Some(error) = &error_message {
+                log_request.error_message(error)
+            } else {
+                log_request
+            }
+        } else {
+            log_request
+        };
+
+        let log_request = if let Some(resp) = &provider_response {
+            log_request.provider_response(resp)
+        } else {
+            log_request
+        };
+
+        self.storage.create_notification_log(&log_request).await?;
 
         if success {
             self.storage.update_device_last_used(&notification.user_id, &notification.device_id).await?;

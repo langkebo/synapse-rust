@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use crate::storage::server_notification::{CreateNotificationRequest, CreateTemplateRequest};
-use crate::web::routes::AppState;
+use crate::web::routes::{AppState, AuthenticatedUser, AdminUser};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -87,48 +87,49 @@ pub fn create_server_notification_router() -> Router<AppState> {
 
 async fn get_user_notifications(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = "system";
     let notifications = state.services.server_notification_service
-        .get_user_notifications(user_id)
+        .get_user_notifications(&auth_user.user_id)
         .await?;
     Ok(Json(notifications))
 }
 
 async fn mark_as_read(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Path(notification_id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = "system";
     state.services.server_notification_service
-        .mark_as_read(user_id, notification_id)
+        .mark_as_read(&auth_user.user_id, notification_id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn dismiss_notification(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Path(notification_id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = "system";
     state.services.server_notification_service
-        .mark_as_dismissed(user_id, notification_id)
+        .mark_as_dismissed(&auth_user.user_id, notification_id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn mark_all_read(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = "system";
     let count = state.services.server_notification_service
-        .mark_all_as_read(user_id)
+        .mark_all_as_read(&auth_user.user_id)
         .await?;
     Ok(Json(serde_json::json!({ "marked_count": count })))
 }
 
 async fn list_all_notifications(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Query(query): Query<ListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let notifications = state.services.server_notification_service
@@ -139,6 +140,7 @@ async fn list_all_notifications(
 
 async fn create_notification(
     State(state): State<AppState>,
+    admin: AdminUser,
     Json(body): Json<CreateNotificationBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateNotificationRequest {
@@ -153,7 +155,7 @@ async fn create_notification(
         is_dismissible: body.is_dismissible,
         action_url: body.action_url,
         action_text: body.action_text,
-        created_by: None,
+        created_by: Some(admin.user_id),
     };
 
     let notification = state.services.server_notification_service
@@ -164,6 +166,7 @@ async fn create_notification(
 
 async fn get_notification(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Path(notification_id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
     let notification = state.services.server_notification_service
@@ -175,6 +178,7 @@ async fn get_notification(
 
 async fn update_notification(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Path(notification_id): Path<i32>,
     Json(body): Json<CreateNotificationBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -201,6 +205,7 @@ async fn update_notification(
 
 async fn delete_notification(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Path(notification_id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
     let deleted = state.services.server_notification_service
@@ -215,6 +220,7 @@ async fn delete_notification(
 
 async fn deactivate_notification(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Path(notification_id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
     state.services.server_notification_service
@@ -225,6 +231,7 @@ async fn deactivate_notification(
 
 async fn schedule_notification(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Path(notification_id): Path<i32>,
     Json(body): Json<ScheduleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -236,6 +243,7 @@ async fn schedule_notification(
 
 async fn broadcast_notification(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Path(notification_id): Path<i32>,
     Json(body): Json<BroadcastBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -247,6 +255,7 @@ async fn broadcast_notification(
 
 async fn list_templates(
     State(state): State<AppState>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let templates = state.services.server_notification_service.list_templates().await?;
     Ok(Json(templates))
@@ -254,6 +263,7 @@ async fn list_templates(
 
 async fn create_template(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Json(body): Json<CreateTemplateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateTemplateRequest {
@@ -272,6 +282,7 @@ async fn create_template(
 
 async fn get_template(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let template = state.services.server_notification_service
@@ -283,6 +294,7 @@ async fn get_template(
 
 async fn delete_template(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let deleted = state.services.server_notification_service
@@ -297,6 +309,7 @@ async fn delete_template(
 
 async fn create_from_template(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Json(body): Json<CreateFromTemplateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let notification = state.services.server_notification_service

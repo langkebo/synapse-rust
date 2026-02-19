@@ -12,17 +12,6 @@ pub struct AccessToken {
     pub invalidated_ts: Option<i64>,
 }
 
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct RefreshToken {
-    pub id: i64,
-    pub token: String,
-    pub user_id: String,
-    pub device_id: String,
-    pub created_ts: i64,
-    pub expires_ts: i64,
-    pub invalidated_ts: Option<i64>,
-}
-
 #[derive(Clone)]
 pub struct AccessTokenStorage {
     pub pool: Arc<Pool<Postgres>>,
@@ -130,69 +119,5 @@ impl AccessTokenStorage {
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.is_some())
-    }
-}
-
-#[derive(Clone)]
-pub struct RefreshTokenStorage {
-    pub pool: Arc<Pool<Postgres>>,
-}
-
-impl RefreshTokenStorage {
-    pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
-        Self { pool: pool.clone() }
-    }
-
-    pub async fn create_refresh_token(
-        &self,
-        token: &str,
-        user_id: &str,
-        device_id: &str,
-        expires_ts: Option<i64>,
-    ) -> Result<RefreshToken, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
-        let row = sqlx::query_as::<_, RefreshToken>(
-            r#"
-            INSERT INTO refresh_tokens (token, user_id, device_id, created_ts, expires_ts)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, token, user_id, device_id, created_ts, expires_ts, invalidated_ts
-            "#,
-        )
-        .bind(token)
-        .bind(user_id)
-        .bind(device_id)
-        .bind(now)
-        .bind(expires_ts)
-        .fetch_one(&*self.pool)
-        .await?;
-        Ok(row)
-    }
-
-    pub async fn get_refresh_token(
-        &self,
-        token: &str,
-    ) -> Result<Option<RefreshToken>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RefreshToken>(
-            r#"
-            SELECT id, token, user_id, device_id, created_ts, expires_ts, invalidated_ts
-            FROM refresh_tokens WHERE token = $1
-            "#,
-        )
-        .bind(token)
-        .fetch_optional(&*self.pool)
-        .await?;
-        Ok(row)
-    }
-
-    pub async fn delete_refresh_token(&self, token: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"
-            DELETE FROM refresh_tokens WHERE token = $1
-            "#,
-        )
-        .bind(token)
-        .execute(&*self.pool)
-        .await?;
-        Ok(())
     }
 }

@@ -66,8 +66,10 @@ impl RefreshTokenService {
         }
 
         let now = chrono::Utc::now().timestamp_millis();
-        if token_record.expires_at < now {
-            return Err(ApiError::unauthorized("Token has expired"));
+        if let Some(expires_at) = token_record.expires_at {
+            if expires_at < now {
+                return Err(ApiError::unauthorized("Token has expired"));
+            }
         }
 
         Ok(token_record)
@@ -135,16 +137,32 @@ impl RefreshTokenService {
         self.storage.record_rotation(&family_id, Some(&old_token_hash), &new_token_hash, "refresh").await
             .map_err(|e| ApiError::internal(format!("Failed to record rotation: {}", e)))?;
 
-        self.storage.record_usage(
+        let usage_request = RecordUsageRequest::new(
             old_token.id,
             &old_token.user_id,
-            old_token.access_token_id.as_deref(),
             new_access_token_id,
-            ip_address,
-            user_agent,
             true,
-            None,
-        ).await.ok();
+        );
+        
+        let usage_request = if let Some(old_at) = &old_token.access_token_id {
+            usage_request.old_access_token_id(old_at)
+        } else {
+            usage_request
+        };
+        
+        let usage_request = if let Some(ip) = ip_address {
+            usage_request.ip_address(ip)
+        } else {
+            usage_request
+        };
+        
+        let usage_request = if let Some(ua) = user_agent {
+            usage_request.user_agent(ua)
+        } else {
+            usage_request
+        };
+        
+        self.storage.record_usage(&usage_request).await.ok();
 
         Ok((new_refresh_token, new_token_record))
     }

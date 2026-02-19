@@ -471,7 +471,7 @@ impl ServiceContainer {
                 .min_connections(5)
                 .acquire_timeout(std::time::Duration::from_secs(2))
                 .connect_lazy(&db_url)
-                .unwrap(),
+                .expect("Failed to create test database pool"),
         );
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let config = Config {
@@ -485,6 +485,10 @@ impl ServiceContainer {
                 form_secret: None,
                 server_name: None,
                 suppress_key_server_warning: false,
+                serve_server_wellknown: false,
+                soft_file_limit: 0,
+                user_agent_suffix: None,
+                web_client_location: None,
                 registration_shared_secret: None,
                 admin_contact: None,
                 max_upload_size: 1000000,
@@ -534,6 +538,9 @@ impl ServiceContainer {
                 client_ca_file: None,
                 signing_key: None,
                 key_id: None,
+                trusted_key_servers: vec![],
+                key_refresh_interval: 86400,
+                suppress_key_server_warning: false,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -561,6 +568,7 @@ impl ServiceContainer {
             url_preview: crate::common::config::UrlPreviewConfig::default(),
             oidc: crate::common::config::OidcConfig::default(),
             saml: crate::common::config::SamlConfig::default(),
+            retention: crate::common::config::RetentionConfig::default(),
             telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
             jaeger: crate::common::telemetry_config::JaegerConfig::default(),
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),

@@ -117,6 +117,62 @@ pub struct QueueNotificationRequest {
     pub priority: i32,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CreateNotificationLogRequest {
+    pub user_id: String,
+    pub device_id: String,
+    pub event_id: Option<String>,
+    pub room_id: Option<String>,
+    pub notification_type: Option<String>,
+    pub push_type: String,
+    pub success: bool,
+    pub error_message: Option<String>,
+    pub provider_response: Option<String>,
+    pub response_time_ms: Option<i32>,
+}
+
+impl CreateNotificationLogRequest {
+    pub fn new(user_id: impl Into<String>, device_id: impl Into<String>, push_type: impl Into<String>, success: bool) -> Self {
+        Self {
+            user_id: user_id.into(),
+            device_id: device_id.into(),
+            push_type: push_type.into(),
+            success,
+            ..Default::default()
+        }
+    }
+
+    pub fn event_id(mut self, event_id: impl Into<String>) -> Self {
+        self.event_id = Some(event_id.into());
+        self
+    }
+
+    pub fn room_id(mut self, room_id: impl Into<String>) -> Self {
+        self.room_id = Some(room_id.into());
+        self
+    }
+
+    pub fn notification_type(mut self, notification_type: impl Into<String>) -> Self {
+        self.notification_type = Some(notification_type.into());
+        self
+    }
+
+    pub fn error_message(mut self, error_message: impl Into<String>) -> Self {
+        self.error_message = Some(error_message.into());
+        self
+    }
+
+    pub fn provider_response(mut self, provider_response: impl Into<String>) -> Self {
+        self.provider_response = Some(provider_response.into());
+        self
+    }
+
+    pub fn response_time_ms(mut self, response_time_ms: i32) -> Self {
+        self.response_time_ms = Some(response_time_ms);
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PushNotificationStorage {
     pool: Arc<PgPool>,
@@ -417,16 +473,7 @@ impl PushNotificationStorage {
 
     pub async fn create_notification_log(
         &self,
-        user_id: &str,
-        device_id: &str,
-        event_id: Option<&str>,
-        room_id: Option<&str>,
-        notification_type: Option<&str>,
-        push_type: &str,
-        success: bool,
-        error_message: Option<&str>,
-        provider_response: Option<&str>,
-        response_time_ms: Option<i32>,
+        request: &CreateNotificationLogRequest,
     ) -> Result<PushNotificationLog, ApiError> {
         let row = sqlx::query_as::<_, PushNotificationLog>(
             r#"
@@ -438,16 +485,16 @@ impl PushNotificationStorage {
             RETURNING *
             "#,
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(event_id)
-        .bind(room_id)
-        .bind(notification_type)
-        .bind(push_type)
-        .bind(success)
-        .bind(error_message)
-        .bind(provider_response)
-        .bind(response_time_ms)
+        .bind(&request.user_id)
+        .bind(&request.device_id)
+        .bind(&request.event_id)
+        .bind(&request.room_id)
+        .bind(&request.notification_type)
+        .bind(&request.push_type)
+        .bind(request.success)
+        .bind(&request.error_message)
+        .bind(&request.provider_response)
+        .bind(request.response_time_ms)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create notification log: {}", e)))?;

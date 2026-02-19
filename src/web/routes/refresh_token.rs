@@ -12,8 +12,7 @@ use crate::common::ApiError;
 use crate::storage::refresh_token::{
     RefreshToken, RefreshTokenUsage, RefreshTokenStats,
 };
-use crate::web::routes::AuthenticatedUser;
-use crate::web::routes::AppState;
+use crate::web::routes::{AdminUser, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryLimit {
@@ -49,7 +48,7 @@ pub struct RefreshTokenResponse {
     pub user_id: String,
     pub device_id: Option<String>,
     pub scope: Option<String>,
-    pub expires_at: i64,
+    pub expires_at: Option<i64>,
     pub created_ts: i64,
     pub last_used_ts: Option<i64>,
     pub use_count: i32,
@@ -139,7 +138,7 @@ pub async fn refresh(
 pub async fn get_user_tokens(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let tokens = state.services.refresh_token_service.get_user_tokens(&user_id).await?;
 
@@ -151,7 +150,7 @@ pub async fn get_user_tokens(
 pub async fn get_active_tokens(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let tokens = state.services.refresh_token_service.get_active_tokens(&user_id).await?;
 
@@ -163,10 +162,14 @@ pub async fn get_active_tokens(
 pub async fn revoke_token(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<RevokeTokenRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let reason = body.reason.unwrap_or_else(|| "User requested".to_string());
+    let _token = state.services.refresh_token_storage.get_token_by_id(id).await
+        .map_err(|e| ApiError::internal(format!("Failed to get token: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Token not found"))?;
+
+    let reason = body.reason.unwrap_or_else(|| "Admin requested".to_string());
 
     state.services.refresh_token_service.revoke_token_by_id(id, &reason).await?;
 
@@ -176,7 +179,7 @@ pub async fn revoke_token(
 pub async fn revoke_all_tokens(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<RevokeAllTokensRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let count = state.services.refresh_token_service.revoke_all_user_tokens(&user_id, &body.reason).await?;
@@ -190,7 +193,7 @@ pub async fn revoke_all_tokens(
 pub async fn get_token_stats(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let stats = state.services.refresh_token_service.get_user_stats(&user_id).await?
         .ok_or_else(|| ApiError::not_found("Token stats not found"))?;
@@ -201,7 +204,7 @@ pub async fn get_token_stats(
 pub async fn get_usage_history(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(50);
@@ -214,7 +217,7 @@ pub async fn get_usage_history(
 
 pub async fn cleanup_expired_tokens(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let count = state.services.refresh_token_service.cleanup_expired_tokens().await?;
 
@@ -226,7 +229,7 @@ pub async fn cleanup_expired_tokens(
 pub async fn delete_token(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let token = state.services.refresh_token_storage.get_token_by_id(id).await
         .map_err(|e| ApiError::internal(format!("Failed to get token: {}", e)))?

@@ -9,7 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
-use crate::storage::application_service::{RegisterApplicationServiceRequest, ApplicationService, ApplicationServiceUser};
+use crate::storage::application_service::{RegisterApplicationServiceRequest, ApplicationService, ApplicationServiceUser, UpdateApplicationServiceRequest};
 use crate::web::routes::AuthenticatedUser;
 use crate::web::routes::AppState;
 
@@ -186,15 +186,28 @@ pub async fn update_app_service(
     _auth_user: AuthenticatedUser,
     Json(body): Json<UpdateAppServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let service = state.services.app_service_manager.update(
-        &as_id,
-        body.url.as_deref(),
-        body.name.as_deref(),
-        body.description.as_deref(),
-        body.rate_limited,
-        body.protocols.as_deref(),
-        body.is_active,
-    ).await?;
+    let mut request = UpdateApplicationServiceRequest::new();
+    
+    if let Some(url) = body.url {
+        request = request.url(url);
+    }
+    if let Some(name) = body.name {
+        request = request.name(name);
+    }
+    if let Some(description) = body.description {
+        request = request.description(description);
+    }
+    if let Some(rate_limited) = body.rate_limited {
+        request = request.rate_limited(rate_limited);
+    }
+    if let Some(protocols) = body.protocols {
+        request = request.protocols(protocols);
+    }
+    if let Some(is_active) = body.is_active {
+        request = request.is_active(is_active);
+    }
+    
+    let service = state.services.app_service_manager.update(&as_id, request).await?;
     
     Ok(Json(AppServiceResponse::from(service)))
 }

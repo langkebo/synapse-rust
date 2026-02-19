@@ -576,6 +576,83 @@ impl SamlConfig {
     }
 }
 
+/// 消息保留策略配置。
+///
+/// 配置自动删除旧消息的策略。
+#[derive(Debug, Clone, Deserialize)]
+pub struct RetentionConfig {
+    /// 是否启用消息保留
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// 默认保留策略
+    #[serde(default)]
+    pub default_policy: Option<RetentionPolicy>,
+
+    /// 最小允许保留期（秒）
+    #[serde(default)]
+    pub allowed_lifetime_min: Option<u64>,
+
+    /// 最大允许保留期（秒）
+    #[serde(default)]
+    pub allowed_lifetime_max: Option<u64>,
+
+    /// 是否清理已删除消息
+    #[serde(default = "default_retention_purge_jobs")]
+    pub purge_jobs: Vec<RetentionPurgeJob>,
+}
+
+/// 保留策略
+#[derive(Debug, Clone, Deserialize)]
+pub struct RetentionPolicy {
+    /// 最小保留期（秒）
+    #[serde(default)]
+    pub min_lifetime: Option<u64>,
+
+    /// 最大保留期（秒）
+    #[serde(default)]
+    pub max_lifetime: Option<u64>,
+}
+
+/// 保留清理任务
+#[derive(Debug, Clone, Deserialize)]
+pub struct RetentionPurgeJob {
+    /// 清理间隔（秒）
+    #[serde(default = "default_purge_job_interval")]
+    pub interval: u64,
+
+    /// 每次清理的最大房间数
+    #[serde(default = "default_purge_job_batch_size")]
+    pub batch_size: u32,
+}
+
+fn default_retention_purge_jobs() -> Vec<RetentionPurgeJob> {
+    vec![RetentionPurgeJob {
+        interval: default_purge_job_interval(),
+        batch_size: default_purge_job_batch_size(),
+    }]
+}
+
+fn default_purge_job_interval() -> u64 {
+    86400
+}
+
+fn default_purge_job_batch_size() -> u32 {
+    100
+}
+
+impl Default for RetentionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_policy: None,
+            allowed_lifetime_min: None,
+            allowed_lifetime_max: None,
+            purge_jobs: default_retention_purge_jobs(),
+        }
+    }
+}
+
 /// 服务器配置结构。
 ///
 /// Matrix Homeserver 的主配置类，包含所有配置子项。
@@ -626,6 +703,9 @@ pub struct Config {
     /// SAML 单点登录配置
     #[serde(default)]
     pub saml: SamlConfig,
+    /// 消息保留策略配置
+    #[serde(default)]
+    pub retention: RetentionConfig,
     /// OpenTelemetry 配置
     #[serde(default)]
     pub telemetry: crate::common::telemetry_config::OpenTelemetryConfig,
@@ -983,6 +1063,32 @@ pub struct ServerConfig {
     #[serde(default = "default_suppress_key_server_warning")]
     pub suppress_key_server_warning: bool,
 
+    /// 是否提供 .well-known 服务
+    ///
+    /// 启用后，服务器将在 https://<server_name>/.well-known/matrix/server
+    /// 提供服务，告诉其他服务器将联邦流量发送到端口 443 而非 8448。
+    #[serde(default)]
+    pub serve_server_wellknown: bool,
+
+    /// 文件描述符软限制
+    ///
+    /// 设置 synapse 可以使用的文件描述符数量的软限制。
+    /// 设置为 0 表示使用硬限制。
+    #[serde(default)]
+    pub soft_file_limit: u32,
+
+    /// 用户代理后缀
+    ///
+    /// 附加到 Synapse 用户代理字符串后的后缀。
+    #[serde(default)]
+    pub user_agent_suffix: Option<String>,
+
+    /// Web 客户端位置
+    ///
+    /// 当用户访问根路径时重定向到的 Web 客户端 URL。
+    #[serde(default)]
+    pub web_client_location: Option<String>,
+
     // ===== 原有字段 =====
 
     /// 注册共享密钥（用于管理员注册）
@@ -1138,6 +1244,39 @@ pub struct FederationConfig {
     pub signing_key: Option<String>,
     /// 密钥 ID
     pub key_id: Option<String>,
+    /// 信任的密钥服务器列表
+    ///
+    /// 用于获取其他服务器的签名密钥。默认包含 matrix.org。
+    /// 格式: [{"server_name": "matrix.org", "verify_keys": {"ed25519:auto": "key"}}]
+    #[serde(default = "default_trusted_key_servers")]
+    pub trusted_key_servers: Vec<TrustedKeyServer>,
+    /// 密钥刷新间隔（秒）
+    #[serde(default = "default_key_refresh_interval")]
+    pub key_refresh_interval: u64,
+    /// 是否抑制密钥服务器警告
+    #[serde(default)]
+    pub suppress_key_server_warning: bool,
+}
+
+/// 信任的密钥服务器配置
+#[derive(Debug, Clone, Deserialize)]
+pub struct TrustedKeyServer {
+    /// 服务器名称
+    pub server_name: String,
+    /// 验证密钥（可选）
+    #[serde(default)]
+    pub verify_keys: Option<HashMap<String, String>>,
+}
+
+fn default_trusted_key_servers() -> Vec<TrustedKeyServer> {
+    vec![TrustedKeyServer {
+        server_name: "matrix.org".to_string(),
+        verify_keys: None,
+    }]
+}
+
+fn default_key_refresh_interval() -> u64 {
+    86400
 }
 
 /// 安全配置。
@@ -1373,13 +1512,25 @@ impl Config {
         let config_path = std::env::var("SYNAPSE_CONFIG_PATH")
             .unwrap_or_else(|_| "/app/config/homeserver.yaml".to_string());
 
+        tracing::info!("Loading configuration from: {}", config_path);
+
         let config = ConfigBuilder::builder()
             .add_source(config::File::with_name(&config_path))
             .add_source(config::Environment::with_prefix("SYNAPSE"))
             .build()?;
 
         let mut config_values: Config = config.try_deserialize()?;
+        
+        tracing::info!("Configuration loaded, resolving environment variables...");
+        tracing::debug!("Before resolution - federation.signing_key: {:?}", config_values.federation.signing_key);
+        tracing::debug!("Before resolution - security.secret: {}", config_values.security.secret);
+        
         config_values.resolve_env_variables();
+        
+        tracing::info!("Environment variables resolved successfully");
+        tracing::debug!("After resolution - federation.signing_key: {:?}", config_values.federation.signing_key);
+        tracing::debug!("After resolution - security.secret: {}", config_values.security.secret);
+        
         Ok(config_values)
     }
 
@@ -1393,6 +1544,8 @@ impl Config {
         self.server.server_name = self.server.server_name.take().map(|v| resolve_env_in_string(&v));
         self.server.registration_shared_secret = self.server.registration_shared_secret.take().map(|v| resolve_env_in_string(&v));
         self.server.admin_contact = self.server.admin_contact.take().map(|v| resolve_env_in_string(&v));
+        self.server.user_agent_suffix = self.server.user_agent_suffix.take().map(|v| resolve_env_in_string(&v));
+        self.server.web_client_location = self.server.web_client_location.take().map(|v| resolve_env_in_string(&v));
 
         self.database.host = resolve_env_in_string(&self.database.host);
         self.database.username = resolve_env_in_string(&self.database.username);
@@ -1412,6 +1565,10 @@ impl Config {
         self.federation.key_id = self.federation.key_id.take().map(|v| resolve_env_in_string(&v));
         self.federation.ca_file = self.federation.ca_file.take().map(|v| PathBuf::from(resolve_env_in_string(&v.to_string_lossy())));
         self.federation.client_ca_file = self.federation.client_ca_file.take().map(|v| PathBuf::from(resolve_env_in_string(&v.to_string_lossy())));
+        
+        for server in &mut self.federation.trusted_key_servers {
+            server.server_name = resolve_env_in_string(&server.server_name);
+        }
 
         self.security.secret = resolve_env_in_string(&self.security.secret);
 
@@ -1434,6 +1591,8 @@ impl Config {
             self.saml.metadata_url = self.saml.metadata_url.take().map(|v| resolve_env_in_string(&v));
             self.saml.sp_entity_id = resolve_env_in_string(&self.saml.sp_entity_id);
         }
+
+        self.admin_registration.shared_secret = resolve_env_in_string(&self.admin_registration.shared_secret);
 
         if self.voip.is_enabled() {
             self.voip.turn_shared_secret = self.voip.turn_shared_secret.take().map(|v| resolve_env_in_string(&v));
@@ -1461,12 +1620,12 @@ impl Config {
 }
 
 fn resolve_env_in_string(value: &str) -> String {
-    let re = Regex::new(r"\$\{([^}]+)\}").unwrap();
+    let re = Regex::new(r"\$\{([^}]+)\}").expect("Invalid regex pattern for env variable substitution");
     let mut result = value.to_string();
     
     for cap in re.captures_iter(value) {
-        let full_match = cap.get(0).unwrap().as_str();
-        let inner = cap.get(1).unwrap().as_str();
+        let full_match = cap.get(0).expect("Regex capture group 0 should always exist").as_str();
+        let inner = cap.get(1).expect("Regex capture group 1 should always exist").as_str();
         
         let replacement = if inner.contains(":-") {
             let parts: Vec<&str> = inner.splitn(2, ":-").collect();
@@ -1524,6 +1683,10 @@ mod tests {
                 form_secret: None,
                 server_name: None,
                 suppress_key_server_warning: false,
+                serve_server_wellknown: false,
+                soft_file_limit: 0,
+                user_agent_suffix: None,
+                web_client_location: None,
                 registration_shared_secret: None,
                 admin_contact: None,
                 max_upload_size: 1000000,
@@ -1573,6 +1736,9 @@ mod tests {
                 client_ca_file: None,
                 signing_key: Some("test_signing_key".to_string()),
                 key_id: Some("ed25519:test_key".to_string()),
+                trusted_key_servers: vec![],
+                key_refresh_interval: 86400,
+                suppress_key_server_warning: false,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -1602,6 +1768,7 @@ mod tests {
             url_preview: UrlPreviewConfig::default(),
             oidc: OidcConfig::default(),
             saml: SamlConfig::default(),
+            retention: RetentionConfig::default(),
             telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
             jaeger: crate::common::telemetry_config::JaegerConfig::default(),
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
@@ -1624,6 +1791,10 @@ mod tests {
                 form_secret: None,
                 server_name: None,
                 suppress_key_server_warning: false,
+                serve_server_wellknown: false,
+                soft_file_limit: 0,
+                user_agent_suffix: None,
+                web_client_location: None,
                 registration_shared_secret: None,
                 admin_contact: None,
                 max_upload_size: 1000000,
@@ -1673,6 +1844,9 @@ mod tests {
                 client_ca_file: None,
                 signing_key: Some("test_signing_key".to_string()),
                 key_id: Some("ed25519:test_key".to_string()),
+                trusted_key_servers: vec![],
+                key_refresh_interval: 86400,
+                suppress_key_server_warning: false,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -1702,6 +1876,7 @@ mod tests {
             url_preview: UrlPreviewConfig::default(),
             oidc: OidcConfig::default(),
             saml: SamlConfig::default(),
+            retention: RetentionConfig::default(),
             telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
             jaeger: crate::common::telemetry_config::JaegerConfig::default(),
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
@@ -1723,6 +1898,10 @@ mod tests {
             form_secret: None,
             server_name: None,
             suppress_key_server_warning: false,
+            serve_server_wellknown: false,
+            soft_file_limit: 0,
+            user_agent_suffix: None,
+            web_client_location: None,
             registration_shared_secret: Some("secret".to_string()),
             admin_contact: Some("admin@example.com".to_string()),
             max_upload_size: 50000000,
@@ -1805,6 +1984,9 @@ mod tests {
             client_ca_file: None,
             signing_key: None,
             key_id: None,
+            trusted_key_servers: vec![],
+            key_refresh_interval: 86400,
+            suppress_key_server_warning: false,
         };
 
         assert!(config.enabled);

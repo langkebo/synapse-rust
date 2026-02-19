@@ -714,7 +714,12 @@ fn canonical_federation_request_bytes(
     if let Some(content) = content {
         obj.insert("content".to_string(), content.clone());
     }
-    canonical_json_bytes(&Value::Object(obj))
+    let result = canonical_json_bytes(&Value::Object(obj));
+    tracing::debug!(
+        "Canonical request bytes: {}",
+        String::from_utf8_lossy(&result)
+    );
+    result
 }
 
 fn canonical_json_bytes(value: &Value) -> Vec<u8> {
@@ -831,6 +836,13 @@ async fn verify_federation_signature(
         Err(_) => return Err(ApiError::unauthorized("Invalid public key".to_string())),
     };
 
+    tracing::debug!(
+        "Verifying signature for origin={}, key_id={}, signed_bytes={}",
+        origin,
+        key_id,
+        String::from_utf8_lossy(signed_bytes)
+    );
+
     match verifying_key.verify_strict(signed_bytes, &signature_bytes) {
         Ok(()) => Ok(()),
         Err(e) => {
@@ -909,11 +921,61 @@ async fn get_federation_verify_key(
         }
     }
 
+    if origin == state.services.server_name {
+        if let Some(key) = get_local_verify_key(state, key_id) {
+            let key_str = base64::engine::general_purpose::STANDARD_NO_PAD.encode(key);
+            let ttl = 3600u64;
+            let _ = state.cache.set(&cache_key, &key_str, ttl).await;
+            return Ok(key);
+        }
+    }
+
     let fetched = fetch_federation_verify_key(origin, key_id).await?;
     let ttl = 3600u64;
     let _ = state.cache.set(&cache_key, &fetched, ttl).await;
     decode_ed25519_public_key(&fetched)
         .map_err(|_| ApiError::unauthorized("Invalid public key".to_string()))
+}
+
+fn get_local_verify_key(state: &crate::web::routes::AppState, key_id: &str) -> Option<[u8; 32]> {
+    let config = &state.services.config.federation;
+    
+    if !config.enabled {
+        return None;
+    }
+    
+    let config_key_id = config.key_id.as_deref().unwrap_or("ed25519:1");
+    if key_id != config_key_id {
+        return None;
+    }
+    
+    let signing_key = config.signing_key.as_deref()?;
+    let signing_key_bytes = decode_base64_32(signing_key)?;
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_bytes);
+    let verifying_key = signing_key.verifying_key();
+    
+    Some(*verifying_key.as_bytes())
+}
+
+fn decode_base64_32(value: &str) -> Option<[u8; 32]> {
+    let value = value.trim();
+    let engines = [
+        base64::engine::general_purpose::STANDARD,
+        base64::engine::general_purpose::STANDARD_NO_PAD,
+        base64::engine::general_purpose::URL_SAFE,
+        base64::engine::general_purpose::URL_SAFE_NO_PAD,
+    ];
+
+    for engine in engines {
+        if let Ok(bytes) = engine.decode(value) {
+            if bytes.len() == 32 {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes);
+                return Some(arr);
+            }
+        }
+    }
+    None
 }
 
 async fn fetch_federation_verify_key(origin: &str, key_id: &str) -> Result<String, ApiError> {
@@ -1010,6 +1072,8 @@ fn decode_ed25519_signature(sig: &str) -> Result<ed25519_dalek::Signature, ()> {
     let engines = [
         base64::engine::general_purpose::STANDARD,
         base64::engine::general_purpose::STANDARD_NO_PAD,
+        base64::engine::general_purpose::URL_SAFE,
+        base64::engine::general_purpose::URL_SAFE_NO_PAD,
     ];
 
     for engine in engines {

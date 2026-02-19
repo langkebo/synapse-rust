@@ -1,0 +1,1 @@
+2026/02/18 21:00:07 [error] 30#30: *7 open() "/etc/nginx/html/.well-known/matrix/server" failed (2: No such file or directory), client: 10.168.3.50, server: matrix.cjystx.top, request: "GET /.well-known/matrix/server HTTP/2.0", host: "matrix.cjystx.top"
