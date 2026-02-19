@@ -1,22 +1,46 @@
+# ============================================================================
+# Synapse Rust Docker Compose Configuration
+# ============================================================================
+# 使用方法:
+#   首次部署:
+#     cd /home/hula/synapse_rust/synapse
+#     cargo build --release
+#     docker build -f docker/Dockerfile -t synapse-rust:latest .
+#     cd docker && docker compose up -d
+#
+#   日常运维:
+#     docker compose up -d      # 启动服务
+#     docker compose down       # 停止服务
+#     docker compose logs -f    # 查看日志
+#     docker compose ps         # 查看状态
+# ============================================================================
+
 services:
+  # ==========================================================================
+  # Synapse Rust - Matrix Homeserver
+  # ==========================================================================
   synapse-rust:
     image: synapse-rust:latest
     container_name: synapse-rust
     restart: unless-stopped
     ports:
       - "8008:8008"
+      - "9090:9090"
     environment:
-      - DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
-      - REDIS_URL=redis://redis:6379
-      - RUST_LOG=info
-      - RUST_BACKTRACE=1
-      - SERVER_NAME=cjystx.top
-      - SECRET_KEY=${SECRET_KEY:-e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d}
+      - RUST_LOG=${RUST_LOG:-info}
+      - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
+      - SERVER_NAME=${SERVER_NAME:-cjystx.top}
       - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
-      - TZ=Asia/Shanghai
+      - TZ=${TZ:-Asia/Shanghai}
+      - SECRET_KEY=${SECRET_KEY}
+      - MACAROON_SECRET=${MACAROON_SECRET}
+      - FORM_SECRET=${FORM_SECRET}
+      - REGISTRATION_SECRET=${REGISTRATION_SECRET}
+      - ADMIN_SECRET=${ADMIN_SECRET}
+      - FEDERATION_SIGNING_KEY=${FEDERATION_SIGNING_KEY}
+      - DB_PASSWORD=${DB_PASSWORD:-synapse}
     volumes:
       - ./data:/app/data
-      - media_data:/app/data/media
       - ./logs:/app/logs
       - ./config:/app/config:ro
     depends_on:
@@ -48,15 +72,19 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ==========================================================================
+  # PostgreSQL - Primary Database
+  # ==========================================================================
   db:
     image: postgres:15-alpine
     container_name: synapse-postgres
     restart: unless-stopped
     environment:
       - POSTGRES_USER=synapse
-      - POSTGRES_PASSWORD=synapse
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-synapse}
       - POSTGRES_DB=synapse_test
-      - TZ=Asia/Shanghai
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+      - TZ=${TZ:-Asia/Shanghai}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -77,22 +105,26 @@ services:
           memory: 256M
     command: >
       postgres
-      -c shared_buffers=512MB
-      -c effective_cache_size=1GB
-      -c maintenance_work_mem=128MB
+      -c shared_buffers=256MB
+      -c effective_cache_size=512MB
+      -c maintenance_work_mem=64MB
       -c work_mem=16MB
-      -c max_connections=150
+      -c max_connections=100
       -c random_page_cost=1.1
       -c effective_io_concurrency=200
       -c checkpoint_timeout=30min
-      -c max_wal_size=1GB
-      -c min_wal_size=80MB
+      -c max_wal_size=512MB
+      -c min_wal_size=64MB
+      -c log_min_duration_statement=1000
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
+  # ==========================================================================
+  # Redis - Cache & Session Store
+  # ==========================================================================
   redis:
     image: redis:7-alpine
     container_name: synapse-redis
@@ -103,6 +135,7 @@ services:
       --maxmemory 256mb
       --maxmemory-policy allkeys-lru
       --save 60 1000
+      --tcp-backlog 511
     volumes:
       - redis_data:/data
     ports:
@@ -127,6 +160,9 @@ services:
         max-size: "5m"
         max-file: "3"
 
+  # ==========================================================================
+  # Nginx - Reverse Proxy & SSL Termination
+  # ==========================================================================
   nginx:
     image: nginx:alpine
     container_name: synapse-nginx
@@ -156,14 +192,18 @@ services:
         max-size: "10m"
         max-file: "3"
 
+# ============================================================================
+# Volumes
+# ============================================================================
 volumes:
   postgres_data:
     driver: local
   redis_data:
     driver: local
-  media_data:
-    driver: local
 
+# ============================================================================
+# Networks
+# ============================================================================
 networks:
   synapse_network:
     driver: bridge

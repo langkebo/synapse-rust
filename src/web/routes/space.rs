@@ -9,7 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
-use crate::storage::space::{CreateSpaceRequest, AddChildRequest};
+use crate::storage::space::{CreateSpaceRequest, AddChildRequest, UpdateSpaceRequest};
 use crate::web::routes::AuthenticatedUser;
 use crate::web::routes::AppState;
 
@@ -201,16 +201,28 @@ pub async fn update_space(
     auth_user: AuthenticatedUser,
     Json(body): Json<UpdateSpaceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let space = state.services.space_service.update_space(
-        &space_id,
-        body.name.as_deref(),
-        body.topic.as_deref(),
-        body.avatar_url.as_deref(),
-        body.join_rule.as_deref(),
-        body.visibility.as_deref(),
-        body.is_public,
-        &auth_user.user_id,
-    ).await?;
+    let mut request = UpdateSpaceRequest::new();
+    
+    if let Some(name) = body.name {
+        request = request.name(name);
+    }
+    if let Some(topic) = body.topic {
+        request = request.topic(topic);
+    }
+    if let Some(avatar_url) = body.avatar_url {
+        request = request.avatar_url(avatar_url);
+    }
+    if let Some(join_rule) = body.join_rule {
+        request = request.join_rule(join_rule);
+    }
+    if let Some(visibility) = body.visibility {
+        request = request.visibility(visibility);
+    }
+    if let Some(is_public) = body.is_public {
+        request = request.is_public(is_public);
+    }
+    
+    let space = state.services.space_service.update_space(&space_id, &request, &auth_user.user_id).await?;
     
     Ok(Json(SpaceResponse::from(space)))
 }

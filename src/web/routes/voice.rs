@@ -12,11 +12,13 @@ use regex::Regex;
 use serde_json::Value;
 
 static SQL_INJECTION_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|CREATE|TRUNCATE)\b|--|;|' OR '|' AND ')").unwrap()
+    Regex::new(r"(?i)(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|CREATE|TRUNCATE)\b|--|;|' OR '|' AND ')")
+        .expect("Invalid SQL injection regex pattern")
 });
 
 static XSS_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(<script>|</script>|<iframe>|javascript:|onload=|onerror=|onmouseover=|alert\(|eval\()").unwrap()
+    Regex::new(r"(?i)(<script>|</script>|<iframe>|javascript:|onload=|onerror=|onmouseover=|alert\(|eval\()")
+        .expect("Invalid XSS regex pattern")
 });
 
 fn contains_sql_injection(input: &str) -> bool {
@@ -308,13 +310,11 @@ async fn upload_voice_message(
                 kind.mime_type()
             )));
         }
-    } else {
-        if !content_type.starts_with("audio/") && content_type != "application/ogg" {
-            return Err(ApiError::bad_request(format!(
-                "Invalid content_type: {}. Expected audio type.",
-                content_type
-            )));
-        }
+    } else if !content_type.starts_with("audio/") && content_type != "application/ogg" {
+        return Err(ApiError::bad_request(format!(
+            "Invalid content_type: {}. Expected audio type.",
+            content_type
+        )));
     }
 
     // 3. Duration Validation

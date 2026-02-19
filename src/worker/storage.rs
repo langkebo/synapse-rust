@@ -108,6 +108,48 @@ impl From<WorkerEventRow> for WorkerEvent {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct UpdateConnectionStatsRequest {
+    pub source_worker_id: String,
+    pub target_worker_id: String,
+    pub connection_type: String,
+    pub bytes_sent: i64,
+    pub bytes_received: i64,
+    pub messages_sent: i64,
+    pub messages_received: i64,
+}
+
+impl UpdateConnectionStatsRequest {
+    pub fn new(source_worker_id: impl Into<String>, target_worker_id: impl Into<String>, connection_type: impl Into<String>) -> Self {
+        Self {
+            source_worker_id: source_worker_id.into(),
+            target_worker_id: target_worker_id.into(),
+            connection_type: connection_type.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn bytes_sent(mut self, bytes_sent: i64) -> Self {
+        self.bytes_sent = bytes_sent;
+        self
+    }
+
+    pub fn bytes_received(mut self, bytes_received: i64) -> Self {
+        self.bytes_received = bytes_received;
+        self
+    }
+
+    pub fn messages_sent(mut self, messages_sent: i64) -> Self {
+        self.messages_sent = messages_sent;
+        self
+    }
+
+    pub fn messages_received(mut self, messages_received: i64) -> Self {
+        self.messages_received = messages_received;
+        self
+    }
+}
+
 #[derive(Clone)]
 pub struct WorkerStorage {
     pool: Arc<PgPool>,
@@ -563,13 +605,7 @@ impl WorkerStorage {
 
     pub async fn update_connection_stats(
         &self,
-        source_worker_id: &str,
-        target_worker_id: &str,
-        connection_type: &str,
-        bytes_sent: i64,
-        bytes_received: i64,
-        messages_sent: i64,
-        messages_received: i64,
+        request: &UpdateConnectionStatsRequest,
     ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         
@@ -584,14 +620,14 @@ impl WorkerStorage {
             WHERE source_worker_id = $1 AND target_worker_id = $2 AND connection_type = $3
             "#,
         )
-        .bind(source_worker_id)
-        .bind(target_worker_id)
-        .bind(connection_type)
+        .bind(&request.source_worker_id)
+        .bind(&request.target_worker_id)
+        .bind(&request.connection_type)
         .bind(now)
-        .bind(bytes_sent)
-        .bind(bytes_received)
-        .bind(messages_sent)
-        .bind(messages_received)
+        .bind(request.bytes_sent)
+        .bind(request.bytes_received)
+        .bind(request.messages_sent)
+        .bind(request.messages_received)
         .execute(&*self.pool)
         .await?;
 

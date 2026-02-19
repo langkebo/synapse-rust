@@ -126,8 +126,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Metrics server listening on {}", metrics_addr);
     
     let metrics_handle = tokio::spawn(async move {
-        let listener = tokio::net::TcpListener::bind(metrics_addr).await.unwrap();
-        axum::serve(listener, metrics_app).await.unwrap();
+        match tokio::net::TcpListener::bind(metrics_addr).await {
+            Ok(listener) => {
+                if let Err(e) = axum::serve(listener, metrics_app).await {
+                    tracing::error!("Metrics server error: {}", e);
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to bind metrics server on {}: {}", metrics_addr, e);
+            }
+        }
     });
 
     // Alerting / Monitoring Loop

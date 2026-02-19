@@ -188,7 +188,7 @@ curl http://localhost:8008/_matrix/client/versions
 | 5 | `/_matrix/client/r0/directory/room/{room_id}/alias` | GET | 获取房间别名列表 | ✅ | ✅ 已通过 |
 | 6 | `/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}` | PUT | 设置房间别名 | ✅ | ✅ 已通过 |
 
-### 4.10 账户数据 API (10 个端点)
+### 4.10 账户数据 API (14 个端点)
 
 | 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
 |------|------|------|------|------|------|
@@ -202,6 +202,10 @@ curl http://localhost:8008/_matrix/client/versions
 | 8 | `/_matrix/client/r0/user/{user_id}/rooms/{room_id}/account_data/{type}` | GET | 获取房间账户数据 (r0) | ✅ | ✅ 已通过 |
 | 9 | `/_matrix/client/v3/user/{user_id}/filter` | PUT | 创建过滤器 | ✅ | ✅ 已通过 |
 | 10 | `/_matrix/client/v3/user/{user_id}/filter/{filter_id}` | GET | 获取过滤器 | ✅ | ✅ 已通过 |
+| 11 | `/_matrix/client/r0/user/{user_id}/filter` | PUT | 创建过滤器 (r0) | ✅ | ✅ 已通过 |
+| 12 | `/_matrix/client/r0/user/{user_id}/filter/{filter_id}` | GET | 获取过滤器 (r0) | ✅ | ✅ 已通过 |
+| 13 | `/_matrix/client/v3/user/{user_id}/openid/request_token` | GET | 获取 OpenID 令牌 | ✅ | ✅ 已通过 |
+| 14 | `/_matrix/client/r0/user/{user_id}/openid/request_token` | GET | 获取 OpenID 令牌 (r0) | ✅ | ✅ 已通过 |
 
 ### 4.11 E2EE 密钥管理 API (6 个端点)
 
@@ -384,7 +388,7 @@ curl http://localhost:8008/_matrix/client/versions
 | 1 | `/_synapse/admin/v1/register/nonce` | GET | 获取注册随机数 | ❌ | ✅ 已通过 |
 | 2 | `/_synapse/admin/v1/register` | POST | 管理员注册 | ❌ | ✅ 已通过 |
 
-### 4.20 联邦通信 API (30 个端点)
+### 4.20 联邦通信 API (39 个端点)
 
 #### 4.20.1 服务器发现
 
@@ -394,6 +398,8 @@ curl http://localhost:8008/_matrix/client/versions
 | 2 | `/_matrix/federation/v1/version` | GET | 获取服务器版本 | ❌ | ✅ 已通过 |
 | 3 | `/_matrix/federation/v1` | GET | 联邦发现 | ❌ | ✅ 已通过 |
 | 4 | `/_matrix/federation/v2/server` | GET | 获取服务器信息 | ❌ | ✅ 已通过 |
+| 5 | `/_matrix/federation/v2/query/{server_name}/{key_id}` | GET | 密钥查询 | ❌ | ✅ 已通过 |
+| 6 | `/_matrix/key/v2/query/{server_name}/{key_id}` | GET | 密钥查询 (v2) | ❌ | ✅ 已通过 |
 
 #### 4.20.2 事件操作
 
@@ -405,6 +411,7 @@ curl http://localhost:8008/_matrix/client/versions
 | 4 | `/_matrix/federation/v1/backfill/{room_id}` | GET | 回填事件 | ✅ Fed | ✅ 已通过 |
 | 5 | `/_matrix/federation/v1/get_missing_events/{room_id}` | POST | 获取缺失事件 | ✅ Fed | ✅ 已通过 |
 | 6 | `/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}` | GET | 获取事件授权 | ✅ Fed | ✅ 已通过 |
+| 7 | `/_matrix/federation/v1/room/{room_id}/{event_id}` | GET | 获取房间事件 | ❌ | ✅ 已通过 |
 
 #### 4.20.3 房间操作
 
@@ -419,6 +426,10 @@ curl http://localhost:8008/_matrix/client/versions
 | 7 | `/_matrix/federation/v1/send/{txn_id}` | PUT | 发送事务 | ✅ Fed | ✅ 已通过 |
 | 8 | `/_matrix/federation/v1/members/{room_id}` | GET | 获取房间成员 | ✅ Fed | ✅ 已通过 |
 | 9 | `/_matrix/federation/v1/members/{room_id}/joined` | GET | 获取已加入成员 | ✅ Fed | ✅ 已通过 |
+| 10 | `/_matrix/federation/v1/room_auth/{room_id}` | GET | 获取房间授权 | ✅ Fed | ✅ 已通过 |
+| 11 | `/_matrix/federation/v1/knock/{room_id}/{user_id}` | GET | 敲门请求 | ✅ Fed | ✅ 已通过 |
+| 12 | `/_matrix/federation/v1/thirdparty/invite` | POST | 第三方邀请 | ✅ Fed | ✅ 已通过 |
+| 13 | `/_matrix/federation/v1/get_joining_rules/{room_id}` | GET | 获取加入规则 | ✅ Fed | ✅ 已通过 |
 
 #### 4.20.4 查询操作
 
@@ -426,8 +437,9 @@ curl http://localhost:8008/_matrix/client/versions
 |------|------|------|------|------|------|
 | 1 | `/_matrix/federation/v1/query/profile/{user_id}` | GET | 查询用户资料 | ✅ Fed | ✅ 已通过 |
 | 2 | `/_matrix/federation/v1/query/directory/room/{room_id}` | GET | 查询房间目录 | ✅ Fed | ✅ 已通过 |
-| 3 | `/_matrix/federation/v1/user/devices/{user_id}` | GET | 获取用户设备 | ✅ Fed | ✅ 已通过 |
-| 4 | `/_matrix/federation/v1/publicRooms` | GET | 获取公开房间 | ❌ | ✅ 已通过 |
+| 3 | `/_matrix/federation/v1/query/destination` | GET | 查询目标 | ✅ Fed | ✅ 已通过 |
+| 4 | `/_matrix/federation/v1/user/devices/{user_id}` | GET | 获取用户设备 | ✅ Fed | ✅ 已通过 |
+| 5 | `/_matrix/federation/v1/publicRooms` | GET | 获取公开房间 | ❌ | ✅ 已通过 |
 
 #### 4.20.5 密钥操作
 
@@ -436,8 +448,9 @@ curl http://localhost:8008/_matrix/client/versions
 | 1 | `/_matrix/federation/v1/keys/claim` | POST | 声明密钥 | ✅ Fed | ✅ 已通过 |
 | 2 | `/_matrix/federation/v1/keys/upload` | POST | 上传密钥 | ✅ Fed | ✅ 已通过 |
 | 3 | `/_matrix/federation/v2/user/keys/query` | POST | 查询用户密钥 | ✅ Fed | ✅ 已通过 |
+| 4 | `/_matrix/federation/v2/key/clone` | POST | 密钥克隆 | ✅ Fed | ✅ 已通过 |
 
-### 4.21 Space 功能 API (20 个端点)
+### 4.21 Space 功能 API (22 个端点)
 
 | 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
 |------|------|------|------|------|------|
@@ -459,27 +472,38 @@ curl http://localhost:8008/_matrix/client/versions
 | 16 | `/_matrix/client/v1/spaces/{space_id}/hierarchy` | GET | 获取 Space 层级 | ✅ | ✅ 已通过 |
 | 17 | `/_matrix/client/v1/spaces/{space_id}/hierarchy/v1` | GET | 获取 Space 层级 (v1) | ✅ | ✅ 已通过 |
 | 18 | `/_matrix/client/v1/spaces/{space_id}/summary` | GET | 获取 Space 摘要 | ✅ | ✅ 已通过 |
-| 19 | `/_matrix/client/v1/spaces/room/{room_id}` | GET | 通过房间获取 Space | ✅ | ✅ 已通过 |
-| 20 | `/_matrix/client/v1/spaces/room/{room_id}/parents` | GET | 获取父 Space | ✅ | ✅ 已通过 |
+| 19 | `/_matrix/client/v1/spaces/{space_id}/summary/with_children` | GET | 获取 Space 摘要含子房间 | ✅ | ✅ 已通过 |
+| 20 | `/_matrix/client/v1/spaces/{space_id}/tree_path` | GET | 获取 Space 树路径 | ✅ | ✅ 已通过 |
+| 21 | `/_matrix/client/v1/spaces/room/{room_id}` | GET | 通过房间获取 Space | ✅ | ✅ 已通过 |
+| 22 | `/_matrix/client/v1/spaces/room/{room_id}/parents` | GET | 获取父 Space | ✅ | ✅ 已通过 |
 
-### 4.22 应用服务 API (12 个端点)
+### 4.22 应用服务 API (22 个端点)
 
 | 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
 |------|------|------|------|------|------|
-| 1 | `/_matrix/app/v1/services` | POST | 注册应用服务 | ✅ | ✅ 已通过 |
-| 2 | `/_matrix/app/v1/services` | GET | 获取应用服务列表 | ✅ | ✅ 已通过 |
-| 3 | `/_matrix/app/v1/services/{as_id}` | GET | 获取应用服务 | ✅ | ✅ 已通过 |
-| 4 | `/_matrix/app/v1/services/{as_id}` | PUT | 更新应用服务 | ✅ | ✅ 已通过 |
-| 5 | `/_matrix/app/v1/services/{as_id}` | DELETE | 删除应用服务 | ✅ | ✅ 已通过 |
-| 6 | `/_matrix/app/v1/services/{as_id}/ping` | POST | Ping 应用服务 | ✅ | ✅ 已通过 |
-| 7 | `/_matrix/app/v1/services/{as_id}/state` | POST | 设置应用服务状态 | ✅ | ✅ 已通过 |
-| 8 | `/_matrix/app/v1/services/{as_id}/state/{state_key}` | GET | 获取应用服务状态 | ✅ | ✅ 已通过 |
-| 9 | `/_matrix/app/v1/services/{as_id}/states` | GET | 获取所有状态 | ✅ | ✅ 已通过 |
-| 10 | `/_matrix/app/v1/services/{as_id}/users` | POST | 注册虚拟用户 | ✅ | ✅ 已通过 |
-| 11 | `/_matrix/app/v1/services/{as_id}/users` | GET | 获取虚拟用户列表 | ✅ | ✅ 已通过 |
-| 12 | `/_matrix/app/v1/services/{as_id}/namespaces` | GET | 获取命名空间 | ✅ | ✅ 已通过 |
+| 1 | `/_matrix/app/v1/ping` | POST | Ping 应用服务 | ✅ | ✅ 已通过 |
+| 2 | `/_matrix/app/v1/transactions/{as_id}/{txn_id}` | PUT | 应用服务事务 | ✅ | ✅ 已通过 |
+| 3 | `/_matrix/app/v1/users/{user_id}` | GET | 应用服务用户查询 | ✅ | ✅ 已通过 |
+| 4 | `/_matrix/app/v1/rooms/{alias}` | GET | 应用服务房间别名查询 | ✅ | ✅ 已通过 |
+| 5 | `/_synapse/admin/v1/appservices` | GET | 获取应用服务列表 | ✅ Admin | ✅ 已通过 |
+| 6 | `/_synapse/admin/v1/appservices` | POST | 注册应用服务 | ✅ Admin | ✅ 已通过 |
+| 7 | `/_synapse/admin/v1/appservices/{as_id}` | GET | 获取应用服务 | ✅ Admin | ✅ 已通过 |
+| 8 | `/_synapse/admin/v1/appservices/{as_id}` | PUT | 更新应用服务 | ✅ Admin | ✅ 已通过 |
+| 9 | `/_synapse/admin/v1/appservices/{as_id}` | DELETE | 删除应用服务 | ✅ Admin | ✅ 已通过 |
+| 10 | `/_synapse/admin/v1/appservices/{as_id}/ping` | POST | Ping 应用服务 | ✅ Admin | ✅ 已通过 |
+| 11 | `/_synapse/admin/v1/appservices/{as_id}/state` | POST | 设置应用服务状态 | ✅ Admin | ✅ 已通过 |
+| 12 | `/_synapse/admin/v1/appservices/{as_id}/state` | GET | 获取应用服务状态列表 | ✅ Admin | ✅ 已通过 |
+| 13 | `/_synapse/admin/v1/appservices/{as_id}/state/{state_key}` | GET | 获取应用服务状态 | ✅ Admin | ✅ 已通过 |
+| 14 | `/_synapse/admin/v1/appservices/{as_id}/users` | POST | 注册虚拟用户 | ✅ Admin | ✅ 已通过 |
+| 15 | `/_synapse/admin/v1/appservices/{as_id}/users` | GET | 获取虚拟用户列表 | ✅ Admin | ✅ 已通过 |
+| 16 | `/_synapse/admin/v1/appservices/{as_id}/namespaces` | GET | 获取命名空间 | ✅ Admin | ✅ 已通过 |
+| 17 | `/_synapse/admin/v1/appservices/{as_id}/events` | GET | 获取待处理事件 | ✅ Admin | ✅ 已通过 |
+| 18 | `/_synapse/admin/v1/appservices/{as_id}/events` | POST | 推送事件 | ✅ Admin | ✅ 已通过 |
+| 19 | `/_synapse/admin/v1/appservices/query/user` | GET | 查询用户 | ✅ Admin | ✅ 已通过 |
+| 20 | `/_synapse/admin/v1/appservices/query/alias` | GET | 查询房间别名 | ✅ Admin | ✅ 已通过 |
+| 21 | `/_synapse/admin/v1/appservices/statistics` | GET | 获取统计信息 | ✅ Admin | ✅ 已通过 |
 
-### 4.23 Worker 架构 API (15 个端点)
+### 4.23 Worker 架构 API (20 个端点)
 
 | 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
 |------|------|------|------|------|------|
@@ -493,54 +517,194 @@ curl http://localhost:8008/_matrix/client/versions
 | 8 | `/_synapse/worker/v1/workers/{worker_id}/commands` | GET | 获取待处理命令 | ✅ | ✅ 已通过 |
 | 9 | `/_synapse/worker/v1/commands/{command_id}/complete` | POST | 完成命令 | ✅ | ✅ 已通过 |
 | 10 | `/_synapse/worker/v1/commands/{command_id}/fail` | POST | 失败命令 | ✅ | ✅ 已通过 |
-| 11 | `/_synapse/worker/v1/tasks/assign` | POST | 分配任务 | ✅ | ✅ 已通过 |
-| 12 | `/_synapse/worker/v1/workers/{worker_id}/tasks` | GET | 获取待处理任务 | ✅ | ✅ 已通过 |
-| 13 | `/_synapse/worker/v1/tasks/{task_id}/complete` | POST | 完成任务 | ✅ | ✅ 已通过 |
-| 14 | `/_synapse/worker/v1/tasks/{task_id}/fail` | POST | 失败任务 | ✅ | ✅ 已通过 |
-| 15 | `/_synapse/worker/v1/streams` | GET | 获取流位置 | ✅ | ✅ 已通过 |
+| 11 | `/_synapse/worker/v1/tasks` | POST | 分配任务 | ✅ | ✅ 已通过 |
+| 12 | `/_synapse/worker/v1/tasks` | GET | 获取待处理任务 | ✅ | ✅ 已通过 |
+| 13 | `/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}` | POST | 认领任务 | ✅ | ✅ 已通过 |
+| 14 | `/_synapse/worker/v1/tasks/{task_id}/complete` | POST | 完成任务 | ✅ | ✅ 已通过 |
+| 15 | `/_synapse/worker/v1/tasks/{task_id}/fail` | POST | 失败任务 | ✅ | ✅ 已通过 |
+| 16 | `/_synapse/worker/v1/replication/{worker_id}/position` | GET | 获取流位置 | ✅ | ✅ 已通过 |
+| 17 | `/_synapse/worker/v1/replication/{worker_id}/{stream_name}` | PUT | 更新流位置 | ✅ | ✅ 已通过 |
+| 18 | `/_synapse/worker/v1/events` | GET | 获取事件 | ✅ | ✅ 已通过 |
+| 19 | `/_synapse/worker/v1/statistics` | GET | 获取统计信息 | ✅ | ✅ 已通过 |
+| 20 | `/_synapse/worker/v1/statistics/types` | GET | 获取类型统计 | ✅ | ✅ 已通过 |
 
-### 4.24 房间摘要 API (12 个端点)
+#### 4.23.1 注册 Worker
+
+**请求体字段**:
+| 字段名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| worker_id | string | 是 | Worker唯一标识 |
+| worker_name | string | 是 | Worker名称 |
+| worker_type | string | 是 | Worker类型（见下方枚举值） |
+| host | string | 是 | 主机地址 |
+| port | number | 是 | 端口号 |
+| config | object | 否 | 配置信息 |
+| metadata | object | 否 | 元数据 |
+| version | string | 否 | 版本号 |
+
+**worker_type 枚举值**:
+- `master` - 主节点
+- `frontend` - 前端处理
+- `background` - 后台任务
+- `event_persister` - 事件持久化
+- `synchrotron` - 同步服务
+- `federation_sender` - 联邦发送
+- `federation_reader` - 联邦读取
+- `media_repository` - 媒体存储
+- `pusher` - 推送服务
+- `appservice` - 应用服务
+
+**响应示例**:
+```json
+{
+  "id": 1,
+  "worker_id": "worker_xxx",
+  "worker_name": "Test Worker",
+  "worker_type": "frontend",
+  "host": "localhost",
+  "port": 8080,
+  "status": "starting",
+  "last_heartbeat_ts": null,
+  "started_ts": 1771461746131
+}
+```
+
+#### 4.23.2 Worker 心跳
+
+**请求体字段**:
+| 字段名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| status | string | 是 | Worker状态（见下方枚举值） |
+| load_stats | object | 否 | 负载统计信息 |
+
+**status 枚举值**:
+- `starting` - 启动中
+- `running` - 运行中
+- `stopping` - 停止中
+- `stopped` - 已停止
+- `error` - 错误
+
+**load_stats 字段**:
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| cpu_percent | number | CPU使用百分比 |
+| memory_mb | number | 内存使用(MB) |
+| active_requests | number | 活跃请求数 |
+
+#### 4.23.3 发送命令
+
+**请求体字段**:
+| 字段名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| command_type | string | 是 | 命令类型 |
+| command_data | object | 是 | 命令数据 |
+| priority | number | 否 | 优先级 |
+| max_retries | number | 否 | 最大重试次数 |
+
+**响应示例**:
+```json
+{
+  "command_id": "deb47c76-76ca-43fa-9fcb-0cebb6e37d72",
+  "target_worker_id": "worker_xxx",
+  "command_type": "ping",
+  "status": "pending",
+  "created_ts": 1771461746271
+}
+```
+
+#### 4.23.4 分配任务
+
+**请求体字段**:
+| 字段名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| task_type | string | 是 | 任务类型 |
+| task_data | object | 是 | 任务数据 |
+| priority | number | 否 | 优先级 |
+| preferred_worker_id | string | 否 | 首选Worker ID |
+
+**响应示例**:
+```json
+{
+  "task_id": "731c9790-ad7a-4207-9489-c584614de046",
+  "task_type": "event_persist",
+  "status": "pending",
+  "assigned_worker_id": null
+}
+```
+
+#### 4.23.5 获取流位置
+
+**查询参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| stream_name | string | 是 | 流名称（如 events） |
+
+**响应示例**:
+```json
+{
+  "position": null,
+  "stream_name": "events",
+  "worker_id": "worker_xxx"
+}
+```
+
+### 4.24 房间摘要 API (18 个端点)
 
 | 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
 |------|------|------|------|------|------|
-| 1 | `/_matrix/client/v1/room_summary/{room_id}` | GET | 获取房间摘要 | ✅ | ✅ 已通过 |
-| 2 | `/_matrix/client/v1/room_summary` | POST | 创建房间摘要 | ✅ | ✅ 已通过 |
-| 3 | `/_matrix/client/v1/room_summary/{room_id}` | PUT | 更新房间摘要 | ✅ | ✅ 已通过 |
-| 4 | `/_matrix/client/v1/room_summary/{room_id}` | DELETE | 删除房间摘要 | ✅ | ✅ 已通过 |
-| 5 | `/_matrix/client/v1/room_summary/{room_id}/sync` | POST | 同步房间摘要 | ✅ | ✅ 已通过 |
-| 6 | `/_matrix/client/v1/room_summary/{room_id}/members` | GET | 获取摘要成员 | ✅ | ✅ 已通过 |
-| 7 | `/_matrix/client/v1/room_summary/{room_id}/members` | POST | 添加摘要成员 | ✅ | ✅ 已通过 |
-| 8 | `/_matrix/client/v1/room_summary/{room_id}/members/{user_id}` | PUT | 更新摘要成员 | ✅ | ✅ 已通过 |
-| 9 | `/_matrix/client/v1/room_summary/{room_id}/members/{user_id}` | DELETE | 删除摘要成员 | ✅ | ✅ 已通过 |
-| 10 | `/_matrix/client/v1/room_summary/{room_id}/state/{event_type}/{state_key}` | GET | 获取摘要状态 | ✅ | ✅ 已通过 |
-| 11 | `/_matrix/client/v1/room_summary/{room_id}/state` | GET | 获取所有摘要状态 | ✅ | ✅ 已通过 |
-| 12 | `/_matrix/client/v1/room_summary/{room_id}/stats` | GET | 获取摘要统计 | ✅ | ✅ 已通过 |
+| 1 | `/_matrix/client/v3/rooms/{room_id}/summary` | GET | 获取房间摘要 | ✅ | ✅ 已通过 |
+| 2 | `/_matrix/client/v3/rooms/{room_id}/summary` | PUT | 更新房间摘要 | ✅ | ✅ 已通过 |
+| 3 | `/_matrix/client/v3/rooms/{room_id}/summary` | DELETE | 删除房间摘要 | ✅ | ✅ 已通过 |
+| 4 | `/_matrix/client/v3/rooms/{room_id}/summary/sync` | POST | 同步房间摘要 | ✅ | ✅ 已通过 |
+| 5 | `/_matrix/client/v3/rooms/{room_id}/summary/members` | GET | 获取摘要成员 | ✅ | ✅ 已通过 |
+| 6 | `/_matrix/client/v3/rooms/{room_id}/summary/members` | POST | 添加摘要成员 | ✅ | ✅ 已通过 |
+| 7 | `/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}` | PUT | 更新摘要成员 | ✅ | ✅ 已通过 |
+| 8 | `/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}` | DELETE | 删除摘要成员 | ✅ | ✅ 已通过 |
+| 9 | `/_matrix/client/v3/rooms/{room_id}/summary/state` | GET | 获取所有摘要状态 | ✅ | ✅ 已通过 |
+| 10 | `/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}` | GET | 获取摘要状态 | ✅ | ✅ 已通过 |
+| 11 | `/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}` | PUT | 更新摘要状态 | ✅ | ✅ 已通过 |
+| 12 | `/_matrix/client/v3/rooms/{room_id}/summary/stats` | GET | 获取摘要统计 | ✅ | ✅ 已通过 |
+| 13 | `/_matrix/client/v3/rooms/{room_id}/summary/stats/recalculate` | POST | 重新计算统计 | ✅ | ✅ 已通过 |
+| 14 | `/_matrix/client/v3/rooms/{room_id}/summary/heroes/recalculate` | POST | 重新计算 Heroes | ✅ | ✅ 已通过 |
+| 15 | `/_matrix/client/v3/rooms/{room_id}/summary/unread/clear` | POST | 清除未读状态 | ✅ | ✅ 已通过 |
+| 16 | `/_synapse/room_summary/v1/summaries` | GET | 获取用户摘要列表 | ✅ | ✅ 已通过 |
+| 17 | `/_synapse/room_summary/v1/summaries` | POST | 创建房间摘要 | ✅ | ✅ 已通过 |
+| 18 | `/_synapse/room_summary/v1/updates/process` | POST | 处理更新 | ✅ | ✅ 已通过 |
 
-### 4.25 消息保留策略 API (10 个端点)
-
-| 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
-|------|------|------|------|------|------|
-| 1 | `/_matrix/client/v1/retention/room/{room_id}` | GET | 获取房间保留策略 | ✅ | ✅ 已通过 |
-| 2 | `/_matrix/client/v1/retention/room/{room_id}` | POST | 设置房间保留策略 | ✅ | ✅ 已通过 |
-| 3 | `/_matrix/client/v1/retention/room/{room_id}/effective` | GET | 获取有效保留策略 | ✅ | ✅ 已通过 |
-| 4 | `/_matrix/client/v1/retention/server` | GET | 获取服务器保留策略 | ✅ | ✅ 已通过 |
-| 5 | `/_matrix/client/v1/retention/server` | PUT | 设置服务器保留策略 | ✅ | ✅ 已通过 |
-| 6 | `/_matrix/client/v1/retention/cleanup/logs` | GET | 获取清理日志 | ✅ | ✅ 已通过 |
-| 7 | `/_matrix/client/v1/retention/cleanup/run` | POST | 运行清理 | ✅ | ✅ 已通过 |
-| 8 | `/_matrix/client/v1/retention/stats/{room_id}` | GET | 获取保留统计 | ✅ | ✅ 已通过 |
-| 9 | `/_matrix/client/v1/retention/deleted_events` | GET | 获取已删除事件 | ✅ | ✅ 已通过 |
-| 10 | `/_matrix/client/v1/retention/purge_user` | POST | 清理用户数据 | ✅ | ✅ 已通过 |
-
-### 4.26 刷新令牌 API (6 个端点)
+### 4.25 消息保留策略 API (16 个端点)
 
 | 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
 |------|------|------|------|------|------|
-| 1 | `/_matrix/client/v1/refresh` | POST | 刷新访问令牌 | ✅ | ✅ 已通过 |
-| 2 | `/_matrix/client/v1/tokens/{user_id}` | GET | 获取用户令牌 | ✅ | ✅ 已通过 |
-| 3 | `/_matrix/client/v1/tokens/{user_id}/active` | GET | 获取活跃令牌 | ✅ | ✅ 已通过 |
-| 4 | `/_matrix/client/v1/tokens/{id}` | DELETE | 撤销令牌 | ✅ | ✅ 已通过 |
-| 5 | `/_matrix/client/v1/tokens/{user_id}/revoke-all` | POST | 撤销所有令牌 | ✅ | ✅ 已通过 |
-| 6 | `/_matrix/client/v1/tokens/{user_id}/stats` | GET | 获取令牌统计 | ✅ | ✅ 已通过 |
+| 1 | `/_synapse/retention/v1/rooms/{room_id}/policy` | GET | 获取房间保留策略 | ✅ | ✅ 已通过 |
+| 2 | `/_synapse/retention/v1/rooms/{room_id}/policy` | POST | 设置房间保留策略 | ✅ | ✅ 已通过 |
+| 3 | `/_synapse/retention/v1/rooms/{room_id}/policy` | PUT | 更新房间保留策略 | ✅ | ✅ 已通过 |
+| 4 | `/_synapse/retention/v1/rooms/{room_id}/policy` | DELETE | 删除房间保留策略 | ✅ | ✅ 已通过 |
+| 5 | `/_synapse/retention/v1/rooms/{room_id}/effective_policy` | GET | 获取有效保留策略 | ✅ | ✅ 已通过 |
+| 6 | `/_synapse/retention/v1/rooms/{room_id}/cleanup` | POST | 运行清理 | ✅ | ✅ 已通过 |
+| 7 | `/_synapse/retention/v1/rooms/{room_id}/cleanup/schedule` | POST | 调度清理 | ✅ | ✅ 已通过 |
+| 8 | `/_synapse/retention/v1/rooms/{room_id}/stats` | GET | 获取保留统计 | ✅ | ✅ 已通过 |
+| 9 | `/_synapse/retention/v1/rooms/{room_id}/logs` | GET | 获取清理日志 | ✅ | ✅ 已通过 |
+| 10 | `/_synapse/retention/v1/rooms/{room_id}/deleted` | GET | 获取已删除事件 | ✅ | ✅ 已通过 |
+| 11 | `/_synapse/retention/v1/rooms/{room_id}/pending` | GET | 获取待处理清理数量 | ✅ | ✅ 已通过 |
+| 12 | `/_synapse/retention/v1/server/policy` | GET | 获取服务器保留策略 | ✅ | ✅ 已通过 |
+| 13 | `/_synapse/retention/v1/server/policy` | PUT | 设置服务器保留策略 | ✅ | ✅ 已通过 |
+| 14 | `/_synapse/retention/v1/rooms` | GET | 获取有策略的房间 | ✅ | ✅ 已通过 |
+| 15 | `/_synapse/retention/v1/cleanups/process` | POST | 处理待处理清理 | ✅ | ✅ 已通过 |
+| 16 | `/_synapse/retention/v1/cleanups/run_scheduled` | POST | 运行调度清理 | ✅ | ✅ 已通过 |
+
+### 4.26 刷新令牌 API (9 个端点)
+
+| 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
+|------|------|------|------|------|------|
+| 1 | `/_matrix/client/v3/refresh` | POST | 刷新访问令牌 | ✅ | ❌ 数据库表缺失 |
+| 2 | `/_synapse/admin/v1/users/{user_id}/tokens` | GET | 获取用户令牌 | ✅ | ❌ 数据库表结构不匹配 |
+| 3 | `/_synapse/admin/v1/users/{user_id}/tokens/active` | GET | 获取活跃令牌 | ✅ | ✅ 已通过 |
+| 4 | `/_synapse/admin/v1/users/{user_id}/tokens/stats` | GET | 获取令牌统计 | ✅ | ❌ 数据库表结构不匹配 |
+| 5 | `/_synapse/admin/v1/users/{user_id}/tokens/usage` | GET | 获取使用历史 | ✅ | ❌ 数据库表缺失 |
+| 6 | `/_synapse/admin/v1/users/{user_id}/tokens/revoke_all` | POST | 撤销所有令牌 | ✅ | ❌ 数据库表结构不匹配 |
+| 7 | `/_synapse/admin/v1/tokens/{id}/revoke` | POST | 撤销特定令牌 | ✅ | ⚠️ 需验证 |
+| 8 | `/_synapse/admin/v1/tokens/{id}` | DELETE | 删除令牌 | ✅ | ✅ 已通过 |
+| 9 | `/_synapse/admin/v1/tokens/cleanup` | POST | 清理过期令牌 | ✅ | ❌ 数据库表缺失 |
 
 ### 4.27 注册令牌 API (8 个端点)
 
@@ -581,51 +745,67 @@ curl http://localhost:8008/_matrix/client/versions
 | 7 | `/_synapse/admin/v1/background_updates/{job_name}/fail` | POST | 失败更新 | ✅ Admin | ✅ 已通过 |
 | 8 | `/_synapse/admin/v1/background_updates/pending` | GET | 获取待处理更新 | ✅ Admin | ✅ 已通过 |
 
-### 4.30 可插拔模块 API (15 个端点)
+### 4.30 可插拔模块 API (27 个端点)
 
 | 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
 |------|------|------|------|------|------|
-| 1 | `/_synapse/admin/v1/modules` | POST | 注册模块 | ✅ Admin | ✅ 已通过 |
-| 2 | `/_synapse/admin/v1/modules` | GET | 获取模块列表 | ✅ Admin | ✅ 已通过 |
-| 3 | `/_synapse/admin/v1/modules/{module_id}` | GET | 获取模块 | ✅ Admin | ✅ 已通过 |
-| 4 | `/_synapse/admin/v1/modules/{module_id}` | PUT | 更新模块配置 | ✅ Admin | ✅ 已通过 |
-| 5 | `/_synapse/admin/v1/modules/{module_id}` | DELETE | 注销模块 | ✅ Admin | ✅ 已通过 |
-| 6 | `/_synapse/admin/v1/modules/{module_id}/enable` | POST | 启用模块 | ✅ Admin | ✅ 已通过 |
-| 7 | `/_synapse/admin/v1/modules/{module_id}/disable` | POST | 禁用模块 | ✅ Admin | ✅ 已通过 |
-| 8 | `/_synapse/admin/v1/modules/spam/check` | POST | 检查垃圾信息 | ✅ Admin | ✅ 已通过 |
-| 9 | `/_synapse/admin/v1/modules/spam/results` | GET | 获取垃圾检查结果 | ✅ Admin | ✅ 已通过 |
-| 10 | `/_synapse/admin/v1/modules/third_party_rules/check` | POST | 检查第三方规则 | ✅ Admin | ✅ 已通过 |
-| 11 | `/_synapse/admin/v1/modules/account_validity` | POST | 创建账户有效期 | ✅ Admin | ✅ 已通过 |
-| 12 | `/_synapse/admin/v1/modules/account_validity/renew` | POST | 续期账户 | ✅ Admin | ✅ 已通过 |
-| 13 | `/_synapse/admin/v1/modules/password_providers` | POST | 创建密码认证提供者 | ✅ Admin | ✅ 已通过 |
-| 14 | `/_synapse/admin/v1/modules/presence_routes` | POST | 创建状态路由 | ✅ Admin | ✅ 已通过 |
-| 15 | `/_synapse/admin/v1/modules/media_callbacks` | POST | 创建媒体回调 | ✅ Admin | ✅ 已通过 |
+| 1 | `/_synapse/admin/v1/modules` | POST | 创建模块 | ✅ Admin | ✅ 已通过 |
+| 2 | `/_synapse/admin/v1/modules` | GET | 获取所有模块 | ✅ Admin | ✅ 已通过 |
+| 3 | `/_synapse/admin/v1/modules/type/{module_type}` | GET | 按类型获取模块 | ✅ Admin | ✅ 已通过 |
+| 4 | `/_synapse/admin/v1/modules/{module_name}` | GET | 获取模块 | ✅ Admin | ✅ 已通过 |
+| 5 | `/_synapse/admin/v1/modules/{module_name}/config` | PUT | 更新模块配置 | ✅ Admin | ✅ 已通过 |
+| 6 | `/_synapse/admin/v1/modules/{module_name}/enable` | POST | 启用/禁用模块 | ✅ Admin | ✅ 已通过 |
+| 7 | `/_synapse/admin/v1/modules/{module_name}` | DELETE | 删除模块 | ✅ Admin | ✅ 已通过 |
+| 8 | `/_synapse/admin/v1/modules/check_spam` | POST | 检查垃圾信息 | ✅ Admin | ✅ 已通过 |
+| 9 | `/_synapse/admin/v1/modules/check_third_party_rule` | POST | 检查第三方规则 | ✅ Admin | ✅ 已通过 |
+| 10 | `/_synapse/admin/v1/modules/spam_check/{event_id}` | GET | 获取垃圾检查结果 | ✅ Admin | ✅ 已通过 |
+| 11 | `/_synapse/admin/v1/modules/spam_check/sender/{sender}` | GET | 按发送者获取垃圾检查结果 | ✅ Admin | ✅ 已通过 |
+| 12 | `/_synapse/admin/v1/modules/third_party_rule/{event_id}` | GET | 获取第三方规则结果 | ✅ Admin | ✅ 已通过 |
+| 13 | `/_synapse/admin/v1/modules/logs/{module_name}` | GET | 获取执行日志 | ✅ Admin | ✅ 已通过 |
+| 14 | `/_synapse/admin/v1/account_validity` | POST | 创建账户有效期 | ✅ Admin | ✅ 已通过 |
+| 15 | `/_synapse/admin/v1/account_validity/{user_id}` | GET | 获取账户有效期 | ✅ Admin | ✅ 已通过 |
+| 16 | `/_synapse/admin/v1/account_validity/{user_id}/renew` | POST | 续期账户 | ✅ Admin | ✅ 已通过 |
+| 17 | `/_synapse/admin/v1/password_auth_providers` | POST | 创建密码认证提供者 | ✅ Admin | ✅ 已通过 |
+| 18 | `/_synapse/admin/v1/password_auth_providers` | GET | 获取密码认证提供者列表 | ✅ Admin | ✅ 已通过 |
+| 19 | `/_synapse/admin/v1/presence_routes` | POST | 创建状态路由 | ✅ Admin | ✅ 已通过 |
+| 20 | `/_synapse/admin/v1/presence_routes` | GET | 获取状态路由列表 | ✅ Admin | ✅ 已通过 |
+| 21 | `/_synapse/admin/v1/media_callbacks` | POST | 创建媒体回调 | ✅ Admin | ✅ 已通过 |
+| 22 | `/_synapse/admin/v1/media_callbacks` | GET | 获取所有媒体回调 | ✅ Admin | ✅ 已通过 |
+| 23 | `/_synapse/admin/v1/media_callbacks/{callback_type}` | GET | 按类型获取媒体回调 | ✅ Admin | ✅ 已通过 |
+| 24 | `/_synapse/admin/v1/rate_limit_callbacks` | POST | 创建限流回调 | ✅ Admin | ✅ 已通过 |
+| 25 | `/_synapse/admin/v1/rate_limit_callbacks` | GET | 获取限流回调列表 | ✅ Admin | ✅ 已通过 |
+| 26 | `/_synapse/admin/v1/account_data_callbacks` | POST | 创建账户数据回调 | ✅ Admin | ✅ 已通过 |
+| 27 | `/_synapse/admin/v1/account_data_callbacks` | GET | 获取账户数据回调列表 | ✅ Admin | ✅ 已通过 |
 
-### 4.31 SAML 认证 API (6 个端点)
+### 4.31 SAML 认证 API (9 个端点)
 
 | 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
 |------|------|------|------|------|------|
-| 1 | `/_matrix/client/v1/login/saml` | GET | SAML 登录 | ❌ | ✅ 已通过 |
-| 2 | `/_matrix/client/v1/login/saml/redirect` | GET | SAML 登录重定向 | ❌ | ✅ 已通过 |
-| 3 | `/_matrix/client/v1/login/saml/callback` | POST | SAML 回调 (POST) | ❌ | ✅ 已通过 |
-| 4 | `/_matrix/client/v1/login/saml/callback` | GET | SAML 回调 (GET) | ❌ | ✅ 已通过 |
-| 5 | `/_matrix/client/v1/login/saml/logout` | POST | SAML 登出 | ✅ | ✅ 已通过 |
-| 6 | `/_matrix/client/v1/login/saml/metadata` | GET | SAML 元数据 | ❌ | ✅ 已通过 |
+| 1 | `/_matrix/client/r0/login/sso/redirect/saml` | GET | SAML 登录重定向 | ❌ | ✅ 已通过 |
+| 2 | `/_matrix/client/r0/login/sso/redirect/saml` | POST | SAML 登录 | ❌ | ✅ 已通过 |
+| 3 | `/_matrix/client/r0/login/saml/callback` | GET | SAML 回调 (GET) | ❌ | ✅ 已通过 |
+| 4 | `/_matrix/client/r0/login/saml/callback` | POST | SAML 回调 (POST) | ❌ | ✅ 已通过 |
+| 5 | `/_matrix/client/r0/logout/saml` | GET | SAML 登出 | ✅ | ✅ 已通过 |
+| 6 | `/_matrix/client/r0/logout/saml/callback` | GET | SAML 登出回调 | ❌ | ✅ 已通过 |
+| 7 | `/_matrix/client/r0/saml/metadata` | GET | IdP 元数据 | ❌ | ✅ 已通过 |
+| 8 | `/_matrix/client/r0/saml/sp_metadata` | GET | SP 元数据 | ❌ | ✅ 已通过 |
+| 9 | `/_synapse/admin/v1/saml/metadata/refresh` | POST | 刷新 IdP 元数据 | ✅ Admin | ✅ 已通过 |
 
-### 4.32 CAS 认证 API (10 个端点)
+### 4.32 CAS 认证 API (11 个端点)
 
 | 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
 |------|------|------|------|------|------|
-| 1 | `/_matrix/client/v1/login/cas/login` | GET | CAS 登录 | ❌ | ✅ 已通过 |
-| 2 | `/_matrix/client/v1/login/cas/serviceValidate` | GET | CAS 服务验证 | ❌ | ✅ 已通过 |
-| 3 | `/_matrix/client/v1/login/cas/proxyValidate` | GET | CAS 代理验证 | ❌ | ✅ 已通过 |
-| 4 | `/_matrix/client/v1/login/cas/proxy` | GET | CAS 代理 | ❌ | ✅ 已通过 |
-| 5 | `/_matrix/client/v1/login/cas/p3/serviceValidate` | GET | CAS P3 服务验证 | ❌ | ✅ 已通过 |
-| 6 | `/_matrix/client/v1/login/cas/logout` | GET | CAS 登出 | ❌ | ✅ 已通过 |
-| 7 | `/_matrix/client/v1/login/cas/admin/services` | POST | 注册 CAS 服务 | ✅ Admin | ✅ 已通过 |
-| 8 | `/_matrix/client/v1/login/cas/admin/services` | GET | 获取 CAS 服务列表 | ✅ Admin | ✅ 已通过 |
-| 9 | `/_matrix/client/v1/login/cas/admin/services/{service_id}` | DELETE | 删除 CAS 服务 | ✅ Admin | ✅ 已通过 |
-| 10 | `/_matrix/client/v1/login/cas/admin/users/{user_id}/attributes` | POST | 设置用户属性 | ✅ Admin | ✅ 已通过 |
+| 1 | `/login` | GET | CAS 登录 | ❌ | ✅ 已通过 |
+| 2 | `/serviceValidate` | GET | CAS 服务验证 | ❌ | ✅ 已通过 |
+| 3 | `/proxyValidate` | GET | CAS 代理验证 | ❌ | ✅ 已通过 |
+| 4 | `/proxy` | GET | CAS 代理 | ❌ | ✅ 已通过 |
+| 5 | `/p3/serviceValidate` | GET | CAS P3 服务验证 | ❌ | ✅ 已通过 |
+| 6 | `/logout` | GET | CAS 登出 | ❌ | ✅ 已通过 |
+| 7 | `/admin/services` | POST | 注册 CAS 服务 | ✅ Admin | ✅ 已通过 |
+| 8 | `/admin/services` | GET | 获取 CAS 服务列表 | ✅ Admin | ✅ 已通过 |
+| 9 | `/admin/services/{service_id}` | DELETE | 删除 CAS 服务 | ✅ Admin | ✅ 已通过 |
+| 10 | `/admin/users/{user_id}/attributes` | POST | 设置用户属性 | ✅ Admin | ✅ 已通过 |
+| 11 | `/admin/users/{user_id}/attributes` | GET | 获取用户属性 | ✅ Admin | ✅ 已通过 |
 
 ### 4.33 验证码 API (4 个端点)
 
@@ -643,26 +823,32 @@ curl http://localhost:8008/_matrix/client/versions
 | 1 | `/_synapse/admin/v1/federation/blacklist` | POST | 添加到黑名单 | ✅ Admin | ✅ 已通过 |
 | 2 | `/_synapse/admin/v1/federation/blacklist/{server_name}` | DELETE | 从黑名单移除 | ✅ Admin | ✅ 已通过 |
 | 3 | `/_synapse/admin/v1/federation/blacklist/check` | GET | 检查服务器状态 | ✅ Admin | ✅ 已通过 |
-| 4 | `/_synapse/admin/v1/federation/blacklist` | GET | 获取黑名单列表 | ✅ Admin | ✅ 已通过 |
+| 4 | `/_synapse/admin/v1/federation/blacklist/list` | GET | 获取黑名单列表 | ✅ Admin | ✅ 已通过 |
 | 5 | `/_synapse/admin/v1/federation/blacklist/stats/{server_name}` | GET | 获取服务器统计 | ✅ Admin | ✅ 已通过 |
 | 6 | `/_synapse/admin/v1/federation/blacklist/rules` | POST | 创建规则 | ✅ Admin | ✅ 已通过 |
 | 7 | `/_synapse/admin/v1/federation/blacklist/rules` | GET | 获取规则列表 | ✅ Admin | ✅ 已通过 |
-| 8 | `/_synapse/admin/v1/federation/blacklist/rules/{rule_id}` | DELETE | 删除规则 | ✅ Admin | ✅ 已通过 |
+| 8 | `/_synapse/admin/v1/federation/blacklist/cleanup` | POST | 清理过期条目 | ✅ Admin | ✅ 已通过 |
 
-### 4.35 推送通知服务 API (10 个端点)
+> **注意**: 文档中原有的 `DELETE /_synapse/admin/v1/federation/blacklist/rules/{rule_id}` 端点在源码中不存在，已移除。
+
+### 4.35 推送通知服务 API (9 个端点)
 
 | 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
 |------|------|------|------|------|------|
-| 1 | `/_matrix/client/v1/push/devices` | POST | 注册推送设备 | ✅ | ✅ 已通过 |
-| 2 | `/_matrix/client/v1/push/devices/{device_id}` | DELETE | 注销推送设备 | ✅ | ✅ 已通过 |
-| 3 | `/_matrix/client/v1/push/devices` | GET | 获取用户设备 | ✅ | ✅ 已通过 |
-| 4 | `/_matrix/client/v1/push/send` | POST | 发送推送通知 | ✅ | ✅ 已通过 |
-| 5 | `/_matrix/client/v1/push/rules` | POST | 创建推送规则 | ✅ | ✅ 已通过 |
-| 6 | `/_matrix/client/v1/push/rules/{scope}/{kind}/{rule_id}` | GET | 获取推送规则 | ✅ | ✅ 已通过 |
-| 7 | `/_matrix/client/v1/push/rules/{scope}/{kind}/{rule_id}` | DELETE | 删除推送规则 | ✅ | ✅ 已通过 |
-| 8 | `/_matrix/client/v1/push/queue/process` | POST | 处理推送队列 | ✅ Admin | ✅ 已通过 |
-| 9 | `/_matrix/client/v1/push/history/{user_id}` | GET | 获取推送历史 | ✅ Admin | ✅ 已通过 |
-| 10 | `/_matrix/client/v1/push/cleanup` | POST | 清理过期推送 | ✅ Admin | ✅ 已通过 |
+| 1 | `/_matrix/client/r0/push/devices` | POST | 注册推送设备 | ✅ | ✅ 已通过 |
+| 2 | `/_matrix/client/r0/push/devices/{device_id}` | DELETE | 注销推送设备 | ✅ | ✅ 已通过 |
+| 3 | `/_matrix/client/r0/push/devices` | GET | 获取用户设备 | ✅ | ✅ 已通过 |
+| 4 | `/_matrix/client/r0/push/send` | POST | 发送推送通知 | ✅ | ✅ 已通过 |
+| 5 | `/_matrix/client/r0/push/rules` | POST | 创建推送规则 | ✅ | ✅ 已通过 |
+| 6 | `/_matrix/client/r0/push/rules` | GET | 获取推送规则列表 | ✅ | ✅ 已通过 |
+| 7 | `/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}` | DELETE | 删除推送规则 | ✅ | ✅ 已通过 |
+| 8 | `/_synapse/admin/v1/push/process` | POST | 处理推送队列 | ✅ Admin | ✅ 已通过 |
+| 9 | `/_synapse/admin/v1/push/cleanup` | POST | 清理过期推送 | ✅ Admin | ✅ 已通过 |
+
+> **注意**: 
+> - 文档中原有的 `GET /_matrix/client/v1/push/rules/{scope}/{kind}/{rule_id}` 端点在源码中不存在，已移除。
+> - 文档中原有的 `GET /_matrix/client/v1/push/history/{user_id}` 端点在源码中不存在，已移除。
+> - 端点路径已从 `/_matrix/client/v1/` 更正为 `/_matrix/client/r0/`。
 
 ### 4.36 遥测 API (4 个端点)
 
@@ -694,20 +880,24 @@ curl http://localhost:8008/_matrix/client/versions
 | 15 | `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/stats` | GET | 获取线程统计 | ✅ | ✅ 已通过 |
 | 16 | `/_matrix/client/v1/rooms/{room_id}/replies/{event_id}/redact` | POST | 撤回回复 | ✅ | ✅ 已通过 |
 
-### 4.38 媒体配额 API (8 个端点)
+### 4.38 媒体配额 API (12 个端点)
 
 | 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
 |------|------|------|------|------|------|
-| 1 | `/_matrix/client/v1/media/quota` | GET | 获取用户配额 | ✅ | ✅ 已通过 |
-| 2 | `/_matrix/client/v1/media/quota/usage` | GET | 获取用户使用量 | ✅ | ✅ 已通过 |
-| 3 | `/_matrix/client/v1/media/quota/check` | GET | 检查配额限制 | ✅ | ✅ 已通过 |
-| 4 | `/_synapse/admin/v1/media/quota/{user_id}` | GET | 获取用户配额 (Admin) | ✅ Admin | ✅ 已通过 |
-| 5 | `/_synapse/admin/v1/media/quota/{user_id}` | PUT | 设置用户配额 | ✅ Admin | ✅ 已通过 |
-| 6 | `/_synapse/admin/v1/media/quota/server` | GET | 获取服务器配额 | ✅ Admin | ✅ 已通过 |
-| 7 | `/_synapse/admin/v1/media/quota/server` | PUT | 设置服务器配额 | ✅ Admin | ✅ 已通过 |
-| 8 | `/_synapse/admin/v1/media/quota/stats` | GET | 获取配额统计 | ✅ Admin | ✅ 已通过 |
+| 1 | `/_matrix/media/v1/quota/check` | GET | 检查配额限制 | ✅ | ✅ 已通过 |
+| 2 | `/_matrix/media/v1/quota/upload` | POST | 记录上传 | ✅ | ✅ 已通过 |
+| 3 | `/_matrix/media/v1/quota/delete` | POST | 记录删除 | ✅ | ✅ 已通过 |
+| 4 | `/_matrix/media/v1/quota/stats` | GET | 获取使用统计 | ✅ | ✅ 已通过 |
+| 5 | `/_matrix/media/v1/quota/alerts` | GET | 获取告警 | ✅ | ✅ 已通过 |
+| 6 | `/_matrix/media/v1/quota/alerts/{alert_id}/read` | PUT | 标记告警已读 | ✅ | ✅ 已通过 |
+| 7 | `/_matrix/admin/v1/media/quota/configs` | GET | 获取配额配置列表 | ✅ Admin | ✅ 已通过 |
+| 8 | `/_matrix/admin/v1/media/quota/configs` | POST | 创建配额配置 | ✅ Admin | ✅ 已通过 |
+| 9 | `/_matrix/admin/v1/media/quota/configs/{config_id}` | DELETE | 删除配额配置 | ✅ Admin | ✅ 已通过 |
+| 10 | `/_matrix/admin/v1/media/quota/users` | POST | 设置用户配额 | ✅ Admin | ✅ 已通过 |
+| 11 | `/_matrix/admin/v1/media/quota/server` | GET | 获取服务器配额 | ✅ Admin | ✅ 已通过 |
+| 12 | `/_matrix/admin/v1/media/quota/server` | PUT | 设置服务器配额 | ✅ Admin | ✅ 已通过 |
 
-### 4.39 服务器通知 API (14 个端点)
+### 4.39 服务器通知 API (17 个端点)
 
 | 序号 | 端点 | 方法 | 描述 | 认证 | 状态 |
 |------|------|------|------|------|------|
@@ -715,16 +905,19 @@ curl http://localhost:8008/_matrix/client/versions
 | 2 | `/_matrix/client/v1/notifications/{notification_id}/read` | PUT | 标记通知已读 | ✅ | ✅ 已通过 |
 | 3 | `/_matrix/client/v1/notifications/{notification_id}/dismiss` | PUT | 关闭通知 | ✅ | ✅ 已通过 |
 | 4 | `/_matrix/client/v1/notifications/read-all` | PUT | 标记所有通知已读 | ✅ | ✅ 已通过 |
-| 5 | `/_synapse/admin/v1/notifications` | GET | 获取所有通知 | ✅ Admin | ✅ 已通过 |
-| 6 | `/_synapse/admin/v1/notifications` | POST | 创建通知 | ✅ Admin | ✅ 已通过 |
-| 7 | `/_synapse/admin/v1/notifications/{notification_id}` | GET | 获取通知 | ✅ Admin | ✅ 已通过 |
-| 8 | `/_synapse/admin/v1/notifications/{notification_id}` | PUT | 更新通知 | ✅ Admin | ✅ 已通过 |
-| 9 | `/_synapse/admin/v1/notifications/{notification_id}` | DELETE | 删除通知 | ✅ Admin | ✅ 已通过 |
-| 10 | `/_synapse/admin/v1/notifications/{notification_id}/deactivate` | POST | 停用通知 | ✅ Admin | ✅ 已通过 |
-| 11 | `/_synapse/admin/v1/notifications/{notification_id}/schedule` | POST | 调度通知 | ✅ Admin | ✅ 已通过 |
-| 12 | `/_synapse/admin/v1/notifications/{notification_id}/broadcast` | POST | 广播通知 | ✅ Admin | ✅ 已通过 |
-| 13 | `/_synapse/admin/v1/notification-templates` | GET | 获取通知模板列表 | ✅ Admin | ✅ 已通过 |
-| 14 | `/_synapse/admin/v1/notification-templates` | POST | 创建通知模板 | ✅ Admin | ✅ 已通过 |
+| 5 | `/_matrix/admin/v1/notifications` | GET | 获取所有通知 | ✅ Admin | ✅ 已通过 |
+| 6 | `/_matrix/admin/v1/notifications` | POST | 创建通知 | ✅ Admin | ✅ 已通过 |
+| 7 | `/_matrix/admin/v1/notifications/{notification_id}` | GET | 获取通知 | ✅ Admin | ✅ 已通过 |
+| 8 | `/_matrix/admin/v1/notifications/{notification_id}` | PUT | 更新通知 | ✅ Admin | ✅ 已通过 |
+| 9 | `/_matrix/admin/v1/notifications/{notification_id}` | DELETE | 删除通知 | ✅ Admin | ✅ 已通过 |
+| 10 | `/_matrix/admin/v1/notifications/{notification_id}/deactivate` | POST | 停用通知 | ✅ Admin | ✅ 已通过 |
+| 11 | `/_matrix/admin/v1/notifications/{notification_id}/schedule` | POST | 调度通知 | ✅ Admin | ✅ 已通过 |
+| 12 | `/_matrix/admin/v1/notifications/{notification_id}/broadcast` | POST | 广播通知 | ✅ Admin | ✅ 已通过 |
+| 13 | `/_matrix/admin/v1/notification-templates` | GET | 获取通知模板列表 | ✅ Admin | ✅ 已通过 |
+| 14 | `/_matrix/admin/v1/notification-templates` | POST | 创建通知模板 | ✅ Admin | ✅ 已通过 |
+| 15 | `/_matrix/admin/v1/notification-templates/{name}` | GET | 获取模板 | ✅ Admin | ✅ 已通过 |
+| 16 | `/_matrix/admin/v1/notification-templates/{name}` | DELETE | 删除模板 | ✅ Admin | ✅ 已通过 |
+| 17 | `/_matrix/admin/v1/notification-templates/create-notification` | POST | 从模板创建通知 | ✅ Admin | ✅ 已通过 |
 
 ---
 

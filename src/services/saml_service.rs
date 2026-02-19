@@ -411,13 +411,13 @@ impl SamlService {
         
         if let Some(start) = xml.find("<saml:NameID>") {
             if let Some(end) = xml[start..].find("</saml:NameID>") {
-                name_id = xml[start + 14..start + end].to_string();
+                name_id = xml[start + 13..start + end].to_string();
             }
         }
         
         if let Some(start) = xml.find("<saml:Issuer>") {
             if let Some(end) = xml[start..].find("</saml:Issuer>") {
-                issuer = xml[start + 14..start + end].to_string();
+                issuer = xml[start + 13..start + end].to_string();
             }
         }
         
@@ -437,7 +437,7 @@ impl SamlService {
                 
                 let value_start = attr_start + name_end;
                 if let Some(values_start) = xml[value_start..].find("<saml:AttributeValue>") {
-                    let vs = value_start + values_start + 20;
+                    let vs = value_start + values_start + 21;
                     if let Some(values_end) = xml[vs..].find("</saml:AttributeValue>") {
                         let value = xml[vs..vs + values_end].to_string();
                         attributes.entry(attr_name).or_insert_with(Vec::new).push(value);

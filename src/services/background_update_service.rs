@@ -17,8 +17,8 @@ impl BackgroundUpdateService {
     pub async fn create_update(&self, request: CreateBackgroundUpdateRequest) -> Result<BackgroundUpdate, ApiError> {
         info!("Creating background update: {}", request.job_name);
 
-        if let Some(_) = self.storage.get_update(&request.job_name).await
-            .map_err(|e| ApiError::internal(format!("Failed to check update: {}", e)))? {
+        if self.storage.get_update(&request.job_name).await
+            .map_err(|e| ApiError::internal(format!("Failed to check update: {}", e)))?.is_some() {
             return Err(ApiError::bad_request("Update job already exists"));
         }
 

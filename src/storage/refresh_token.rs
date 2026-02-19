@@ -11,7 +11,7 @@ pub struct RefreshToken {
     pub device_id: Option<String>,
     pub access_token_id: Option<String>,
     pub scope: Option<String>,
-    pub expires_at: i64,
+    pub expires_at: Option<i64>,
     pub created_ts: i64,
     pub last_used_ts: Option<i64>,
     pub use_count: i32,
@@ -57,7 +57,7 @@ pub struct RefreshTokenRotation {
     pub old_token_hash: Option<String>,
     pub new_token_hash: String,
     pub rotated_ts: i64,
-    pub rotation_reason: String,
+    pub rotation_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -67,7 +67,7 @@ pub struct TokenBlacklistEntry {
     pub token_type: String,
     pub user_id: String,
     pub revoked_ts: i64,
-    pub expires_at: i64,
+    pub expires_at: Option<i64>,
     pub reason: Option<String>,
 }
 
@@ -94,6 +94,50 @@ pub struct RotateRefreshTokenRequest {
     pub expires_at: i64,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RecordUsageRequest {
+    pub refresh_token_id: i64,
+    pub user_id: String,
+    pub old_access_token_id: Option<String>,
+    pub new_access_token_id: String,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub success: bool,
+    pub error_message: Option<String>,
+}
+
+impl RecordUsageRequest {
+    pub fn new(refresh_token_id: i64, user_id: impl Into<String>, new_access_token_id: impl Into<String>, success: bool) -> Self {
+        Self {
+            refresh_token_id,
+            user_id: user_id.into(),
+            new_access_token_id: new_access_token_id.into(),
+            success,
+            ..Default::default()
+        }
+    }
+
+    pub fn old_access_token_id(mut self, old_access_token_id: impl Into<String>) -> Self {
+        self.old_access_token_id = Some(old_access_token_id.into());
+        self
+    }
+
+    pub fn ip_address(mut self, ip_address: impl Into<String>) -> Self {
+        self.ip_address = Some(ip_address.into());
+        self
+    }
+
+    pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        self.user_agent = Some(user_agent.into());
+        self
+    }
+
+    pub fn error_message(mut self, error_message: impl Into<String>) -> Self {
+        self.error_message = Some(error_message.into());
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -279,7 +323,7 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
-    pub async fn record_usage(&self, refresh_token_id: i64, user_id: &str, old_access_token_id: Option<&str>, new_access_token_id: &str, ip_address: Option<&str>, user_agent: Option<&str>, success: bool, error_message: Option<&str>) -> Result<(), sqlx::Error> {
+    pub async fn record_usage(&self, request: &RecordUsageRequest) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -291,15 +335,15 @@ impl RefreshTokenStorage {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
         )
-        .bind(refresh_token_id)
-        .bind(user_id)
-        .bind(old_access_token_id)
-        .bind(new_access_token_id)
+        .bind(request.refresh_token_id)
+        .bind(&request.user_id)
+        .bind(&request.old_access_token_id)
+        .bind(&request.new_access_token_id)
         .bind(now)
-        .bind(ip_address)
-        .bind(user_agent)
-        .bind(success)
-        .bind(error_message)
+        .bind(&request.ip_address)
+        .bind(&request.user_agent)
+        .bind(request.success)
+        .bind(&request.error_message)
         .execute(&*self.pool)
         .await?;
 

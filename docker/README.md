@@ -22,7 +22,7 @@
 - **服务器域名**: `cjystx.top`
 - **Matrix 服务器**: `matrix.cjystx.top`
 - **用户格式**: `@user:cjystx.top`
-- **Federation 端口**: `443` (通过 Nginx 代理)
+- **Federation 端口**: `8448` (通过 Nginx 代理)
 - **客户端 API 端口**: `8008`
 
 ### 核心组件

@@ -4,6 +4,7 @@ use crate::common::crypto::{hash_password_with_params, verify_password as verify
 use crate::common::metrics::MetricsCollector;
 use crate::common::validation::Validator;
 use crate::common::*;
+use crate::storage::refresh_token::RefreshTokenStorage;
 use crate::storage::*;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, DecodingKey, EncodingKey, Header, Validation};
@@ -310,16 +311,24 @@ impl AuthService {
     }
 
     pub async fn refresh_token(&self, refresh_token: &str) -> ApiResult<(String, String, String)> {
+        let token_hash = Self::hash_token(refresh_token);
+        
         let token_data = self
             .refresh_token_storage
-            .get_refresh_token(refresh_token)
+            .get_token(&token_hash)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         match token_data {
             Some(t) => {
-                if t.expires_ts > 0 && t.expires_ts < Utc::now().timestamp() {
-                    return Err(ApiError::unauthorized("Refresh token expired".to_string()));
+                if t.is_revoked {
+                    return Err(ApiError::unauthorized("Refresh token has been revoked".to_string()));
+                }
+                
+                if let Some(expires_at) = t.expires_at {
+                    if expires_at < Utc::now().timestamp_millis() {
+                        return Err(ApiError::unauthorized("Refresh token expired".to_string()));
+                    }
                 }
 
                 let user = self
@@ -330,28 +339,29 @@ impl AuthService {
 
                 match user {
                     Some(u) => {
+                        let device_id = t.device_id.clone().unwrap_or_default();
                         let new_access_token = self
                             .generate_access_token(
                                 &u.user_id,
-                                &t.device_id,
+                                &device_id,
                                 u.is_admin.unwrap_or(false),
                             )
                             .await?;
                         let new_refresh_token = self
-                            .generate_refresh_token(&u.user_id, &t.device_id)
+                            .generate_refresh_token(&u.user_id, &device_id)
                             .await?;
 
                         self.refresh_token_storage
-                            .delete_refresh_token(refresh_token)
+                            .revoke_token(&token_hash, "Rotated")
                             .await
                             .map_err(|e| {
                                 ApiError::internal(format!(
-                                    "Failed to delete old refresh token: {}",
+                                    "Failed to revoke old refresh token: {}",
                                     e
                                 ))
                             })?;
 
-                        Ok((new_access_token, new_refresh_token, t.device_id))
+                        Ok((new_access_token, new_refresh_token, device_id))
                     }
                     _ => Err(ApiError::unauthorized("User not found".to_string())),
                 }
@@ -517,15 +527,36 @@ impl AuthService {
 
     async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String> {
         let token = generate_token(32);
-        let expiry_ts = Utc::now() + Duration::seconds(self.refresh_token_expiry);
-        let expiry_timestamp = expiry_ts.timestamp();
+        let token_hash = Self::hash_token(&token);
+        let expiry_ts = Utc::now().timestamp_millis() + (self.refresh_token_expiry * 1000);
+
+        let request = crate::storage::refresh_token::CreateRefreshTokenRequest {
+            token_hash: token_hash.clone(),
+            user_id: user_id.to_string(),
+            device_id: Some(device_id.to_string()),
+            access_token_id: None,
+            scope: None,
+            expires_at: expiry_ts,
+            client_info: None,
+            ip_address: None,
+            user_agent: None,
+        };
 
         self.refresh_token_storage
-            .create_refresh_token(&token, user_id, device_id, Some(expiry_timestamp))
+            .create_token(request)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to store refresh token: {}", e)))?;
 
         Ok(token)
+    }
+
+    fn hash_token(token: &str) -> String {
+        use sha2::{Sha256, Digest};
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        let mut hasher = Sha256::new();
+        hasher.update(token.as_bytes());
+        let result = hasher.finalize();
+        URL_SAFE_NO_PAD.encode(result)
     }
 
     fn decode_token(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {

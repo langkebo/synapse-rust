@@ -12,7 +12,7 @@ use crate::common::ApiError;
 use crate::storage::background_update::{
     CreateBackgroundUpdateRequest, BackgroundUpdate, BackgroundUpdateHistory, BackgroundUpdateStats,
 };
-use crate::web::routes::AuthenticatedUser;
+use crate::web::routes::AdminUser;
 use crate::web::routes::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -131,7 +131,7 @@ impl From<BackgroundUpdateStats> for StatsResponse {
 
 pub async fn create_update(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CreateUpdateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateBackgroundUpdateRequest {
@@ -154,6 +154,7 @@ pub async fn create_update(
 
 pub async fn get_update(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(job_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = state.services.background_update_service.get_update(&job_name).await?
@@ -164,7 +165,7 @@ pub async fn get_update(
 
 pub async fn get_all_updates(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -179,7 +180,7 @@ pub async fn get_all_updates(
 
 pub async fn get_pending_updates(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let updates = state.services.background_update_service.get_pending_updates().await?;
 
@@ -190,7 +191,7 @@ pub async fn get_pending_updates(
 
 pub async fn get_running_updates(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let updates = state.services.background_update_service.get_running_updates().await?;
 
@@ -201,8 +202,8 @@ pub async fn get_running_updates(
 
 pub async fn start_update(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(job_name): Path<String>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = state.services.background_update_service.start_update(&job_name).await?;
 
@@ -211,8 +212,8 @@ pub async fn start_update(
 
 pub async fn update_progress(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(job_name): Path<String>,
-    _auth_user: AuthenticatedUser,
     Json(body): Json<UpdateProgressBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = state.services.background_update_service.update_progress(&job_name, body.items_processed, body.total_items).await?;
@@ -222,8 +223,8 @@ pub async fn update_progress(
 
 pub async fn complete_update(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(job_name): Path<String>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = state.services.background_update_service.complete_update(&job_name).await?;
 
@@ -232,8 +233,8 @@ pub async fn complete_update(
 
 pub async fn fail_update(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(job_name): Path<String>,
-    _auth_user: AuthenticatedUser,
     Json(body): Json<FailUpdateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = state.services.background_update_service.fail_update(&job_name, &body.error_message).await?;
@@ -243,8 +244,8 @@ pub async fn fail_update(
 
 pub async fn cancel_update(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(job_name): Path<String>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = state.services.background_update_service.cancel_update(&job_name).await?;
 
@@ -253,8 +254,8 @@ pub async fn cancel_update(
 
 pub async fn delete_update(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(job_name): Path<String>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state.services.background_update_service.delete_update(&job_name).await?;
 
@@ -263,8 +264,8 @@ pub async fn delete_update(
 
 pub async fn get_history(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(job_name): Path<String>,
-    _auth_user: AuthenticatedUser,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -278,7 +279,7 @@ pub async fn get_history(
 
 pub async fn retry_failed(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let count = state.services.background_update_service.retry_failed().await?;
 
@@ -289,7 +290,7 @@ pub async fn retry_failed(
 
 pub async fn cleanup_locks(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let count = state.services.background_update_service.cleanup_expired_locks().await?;
 
@@ -300,8 +301,8 @@ pub async fn cleanup_locks(
 
 pub async fn count_by_status(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(status): Path<String>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let count = state.services.background_update_service.count_by_status(&status).await?;
 
@@ -313,7 +314,7 @@ pub async fn count_by_status(
 
 pub async fn count_all(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let count = state.services.background_update_service.count_all().await?;
 
@@ -324,7 +325,7 @@ pub async fn count_all(
 
 pub async fn get_stats(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let days = query.limit.unwrap_or(30) as i32;
@@ -338,7 +339,7 @@ pub async fn get_stats(
 
 pub async fn get_next_pending(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = state.services.background_update_service.get_next_pending_update().await?;
 

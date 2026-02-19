@@ -26,7 +26,8 @@ impl RegistrationTokenService {
         let token = self.storage.create_token(request).await
             .map_err(|e| ApiError::internal(format!("Failed to create token: {}", e)))?;
 
-        info!("Created registration token: {}", token.token);
+        let token_preview: String = token.token.chars().take(4).collect();
+        info!("Created registration token: {}***", token_preview);
 
         Ok(token)
     }
@@ -89,6 +90,10 @@ impl RegistrationTokenService {
 
     #[instrument(skip(self))]
     pub async fn update_token(&self, id: i64, request: UpdateRegistrationTokenRequest) -> Result<RegistrationToken, ApiError> {
+        let _existing = self.storage.get_token_by_id(id).await
+            .map_err(|e| ApiError::internal(format!("Failed to check token: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Token not found"))?;
+
         let token = self.storage.update_token(id, request).await
             .map_err(|e| ApiError::internal(format!("Failed to update token: {}", e)))?;
 
@@ -97,6 +102,10 @@ impl RegistrationTokenService {
 
     #[instrument(skip(self))]
     pub async fn delete_token(&self, id: i64) -> Result<(), ApiError> {
+        let _existing = self.storage.get_token_by_id(id).await
+            .map_err(|e| ApiError::internal(format!("Failed to check token: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Token not found"))?;
+
         self.storage.delete_token(id).await
             .map_err(|e| ApiError::internal(format!("Failed to delete token: {}", e)))?;
 

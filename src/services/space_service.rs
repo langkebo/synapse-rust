@@ -100,12 +100,7 @@ impl SpaceService {
     pub async fn update_space(
         &self,
         space_id: &str,
-        name: Option<&str>,
-        topic: Option<&str>,
-        avatar_url: Option<&str>,
-        join_rule: Option<&str>,
-        visibility: Option<&str>,
-        is_public: Option<bool>,
+        request: &UpdateSpaceRequest,
         user_id: &str,
     ) -> Result<Space, ApiError> {
         info!("Updating space: space_id={}, user={}", space_id, user_id);
@@ -120,7 +115,7 @@ impl SpaceService {
         }
 
         let space = self.space_storage
-            .update_space(space_id, name, topic, avatar_url, join_rule, visibility, is_public)
+            .update_space(space_id, request)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update space: {}", e)))?;
 

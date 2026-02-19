@@ -13,8 +13,7 @@ use crate::storage::event_report::{
     CreateEventReportRequest, UpdateEventReportRequest,
     EventReport, EventReportHistory, EventReportStats,
 };
-use crate::web::routes::AuthenticatedUser;
-use crate::web::routes::AppState;
+use crate::web::routes::{AuthenticatedUser, AdminUser, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
@@ -163,6 +162,7 @@ pub async fn create_report(
 
 pub async fn get_report(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
     let report = state.services.event_report_service.get_report(id).await?
@@ -173,6 +173,7 @@ pub async fn get_report(
 
 pub async fn get_reports_by_event(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(event_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let reports = state.services.event_report_service.get_reports_by_event(&event_id).await?;
@@ -184,6 +185,7 @@ pub async fn get_reports_by_event(
 
 pub async fn get_reports_by_room(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(room_id): Path<String>,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -199,6 +201,7 @@ pub async fn get_reports_by_room(
 
 pub async fn get_reports_by_reporter(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(reporter_user_id): Path<String>,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -214,6 +217,7 @@ pub async fn get_reports_by_reporter(
 
 pub async fn get_reports_by_status(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(status): Path<String>,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -229,7 +233,7 @@ pub async fn get_reports_by_status(
 
 pub async fn get_all_reports(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -244,8 +248,8 @@ pub async fn get_all_reports(
 
 pub async fn update_report(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(id): Path<i64>,
-    auth_user: AuthenticatedUser,
     Json(body): Json<UpdateReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = UpdateEventReportRequest {
@@ -255,47 +259,47 @@ pub async fn update_report(
         resolution_reason: None,
     };
 
-    let report = state.services.event_report_service.update_report(id, request, &auth_user.user_id).await?;
+    let report = state.services.event_report_service.update_report(id, request, &_auth_user.user_id).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
 
 pub async fn resolve_report(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(id): Path<i64>,
-    auth_user: AuthenticatedUser,
     Json(body): Json<ResolveReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let report = state.services.event_report_service.resolve_report(id, &auth_user.user_id, &body.reason).await?;
+    let report = state.services.event_report_service.resolve_report(id, &_auth_user.user_id, &body.reason).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
 
 pub async fn dismiss_report(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(id): Path<i64>,
-    auth_user: AuthenticatedUser,
     Json(body): Json<DismissReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let report = state.services.event_report_service.dismiss_report(id, &auth_user.user_id, &body.reason).await?;
+    let report = state.services.event_report_service.dismiss_report(id, &_auth_user.user_id, &body.reason).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
 
 pub async fn escalate_report(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(id): Path<i64>,
-    auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let report = state.services.event_report_service.escalate_report(id, &auth_user.user_id).await?;
+    let report = state.services.event_report_service.escalate_report(id, &_auth_user.user_id).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
 
 pub async fn delete_report(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(id): Path<i64>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state.services.event_report_service.delete_report(id).await?;
 
@@ -304,8 +308,8 @@ pub async fn delete_report(
 
 pub async fn get_report_history(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(id): Path<i64>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let history = state.services.event_report_service.get_report_history(id).await?;
 
@@ -316,6 +320,7 @@ pub async fn get_report_history(
 
 pub async fn check_rate_limit(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let check = state.services.event_report_service.check_rate_limit(&user_id).await?;
@@ -329,8 +334,8 @@ pub async fn check_rate_limit(
 
 pub async fn block_user(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(user_id): Path<String>,
-    _auth_user: AuthenticatedUser,
     Json(body): Json<BlockUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     state.services.event_report_service.block_user_reports(&user_id, body.blocked_until, &body.reason).await?;
@@ -340,8 +345,8 @@ pub async fn block_user(
 
 pub async fn unblock_user(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(user_id): Path<String>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state.services.event_report_service.unblock_user_reports(&user_id).await?;
 
@@ -350,7 +355,7 @@ pub async fn unblock_user(
 
 pub async fn get_stats(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let days = query.limit.unwrap_or(30) as i32;
@@ -364,8 +369,8 @@ pub async fn get_stats(
 
 pub async fn count_by_status(
     State(state): State<AppState>,
+    _auth_user: AdminUser,
     Path(status): Path<String>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let count = state.services.event_report_service.count_reports_by_status(&status).await?;
 
@@ -377,7 +382,7 @@ pub async fn count_by_status(
 
 pub async fn count_all(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let count = state.services.event_report_service.count_all_reports().await?;
 

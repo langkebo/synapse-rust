@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use crate::storage::media_quota::{CreateQuotaConfigRequest, SetUserQuotaRequest};
-use crate::web::routes::AppState;
+use crate::web::routes::{AppState, AuthenticatedUser, AdminUser};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -101,11 +101,11 @@ pub fn create_media_quota_router() -> Router<AppState> {
 
 async fn check_quota(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Query(query): Query<CheckQuotaQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = "system";
     let result = state.services.media_quota_service
-        .check_upload_quota(user_id, query.file_size)
+        .check_upload_quota(&auth_user.user_id, query.file_size)
         .await?;
 
     Ok(Json(QuotaCheckResponse::from(result)))
@@ -113,11 +113,11 @@ async fn check_quota(
 
 async fn record_upload(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Json(body): Json<RecordUploadBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = "system";
     state.services.media_quota_service
-        .record_upload(user_id, &body.media_id, body.file_size, body.mime_type.as_deref())
+        .record_upload(&auth_user.user_id, &body.media_id, body.file_size, body.mime_type.as_deref())
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
@@ -125,11 +125,11 @@ async fn record_upload(
 
 async fn record_delete(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Json(body): Json<RecordDeleteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = "system";
     state.services.media_quota_service
-        .record_delete(user_id, &body.media_id, body.file_size)
+        .record_delete(&auth_user.user_id, &body.media_id, body.file_size)
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
@@ -137,25 +137,26 @@ async fn record_delete(
 
 async fn get_usage_stats(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = "system";
-    let stats = state.services.media_quota_service.get_usage_stats(user_id).await?;
+    let stats = state.services.media_quota_service.get_usage_stats(&auth_user.user_id).await?;
     Ok(Json(stats))
 }
 
 async fn get_alerts(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Query(query): Query<AlertsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = "system";
     let alerts = state.services.media_quota_service
-        .get_user_alerts(user_id, query.unread_only.unwrap_or(false))
+        .get_user_alerts(&auth_user.user_id, query.unread_only.unwrap_or(false))
         .await?;
     Ok(Json(alerts))
 }
 
 async fn mark_alert_read(
     State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
     Path(alert_id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
     let success = state.services.media_quota_service.mark_alert_read(alert_id).await?;
@@ -168,6 +169,7 @@ async fn mark_alert_read(
 
 async fn list_configs(
     State(state): State<AppState>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let configs = state.services.media_quota_service.list_quota_configs().await?;
     Ok(Json(configs))
@@ -175,6 +177,7 @@ async fn list_configs(
 
 async fn create_config(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Json(body): Json<CreateConfigBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateQuotaConfigRequest {
@@ -194,6 +197,7 @@ async fn create_config(
 
 async fn delete_config(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Path(config_id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
     let deleted = state.services.media_quota_service.delete_quota_config(config_id).await?;
@@ -206,6 +210,7 @@ async fn delete_config(
 
 async fn set_user_quota(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Json(body): Json<SetUserQuotaBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = SetUserQuotaRequest {
@@ -222,6 +227,7 @@ async fn set_user_quota(
 
 async fn get_server_quota(
     State(state): State<AppState>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let quota = state.services.media_quota_service.get_server_quota().await?;
     Ok(Json(quota))
@@ -229,6 +235,7 @@ async fn get_server_quota(
 
 async fn update_server_quota(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Json(body): Json<UpdateServerQuotaBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let quota = state.services.media_quota_service

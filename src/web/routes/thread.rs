@@ -4,7 +4,7 @@ use crate::services::thread_service::{
     MarkReadRequest, SubscribeRequest, ThreadDetailResponse, ThreadListResponse,
     UnreadThreadsResponse,
 };
-use crate::web::routes::AppState;
+use crate::web::routes::{AppState, AuthenticatedUser, OptionalAuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -15,8 +15,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 struct CreateThreadBody {
+    #[serde(default)]
     #[allow(dead_code)]
-    room_id: String,
+    room_id: Option<String>,
     root_event_id: String,
     content: serde_json::Value,
     origin_server_ts: Option<i64>,
@@ -24,8 +25,9 @@ struct CreateThreadBody {
 
 #[derive(Debug, Deserialize)]
 struct CreateReplyBody {
+    #[serde(default)]
     #[allow(dead_code)]
-    thread_id: String,
+    thread_id: Option<String>,
     event_id: String,
     root_event_id: String,
     content: serde_json::Value,
@@ -121,32 +123,32 @@ impl From<crate::storage::thread::ThreadReply> for ReplyResponse {
 
 pub fn create_thread_routes(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/rooms/{room_id}/threads", post(create_thread))
-        .route("/rooms/{room_id}/threads", get(list_threads))
-        .route("/rooms/{room_id}/threads/search", get(search_threads))
-        .route("/rooms/{room_id}/threads/unread", get(get_unread_threads))
-        .route("/rooms/{room_id}/threads/{thread_id}", get(get_thread))
-        .route("/rooms/{room_id}/threads/{thread_id}", delete(delete_thread))
-        .route("/rooms/{room_id}/threads/{thread_id}/freeze", post(freeze_thread))
-        .route("/rooms/{room_id}/threads/{thread_id}/unfreeze", post(unfreeze_thread))
-        .route("/rooms/{room_id}/threads/{thread_id}/replies", post(add_reply))
-        .route("/rooms/{room_id}/threads/{thread_id}/replies", get(get_replies))
-        .route("/rooms/{room_id}/threads/{thread_id}/subscribe", post(subscribe_thread))
-        .route("/rooms/{room_id}/threads/{thread_id}/unsubscribe", post(unsubscribe_thread))
-        .route("/rooms/{room_id}/threads/{thread_id}/mute", post(mute_thread))
-        .route("/rooms/{room_id}/threads/{thread_id}/read", post(mark_read))
-        .route("/rooms/{room_id}/threads/{thread_id}/stats", get(get_stats))
-        .route("/rooms/{room_id}/replies/{event_id}/redact", post(redact_reply))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads", post(create_thread))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads", get(list_threads))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/search", get(search_threads))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/unread", get(get_unread_threads))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}", get(get_thread))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}", delete(delete_thread))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/freeze", post(freeze_thread))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze", post(unfreeze_thread))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies", post(add_reply))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies", get(get_replies))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe", post(subscribe_thread))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe", post(unsubscribe_thread))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/mute", post(mute_thread))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read", post(mark_read))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/stats", get(get_stats))
+        .route("/_matrix/client/v1/rooms/{room_id}/replies/{event_id}/redact", post(redact_reply))
         .with_state(state)
 }
 
 async fn create_thread(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
-    user_id: axum::extract::Extension<String>,
+    auth_user: AuthenticatedUser,
     Json(body): Json<CreateThreadBody>,
 ) -> Result<Json<ThreadResponse>, ApiError> {
-    let user_id = user_id.0;
+    let user_id = auth_user.user_id;
     
     let request = CreateThreadRequest {
         room_id,
@@ -166,6 +168,7 @@ async fn list_threads(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
     Query(query): Query<ListQuery>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<Json<ThreadListResponse>, ApiError> {
     let request = ListThreadsRequest {
         room_id,
@@ -182,7 +185,7 @@ async fn get_thread(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
     Query(query): Query<ThreadQuery>,
-    user_id: Option<axum::extract::Extension<String>>,
+    auth_user: OptionalAuthenticatedUser,
 ) -> Result<Json<ThreadDetailResponse>, ApiError> {
     let request = GetThreadRequest {
         room_id,
@@ -191,7 +194,7 @@ async fn get_thread(
         reply_limit: query.reply_limit,
     };
 
-    let user_id_str = user_id.as_ref().map(|ext| ext.0.as_str());
+    let user_id_str = auth_user.user_id.as_deref();
     let response = state.services.thread_service.get_thread(request, user_id_str).await?;
     Ok(Json(response))
 }
@@ -199,6 +202,7 @@ async fn get_thread(
 async fn delete_thread(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
     let thread = state
         .services
@@ -221,6 +225,7 @@ async fn delete_thread(
 async fn freeze_thread(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
     let thread = state
         .services
@@ -243,6 +248,7 @@ async fn freeze_thread(
 async fn unfreeze_thread(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
     let thread = state
         .services
@@ -265,10 +271,10 @@ async fn unfreeze_thread(
 async fn add_reply(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
-    user_id: axum::extract::Extension<String>,
+    auth_user: AuthenticatedUser,
     Json(body): Json<CreateReplyBody>,
 ) -> Result<Json<ReplyResponse>, ApiError> {
-    let user_id = user_id.0;
+    let user_id = auth_user.user_id;
     
     let request = CreateReplyRequest {
         room_id,
@@ -290,6 +296,7 @@ async fn get_replies(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
     Query(query): Query<ListQuery>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<ReplyResponse>>, ApiError> {
     let storage = &state.services.thread_storage;
     
@@ -304,10 +311,10 @@ async fn get_replies(
 async fn subscribe_thread(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
-    user_id: axum::extract::Extension<String>,
+    auth_user: AuthenticatedUser,
     Json(body): Json<SubscribeBody>,
 ) -> Result<Json<crate::storage::thread::ThreadSubscription>, ApiError> {
-    let user_id = user_id.0;
+    let user_id = auth_user.user_id;
     
     let request = SubscribeRequest {
         room_id,
@@ -323,9 +330,9 @@ async fn subscribe_thread(
 async fn unsubscribe_thread(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
-    user_id: axum::extract::Extension<String>,
+    auth_user: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
-    let user_id = user_id.0;
+    let user_id = auth_user.user_id;
     
     state.services.thread_service.unsubscribe(&room_id, &thread_id, &user_id).await?;
     Ok(StatusCode::OK)
@@ -334,9 +341,9 @@ async fn unsubscribe_thread(
 async fn mute_thread(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
-    user_id: axum::extract::Extension<String>,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<crate::storage::thread::ThreadSubscription>, ApiError> {
-    let user_id = user_id.0;
+    let user_id = auth_user.user_id;
     
     let subscription = state.services.thread_service.mute_thread(&room_id, &thread_id, &user_id).await?;
     Ok(Json(subscription))
@@ -345,10 +352,10 @@ async fn mute_thread(
 async fn mark_read(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
-    user_id: axum::extract::Extension<String>,
+    auth_user: AuthenticatedUser,
     Json(body): Json<MarkReadBody>,
 ) -> Result<Json<crate::storage::thread::ThreadReadReceipt>, ApiError> {
-    let user_id = user_id.0;
+    let user_id = auth_user.user_id;
     
     let request = MarkReadRequest {
         room_id,
@@ -365,9 +372,9 @@ async fn mark_read(
 async fn get_unread_threads(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
-    user_id: axum::extract::Extension<String>,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<UnreadThreadsResponse>, ApiError> {
-    let user_id = user_id.0;
+    let user_id = auth_user.user_id;
     
     let response = state.services.thread_service.get_unread_threads(&user_id, Some(&room_id)).await?;
     Ok(Json(response))
@@ -377,6 +384,7 @@ async fn search_threads(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
     Query(query): Query<SearchQuery>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<crate::storage::thread::ThreadSummary>>, ApiError> {
     let results = state.services.thread_service.search_threads(&room_id, &query.q, query.limit).await?;
     Ok(Json(results))
@@ -385,6 +393,7 @@ async fn search_threads(
 async fn get_stats(
     State(state): State<AppState>,
     Path((room_id, thread_id)): Path<(String, String)>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<Json<Option<crate::storage::thread::ThreadStatistics>>, ApiError> {
     let stats = state.services.thread_service.get_thread_statistics(&room_id, &thread_id).await?;
     Ok(Json(stats))
@@ -393,6 +402,7 @@ async fn get_stats(
 async fn redact_reply(
     State(state): State<AppState>,
     Path((room_id, event_id)): Path<(String, String)>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
     state.services.thread_service.redact_reply(&room_id, &event_id).await?;
     Ok(StatusCode::OK)

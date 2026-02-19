@@ -342,7 +342,7 @@ impl DatabaseInitService {
             .map_err(|e| sqlx::Error::Configuration(e.to_string().into()))?
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
-            .filter(|path| path.extension().map_or(false, |ext| ext == "sql"))
+            .filter(|path| path.extension().is_some_and(|ext| ext == "sql"))
             .collect();
         
         migration_files.sort();
@@ -465,7 +465,7 @@ impl DatabaseInitService {
                         current.push(c);
                     } else if c == '$' {
                         if let Some(tag_end) = Self::find_dollar_tag_end(&chars, i) {
-                            if tag_end >= i + 1 {
+                            if tag_end > i {
                                 dollar_tag = chars[i..=tag_end].iter().collect();
                                 state = State::InDollarQuote;
                                 current.push_str(&dollar_tag);

@@ -81,16 +81,11 @@ impl ApplicationServiceManager {
     pub async fn update(
         &self,
         as_id: &str,
-        url: Option<&str>,
-        name: Option<&str>,
-        description: Option<&str>,
-        rate_limited: Option<bool>,
-        protocols: Option<&[String]>,
-        is_active: Option<bool>,
+        request: UpdateApplicationServiceRequest,
     ) -> Result<ApplicationService, ApiError> {
         info!("Updating application service: as_id={}", as_id);
 
-        let service = self.storage.update(as_id, url, name, description, rate_limited, protocols, is_active).await
+        let service = self.storage.update(as_id, &request).await
             .map_err(|e| ApiError::internal(format!("Failed to update application service: {}", e)))?;
 
         info!("Application service updated successfully: as_id={}", as_id);
