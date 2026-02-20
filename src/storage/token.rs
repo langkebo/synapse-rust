@@ -9,7 +9,8 @@ pub struct AccessToken {
     pub device_id: Option<String>,
     pub created_ts: i64,
     pub expires_ts: i64,
-    pub invalidated_ts: Option<i64>,
+    pub is_valid: bool,
+    pub revoked_ts: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -32,9 +33,9 @@ impl AccessTokenStorage {
         let now = chrono::Utc::now().timestamp();
         let row = sqlx::query_as::<_, AccessToken>(
             r#"
-            INSERT INTO access_tokens (token, user_id, device_id, created_ts, expires_ts)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, token, user_id, device_id, created_ts, expires_ts, invalidated_ts
+            INSERT INTO access_tokens (token, user_id, device_id, created_ts, expires_ts, is_valid)
+            VALUES ($1, $2, $3, $4, $5, TRUE)
+            RETURNING id, token, user_id, device_id, created_ts, expires_ts, is_valid, revoked_ts
             "#,
         )
         .bind(token)
@@ -50,7 +51,7 @@ impl AccessTokenStorage {
     pub async fn get_token(&self, token: &str) -> Result<Option<AccessToken>, sqlx::Error> {
         let row = sqlx::query_as::<_, AccessToken>(
             r#"
-            SELECT id, token, user_id, device_id, created_ts, expires_ts, invalidated_ts
+            SELECT id, token, user_id, device_id, created_ts, expires_ts, is_valid, revoked_ts
             FROM access_tokens WHERE token = $1
             "#,
         )
@@ -63,7 +64,7 @@ impl AccessTokenStorage {
     pub async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<AccessToken>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccessToken>(
             r#"
-            SELECT id, token, user_id, device_id, created_ts, expires_ts, invalidated_ts
+            SELECT id, token, user_id, device_id, created_ts, expires_ts, is_valid, revoked_ts
             FROM access_tokens WHERE user_id = $1
             "#,
         )

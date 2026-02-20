@@ -15,7 +15,7 @@ pub struct MediaQuotaConfig {
     pub allowed_mime_types: serde_json::Value,
     pub blocked_mime_types: serde_json::Value,
     pub is_default: bool,
-    pub is_active: bool,
+    pub is_enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -121,7 +121,7 @@ impl MediaQuotaStorage {
 
     pub async fn get_default_config(&self) -> Result<Option<MediaQuotaConfig>, ApiError> {
         let config = sqlx::query_as::<_, MediaQuotaConfig>(
-            r#"SELECT * FROM media_quota_config WHERE is_default = TRUE AND is_active = TRUE LIMIT 1"#,
+            r#"SELECT * FROM media_quota_config WHERE is_default = TRUE AND is_enabled = TRUE LIMIT 1"#,
         )
         .fetch_optional(&self.pool)
         .await
@@ -184,7 +184,7 @@ impl MediaQuotaStorage {
 
     pub async fn list_configs(&self) -> Result<Vec<MediaQuotaConfig>, ApiError> {
         let configs = sqlx::query_as::<_, MediaQuotaConfig>(
-            r#"SELECT * FROM media_quota_config WHERE is_active = TRUE ORDER BY created_at DESC"#,
+            r#"SELECT * FROM media_quota_config WHERE is_enabled = TRUE ORDER BY created_at DESC"#,
         )
         .fetch_all(&self.pool)
         .await
@@ -195,7 +195,7 @@ impl MediaQuotaStorage {
 
     pub async fn delete_config(&self, config_id: i32) -> Result<bool, ApiError> {
         let result = sqlx::query(
-            r#"UPDATE media_quota_config SET is_active = FALSE WHERE id = $1"#,
+            r#"UPDATE media_quota_config SET is_enabled = FALSE WHERE id = $1"#,
         )
         .bind(config_id)
         .execute(&self.pool)
@@ -533,7 +533,7 @@ mod tests {
             allowed_mime_types: serde_json::json!(["image/*", "video/*"]),
             blocked_mime_types: serde_json::json!(["application/exe"]),
             is_default: true,
-            is_active: true,
+            is_enabled: true,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -574,7 +574,7 @@ mod tests {
         assert_eq!(config.name, "default");
         assert_eq!(config.max_storage_bytes, 1073741824);
         assert!(config.is_default);
-        assert!(config.is_active);
+        assert!(config.is_enabled);
     }
 
     #[test]

@@ -242,7 +242,8 @@ mod tests {
             device_id: Some("DEVICE123".to_string()),
             created_ts: 1234567890,
             expires_ts: 1234571490,
-            invalidated_ts: None,
+            is_valid: true,
+            revoked_ts: None,
         };
         assert_eq!(token.id, 1);
         assert_eq!(token.token, "test_token_123");

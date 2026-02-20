@@ -20,7 +20,7 @@ pub struct ApplicationService {
     pub created_ts: i64,
     pub updated_ts: Option<i64>,
     pub last_seen_ts: Option<i64>,
-    pub is_active: bool,
+    pub is_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -97,7 +97,7 @@ pub struct UpdateApplicationServiceRequest {
     pub description: Option<String>,
     pub rate_limited: Option<bool>,
     pub protocols: Option<Vec<String>>,
-    pub is_active: Option<bool>,
+    pub is_enabled: Option<bool>,
 }
 
 impl UpdateApplicationServiceRequest {
@@ -130,8 +130,8 @@ impl UpdateApplicationServiceRequest {
         self
     }
 
-    pub fn is_active(mut self, is_active: bool) -> Self {
-        self.is_active = Some(is_active);
+    pub fn is_enabled(mut self, is_enabled: bool) -> Self {
+        self.is_enabled = Some(is_enabled);
         self
     }
 }
@@ -176,7 +176,7 @@ impl ApplicationServiceStorage {
             r#"
             INSERT INTO application_services (
                 as_id, url, as_token, hs_token, sender, name, description,
-                rate_limited, protocols, namespaces, created_ts, is_active
+                rate_limited, protocols, namespaces, created_ts, is_enabled
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE)
             RETURNING *
@@ -287,7 +287,7 @@ impl ApplicationServiceStorage {
 
     pub async fn get_by_token(&self, as_token: &str) -> Result<Option<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
-            r#"SELECT * FROM application_services WHERE as_token = $1 AND is_active = TRUE"#
+            r#"SELECT * FROM application_services WHERE as_token = $1 AND is_enabled = TRUE"#
         )
         .bind(as_token)
         .fetch_optional(&*self.pool)
@@ -296,7 +296,7 @@ impl ApplicationServiceStorage {
 
     pub async fn get_by_hs_token(&self, hs_token: &str) -> Result<Option<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
-            r#"SELECT * FROM application_services WHERE hs_token = $1 AND is_active = TRUE"#
+            r#"SELECT * FROM application_services WHERE hs_token = $1 AND is_enabled = TRUE"#
         )
         .bind(hs_token)
         .fetch_optional(&*self.pool)
@@ -305,7 +305,7 @@ impl ApplicationServiceStorage {
 
     pub async fn get_all_active(&self) -> Result<Vec<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
-            r#"SELECT * FROM application_services WHERE is_active = TRUE ORDER BY created_ts DESC"#
+            r#"SELECT * FROM application_services WHERE is_enabled = TRUE ORDER BY created_ts DESC"#
         )
         .fetch_all(&*self.pool)
         .await
@@ -324,7 +324,7 @@ impl ApplicationServiceStorage {
                 description = COALESCE($4, description),
                 rate_limited = COALESCE($5, rate_limited),
                 protocols = COALESCE($6, protocols),
-                is_active = COALESCE($7, is_active)
+                is_enabled = COALESCE($7, is_enabled)
             WHERE as_id = $1
             RETURNING *
             "#,
@@ -335,7 +335,7 @@ impl ApplicationServiceStorage {
         .bind(&request.description)
         .bind(request.rate_limited)
         .bind(&request.protocols)
-        .bind(request.is_active)
+        .bind(request.is_enabled)
         .fetch_one(&*self.pool)
         .await
     }

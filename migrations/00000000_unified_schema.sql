@@ -64,8 +64,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin BOOLEAN DEFAULT FALSE,
     is_guest BOOLEAN DEFAULT FALSE,
     user_type VARCHAR(50),
-    deactivated BOOLEAN DEFAULT FALSE,
-    shadow_banned BOOLEAN DEFAULT FALSE,
+    is_deactivated BOOLEAN DEFAULT FALSE,
+    is_shadow_banned BOOLEAN DEFAULT FALSE,
     consent_version VARCHAR(255),
     appservice_id VARCHAR(255),
     creation_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_creation_ts ON users(creation_ts);
-CREATE INDEX IF NOT EXISTS idx_users_deactivated ON users(deactivated) WHERE deactivated = TRUE;
+CREATE INDEX IF NOT EXISTS idx_users_deactivated ON users(is_deactivated) WHERE is_deactivated = TRUE;
 
 -- 设备表
 CREATE TABLE IF NOT EXISTS devices (
@@ -99,9 +99,8 @@ CREATE TABLE IF NOT EXISTS devices (
     device_key JSONB,
     last_seen_ts BIGINT,
     last_seen_ip VARCHAR(255),
-    created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+    created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
     first_seen_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
-    created_ts BIGINT,
     appservice_id VARCHAR(255),
     ignored_user_list TEXT,
     PRIMARY KEY (device_id, user_id),
@@ -122,10 +121,9 @@ CREATE TABLE IF NOT EXISTS access_tokens (
     created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
     last_used_ts BIGINT,
     user_agent TEXT,
-    ip VARCHAR(255),
     ip_address VARCHAR(45),
-    invalidated_ts BIGINT,
     is_valid BOOLEAN DEFAULT TRUE,
+    revoked_ts BIGINT,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
@@ -312,20 +310,19 @@ CREATE TABLE IF NOT EXISTS events (
     sender_device VARCHAR(255),
     contains_url BOOLEAN DEFAULT FALSE,
     instance_name VARCHAR(255),
-    processed BOOLEAN DEFAULT FALSE,
-    outlier BOOLEAN DEFAULT FALSE,
+    is_processed BOOLEAN DEFAULT FALSE,
+    is_outlier BOOLEAN DEFAULT FALSE,
     constraint_instance VARCHAR(255),
     topological_ordering BIGINT,
     stream_ordering BIGINT
 );
 
 ALTER TABLE events ADD COLUMN IF NOT EXISTS stream_ordering BIGINT;
-ALTER TABLE events ADD COLUMN IF NOT EXISTS type VARCHAR(255);
 ALTER TABLE events ADD COLUMN IF NOT EXISTS topological_ordering BIGINT;
 
 CREATE INDEX IF NOT EXISTS idx_events_room ON events(room_id);
 CREATE INDEX IF NOT EXISTS idx_events_sender ON events(sender);
-CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_stream ON events(stream_ordering);
 
 -- =============================================================================
@@ -403,11 +400,11 @@ CREATE TABLE IF NOT EXISTS federation_blacklist (
     blocked_by VARCHAR(255),
     blocked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     expires_at TIMESTAMP WITH TIME ZONE,
-    is_active BOOLEAN DEFAULT TRUE
+    is_enabled BOOLEAN DEFAULT TRUE
 );
 
 CREATE INDEX IF NOT EXISTS idx_federation_blacklist_server ON federation_blacklist(server_name);
-CREATE INDEX IF NOT EXISTS idx_federation_blacklist_active ON federation_blacklist(is_active);
+CREATE INDEX IF NOT EXISTS idx_federation_blacklist_enabled ON federation_blacklist(is_enabled);
 
 -- 联邦黑名单规则表
 CREATE TABLE IF NOT EXISTS federation_blacklist_rule (
@@ -418,7 +415,7 @@ CREATE TABLE IF NOT EXISTS federation_blacklist_rule (
     action VARCHAR(20) NOT NULL DEFAULT 'block',
     priority INTEGER DEFAULT 0,
     description TEXT,
-    enabled BOOLEAN DEFAULT TRUE,
+    is_enabled BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     CONSTRAINT federation_blacklist_rule_type_check CHECK (rule_type IN ('domain', 'regex', 'wildcard')),
@@ -426,7 +423,7 @@ CREATE TABLE IF NOT EXISTS federation_blacklist_rule (
 );
 
 CREATE INDEX IF NOT EXISTS idx_federation_blacklist_rule_type ON federation_blacklist_rule(rule_type);
-CREATE INDEX IF NOT EXISTS idx_federation_blacklist_rule_enabled ON federation_blacklist_rule(enabled);
+CREATE INDEX IF NOT EXISTS idx_federation_blacklist_rule_enabled ON federation_blacklist_rule(is_enabled);
 
 -- 联邦黑名单日志表
 CREATE TABLE IF NOT EXISTS federation_blacklist_log (
@@ -467,8 +464,8 @@ CREATE TABLE IF NOT EXISTS media_repository (
     upload_name TEXT,
     created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
     last_access_ts BIGINT,
-    quarantine_media BOOLEAN DEFAULT FALSE,
-    safe_from_quarantine BOOLEAN DEFAULT FALSE,
+    is_quarantined BOOLEAN DEFAULT FALSE,
+    is_safe_from_quarantine BOOLEAN DEFAULT FALSE,
     user_id VARCHAR(255),
     server_name VARCHAR(255)
 );
@@ -485,14 +482,11 @@ CREATE TABLE IF NOT EXISTS voice_messages (
     media_id VARCHAR(255),
     duration_ms INTEGER NOT NULL,
     waveform TEXT,
-    waveform_data TEXT,
     mime_type VARCHAR(100),
     file_size BIGINT,
     transcription TEXT,
-    transcribe_text TEXT,
     encryption JSONB,
-    processed BOOLEAN DEFAULT FALSE,
-    processed_at BIGINT,
+    is_processed BOOLEAN DEFAULT FALSE,
     processed_ts BIGINT,
     created_ts BIGINT NOT NULL,
     CONSTRAINT voice_messages_event_unique UNIQUE(event_id)
@@ -500,7 +494,7 @@ CREATE TABLE IF NOT EXISTS voice_messages (
 
 CREATE INDEX IF NOT EXISTS idx_voice_messages_room ON voice_messages(room_id);
 CREATE INDEX IF NOT EXISTS idx_voice_messages_user ON voice_messages(user_id);
-CREATE INDEX IF NOT EXISTS idx_voice_messages_processed ON voice_messages(processed);
+CREATE INDEX IF NOT EXISTS idx_voice_messages_processed ON voice_messages(is_processed);
 
 -- =============================================================================
 -- 第七部分: 推送通知表
@@ -519,7 +513,7 @@ CREATE TABLE IF NOT EXISTS push_device (
     app_version VARCHAR(50),
     locale VARCHAR(20),
     timezone VARCHAR(50),
-    enabled BOOLEAN DEFAULT true,
+    is_enabled BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_used_at TIMESTAMP WITH TIME ZONE,
@@ -544,7 +538,7 @@ CREATE TABLE IF NOT EXISTS push_rule (
     priority INTEGER DEFAULT 0,
     conditions JSONB DEFAULT '[]',
     actions JSONB DEFAULT '[]',
-    enabled BOOLEAN DEFAULT true,
+    is_enabled BOOLEAN DEFAULT true,
     is_default BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -648,7 +642,7 @@ CREATE TABLE IF NOT EXISTS pushers (
     profile_tag VARCHAR(255),
     lang VARCHAR(20) DEFAULT 'en',
     data JSONB DEFAULT '{}',
-    enabled BOOLEAN DEFAULT true,
+    is_enabled BOOLEAN DEFAULT true,
     created_ts BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000,
     last_updated_ts BIGINT,
     last_success_ts BIGINT,
@@ -659,7 +653,7 @@ CREATE TABLE IF NOT EXISTS pushers (
 
 CREATE INDEX IF NOT EXISTS idx_pushers_user ON pushers(user_id);
 CREATE INDEX IF NOT EXISTS idx_pushers_kind ON pushers(kind);
-CREATE INDEX IF NOT EXISTS idx_pushers_enabled ON pushers(enabled);
+CREATE INDEX IF NOT EXISTS idx_pushers_enabled ON pushers(is_enabled);
 
 -- 推送规则表 (兼容 Matrix 标准)
 CREATE TABLE IF NOT EXISTS push_rules (
@@ -671,7 +665,7 @@ CREATE TABLE IF NOT EXISTS push_rules (
     priority INTEGER DEFAULT 0,
     conditions JSONB DEFAULT '[]',
     actions JSONB DEFAULT '[]',
-    enabled BOOLEAN DEFAULT true,
+    is_enabled BOOLEAN DEFAULT true,
     is_default BOOLEAN DEFAULT false,
     created_ts BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000,
     updated_ts BIGINT,
@@ -757,7 +751,7 @@ CREATE TABLE IF NOT EXISTS captcha_template (
     content TEXT NOT NULL,
     variables JSONB DEFAULT '[]',
     is_default BOOLEAN DEFAULT false,
-    enabled BOOLEAN DEFAULT true,
+    is_enabled BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     CONSTRAINT captcha_template_captcha_type_check CHECK (captcha_type IN ('email', 'sms', 'image'))
@@ -823,7 +817,7 @@ CREATE TABLE IF NOT EXISTS saml_identity_providers (
     sso_url TEXT,
     slo_url TEXT,
     x509cert TEXT,
-    enabled BOOLEAN DEFAULT true,
+    is_enabled BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -857,7 +851,7 @@ CREATE TABLE IF NOT EXISTS cas_services (
     name VARCHAR(255) NOT NULL,
     service_url VARCHAR(255) NOT NULL,
     description TEXT,
-    enabled BOOLEAN DEFAULT true,
+    is_enabled BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -885,7 +879,7 @@ CREATE TABLE IF NOT EXISTS modules (
     id SERIAL PRIMARY KEY,
     module_name VARCHAR(100) NOT NULL UNIQUE,
     module_type VARCHAR(50) NOT NULL,
-    enabled BOOLEAN DEFAULT true,
+    is_enabled BOOLEAN DEFAULT true,
     config JSONB DEFAULT '{}',
     priority INTEGER DEFAULT 0,
     description TEXT,
@@ -926,13 +920,13 @@ CREATE TABLE IF NOT EXISTS registration_tokens (
     expires_at BIGINT,
     created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
     created_by VARCHAR(255) REFERENCES users(user_id),
-    is_active BOOLEAN DEFAULT TRUE,
+    is_enabled BOOLEAN DEFAULT TRUE,
     allowed_email_domains TEXT[],
     auto_join_rooms TEXT[]
 );
 
 CREATE INDEX IF NOT EXISTS idx_registration_tokens_token ON registration_tokens(token);
-CREATE INDEX IF NOT EXISTS idx_registration_tokens_active ON registration_tokens(is_active);
+CREATE INDEX IF NOT EXISTS idx_registration_tokens_enabled ON registration_tokens(is_enabled);
 CREATE INDEX IF NOT EXISTS idx_registration_tokens_expires ON registration_tokens(expires_at);
 
 -- 注册令牌使用记录表
@@ -959,14 +953,14 @@ CREATE TABLE IF NOT EXISTS registration_token_batches (
     created_by VARCHAR(255) REFERENCES users(user_id) ON DELETE SET NULL,
     created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
     expires_at BIGINT,
-    is_active BOOLEAN DEFAULT TRUE,
+    is_enabled BOOLEAN DEFAULT TRUE,
     allowed_email_domains TEXT[],
     auto_join_rooms TEXT[]
 );
 
 CREATE INDEX IF NOT EXISTS idx_registration_token_batches_batch_id ON registration_token_batches(batch_id);
 CREATE INDEX IF NOT EXISTS idx_registration_token_batches_created_by ON registration_token_batches(created_by);
-CREATE INDEX IF NOT EXISTS idx_registration_token_batches_is_active ON registration_token_batches(is_active);
+CREATE INDEX IF NOT EXISTS idx_registration_token_batches_is_enabled ON registration_token_batches(is_enabled);
 
 -- =============================================================================
 -- 第十三部分: 事件报告表
@@ -1086,7 +1080,7 @@ CREATE TABLE IF NOT EXISTS space_children (
     room_id VARCHAR(255) NOT NULL,
     via_servers JSONB DEFAULT '[]',
     "order" VARCHAR(255),
-    suggested BOOLEAN DEFAULT FALSE,
+    is_suggested BOOLEAN DEFAULT FALSE,
     added_by VARCHAR(255) NOT NULL,
     added_ts BIGINT NOT NULL,
     removed_ts BIGINT,
@@ -1110,7 +1104,7 @@ CREATE TABLE IF NOT EXISTS thread_roots (
     created_ts BIGINT NOT NULL,
     last_reply_ts BIGINT,
     reply_count INTEGER DEFAULT 0,
-    is_active BOOLEAN DEFAULT TRUE
+    is_enabled BOOLEAN DEFAULT TRUE
 );
 
 CREATE INDEX IF NOT EXISTS idx_thread_roots_room ON thread_roots(room_id);
@@ -1237,8 +1231,8 @@ CREATE TABLE IF NOT EXISTS server_notifications (
     target_user_ids JSONB DEFAULT '[]',
     starts_at TIMESTAMP WITH TIME ZONE,
     expires_at TIMESTAMP WITH TIME ZONE,
-    is_active BOOLEAN DEFAULT TRUE,
-    is_dismissible BOOLEAN DEFAULT TRUE,
+    is_enabled BOOLEAN DEFAULT TRUE,
+    is_dismissable BOOLEAN DEFAULT TRUE,
     action_url VARCHAR(512),
     action_text VARCHAR(255),
     created_by VARCHAR(255),
@@ -1246,7 +1240,7 @@ CREATE TABLE IF NOT EXISTS server_notifications (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_server_notifications_active ON server_notifications(is_active);
+CREATE INDEX IF NOT EXISTS idx_server_notifications_enabled ON server_notifications(is_enabled);
 CREATE INDEX IF NOT EXISTS idx_server_notifications_type ON server_notifications(notification_type);
 CREATE INDEX IF NOT EXISTS idx_server_notifications_expires ON server_notifications(expires_at);
 
@@ -1284,12 +1278,12 @@ CREATE TABLE IF NOT EXISTS application_services (
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
     last_seen_ts BIGINT,
-    is_active BOOLEAN DEFAULT TRUE
+    is_enabled BOOLEAN DEFAULT TRUE
 );
 
 CREATE INDEX IF NOT EXISTS idx_application_services_id ON application_services(as_id);
 CREATE INDEX IF NOT EXISTS idx_application_services_token ON application_services(as_token);
-CREATE INDEX IF NOT EXISTS idx_application_services_active ON application_services(is_active);
+CREATE INDEX IF NOT EXISTS idx_application_services_enabled ON application_services(is_enabled);
 
 -- =============================================================================
 -- 第二十一部分: Worker 表
@@ -1358,21 +1352,19 @@ CREATE TABLE IF NOT EXISTS ip_reputation (
     reputation_score INTEGER DEFAULT 100,
     failed_attempts INTEGER DEFAULT 0,
     successful_attempts INTEGER DEFAULT 0,
-    last_failed_at TIMESTAMP WITH TIME ZONE,
-    last_success_at TIMESTAMP WITH TIME ZONE,
-    blocked BOOLEAN DEFAULT FALSE,
-    blocked_at TIMESTAMP WITH TIME ZONE,
+    last_failed_ts BIGINT,
+    last_success_ts BIGINT,
+    is_blocked BOOLEAN DEFAULT FALSE,
+    blocked_ts BIGINT,
     blocked_until_ts BIGINT,
     block_reason TEXT,
     risk_level VARCHAR(20) DEFAULT 'none',
     created_ts BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
-    updated_ts BIGINT,
-    last_failed_ts BIGINT,
-    last_success_ts BIGINT
+    updated_ts BIGINT
 );
 
 CREATE INDEX IF NOT EXISTS idx_ip_reputation_ip ON ip_reputation(ip_address);
-CREATE INDEX IF NOT EXISTS idx_ip_reputation_blocked ON ip_reputation(blocked);
+CREATE INDEX IF NOT EXISTS idx_ip_reputation_blocked ON ip_reputation(is_blocked);
 
 -- IP 封禁表
 CREATE TABLE IF NOT EXISTS ip_blocks (
@@ -1382,15 +1374,13 @@ CREATE TABLE IF NOT EXISTS ip_blocks (
     ip_range VARCHAR(100) UNIQUE,
     reason TEXT,
     blocked_by VARCHAR(255),
-    blocked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     blocked_ts BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
-    expires_at TIMESTAMP WITH TIME ZONE,
     expires_ts BIGINT,
-    is_active BOOLEAN DEFAULT TRUE
+    is_enabled BOOLEAN DEFAULT TRUE
 );
 
 CREATE INDEX IF NOT EXISTS idx_ip_blocks_ip ON ip_blocks(ip_address);
-CREATE INDEX IF NOT EXISTS idx_ip_blocks_active ON ip_blocks(is_active);
+CREATE INDEX IF NOT EXISTS idx_ip_blocks_enabled ON ip_blocks(is_enabled);
 CREATE INDEX IF NOT EXISTS idx_ip_blocks_range ON ip_blocks(ip_range);
 
 -- 安全事件表
