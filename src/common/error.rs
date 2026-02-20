@@ -226,6 +226,56 @@ impl IntoResponse for ApiError {
 
         let errcode = self.code().to_string();
         let error_msg = self.message();
+        
+        let response = ApiResponse {
+            status: "error".to_string(),
+            data: None,
+            error: Some(error_msg),
+            errcode: Some(errcode),
+        };
+        
+        let status_code = if self.status == "ok" {
+            StatusCode::OK
+        } else {
+            match self.errcode().as_str() {
+                "M_NOT_FOUND" => StatusCode::NOT_FOUND,
+                "M_FORBIDDEN" | "M_UNKNOWN_TOKEN" => StatusCode::FORBIDDEN,
+                "M_UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
+                "M_LIMIT_EXCEEDED" => StatusCode::TOO_MANY_REQUESTS,
+                "M_BAD_JSON" | "M_INVALID_PARAM" | "M_INVALID_INPUT" => StatusCode::BAD_REQUEST,
+                "M_USER_IN_USE" => StatusCode::CONFLICT,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            }
+        };
+        
+        (status_code, Json(response)).into_response()
+    }
+}
+
+pub trait ErrorContext {
+    fn with_context(self, module: &str, operation: &str) -> Self;
+}
+
+impl ErrorContext for ApiError {
+    fn with_context(self, module: &str, operation: &str) -> Self {
+        match self {
+            ApiError::Internal(msg) => ApiError::Internal(format!("[{}::{}] {}", module, operation, msg)),
+            ApiError::Database(msg) => ApiError::Database(format!("[{}::{}] {}", module, operation, msg)),
+            ApiError::Cache(msg) => ApiError::Cache(format!("[{}::{}] {}", module, operation, msg)),
+            ApiError::Authentication(msg) => ApiError::Authentication(format!("[{}::{}] {}", module, operation, msg)),
+            ApiError::Validation(msg) => ApiError::Validation(format!("[{}::{}] {}", module, operation, msg)),
+            ApiError::Crypto(msg) => ApiError::Crypto(format!("[{}::{}] {}", module, operation, msg)),
+            _ => self,
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! dbg_context {
+    ($result:expr, $module:expr, $operation:expr) => {
+        $result.map_err(|e| e.with_context($module, $operation))
+    };
+}
 
         // Use the new ApiResponse structure for consistent error responses
         let response = ApiResponse::<()>::error(error_msg, errcode);

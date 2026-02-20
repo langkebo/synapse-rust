@@ -33,16 +33,25 @@ pub fn hash_password_with_params(
     Ok(password_hash)
 }
 
-pub fn verify_password(password: &str, password_hash: &str) -> Result<bool, String> {
+pub fn verify_password(
+    password: &str,
+    password_hash: &str,
+    allow_legacy: bool,
+) -> Result<bool, String> {
     if password_hash.starts_with("$argon2") {
         let parsed_hash = PasswordHash::new(password_hash).map_err(|e| e.to_string())?;
-        // Argon2::verify_password will use the algorithm and params from the parsed hash
         return Ok(Argon2::default()
             .verify_password(password.as_bytes(), &parsed_hash)
             .is_ok());
     }
 
-    // Fallback to SHA-256 (handling both with and without leading $)
+    if !allow_legacy {
+        tracing::warn!("Legacy password hash detected but legacy hashes are disabled");
+        return Err("Legacy password hashes are no longer supported".to_string());
+    }
+
+    tracing::warn!("Legacy password hash detected - please update password");
+
     let password_hash_trimmed = password_hash.trim_start_matches('$');
     let parts: Vec<&str> = password_hash_trimmed.split('$').collect();
 
@@ -60,9 +69,7 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool, Stri
         return Err(format!("Unsupported hash algorithm: {}", algo));
     }
 
-    // Support both simple and iterated SHA-256
     if parts.len() >= 7 {
-        // Iterated version from AuthService
         let iterations = parts[5].parse::<u32>().unwrap_or(10000);
         let mut computed_hash = [0u8; 32];
         let mut input = password.as_bytes().to_vec();
@@ -78,7 +85,6 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool, Stri
         let encoded_hash = URL_SAFE_NO_PAD.encode(computed_hash);
         Ok(secure_compare(&encoded_hash, hash))
     } else {
-        // Simple version from crypto.rs
         let mut hasher = Sha256::new();
         hasher.update(password);
         hasher.update(salt);
@@ -92,9 +98,13 @@ fn secure_compare(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    let mut result = 0u8;
-    for (byte_a, byte_b) in a.bytes().zip(b.bytes()) {
-        result |= byte_a ^ byte_b;
+    let a_bytes = a.as_bytes();
+    let b_bytes = b.as_bytes();
+    let len = a_bytes.len();
+
+    let mut result: u8 = 0;
+    for i in 0..len {
+        result |= a_bytes[i] ^ b_bytes[i];
     }
     result == 0
 }
