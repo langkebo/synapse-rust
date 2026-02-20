@@ -173,7 +173,24 @@ ALTER TABLE federation_signing_keys RENAME COLUMN created_at TO created_ts;
 ALTER TABLE blocked_rooms RENAME COLUMN created_at TO created_ts;
 
 -- 20. refresh_tokens 表
-ALTER TABLE refresh_tokens RENAME COLUMN expires_ts TO expires_at;
+-- 如果 expires_at 已存在，删除冗余的 expires_ts；否则重命名
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'refresh_tokens' AND column_name = 'expires_at'
+    ) THEN
+        ALTER TABLE refresh_tokens DROP COLUMN IF EXISTS expires_ts;
+    ELSE
+        ALTER TABLE refresh_tokens RENAME COLUMN expires_ts TO expires_at;
+    END IF;
+END $$;
+
+-- 删除 refresh_tokens 表中的冗余布尔字段 invalidated (已由 is_revoked 替代)
+ALTER TABLE refresh_tokens DROP COLUMN IF EXISTS invalidated;
+
+-- 删除 refresh_tokens 表中的冗余字段 token (已由 token_hash 替代)
+ALTER TABLE refresh_tokens DROP COLUMN IF EXISTS token;
 
 -- =============================================================================
 -- 更新版本记录

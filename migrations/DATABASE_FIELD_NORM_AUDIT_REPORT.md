@@ -50,7 +50,7 @@
 | 表名 | 当前字段名 | 规范字段名 | 严重程度 | 状态 |
 |------|-----------|-----------|---------|------|
 | access_tokens | `invalidated_ts` | `revoked_ts` | 高 | ✅ 已修复 |
-| refresh_tokens | `expires_ts` | `expires_at` | 中 | ⏳ 待修复 |
+| refresh_tokens | `expires_ts` | `expires_at` | 中 | ✅ 已修复 |
 | account_data | `created_at` | `created_ts` | 低 | ✅ 已修复 |
 | account_data | `updated_at` | `updated_ts` | 低 | ✅ 已修复 |
 | devices | `created_at` | `created_ts` | 低 | ✅ 已修复 |
@@ -85,6 +85,9 @@
 | 表名 | 冗余字段 | 保留字段 | 严重程度 | 状态 |
 |------|---------|---------|---------|------|
 | access_tokens | `ip` | `ip_address` | 中 | ✅ 已修复 |
+| refresh_tokens | `expires_ts` | `expires_at` | 中 | ✅ 已修复 |
+| refresh_tokens | `invalidated` | `is_revoked` | 中 | ✅ 已修复 |
+| refresh_tokens | `token` | `token_hash` | 中 | ✅ 已修复 |
 
 ### 2.4 数据类型不一致问题
 
@@ -240,13 +243,14 @@
 - 时间字段类型统一: 30+ 个字段 ✅
 - 索引优化: 21 个索引 ✅
 - 外键约束: 7 个约束 ✅
-- 冗余字段移除: 1 个字段 ✅
+- 冗余字段移除: 4 个字段 ✅
 - Rust 代码同步更新 ✅
 
 **待完成**:
-- `refresh_tokens.expires_ts` → `expires_at` (命名不一致) ⏳
+- 无
 
 **影响评估**:
 - 高优先级问题已全部解决
 - 中优先级问题已全部解决
+- 低优先级问题已全部解决
 - 所有更改向后兼容，支持回滚
