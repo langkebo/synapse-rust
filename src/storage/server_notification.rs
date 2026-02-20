@@ -15,8 +15,8 @@ pub struct ServerNotification {
     pub target_user_ids: serde_json::Value,
     pub starts_at: Option<DateTime<Utc>>,
     pub expires_at: Option<DateTime<Utc>>,
-    pub is_active: bool,
-    pub is_dismissible: bool,
+    pub is_enabled: bool,
+    pub is_dismissable: bool,
     pub action_url: Option<String>,
     pub action_text: Option<String>,
     pub created_by: Option<String>,
@@ -44,7 +44,7 @@ pub struct NotificationTemplate {
     pub content_template: String,
     pub notification_type: String,
     pub variables: serde_json::Value,
-    pub is_active: bool,
+    pub is_enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -80,7 +80,7 @@ pub struct CreateNotificationRequest {
     pub target_user_ids: Option<Vec<String>>,
     pub starts_at: Option<DateTime<Utc>>,
     pub expires_at: Option<DateTime<Utc>>,
-    pub is_dismissible: Option<bool>,
+    pub is_dismissable: Option<bool>,
     pub action_url: Option<String>,
     pub action_text: Option<String>,
     pub created_by: Option<String>,
@@ -121,7 +121,7 @@ impl ServerNotificationStorage {
             r#"
             INSERT INTO server_notifications (
                 title, content, notification_type, priority, target_audience,
-                target_user_ids, starts_at, expires_at, is_dismissible,
+                target_user_ids, starts_at, expires_at, is_dismissable,
                 action_url, action_text, created_by
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -136,7 +136,7 @@ impl ServerNotificationStorage {
         .bind(&target_user_ids)
         .bind(request.starts_at)
         .bind(request.expires_at)
-        .bind(request.is_dismissible.unwrap_or(true))
+        .bind(request.is_dismissable.unwrap_or(true))
         .bind(&request.action_url)
         .bind(&request.action_text)
         .bind(&request.created_by)
@@ -165,7 +165,7 @@ impl ServerNotificationStorage {
         let notifications = sqlx::query_as::<_, ServerNotification>(
             r#"
             SELECT * FROM server_notifications
-            WHERE is_active = TRUE
+            WHERE is_enabled = TRUE
             AND (starts_at IS NULL OR starts_at <= $1)
             AND (expires_at IS NULL OR expires_at > $1)
             ORDER BY priority DESC, created_at DESC
@@ -213,7 +213,7 @@ impl ServerNotificationStorage {
                 target_user_ids = $6,
                 starts_at = $7,
                 expires_at = $8,
-                is_dismissible = $9,
+                is_dismissable = $9,
                 action_url = $10,
                 action_text = $11,
                 updated_at = $12
@@ -229,7 +229,7 @@ impl ServerNotificationStorage {
         .bind(&target_user_ids)
         .bind(request.starts_at)
         .bind(request.expires_at)
-        .bind(request.is_dismissible.unwrap_or(true))
+        .bind(request.is_dismissable.unwrap_or(true))
         .bind(&request.action_url)
         .bind(&request.action_text)
         .bind(now)
@@ -255,7 +255,7 @@ impl ServerNotificationStorage {
 
     pub async fn deactivate_notification(&self, notification_id: i32) -> Result<bool, ApiError> {
         let result = sqlx::query(
-            r#"UPDATE server_notifications SET is_active = FALSE WHERE id = $1"#,
+            r#"UPDATE server_notifications SET is_enabled = FALSE WHERE id = $1"#,
         )
         .bind(notification_id)
         .execute(&self.pool)
@@ -271,7 +271,7 @@ impl ServerNotificationStorage {
         let notifications = sqlx::query_as::<_, ServerNotification>(
             r#"
             SELECT * FROM server_notifications
-            WHERE is_active = TRUE
+            WHERE is_enabled = TRUE
             AND (starts_at IS NULL OR starts_at <= $1)
             AND (expires_at IS NULL OR expires_at > $1)
             AND (target_audience = 'all' OR target_user_ids ? $2)
@@ -331,7 +331,7 @@ impl ServerNotificationStorage {
 
     pub async fn mark_as_read(&self, user_id: &str, notification_id: i32) -> Result<bool, ApiError> {
         let exists = sqlx::query_scalar::<_, i64>(
-            r#"SELECT COUNT(*) FROM server_notifications WHERE id = $1 AND is_active = TRUE"#,
+            r#"SELECT COUNT(*) FROM server_notifications WHERE id = $1 AND is_enabled = TRUE"#,
         )
         .bind(notification_id)
         .fetch_one(&self.pool)
@@ -363,7 +363,7 @@ impl ServerNotificationStorage {
 
     pub async fn mark_as_dismissed(&self, user_id: &str, notification_id: i32) -> Result<bool, ApiError> {
         let exists = sqlx::query_scalar::<_, i64>(
-            r#"SELECT COUNT(*) FROM server_notifications WHERE id = $1 AND is_active = TRUE"#,
+            r#"SELECT COUNT(*) FROM server_notifications WHERE id = $1 AND is_enabled = TRUE"#,
         )
         .bind(notification_id)
         .fetch_one(&self.pool)
@@ -448,7 +448,7 @@ impl ServerNotificationStorage {
 
     pub async fn get_template(&self, name: &str) -> Result<Option<NotificationTemplate>, ApiError> {
         let template = sqlx::query_as::<_, NotificationTemplate>(
-            r#"SELECT * FROM notification_templates WHERE name = $1 AND is_active = TRUE"#,
+            r#"SELECT * FROM notification_templates WHERE name = $1 AND is_enabled = TRUE"#,
         )
         .bind(name)
         .fetch_optional(&self.pool)
@@ -460,7 +460,7 @@ impl ServerNotificationStorage {
 
     pub async fn list_templates(&self) -> Result<Vec<NotificationTemplate>, ApiError> {
         let templates = sqlx::query_as::<_, NotificationTemplate>(
-            r#"SELECT * FROM notification_templates WHERE is_active = TRUE ORDER BY name"#,
+            r#"SELECT * FROM notification_templates WHERE is_enabled = TRUE ORDER BY name"#,
         )
         .fetch_all(&self.pool)
         .await
@@ -471,7 +471,7 @@ impl ServerNotificationStorage {
 
     pub async fn delete_template(&self, name: &str) -> Result<bool, ApiError> {
         let result = sqlx::query(
-            r#"UPDATE notification_templates SET is_active = FALSE WHERE name = $1"#,
+            r#"UPDATE notification_templates SET is_enabled = FALSE WHERE name = $1"#,
         )
         .bind(name)
         .execute(&self.pool)
@@ -574,7 +574,7 @@ mod tests {
             target_user_ids: None,
             starts_at: None,
             expires_at: None,
-            is_dismissible: Some(true),
+            is_dismissable: Some(true),
             action_url: None,
             action_text: None,
             created_by: Some("admin".to_string()),
@@ -592,7 +592,7 @@ mod tests {
             target_user_ids: None,
             starts_at: None,
             expires_at: None,
-            is_dismissible: None,
+            is_dismissable: None,
             action_url: None,
             action_text: None,
             created_by: None,
@@ -617,7 +617,7 @@ mod tests {
                 target_user_ids: None,
                 starts_at: None,
                 expires_at: None,
-                is_dismissible: None,
+                is_dismissable: None,
                 action_url: None,
                 action_text: None,
                 created_by: None,
@@ -638,7 +638,7 @@ mod tests {
                 target_user_ids: None,
                 starts_at: None,
                 expires_at: None,
-                is_dismissible: None,
+                is_dismissable: None,
                 action_url: None,
                 action_text: None,
                 created_by: None,
@@ -660,7 +660,7 @@ mod tests {
                 target_user_ids: None,
                 starts_at: None,
                 expires_at: None,
-                is_dismissible: None,
+                is_dismissable: None,
                 action_url: None,
                 action_text: None,
                 created_by: None,
@@ -681,7 +681,7 @@ mod tests {
             target_user_ids: None,
             starts_at: None,
             expires_at: None,
-            is_dismissible: None,
+            is_dismissable: None,
             action_url: None,
             action_text: None,
             created_by: None,
@@ -701,8 +701,8 @@ mod tests {
             target_user_ids: serde_json::json!([]),
             starts_at: None,
             expires_at: None,
-            is_active: true,
-            is_dismissible: true,
+            is_enabled: true,
+            is_dismissable: true,
             action_url: None,
             action_text: None,
             created_by: Some("admin".to_string()),
@@ -710,7 +710,7 @@ mod tests {
             updated_at: Utc::now(),
         };
         assert_eq!(notification.title, "Test");
-        assert!(notification.is_active);
+        assert!(notification.is_enabled);
     }
 
     #[test]
@@ -738,11 +738,11 @@ mod tests {
             content_template: "Hello, {username}!".to_string(),
             notification_type: "info".to_string(),
             variables: serde_json::json!(["username"]),
-            is_active: true,
+            is_enabled: true,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
         assert_eq!(template.name, "welcome");
-        assert!(template.is_active);
+        assert!(template.is_enabled);
     }
 }

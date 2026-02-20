@@ -20,7 +20,7 @@ pub struct User {
     /// Whether the user is an admin
     pub is_admin: Option<bool>,
     /// Whether the user account is deactivated
-    pub deactivated: Option<bool>,
+    pub is_deactivated: Option<bool>,
     /// Whether the user is a guest
     pub is_guest: Option<bool>,
     /// The version of the terms of service consented to
@@ -30,7 +30,7 @@ pub struct User {
     /// The type of user (e.g., bot, support)
     pub user_type: Option<String>,
     /// Whether the user is shadow banned
-    pub shadow_banned: Option<bool>,
+    pub is_shadow_banned: Option<bool>,
     /// The generation ID for this user record
     pub generation: i64,
     /// Timestamp when the user data was invalidated
@@ -93,8 +93,8 @@ impl UserStorage {
             r#"
             INSERT INTO users (user_id, username, password_hash, is_admin, creation_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated,
-                      is_guest, consent_version, appservice_id, user_type, shadow_banned, generation,
+            RETURNING user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
+                      is_guest, consent_version, appservice_id, user_type, is_shadow_banned, generation,
                       invalid_update_ts, migration_state, creation_ts, updated_ts
             "#,
         )
@@ -111,8 +111,8 @@ impl UserStorage {
     pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
             r#"
-            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated,
-                   is_guest, consent_version, appservice_id, user_type, shadow_banned, generation,
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
+                   is_guest, consent_version, appservice_id, user_type, is_shadow_banned, generation,
                    invalid_update_ts, migration_state, creation_ts, updated_ts
             FROM users
             WHERE user_id = $1
@@ -126,8 +126,8 @@ impl UserStorage {
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
             r#"
-            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated,
-                   is_guest, consent_version, appservice_id, user_type, shadow_banned, generation,
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
+                   is_guest, consent_version, appservice_id, user_type, is_shadow_banned, generation,
                    invalid_update_ts, migration_state, creation_ts, updated_ts
             FROM users
             WHERE username = $1
@@ -152,8 +152,8 @@ impl UserStorage {
     pub async fn get_all_users(&self, limit: i64) -> Result<Vec<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
             r#"
-            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated,
-                   is_guest, consent_version, appservice_id, user_type, shadow_banned, generation,
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
+                   is_guest, consent_version, appservice_id, user_type, is_shadow_banned, generation,
                    invalid_update_ts, migration_state, creation_ts, updated_ts
             FROM users
             ORDER BY creation_ts DESC
@@ -172,8 +172,8 @@ impl UserStorage {
     ) -> Result<Vec<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
             r#"
-            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated,
-                   is_guest, consent_version, appservice_id, user_type, shadow_banned, generation,
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
+                   is_guest, consent_version, appservice_id, user_type, is_shadow_banned, generation,
                    invalid_update_ts, migration_state, creation_ts, updated_ts
             FROM users
             ORDER BY creation_ts DESC
@@ -200,7 +200,7 @@ impl UserStorage {
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
-            SELECT 1 FROM users WHERE user_id = $1 AND deactivated = FALSE LIMIT 1
+            SELECT 1 FROM users WHERE user_id = $1 AND is_deactivated = FALSE LIMIT 1
             "#,
         )
         .bind(user_id)
@@ -214,7 +214,7 @@ impl UserStorage {
             return Ok(Vec::new());
         }
         let rows = sqlx::query_scalar::<_, String>(
-            "SELECT user_id FROM users WHERE user_id = ANY($1) AND COALESCE(deactivated, FALSE) = FALSE"
+            "SELECT user_id FROM users WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE"
         )
         .bind(user_ids)
         .fetch_all(&*self.pool)
@@ -280,7 +280,7 @@ impl UserStorage {
     }
 
     pub async fn deactivate_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r#"UPDATE users SET deactivated = TRUE WHERE user_id = $1"#)
+        sqlx::query(r#"UPDATE users SET is_deactivated = TRUE WHERE user_id = $1"#)
             .bind(user_id)
             .execute(&*self.pool)
             .await?;
@@ -331,7 +331,7 @@ impl UserStorage {
             SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
             FROM users
             WHERE (username ILIKE $1 OR user_id ILIKE $1 OR displayname ILIKE $1)
-            AND COALESCE(deactivated, FALSE) = FALSE
+            AND COALESCE(is_deactivated, FALSE) = FALSE
             ORDER BY
                 CASE
                     WHEN username = $2 THEN 0
@@ -365,7 +365,7 @@ impl UserStorage {
             r#"
             SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
             FROM users
-            WHERE user_id = $1 AND COALESCE(deactivated, FALSE) = FALSE
+            WHERE user_id = $1 AND COALESCE(is_deactivated, FALSE) = FALSE
             "#,
         )
         .bind(user_id)
@@ -392,7 +392,7 @@ impl UserStorage {
             r#"
             SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
             FROM users
-            WHERE user_id = ANY($1) AND COALESCE(deactivated, FALSE) = FALSE
+            WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE
             "#,
         )
         .bind(user_ids)

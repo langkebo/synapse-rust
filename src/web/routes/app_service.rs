@@ -34,7 +34,7 @@ pub struct UpdateAppServiceBody {
     pub description: Option<String>,
     pub rate_limited: Option<bool>,
     pub protocols: Option<Vec<String>>,
-    pub is_active: Option<bool>,
+    pub is_enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,7 +84,7 @@ pub struct AppServiceResponse {
     pub description: Option<String>,
     pub rate_limited: bool,
     pub protocols: Vec<String>,
-    pub is_active: bool,
+    pub is_enabled: bool,
     pub created_ts: i64,
     pub last_seen_ts: Option<i64>,
 }
@@ -100,7 +100,7 @@ impl From<ApplicationService> for AppServiceResponse {
             description: svc.description,
             rate_limited: svc.rate_limited,
             protocols: svc.protocols,
-            is_active: svc.is_active,
+            is_enabled: svc.is_enabled,
             created_ts: svc.created_ts,
             last_seen_ts: svc.last_seen_ts,
         }
@@ -203,8 +203,8 @@ pub async fn update_app_service(
     if let Some(protocols) = body.protocols {
         request = request.protocols(protocols);
     }
-    if let Some(is_active) = body.is_active {
-        request = request.is_active(is_active);
+    if let Some(is_enabled) = body.is_enabled {
+        request = request.is_enabled(is_enabled);
     }
     
     let service = state.services.app_service_manager.update(&as_id, request).await?;

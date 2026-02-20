@@ -231,7 +231,7 @@ impl AuthService {
             return Err(ApiError::forbidden("Invalid credentials".to_string()));
         }
 
-        if user.deactivated == Some(true) {
+        if user.is_deactivated == Some(true) {
             return Err(ApiError::forbidden("User is deactivated".to_string()));
         }
 
@@ -398,8 +398,8 @@ impl AuthService {
 
             match user {
                 Some(u) => {
-                    let is_active = u.deactivated != Some(true);
-                    ::tracing::debug!(target: "token_validation", "User found, deactivated: {:?}, is_active: {}", u.deactivated, is_active);
+                    let is_active = u.is_deactivated != Some(true);
+                    ::tracing::debug!(target: "token_validation", "User found, is_deactivated: {:?}, is_active: {}", u.is_deactivated, is_active);
 
                     self.cache.set_user_active(&claims.sub, is_active, 60).await;
 
@@ -436,8 +436,8 @@ impl AuthService {
 
                 match user {
                     Some(u) => {
-                        ::tracing::debug!(target: "token_validation", "User found, deactivated: {:?}", u.deactivated);
-                        if u.deactivated == Some(true) {
+                        ::tracing::debug!(target: "token_validation", "User found, is_deactivated: {:?}", u.is_deactivated);
+                        if u.is_deactivated == Some(true) {
                             ::tracing::debug!(target: "token_validation", "User is deactivated, rejecting token");
                             return Err(ApiError::unauthorized("User is deactivated".to_string()));
                         }

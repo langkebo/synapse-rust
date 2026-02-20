@@ -125,7 +125,7 @@ impl ServerNotificationService {
             target_user_ids,
             starts_at: None,
             expires_at: None,
-            is_dismissible: None,
+            is_dismissable: None,
             action_url: None,
             action_text: None,
             created_by: None,

@@ -736,7 +736,7 @@ pub async fn get_users(
                 "name": u.username,
                 "is_guest": u.is_guest.unwrap_or(false),
                 "admin": u.is_admin.unwrap_or(false),
-                "deactivated": u.deactivated.unwrap_or(false),
+                "deactivated": u.is_deactivated.unwrap_or(false),
                 "displayname": u.displayname,
                 "avatar_url": u.avatar_url,
                 "creation_ts": u.creation_ts,
@@ -774,7 +774,7 @@ async fn get_user(
             "name": u.username,
             "is_guest": u.is_guest.unwrap_or(false),
             "admin": u.is_admin.unwrap_or(false),
-            "deactivated": u.deactivated.unwrap_or(false),
+            "deactivated": u.is_deactivated.unwrap_or(false),
             "displayname": u.displayname,
             "avatar_url": u.avatar_url,
             "creation_ts": u.creation_ts,
@@ -1470,7 +1470,7 @@ pub async fn get_user_v2(
                 "user_id": u.username,
                 "is_guest": u.is_guest.unwrap_or(false),
                 "admin": u.is_admin.unwrap_or(false),
-                "deactivated": u.deactivated.unwrap_or(false),
+                "deactivated": u.is_deactivated.unwrap_or(false),
                 "displayname": u.displayname,
                 "avatar_url": u.avatar_url,
                 "creation_ts": u.creation_ts,
@@ -1524,7 +1524,7 @@ pub async fn create_or_update_user_v2(
                 displayname = COALESCE($2, displayname),
                 avatar_url = COALESCE($3, avatar_url),
                 is_admin = COALESCE($4, is_admin),
-                deactivated = COALESCE($5, deactivated),
+                is_deactivated = COALESCE($5, is_deactivated),
                 user_type = COALESCE($6, user_type),
                 updated_ts = $7
             WHERE username = $1 OR user_id = $1
@@ -1565,7 +1565,7 @@ pub async fn create_or_update_user_v2(
 
         sqlx::query(
             r#"
-            INSERT INTO users (user_id, username, password_hash, displayname, avatar_url, is_admin, deactivated, user_type, creation_ts, updated_ts, generation)
+            INSERT INTO users (user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated, user_type, creation_ts, updated_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)
             "#,
         )
@@ -1601,7 +1601,7 @@ pub async fn login_as_user(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-    if user.deactivated.unwrap_or(false) {
+    if user.is_deactivated.unwrap_or(false) {
         return Err(ApiError::bad_request("User is deactivated".to_string()));
     }
 
