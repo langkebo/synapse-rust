@@ -760,24 +760,21 @@
  refresh_token_usage                       | success                    | boolean                  |                          | NO          | true
  refresh_token_usage                       | error_message              | text                     |                          | YES         | 
  refresh_tokens                            | id                         | bigint                   |                          | NO          | nextval('refresh_tokens_id_seq'::regclass)
- refresh_tokens                            | token                      | text                     |                          | NO          | 
- refresh_tokens                            | user_id                    | character varying        |                      255 | NO          | 
- refresh_tokens                            | device_id                  | character varying        |                      255 | NO          | 
- refresh_tokens                            | expires_ts                 | bigint                   |                          | NO          | 
- refresh_tokens                            | created_ts                 | bigint                   |                          | NO          | 
- refresh_tokens                            | invalidated                | boolean                  |                          | YES         | false
- refresh_tokens                            | revoked_ts                 | bigint                   |                          | YES         | 
  refresh_tokens                            | token_hash                 | character varying        |                      255 | NO          | 
- refresh_tokens                            | expires_at                 | bigint                   |                          | YES         | 
- refresh_tokens                            | is_revoked                 | boolean                  |                          | YES         | false
- refresh_tokens                            | use_count                  | integer                  |                          | YES         | 0
- refresh_tokens                            | revoked_reason             | text                     |                          | YES         | 
- refresh_tokens                            | scope                      | character varying        |                      255 | YES         | 
+ refresh_tokens                            | user_id                    | character varying        |                      255 | NO          | 
+ refresh_tokens                            | device_id                  | character varying        |                      255 | YES         | 
  refresh_tokens                            | access_token_id            | character varying        |                      255 | YES         | 
+ refresh_tokens                            | scope                      | character varying        |                      255 | YES         | 
+ refresh_tokens                            | expires_at                 | bigint                   |                          | YES         | 
+ refresh_tokens                            | created_ts                 | bigint                   |                          | NO          | 
+ refresh_tokens                            | last_used_ts               | bigint                   |                          | YES         | 
+ refresh_tokens                            | use_count                  | integer                  |                          | YES         | 0
+ refresh_tokens                            | is_revoked                 | boolean                  |                          | YES         | false
+ refresh_tokens                            | revoked_ts                 | bigint                   |                          | YES         | 
+ refresh_tokens                            | revoked_reason             | text                     |                          | YES         | 
  refresh_tokens                            | client_info                | jsonb                    |                          | YES         | 
  refresh_tokens                            | ip_address                 | character varying        |                       45 | YES         | 
  refresh_tokens                            | user_agent                 | text                     |                          | YES         | 
- refresh_tokens                            | last_used_ts               | bigint                   |                          | YES         | 
  registration_captcha                      | id                         | integer                  |                          | NO          | nextval('registration_captcha_id_seq'::regclass)
  registration_captcha                      | captcha_id                 | character varying        |                       64 | NO          | 
  registration_captcha                      | captcha_type               | character varying        |                       20 | NO          | 

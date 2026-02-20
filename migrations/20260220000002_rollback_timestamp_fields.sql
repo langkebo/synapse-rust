@@ -81,7 +81,15 @@ ALTER TABLE federation_signing_keys RENAME COLUMN created_ts TO created_at;
 ALTER TABLE blocked_rooms RENAME COLUMN created_ts TO created_at;
 
 -- 20. refresh_tokens 表
+-- 注意: 如果之前删除了 expires_ts，需要重新添加
+ALTER TABLE refresh_tokens DROP COLUMN IF EXISTS expires_ts;
 ALTER TABLE refresh_tokens RENAME COLUMN expires_at TO expires_ts;
+
+-- 注意: 以下被删除的字段无法恢复数据，仅恢复字段结构
+-- invalidated 字段 (已由 is_revoked 替代)
+ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS invalidated BOOLEAN DEFAULT FALSE;
+-- token 字段 (已由 token_hash 替代)
+ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS token TEXT;
 
 -- =============================================================================
 -- 第二部分: 回滚时间字段类型 (BIGINT -> TIMESTAMP WITH TIME ZONE)
