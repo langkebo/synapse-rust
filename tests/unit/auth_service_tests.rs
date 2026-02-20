@@ -88,6 +88,7 @@ fn test_auth_service_register_invalid_username() {
             argon2_m_cost: 2048,
             argon2_t_cost: 1,
             argon2_p_cost: 1,
+            allow_legacy_hashes: false,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -118,6 +119,7 @@ fn test_auth_service_login_invalid_credentials() {
             argon2_m_cost: 2048,
             argon2_t_cost: 1,
             argon2_p_cost: 1,
+            allow_legacy_hashes: false,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());

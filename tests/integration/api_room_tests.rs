@@ -126,6 +126,7 @@ async fn setup_test_app() -> axum::Router {
             argon2_m_cost: 2048,
             argon2_t_cost: 1,
             argon2_p_cost: 1,
+            allow_legacy_hashes: false,
         },
         search: SearchConfig {
             elasticsearch_url: "http://localhost:9200".to_string(),

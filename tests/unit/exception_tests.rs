@@ -41,6 +41,7 @@ use std::sync::Arc;
                 argon2_m_cost: 2048,
                 argon2_t_cost: 1,
                 argon2_p_cost: 1,
+                allow_legacy_hashes: false,
             };
 
             let auth_service =

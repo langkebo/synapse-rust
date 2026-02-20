@@ -1566,7 +1566,9 @@ impl Config {
             config_values.security.secret
         );
 
-        config_values.resolve_env_variables();
+        config_values.resolve_env_variables().map_err(|e| {
+            format!("Failed to resolve environment variables: {}", e)
+        })?;
 
         tracing::info!("Environment variables resolved successfully");
         tracing::debug!(
@@ -1581,121 +1583,137 @@ impl Config {
         Ok(config_values)
     }
 
-    fn resolve_env_variables(&mut self) {
-        self.server.name = resolve_env_in_string(&self.server.name);
-        self.server.host = resolve_env_in_string(&self.server.host);
+    fn resolve_env_variables(&mut self) -> Result<(), String> {
+        self.server.name = resolve_env_in_string(&self.server.name)?;
+        self.server.host = resolve_env_in_string(&self.server.host)?;
         self.server.public_baseurl = self
             .server
             .public_baseurl
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
         self.server.signing_key_path = self
             .server
             .signing_key_path
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
         self.server.macaroon_secret_key = self
             .server
             .macaroon_secret_key
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
         self.server.form_secret = self
             .server
             .form_secret
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
         self.server.server_name = self
             .server
             .server_name
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
         self.server.registration_shared_secret = self
             .server
             .registration_shared_secret
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
         self.server.admin_contact = self
             .server
             .admin_contact
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
         self.server.user_agent_suffix = self
             .server
             .user_agent_suffix
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
         self.server.web_client_location = self
             .server
             .web_client_location
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
 
-        self.database.host = resolve_env_in_string(&self.database.host);
-        self.database.username = resolve_env_in_string(&self.database.username);
-        self.database.password = resolve_env_in_string(&self.database.password);
-        self.database.name = resolve_env_in_string(&self.database.name);
+        self.database.host = resolve_env_in_string(&self.database.host)?;
+        self.database.username = resolve_env_in_string(&self.database.username)?;
+        self.database.password = resolve_env_in_string(&self.database.password)?;
+        self.database.name = resolve_env_in_string(&self.database.name)?;
 
-        self.redis.host = resolve_env_in_string(&self.redis.host);
-        self.redis.key_prefix = resolve_env_in_string(&self.redis.key_prefix);
+        self.redis.host = resolve_env_in_string(&self.redis.host)?;
+        self.redis.key_prefix = resolve_env_in_string(&self.redis.key_prefix)?;
 
-        self.logging.level = resolve_env_in_string(&self.logging.level);
-        self.logging.format = resolve_env_in_string(&self.logging.format);
+        self.logging.level = resolve_env_in_string(&self.logging.level)?;
+        self.logging.format = resolve_env_in_string(&self.logging.format)?;
         self.logging.log_file = self
             .logging
             .log_file
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
         self.logging.log_dir = self
             .logging
             .log_dir
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
 
-        self.federation.server_name = resolve_env_in_string(&self.federation.server_name);
+        self.federation.server_name = resolve_env_in_string(&self.federation.server_name)?;
         self.federation.signing_key = self
             .federation
             .signing_key
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
         self.federation.key_id = self
             .federation
             .key_id
             .take()
-            .map(|v| resolve_env_in_string(&v));
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
         self.federation.ca_file = self
             .federation
             .ca_file
             .take()
-            .map(|v| PathBuf::from(resolve_env_in_string(&v.to_string_lossy())));
+            .map(|v| resolve_env_in_string(&v.to_string_lossy()).map(PathBuf::from))
+            .transpose()?;
         self.federation.client_ca_file = self
             .federation
             .client_ca_file
             .take()
-            .map(|v| PathBuf::from(resolve_env_in_string(&v.to_string_lossy())));
+            .map(|v| resolve_env_in_string(&v.to_string_lossy()).map(PathBuf::from))
+            .transpose()?;
 
         for server in &mut self.federation.trusted_key_servers {
-            server.server_name = resolve_env_in_string(&server.server_name);
+            server.server_name = resolve_env_in_string(&server.server_name)?;
         }
 
-        self.security.secret = resolve_env_in_string(&self.security.secret);
+        self.security.secret = resolve_env_in_string(&self.security.secret)?;
 
-        self.search.elasticsearch_url = resolve_env_in_string(&self.search.elasticsearch_url);
+        self.search.elasticsearch_url = resolve_env_in_string(&self.search.elasticsearch_url)?;
 
         if self.smtp.enabled {
-            self.smtp.host = resolve_env_in_string(&self.smtp.host);
-            self.smtp.username = resolve_env_in_string(&self.smtp.username);
-            self.smtp.password = resolve_env_in_string(&self.smtp.password);
-            self.smtp.from = resolve_env_in_string(&self.smtp.from);
+            self.smtp.host = resolve_env_in_string(&self.smtp.host)?;
+            self.smtp.username = resolve_env_in_string(&self.smtp.username)?;
+            self.smtp.password = resolve_env_in_string(&self.smtp.password)?;
+            self.smtp.from = resolve_env_in_string(&self.smtp.from)?;
         }
 
         if self.oidc.enabled {
-            self.oidc.issuer = resolve_env_in_string(&self.oidc.issuer);
-            self.oidc.client_id = resolve_env_in_string(&self.oidc.client_id);
+            self.oidc.issuer = resolve_env_in_string(&self.oidc.issuer)?;
+            self.oidc.client_id = resolve_env_in_string(&self.oidc.client_id)?;
             self.oidc.client_secret = self
                 .oidc
                 .client_secret
                 .take()
-                .map(|v| resolve_env_in_string(&v));
+                .map(|v| resolve_env_in_string(&v))
+                .transpose()?;
         }
 
         if self.saml.enabled {
@@ -1703,19 +1721,21 @@ impl Config {
                 .saml
                 .metadata_url
                 .take()
-                .map(|v| resolve_env_in_string(&v));
-            self.saml.sp_entity_id = resolve_env_in_string(&self.saml.sp_entity_id);
+                .map(|v| resolve_env_in_string(&v))
+                .transpose()?;
+            self.saml.sp_entity_id = resolve_env_in_string(&self.saml.sp_entity_id)?;
         }
 
         self.admin_registration.shared_secret =
-            resolve_env_in_string(&self.admin_registration.shared_secret);
+            resolve_env_in_string(&self.admin_registration.shared_secret)?;
 
         if self.voip.is_enabled() {
             self.voip.turn_shared_secret = self
                 .voip
                 .turn_shared_secret
                 .take()
-                .map(|v| resolve_env_in_string(&v));
+                .map(|v| resolve_env_in_string(&v))
+                .transpose()?;
         }
 
         if self.push.is_enabled() {
@@ -1723,8 +1743,11 @@ impl Config {
                 .push
                 .push_gateway_url
                 .take()
-                .map(|v| resolve_env_in_string(&v));
+                .map(|v| resolve_env_in_string(&v))
+                .transpose()?;
         }
+
+        Ok(())
     }
 
     pub fn database_url(&self) -> String {
@@ -1743,7 +1766,7 @@ impl Config {
     }
 }
 
-fn resolve_env_in_string(value: &str) -> String {
+fn resolve_env_in_string(value: &str) -> Result<String, String> {
     let re =
         Regex::new(r"\$\{([^}]+)\}").expect("Invalid regex pattern for env variable substitution");
     let mut result = value.to_string();
@@ -1790,12 +1813,15 @@ fn resolve_env_in_string(value: &str) -> String {
             let var_name = parts[0];
             let error_msg = parts[1];
 
-            let val = std::env::var(var_name).unwrap_or_else(|_| {
-                panic!(
-                    "Environment variable {} is required: {}",
-                    var_name, error_msg
-                );
-            });
+            let val = match std::env::var(var_name) {
+                Ok(v) => v,
+                Err(_) => {
+                    return Err(format!(
+                        "Environment variable {} is required: {}",
+                        var_name, error_msg
+                    ));
+                }
+            };
             tracing::debug!(
                 "Resolved required env var {}: {} -> {}",
                 var_name,
@@ -1812,7 +1838,7 @@ fn resolve_env_in_string(value: &str) -> String {
         result = result.replace(full_match, &replacement);
     }
 
-    result
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -1896,6 +1922,7 @@ mod tests {
                 argon2_m_cost: 4096,
                 argon2_t_cost: 3,
                 argon2_p_cost: 1,
+                allow_legacy_hashes: false,
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -2004,6 +2031,7 @@ mod tests {
                 argon2_m_cost: 4096,
                 argon2_t_cost: 3,
                 argon2_p_cost: 1,
+                allow_legacy_hashes: false,
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -2152,6 +2180,7 @@ mod tests {
             argon2_m_cost: 4096,
             argon2_t_cost: 3,
             argon2_p_cost: 1,
+            allow_legacy_hashes: false,
         };
 
         assert!(config.secret.len() > 16);
