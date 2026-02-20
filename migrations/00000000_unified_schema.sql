@@ -1428,7 +1428,7 @@ CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_status ON email_verific
 -- =============================================================================
 
 -- 插入默认验证码模板
-INSERT INTO captcha_template (template_name, captcha_type, subject, content, variables, is_default, enabled)
+INSERT INTO captcha_template (template_name, captcha_type, subject, content, variables, is_default, is_enabled)
 VALUES 
     ('default_email', 'email', '您的注册验证码', '您的注册验证码是：{{code}}，有效期{{expiry_minutes}}分钟。如非本人操作，请忽略此邮件。', '["code", "expiry_minutes"]', true, true),
     ('default_sms', 'sms', NULL, '您的注册验证码：{{code}}，有效期{{expiry_minutes}}分钟。', '["code", "expiry_minutes"]', true, true)
@@ -1456,7 +1456,7 @@ VALUES
 ON CONFLICT (config_key) DO NOTHING;
 
 -- 插入默认推送规则
-INSERT INTO push_rule (user_id, rule_id, scope, kind, priority, conditions, actions, enabled, is_default)
+INSERT INTO push_rule (user_id, rule_id, scope, kind, priority, conditions, actions, is_enabled, is_default)
 VALUES 
     ('.default', 'm.rule.master', 'global', 'override', 0, '[]', '["dont_notify"]', true, true),
     ('.default', 'm.rule.suppress_notices', 'global', 'override', 1, '[{"kind": "event_match", "key": "content.msgtype", "pattern": "m.notice"}]', '["dont_notify"]', true, true),
@@ -1470,14 +1470,14 @@ VALUES
 ON CONFLICT (user_id, scope, kind, rule_id) DO NOTHING;
 
 -- 插入默认推送规则 (兼容表)
-INSERT INTO push_rules (user_id, rule_id, scope, kind, priority, conditions, actions, enabled, is_default)
-SELECT user_id, rule_id, scope, kind, priority, conditions, actions, enabled, is_default
+INSERT INTO push_rules (user_id, rule_id, scope, kind, priority, conditions, actions, is_enabled, is_default)
+SELECT user_id, rule_id, scope, kind, priority, conditions, actions, is_enabled, is_default
 FROM push_rule
 WHERE user_id = '.default'
 ON CONFLICT (user_id, scope, kind, rule_id) DO NOTHING;
 
 -- 插入默认联邦黑名单规则
-INSERT INTO federation_blacklist_rule (rule_name, rule_type, pattern, action, priority, description, enabled)
+INSERT INTO federation_blacklist_rule (rule_name, rule_type, pattern, action, priority, description, is_enabled)
 VALUES 
     ('block_malicious_servers', 'domain', 'malicious.example.com', 'block', 1000, 'Block known malicious server', true),
     ('block_spam_servers', 'regex', '.*spam\\..*', 'block', 900, 'Block spam servers', true),

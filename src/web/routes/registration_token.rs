@@ -39,7 +39,7 @@ pub struct CreateTokenBody {
 pub struct UpdateTokenBody {
     pub description: Option<String>,
     pub max_uses: Option<i32>,
-    pub is_active: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub expires_at: Option<i64>,
 }
 
@@ -79,7 +79,7 @@ pub struct TokenResponse {
     pub current_uses: i32,
     pub remaining_uses: i32,
     pub is_used: bool,
-    pub is_active: bool,
+    pub is_enabled: bool,
     pub expires_at: Option<i64>,
     pub created_ts: i64,
     pub last_used_ts: Option<i64>,
@@ -102,7 +102,7 @@ impl From<RegistrationToken> for TokenResponse {
             current_uses: t.current_uses,
             remaining_uses: remaining,
             is_used: t.is_used,
-            is_active: t.is_active,
+            is_enabled: t.is_enabled,
             expires_at: t.expires_at,
             created_ts: t.created_ts,
             last_used_ts: t.last_used_ts,
@@ -224,7 +224,7 @@ pub async fn update_token(
     let request = UpdateRegistrationTokenRequest {
         description: body.description,
         max_uses: body.max_uses,
-        is_active: body.is_active,
+        is_enabled: body.is_enabled,
         expires_at: body.expires_at,
     };
 
