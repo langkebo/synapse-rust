@@ -30,8 +30,8 @@ struct CreateNotificationBody {
     priority: Option<i32>,
     target_audience: Option<String>,
     target_user_ids: Option<Vec<String>>,
-    starts_at: Option<chrono::DateTime<chrono::Utc>>,
-    expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    starts_at: Option<i64>,
+    expires_at: Option<i64>,
     is_dismissible: Option<bool>,
     action_url: Option<String>,
     action_text: Option<String>,
@@ -56,7 +56,7 @@ struct CreateFromTemplateBody {
 
 #[derive(Debug, Deserialize)]
 struct ScheduleBody {
-    scheduled_for: chrono::DateTime<chrono::Utc>,
+    scheduled_for: i64,
 }
 
 #[derive(Debug, Deserialize)]

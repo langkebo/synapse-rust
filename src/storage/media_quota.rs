@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -16,8 +16,8 @@ pub struct MediaQuotaConfig {
     pub blocked_mime_types: serde_json::Value,
     pub is_default: bool,
     pub is_enabled: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -30,8 +30,8 @@ pub struct UserMediaQuota {
     pub custom_max_files_count: Option<i32>,
     pub current_storage_bytes: i64,
     pub current_files_count: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -42,7 +42,7 @@ pub struct MediaUsageLog {
     pub file_size_bytes: i64,
     pub mime_type: Option<String>,
     pub operation: String,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -55,7 +55,7 @@ pub struct MediaQuotaAlert {
     pub quota_limit_bytes: i64,
     pub message: Option<String>,
     pub is_read: bool,
-    pub created_at: DateTime<Utc>,
+    pub created_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -67,7 +67,7 @@ pub struct ServerMediaQuota {
     pub current_storage_bytes: i64,
     pub current_files_count: i32,
     pub alert_threshold_percent: i32,
-    pub updated_at: DateTime<Utc>,
+    pub updated_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,7 +184,7 @@ impl MediaQuotaStorage {
 
     pub async fn list_configs(&self) -> Result<Vec<MediaQuotaConfig>, ApiError> {
         let configs = sqlx::query_as::<_, MediaQuotaConfig>(
-            r#"SELECT * FROM media_quota_config WHERE is_enabled = TRUE ORDER BY created_at DESC"#,
+            r#"SELECT * FROM media_quota_config WHERE is_enabled = TRUE ORDER BY created_ts DESC"#,
         )
         .fetch_all(&self.pool)
         .await
@@ -242,7 +242,7 @@ impl MediaQuotaStorage {
     }
 
     pub async fn set_user_quota(&self, request: SetUserQuotaRequest) -> Result<UserMediaQuota, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
         let quota = sqlx::query_as::<_, UserMediaQuota>(
             r#"
@@ -257,7 +257,7 @@ impl MediaQuotaStorage {
                 custom_max_storage_bytes = $3,
                 custom_max_file_size_bytes = $4,
                 custom_max_files_count = $5,
-                updated_at = $6
+                updated_ts = $6
             RETURNING *
             "#,
         )
@@ -275,7 +275,7 @@ impl MediaQuotaStorage {
     }
 
     pub async fn update_usage(&self, request: UpdateUsageRequest) -> Result<(), ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
         sqlx::query(
             r#"
@@ -313,7 +313,7 @@ impl MediaQuotaStorage {
                     WHEN $3 = 'delete' THEN GREATEST(0, user_media_quota.current_files_count - 1)
                     ELSE user_media_quota.current_files_count
                 END,
-                updated_at = $4
+                updated_ts = $4
             "#,
         )
         .bind(&request.user_id)
@@ -333,7 +333,7 @@ impl MediaQuotaStorage {
                     WHEN $2 = 'delete' THEN GREATEST(0, current_files_count - 1)
                     ELSE current_files_count
                 END,
-                updated_at = $3
+                updated_ts = $3
             WHERE id = 1
             "#,
         )
@@ -407,7 +407,7 @@ impl MediaQuotaStorage {
         max_files_count: Option<i32>,
         alert_threshold_percent: Option<i32>,
     ) -> Result<ServerMediaQuota, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
         let quota = sqlx::query_as::<_, ServerMediaQuota>(
             r#"
@@ -417,7 +417,7 @@ impl MediaQuotaStorage {
                 max_file_size_bytes = COALESCE($2, max_file_size_bytes),
                 max_files_count = COALESCE($3, max_files_count),
                 alert_threshold_percent = COALESCE($4, alert_threshold_percent),
-                updated_at = $5
+                updated_ts = $5
             WHERE id = 1
             RETURNING *
             "#,
@@ -469,14 +469,14 @@ impl MediaQuotaStorage {
     pub async fn get_user_alerts(&self, user_id: &str, unread_only: bool) -> Result<Vec<MediaQuotaAlert>, ApiError> {
         let alerts = if unread_only {
             sqlx::query_as::<_, MediaQuotaAlert>(
-                r#"SELECT * FROM media_quota_alerts WHERE user_id = $1 AND is_read = FALSE ORDER BY created_at DESC"#,
+                r#"SELECT * FROM media_quota_alerts WHERE user_id = $1 AND is_read = FALSE ORDER BY created_ts DESC"#,
             )
             .bind(user_id)
             .fetch_all(&self.pool)
             .await
         } else {
             sqlx::query_as::<_, MediaQuotaAlert>(
-                r#"SELECT * FROM media_quota_alerts WHERE user_id = $1 ORDER BY created_at DESC"#,
+                r#"SELECT * FROM media_quota_alerts WHERE user_id = $1 ORDER BY created_ts DESC"#,
             )
             .bind(user_id)
             .fetch_all(&self.pool)
@@ -534,8 +534,8 @@ mod tests {
             blocked_mime_types: serde_json::json!(["application/exe"]),
             is_default: true,
             is_enabled: true,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_ts: Utc::now().timestamp_millis(),
+            updated_ts: Utc::now().timestamp_millis(),
         }
     }
 
@@ -549,8 +549,8 @@ mod tests {
             custom_max_files_count: None,
             current_storage_bytes: 524288000,
             current_files_count: 50,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_ts: Utc::now().timestamp_millis(),
+            updated_ts: Utc::now().timestamp_millis(),
         }
     }
 
@@ -564,7 +564,7 @@ mod tests {
             quota_limit_bytes: 1073741824,
             message: Some("Storage usage at 80%".to_string()),
             is_read: false,
-            created_at: Utc::now(),
+            created_ts: Utc::now().timestamp_millis(),
         }
     }
 
@@ -672,7 +672,7 @@ mod tests {
             current_storage_bytes: 549755813888,
             current_files_count: 25000,
             alert_threshold_percent: 90,
-            updated_at: Utc::now(),
+            updated_ts: Utc::now().timestamp_millis(),
         };
         assert_eq!(quota.max_storage_bytes, 1099511627776);
         assert_eq!(quota.alert_threshold_percent, 90);

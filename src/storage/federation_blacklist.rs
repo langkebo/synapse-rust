@@ -1,5 +1,5 @@
 use crate::common::error::ApiError;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -12,9 +12,9 @@ pub struct FederationBlacklist {
     pub block_type: String,
     pub reason: Option<String>,
     pub blocked_by: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub expires_at: Option<DateTime<Utc>>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
+    pub expires_at: Option<i64>,
     pub is_enabled: bool,
     pub metadata: serde_json::Value,
 }
@@ -28,7 +28,7 @@ pub struct FederationBlacklistLog {
     pub new_status: Option<String>,
     pub reason: Option<String>,
     pub performed_by: String,
-    pub performed_at: DateTime<Utc>,
+    pub performed_ts: i64,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub metadata: serde_json::Value,
@@ -41,13 +41,13 @@ pub struct FederationAccessStats {
     pub total_requests: i64,
     pub successful_requests: i64,
     pub failed_requests: i64,
-    pub last_request_at: Option<DateTime<Utc>>,
-    pub last_success_at: Option<DateTime<Utc>>,
-    pub last_failure_at: Option<DateTime<Utc>>,
+    pub last_request_ts: Option<i64>,
+    pub last_success_ts: Option<i64>,
+    pub last_failure_ts: Option<i64>,
     pub average_response_time_ms: f64,
     pub error_rate: f64,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -60,8 +60,8 @@ pub struct FederationBlacklistRule {
     pub priority: i32,
     pub is_enabled: bool,
     pub description: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
     pub created_by: String,
 }
 
@@ -71,7 +71,7 @@ pub struct AddBlacklistRequest {
     pub block_type: String,
     pub reason: Option<String>,
     pub blocked_by: String,
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<i64>,
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -120,20 +120,20 @@ impl FederationBlacklistStorage {
         &self,
         request: AddBlacklistRequest,
     ) -> Result<FederationBlacklist, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, FederationBlacklist>(
             r#"
             INSERT INTO federation_blacklist (
-                server_name, block_type, reason, blocked_by, created_at, updated_at, expires_at, is_enabled, metadata
+                server_name, block_type, reason, blocked_by, created_ts, updated_ts, expires_at, is_enabled, metadata
             )
             VALUES ($1, $2, $3, $4, $5, $5, $6, true, $7)
             ON CONFLICT (server_name) DO UPDATE SET
                 block_type = $2,
                 reason = $3,
                 blocked_by = $4,
-                updated_at = $5,
+                updated_ts = $5,
                 expires_at = $6,
                 is_enabled = true,
                 metadata = $7
@@ -156,12 +156,12 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         
         sqlx::query(
             r#"
             UPDATE federation_blacklist 
-            SET is_enabled = false, updated_at = $1
+            SET is_enabled = false, updated_ts = $1
             WHERE server_name = $2
             "#,
         )
@@ -204,7 +204,8 @@ impl FederationBlacklistStorage {
         
         if let Some(entry) = entry {
             if let Some(expires_at) = entry.expires_at {
-                if expires_at < Utc::now() {
+                let now = Utc::now().timestamp_millis();
+                if expires_at < now {
                     return Ok(false);
                 }
             }
@@ -234,7 +235,7 @@ impl FederationBlacklistStorage {
             r#"
             SELECT * FROM federation_blacklist 
             WHERE is_enabled = true
-            ORDER BY created_at DESC
+            ORDER BY created_ts DESC
             LIMIT $1 OFFSET $2
             "#
         )
@@ -276,26 +277,26 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         
         let row = sqlx::query_as::<_, FederationAccessStats>(
             r#"
             INSERT INTO federation_access_stats (server_name, total_requests, successful_requests, failed_requests, 
-                last_request_at, last_success_at, last_failure_at, average_response_time_ms, error_rate, created_at, updated_at)
+                last_request_ts, last_success_ts, last_failure_ts, average_response_time_ms, error_rate, created_ts, updated_ts)
             VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $4, $4)
             ON CONFLICT (server_name) DO UPDATE SET
                 total_requests = federation_access_stats.total_requests + 1,
                 successful_requests = federation_access_stats.successful_requests + $2,
                 failed_requests = federation_access_stats.failed_requests + $3,
-                last_request_at = $4,
-                last_success_at = COALESCE($5, federation_access_stats.last_success_at),
-                last_failure_at = COALESCE($6, federation_access_stats.last_failure_at),
+                last_request_ts = $4,
+                last_success_ts = COALESCE($5, federation_access_stats.last_success_ts),
+                last_failure_ts = COALESCE($6, federation_access_stats.last_failure_ts),
                 average_response_time_ms = CASE 
                     WHEN $7 IS NOT NULL THEN (federation_access_stats.average_response_time_ms + $7) / 2
                     ELSE federation_access_stats.average_response_time_ms
                 END,
                 error_rate = CAST(federation_access_stats.failed_requests AS FLOAT) / NULLIF(federation_access_stats.total_requests, 0),
-                updated_at = $4
+                updated_ts = $4
             RETURNING *
             "#,
         )
@@ -327,12 +328,12 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn create_rule(&self, request: CreateRuleRequest) -> Result<FederationBlacklistRule, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, FederationBlacklistRule>(
             r#"
             INSERT INTO federation_blacklist_rule (
-                rule_name, rule_type, pattern, action, priority, description, created_at, updated_at, created_by
+                rule_name, rule_type, pattern, action, priority, description, created_ts, updated_ts, created_by
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)
             RETURNING *
@@ -366,9 +367,11 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn cleanup_expired_entries(&self) -> Result<u64, ApiError> {
+        let now = Utc::now().timestamp_millis();
         let result = sqlx::query(
-            "UPDATE federation_blacklist SET is_enabled = false WHERE expires_at < NOW() AND is_enabled = true"
+            "UPDATE federation_blacklist SET is_enabled = false WHERE expires_at < $1 AND is_enabled = true"
         )
+        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to cleanup expired entries: {}", e)))?;

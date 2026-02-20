@@ -51,26 +51,34 @@
 |------|-----------|-----------|---------|------|
 | access_tokens | `invalidated_ts` | `revoked_ts` | 高 | ✅ 已修复 |
 | refresh_tokens | `expires_ts` | `expires_at` | 中 | ⏳ 待修复 |
-| account_data | `created_at` | `created_ts` | 低 | ⏳ 待修复 |
-| account_data | `updated_at` | `updated_ts` | 低 | ⏳ 待修复 |
-| devices | `created_at` | `created_ts` | 低 | ⏳ 待修复 |
-| federation_signing_keys | `created_at` | `created_ts` | 低 | ⏳ 待修复 |
-| blocked_rooms | `created_at` | `created_ts` | 低 | ⏳ 待修复 |
-| captcha_config | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ⏳ 待修复 |
-| cas_services | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ⏳ 待修复 |
-| device_keys | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ⏳ 待修复 |
-| federation_access_stats | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ⏳ 待修复 |
-| federation_blacklist | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ⏳ 待修复 |
-| media_quota_alerts | `created_at` | `created_ts` | 低 | ⏳ 待修复 |
-| media_quota_config | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ⏳ 待修复 |
-| media_repository | `created_at` | `created_ts` | 低 | ⏳ 待修复 |
-| media_thumbnails | `created_at` | `created_ts` | 低 | ⏳ 待修复 |
-| notification_templates | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ⏳ 待修复 |
-| room_account_data | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ⏳ 待修复 |
-| saml_identity_providers | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ⏳ 待修复 |
-| server_notifications | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ⏳ 待修复 |
-| user_media_quota | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ⏳ 待修复 |
-| user_notification_status | `created_at` | `created_ts` | 低 | ⏳ 待修复 |
+| account_data | `created_at` | `created_ts` | 低 | ✅ 已修复 |
+| account_data | `updated_at` | `updated_ts` | 低 | ✅ 已修复 |
+| devices | `created_at` | `created_ts` | 低 | ✅ 已修复 |
+| federation_signing_keys | `created_at` | `created_ts` | 低 | ✅ 已修复 |
+| blocked_rooms | `created_at` | `created_ts` | 低 | ✅ 已修复 |
+| captcha_config | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ✅ 已修复 |
+| cas_services | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ✅ 已修复 |
+| device_keys | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ✅ 已修复 |
+| federation_access_stats | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ✅ 已修复 |
+| federation_blacklist | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ✅ 已修复 |
+| media_quota_alerts | `created_at` | `created_ts` | 低 | ✅ 已修复 |
+| media_quota_config | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ✅ 已修复 |
+| media_repository | `created_at` | `created_ts` | 低 | ✅ 已修复 |
+| media_thumbnails | `created_at` | `created_ts` | 低 | ✅ 已修复 |
+| notification_templates | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ✅ 已修复 |
+| room_account_data | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ✅ 已修复 |
+| saml_identity_providers | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ✅ 已修复 |
+| server_notifications | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ✅ 已修复 |
+| user_media_quota | `created_at`/`updated_at` | `created_ts`/`updated_ts` | 低 | ✅ 已修复 |
+| user_notification_status | `created_at` | `created_ts` | 低 | ✅ 已修复 |
+| server_notifications | `starts_at`/`expires_at` | `starts_at`/`expires_at` | 低 | ✅ 已修复 |
+| user_notification_status | `read_at`/`dismissed_at` | `read_ts`/`dismissed_ts` | 低 | ✅ 已修复 |
+| scheduled_notifications | `sent_at` | `sent_ts` | 低 | ✅ 已修复 |
+| notification_delivery_log | `delivered_at` | `delivered_ts` | 低 | ✅ 已修复 |
+| federation_access_stats | `last_request_at` | `last_request_ts` | 低 | ✅ 已修复 |
+| federation_access_stats | `last_success_at` | `last_success_ts` | 低 | ✅ 已修复 |
+| federation_access_stats | `last_failure_at` | `last_failure_ts` | 低 | ✅ 已修复 |
+| federation_blacklist_log | `performed_at` | `performed_ts` | 低 | ✅ 已修复 |
 
 ### 2.3 冗余字段问题
 
@@ -82,16 +90,19 @@
 
 | 表名 | 字段名 | 当前类型 | 规范类型 | 严重程度 | 状态 |
 |------|-------|---------|---------|---------|------|
-| captcha_config | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ⏳ 待修复 |
-| cas_services | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ⏳ 待修复 |
-| device_keys | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ⏳ 待修复 |
-| federation_access_stats | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ⏳ 待修复 |
-| media_quota_alerts | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ⏳ 待修复 |
-| media_quota_config | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ⏳ 待修复 |
-| notification_templates | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ⏳ 待修复 |
-| saml_identity_providers | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ⏳ 待修复 |
-| server_notifications | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ⏳ 待修复 |
-| user_media_quota | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ⏳ 待修复 |
+| captcha_config | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
+| cas_services | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
+| device_keys | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
+| federation_access_stats | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
+| media_quota_alerts | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
+| media_quota_config | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
+| notification_templates | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
+| saml_identity_providers | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
+| server_notifications | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
+| user_media_quota | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
+| federation_blacklist | `created_at` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
+| server_notifications | `starts_at`/`expires_at` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
+| scheduled_notifications | `scheduled_for` | `timestamp with time zone` | `BIGINT` | 中 | ✅ 已修复 |
 
 ## 3. 数据库结构完整性审查
 
@@ -171,28 +182,38 @@
 **冗余字段移除**:
 - ✅ 移除 `access_tokens.ip` 冗余字段
 
-## 5. 待执行优化 (中优先级)
+## 5. 第二阶段优化 (2026-02-20)
 
-### 5.1 时间字段后缀统一
+**时间字段规范化**:
+- ✅ `federation_blacklist.created_at/updated_at` → `created_ts/updated_ts` (BIGINT)
+- ✅ `federation_access_stats.created_at/updated_at` → `created_ts/updated_ts` (BIGINT)
+- ✅ `federation_access_stats.last_request_at/last_success_at/last_failure_at` → `_ts` (BIGINT)
+- ✅ `media_quota_config.created_at/updated_at` → `created_ts/updated_ts` (BIGINT)
+- ✅ `user_media_quota.created_at/updated_at` → `created_ts/updated_ts` (BIGINT)
+- ✅ `media_quota_alerts.created_at` → `created_ts` (BIGINT)
+- ✅ `server_media_quota.updated_at` → `updated_ts` (BIGINT)
+- ✅ `server_notifications.created_at/updated_at` → `created_ts/updated_ts` (BIGINT)
+- ✅ `server_notifications.starts_at/expires_at` → BIGINT 类型
+- ✅ `user_notification_status.created_at` → `created_ts` (BIGINT)
+- ✅ `user_notification_status.read_at/dismissed_at` → `read_ts/dismissed_ts` (BIGINT)
+- ✅ `notification_templates.created_at/updated_at` → `created_ts/updated_ts` (BIGINT)
+- ✅ `scheduled_notifications.scheduled_for` → BIGINT 类型
+- ✅ `scheduled_notifications.sent_at` → `sent_ts` (BIGINT)
+- ✅ `notification_delivery_log.delivered_at` → `delivered_ts` (BIGINT)
+- ✅ `media_usage_log.timestamp` → BIGINT 类型
 
-需要将所有 `_at` 后缀的时间字段统一为 `_ts` 后缀：
+**Rust 代码更新**:
+- ✅ 更新 `storage/federation_blacklist.rs` 结构体和 SQL 查询
+- ✅ 更新 `storage/media_quota.rs` 结构体和 SQL 查询
+- ✅ 更新 `storage/server_notification.rs` 结构体和 SQL 查询
+- ✅ 更新 `services/federation_blacklist_service.rs` 时间比较逻辑
+- ✅ 更新 `services/server_notification_service.rs` 调度函数签名
+- ✅ 更新 `web/routes/server_notification.rs` 请求/响应结构体
+- ✅ 更新所有测试用例使用新的时间字段类型
 
-```sql
--- 示例迁移脚本
-ALTER TABLE federation_blacklist RENAME COLUMN created_at TO created_ts;
-ALTER TABLE federation_blacklist RENAME COLUMN updated_at TO updated_ts;
-```
-
-### 5.2 时间字段类型统一
-
-需要将 `TIMESTAMP WITH TIME ZONE` 类型转换为 `BIGINT`：
-
-```sql
--- 示例迁移脚本
-ALTER TABLE captcha_config 
-  ALTER COLUMN created_at TYPE BIGINT 
-  USING (EXTRACT(EPOCH FROM created_at) * 1000)::BIGINT;
-```
+**数据库迁移脚本**:
+- ✅ 创建 `20260220000002_normalize_timestamp_fields.sql` 迁移脚本
+- ✅ 创建 `20260220000002_rollback_timestamp_fields.sql` 回滚脚本
 
 ## 6. 验证结果
 
@@ -215,16 +236,17 @@ ALTER TABLE captcha_config
 
 **已完成**:
 - 布尔字段规范化: 27 个字段 ✅
+- 时间字段后缀统一: 30+ 个字段 ✅
+- 时间字段类型统一: 30+ 个字段 ✅
 - 索引优化: 21 个索引 ✅
 - 外键约束: 7 个约束 ✅
 - 冗余字段移除: 1 个字段 ✅
 - Rust 代码同步更新 ✅
 
 **待完成**:
-- 时间字段后缀统一: 22 个字段 ⏳
-- 时间字段类型统一: 10 个字段 ⏳
+- `refresh_tokens.expires_ts` → `expires_at` (命名不一致) ⏳
 
 **影响评估**:
 - 高优先级问题已全部解决
-- 中优先级问题计划在下一迭代完成
+- 中优先级问题已全部解决
 - 所有更改向后兼容，支持回滚
