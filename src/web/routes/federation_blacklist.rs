@@ -48,8 +48,8 @@ pub struct BlacklistEntryResponse {
     pub block_type: String,
     pub reason: Option<String>,
     pub blocked_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_ts: i64,
+    pub expires_at: Option<i64>,
     pub is_enabled: bool,
 }
 
@@ -61,7 +61,7 @@ impl From<FederationBlacklist> for BlacklistEntryResponse {
             block_type: entry.block_type,
             reason: entry.reason,
             blocked_by: entry.blocked_by,
-            created_at: entry.created_at,
+            created_ts: entry.created_ts,
             expires_at: entry.expires_at,
             is_enabled: entry.is_enabled,
         }

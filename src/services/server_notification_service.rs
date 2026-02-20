@@ -138,7 +138,7 @@ impl ServerNotificationService {
     pub async fn schedule_notification(
         &self,
         notification_id: i32,
-        scheduled_for: chrono::DateTime<chrono::Utc>,
+        scheduled_for: i64,
     ) -> Result<ScheduledNotification, ApiError> {
         info!("Scheduling notification {} for {}", notification_id, scheduled_for);
         self.storage.schedule_notification(notification_id, scheduled_for).await

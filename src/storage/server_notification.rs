@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -13,15 +13,15 @@ pub struct ServerNotification {
     pub priority: i32,
     pub target_audience: String,
     pub target_user_ids: serde_json::Value,
-    pub starts_at: Option<DateTime<Utc>>,
-    pub expires_at: Option<DateTime<Utc>>,
+    pub starts_at: Option<i64>,
+    pub expires_at: Option<i64>,
     pub is_enabled: bool,
     pub is_dismissable: bool,
     pub action_url: Option<String>,
     pub action_text: Option<String>,
     pub created_by: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -31,9 +31,9 @@ pub struct UserNotificationStatus {
     pub notification_id: i32,
     pub is_read: bool,
     pub is_dismissed: bool,
-    pub read_at: Option<DateTime<Utc>>,
-    pub dismissed_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
+    pub read_ts: Option<i64>,
+    pub dismissed_ts: Option<i64>,
+    pub created_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -45,8 +45,8 @@ pub struct NotificationTemplate {
     pub notification_type: String,
     pub variables: serde_json::Value,
     pub is_enabled: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -57,17 +57,17 @@ pub struct NotificationDeliveryLog {
     pub delivery_method: String,
     pub status: String,
     pub error_message: Option<String>,
-    pub delivered_at: DateTime<Utc>,
+    pub delivered_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ScheduledNotification {
     pub id: i32,
     pub notification_id: i32,
-    pub scheduled_for: DateTime<Utc>,
+    pub scheduled_for: i64,
     pub is_sent: bool,
-    pub sent_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
+    pub sent_ts: Option<i64>,
+    pub created_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,8 +78,8 @@ pub struct CreateNotificationRequest {
     pub priority: Option<i32>,
     pub target_audience: Option<String>,
     pub target_user_ids: Option<Vec<String>>,
-    pub starts_at: Option<DateTime<Utc>>,
-    pub expires_at: Option<DateTime<Utc>>,
+    pub starts_at: Option<i64>,
+    pub expires_at: Option<i64>,
     pub is_dismissable: Option<bool>,
     pub action_url: Option<String>,
     pub action_text: Option<String>,
@@ -160,7 +160,7 @@ impl ServerNotificationStorage {
     }
 
     pub async fn list_active_notifications(&self) -> Result<Vec<ServerNotification>, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
         let notifications = sqlx::query_as::<_, ServerNotification>(
             r#"
@@ -168,7 +168,7 @@ impl ServerNotificationStorage {
             WHERE is_enabled = TRUE
             AND (starts_at IS NULL OR starts_at <= $1)
             AND (expires_at IS NULL OR expires_at > $1)
-            ORDER BY priority DESC, created_at DESC
+            ORDER BY priority DESC, created_ts DESC
             "#,
         )
         .bind(now)
@@ -183,7 +183,7 @@ impl ServerNotificationStorage {
         let notifications = sqlx::query_as::<_, ServerNotification>(
             r#"
             SELECT * FROM server_notifications
-            ORDER BY created_at DESC
+            ORDER BY created_ts DESC
             LIMIT $1 OFFSET $2
             "#,
         )
@@ -197,7 +197,7 @@ impl ServerNotificationStorage {
     }
 
     pub async fn update_notification(&self, notification_id: i32, request: CreateNotificationRequest) -> Result<ServerNotification, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         let target_user_ids = serde_json::to_value(request.target_user_ids.unwrap_or_default())
             .unwrap_or(serde_json::json!([]));
 
@@ -216,7 +216,7 @@ impl ServerNotificationStorage {
                 is_dismissable = $9,
                 action_url = $10,
                 action_text = $11,
-                updated_at = $12
+                updated_ts = $12
             WHERE id = $13
             RETURNING *
             "#,
@@ -266,7 +266,7 @@ impl ServerNotificationStorage {
     }
 
     pub async fn get_user_notifications(&self, user_id: &str) -> Result<Vec<NotificationWithStatus>, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
         let notifications = sqlx::query_as::<_, ServerNotification>(
             r#"
@@ -275,7 +275,7 @@ impl ServerNotificationStorage {
             AND (starts_at IS NULL OR starts_at <= $1)
             AND (expires_at IS NULL OR expires_at > $1)
             AND (target_audience = 'all' OR target_user_ids ? $2)
-            ORDER BY priority DESC, created_at DESC
+            ORDER BY priority DESC, created_ts DESC
             "#,
         )
         .bind(now)
@@ -342,13 +342,13 @@ impl ServerNotificationStorage {
             return Err(ApiError::not_found("Notification not found"));
         }
 
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         let result = sqlx::query(
             r#"
-            INSERT INTO user_notification_status (user_id, notification_id, is_read, read_at)
+            INSERT INTO user_notification_status (user_id, notification_id, is_read, read_ts)
             VALUES ($1, $2, TRUE, $3)
             ON CONFLICT (user_id, notification_id)
-            DO UPDATE SET is_read = TRUE, read_at = $3
+            DO UPDATE SET is_read = TRUE, read_ts = $3
             "#,
         )
         .bind(user_id)
@@ -374,13 +374,13 @@ impl ServerNotificationStorage {
             return Err(ApiError::not_found("Notification not found"));
         }
 
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         let result = sqlx::query(
             r#"
-            INSERT INTO user_notification_status (user_id, notification_id, is_dismissed, dismissed_at)
+            INSERT INTO user_notification_status (user_id, notification_id, is_dismissed, dismissed_ts)
             VALUES ($1, $2, TRUE, $3)
             ON CONFLICT (user_id, notification_id)
-            DO UPDATE SET is_dismissed = TRUE, dismissed_at = $3
+            DO UPDATE SET is_dismissed = TRUE, dismissed_ts = $3
             "#,
         )
         .bind(user_id)
@@ -394,17 +394,17 @@ impl ServerNotificationStorage {
     }
 
     pub async fn mark_all_as_read(&self, user_id: &str) -> Result<i64, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         let notifications = self.get_user_notifications(user_id).await?;
 
         let mut count = 0i64;
         for n in notifications {
             let result = sqlx::query(
                 r#"
-                INSERT INTO user_notification_status (user_id, notification_id, is_read, read_at)
+                INSERT INTO user_notification_status (user_id, notification_id, is_read, read_ts)
                 VALUES ($1, $2, TRUE, $3)
                 ON CONFLICT (user_id, notification_id)
-                DO UPDATE SET is_read = TRUE, read_at = $3
+                DO UPDATE SET is_read = TRUE, read_ts = $3
                 "#,
             )
             .bind(user_id)
@@ -509,7 +509,7 @@ impl ServerNotificationStorage {
         Ok(())
     }
 
-    pub async fn schedule_notification(&self, notification_id: i32, scheduled_for: DateTime<Utc>) -> Result<ScheduledNotification, ApiError> {
+    pub async fn schedule_notification(&self, notification_id: i32, scheduled_for: i64) -> Result<ScheduledNotification, ApiError> {
         let scheduled = sqlx::query_as::<_, ScheduledNotification>(
             r#"
             INSERT INTO scheduled_notifications (notification_id, scheduled_for)
@@ -527,7 +527,7 @@ impl ServerNotificationStorage {
     }
 
     pub async fn get_pending_scheduled_notifications(&self) -> Result<Vec<ScheduledNotification>, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
         let scheduled = sqlx::query_as::<_, ScheduledNotification>(
             r#"
@@ -544,9 +544,9 @@ impl ServerNotificationStorage {
     }
 
     pub async fn mark_scheduled_sent(&self, scheduled_id: i32) -> Result<bool, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         let result = sqlx::query(
-            r#"UPDATE scheduled_notifications SET is_sent = TRUE, sent_at = $1 WHERE id = $2"#,
+            r#"UPDATE scheduled_notifications SET is_sent = TRUE, sent_ts = $1 WHERE id = $2"#,
         )
         .bind(now)
         .bind(scheduled_id)
@@ -706,8 +706,8 @@ mod tests {
             action_url: None,
             action_text: None,
             created_by: Some("admin".to_string()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_ts: Utc::now().timestamp_millis(),
+            updated_ts: Utc::now().timestamp_millis(),
         };
         assert_eq!(notification.title, "Test");
         assert!(notification.is_enabled);
@@ -721,9 +721,9 @@ mod tests {
             notification_id: 1,
             is_read: false,
             is_dismissed: false,
-            read_at: None,
-            dismissed_at: None,
-            created_at: Utc::now(),
+            read_ts: None,
+            dismissed_ts: None,
+            created_ts: Utc::now().timestamp_millis(),
         };
         assert!(!status.is_read);
         assert!(!status.is_dismissed);
@@ -739,8 +739,8 @@ mod tests {
             notification_type: "info".to_string(),
             variables: serde_json::json!(["username"]),
             is_enabled: true,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_ts: Utc::now().timestamp_millis(),
+            updated_ts: Utc::now().timestamp_millis(),
         };
         assert_eq!(template.name, "welcome");
         assert!(template.is_enabled);

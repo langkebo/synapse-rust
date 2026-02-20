@@ -46,7 +46,8 @@ impl FederationBlacklistService {
         }
 
         let expires_at = request.expires_in_days.map(|days| {
-            chrono::Utc::now() + chrono::Duration::days(days as i64)
+            let expiry = chrono::Utc::now() + chrono::Duration::days(days as i64);
+            expiry.timestamp_millis()
         });
 
         let storage_request = crate::storage::federation_blacklist::AddBlacklistRequest {
@@ -97,7 +98,8 @@ impl FederationBlacklistService {
         
         if let Some(entry) = entry {
             if let Some(expires_at) = entry.expires_at {
-                if expires_at < chrono::Utc::now() {
+                let now = chrono::Utc::now().timestamp_millis();
+                if expires_at < now {
                     return Ok(CheckResult {
                         is_blocked: false,
                         is_whitelisted: false,
@@ -196,9 +198,9 @@ impl FederationBlacklistService {
         
         if let Some(stats) = stats {
             if stats.failed_requests >= threshold as i64 {
-                if let Some(last_failure) = stats.last_failure_at {
-                    let window_start = chrono::Utc::now() - chrono::Duration::minutes(window_minutes as i64);
-                    if last_failure > window_start {
+                if let Some(last_failure_ts) = stats.last_failure_ts {
+                    let window_start = (chrono::Utc::now() - chrono::Duration::minutes(window_minutes as i64)).timestamp_millis();
+                    if last_failure_ts > window_start {
                         info!("Auto-blacklisting server {} due to {} failures", server_name, stats.failed_requests);
                         
                         self.add_to_blacklist(AddBlacklistRequest {
