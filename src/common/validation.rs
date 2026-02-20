@@ -1,5 +1,5 @@
-use crate::common::ApiError;
 use crate::common::constants::*;
+use crate::common::ApiError;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -65,7 +65,10 @@ impl Validator {
         if username.len() < MIN_USERNAME_LENGTH {
             return Err(ValidationError::new(
                 "username",
-                &format!("Username must be at least {} characters", MIN_USERNAME_LENGTH),
+                &format!(
+                    "Username must be at least {} characters",
+                    MIN_USERNAME_LENGTH
+                ),
                 "TOO_SHORT",
             ));
         }
@@ -73,7 +76,10 @@ impl Validator {
         if username.len() > MAX_USERNAME_LENGTH {
             return Err(ValidationError::new(
                 "username",
-                &format!("Username must be at most {} characters", MAX_USERNAME_LENGTH),
+                &format!(
+                    "Username must be at most {} characters",
+                    MAX_USERNAME_LENGTH
+                ),
                 "TOO_LONG",
             ));
         }
@@ -101,7 +107,10 @@ impl Validator {
         if password.len() < MIN_PASSWORD_LENGTH {
             return Err(ValidationError::new(
                 "password",
-                &format!("Password must be at least {} characters", MIN_PASSWORD_LENGTH),
+                &format!(
+                    "Password must be at least {} characters",
+                    MIN_PASSWORD_LENGTH
+                ),
                 "TOO_SHORT",
             ));
         }
@@ -109,7 +118,10 @@ impl Validator {
         if password.len() > MAX_PASSWORD_LENGTH {
             return Err(ValidationError::new(
                 "password",
-                &format!("Password must be at most {} characters", MAX_PASSWORD_LENGTH),
+                &format!(
+                    "Password must be at most {} characters",
+                    MAX_PASSWORD_LENGTH
+                ),
                 "TOO_LONG",
             ));
         }
@@ -228,7 +240,10 @@ impl Validator {
         if device_id.len() > MAX_DEVICE_ID_LENGTH {
             return Err(ValidationError::new(
                 "device_id",
-                &format!("Device ID must be at most {} characters", MAX_DEVICE_ID_LENGTH),
+                &format!(
+                    "Device ID must be at most {} characters",
+                    MAX_DEVICE_ID_LENGTH
+                ),
                 "TOO_LONG",
             ));
         }
@@ -375,12 +390,24 @@ impl Validator {
 impl Default for Validator {
     fn default() -> Self {
         Self::new().unwrap_or_else(|e| {
-            panic!(
-                "Critical: Failed to create default validator - regex compilation error: {}. \
-                 This indicates a programming error in regex patterns.",
-                e
-            )
+            tracing::error!("Failed to compile validation regexes: {}", e);
+            tracing::warn!("Using fallback validator with relaxed validation rules");
+            Self::create_fallback_validator()
         })
+    }
+
+    fn create_fallback_validator() -> Self {
+        Self {
+            username_regex: Regex::new(r"^[a-zA-Z0-9_.-]+$")
+                .unwrap_or(Regex::new(r"^.*$").unwrap()),
+            email_regex: Regex::new(r"^[^@]+@[^@]+\.[^@]+$")
+                .unwrap_or(Regex::new(r"^.*$").unwrap()),
+            matrix_id_regex: Regex::new(r"^@[^:]+:[^:]+$").unwrap_or(Regex::new(r"^.*$").unwrap()),
+            room_id_regex: Regex::new(r"^![^:]+:[^:]+$").unwrap_or(Regex::new(r"^.*$").unwrap()),
+            device_id_regex: Regex::new(r"^[a-zA-Z0-9._\-]+$")
+                .unwrap_or(Regex::new(r"^.*$").unwrap()),
+            url_regex: Regex::new(r"^https?://.+").unwrap_or(Regex::new(r"^.*$").unwrap()),
+        }
     }
 }
 
@@ -542,9 +569,9 @@ mod tests {
             let validator = Validator::new().unwrap();
             let min = 10;
             let max = 100;
-            
+
             let result = validator.validate_limit(limit, min, max);
-            
+
             if limit >= min && limit <= max {
                 result.is_ok()
             } else {
@@ -649,5 +676,66 @@ mod tests {
 
         assert!(!ctx.is_valid());
         assert_eq!(ctx.errors.len(), 3);
+    }
+
+    #[cfg(test)]
+    mod fuzz_tests {
+        use super::*;
+        use arbitrary::Arbitrary;
+
+        #[derive(Debug, Arbitrary)]
+        struct UsernameInput<'a> {
+            #[arbitrary(with = |u: &mut arbitrary::Unstructured| u.arbitrary())]
+            username: &'a str,
+        }
+
+        quickcheck::quickcheck! {
+            fn test_validate_username_fuzz(input: UsernameInput) -> bool {
+                let validator = Validator::new().unwrap();
+                let result = validator.validate_username(input.username);
+                match result {
+                    Ok(()) => {
+                        !input.username.is_empty()
+                        && input.username.len() >= 1
+                        && input.username.len() <= 255
+                        && input.username.chars().all(|c| c.is_ascii_alphanumeric() || "_.-=".contains(c))
+                    }
+                    Err(_) => {
+                        input.username.is_empty()
+                        || input.username.len() < 1
+                        || input.username.len() > 255
+                        || input.username.chars().any(|c| !c.is_ascii_alphanumeric() && !"_.-=".contains(c))
+                    }
+                }
+            }
+        }
+
+        #[derive(Debug, Arbitrary)]
+        struct EmailInput<'a> {
+            #[arbitrary(with = |u: &mut arbitrary::Unstructured| u.arbitrary())]
+            email: &'a str,
+        }
+
+        quickcheck::quickcheck! {
+            fn test_validate_email_fuzz(input: EmailInput) -> bool {
+                let validator = Validator::new().unwrap();
+                let result = validator.validate_email(input.email);
+                result.is_ok() == !input.email.is_empty() && input.email.contains('@') && input.email.contains('.')
+            }
+        }
+
+        #[derive(Debug, Arbitrary)]
+        struct MatrixIdInput<'a> {
+            #[arbitrary(with = |u: &mut arbitrary::Unstructured| u.arbitrary())]
+            user_id: &'a str,
+        }
+
+        quickcheck::quickcheck! {
+            fn test_validate_matrix_id_fuzz(input: MatrixIdInput) -> bool {
+                let validator = Validator::new().unwrap();
+                let result = validator.validate_matrix_id(input.user_id);
+                result.is_ok() == input.user_id.starts_with('@') && input.user_id.contains(':')
+            }
+        }
     }
 }

@@ -92,7 +92,7 @@ fn parse_duration(s: &str) -> Option<i64> {
     if s.is_empty() {
         return None;
     }
-    
+
     let (num_part, unit) = if let Some(stripped) = s.strip_suffix('s') {
         (stripped, 1i64)
     } else if s.ends_with('m') && !s.ends_with("ms") {
@@ -106,7 +106,7 @@ fn parse_duration(s: &str) -> Option<i64> {
     } else {
         (s, 1i64)
     };
-    
+
     num_part.parse::<i64>().ok().map(|n| n * unit)
 }
 
@@ -216,16 +216,32 @@ fn default_apns_production() -> bool {
 
 impl PushConfig {
     pub fn is_enabled(&self) -> bool {
-        self.enabled && (self.fcm.is_some() || self.apns.is_some() || self.web_push.is_some() || self.push_gateway_url.is_some())
+        self.enabled
+            && (self.fcm.is_some()
+                || self.apns.is_some()
+                || self.web_push.is_some()
+                || self.push_gateway_url.is_some())
     }
 }
 
-fn default_spider_enabled() -> bool { true }
-fn default_max_spider_size() -> String { "10M".to_string() }
-fn default_preview_cache_duration() -> u64 { 86400 }
-fn default_user_agent() -> String { "Synapse-Rust/0.1.0 (Matrix Homeserver)".to_string() }
-fn default_preview_timeout() -> u64 { 10 }
-fn default_max_redirects() -> u32 { 5 }
+fn default_spider_enabled() -> bool {
+    true
+}
+fn default_max_spider_size() -> String {
+    "10M".to_string()
+}
+fn default_preview_cache_duration() -> u64 {
+    86400
+}
+fn default_user_agent() -> String {
+    "Synapse-Rust/0.1.0 (Matrix Homeserver)".to_string()
+}
+fn default_preview_timeout() -> u64 {
+    10
+}
+fn default_max_redirects() -> u32 {
+    5
+}
 
 fn default_ip_blacklist() -> Vec<String> {
     vec![
@@ -243,13 +259,15 @@ fn default_ip_blacklist() -> Vec<String> {
 
 fn parse_size(s: &str) -> Option<usize> {
     let s = s.trim();
-    if s.is_empty() { return None; }
+    if s.is_empty() {
+        return None;
+    }
     let (num_part, multiplier) = if s.ends_with('K') || s.ends_with('k') {
-        (&s[..s.len()-1], 1024usize)
+        (&s[..s.len() - 1], 1024usize)
     } else if s.ends_with('M') || s.ends_with('m') {
-        (&s[..s.len()-1], 1024 * 1024)
+        (&s[..s.len() - 1], 1024 * 1024)
     } else if s.ends_with('G') || s.ends_with('g') {
-        (&s[..s.len()-1], 1024 * 1024 * 1024)
+        (&s[..s.len() - 1], 1024 * 1024 * 1024)
     } else {
         (s, 1usize)
     };
@@ -367,10 +385,16 @@ pub struct OidcAttributeMapping {
 }
 
 fn default_oidc_scopes() -> Vec<String> {
-    vec!["openid".to_string(), "profile".to_string(), "email".to_string()]
+    vec![
+        "openid".to_string(),
+        "profile".to_string(),
+        "email".to_string(),
+    ]
 }
 
-fn default_oidc_timeout() -> u64 { 10 }
+fn default_oidc_timeout() -> u64 {
+    10
+}
 
 impl OidcConfig {
     pub fn is_enabled(&self) -> bool {
@@ -565,13 +589,19 @@ impl SamlConfig {
 
     pub fn get_sp_acs_url(&self, server_name: &str) -> String {
         self.sp_acs_url.clone().unwrap_or_else(|| {
-            format!("https://{}/_matrix/client/r0/login/sso/redirect/saml", server_name)
+            format!(
+                "https://{}/_matrix/client/r0/login/sso/redirect/saml",
+                server_name
+            )
         })
     }
 
     pub fn get_sp_sls_url(&self, server_name: &str) -> Option<String> {
         self.sp_sls_url.clone().or_else(|| {
-            Some(format!("https://{}/_matrix/client/r0/logout/saml", server_name))
+            Some(format!(
+                "https://{}/_matrix/client/r0/logout/saml",
+                server_name
+            ))
         })
     }
 }
@@ -995,7 +1025,6 @@ pub struct ServerConfig {
     pub port: u16,
 
     // ===== 新增关键字段 =====
-
     /// 公开基础 URL
     ///
     /// 客户端用于访问服务器的公开 URL。
@@ -1090,7 +1119,6 @@ pub struct ServerConfig {
     pub web_client_location: Option<String>,
 
     // ===== 原有字段 =====
-
     /// 注册共享密钥（用于管理员注册）
     pub registration_shared_secret: Option<String>,
 
@@ -1299,6 +1327,9 @@ pub struct SecurityConfig {
     /// Argon2 并行度
     #[serde(default = "default_argon2_p_cost")]
     pub argon2_p_cost: u32,
+    /// 是否允许旧版 SHA-256 密码哈希验证（出于安全考虑，建议设置为 false）
+    #[serde(default = "default_allow_legacy_hashes")]
+    pub allow_legacy_hashes: bool,
 }
 
 fn default_argon2_m_cost() -> u32 {
@@ -1311,6 +1342,10 @@ fn default_argon2_t_cost() -> u32 {
 
 fn default_argon2_p_cost() -> u32 {
     1
+}
+
+fn default_allow_legacy_hashes() -> bool {
+    false
 }
 
 /// CORS 配置。
@@ -1520,32 +1555,80 @@ impl Config {
             .build()?;
 
         let mut config_values: Config = config.try_deserialize()?;
-        
+
         tracing::info!("Configuration loaded, resolving environment variables...");
-        tracing::debug!("Before resolution - federation.signing_key: {:?}", config_values.federation.signing_key);
-        tracing::debug!("Before resolution - security.secret: {}", config_values.security.secret);
-        
+        tracing::debug!(
+            "Before resolution - federation.signing_key: {:?}",
+            config_values.federation.signing_key
+        );
+        tracing::debug!(
+            "Before resolution - security.secret: {}",
+            config_values.security.secret
+        );
+
         config_values.resolve_env_variables();
-        
+
         tracing::info!("Environment variables resolved successfully");
-        tracing::debug!("After resolution - federation.signing_key: {:?}", config_values.federation.signing_key);
-        tracing::debug!("After resolution - security.secret: {}", config_values.security.secret);
-        
+        tracing::debug!(
+            "After resolution - federation.signing_key: {:?}",
+            config_values.federation.signing_key
+        );
+        tracing::debug!(
+            "After resolution - security.secret: {}",
+            config_values.security.secret
+        );
+
         Ok(config_values)
     }
 
     fn resolve_env_variables(&mut self) {
         self.server.name = resolve_env_in_string(&self.server.name);
         self.server.host = resolve_env_in_string(&self.server.host);
-        self.server.public_baseurl = self.server.public_baseurl.take().map(|v| resolve_env_in_string(&v));
-        self.server.signing_key_path = self.server.signing_key_path.take().map(|v| resolve_env_in_string(&v));
-        self.server.macaroon_secret_key = self.server.macaroon_secret_key.take().map(|v| resolve_env_in_string(&v));
-        self.server.form_secret = self.server.form_secret.take().map(|v| resolve_env_in_string(&v));
-        self.server.server_name = self.server.server_name.take().map(|v| resolve_env_in_string(&v));
-        self.server.registration_shared_secret = self.server.registration_shared_secret.take().map(|v| resolve_env_in_string(&v));
-        self.server.admin_contact = self.server.admin_contact.take().map(|v| resolve_env_in_string(&v));
-        self.server.user_agent_suffix = self.server.user_agent_suffix.take().map(|v| resolve_env_in_string(&v));
-        self.server.web_client_location = self.server.web_client_location.take().map(|v| resolve_env_in_string(&v));
+        self.server.public_baseurl = self
+            .server
+            .public_baseurl
+            .take()
+            .map(|v| resolve_env_in_string(&v));
+        self.server.signing_key_path = self
+            .server
+            .signing_key_path
+            .take()
+            .map(|v| resolve_env_in_string(&v));
+        self.server.macaroon_secret_key = self
+            .server
+            .macaroon_secret_key
+            .take()
+            .map(|v| resolve_env_in_string(&v));
+        self.server.form_secret = self
+            .server
+            .form_secret
+            .take()
+            .map(|v| resolve_env_in_string(&v));
+        self.server.server_name = self
+            .server
+            .server_name
+            .take()
+            .map(|v| resolve_env_in_string(&v));
+        self.server.registration_shared_secret = self
+            .server
+            .registration_shared_secret
+            .take()
+            .map(|v| resolve_env_in_string(&v));
+        self.server.admin_contact = self
+            .server
+            .admin_contact
+            .take()
+            .map(|v| resolve_env_in_string(&v));
+        self.server.user_agent_suffix = self
+            .server
+            .user_agent_suffix
+            .take()
+            .map(|v| resolve_env_in_string(&v));
+        self.server.web_client_location = self
+            .server
+            .web_client_location
+            .take()
+            .map(|v| resolve_env_in_string(&v));
 
         self.database.host = resolve_env_in_string(&self.database.host);
         self.database.username = resolve_env_in_string(&self.database.username);
@@ -1557,15 +1640,39 @@ impl Config {
 
         self.logging.level = resolve_env_in_string(&self.logging.level);
         self.logging.format = resolve_env_in_string(&self.logging.format);
-        self.logging.log_file = self.logging.log_file.take().map(|v| resolve_env_in_string(&v));
-        self.logging.log_dir = self.logging.log_dir.take().map(|v| resolve_env_in_string(&v));
+        self.logging.log_file = self
+            .logging
+            .log_file
+            .take()
+            .map(|v| resolve_env_in_string(&v));
+        self.logging.log_dir = self
+            .logging
+            .log_dir
+            .take()
+            .map(|v| resolve_env_in_string(&v));
 
         self.federation.server_name = resolve_env_in_string(&self.federation.server_name);
-        self.federation.signing_key = self.federation.signing_key.take().map(|v| resolve_env_in_string(&v));
-        self.federation.key_id = self.federation.key_id.take().map(|v| resolve_env_in_string(&v));
-        self.federation.ca_file = self.federation.ca_file.take().map(|v| PathBuf::from(resolve_env_in_string(&v.to_string_lossy())));
-        self.federation.client_ca_file = self.federation.client_ca_file.take().map(|v| PathBuf::from(resolve_env_in_string(&v.to_string_lossy())));
-        
+        self.federation.signing_key = self
+            .federation
+            .signing_key
+            .take()
+            .map(|v| resolve_env_in_string(&v));
+        self.federation.key_id = self
+            .federation
+            .key_id
+            .take()
+            .map(|v| resolve_env_in_string(&v));
+        self.federation.ca_file = self
+            .federation
+            .ca_file
+            .take()
+            .map(|v| PathBuf::from(resolve_env_in_string(&v.to_string_lossy())));
+        self.federation.client_ca_file = self
+            .federation
+            .client_ca_file
+            .take()
+            .map(|v| PathBuf::from(resolve_env_in_string(&v.to_string_lossy())));
+
         for server in &mut self.federation.trusted_key_servers {
             server.server_name = resolve_env_in_string(&server.server_name);
         }
@@ -1584,22 +1691,39 @@ impl Config {
         if self.oidc.enabled {
             self.oidc.issuer = resolve_env_in_string(&self.oidc.issuer);
             self.oidc.client_id = resolve_env_in_string(&self.oidc.client_id);
-            self.oidc.client_secret = self.oidc.client_secret.take().map(|v| resolve_env_in_string(&v));
+            self.oidc.client_secret = self
+                .oidc
+                .client_secret
+                .take()
+                .map(|v| resolve_env_in_string(&v));
         }
 
         if self.saml.enabled {
-            self.saml.metadata_url = self.saml.metadata_url.take().map(|v| resolve_env_in_string(&v));
+            self.saml.metadata_url = self
+                .saml
+                .metadata_url
+                .take()
+                .map(|v| resolve_env_in_string(&v));
             self.saml.sp_entity_id = resolve_env_in_string(&self.saml.sp_entity_id);
         }
 
-        self.admin_registration.shared_secret = resolve_env_in_string(&self.admin_registration.shared_secret);
+        self.admin_registration.shared_secret =
+            resolve_env_in_string(&self.admin_registration.shared_secret);
 
         if self.voip.is_enabled() {
-            self.voip.turn_shared_secret = self.voip.turn_shared_secret.take().map(|v| resolve_env_in_string(&v));
+            self.voip.turn_shared_secret = self
+                .voip
+                .turn_shared_secret
+                .take()
+                .map(|v| resolve_env_in_string(&v));
         }
 
         if self.push.is_enabled() {
-            self.push.push_gateway_url = self.push.push_gateway_url.take().map(|v| resolve_env_in_string(&v));
+            self.push.push_gateway_url = self
+                .push
+                .push_gateway_url
+                .take()
+                .map(|v| resolve_env_in_string(&v));
         }
     }
 
@@ -1620,49 +1744,74 @@ impl Config {
 }
 
 fn resolve_env_in_string(value: &str) -> String {
-    let re = Regex::new(r"\$\{([^}]+)\}").expect("Invalid regex pattern for env variable substitution");
+    let re =
+        Regex::new(r"\$\{([^}]+)\}").expect("Invalid regex pattern for env variable substitution");
     let mut result = value.to_string();
-    
+
     for cap in re.captures_iter(value) {
-        let full_match = cap.get(0).expect("Regex capture group 0 should always exist").as_str();
-        let inner = cap.get(1).expect("Regex capture group 1 should always exist").as_str();
-        
+        let full_match = cap
+            .get(0)
+            .expect("Regex capture group 0 should always exist")
+            .as_str();
+        let inner = cap
+            .get(1)
+            .expect("Regex capture group 1 should always exist")
+            .as_str();
+
         let replacement = if inner.contains(":-") {
             let parts: Vec<&str> = inner.splitn(2, ":-").collect();
             let var_name = parts[0];
             let default_value = parts[1];
-            
+
             let resolved = std::env::var(var_name).unwrap_or_else(|_| default_value.to_string());
-            tracing::debug!("Resolved env var {} (with default): {} -> {}", var_name, full_match, resolved);
+            tracing::debug!(
+                "Resolved env var {} (with default): {} -> {}",
+                var_name,
+                full_match,
+                resolved
+            );
             resolved
         } else if inner.contains(":=") {
             let parts: Vec<&str> = inner.splitn(2, ":=").collect();
             let var_name = parts[0];
             let default_value = parts[1];
-            
+
             let val = std::env::var(var_name).unwrap_or_else(|_| default_value.to_string());
             std::env::set_var(var_name, &val);
-            tracing::debug!("Resolved env var {} (with assign): {} -> {}", var_name, full_match, val);
+            tracing::debug!(
+                "Resolved env var {} (with assign): {} -> {}",
+                var_name,
+                full_match,
+                val
+            );
             val
         } else if inner.contains(":?") {
             let parts: Vec<&str> = inner.splitn(2, ":?").collect();
             let var_name = parts[0];
             let error_msg = parts[1];
-            
+
             let val = std::env::var(var_name).unwrap_or_else(|_| {
-                panic!("Environment variable {} is required: {}", var_name, error_msg);
+                panic!(
+                    "Environment variable {} is required: {}",
+                    var_name, error_msg
+                );
             });
-            tracing::debug!("Resolved required env var {}: {} -> {}", var_name, full_match, val);
+            tracing::debug!(
+                "Resolved required env var {}: {} -> {}",
+                var_name,
+                full_match,
+                val
+            );
             val
         } else {
             let resolved = std::env::var(inner).unwrap_or_else(|_| "".to_string());
             tracing::debug!("Resolved env var {}: {} -> {}", inner, full_match, resolved);
             resolved
         };
-        
+
         result = result.replace(full_match, &replacement);
     }
-    
+
     result
 }
 
@@ -2415,7 +2564,7 @@ fn parse_size(s: &str) -> Option<usize> {
     if s.is_empty() {
         return None;
     }
-    
+
     let (num_part, multiplier) = if s.ends_with('K') || s.ends_with('k') {
         (&s[..s.len()-1], 1024usize)
     } else if s.ends_with('M') || s.ends_with('m') {
@@ -2425,7 +2574,7 @@ fn parse_size(s: &str) -> Option<usize> {
     } else {
         (s, 1usize)
     };
-    
+
     num_part.parse::<usize>().ok().map(|n| n * multiplier)
 }
 
@@ -2744,7 +2893,7 @@ fn parse_duration(s: &str) -> Option<i64> {
     if s.is_empty() {
         return None;
     }
-    
+
     let (num_part, unit) = if let Some(stripped) = s.strip_suffix('s') {
         (stripped, 1i64)
     } else if s.ends_with('m') && !s.ends_with("ms") {
@@ -2758,7 +2907,7 @@ fn parse_duration(s: &str) -> Option<i64> {
     } else {
         (s, 1i64)
     };
-    
+
     num_part.parse::<i64>().ok().map(|n| n * unit)
 }
 

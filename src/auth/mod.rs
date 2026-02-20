@@ -195,63 +195,86 @@ impl AuthService {
         device_id: Option<&str>,
         _initial_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
-        let user = self
-            .user_storage
-            .get_user_by_identifier(username)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-        let user = match user {
-            Some(u) => u,
-            _ => return Err(ApiError::forbidden("Invalid credentials".to_string())),
-        };
-
-        let password_hash = match &user.password_hash {
-            Some(h) => h,
-            _ => return Err(ApiError::forbidden("Invalid credentials".to_string())),
-        };
-
-        // P1 Performance: Run CPU-intensive verification in spawn_blocking
-        let auth = self.clone();
-        let password_str = password.to_string();
-        let password_hash_str = password_hash.to_string();
-        let is_valid = tokio::task::spawn_blocking(move || {
-            auth.verify_password(&password_str, &password_hash_str)
-        })
-        .await
-        .map_err(|e| ApiError::internal(format!("Verification task panicked: {}", e)))??;
-
-        if !is_valid {
-            ::tracing::warn!(
-                target: "security_audit",
-                event = "login_failure",
-                username = username,
-                reason = "invalid_credentials"
-            );
+        let user = self.get_user_by_username(username).await?;
+        
+        let password_hash = self.get_user_password_hash(&user)?;
+        
+        if !self.verify_user_password(password, &password_hash).await? {
+            self.log_login_failure(username, "invalid_credentials");
             return Err(ApiError::forbidden("Invalid credentials".to_string()));
         }
 
-        if user.is_deactivated == Some(true) {
+        if self.is_user_deactivated(&user) {
             return Err(ApiError::forbidden("User is deactivated".to_string()));
         }
 
+        self.log_login_success(&user, device_id);
+
+        let device_id = self.get_or_create_device_id(device_id, &user).await?;
+
+        let access_token = self.generate_access_token(&user.user_id, &device_id, user.is_admin.unwrap_or(false)).await?;
+        let refresh_token = self.generate_refresh_token(&user.user_id, &device_id).await?;
+
+        Ok((user, access_token, refresh_token, device_id))
+    }
+
+    async fn get_user_by_username(&self, username: &str) -> ApiResult<User> {
+        let user = self.user_storage
+            .get_user_by_identifier(username)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            
+        user.ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))
+    }
+
+    fn get_user_password_hash(&self, user: &User) -> ApiResult<&str> {
+        user.password_hash.as_deref()
+            .ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))
+    }
+
+    async fn verify_user_password(&self, password: &str, password_hash: &str) -> ApiResult<bool> {
+        let auth = Arc::new(self.clone());
+        let password_str = password.to_string();
+        let password_hash_str = password_hash.to_string();
+        
+        tokio::task::spawn_blocking(move || {
+            auth.verify_password(&password_str, &password_hash_str, false)
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("Verification task panicked: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Password verification failed: {}", e)))
+    }
+
+    fn is_user_deactivated(&self, user: &User) -> bool {
+        user.is_deactivated == Some(true)
+    }
+
+    fn log_login_failure(&self, username: &str, reason: &str) {
+        ::tracing::warn!(
+            target: "security_audit",
+            event = "login_failure",
+            username = username,
+            reason = reason
+        );
+    }
+
+    fn log_login_success(&self, user: &User, device_id: Option<&str>) {
         ::tracing::info!(
             target: "security_audit",
             event = "login_success",
             user_id = user.user_id(),
             device_id = device_id
         );
+    }
 
+    async fn get_or_create_device_id(&self, device_id: Option<&str>, user: &User) -> ApiResult<String> {
         let device_id = match device_id {
             Some(d) => d.to_string(),
             _ => auth_generate_token(16),
         };
 
-        if !self
-            .device_storage
-            .device_exists(&device_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        if !self.device_storage.device_exists(&device_id).await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))? 
         {
             self.device_storage
                 .create_device(&device_id, &user.user_id, None)
@@ -259,15 +282,9 @@ impl AuthService {
                 .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
         }
 
-        let access_token = self
-            .generate_access_token(&user.user_id, &device_id, user.is_admin.unwrap_or(false))
-            .await?;
-        let refresh_token = self
-            .generate_refresh_token(&user.user_id, &device_id)
-            .await?;
-
-        Ok((user, access_token, refresh_token, device_id))
+        Ok(device_id)
     }
+}
 
     fn increment_counter(&self, name: &str) {
         if let Some(counter) = self.metrics.get_counter(name) {
@@ -380,12 +397,13 @@ impl AuthService {
 
             if let Some(active) = self.cache.is_user_active(&claims.sub).await {
                 ::tracing::debug!(target: "token_validation", "Cache hit for user active: {:?}", active);
-                if !active {
-                    return Err(ApiError::unauthorized(
+                return if active {
+                    Ok((claims.user_id, claims.device_id.clone(), claims.admin))
+                } else {
+                    Err(ApiError::unauthorized(
                         "User not found or deactivated".to_string(),
-                    ));
-                }
-                return Ok((claims.user_id, claims.device_id.clone(), claims.admin));
+                    ))
+                };
             }
 
             ::tracing::debug!(target: "token_validation", "Cache miss for user active status, querying DB");
@@ -396,71 +414,66 @@ impl AuthService {
                 .await
                 .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-            match user {
-                Some(u) => {
-                    let is_active = u.is_deactivated != Some(true);
-                    ::tracing::debug!(target: "token_validation", "User found, is_deactivated: {:?}, is_active: {}", u.is_deactivated, is_active);
+            if let Some(u) = user {
+                let is_active = u.is_deactivated != Some(true);
+                ::tracing::debug!(target: "token_validation", "User found, is_deactivated: {:?}, is_active: {}", u.is_deactivated, is_active);
 
-                    self.cache.set_user_active(&claims.sub, is_active, 60).await;
+                self.cache.set_user_active(&claims.sub, is_active, 60).await;
 
-                    if !is_active {
-                        return Err(ApiError::unauthorized("User is deactivated".to_string()));
-                    }
-
-                    return Ok((claims.user_id, claims.device_id.clone(), claims.admin));
-                }
-                None => {
-                    ::tracing::debug!(target: "token_validation", "User not found in database");
-                    self.cache.set_user_active(&claims.sub, false, 60).await;
-                    return Err(ApiError::unauthorized("User not found".to_string()));
-                }
+                return if is_active {
+                    Ok((claims.user_id, claims.device_id.clone(), claims.admin))
+                } else {
+                    Err(ApiError::unauthorized("User is deactivated".to_string()));
+                };
             }
+
+            ::tracing::debug!(target: "token_validation", "User not found in database");
+            self.cache.set_user_active(&claims.sub, false, 60).await;
+            return Err(ApiError::unauthorized("User not found".to_string()));
         }
 
         ::tracing::debug!(target: "token_validation", "Token not found in cache, decoding from JWT");
 
-        match self.decode_token(token) {
-            Ok(claims) => {
-                if claims.exp < Utc::now().timestamp() {
-                    ::tracing::debug!(target: "token_validation", "Token expired");
-                    return Err(ApiError::unauthorized("Token expired".to_string()));
-                }
-
-                ::tracing::debug!(target: "token_validation", "Decoded JWT for user: {}", claims.sub);
-
-                let user = self
-                    .user_storage
-                    .get_user_by_id(&claims.sub)
-                    .await
-                    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-                match user {
-                    Some(u) => {
-                        ::tracing::debug!(target: "token_validation", "User found, is_deactivated: {:?}", u.is_deactivated);
-                        if u.is_deactivated == Some(true) {
-                            ::tracing::debug!(target: "token_validation", "User is deactivated, rejecting token");
-                            return Err(ApiError::unauthorized("User is deactivated".to_string()));
-                        }
-                        let is_admin = u.is_admin.unwrap_or(false);
-                        let mut final_claims = claims.clone();
-                        final_claims.admin = is_admin;
-
-                        self.cache.set_token(token, &final_claims, 3600).await;
-                        Ok((
-                            final_claims.user_id,
-                            final_claims.device_id.clone(),
-                            is_admin,
-                        ))
-                    }
-                    None => {
-                        ::tracing::debug!(target: "token_validation", "User not found in database");
-                        Err(ApiError::unauthorized("User not found".to_string()))
-                    }
-                }
-            }
-            Err(e) => {
+        let claims = self.decode_token(token)
+            .map_err(|e| {
                 ::tracing::debug!(target: "token_validation", "Invalid token: {}", e);
-                Err(ApiError::unauthorized(format!("Invalid token: {}", e)))
+                ApiError::unauthorized(format!("Invalid token: {}", e))
+            })?;
+
+        if claims.exp < Utc::now().timestamp() {
+            ::tracing::debug!(target: "token_validation", "Token expired");
+            return Err(ApiError::unauthorized("Token expired".to_string()));
+        }
+
+        ::tracing::debug!(target: "token_validation", "Decoded JWT for user: {}", claims.sub);
+
+        let user = self
+            .user_storage
+            .get_user_by_id(&claims.sub)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        match user {
+            Some(u) => {
+                ::tracing::debug!(target: "token_validation", "User found, is_deactivated: {:?}", u.is_deactivated);
+                if u.is_deactivated == Some(true) {
+                    ::tracing::debug!(target: "token_validation", "User is deactivated, rejecting token");
+                    return Err(ApiError::unauthorized("User is deactivated".to_string()));
+                }
+                let is_admin = u.is_admin.unwrap_or(false);
+                let mut final_claims = claims.clone();
+                final_claims.admin = is_admin;
+
+                self.cache.set_token(token, &final_claims, 3600).await;
+                Ok((
+                    final_claims.user_id,
+                    final_claims.device_id.clone(),
+                    is_admin,
+                ))
+            }
+            None => {
+                ::tracing::debug!(target: "token_validation", "User not found in database");
+                Err(ApiError::unauthorized("User not found".to_string()))
             }
         }
     }

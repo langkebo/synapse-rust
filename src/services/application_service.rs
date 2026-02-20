@@ -18,9 +18,15 @@ impl ApplicationServiceManager {
         server_name: String,
     ) -> Self {
         let http_client = Client::builder()
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(5))
+            .pool_max_idle_connections(5)
+            .pool_idle_timeout(Duration::from_secs(60))
             .build()
-            .unwrap_or_else(|_| Client::new());
+            .unwrap_or_else(|_| {
+                tracing::warn!("Failed to build HTTP client with custom config, using default");
+                Client::new()
+            });
 
         Self {
             storage,

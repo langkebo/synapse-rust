@@ -16,7 +16,7 @@ pub struct SigningKey {
     pub key_id: String,
     pub secret_key: String,
     pub public_key: String,
-    pub created_at: i64,
+    pub created_ts: i64,
     pub expires_at: i64,
 }
 
@@ -44,7 +44,7 @@ impl KeyRotationManager {
 
     pub async fn start_auto_rotation(&self) {
         let mut interval = interval(TokioDuration::from_secs(3600));
-        let manager = self.clone();
+        let manager = Arc::new(self.clone());
 
         tokio::spawn(async move {
             loop {
@@ -63,7 +63,7 @@ impl KeyRotationManager {
     }
 
     pub async fn initialize(&self, secret_key: &str, key_id: &str) -> Result<(), anyhow::Error> {
-        let created_at = Utc::now().timestamp_millis();
+        let created_ts = Utc::now().timestamp_millis();
         let expires_at =
             (Utc::now() + Duration::days(KEY_ROTATION_INTERVAL_DAYS)).timestamp_millis();
 
@@ -73,7 +73,7 @@ impl KeyRotationManager {
             key_id: key_id.to_string(),
             secret_key: secret_key.to_string(),
             public_key,
-            created_at,
+            created_ts,
             expires_at,
         };
 
@@ -86,12 +86,12 @@ impl KeyRotationManager {
 
         sqlx::query(
             r#"
-            INSERT INTO federation_signing_keys (server_name, key_id, secret_key, public_key, created_at, expires_at, key_json, ts_added_ms, ts_valid_until_ms)
+            INSERT INTO federation_signing_keys (server_name, key_id, secret_key, public_key, created_ts, expires_at, key_json, ts_added_ms, ts_valid_until_ms)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (server_name, key_id) DO UPDATE SET
                 secret_key = EXCLUDED.secret_key,
                 public_key = EXCLUDED.public_key,
-                created_at = EXCLUDED.created_at,
+                created_ts = EXCLUDED.created_ts,
                 expires_at = EXCLUDED.expires_at,
                 key_json = EXCLUDED.key_json,
                 ts_added_ms = EXCLUDED.ts_added_ms,
@@ -102,10 +102,10 @@ impl KeyRotationManager {
         .bind(&signing_key.key_id)
         .bind(&signing_key.secret_key)
         .bind(&signing_key.public_key)
-        .bind(signing_key.created_at)
+        .bind(signing_key.created_ts)
         .bind(signing_key.expires_at)
         .bind(key_json)
-        .bind(signing_key.created_at)
+        .bind(signing_key.created_ts)
         .bind(signing_key.expires_at)
         .execute(&*self.pool)
         .await?;
@@ -363,7 +363,7 @@ mod tests {
             key_id: "ed25519:expired".to_string(),
             secret_key: "test".to_string(),
             public_key: "test".to_string(),
-            created_at: 0,
+            created_ts: 0,
             expires_at: Utc::now().timestamp_millis() - 1000,
         };
 
