@@ -223,7 +223,7 @@ impl RegistrationTokenService {
             created_by: created_by.clone(),
             created_ts: 0,
             expires_at,
-            is_active: true,
+            is_enabled: true,
             allowed_email_domains: allowed_email_domains.clone(),
             auto_join_rooms: auto_join_rooms.clone(),
         };

@@ -12,7 +12,7 @@ pub struct RegistrationToken {
     pub max_uses: i32,
     pub current_uses: i32,
     pub is_used: bool,
-    pub is_active: bool,
+    pub is_enabled: bool,
     pub expires_at: Option<i64>,
     pub created_by: Option<String>,
     pub created_ts: i64,
@@ -67,7 +67,7 @@ pub struct RegistrationTokenBatch {
     pub created_by: Option<String>,
     pub created_ts: i64,
     pub expires_at: Option<i64>,
-    pub is_active: bool,
+    pub is_enabled: bool,
     pub allowed_email_domains: Option<Vec<String>>,
     pub auto_join_rooms: Option<Vec<String>>,
 }
@@ -91,7 +91,7 @@ pub struct CreateRegistrationTokenRequest {
 pub struct UpdateRegistrationTokenRequest {
     pub description: Option<String>,
     pub max_uses: Option<i32>,
-    pub is_active: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub expires_at: Option<i64>,
 }
 
@@ -192,7 +192,7 @@ impl RegistrationTokenStorage {
             UPDATE registration_tokens SET
                 description = COALESCE($2, description),
                 max_uses = COALESCE($3, max_uses),
-                is_active = COALESCE($4, is_active),
+                is_enabled = COALESCE($4, is_enabled),
                 expires_at = COALESCE($5, expires_at)
             WHERE id = $1
             RETURNING *
@@ -201,7 +201,7 @@ impl RegistrationTokenStorage {
         .bind(id)
         .bind(&request.description)
         .bind(request.max_uses)
-        .bind(request.is_active)
+        .bind(request.is_enabled)
         .bind(request.expires_at)
         .fetch_one(&*self.pool)
         .await?;
@@ -228,7 +228,7 @@ impl RegistrationTokenStorage {
                 error_message: Some("Token not found".to_string()),
             }),
             Some(t) => {
-                if !t.is_active {
+                if !t.is_enabled {
                     return Ok(TokenValidationResult {
                         is_valid: false,
                         token_id: Some(t.id),
@@ -335,7 +335,7 @@ impl RegistrationTokenStorage {
         let rows = sqlx::query_as::<_, RegistrationToken>(
             r#"
             SELECT * FROM registration_tokens 
-            WHERE is_active = TRUE 
+            WHERE is_enabled = TRUE 
             AND (expires_at IS NULL OR expires_at > $1)
             AND (max_uses = 0 OR current_uses < max_uses)
             ORDER BY created_ts DESC
@@ -360,7 +360,7 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn deactivate_token(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE registration_tokens SET is_active = FALSE WHERE id = $1")
+        sqlx::query("UPDATE registration_tokens SET is_enabled = FALSE WHERE id = $1")
             .bind(id)
             .execute(&*self.pool)
             .await?;
@@ -372,7 +372,7 @@ impl RegistrationTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         let result = sqlx::query(
-            "UPDATE registration_tokens SET is_active = FALSE WHERE expires_at IS NOT NULL AND expires_at < $1 AND is_active = TRUE",
+            "UPDATE registration_tokens SET is_enabled = FALSE WHERE expires_at IS NOT NULL AND expires_at < $1 AND is_enabled = TRUE",
         )
         .bind(now)
         .execute(&*self.pool)

@@ -15,7 +15,7 @@ pub struct FederationBlacklist {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub expires_at: Option<DateTime<Utc>>,
-    pub is_active: bool,
+    pub is_enabled: bool,
     pub metadata: serde_json::Value,
 }
 
@@ -58,7 +58,7 @@ pub struct FederationBlacklistRule {
     pub pattern: String,
     pub action: String,
     pub priority: i32,
-    pub enabled: bool,
+    pub is_enabled: bool,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -126,7 +126,7 @@ impl FederationBlacklistStorage {
         let row = sqlx::query_as::<_, FederationBlacklist>(
             r#"
             INSERT INTO federation_blacklist (
-                server_name, block_type, reason, blocked_by, created_at, updated_at, expires_at, is_active, metadata
+                server_name, block_type, reason, blocked_by, created_at, updated_at, expires_at, is_enabled, metadata
             )
             VALUES ($1, $2, $3, $4, $5, $5, $6, true, $7)
             ON CONFLICT (server_name) DO UPDATE SET
@@ -135,7 +135,7 @@ impl FederationBlacklistStorage {
                 blocked_by = $4,
                 updated_at = $5,
                 expires_at = $6,
-                is_active = true,
+                is_enabled = true,
                 metadata = $7
             RETURNING *
             "#,
@@ -161,7 +161,7 @@ impl FederationBlacklistStorage {
         sqlx::query(
             r#"
             UPDATE federation_blacklist 
-            SET is_active = false, updated_at = $1
+            SET is_enabled = false, updated_at = $1
             WHERE server_name = $2
             "#,
         )
@@ -189,7 +189,7 @@ impl FederationBlacklistStorage {
 
     pub async fn get_blacklist_entry(&self, server_name: &str) -> Result<Option<FederationBlacklist>, ApiError> {
         let row = sqlx::query_as::<_, FederationBlacklist>(
-            "SELECT * FROM federation_blacklist WHERE server_name = $1 AND is_active = true"
+            "SELECT * FROM federation_blacklist WHERE server_name = $1 AND is_enabled = true"
         )
         .bind(server_name)
         .fetch_optional(&*self.pool)
@@ -218,7 +218,7 @@ impl FederationBlacklistStorage {
         let row = sqlx::query_as::<_, FederationBlacklist>(
             r#"
             SELECT * FROM federation_blacklist 
-            WHERE server_name = $1 AND block_type = 'whitelist' AND is_active = true
+            WHERE server_name = $1 AND block_type = 'whitelist' AND is_enabled = true
             "#,
         )
         .bind(server_name)
@@ -233,7 +233,7 @@ impl FederationBlacklistStorage {
         let rows = sqlx::query_as::<_, FederationBlacklist>(
             r#"
             SELECT * FROM federation_blacklist 
-            WHERE is_active = true
+            WHERE is_enabled = true
             ORDER BY created_at DESC
             LIMIT $1 OFFSET $2
             "#
@@ -356,7 +356,7 @@ impl FederationBlacklistStorage {
 
     pub async fn get_all_rules(&self) -> Result<Vec<FederationBlacklistRule>, ApiError> {
         let rows = sqlx::query_as::<_, FederationBlacklistRule>(
-            "SELECT * FROM federation_blacklist_rule WHERE enabled = true ORDER BY priority DESC"
+            "SELECT * FROM federation_blacklist_rule WHERE is_enabled = true ORDER BY priority DESC"
         )
         .fetch_all(&*self.pool)
         .await
@@ -367,7 +367,7 @@ impl FederationBlacklistStorage {
 
     pub async fn cleanup_expired_entries(&self) -> Result<u64, ApiError> {
         let result = sqlx::query(
-            "UPDATE federation_blacklist SET is_active = false WHERE expires_at < NOW() AND is_active = true"
+            "UPDATE federation_blacklist SET is_enabled = false WHERE expires_at < NOW() AND is_enabled = true"
         )
         .execute(&*self.pool)
         .await

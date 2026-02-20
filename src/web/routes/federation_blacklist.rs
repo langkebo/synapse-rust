@@ -50,7 +50,7 @@ pub struct BlacklistEntryResponse {
     pub blocked_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub is_active: bool,
+    pub is_enabled: bool,
 }
 
 impl From<FederationBlacklist> for BlacklistEntryResponse {
@@ -63,7 +63,7 @@ impl From<FederationBlacklist> for BlacklistEntryResponse {
             blocked_by: entry.blocked_by,
             created_at: entry.created_at,
             expires_at: entry.expires_at,
-            is_active: entry.is_active,
+            is_enabled: entry.is_enabled,
         }
     }
 }
@@ -171,7 +171,7 @@ pub struct RuleResponse {
     pub action: String,
     pub priority: i32,
     pub description: Option<String>,
-    pub enabled: bool,
+    pub is_enabled: bool,
 }
 
 impl From<FederationBlacklistRule> for RuleResponse {
@@ -184,7 +184,7 @@ impl From<FederationBlacklistRule> for RuleResponse {
             action: rule.action,
             priority: rule.priority,
             description: rule.description,
-            enabled: rule.enabled,
+            is_enabled: rule.is_enabled,
         }
     }
 }
