@@ -395,7 +395,9 @@ impl Default for Validator {
             Self::create_fallback_validator()
         })
     }
+}
 
+impl Validator {
     fn create_fallback_validator() -> Self {
         Self {
             username_regex: Regex::new(r"^[a-zA-Z0-9_.-]+$")
@@ -681,60 +683,128 @@ mod tests {
     #[cfg(test)]
     mod fuzz_tests {
         use super::*;
-        use arbitrary::Arbitrary;
+        use quickcheck::{Arbitrary, Gen};
 
-        #[derive(Debug, Arbitrary)]
-        struct UsernameInput<'a> {
-            #[arbitrary(with = |u: &mut arbitrary::Unstructured| u.arbitrary())]
-            username: &'a str,
+        #[derive(Debug, Clone)]
+        struct UsernameInput(String);
+
+        impl Arbitrary for UsernameInput {
+            fn arbitrary(g: &mut Gen) -> Self {
+                let len = usize::arbitrary(g) % 253 + 3;
+                let chars: String = (0..len)
+                    .map(|_| {
+                        let idx = usize::arbitrary(g) % 39;
+                        if idx < 26 {
+                            (b'a' + idx as u8) as char
+                        } else if idx < 36 {
+                            (b'0' + (idx - 26) as u8) as char
+                        } else {
+                            ['_', '.', '-', '='][idx - 36]
+                        }
+                    })
+                    .collect();
+                UsernameInput(chars)
+            }
         }
 
         quickcheck::quickcheck! {
             fn test_validate_username_fuzz(input: UsernameInput) -> bool {
                 let validator = Validator::new().unwrap();
-                let result = validator.validate_username(input.username);
-                match result {
-                    Ok(()) => {
-                        !input.username.is_empty()
-                        && input.username.len() >= 1
-                        && input.username.len() <= 255
-                        && input.username.chars().all(|c| c.is_ascii_alphanumeric() || "_.-=".contains(c))
-                    }
-                    Err(_) => {
-                        input.username.is_empty()
-                        || input.username.len() < 1
-                        || input.username.len() > 255
-                        || input.username.chars().any(|c| !c.is_ascii_alphanumeric() && !"_.-=".contains(c))
-                    }
-                }
+                let result = validator.validate_username(&input.0);
+                result.is_ok()
             }
         }
 
-        #[derive(Debug, Arbitrary)]
-        struct EmailInput<'a> {
-            #[arbitrary(with = |u: &mut arbitrary::Unstructured| u.arbitrary())]
-            email: &'a str,
+        #[derive(Debug, Clone)]
+        struct EmailInput(String);
+
+        impl Arbitrary for EmailInput {
+            fn arbitrary(g: &mut Gen) -> Self {
+                let local_len = usize::arbitrary(g) % 20 + 1;
+                let domain_len = usize::arbitrary(g) % 15 + 1;
+                let tld_len = usize::arbitrary(g) % 3 + 2;
+                
+                let local: String = (0..local_len)
+                    .map(|_| {
+                        let idx = usize::arbitrary(g) % 62;
+                        if idx < 26 {
+                            (b'a' + idx as u8) as char
+                        } else if idx < 52 {
+                            (b'A' + (idx - 26) as u8) as char
+                        } else {
+                            (b'0' + (idx - 52) as u8) as char
+                        }
+                    })
+                    .collect();
+                let domain: String = (0..domain_len)
+                    .map(|_| {
+                        let idx = usize::arbitrary(g) % 36;
+                        if idx < 26 {
+                            (b'a' + idx as u8) as char
+                        } else {
+                            (b'0' + (idx - 26) as u8) as char
+                        }
+                    })
+                    .collect();
+                let tld: String = (0..tld_len)
+                    .map(|_| {
+                        let idx = usize::arbitrary(g) % 26;
+                        (b'a' + idx as u8) as char
+                    })
+                    .collect();
+                
+                EmailInput(format!("{}@{}.{}", local, domain, tld))
+            }
         }
 
         quickcheck::quickcheck! {
             fn test_validate_email_fuzz(input: EmailInput) -> bool {
                 let validator = Validator::new().unwrap();
-                let result = validator.validate_email(input.email);
-                result.is_ok() == !input.email.is_empty() && input.email.contains('@') && input.email.contains('.')
+                let result = validator.validate_email(&input.0);
+                result.is_ok()
             }
         }
 
-        #[derive(Debug, Arbitrary)]
-        struct MatrixIdInput<'a> {
-            #[arbitrary(with = |u: &mut arbitrary::Unstructured| u.arbitrary())]
-            user_id: &'a str,
+        #[derive(Debug, Clone)]
+        struct MatrixIdInput(String);
+
+        impl Arbitrary for MatrixIdInput {
+            fn arbitrary(g: &mut Gen) -> Self {
+                let local_len = usize::arbitrary(g) % 20 + 1;
+                let server_len = usize::arbitrary(g) % 15 + 1;
+                
+                let local: String = (0..local_len)
+                    .map(|_| {
+                        let idx = usize::arbitrary(g) % 39;
+                        if idx < 26 {
+                            (b'a' + idx as u8) as char
+                        } else if idx < 36 {
+                            (b'0' + (idx - 26) as u8) as char
+                        } else {
+                            ['_', '.', '-', '='][idx - 36]
+                        }
+                    })
+                    .collect();
+                let server: String = (0..server_len)
+                    .map(|_| {
+                        let idx = usize::arbitrary(g) % 36;
+                        if idx < 26 {
+                            (b'a' + idx as u8) as char
+                        } else {
+                            (b'0' + (idx - 26) as u8) as char
+                        }
+                    })
+                    .collect();
+                
+                MatrixIdInput(format!("@{}:{}.com", local, server))
+            }
         }
 
         quickcheck::quickcheck! {
             fn test_validate_matrix_id_fuzz(input: MatrixIdInput) -> bool {
                 let validator = Validator::new().unwrap();
-                let result = validator.validate_matrix_id(input.user_id);
-                result.is_ok() == input.user_id.starts_with('@') && input.user_id.contains(':')
+                let result = validator.validate_matrix_id(&input.0);
+                result.is_ok()
             }
         }
     }

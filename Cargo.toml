@@ -107,7 +107,7 @@ quickcheck = "1.0"
 quickcheck_macros = "1.0"
 tempfile = "3"
 tokio = { version = "1", features = ["full"] }
-arbitrary = "1"
+arbitrary = { version = "1", features = ["derive"] }
 
 [profile.release]
 opt-level = 3

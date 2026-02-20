@@ -149,6 +149,7 @@ fn test_register_user_success() {
             argon2_m_cost: 2048,
             argon2_t_cost: 1,
             argon2_p_cost: 1,
+            allow_legacy_hashes: false,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -190,6 +191,7 @@ fn test_login_success() {
             argon2_m_cost: 2048,
             argon2_t_cost: 1,
             argon2_p_cost: 1,
+            allow_legacy_hashes: false,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -250,6 +252,7 @@ fn test_get_profile_success() {
             argon2_m_cost: 2048,
             argon2_t_cost: 1,
             argon2_p_cost: 1,
+            allow_legacy_hashes: false,
         };
         let metrics = Arc::new(MetricsCollector::new());
         let auth_service =

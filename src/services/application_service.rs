@@ -20,7 +20,6 @@ impl ApplicationServiceManager {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(15))
             .connect_timeout(Duration::from_secs(5))
-            .pool_max_idle_connections(5)
             .pool_idle_timeout(Duration::from_secs(60))
             .build()
             .unwrap_or_else(|_| {

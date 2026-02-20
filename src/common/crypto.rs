@@ -110,7 +110,7 @@ fn secure_compare(a: &str, b: &str) -> bool {
 }
 
 pub fn verify_password_legacy(password: &str, password_hash: &str) -> bool {
-    verify_password(password, password_hash).unwrap_or(false)
+    verify_password(password, password_hash, true).unwrap_or(false)
 }
 
 pub fn generate_token(length: usize) -> String {
@@ -207,13 +207,12 @@ mod tests {
     use super::*;
 
     #[test]
-
     fn test_hash_password_and_verify() {
         let password = "test_password_123";
         let hash = hash_password(password).unwrap();
         assert!(hash.starts_with("$argon2"));
-        assert!(verify_password(password, &hash).unwrap());
-        assert!(!verify_password("wrong_password", &hash).unwrap());
+        assert!(verify_password(password, &hash, false).unwrap());
+        assert!(!verify_password("wrong_password", &hash, false).unwrap());
     }
 
     #[test]
@@ -227,7 +226,7 @@ mod tests {
     #[test]
 
     fn test_verify_password_invalid_format() {
-        let result = verify_password("password", "invalid");
+        let result = verify_password("password", "invalid", true);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Invalid hash format".to_string());
     }

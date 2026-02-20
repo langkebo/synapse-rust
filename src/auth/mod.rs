@@ -38,6 +38,7 @@ pub struct AuthService {
     pub argon2_m_cost: u32,
     pub argon2_t_cost: u32,
     pub argon2_p_cost: u32,
+    pub allow_legacy_hashes: bool,
 }
 
 impl AuthService {
@@ -63,6 +64,7 @@ impl AuthService {
             argon2_m_cost: security.argon2_m_cost,
             argon2_t_cost: security.argon2_t_cost,
             argon2_p_cost: security.argon2_p_cost,
+            allow_legacy_hashes: security.allow_legacy_hashes,
         }
     }
 
@@ -196,9 +198,9 @@ impl AuthService {
         _initial_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
         let user = self.get_user_by_username(username).await?;
-        
+
         let password_hash = self.get_user_password_hash(&user)?;
-        
+
         if !self.verify_user_password(password, &password_hash).await? {
             self.log_login_failure(username, "invalid_credentials");
             return Err(ApiError::forbidden("Invalid credentials".to_string()));
@@ -212,23 +214,29 @@ impl AuthService {
 
         let device_id = self.get_or_create_device_id(device_id, &user).await?;
 
-        let access_token = self.generate_access_token(&user.user_id, &device_id, user.is_admin.unwrap_or(false)).await?;
-        let refresh_token = self.generate_refresh_token(&user.user_id, &device_id).await?;
+        let access_token = self
+            .generate_access_token(&user.user_id, &device_id, user.is_admin.unwrap_or(false))
+            .await?;
+        let refresh_token = self
+            .generate_refresh_token(&user.user_id, &device_id)
+            .await?;
 
         Ok((user, access_token, refresh_token, device_id))
     }
 
     async fn get_user_by_username(&self, username: &str) -> ApiResult<User> {
-        let user = self.user_storage
+        let user = self
+            .user_storage
             .get_user_by_identifier(username)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-            
+
         user.ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))
     }
 
-    fn get_user_password_hash(&self, user: &User) -> ApiResult<&str> {
-        user.password_hash.as_deref()
+    fn get_user_password_hash<'a>(&self, user: &'a User) -> ApiResult<&'a str> {
+        user.password_hash
+            .as_deref()
             .ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))
     }
 
@@ -236,13 +244,11 @@ impl AuthService {
         let auth = Arc::new(self.clone());
         let password_str = password.to_string();
         let password_hash_str = password_hash.to_string();
-        
-        tokio::task::spawn_blocking(move || {
-            auth.verify_password(&password_str, &password_hash_str, false)
-        })
-        .await
-        .map_err(|e| ApiError::internal(format!("Verification task panicked: {}", e)))?
-        .map_err(|e| ApiError::internal(format!("Password verification failed: {}", e)))
+
+        tokio::task::spawn_blocking(move || auth.verify_password(&password_str, &password_hash_str))
+            .await
+            .map_err(|e| ApiError::internal(format!("Verification task panicked: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Password verification failed: {}", e)))
     }
 
     fn is_user_deactivated(&self, user: &User) -> bool {
@@ -267,14 +273,21 @@ impl AuthService {
         );
     }
 
-    async fn get_or_create_device_id(&self, device_id: Option<&str>, user: &User) -> ApiResult<String> {
+    async fn get_or_create_device_id(
+        &self,
+        device_id: Option<&str>,
+        user: &User,
+    ) -> ApiResult<String> {
         let device_id = match device_id {
             Some(d) => d.to_string(),
             _ => auth_generate_token(16),
         };
 
-        if !self.device_storage.device_exists(&device_id).await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))? 
+        if !self
+            .device_storage
+            .device_exists(&device_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         {
             self.device_storage
                 .create_device(&device_id, &user.user_id, None)
@@ -284,7 +297,6 @@ impl AuthService {
 
         Ok(device_id)
     }
-}
 
     fn increment_counter(&self, name: &str) {
         if let Some(counter) = self.metrics.get_counter(name) {
@@ -329,7 +341,7 @@ impl AuthService {
 
     pub async fn refresh_token(&self, refresh_token: &str) -> ApiResult<(String, String, String)> {
         let token_hash = Self::hash_token(refresh_token);
-        
+
         let token_data = self
             .refresh_token_storage
             .get_token(&token_hash)
@@ -339,9 +351,11 @@ impl AuthService {
         match token_data {
             Some(t) => {
                 if t.is_revoked {
-                    return Err(ApiError::unauthorized("Refresh token has been revoked".to_string()));
+                    return Err(ApiError::unauthorized(
+                        "Refresh token has been revoked".to_string(),
+                    ));
                 }
-                
+
                 if let Some(expires_at) = t.expires_at {
                     if expires_at < Utc::now().timestamp_millis() {
                         return Err(ApiError::unauthorized("Refresh token expired".to_string()));
@@ -364,9 +378,8 @@ impl AuthService {
                                 u.is_admin.unwrap_or(false),
                             )
                             .await?;
-                        let new_refresh_token = self
-                            .generate_refresh_token(&u.user_id, &device_id)
-                            .await?;
+                        let new_refresh_token =
+                            self.generate_refresh_token(&u.user_id, &device_id).await?;
 
                         self.refresh_token_storage
                             .revoke_token(&token_hash, "Rotated")
@@ -414,31 +427,30 @@ impl AuthService {
                 .await
                 .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-            if let Some(u) = user {
+            return if let Some(u) = user {
                 let is_active = u.is_deactivated != Some(true);
                 ::tracing::debug!(target: "token_validation", "User found, is_deactivated: {:?}, is_active: {}", u.is_deactivated, is_active);
 
                 self.cache.set_user_active(&claims.sub, is_active, 60).await;
 
-                return if is_active {
+                if is_active {
                     Ok((claims.user_id, claims.device_id.clone(), claims.admin))
                 } else {
-                    Err(ApiError::unauthorized("User is deactivated".to_string()));
-                };
-            }
-
-            ::tracing::debug!(target: "token_validation", "User not found in database");
-            self.cache.set_user_active(&claims.sub, false, 60).await;
-            return Err(ApiError::unauthorized("User not found".to_string()));
+                    Err(ApiError::unauthorized("User is deactivated".to_string()))
+                }
+            } else {
+                ::tracing::debug!(target: "token_validation", "User not found in database");
+                self.cache.set_user_active(&claims.sub, false, 60).await;
+                Err(ApiError::unauthorized("User not found".to_string()))
+            };
         }
 
         ::tracing::debug!(target: "token_validation", "Token not found in cache, decoding from JWT");
 
-        let claims = self.decode_token(token)
-            .map_err(|e| {
-                ::tracing::debug!(target: "token_validation", "Invalid token: {}", e);
-                ApiError::unauthorized(format!("Invalid token: {}", e))
-            })?;
+        let claims = self.decode_token(token).map_err(|e| {
+            ::tracing::debug!(target: "token_validation", "Invalid token: {}", e);
+            ApiError::unauthorized(format!("Invalid token: {}", e))
+        })?;
 
         if claims.exp < Utc::now().timestamp() {
             ::tracing::debug!(target: "token_validation", "Token expired");
@@ -564,8 +576,8 @@ impl AuthService {
     }
 
     fn hash_token(token: &str) -> String {
-        use sha2::{Sha256, Digest};
-        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(token.as_bytes());
         let result = hasher.finalize();
@@ -592,7 +604,8 @@ impl AuthService {
     }
 
     fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool, ApiError> {
-        verify_password_common(password, password_hash).map_err(ApiError::internal)
+        verify_password_common(password, password_hash, self.allow_legacy_hashes)
+            .map_err(ApiError::internal)
     }
 
     pub fn generate_email_verification_token(&self) -> Result<String, Box<dyn std::error::Error>> {
