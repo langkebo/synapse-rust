@@ -33,7 +33,7 @@ mod tests {
             max_uses: 5,
             current_uses: 2,
             is_used: false,
-            is_active: true,
+            is_enabled: true,
             expires_at: Some(1234567890),
             created_by: Some("@admin:example.com".to_string()),
             created_ts: 1234560000,
@@ -49,7 +49,7 @@ mod tests {
         assert_eq!(token.id, 1);
         assert_eq!(token.max_uses, 5);
         assert_eq!(token.current_uses, 2);
-        assert!(token.is_active);
+        assert!(token.is_enabled);
         assert!(!token.is_used);
     }
 
@@ -107,7 +107,7 @@ mod tests {
             created_by: Some("@admin:example.com".to_string()),
             created_ts: 1234560000,
             expires_at: Some(1234567890),
-            is_active: true,
+            is_enabled: true,
             allowed_email_domains: None,
             auto_join_rooms: None,
         };
@@ -121,13 +121,13 @@ mod tests {
         let request = UpdateRegistrationTokenRequest {
             description: Some("Updated description".to_string()),
             max_uses: Some(10),
-            is_active: Some(false),
+            is_enabled: Some(false),
             expires_at: Some(1234567890),
         };
 
         assert_eq!(request.description, Some("Updated description".to_string()));
         assert_eq!(request.max_uses, Some(10));
-        assert_eq!(request.is_active, Some(false));
+        assert_eq!(request.is_enabled, Some(false));
     }
 
     #[test]

@@ -166,7 +166,7 @@ mod tests {
         
         let service = result.unwrap();
         assert!(!service.as_id.is_empty());
-        assert!(service.is_active);
+        assert!(service.is_enabled);
     }
 
     #[tokio::test]
