@@ -1,3 +1,31 @@
+-- ============================================================================
+-- 数据库架构列定义文档
+-- ============================================================================
+-- 
+-- 说明: 本文件是从当前数据库导出的架构快照，用于记录数据库表结构。
+-- 
+-- 重要提示:
+-- 1. 本文件中的字段命名可能与 DATABASE_FIELD_STANDARDS.md 规范不一致
+-- 2. 请参考 DATABASE_FIELD_NORM_AUDIT_REPORT.md 了解需要规范化的字段
+-- 3. 实际数据库迁移脚本位于:
+--    - 00000000_unified_schema.sql (统一架构)
+--    - 20260220000000_normalize_field_names.sql (字段规范化迁移)
+-- 
+-- 规范要求:
+-- - 布尔字段使用 is_/has_ 前缀 (如: is_enabled, is_active -> is_enabled)
+-- - 时间戳字段使用 _ts 后缀 (如: created_ts, updated_ts)
+-- - 可选时间戳使用 _at 后缀 (如: expires_at, revoked_at)
+-- - 避免冗余字段 (如: ip 和 ip_address 保留一个)
+-- 
+-- 生成命令:
+-- SELECT table_name, column_name, data_type, character_maximum_length, 
+--        is_nullable, column_default 
+-- FROM information_schema.columns 
+-- WHERE table_schema = 'public' 
+-- ORDER BY table_name, ordinal_position;
+-- 
+-- ============================================================================
+
                 table_name                 |        column_name         |        data_type         | character_maximum_length | is_nullable |                            column_default                             
 -------------------------------------------+----------------------------+--------------------------+--------------------------+-------------+-----------------------------------------------------------------------
  _sqlx_migrations                          | id                         | bigint                   |                          | NO          | nextval('_sqlx_migrations_id_seq'::regclass)
