@@ -250,7 +250,7 @@ impl KeyRotationManager {
 
         match key_record {
             Some(record) => {
-                let expires_at = record.expires_at.unwrap_or(0);
+                let expires_at = record.expires_at;
                 let now = Utc::now().timestamp_millis();
 
                 if now > expires_at + Duration::minutes(KEY_GRACE_PERIOD_MINUTES).num_milliseconds()
@@ -258,7 +258,7 @@ impl KeyRotationManager {
                     return Ok(false);
                 }
 
-                let public_key = record.public_key.unwrap_or_default();
+                let public_key = record.public_key;
                 return self
                     .verify_signature(&public_key, signature, content)
                     .await

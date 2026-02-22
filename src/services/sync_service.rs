@@ -399,6 +399,45 @@ impl SyncService {
     pub async fn set_filter(&self, _user_id: &str, _filter: &serde_json::Value) -> ApiResult<String> {
         Ok(format!("filter_{}", chrono::Utc::now().timestamp_millis()))
     }
+
+    pub async fn get_events(
+        &self,
+        user_id: &str,
+        from: &str,
+        _timeout: u64,
+    ) -> ApiResult<serde_json::Value> {
+        let room_ids = self
+            .member_storage
+            .get_joined_rooms(user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get rooms: {}", e)))?;
+
+        let since_ts = from.trim_start_matches('s').trim_start_matches('t')
+            .parse::<i64>()
+            .unwrap_or(0);
+
+        let limit = 100i64;
+        let events = self
+            .event_storage
+            .get_room_events_since_batch(&room_ids, since_ts, limit)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get events: {}", e)))?;
+
+        let mut chunk = vec![];
+        for room_events in events.values() {
+            for event in room_events {
+                chunk.push(self.event_to_json(event));
+            }
+        }
+
+        let end_token = format!("s{}", chrono::Utc::now().timestamp_millis());
+
+        Ok(json!({
+            "start": from,
+            "end": end_token,
+            "chunk": chunk
+        }))
+    }
 }
 
 #[cfg(test)]

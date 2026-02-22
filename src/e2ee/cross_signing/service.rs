@@ -17,42 +17,50 @@ impl CrossSigningService {
         &self,
         upload: CrossSigningUpload,
     ) -> Result<(), ApiError> {
-        let user_id = upload.master_key["user_id"].as_str().unwrap();
+        let user_id = upload.master_key["user_id"]
+            .as_str()
+            .ok_or_else(|| ApiError::bad_request("Missing user_id in master_key".to_string()))?;
+
+        let master_public_key = upload.master_key["keys"]["ed25519:MASTER"]
+            .as_str()
+            .ok_or_else(|| ApiError::bad_request("Missing ed25519:MASTER key".to_string()))?;
+
+        let master_usage = upload.master_key["usage"]
+            .as_array()
+            .ok_or_else(|| ApiError::bad_request("Missing usage in master_key".to_string()))?
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect::<Vec<_>>();
 
         let master_key = CrossSigningKey {
             id: uuid::Uuid::new_v4(),
             user_id: user_id.to_string(),
             key_type: "master".to_string(),
-            public_key: upload.master_key["keys"]["ed25519:MASTER"]
-                .as_str()
-                .unwrap()
-                .to_string(),
-            usage: upload.master_key["usage"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap().to_string())
-                .collect(),
+            public_key: master_public_key.to_string(),
+            usage: master_usage,
             signatures: upload.master_key["signatures"].clone(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
         self.storage.create_cross_signing_key(&master_key).await?;
 
+        let self_signing_public_key = upload.self_signing_key["keys"]["ed25519:SELF_SIGNING"]
+            .as_str()
+            .ok_or_else(|| ApiError::bad_request("Missing ed25519:SELF_SIGNING key".to_string()))?;
+
+        let self_signing_usage = upload.self_signing_key["usage"]
+            .as_array()
+            .ok_or_else(|| ApiError::bad_request("Missing usage in self_signing_key".to_string()))?
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect::<Vec<_>>();
+
         let self_signing_key = CrossSigningKey {
             id: uuid::Uuid::new_v4(),
             user_id: user_id.to_string(),
             key_type: "self_signing".to_string(),
-            public_key: upload.self_signing_key["keys"]["ed25519:SELF_SIGNING"]
-                .as_str()
-                .unwrap()
-                .to_string(),
-            usage: upload.self_signing_key["usage"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap().to_string())
-                .collect(),
+            public_key: self_signing_public_key.to_string(),
+            usage: self_signing_usage,
             signatures: upload.self_signing_key["signatures"].clone(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -61,20 +69,23 @@ impl CrossSigningService {
             .create_cross_signing_key(&self_signing_key)
             .await?;
 
+        let user_signing_public_key = upload.user_signing_key["keys"]["ed25519:USER_SIGNING"]
+            .as_str()
+            .ok_or_else(|| ApiError::bad_request("Missing ed25519:USER_SIGNING key".to_string()))?;
+
+        let user_signing_usage = upload.user_signing_key["usage"]
+            .as_array()
+            .ok_or_else(|| ApiError::bad_request("Missing usage in user_signing_key".to_string()))?
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect::<Vec<_>>();
+
         let user_signing_key = CrossSigningKey {
             id: uuid::Uuid::new_v4(),
             user_id: user_id.to_string(),
             key_type: "user_signing".to_string(),
-            public_key: upload.user_signing_key["keys"]["ed25519:USER_SIGNING"]
-                .as_str()
-                .unwrap()
-                .to_string(),
-            usage: upload.user_signing_key["usage"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap().to_string())
-                .collect(),
+            public_key: user_signing_public_key.to_string(),
+            usage: user_signing_usage,
             signatures: upload.user_signing_key["signatures"].clone(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -92,9 +103,18 @@ impl CrossSigningService {
     ) -> Result<CrossSigningKeys, ApiError> {
         let keys = self.storage.get_cross_signing_keys(user_id).await?;
 
-        let master_key = keys.iter().find(|k| k.key_type == "master").unwrap();
-        let self_signing_key = keys.iter().find(|k| k.key_type == "self_signing").unwrap();
-        let user_signing_key = keys.iter().find(|k| k.key_type == "user_signing").unwrap();
+        let master_key = keys
+            .iter()
+            .find(|k| k.key_type == "master")
+            .ok_or_else(|| ApiError::not_found("Master key not found".to_string()))?;
+        let self_signing_key = keys
+            .iter()
+            .find(|k| k.key_type == "self_signing")
+            .ok_or_else(|| ApiError::not_found("Self-signing key not found".to_string()))?;
+        let user_signing_key = keys
+            .iter()
+            .find(|k| k.key_type == "user_signing")
+            .ok_or_else(|| ApiError::not_found("User-signing key not found".to_string()))?;
 
         Ok(CrossSigningKeys {
             user_id: user_id.to_string(),
@@ -117,9 +137,14 @@ impl CrossSigningService {
             .get_cross_signing_key(user_id, "master")
             .await?;
         if let Some(mut k) = key {
-            let mut signatures = k.signatures.as_object().unwrap().clone();
-            signatures.insert(user_id.to_string(), signature.clone());
-            k.signatures = serde_json::Value::Object(signatures);
+            let signatures = k
+                .signatures
+                .as_object()
+                .ok_or_else(|| ApiError::internal("Invalid signatures format".to_string()))?
+                .clone();
+            let mut sig_map = signatures;
+            sig_map.insert(user_id.to_string(), signature.clone());
+            k.signatures = serde_json::Value::Object(sig_map);
             k.updated_at = Utc::now();
             self.storage.update_cross_signing_key(&k).await?;
         }
@@ -132,12 +157,22 @@ impl CrossSigningService {
         device_id: &str,
         key: &serde_json::Value,
     ) -> Result<(), ApiError> {
+        let key_type = key["type"]
+            .as_str()
+            .ok_or_else(|| ApiError::bad_request("Missing key type".to_string()))?;
+        let algorithm = key["algorithm"]
+            .as_str()
+            .ok_or_else(|| ApiError::bad_request("Missing algorithm".to_string()))?;
+        let public_key = key["key"]
+            .as_str()
+            .ok_or_else(|| ApiError::bad_request("Missing public key".to_string()))?;
+
         let device_key = DeviceKeyInfo {
             user_id: user_id.to_string(),
             device_id: device_id.to_string(),
-            key_type: key["type"].as_str().unwrap().to_string(),
-            algorithm: key["algorithm"].as_str().unwrap().to_string(),
-            public_key: key["key"].as_str().unwrap().to_string(),
+            key_type: key_type.to_string(),
+            algorithm: algorithm.to_string(),
+            public_key: public_key.to_string(),
             signatures: key["signatures"].clone(),
             created_at: Utc::now(),
         };

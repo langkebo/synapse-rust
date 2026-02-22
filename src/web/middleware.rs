@@ -379,6 +379,45 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
     response
 }
 
+pub async fn security_headers_middleware(
+    request: Request<Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let mut response = next.run(request).await;
+
+    response.headers_mut().insert(
+        "X-Content-Type-Options",
+        HeaderValue::from_static("nosniff"),
+    );
+
+    response
+        .headers_mut()
+        .insert("X-Frame-Options", HeaderValue::from_static("DENY"));
+
+    response.headers_mut().insert(
+        "X-XSS-Protection",
+        HeaderValue::from_static("1; mode=block"),
+    );
+
+    if std::env::var("FORCE_HTTPS")
+        .unwrap_or_default()
+        .to_lowercase()
+        == "true"
+    {
+        response.headers_mut().insert(
+            "Strict-Transport-Security",
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        );
+    }
+
+    response.headers_mut().insert(
+        "Referrer-Policy",
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+
+    response
+}
+
 pub async fn metrics_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let start = Instant::now();
     let method = request.method().clone();

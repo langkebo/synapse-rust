@@ -349,6 +349,38 @@ pub async fn get_next_pending(
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct BackgroundUpdateStatus {
+    pub pending_count: i64,
+    pub running_count: i64,
+    pub completed_count: i64,
+    pub failed_count: i64,
+    pub total_count: i64,
+    pub current_update: Option<UpdateResponse>,
+}
+
+pub async fn get_status(
+    State(state): State<AppState>,
+    _auth_user: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
+    let pending = state.services.background_update_service.count_by_status("pending").await?;
+    let running = state.services.background_update_service.count_by_status("running").await?;
+    let completed = state.services.background_update_service.count_by_status("completed").await?;
+    let failed = state.services.background_update_service.count_by_status("failed").await?;
+    let total = state.services.background_update_service.count_all().await?;
+    
+    let current = state.services.background_update_service.get_next_pending_update().await?;
+    
+    Ok(Json(BackgroundUpdateStatus {
+        pending_count: pending,
+        running_count: running,
+        completed_count: completed,
+        failed_count: failed,
+        total_count: total,
+        current_update: current.map(UpdateResponse::from),
+    }))
+}
+
 pub fn create_background_update_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/background_updates", post(create_update))
@@ -357,6 +389,7 @@ pub fn create_background_update_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/background_updates/pending", get(get_pending_updates))
         .route("/_synapse/admin/v1/background_updates/running", get(get_running_updates))
         .route("/_synapse/admin/v1/background_updates/next", get(get_next_pending))
+        .route("/_synapse/admin/v1/background_updates/status", get(get_status))
         .route("/_synapse/admin/v1/background_updates/retry_failed", post(retry_failed))
         .route("/_synapse/admin/v1/background_updates/cleanup_locks", post(cleanup_locks))
         .route("/_synapse/admin/v1/background_updates/status/{status}/count", get(count_by_status))

@@ -481,6 +481,18 @@ impl RoomStorage {
         Ok(())
     }
 
+    pub async fn remove_room_alias_by_name(&self, alias: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            DELETE FROM room_aliases WHERE alias = $1
+            "#,
+        )
+        .bind(alias)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn delete_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -539,6 +551,18 @@ impl RoomStorage {
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.map(|r| r.0))
+    }
+
+    pub async fn is_room_in_directory(&self, room_id: &str) -> Result<bool, sqlx::Error> {
+        let result: Option<(bool,)> = sqlx::query_as(
+            r#"
+            SELECT is_public FROM room_directory WHERE room_id = $1
+            "#,
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.map(|r| r.0).unwrap_or(false))
     }
 
     pub async fn set_room_directory(

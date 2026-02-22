@@ -455,6 +455,35 @@ pub async fn get_space_summary_with_children(
     Ok(Json(summary))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RoomHierarchyQuery {
+    pub max_depth: Option<i32>,
+    pub suggested_only: Option<bool>,
+    pub limit: Option<i32>,
+    pub from: Option<String>,
+}
+
+pub async fn get_room_hierarchy(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    Query(query): Query<RoomHierarchyQuery>,
+    _auth_user: crate::web::routes::OptionalAuthenticatedUser,
+) -> Result<impl IntoResponse, ApiError> {
+    let max_depth = query.max_depth.unwrap_or(1);
+    let suggested_only = query.suggested_only.unwrap_or(false);
+    
+    let space = state.services.space_service
+        .get_space_by_room(&room_id)
+        .await?
+        .ok_or_else(|| crate::common::ApiError::not_found("Room is not a space or not found"))?;
+    
+    let response = state.services.space_service
+        .get_space_hierarchy_v1(&space.space_id, max_depth, suggested_only, query.limit, query.from.as_deref(), None)
+        .await?;
+    
+    Ok(Json(response))
+}
+
 pub fn create_space_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v1/spaces", post(create_space))

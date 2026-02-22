@@ -403,6 +403,7 @@ impl SamlService {
             .map_err(|e| ApiError::bad_request(format!("Invalid SAML response encoding: {}", e)))
     }
 
+    #[allow(clippy::type_complexity)]
     fn parse_saml_assertion(xml: &str) -> Result<(String, String, HashMap<String, Vec<String>>, Option<String>), ApiError> {
         let mut name_id = String::new();
         let mut issuer = String::new();

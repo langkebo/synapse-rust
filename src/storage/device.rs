@@ -9,9 +9,8 @@ pub struct Device {
     pub device_key: Option<serde_json::Value>,
     pub last_seen_ts: Option<i64>,
     pub last_seen_ip: Option<String>,
-    pub created_at: i64,
+    pub created_ts: i64,
     pub first_seen_ts: i64,
-    pub created_ts: Option<i64>,
     pub appservice_id: Option<String>,
     pub ignored_user_list: Option<String>,
 }
@@ -35,15 +34,14 @@ impl DeviceStorage {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query_as::<_, Device>(
             r#"
-            INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_at, created_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_at, first_seen_ts, created_ts, appservice_id, ignored_user_list
+            INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
             "#,
         )
         .bind(device_id)
         .bind(user_id)
         .bind(display_name)
-        .bind(now)
         .bind(now)
         .bind(now)
         .bind(now)
@@ -54,7 +52,7 @@ impl DeviceStorage {
     pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
         sqlx::query_as::<_, Device>(
             r#"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_at, first_seen_ts, created_ts, appservice_id, ignored_user_list
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
             FROM devices WHERE device_id = $1
             "#,
         )
@@ -66,7 +64,7 @@ impl DeviceStorage {
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
         sqlx::query_as::<_, Device>(
             r#"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_at, first_seen_ts, created_ts, appservice_id, ignored_user_list
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
             FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC
             "#,
         )

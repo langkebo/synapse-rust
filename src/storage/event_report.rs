@@ -242,6 +242,7 @@ impl EventReportStorage {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_history(&self, report_id: i64, action: &str, actor_user_id: Option<&str>, actor_role: Option<&str>, old_status: Option<&str>, new_status: Option<&str>, reason: Option<&str>, metadata: Option<serde_json::Value>) -> Result<EventReportHistory, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 

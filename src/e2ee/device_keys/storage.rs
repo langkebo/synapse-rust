@@ -17,21 +17,15 @@ impl DeviceKeyStorage {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS device_keys (
-                id BIGSERIAL PRIMARY KEY,
                 user_id VARCHAR(255) NOT NULL,
                 device_id VARCHAR(255) NOT NULL,
-                display_name TEXT,
                 algorithm VARCHAR(255) NOT NULL,
-                key_id VARCHAR(255) NOT NULL,
-                public_key TEXT NOT NULL,
-                signatures TEXT,
-                created_at BIGINT NOT NULL,
-                updated_at BIGINT NOT NULL,
-                ts_updated_ms BIGINT NOT NULL,
-                key_json TEXT DEFAULT '{}',
-                ts_added_ms BIGINT NOT NULL,
-                ts_last_accessed BIGINT,
-                UNIQUE (user_id, device_id, key_id)
+                key_data TEXT NOT NULL,
+                added_ts BIGINT NOT NULL,
+                last_seen_ts BIGINT,
+                is_verified BOOLEAN DEFAULT FALSE,
+                ts_updated_ms BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000,
+                PRIMARY KEY (user_id, device_id, algorithm)
             )
             "#,
         )
@@ -58,35 +52,33 @@ impl DeviceKeyStorage {
     }
 
     pub async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError> {
-        let now_ms = key.updated_at.timestamp_millis();
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let key_data = serde_json::json!({
+            "algorithm": key.algorithm,
+            "key_id": key.key_id,
+            "public_key": key.public_key,
+            "signatures": key.signatures,
+            "display_name": key.display_name,
+        }).to_string();
+        
         let result = sqlx::query(
             r#"
-            INSERT INTO device_keys (user_id, device_id, display_name, algorithm, key_id, public_key, signatures, created_at, updated_at, ts_updated_ms, key_json, ts_added_ms, ts_last_accessed)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            ON CONFLICT ON CONSTRAINT device_keys_user_device_unique DO UPDATE
-            SET display_name = EXCLUDED.display_name,
-                algorithm = EXCLUDED.algorithm,
-                key_id = EXCLUDED.key_id,
-                public_key = EXCLUDED.public_key,
-                signatures = EXCLUDED.signatures,
-                updated_at = EXCLUDED.updated_at,
-                ts_updated_ms = EXCLUDED.ts_updated_ms,
-                key_json = EXCLUDED.key_json,
-                ts_last_accessed = EXCLUDED.ts_last_accessed
+            INSERT INTO device_keys (user_id, device_id, algorithm, key_data, added_ts, last_seen_ts, is_verified, ts_updated_ms)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (user_id, device_id, algorithm) DO UPDATE
+            SET key_data = EXCLUDED.key_data,
+                last_seen_ts = EXCLUDED.last_seen_ts,
+                is_verified = EXCLUDED.is_verified,
+                ts_updated_ms = EXCLUDED.ts_updated_ms
             "#
         )
         .bind(&key.user_id)
         .bind(&key.device_id)
-        .bind(&key.display_name)
         .bind(&key.algorithm)
-        .bind(&key.key_id)
-        .bind(&key.public_key)
-        .bind(&key.signatures)
-        .bind(key.created_at)
-        .bind(key.updated_at)
+        .bind(&key_data)
         .bind(now_ms)
-        .bind(serde_json::json!({}))
         .bind(now_ms)
+        .bind(false)
         .bind(now_ms)
         .execute(&*self.pool)
         .await;
@@ -100,37 +92,44 @@ impl DeviceKeyStorage {
         }
     }
 
+    fn parse_key_data(row: &sqlx::postgres::PgRow) -> DeviceKey {
+        let key_data: String = row.get("key_data");
+        let parsed: serde_json::Value = serde_json::from_str(&key_data).unwrap_or_default();
+        
+        DeviceKey {
+            id: 0,
+            user_id: row.get("user_id"),
+            device_id: row.get("device_id"),
+            display_name: parsed.get("display_name").and_then(|v| v.as_str()).map(String::from),
+            algorithm: row.get("algorithm"),
+            key_id: parsed.get("key_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            public_key: parsed.get("public_key").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            signatures: parsed.get("signatures").cloned().unwrap_or(serde_json::json!({})),
+            created_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts") / 1000).unwrap_or_default(),
+            updated_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("ts_updated_ms") / 1000).unwrap_or_default(),
+        }
+    }
+
     pub async fn get_device_key(
         &self,
         user_id: &str,
         device_id: &str,
-        key_id: &str,
+        algorithm: &str,
     ) -> Result<Option<DeviceKey>, ApiError> {
         let row = sqlx::query(
             r#"
-            SELECT id, user_id, device_id, display_name, algorithm, key_id, public_key, signatures, created_at, updated_at
+            SELECT user_id, device_id, algorithm, key_data, added_ts, last_seen_ts, is_verified, ts_updated_ms
             FROM device_keys
-            WHERE user_id = $1 AND device_id = $2 AND key_id = $3
+            WHERE user_id = $1 AND device_id = $2 AND algorithm = $3
             "#
         )
         .bind(user_id)
         .bind(device_id)
-        .bind(key_id)
+        .bind(algorithm)
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(row.map(|row| DeviceKey {
-            id: row.get("id"),
-            user_id: row.get("user_id"),
-            device_id: row.get("device_id"),
-            display_name: row.get("display_name"),
-            algorithm: row.get("algorithm"),
-            key_id: row.get("key_id"),
-            public_key: row.get("public_key"),
-            signatures: row.get("signatures"),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
-        }))
+        Ok(row.as_ref().map(Self::parse_key_data))
     }
 
     pub async fn get_device_keys(
@@ -140,7 +139,7 @@ impl DeviceKeyStorage {
     ) -> Result<Vec<DeviceKey>, ApiError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, user_id, device_id, display_name, algorithm, key_id, public_key, signatures, created_at, updated_at
+            SELECT user_id, device_id, algorithm, key_data, added_ts, last_seen_ts, is_verified, ts_updated_ms
             FROM device_keys
             WHERE user_id = $1 AND device_id = ANY($2)
             "#
@@ -150,27 +149,13 @@ impl DeviceKeyStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| DeviceKey {
-                id: row.get("id"),
-                user_id: row.get("user_id"),
-                device_id: row.get("device_id"),
-                display_name: row.get("display_name"),
-                algorithm: row.get("algorithm"),
-                key_id: row.get("key_id"),
-                public_key: row.get("public_key"),
-                signatures: row.get("signatures"),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
-            })
-            .collect())
+        Ok(rows.iter().map(Self::parse_key_data).collect())
     }
 
     pub async fn get_all_device_keys(&self, user_id: &str) -> Result<Vec<DeviceKey>, ApiError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, user_id, device_id, display_name, algorithm, key_id, public_key, signatures, created_at, updated_at
+            SELECT user_id, device_id, algorithm, key_data, added_ts, last_seen_ts, is_verified, ts_updated_ms
             FROM device_keys
             WHERE user_id = $1
             "#
@@ -179,38 +164,24 @@ impl DeviceKeyStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| DeviceKey {
-                id: row.get("id"),
-                user_id: row.get("user_id"),
-                device_id: row.get("device_id"),
-                display_name: row.get("display_name"),
-                algorithm: row.get("algorithm"),
-                key_id: row.get("key_id"),
-                public_key: row.get("public_key"),
-                signatures: row.get("signatures"),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
-            })
-            .collect())
+        Ok(rows.iter().map(Self::parse_key_data).collect())
     }
 
     pub async fn delete_device_key(
         &self,
         user_id: &str,
         device_id: &str,
-        key_id: &str,
+        algorithm: &str,
     ) -> Result<(), ApiError> {
         sqlx::query(
             r#"
             DELETE FROM device_keys
-            WHERE user_id = $1 AND device_id = $2 AND key_id = $3
+            WHERE user_id = $1 AND device_id = $2 AND algorithm = $3
             "#,
         )
         .bind(user_id)
         .bind(device_id)
-        .bind(key_id)
+        .bind(algorithm)
         .execute(&*self.pool)
         .await?;
 
@@ -241,12 +212,11 @@ impl DeviceKeyStorage {
             r#"
             SELECT COUNT(*) as count
             FROM device_keys
-            WHERE user_id = $1 AND device_id = $2 AND algorithm = ANY($3)
+            WHERE user_id = $1 AND device_id = $2 AND algorithm LIKE 'signed_curve25519%'
             "#,
         )
         .bind(user_id)
         .bind(device_id)
-        .bind(vec!["signed_curve25519".to_string()])
         .fetch_one(&*self.pool)
         .await?;
 
@@ -263,7 +233,7 @@ impl DeviceKeyStorage {
             r#"
             DELETE FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND algorithm = $3
-            RETURNING id, user_id, device_id, display_name, algorithm, key_id, public_key, signatures, created_at, updated_at
+            RETURNING user_id, device_id, algorithm, key_data, added_ts, last_seen_ts, is_verified, ts_updated_ms
             "#
         )
         .bind(user_id)
@@ -272,18 +242,7 @@ impl DeviceKeyStorage {
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(row.map(|row| DeviceKey {
-            id: row.get("id"),
-            user_id: row.get("user_id"),
-            device_id: row.get("device_id"),
-            display_name: row.get("display_name"),
-            algorithm: row.get("algorithm"),
-            key_id: row.get("key_id"),
-            public_key: row.get("public_key"),
-            signatures: row.get("signatures"),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
-        }))
+        Ok(row.as_ref().map(Self::parse_key_data))
     }
 
     pub async fn get_key_changes(&self, from_ts: i64, to_ts: i64) -> Result<Vec<String>, ApiError> {
@@ -300,5 +259,37 @@ impl DeviceKeyStorage {
         .await?;
 
         Ok(rows.into_iter().map(|row| row.get("user_id")).collect())
+    }
+
+    pub async fn store_signature(
+        &self,
+        target_user_id: &str,
+        target_key_id: &str,
+        signing_user_id: &str,
+        signing_key_id: &str,
+        signature: &str,
+    ) -> Result<(), ApiError> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        
+        sqlx::query(
+            r#"
+            INSERT INTO key_signatures (
+                target_user_id, target_key_id, signing_user_id, signing_key_id, signature, created_ts
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (target_user_id, target_key_id, signing_user_id, signing_key_id) 
+            DO UPDATE SET signature = EXCLUDED.signature, created_ts = EXCLUDED.created_ts
+            "#,
+        )
+        .bind(target_user_id)
+        .bind(target_key_id)
+        .bind(signing_user_id)
+        .bind(signing_key_id)
+        .bind(signature)
+        .bind(now_ms)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
     }
 }

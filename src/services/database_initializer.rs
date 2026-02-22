@@ -288,7 +288,9 @@ impl DatabaseInitService {
                 checksum VARCHAR(64),
                 executed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                 execution_time_ms BIGINT,
-                success BOOLEAN NOT NULL DEFAULT TRUE
+                success BOOLEAN NOT NULL DEFAULT TRUE,
+                error_message TEXT,
+                description TEXT
             )
         "#;
         

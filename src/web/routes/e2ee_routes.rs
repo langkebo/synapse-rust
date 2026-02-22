@@ -22,6 +22,12 @@ pub fn create_e2ee_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/sendToDevice/{event_type}/{transaction_id}",
             put(send_to_device),
         )
+        .route("/_matrix/client/v3/keys/upload", post(upload_keys))
+        .route("/_matrix/client/v3/keys/query", post(query_keys))
+        .route("/_matrix/client/v3/keys/claim", post(claim_keys))
+        .route("/_matrix/client/v3/keys/changes", get(key_changes))
+        .route("/_matrix/client/v3/keys/signatures/upload", post(upload_signatures))
+        .route("/_matrix/client/r0/keys/signatures/upload", post(upload_signatures))
 }
 
 #[axum::debug_handler]
@@ -183,4 +189,19 @@ async fn send_to_device(
         .await?;
 
     Ok(Json(serde_json::json!({})))
+}
+
+#[axum::debug_handler]
+async fn upload_signatures(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    MatrixJson(body): MatrixJson<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let response = state
+        .services
+        .device_keys_service
+        .upload_signatures(&auth_user.user_id, body)
+        .await?;
+
+    Ok(Json(response))
 }

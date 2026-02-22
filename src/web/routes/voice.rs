@@ -156,6 +156,10 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/voice/optimize",
             post(optimize_voice_message),
         )
+        .route(
+            "/_matrix/client/v1/voice/transcription",
+            post(voice_transcription),
+        )
 }
 
 #[axum::debug_handler]
@@ -346,6 +350,25 @@ async fn upload_voice_message(
         Ok(result) => Ok(Json(result)),
         Err(e) => Err(ApiError::internal(e.to_string())),
     }
+}
+
+#[axum::debug_handler]
+async fn voice_transcription(
+    _state: State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let _mxc = body
+        .get("mxc")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("mxc is required".to_string()))?;
+
+    Ok(Json(serde_json::json!({
+        "text": "Voice transcription is not yet implemented. This is a placeholder response.",
+        "confidence": 0.0,
+        "language": "en",
+        "status": "not_implemented"
+    })))
 }
 
 #[axum::debug_handler]

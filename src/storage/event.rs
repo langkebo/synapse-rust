@@ -267,10 +267,10 @@ impl EventStorage {
         reason: Option<&str>,
         score: i32,
     ) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
+        let now = chrono::Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, EventReportId>(
             r#"
-            INSERT INTO event_reports (event_id, room_id, reporter_id, reason, score, created_ts)
+            INSERT INTO event_reports (event_id, room_id, reporter_user_id, reason, score, received_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id
             "#,
@@ -291,14 +291,12 @@ impl EventStorage {
         report_id: i64,
         score: i32,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
         sqlx::query(
             r#"
-            UPDATE event_reports SET score = $1, updated_ts = $2 WHERE id = $3
+            UPDATE event_reports SET score = $1 WHERE id = $2
             "#,
         )
         .bind(score)
-        .bind(now)
         .bind(report_id)
         .execute(&*self.pool)
         .await?;
@@ -310,14 +308,12 @@ impl EventStorage {
         event_id: &str,
         score: i32,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
         sqlx::query(
             r#"
-            UPDATE event_reports SET score = $1, updated_ts = $2 WHERE event_id = $3
+            UPDATE event_reports SET score = $1 WHERE event_id = $2
             "#,
         )
         .bind(score)
-        .bind(now)
         .bind(event_id)
         .execute(&*self.pool)
         .await?;
@@ -327,8 +323,8 @@ impl EventStorage {
     pub async fn get_event_report(&self, event_id: &str) -> Result<Vec<EventReport>, sqlx::Error> {
         sqlx::query_as::<_, EventReport>(
             r#"
-            SELECT id, event_id, room_id, reporter_id, reason, score, created_ts, resolved_ts, resolved_by
-            FROM event_reports WHERE event_id = $1 ORDER BY created_ts DESC
+            SELECT id, event_id, room_id, reporter_user_id, reason, score, received_ts, resolved_ts, resolved_by
+            FROM event_reports WHERE event_id = $1 ORDER BY received_ts DESC
             "#,
         )
         .bind(event_id)
@@ -481,10 +477,10 @@ pub struct EventReport {
     pub id: i64,
     pub event_id: String,
     pub room_id: String,
-    pub reporter_id: String,
+    pub reporter_user_id: String,
     pub reason: Option<String>,
     pub score: i32,
-    pub created_ts: i64,
+    pub received_ts: i64,
     pub resolved_ts: Option<i64>,
     pub resolved_by: Option<String>,
 }
