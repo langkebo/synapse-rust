@@ -66,7 +66,7 @@ use crate::cache::*;
 use crate::common::*;
 use crate::services::*;
 use crate::storage::CreateEventParams;
-use crate::web::middleware::rate_limit_middleware;
+use crate::web::middleware::{cors_middleware, rate_limit_middleware, security_headers_middleware};
 use axum::extract::rejection::JsonRejection;
 use axum::{
     extract::{FromRequestParts, Json, Path, Query, State},
@@ -75,6 +75,7 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
+use sqlx::Row;
 use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
 
@@ -290,13 +291,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(health_check))
         .route("/_matrix/client/versions", get(get_client_versions))
         .route("/_matrix/client/r0/version", get(get_server_version))
+        .route("/_matrix/client/r0/capabilities", get(get_capabilities))
         .route("/.well-known/matrix/server", get(get_well_known_server))
         .route("/.well-known/matrix/client", get(get_well_known_client))
         .route("/.well-known/matrix/support", get(get_well_known_support))
         .merge(create_auth_router())
         .merge(create_account_router())
         .merge(create_account_data_router(state.clone()))
-        .merge(create_directory_router())
+        .merge(create_directory_router(state.clone()))
         .merge(create_room_router())
         .merge(create_presence_router())
         .merge(create_device_router())
@@ -332,6 +334,17 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/v3/voip/turnServer", get(get_turn_server))
         .route("/_matrix/client/v3/voip/config", get(get_voip_config))
         .route("/_matrix/client/v3/voip/turnServer/guest", get(get_turn_credentials_guest))
+        .route("/_matrix/client/v3/account/whoami", get(whoami))
+        .route("/_matrix/client/v3/account/3pid", get(get_threepids).post(add_threepid))
+        .route("/_matrix/client/v3/user_directory/search", post(search_user_directory))
+        .route("/_matrix/client/v3/publicRooms", get(get_public_rooms).post(query_public_rooms))
+        .route("/_matrix/client/v3/devices", get(get_devices))
+        .route("/_matrix/client/v3/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
+        .route("/_matrix/client/v3/presence/{user_id}/status", get(get_presence).put(set_presence))
+        .route("/_matrix/client/v3/sync", get(sync))
+        .route("/_matrix/client/v3/createRoom", post(create_room))
+        .layer(axum::middleware::from_fn(cors_middleware))
+        .layer(axum::middleware::from_fn(security_headers_middleware))
         .layer(CompressionLayer::new())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -342,7 +355,7 @@ pub fn create_router(state: AppState) -> Router {
 
 fn create_auth_router() -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/r0/register", post(register))
+        .route("/_matrix/client/r0/register", get(get_register_flows).post(register))
         .route(
             "/_matrix/client/r0/register/available",
             get(check_username_availability),
@@ -355,7 +368,7 @@ fn create_auth_router() -> Router<AppState> {
             "/_matrix/client/r0/register/email/submitToken",
             post(submit_email_token),
         )
-        .route("/_matrix/client/r0/login", post(login))
+        .route("/_matrix/client/r0/login", get(get_login_flows).post(login))
         .route("/_matrix/client/r0/logout", post(logout))
         .route("/_matrix/client/r0/logout/all", post(logout_all))
         .route("/_matrix/client/r0/refresh", post(refresh_token))
@@ -381,9 +394,30 @@ fn create_account_router() -> Router<AppState> {
             "/_matrix/client/r0/account/deactivate",
             post(deactivate_account),
         )
+        .route("/_matrix/client/r0/account/3pid", get(get_threepids).post(add_threepid))
+        .route(
+            "/_matrix/client/r0/account/3pid/delete",
+            post(delete_threepid),
+        )
+        .route(
+            "/_matrix/client/r0/account/3pid/unbind",
+            post(unbind_threepid),
+        )
+        .route(
+            "/_matrix/client/r0/profile/{user_id}",
+            get(get_profile),
+        )
+        .route(
+            "/_matrix/client/r0/profile/{user_id}/displayname",
+            get(get_displayname).put(update_displayname),
+        )
+        .route(
+            "/_matrix/client/r0/profile/{user_id}/avatar_url",
+            get(get_avatar_url).put(update_avatar),
+        )
 }
 
-fn create_directory_router() -> Router<AppState> {
+fn create_directory_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route(
             "/_matrix/client/r0/user_directory/search",
@@ -394,15 +428,27 @@ fn create_directory_router() -> Router<AppState> {
             post(list_user_directory),
         )
         .route(
-            "/_matrix/client/r0/directory/room/alias/{room_alias}",
-            get(get_room_by_alias),
+            "/_matrix/client/r0/directory/list/room/{room_id}",
+            get(get_room_visibility).put(set_room_visibility),
         )
         .route(
-            "/_matrix/client/r0/directory/room/{param}",
-            get(get_room)
-                .put(set_room_directory)
-                .delete(delete_room_directory),
+            "/_matrix/client/v3/directory/list/room/{room_id}",
+            get(get_room_visibility).put(set_room_visibility),
         )
+        .route(
+            "/_matrix/client/r0/directory/room/{room_alias}",
+            get(get_room_by_alias)
+                .put(set_room_alias_direct)
+                .delete(delete_room_alias_direct),
+        )
+        .route(
+            "/_matrix/client/v3/directory/room/{room_alias}",
+            get(get_room_by_alias)
+                .put(set_room_alias_direct)
+                .delete(delete_room_alias_direct),
+        )
+        .route("/_matrix/client/r0/publicRooms", get(get_public_rooms))
+        .route("/_matrix/client/r0/publicRooms", post(query_public_rooms))
         .route(
             "/_matrix/client/r0/directory/room/{room_id}/alias",
             get(get_room_aliases),
@@ -415,8 +461,7 @@ fn create_directory_router() -> Router<AppState> {
             "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
             delete(delete_room_alias),
         )
-        .route("/_matrix/client/r0/publicRooms", get(get_public_rooms))
-        .route("/_matrix/client/r0/publicRooms", post(create_public_room))
+        .with_state(state)
 }
 
 fn create_room_router() -> Router<AppState> {
@@ -430,6 +475,8 @@ fn create_room_router() -> Router<AppState> {
             put(update_report_score),
         )
         .route("/_matrix/client/r0/sync", get(sync))
+        .route("/_matrix/client/r0/events", get(get_events))
+        .route("/_matrix/client/r0/joined_rooms", get(get_joined_rooms))
         .route(
             "/_matrix/client/r0/rooms/{room_id}/messages",
             get(get_messages),
@@ -538,6 +585,41 @@ async fn get_client_versions() -> Json<Value> {
 async fn get_server_version() -> Json<Value> {
     Json(json!({
         "version": "0.1.0"
+    }))
+}
+
+async fn get_capabilities() -> Json<Value> {
+    Json(json!({
+        "capabilities": {
+            "m.change_password": {
+                "enabled": true
+            },
+            "m.room_versions": {
+                "default": "6",
+                "available": {
+                    "1": "stable",
+                    "2": "stable",
+                    "3": "stable",
+                    "4": "stable",
+                    "5": "stable",
+                    "6": "stable",
+                    "7": "stable",
+                    "8": "stable",
+                    "9": "stable",
+                    "10": "stable",
+                    "11": "stable"
+                }
+            },
+            "m.set_displayname": {
+                "enabled": true
+            },
+            "m.set_avatar_url": {
+                "enabled": true
+            },
+            "m.3pid_changes": {
+                "enabled": true
+            }
+        }
     }))
 }
 
@@ -797,6 +879,25 @@ async fn submit_email_token(
     })))
 }
 
+async fn get_login_flows() -> Json<Value> {
+    Json(json!({
+        "flows": [
+            {"type": "m.login.password"},
+            {"type": "m.login.token"}
+        ]
+    }))
+}
+
+async fn get_register_flows() -> Json<Value> {
+    Json(json!({
+        "flows": [
+            {"type": "m.login.dummy"},
+            {"type": "m.login.password"}
+        ],
+        "params": {}
+    }))
+}
+
 async fn login(
     State(state): State<AppState>,
     MatrixJson(body): MatrixJson<Value>,
@@ -1054,6 +1155,42 @@ async fn get_profile(
     ))
 }
 
+async fn get_displayname(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+
+    let profile = state
+        .services
+        .registration_service
+        .get_profile(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get profile: {}", e)))?;
+
+    let displayname = profile.get("displayname").and_then(|v| v.as_str()).unwrap_or("");
+    Ok(Json(json!({ "displayname": displayname })))
+}
+
+async fn get_avatar_url(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+
+    let profile = state
+        .services
+        .registration_service
+        .get_profile(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get profile: {}", e)))?;
+
+    let avatar_url = profile.get("avatar_url").and_then(|v| v.as_str()).unwrap_or("");
+    Ok(Json(json!({ "avatar_url": avatar_url })))
+}
+
 async fn update_displayname(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -1187,6 +1324,142 @@ async fn deactivate_account(
         .delete(&format!("token:{}", auth_user.access_token))
         .await;
 
+    Ok(Json(json!({
+        "id_server_unbind_result": "success"
+    })))
+}
+
+async fn get_threepids(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = &auth_user.user_id;
+    
+    let threepids = sqlx::query(
+        r#"
+        SELECT medium, address, validated_at, added_at
+        FROM user_threepids
+        WHERE user_id = $1
+        "#
+    )
+    .bind(user_id)
+    .fetch_all(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get threepids: {}", e)))?;
+    
+    let threepids_list: Vec<Value> = threepids.iter().map(|row| {
+        json!({
+            "medium": row.get::<String, _>("medium"),
+            "address": row.get::<String, _>("address"),
+            "validated_at": row.get::<Option<i64>, _>("validated_at").unwrap_or(0),
+            "added_at": row.get::<Option<i64>, _>("added_at").unwrap_or(0)
+        })
+    }).collect();
+    
+    Ok(Json(json!({
+        "threepids": threepids_list
+    })))
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[allow(dead_code)]
+struct AddThreepidRequest {
+    #[serde(rename = "threePidCreds")]
+    three_pid_creds: Option<ThreepidCreds>,
+    bind: Option<bool>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[allow(dead_code)]
+struct ThreepidCreds {
+    client_secret: Option<String>,
+    sid: Option<String>,
+}
+
+async fn add_threepid(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = &auth_user.user_id;
+    let now = chrono::Utc::now().timestamp_millis();
+    
+    let medium = body.get("medium").and_then(|v| v.as_str()).unwrap_or("email");
+    let address = body.get("address").and_then(|v| v.as_str()).unwrap_or("");
+    
+    if address.is_empty() {
+        return Err(ApiError::bad_request("Address is required".to_string()));
+    }
+    
+    sqlx::query(
+        r#"
+        INSERT INTO user_threepids (user_id, medium, address, validated_at, added_at)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (user_id, medium, address) DO UPDATE
+        SET validated_at = EXCLUDED.validated_at
+        "#
+    )
+    .bind(user_id)
+    .bind(medium)
+    .bind(address)
+    .bind(now)
+    .bind(now)
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to add threepid: {}", e)))?;
+    
+    Ok(Json(json!({})))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct DeleteThreepidRequest {
+    medium: String,
+    address: String,
+}
+
+async fn delete_threepid(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<DeleteThreepidRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = &auth_user.user_id;
+    
+    sqlx::query(
+        r#"
+        DELETE FROM user_threepids
+        WHERE user_id = $1 AND medium = $2 AND address = $3
+        "#
+    )
+    .bind(user_id)
+    .bind(&body.medium)
+    .bind(&body.address)
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to delete threepid: {}", e)))?;
+    
+    Ok(Json(json!({})))
+}
+
+async fn unbind_threepid(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<DeleteThreepidRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = &auth_user.user_id;
+    
+    sqlx::query(
+        r#"
+        DELETE FROM user_threepids
+        WHERE user_id = $1 AND medium = $2 AND address = $3
+        "#
+    )
+    .bind(user_id)
+    .bind(&body.medium)
+    .bind(&body.address)
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to unbind threepid: {}", e)))?;
+    
     Ok(Json(json!({})))
 }
 
@@ -1363,6 +1636,66 @@ async fn sync(
             .sync(&user_id, timeout, full_state, set_presence, since)
             .await?,
     ))
+}
+
+async fn get_events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let token = extract_token_from_headers(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let from = params
+        .get("from")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0");
+    let timeout = params
+        .get("timeout")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(30000);
+
+    let result = state
+        .services
+        .sync_service
+        .get_events(&user_id, from, timeout)
+        .await
+        .unwrap_or(json!({
+            "start": from,
+            "end": from,
+            "chunk": []
+        }));
+
+    Ok(Json(result))
+}
+
+async fn get_joined_rooms(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = &auth_user.user_id;
+
+    let rooms = sqlx::query(
+        r#"
+        SELECT DISTINCT room_id 
+        FROM room_memberships 
+        WHERE user_id = $1 AND membership = 'join'
+        ORDER BY room_id
+        "#
+    )
+    .bind(user_id)
+    .fetch_all(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get joined rooms: {}", e)))?;
+
+    let room_ids: Vec<String> = rooms
+        .iter()
+        .filter_map(|row| row.get::<Option<String>, _>("room_id"))
+        .collect();
+
+    Ok(Json(json!({
+        "joined_rooms": room_ids
+    })))
 }
 
 async fn get_messages(
@@ -1668,71 +2001,12 @@ async fn create_room(
     ))
 }
 
-async fn get_room(
+#[axum::debug_handler]
+async fn get_room_visibility(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Path(param): Path<String>,
+    _auth_user: OptionalAuthenticatedUser,
+    Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_id = if param.starts_with('!') {
-        param
-    } else {
-        return Err(ApiError::bad_request("Invalid room_id format".to_string()));
-    };
-    Ok(Json(state.services.room_service.get_room(&room_id).await?))
-}
-
-async fn delete_room_directory(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(param): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    if !param.starts_with('!') {
-        return Err(ApiError::bad_request("Invalid room_id format".to_string()));
-    }
-
-    if !state
-        .services
-        .room_storage
-        .room_exists(&param)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    let is_creator = state
-        .services
-        .room_service
-        .is_room_creator(&param, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room creator: {}", e)))?;
-
-    if !auth_user.is_admin && !is_creator {
-        return Err(ApiError::forbidden(
-            "Only room creator or server admin can remove room from directory".to_string(),
-        ));
-    }
-
-    state
-        .services
-        .room_service
-        .remove_room_directory(&param)
-        .await?;
-    Ok(Json(json!({})))
-}
-
-async fn set_room_directory(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(param): Path<String>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let room_id = if param.starts_with('!') {
-        param
-    } else {
-        return Err(ApiError::bad_request("Invalid room_id format".to_string()));
-    };
-
     if !state
         .services
         .room_storage
@@ -1743,7 +2017,47 @@ async fn set_room_directory(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let is_public = body.get("is_public").and_then(|v| v.as_bool()).unwrap_or(true);
+    let visibility = state
+        .services
+        .room_service
+        .get_room_visibility(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room visibility: {}", e)))?;
+
+    Ok(Json(json!({
+        "visibility": visibility
+    })))
+}
+
+#[axum::debug_handler]
+async fn set_room_visibility(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    let visibility = body
+        .get("visibility")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing visibility field".to_string()))?;
+
+    if visibility != "public" && visibility != "private" {
+        return Err(ApiError::bad_request(
+            "visibility must be 'public' or 'private'".to_string(),
+        ));
+    }
+
+    let is_public = visibility == "public";
 
     if is_public {
         let is_creator = state
@@ -1755,7 +2069,7 @@ async fn set_room_directory(
 
         if !auth_user.is_admin && !is_creator {
             return Err(ApiError::forbidden(
-                "Only room creator or server admin can add room to directory".to_string(),
+                "Only room creator or server admin can set room to public".to_string(),
             ));
         }
     }
@@ -1863,6 +2177,73 @@ async fn get_room_by_alias(
     }
 }
 
+#[axum::debug_handler]
+async fn set_room_alias_direct(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_alias): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let room_id = body
+        .get("room_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing room_id field".to_string()))?;
+
+    if !room_id.starts_with('!') {
+        return Err(ApiError::bad_request("Invalid room_id format".to_string()));
+    }
+
+    if room_alias.len() > 255 {
+        return Err(ApiError::bad_request(
+            "Alias too long (max 255 characters)".to_string(),
+        ));
+    }
+
+    if !state
+        .services
+        .room_storage
+        .room_exists(room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a room member to set an alias".to_string(),
+        ));
+    }
+
+    state
+        .services
+        .room_service
+        .set_room_alias(room_id, &room_alias, &auth_user.user_id)
+        .await?;
+    Ok(Json(json!({})))
+}
+
+#[axum::debug_handler]
+async fn delete_room_alias_direct(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(room_alias): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    state
+        .services
+        .room_service
+        .remove_room_alias_by_name(&room_alias)
+        .await?;
+    Ok(Json(json!({})))
+}
+
 async fn get_public_rooms(
     State(state): State<AppState>,
     _auth_user: OptionalAuthenticatedUser,
@@ -1881,54 +2262,20 @@ async fn get_public_rooms(
 }
 
 #[axum::debug_handler]
-async fn create_public_room(
+async fn query_public_rooms(
     State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    _auth_user: OptionalAuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let visibility = body.get("visibility").and_then(|v| v.as_str());
-    if let Some(v) = visibility {
-        if v != "public" && v != "private" {
-            return Err(ApiError::bad_request(
-                "Visibility must be 'public' or 'private'".to_string(),
-            ));
-        }
-    }
-
-    let room_alias = body.get("room_alias_name").and_then(|v| v.as_str());
-    let name = body.get("name").and_then(|v| v.as_str());
-    let topic = body.get("topic").and_then(|v| v.as_str());
-    let invite = body.get("invite").and_then(|v| v.as_array()).map(|arr| {
-        arr.iter()
-            .filter_map(|x| x.as_str().map(String::from))
-            .collect::<Vec<String>>()
-    });
-
-    if let Some(ref inv) = invite {
-        if inv.len() > 100 {
-            return Err(ApiError::bad_request(
-                "Too many invites (max 100)".to_string(),
-            ));
-        }
-    }
-
-    let preset = body.get("preset").and_then(|v| v.as_str());
-
-    let config = CreateRoomConfig {
-        visibility: visibility.map(|s| s.to_string()),
-        room_alias_name: room_alias.map(|s| s.to_string()),
-        name: name.map(|s| s.to_string()),
-        topic: topic.map(|s| s.to_string()),
-        invite_list: invite,
-        preset: preset.map(|s| s.to_string()),
-        ..Default::default()
-    };
+    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
+    let _since = body.get("since").and_then(|v| v.as_str());
+    let _filter = body.get("filter");
 
     Ok(Json(
         state
             .services
             .room_service
-            .create_room(&auth_user.user_id, config)
+            .get_public_rooms(limit as i64)
             .await?,
     ))
 }

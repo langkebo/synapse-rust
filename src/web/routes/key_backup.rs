@@ -68,6 +68,15 @@ pub fn create_key_backup_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/room_keys/recover/{version}/{room_id}/{session_id}",
             get(recover_session_key),
         )
+        .route(
+            "/_matrix/client/v3/room_keys/version",
+            get(get_all_backup_versions).post(create_backup_version),
+        )
+        .route(
+            "/_matrix/client/v3/room_keys/version/{version}",
+            get(get_backup_version).put(update_backup_version).delete(delete_backup_version),
+        )
+        .route("/_matrix/client/v3/room_keys/keys", get(get_room_keys).put(put_room_keys))
 }
 
 #[derive(Debug, Deserialize, Validate)]

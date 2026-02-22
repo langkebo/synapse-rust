@@ -219,4 +219,42 @@ impl DeviceKeyService {
 
         Ok((changed, left))
     }
+
+    pub async fn upload_signatures(
+        &self,
+        _user_id: &str,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value, ApiError> {
+        let failures = serde_json::Map::new();
+
+        if let Some(signatures) = body.get("signatures") {
+            if let Some(sig_map) = signatures.as_object() {
+                for (target_user_id, user_sigs) in sig_map {
+                    if let Some(user_sig_map) = user_sigs.as_object() {
+                        for (target_key_id, sig_data) in user_sig_map {
+                            if let Some(sig_obj) = sig_data.as_object() {
+                                for (signing_user_id, signing_key_sigs) in sig_obj {
+                                    if let Some(key_sigs) = signing_key_sigs.as_object() {
+                                        for (signing_key_id, signature) in key_sigs {
+                                            let _ = self.storage.store_signature(
+                                                target_user_id,
+                                                target_key_id,
+                                                signing_user_id,
+                                                signing_key_id,
+                                                signature.as_str().unwrap_or(""),
+                                            ).await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(serde_json::json!({
+            "failures": failures
+        }))
+    }
 }

@@ -51,7 +51,32 @@ CREATE TABLE users (
 );
 ```
 
-### 2.2 access_tokens 表
+### 2.2 devices 表
+
+```sql
+CREATE TABLE devices (
+    device_id VARCHAR(255) PRIMARY KEY,      -- 设备唯一标识
+    user_id VARCHAR(255) NOT NULL,           -- 用户ID
+    display_name VARCHAR(255),               -- 设备显示名称
+    device_key JSONB,                        -- 设备密钥信息
+    last_seen_ts BIGINT,                     -- 最后活跃时间戳（可为空）
+    last_seen_ip VARCHAR(45),                -- 最后活跃IP地址
+    created_ts BIGINT NOT NULL,              -- 创建时间戳（不为空）
+    first_seen_ts BIGINT NOT NULL,           -- 首次出现时间戳（不为空）
+    appservice_id VARCHAR(255),              -- 应用服务ID
+    ignored_user_list TEXT                   -- 忽略用户列表
+);
+
+CREATE INDEX idx_devices_user ON devices(user_id);
+CREATE INDEX idx_devices_last_seen ON devices(last_seen_ts DESC);
+```
+
+**重要说明**：
+- `created_ts` 和 `first_seen_ts` 必须存在且不为空
+- **禁止使用** `created_at` 字段，统一使用 `created_ts`
+- `last_seen_ts` 可为空，表示设备从未活跃过
+
+### 2.3 access_tokens 表
 
 ```sql
 CREATE TABLE access_tokens (
@@ -197,3 +222,237 @@ if let Some(expires_at) = token.expires_at {
 | 版本 | 日期 | 变更说明 |
 |------|------|----------|
 | 1.0.0 | 2026-02-19 | 初始版本，统一字段命名规范 |
+| 1.1.0 | 2026-02-20 | 新增 devices 表规范，明确禁止使用 created_at 字段 |
+| 1.2.0 | 2026-02-22 | 新增 pushers, cross_signing_keys, device_keys, device_signatures, push_rule, push_device, push_notification_queue 表规范 |
+
+## 7. 常见问题修复
+
+### 7.1 devices 表 created_at 字段问题
+
+**问题描述**：代码中使用 `created_at` 字段，但数据库 schema 定义的是 `created_ts`。
+
+**解决方案**：
+1. 运行迁移脚本 `20260220000003_fix_devices_table.sql`
+2. 确保代码中使用 `created_ts` 而非 `created_at`
+
+**代码修复示例**：
+```rust
+// 错误
+pub struct Device {
+    pub created_at: i64,  // 错误：数据库中没有此字段
+}
+
+// 正确
+pub struct Device {
+    pub created_ts: i64,  // 正确：与数据库字段匹配
+}
+```
+
+## 8. 扩展表字段规范
+
+### 8.1 pushers 表
+
+```sql
+CREATE TABLE pushers (
+    id BIGSERIAL PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    device_id VARCHAR(255),
+    pushkey VARCHAR(255) NOT NULL,
+    kind VARCHAR(50),
+    app_id VARCHAR(255),
+    app_display_name VARCHAR(255),
+    device_display_name VARCHAR(255),
+    profile_tag VARCHAR(255),
+    lang VARCHAR(10),
+    data JSONB,
+    is_enabled BOOLEAN DEFAULT TRUE,
+    created_ts BIGINT NOT NULL,           -- 使用 created_ts，禁止 created_at
+    last_updated_ts BIGINT,               -- 使用 last_updated_ts
+    last_success_ts BIGINT,
+    last_failure_ts BIGINT,
+    failure_count INTEGER DEFAULT 0
+);
+
+CREATE UNIQUE INDEX idx_pushers_user_pushkey ON pushers(user_id, pushkey);
+CREATE INDEX idx_pushers_user ON pushers(user_id);
+```
+
+**重要说明**：
+- **禁止使用** `created_at` 字段，统一使用 `created_ts`
+- **禁止使用** `updated_at` 字段，统一使用 `last_updated_ts`
+
+### 8.2 cross_signing_keys 表
+
+```sql
+CREATE TABLE cross_signing_keys (
+    user_id VARCHAR(255) NOT NULL,
+    key_type VARCHAR(50) NOT NULL,
+    key_data TEXT NOT NULL,
+    added_ts BIGINT NOT NULL,             -- 使用 added_ts，禁止 created_at/updated_at
+    PRIMARY KEY (user_id, key_type)
+);
+
+CREATE INDEX idx_cross_signing_keys_user ON cross_signing_keys(user_id);
+```
+
+**重要说明**：
+- **禁止使用** `created_at`、`updated_at` 字段
+- 使用 `added_ts` 表示密钥添加时间
+
+### 8.3 device_keys 表
+
+```sql
+CREATE TABLE device_keys (
+    user_id VARCHAR(255) NOT NULL,
+    device_id VARCHAR(255) NOT NULL,
+    algorithm VARCHAR(255) NOT NULL,
+    key_data TEXT NOT NULL,
+    added_ts BIGINT NOT NULL,             -- 使用 added_ts，禁止 created_at
+    last_seen_ts BIGINT,
+    is_verified BOOLEAN DEFAULT FALSE,
+    ts_updated_ms BIGINT,                 -- 使用 ts_updated_ms，禁止 updated_at
+    PRIMARY KEY (user_id, device_id, algorithm)
+);
+
+CREATE INDEX idx_device_keys_user ON device_keys(user_id);
+CREATE INDEX idx_device_keys_device ON device_keys(device_id);
+```
+
+**重要说明**：
+- **禁止使用** `created_at` 字段，统一使用 `added_ts`
+- **禁止使用** `updated_at` 字段，统一使用 `ts_updated_ms`
+
+### 8.4 device_signatures 表
+
+```sql
+CREATE TABLE device_signatures (
+    id BIGSERIAL PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    device_id VARCHAR(255) NOT NULL,
+    target_user_id VARCHAR(255) NOT NULL,
+    target_device_id VARCHAR(255) NOT NULL,
+    algorithm VARCHAR(255) NOT NULL,
+    signature TEXT NOT NULL,
+    created_ts BIGINT NOT NULL,           -- 使用 created_ts，禁止 created_at
+    UNIQUE (user_id, device_id, target_user_id, target_device_id, algorithm)
+);
+
+CREATE INDEX idx_device_signatures_user ON device_signatures(user_id);
+CREATE INDEX idx_device_signatures_target ON device_signatures(target_user_id, target_device_id);
+```
+
+**重要说明**：
+- **禁止使用** `created_at` 字段，统一使用 `created_ts`
+- **禁止使用** `signing_key_id`、`target_key_id` 字段，使用 `algorithm` 字段
+
+### 8.5 push_rule 表
+
+```sql
+CREATE TABLE push_rule (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    rule_id VARCHAR(255) NOT NULL,
+    scope VARCHAR(50) NOT NULL DEFAULT 'global',
+    kind VARCHAR(50) NOT NULL,
+    priority INTEGER DEFAULT 0,
+    conditions JSONB DEFAULT '[]',
+    actions JSONB DEFAULT '[]',
+    is_enabled BOOLEAN DEFAULT TRUE,      -- 使用 is_enabled，禁止 enabled
+    is_default BOOLEAN DEFAULT FALSE,
+    created_at BIGINT,                    -- 注意：此表使用 created_at（历史原因）
+    updated_at BIGINT,
+    UNIQUE (user_id, scope, kind, rule_id)
+);
+
+CREATE INDEX idx_push_rule_user ON push_rule(user_id);
+```
+
+**重要说明**：
+- 此表使用 `is_enabled` 而非 `enabled`
+- 代码中需要使用 `#[sqlx(rename = "is_enabled")]` 映射
+
+### 8.6 push_device 表
+
+```sql
+CREATE TABLE push_device (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    device_id VARCHAR(255) NOT NULL,
+    push_token TEXT NOT NULL,
+    push_type VARCHAR(20) NOT NULL,
+    app_id VARCHAR(255),
+    platform VARCHAR(50),
+    platform_version VARCHAR(50),
+    app_version VARCHAR(50),
+    locale VARCHAR(20),
+    timezone VARCHAR(50),
+    is_enabled BOOLEAN DEFAULT TRUE,      -- 使用 is_enabled，禁止 enabled
+    created_at BIGINT,
+    updated_at BIGINT,
+    last_used_at TIMESTAMP WITH TIME ZONE,
+    last_error TEXT,
+    error_count INTEGER DEFAULT 0,
+    metadata JSONB DEFAULT '{}',
+    UNIQUE (user_id, device_id)
+);
+
+CREATE INDEX idx_push_device_user ON push_device(user_id);
+```
+
+**重要说明**：
+- 此表使用 `is_enabled` 而非 `enabled`
+- `last_used_at` 使用 TIMESTAMP 类型（非 BIGINT）
+
+### 8.7 push_notification_queue 表
+
+```sql
+CREATE TABLE push_notification_queue (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    device_id VARCHAR(255) NOT NULL,
+    event_id VARCHAR(255),
+    room_id VARCHAR(255),
+    notification_type VARCHAR(50),
+    content JSONB NOT NULL,
+    priority INTEGER DEFAULT 5,
+    status VARCHAR(20) DEFAULT 'pending',
+    attempts INTEGER DEFAULT 0,
+    max_attempts INTEGER DEFAULT 5,
+    next_attempt_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at BIGINT,
+    sent_at TIMESTAMP WITH TIME ZONE,
+    error_message TEXT
+);
+
+CREATE INDEX idx_push_notification_queue_status ON push_notification_queue(status);
+CREATE INDEX idx_push_notification_queue_next_attempt ON push_notification_queue(next_attempt_at);
+```
+
+**重要说明**：
+- `created_at` 使用 BIGINT 类型
+- `next_attempt_at`、`sent_at` 使用 TIMESTAMP 类型
+
+## 9. 字段映射速查表
+
+### 9.1 时间戳字段映射
+
+| 数据库字段 | Rust 类型 | 说明 |
+|------------|-----------|------|
+| `created_ts` (NOT NULL) | `i64` | 毫秒时间戳 |
+| `created_ts` (NULLABLE) | `Option<i64>` | 可空毫秒时间戳 |
+| `created_at` (BIGINT) | `i64` | 毫秒时间戳 |
+| `added_ts` | `i64` | 毫秒时间戳 |
+| `updated_ts` | `Option<i64>` | 可空毫秒时间戳 |
+| `ts_updated_ms` | `Option<i64>` | 可空毫秒时间戳 |
+| `last_used_at` (TIMESTAMP) | `Option<DateTime<Utc>>` | 时区时间戳 |
+| `next_attempt_at` (TIMESTAMP) | `DateTime<Utc>` | 时区时间戳 |
+
+### 9.2 布尔字段映射
+
+| 数据库字段 | Rust 字段名 | 映射方式 |
+|------------|-------------|----------|
+| `is_enabled` | `enabled` | `#[sqlx(rename = "is_enabled")]` |
+| `is_admin` | `is_admin` | 直接映射 |
+| `is_revoked` | `is_revoked` | 直接映射 |
+| `is_default` | `is_default` | 直接映射 |
+| `enabled` (错误) | - | 禁止使用，改为 `is_enabled` |

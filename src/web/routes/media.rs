@@ -2,13 +2,13 @@ use super::AppState;
 use crate::common::ApiError;
 use crate::web::AuthenticatedUser;
 use axum::{
+    body::Bytes,
     extract::{Json, Path, Query, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Router,
 };
-use base64::Engine;
 use serde_json::{json, Value};
 
 pub fn create_media_router(_state: AppState) -> Router<AppState> {
@@ -61,32 +61,22 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
 async fn upload_media_v3(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    Query(params): Query<Value>,
+    headers: axum::http::HeaderMap,
+    body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    let content_bytes: Vec<u8> = match body.get("content") {
-        Some(content) => {
-            if let Some(arr) = content.as_array() {
-                arr.iter().map(|v| v.as_u64().unwrap_or(0) as u8).collect()
-            } else if let Some(str_val) = content.as_str() {
-                base64::engine::general_purpose::STANDARD
-                    .decode(str_val)
-                    .map_err(|_| ApiError::bad_request("Invalid base64 content".to_string()))?
-            } else {
-                return Err(ApiError::bad_request(
-                    "Invalid content format. Expected array or base64 string".to_string(),
-                ));
-            }
-        }
-        None => {
-            return Err(ApiError::bad_request("No file provided".to_string()));
-        }
-    };
-
-    let content_type = body
-        .get("content_type")
-        .and_then(|v| v.as_str())
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
         .unwrap_or("application/octet-stream");
-    let filename = body.get("filename").and_then(|v| v.as_str());
+
+    let filename = params.get("filename").and_then(|v| v.as_str());
+
+    let content_bytes = body.to_vec();
+
+    if content_bytes.is_empty() {
+        return Err(ApiError::bad_request("No file content provided".to_string()));
+    }
 
     let media_service = state.services.media_service.clone();
     Ok(Json(
@@ -105,22 +95,22 @@ async fn media_config(State(_state): State<AppState>) -> Json<Value> {
 async fn upload_media(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    Query(params): Query<Value>,
+    headers: axum::http::HeaderMap,
+    body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    let content = body
-        .get("content")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| ApiError::bad_request("No file provided".to_string()))?;
-    let content_type = body
-        .get("content_type")
-        .and_then(|v| v.as_str())
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
         .unwrap_or("application/octet-stream");
-    let filename = body.get("filename").and_then(|v| v.as_str());
 
-    let content_bytes: Vec<u8> = content
-        .iter()
-        .map(|v| v.as_u64().unwrap_or(0) as u8)
-        .collect();
+    let filename = params.get("filename").and_then(|v| v.as_str());
+
+    let content_bytes = body.to_vec();
+
+    if content_bytes.is_empty() {
+        return Err(ApiError::bad_request("No file content provided".to_string()));
+    }
 
     Ok(Json(
         state
@@ -202,32 +192,22 @@ async fn get_thumbnail(
 async fn upload_media_v1(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    Query(params): Query<Value>,
+    headers: axum::http::HeaderMap,
+    body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    let content_bytes: Vec<u8> = match body.get("content") {
-        Some(content) => {
-            if let Some(arr) = content.as_array() {
-                arr.iter().map(|v| v.as_u64().unwrap_or(0) as u8).collect()
-            } else if let Some(str_val) = content.as_str() {
-                base64::engine::general_purpose::STANDARD
-                    .decode(str_val)
-                    .map_err(|_| ApiError::bad_request("Invalid base64 content".to_string()))?
-            } else {
-                return Err(ApiError::bad_request(
-                    "Invalid content format. Expected array or base64 string".to_string(),
-                ));
-            }
-        }
-        None => {
-            return Err(ApiError::bad_request("No file provided".to_string()));
-        }
-    };
-
-    let content_type = body
-        .get("content_type")
-        .and_then(|v| v.as_str())
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
         .unwrap_or("application/octet-stream");
-    let filename = body.get("filename").and_then(|v| v.as_str());
+
+    let filename = params.get("filename").and_then(|v| v.as_str());
+
+    let content_bytes = body.to_vec();
+
+    if content_bytes.is_empty() {
+        return Err(ApiError::bad_request("No file content provided".to_string()));
+    }
 
     Ok(Json(
         state

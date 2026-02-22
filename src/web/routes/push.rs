@@ -20,11 +20,23 @@ pub fn create_push_router(state: AppState) -> Router<AppState> {
             get(get_push_rules),
         )
         .route(
+            "/_matrix/client/r0/pushrules",
+            get(get_push_rules),
+        )
+        .route(
             "/_matrix/client/v3/pushrules/{scope}",
             get(get_push_rules_scope),
         )
         .route(
+            "/_matrix/client/r0/pushrules/{scope}",
+            get(get_push_rules_scope),
+        )
+        .route(
             "/_matrix/client/v3/pushrules/{scope}/{kind}",
+            get(get_push_rules_kind),
+        )
+        .route(
+            "/_matrix/client/r0/pushrules/{scope}/{kind}",
             get(get_push_rules_kind),
         )
         .route(
@@ -37,6 +49,18 @@ pub fn create_push_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}",
+            delete(delete_push_rule),
+        )
+        .route(
+            "/_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id}",
+            get(get_push_rule),
+        )
+        .route(
+            "/_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id}",
+            put(set_push_rule),
+        )
+        .route(
+            "/_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id}",
             delete(delete_push_rule),
         )
         .route(
@@ -53,6 +77,10 @@ pub fn create_push_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/_matrix/client/v3/notifications",
+            get(get_notifications),
+        )
+        .route(
+            "/_matrix/client/r0/notifications",
             get(get_notifications),
         )
         .with_state(state)
@@ -109,7 +137,7 @@ async fn get_pushers(
                profile_tag, lang, data, device_id
         FROM pushers 
         WHERE user_id = $1
-        ORDER BY created_at DESC
+        ORDER BY created_ts DESC
         "#
     )
     .bind(&auth_user.user_id)
@@ -149,11 +177,11 @@ async fn set_pusher(
         sqlx::query(
             r#"
             INSERT INTO pushers (user_id, device_id, pushkey, kind, app_id, app_display_name, 
-                                 device_display_name, profile_tag, lang, data, created_at)
+                                 device_display_name, profile_tag, lang, data, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (user_id, pushkey) DO UPDATE SET
                 kind = $4, app_id = $5, app_display_name = $6,
-                device_display_name = $7, profile_tag = $8, lang = $9, data = $10
+                device_display_name = $7, profile_tag = $8, lang = $9, data = $10, last_updated_ts = $11
             "#
         )
         .bind(&auth_user.user_id)
@@ -301,7 +329,7 @@ async fn set_push_rule(
 
     sqlx::query(
         r#"
-        INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, enabled, is_default)
+        INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default)
         VALUES ($1, $2, $3, $4, $5, $6, $7, true, false)
         ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
             pattern = $5, conditions = $6, actions = $7
@@ -373,7 +401,7 @@ async fn get_push_rule_enabled(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let result = sqlx::query(
-        "SELECT enabled FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4"
+        "SELECT is_enabled FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4"
     )
     .bind(&auth_user.user_id)
     .bind(&scope)
@@ -385,7 +413,7 @@ async fn get_push_rule_enabled(
 
     match result {
         Some(row) => Ok(Json(json!({
-            "enabled": row.get::<Option<bool>, _>("enabled").unwrap_or(true)
+            "enabled": row.get::<Option<bool>, _>("is_enabled").unwrap_or(true)
         }))),
         None => Err(ApiError::not_found("Push rule not found".to_string())),
     }
@@ -402,7 +430,7 @@ async fn set_push_rule_enabled(
         .unwrap_or(true);
 
     sqlx::query(
-        "UPDATE push_rules SET enabled = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5"
+        "UPDATE push_rules SET is_enabled = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5"
     )
     .bind(&auth_user.user_id)
     .bind(&scope)
@@ -471,7 +499,7 @@ async fn get_user_push_rules(
 ) -> Result<Vec<Value>, ApiError> {
     let rules = sqlx::query(
         r#"
-        SELECT rule_id, pattern, conditions, actions, enabled, is_default
+        SELECT rule_id, pattern, conditions, actions, is_enabled, is_default
         FROM push_rules
         WHERE user_id = $1 AND scope = $2 AND kind = $3
         ORDER BY priority DESC, created_ts ASC
@@ -490,7 +518,7 @@ async fn get_user_push_rules(
             json!({
                 "rule_id": row.get::<Option<String>, _>("rule_id"),
                 "default": row.get::<Option<bool>, _>("is_default").unwrap_or(false),
-                "enabled": row.get::<Option<bool>, _>("enabled").unwrap_or(true),
+                "enabled": row.get::<Option<bool>, _>("is_enabled").unwrap_or(true),
                 "pattern": row.get::<Option<String>, _>("pattern"),
                 "conditions": row.get::<Option<Value>, _>("conditions"),
                 "actions": row.get::<Option<Value>, _>("actions").unwrap_or(json!([]))

@@ -402,6 +402,7 @@ impl ApplicationServiceStorage {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_event(
         &self,
         event_id: &str,

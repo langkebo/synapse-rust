@@ -119,7 +119,21 @@ async fn get_account_data(
 
     match result {
         Some(row) => Ok(Json(row.get::<Option<Value>, _>("content").unwrap_or(json!({})))),
-        None => Err(ApiError::not_found("Account data not found".to_string())),
+        None => {
+            if data_type == "m.push_rules" {
+                Ok(Json(json!({
+                    "global": {
+                        "content": [],
+                        "override": [],
+                        "room": [],
+                        "sender": [],
+                        "underride": []
+                    }
+                })))
+            } else {
+                Ok(Json(json!({})))
+            }
+        }
     }
 }
 

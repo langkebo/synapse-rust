@@ -262,10 +262,10 @@ impl MediaQuotaStorage {
             "#,
         )
         .bind(&request.user_id)
-        .bind(&request.quota_config_id)
-        .bind(&request.custom_max_storage_bytes)
-        .bind(&request.custom_max_file_size_bytes)
-        .bind(&request.custom_max_files_count)
+        .bind(request.quota_config_id)
+        .bind(request.custom_max_storage_bytes)
+        .bind(request.custom_max_file_size_bytes)
+        .bind(request.custom_max_files_count)
         .bind(now)
         .fetch_one(&self.pool)
         .await
@@ -350,17 +350,18 @@ impl MediaQuotaStorage {
     pub async fn check_quota(&self, user_id: &str, file_size: i64) -> Result<QuotaCheckResult, ApiError> {
         let user_quota = self.get_or_create_user_quota(user_id).await?;
 
-        let max_storage = user_quota.custom_max_storage_bytes.unwrap_or_else(|| {
-            if let Some(config_id) = user_quota.quota_config_id {
-                futures::executor::block_on(self.get_config(config_id))
-                    .ok()
-                    .flatten()
-                    .map(|c| c.max_storage_bytes)
-                    .unwrap_or(0)
-            } else {
-                0
-            }
-        });
+        let max_storage = if let Some(custom) = user_quota.custom_max_storage_bytes {
+            custom
+        } else if let Some(config_id) = user_quota.quota_config_id {
+            self.get_config(config_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|c| c.max_storage_bytes)
+                .unwrap_or(0)
+        } else {
+            0
+        };
 
         if max_storage == 0 {
             return Ok(QuotaCheckResult {

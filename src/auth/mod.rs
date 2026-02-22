@@ -201,9 +201,9 @@ impl AuthService {
 
         let password_hash = self.get_user_password_hash(&user)?;
 
-        if !self.verify_user_password(password, &password_hash).await? {
+        if !self.verify_user_password(password, password_hash).await? {
             self.log_login_failure(username, "invalid_credentials");
-            return Err(ApiError::forbidden("Invalid credentials".to_string()));
+            return Err(ApiError::unauthorized("Invalid credentials".to_string()));
         }
 
         if self.is_user_deactivated(&user) {
@@ -231,13 +231,13 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        user.ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))
+        user.ok_or_else(|| ApiError::unauthorized("Invalid credentials".to_string()))
     }
 
     fn get_user_password_hash<'a>(&self, user: &'a User) -> ApiResult<&'a str> {
         user.password_hash
             .as_deref()
-            .ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))
+            .ok_or_else(|| ApiError::unauthorized("Invalid credentials".to_string()))
     }
 
     async fn verify_user_password(&self, password: &str, password_hash: &str) -> ApiResult<bool> {

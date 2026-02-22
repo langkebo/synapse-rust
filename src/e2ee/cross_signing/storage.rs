@@ -14,25 +14,20 @@ impl CrossSigningStorage {
     }
 
     pub async fn create_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
+        let added_ts = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            INSERT INTO cross_signing_keys (id, user_id, key_type, public_key, usage, signatures, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO cross_signing_keys (user_id, key_type, key_data, added_ts)
+            VALUES ($1, $2, $3, $4)
             ON CONFLICT (user_id, key_type) DO UPDATE
-            SET public_key = EXCLUDED.public_key,
-                usage = EXCLUDED.usage,
-                signatures = EXCLUDED.signatures,
-                updated_at = EXCLUDED.updated_at
+            SET key_data = EXCLUDED.key_data,
+                added_ts = EXCLUDED.added_ts
             "#
         )
-        .bind(key.id)
         .bind(&key.user_id)
         .bind(&key.key_type)
         .bind(&key.public_key)
-        .bind(&key.usage)
-        .bind(&key.signatures)
-        .bind(key.created_at)
-        .bind(key.updated_at)
+        .bind(added_ts)
         .execute(&*self.pool)
         .await?;
 
@@ -46,7 +41,7 @@ impl CrossSigningStorage {
     ) -> Result<Option<CrossSigningKey>, ApiError> {
         let row = sqlx::query(
             r#"
-            SELECT id, user_id, key_type, public_key, usage, signatures, created_at, updated_at
+            SELECT user_id, key_type, key_data, added_ts
             FROM cross_signing_keys
             WHERE user_id = $1 AND key_type = $2
             "#,
@@ -57,14 +52,14 @@ impl CrossSigningStorage {
         .await?;
 
         Ok(row.map(|row| CrossSigningKey {
-            id: row.get("id"),
+            id: uuid::Uuid::new_v4(),
             user_id: row.get("user_id"),
             key_type: row.get("key_type"),
-            public_key: row.get("public_key"),
-            usage: row.get("usage"),
-            signatures: row.get("signatures"),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
+            public_key: row.get("key_data"),
+            usage: vec![],
+            signatures: serde_json::json!({}),
+            created_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts") / 1000).unwrap_or_default(),
+            updated_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts") / 1000).unwrap_or_default(),
         }))
     }
 
@@ -74,7 +69,7 @@ impl CrossSigningStorage {
     ) -> Result<Vec<CrossSigningKey>, ApiError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, user_id, key_type, public_key, usage, signatures, created_at, updated_at
+            SELECT user_id, key_type, key_data, added_ts
             FROM cross_signing_keys
             WHERE user_id = $1
             "#,
@@ -86,29 +81,28 @@ impl CrossSigningStorage {
         Ok(rows
             .into_iter()
             .map(|row| CrossSigningKey {
-                id: row.get("id"),
+                id: uuid::Uuid::new_v4(),
                 user_id: row.get("user_id"),
                 key_type: row.get("key_type"),
-                public_key: row.get("public_key"),
-                usage: row.get("usage"),
-                signatures: row.get("signatures"),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
+                public_key: row.get("key_data"),
+                usage: vec![],
+                signatures: serde_json::json!({}),
+                created_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts") / 1000).unwrap_or_default(),
+                updated_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts") / 1000).unwrap_or_default(),
             })
             .collect())
     }
 
     pub async fn update_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
+        let added_ts = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            UPDATE cross_signing_keys SET public_key = $1, usage = $2, signatures = $3, updated_at = $4
-            WHERE user_id = $5 AND key_type = $6
+            UPDATE cross_signing_keys SET key_data = $1, added_ts = $2
+            WHERE user_id = $3 AND key_type = $4
             "#
         )
         .bind(&key.public_key)
-        .bind(&key.usage)
-        .bind(&key.signatures)
-        .bind(key.updated_at)
+        .bind(added_ts)
         .bind(&key.user_id)
         .bind(&key.key_type)
         .execute(&*self.pool)
@@ -118,24 +112,22 @@ impl CrossSigningStorage {
     }
 
     pub async fn save_device_key(&self, key: &DeviceKeyInfo) -> Result<(), ApiError> {
+        let added_ts = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            INSERT INTO device_keys (user_id, device_id, key_type, algorithm, public_key, signatures, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (user_id, device_id) DO UPDATE SET
-                key_type = EXCLUDED.key_type,
-                algorithm = EXCLUDED.algorithm,
-                public_key = EXCLUDED.public_key,
-                signatures = EXCLUDED.signatures
+            INSERT INTO device_keys (user_id, device_id, algorithm, key_data, added_ts)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (user_id, device_id, algorithm) DO UPDATE SET
+                key_data = EXCLUDED.key_data,
+                ts_updated_ms = $6
             "#
         )
         .bind(&key.user_id)
         .bind(&key.device_id)
-        .bind(&key.key_type)
         .bind(&key.algorithm)
         .bind(&key.public_key)
-        .bind(&key.signatures)
-        .bind(key.created_at)
+        .bind(added_ts)
+        .bind(added_ts)
         .execute(&*self.pool)
         .await?;
 
@@ -143,24 +135,24 @@ impl CrossSigningStorage {
     }
 
     pub async fn save_device_signature(&self, sig: &DeviceSignature) -> Result<(), ApiError> {
+        let created_ts = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
             INSERT INTO device_signatures 
-            (user_id, device_id, signing_key_id, target_user_id, target_device_id, target_key_id, signature, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ON CONFLICT (user_id, signing_key_id, target_user_id, target_key_id) DO UPDATE SET
+            (user_id, device_id, target_user_id, target_device_id, algorithm, signature, created_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (user_id, device_id, target_user_id, target_device_id, algorithm) DO UPDATE SET
                 signature = EXCLUDED.signature,
-                created_at = EXCLUDED.created_at
+                created_ts = EXCLUDED.created_ts
             "#
         )
         .bind(&sig.user_id)
         .bind(&sig.device_id)
-        .bind(&sig.signing_key_id)
         .bind(&sig.target_user_id)
         .bind(&sig.target_device_id)
         .bind(&sig.target_key_id)
         .bind(&sig.signature)
-        .bind(sig.created_at)
+        .bind(created_ts)
         .execute(&*self.pool)
         .await?;
 
@@ -173,8 +165,8 @@ impl CrossSigningStorage {
     ) -> Result<Vec<DeviceSignature>, ApiError> {
         let rows = sqlx::query(
             r#"
-            SELECT user_id, device_id, signing_key_id, target_user_id, target_device_id, 
-                   target_key_id, signature, created_at
+            SELECT user_id, device_id, target_user_id, target_device_id, 
+                   algorithm, signature, created_ts
             FROM device_signatures
             WHERE user_id = $1
             "#,
@@ -188,12 +180,12 @@ impl CrossSigningStorage {
             .map(|row| DeviceSignature {
                 user_id: row.get("user_id"),
                 device_id: row.get("device_id"),
-                signing_key_id: row.get("signing_key_id"),
+                signing_key_id: row.get("algorithm"),
                 target_user_id: row.get("target_user_id"),
                 target_device_id: row.get("target_device_id"),
-                target_key_id: row.get("target_key_id"),
+                target_key_id: row.get("algorithm"),
                 signature: row.get("signature"),
-                created_at: row.get("created_at"),
+                created_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts") / 1000).unwrap_or_default(),
             })
             .collect())
     }
@@ -205,8 +197,8 @@ impl CrossSigningStorage {
     ) -> Result<Vec<DeviceSignature>, ApiError> {
         let rows = sqlx::query(
             r#"
-            SELECT user_id, device_id, signing_key_id, target_user_id, target_device_id, 
-                   target_key_id, signature, created_at
+            SELECT user_id, device_id, target_user_id, target_device_id, 
+                   algorithm, signature, created_ts
             FROM device_signatures
             WHERE user_id = $1 AND target_device_id = $2
             "#,
@@ -221,12 +213,12 @@ impl CrossSigningStorage {
             .map(|row| DeviceSignature {
                 user_id: row.get("user_id"),
                 device_id: row.get("device_id"),
-                signing_key_id: row.get("signing_key_id"),
+                signing_key_id: row.get("algorithm"),
                 target_user_id: row.get("target_user_id"),
                 target_device_id: row.get("target_device_id"),
-                target_key_id: row.get("target_key_id"),
+                target_key_id: row.get("algorithm"),
                 signature: row.get("signature"),
-                created_at: row.get("created_at"),
+                created_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts") / 1000).unwrap_or_default(),
             })
             .collect())
     }
@@ -239,10 +231,10 @@ impl CrossSigningStorage {
     ) -> Result<Option<DeviceSignature>, ApiError> {
         let row = sqlx::query(
             r#"
-            SELECT user_id, device_id, signing_key_id, target_user_id, target_device_id, 
-                   target_key_id, signature, created_at
+            SELECT user_id, device_id, target_user_id, target_device_id, 
+                   algorithm, signature, created_ts
             FROM device_signatures
-            WHERE user_id = $1 AND target_key_id = $2 AND signing_key_id = $3
+            WHERE user_id = $1 AND algorithm = $2 AND device_id = $3
             "#,
         )
         .bind(user_id)
@@ -254,12 +246,12 @@ impl CrossSigningStorage {
         Ok(row.map(|row| DeviceSignature {
             user_id: row.get("user_id"),
             device_id: row.get("device_id"),
-            signing_key_id: row.get("signing_key_id"),
+            signing_key_id: row.get("algorithm"),
             target_user_id: row.get("target_user_id"),
             target_device_id: row.get("target_device_id"),
-            target_key_id: row.get("target_key_id"),
+            target_key_id: row.get("algorithm"),
             signature: row.get("signature"),
-            created_at: row.get("created_at"),
+            created_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts") / 1000).unwrap_or_default(),
         }))
     }
 

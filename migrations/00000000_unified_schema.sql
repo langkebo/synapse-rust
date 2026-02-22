@@ -1,8 +1,9 @@
 -- =============================================================================
 -- Synapse-Rust 统一数据库迁移脚本
--- 版本: 1.0.0
+-- 版本: 1.0.1
 -- 创建日期: 2026-02-20
 -- 描述: 整合所有表结构，确保数据库架构完整性
+-- 修复: 移除顶层事务，每个语句独立执行
 -- 
 -- 执行方式:
 --   docker exec -i synapse-postgres psql -U synapse -d synapse_test < 00000000_unified_schema.sql
@@ -10,8 +11,6 @@
 -- 回滚方式:
 --   docker exec -i synapse-postgres psql -U synapse -d synapse_test < 00000000_unified_rollback.sql
 -- =============================================================================
-
-BEGIN;
 
 -- 设置客户端编码
 SET client_encoding = 'UTF8';
@@ -1557,8 +1556,6 @@ BEGIN
     RAISE NOTICE 'Total tables verified: %', (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public');
     RAISE NOTICE '==========================================';
 END $$;
-
-COMMIT;
 
 -- =============================================================================
 -- 迁移完成

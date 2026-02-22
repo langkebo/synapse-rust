@@ -815,11 +815,26 @@ impl RoomService {
             .map_err(|e| ApiError::internal(format!("Failed to remove room alias: {}", e)))
     }
 
+    pub async fn remove_room_alias_by_name(&self, alias: &str) -> ApiResult<()> {
+        self.room_storage
+            .remove_room_alias_by_name(alias)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to remove room alias by name: {}", e)))
+    }
+
     pub async fn set_room_directory(&self, room_id: &str, is_public: bool) -> ApiResult<()> {
         self.room_storage
             .set_room_directory(room_id, is_public)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to set room directory: {}", e)))
+    }
+
+    pub async fn get_room_visibility(&self, room_id: &str) -> ApiResult<String> {
+        let is_public = self.room_storage
+            .is_room_in_directory(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get room visibility: {}", e)))?;
+        Ok(if is_public { "public".to_string() } else { "private".to_string() })
     }
 
     pub async fn remove_room_directory(&self, room_id: &str) -> ApiResult<()> {

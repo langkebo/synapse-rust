@@ -81,6 +81,8 @@ pub fn create_admin_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/rooms/{room_id}/block", get(get_room_block_status))
         .route("/_synapse/admin/v1/rooms/{room_id}/unblock", post(unblock_room))
         .route("/_synapse/admin/v1/rooms/{room_id}/make_admin", post(make_room_admin))
+        .route("/_synapse/admin/v1/server_name", get(get_server_name))
+        .route("/_synapse/admin/v1/statistics", get(get_statistics))
 }
 
 #[derive(Debug, Deserialize)]
@@ -671,6 +673,41 @@ pub async fn get_server_version(
     Ok(Json(serde_json::json!({
         "version": "1.0.0",
         "python_version": "3.9.0"
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_server_name(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "server_name": state.services.server_name
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_statistics(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&*state.services.user_storage.pool)
+        .await
+        .unwrap_or(0);
+    
+    let room_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rooms")
+        .fetch_one(&*state.services.user_storage.pool)
+        .await
+        .unwrap_or(0);
+
+    Ok(Json(json!({
+        "users": {
+            "total": user_count
+        },
+        "rooms": {
+            "total": room_count
+        }
     })))
 }
 

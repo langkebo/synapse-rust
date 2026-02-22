@@ -17,8 +17,8 @@ impl RegistrationTokenService {
         info!("Creating registration token");
 
         if let Some(ref token) = request.token {
-            if let Some(_) = self.storage.get_token(token).await
-                .map_err(|e| ApiError::internal(format!("Failed to check token: {}", e)))? {
+            if self.storage.get_token(token).await
+                .map_err(|e| ApiError::internal(format!("Failed to check token: {}", e)))?.is_some() {
                 return Err(ApiError::bad_request("Token already exists"));
             }
         }

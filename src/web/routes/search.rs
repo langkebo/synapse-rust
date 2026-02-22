@@ -372,7 +372,7 @@ async fn get_room_hierarchy(
         SELECT room_id, name, topic, avatar_url, join_rules, guest_access, history_visibility
         FROM rooms
         WHERE room_id = $1 OR room_id IN (
-            SELECT room_id FROM room_parents WHERE parent_room_id = $1
+            SELECT room_id FROM room_parents WHERE parent_id = $1
         )
         LIMIT $2
         "#
