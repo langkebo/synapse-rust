@@ -670,3 +670,106 @@ impl RoomStorage {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_room_struct() {
+        let room = Room {
+            room_id: "!room:example.com".to_string(),
+            name: Some("Test Room".to_string()),
+            topic: Some("A test room".to_string()),
+            avatar_url: Some("mxc://example.com/avatar".to_string()),
+            canonical_alias: Some("#test:example.com".to_string()),
+            join_rule: "invite".to_string(),
+            creator: "@alice:example.com".to_string(),
+            version: "6".to_string(),
+            encryption: Some("m.megolm.v1.aes-sha2".to_string()),
+            is_public: false,
+            member_count: 5,
+            history_visibility: "joined".to_string(),
+            creation_ts: 1234567890,
+        };
+
+        assert_eq!(room.room_id, "!room:example.com");
+        assert_eq!(room.name, Some("Test Room".to_string()));
+        assert_eq!(room.member_count, 5);
+    }
+
+    #[test]
+    fn test_room_minimal() {
+        let room = Room {
+            room_id: "!minimal:example.com".to_string(),
+            name: None,
+            topic: None,
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: DEFAULT_JOIN_RULE.to_string(),
+            creator: "@bob:example.com".to_string(),
+            version: "1".to_string(),
+            encryption: None,
+            is_public: true,
+            member_count: 1,
+            history_visibility: DEFAULT_HISTORY_VISIBILITY.to_string(),
+            creation_ts: 0,
+        };
+
+        assert!(room.name.is_none());
+        assert!(room.encryption.is_none());
+        assert!(room.is_public);
+    }
+
+    #[test]
+    fn test_room_serialization() {
+        let room = Room {
+            room_id: "!serialize:example.com".to_string(),
+            name: Some("Serialize Test".to_string()),
+            topic: None,
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: "public".to_string(),
+            creator: "@test:example.com".to_string(),
+            version: "9".to_string(),
+            encryption: None,
+            is_public: true,
+            member_count: 10,
+            history_visibility: "shared".to_string(),
+            creation_ts: 1234567890,
+        };
+
+        let json = serde_json::to_string(&room).unwrap();
+        assert!(json.contains("!serialize:example.com"));
+        assert!(json.contains("Serialize Test"));
+    }
+
+    #[test]
+    fn test_room_encrypted() {
+        let room = Room {
+            room_id: "!encrypted:example.com".to_string(),
+            name: Some("Encrypted Room".to_string()),
+            topic: None,
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: "invite".to_string(),
+            creator: "@admin:example.com".to_string(),
+            version: "6".to_string(),
+            encryption: Some("m.megolm.v1.aes-sha2".to_string()),
+            is_public: false,
+            member_count: 3,
+            history_visibility: "invited".to_string(),
+            creation_ts: 1234567890,
+        };
+
+        assert!(room.encryption.is_some());
+        let enc = room.encryption.unwrap();
+        assert_eq!(enc, "m.megolm.v1.aes-sha2");
+    }
+
+    #[test]
+    fn test_default_constants() {
+        assert_eq!(DEFAULT_JOIN_RULE, "invite");
+        assert_eq!(DEFAULT_HISTORY_VISIBILITY, "joined");
+    }
+}
