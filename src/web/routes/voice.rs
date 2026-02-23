@@ -7,18 +7,19 @@ use axum::{
     Json, Router,
 };
 use base64::Engine;
+use lazy_regex::lazy_regex;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
 
 static SQL_INJECTION_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|CREATE|TRUNCATE)\b|--|;|' OR '|' AND ')")
-        .expect("Invalid SQL injection regex pattern")
+    lazy_regex!(r"(?i)(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|CREATE|TRUNCATE)\b|--|;|' OR '|' AND ')")
+        .clone()
 });
 
 static XSS_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(<script>|</script>|<iframe>|javascript:|onload=|onerror=|onmouseover=|alert\(|eval\()")
-        .expect("Invalid XSS regex pattern")
+    lazy_regex!(r"(?i)(<script>|</script>|<iframe>|javascript:|onload=|onerror=|onmouseover=|alert\(|eval\()")
+        .clone()
 });
 
 fn contains_sql_injection(input: &str) -> bool {
