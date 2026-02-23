@@ -216,3 +216,68 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 
     result == 0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_constant_time_eq_equal() {
+        assert!(constant_time_eq("hello", "hello"));
+        assert!(constant_time_eq("test123", "test123"));
+        assert!(constant_time_eq("", ""));
+    }
+
+    #[test]
+    fn test_constant_time_eq_not_equal() {
+        assert!(!constant_time_eq("hello", "world"));
+        assert!(!constant_time_eq("test", "Test"));
+        assert!(!constant_time_eq("abc", "abcd"));
+    }
+
+    #[test]
+    fn test_constant_time_eq_different_lengths() {
+        assert!(!constant_time_eq("short", "longer"));
+        assert!(!constant_time_eq("a", "ab"));
+    }
+
+    #[test]
+    fn test_nonce_response_serialization() {
+        let response = NonceResponse {
+            nonce: "abc123".to_string(),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("abc123"));
+    }
+
+    #[test]
+    fn test_admin_register_request_deserialization() {
+        let json = r#"{
+            "nonce": "test_nonce",
+            "username": "admin",
+            "password": "secret",
+            "admin": true,
+            "mac": "abcd1234"
+        }"#;
+        let request: AdminRegisterRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.nonce, "test_nonce");
+        assert_eq!(request.username, "admin");
+        assert_eq!(request.password, "secret");
+        assert_eq!(request.admin, Some(true));
+    }
+
+    #[test]
+    fn test_admin_register_response_serialization() {
+        let response = AdminRegisterResponse {
+            access_token: "token123".to_string(),
+            refresh_token: "refresh123".to_string(),
+            expires_in: 3600,
+            device_id: "DEVICE".to_string(),
+            user_id: "@admin:example.com".to_string(),
+            home_server: "example.com".to_string(),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("token123"));
+        assert!(json.contains("@admin:example.com"));
+    }
+}
