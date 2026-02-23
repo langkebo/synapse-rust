@@ -66,3 +66,41 @@ impl ToDeviceService {
         self.storage.get_messages(user_id, device_id).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    #[test]
+    fn test_to_device_message_structure() {
+        let messages = json!({
+            "@alice:example.com": {
+                "DEVICE1": {
+                    "type": "m.room_key",
+                    "content": {
+                        "algorithm": "m.megolm.v1.aes-sha2"
+                    }
+                }
+            }
+        });
+        assert!(messages["@alice:example.com"]["DEVICE1"]["type"].is_string());
+    }
+
+    #[test]
+    fn test_to_device_multiple_devices() {
+        let messages = json!({
+            "@bob:example.com": {
+                "DEVICE1": {"type": "m.test"},
+                "DEVICE2": {"type": "m.test"}
+            }
+        });
+        let devices = messages["@bob:example.com"].as_object().unwrap();
+        assert_eq!(devices.len(), 2);
+    }
+
+    #[test]
+    fn test_to_device_empty_messages() {
+        let messages = json!({});
+        assert!(messages.as_object().unwrap().is_empty());
+    }
+}
