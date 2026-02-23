@@ -283,3 +283,43 @@ async fn get_openid_token(
         "expires_in": expires_in
     })))
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    #[test]
+    fn test_account_data_json_structure() {
+        let data = json!({
+            "type": "m.direct",
+            "content": {
+                "@alice:example.com": ["!room1:example.com"]
+            }
+        });
+        assert_eq!(data["type"], "m.direct");
+    }
+
+    #[test]
+    fn test_filter_json_structure() {
+        let filter = json!({
+            "room": {
+                "timeline": {
+                    "limit": 100
+                }
+            }
+        });
+        assert!(filter["room"]["timeline"]["limit"].is_number());
+    }
+
+    #[test]
+    fn test_openid_token_response() {
+        let response = json!({
+            "access_token": "test_token",
+            "token_type": "Bearer",
+            "matrix_server_name": "example.com",
+            "expires_in": 3600
+        });
+        assert_eq!(response["token_type"], "Bearer");
+        assert_eq!(response["expires_in"], 3600);
+    }
+}

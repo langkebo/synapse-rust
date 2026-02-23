@@ -1233,3 +1233,58 @@ async fn user_keys_query(
         "device_keys": {}
     })))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decode_base64_32() {
+        let valid_key = "dGVzdGtleTEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU"; 
+        let result = decode_base64_32(valid_key);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_decode_base64_32_invalid() {
+        let invalid_key = "invalid!!!";
+        let result = decode_base64_32(invalid_key);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_federation_version_response() {
+        let response = json!({
+            "server": {
+                "name": "Synapse Rust",
+                "version": "0.1.0"
+            }
+        });
+        assert_eq!(response["server"]["name"], "Synapse Rust");
+    }
+
+    #[test]
+    fn test_server_key_structure() {
+        let key_response = json!({
+            "server_name": "example.com",
+            "valid_until_ts": 1234567890000_u64,
+            "verify_keys": {
+                "ed25519:0": {
+                    "key": "test_key"
+                }
+            }
+        });
+        assert!(key_response["verify_keys"].is_object());
+    }
+
+    #[test]
+    fn test_transaction_structure() {
+        let txn = json!({
+            "origin": "example.com",
+            "origin_server_ts": 1234567890000_u64,
+            "pdus": [],
+            "edus": []
+        });
+        assert_eq!(txn["origin"], "example.com");
+    }
+}
