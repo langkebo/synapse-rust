@@ -426,3 +426,89 @@ pub struct UserProfile {
     pub avatar_url: Option<String>,
     pub creation_ts: i64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_user_struct() {
+        let user = User {
+            user_id: "@alice:example.com".to_string(),
+            username: "alice".to_string(),
+            password_hash: Some("hashed".to_string()),
+            displayname: Some("Alice".to_string()),
+            avatar_url: Some("mxc://example.com/avatar".to_string()),
+            is_admin: Some(false),
+            is_deactivated: Some(false),
+            is_guest: Some(false),
+            consent_version: None,
+            appservice_id: None,
+            user_type: None,
+            is_shadow_banned: Some(false),
+            generation: 1234567890,
+            invalid_update_ts: None,
+            migration_state: None,
+            creation_ts: 1234567890,
+            updated_ts: None,
+        };
+
+        assert_eq!(user.user_id(), "@alice:example.com");
+        assert_eq!(user.username, "alice");
+        assert!(user.password_hash.is_some());
+    }
+
+    #[test]
+    fn test_user_search_result() {
+        let result = UserSearchResult {
+            user_id: "@bob:example.com".to_string(),
+            username: "bob".to_string(),
+            displayname: Some("Bob".to_string()),
+            avatar_url: None,
+            creation_ts: 1234567890,
+        };
+
+        assert_eq!(result.user_id, "@bob:example.com");
+        assert_eq!(result.username, "bob");
+    }
+
+    #[test]
+    fn test_user_profile() {
+        let profile = UserProfile {
+            user_id: "@charlie:example.com".to_string(),
+            username: "charlie".to_string(),
+            displayname: Some("Charlie".to_string()),
+            avatar_url: Some("mxc://example.com/charlie".to_string()),
+            creation_ts: 1234567890,
+        };
+
+        assert_eq!(profile.user_id, "@charlie:example.com");
+        assert!(profile.displayname.is_some());
+    }
+
+    #[test]
+    fn test_user_serialization() {
+        let user = User {
+            user_id: "@test:example.com".to_string(),
+            username: "test".to_string(),
+            password_hash: None,
+            displayname: None,
+            avatar_url: None,
+            is_admin: Some(false),
+            is_deactivated: Some(false),
+            is_guest: Some(false),
+            consent_version: None,
+            appservice_id: None,
+            user_type: None,
+            is_shadow_banned: Some(false),
+            generation: 0,
+            invalid_update_ts: None,
+            migration_state: None,
+            creation_ts: 0,
+            updated_ts: None,
+        };
+
+        let json = serde_json::to_string(&user).unwrap();
+        assert!(json.contains("@test:example.com"));
+    }
+}
