@@ -17,7 +17,15 @@ use std::time::Instant;
 static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
     std::env::var("CORS_ORIGIN_PATTERN")
         .ok()
-        .map(|pattern| Regex::new(&pattern).expect("Invalid CORS_ORIGIN_PATTERN regex"))
+        .and_then(|pattern| {
+            match Regex::new(&pattern) {
+                Ok(regex) => Some(regex),
+                Err(e) => {
+                    tracing::error!("Invalid CORS_ORIGIN_PATTERN regex '{}': {}", pattern, e);
+                    None
+                }
+            }
+        })
 });
 
 const FEDERATION_SIGNATURE_TTL_MS: u64 = 300 * 1000; // 5分钟容忍度
@@ -1261,7 +1269,10 @@ mod tests {
         let priority = vec!["x-forwarded-for".to_string(), "x-real-ip".to_string()];
 
         // Test X-Forwarded-For
-        headers.insert("x-forwarded-for", "1.2.3.4, 5.6.7.8".parse().unwrap());
+        headers.insert(
+            "x-forwarded-for",
+            "1.2.3.4, 5.6.7.8".parse().expect("valid header value"),
+        );
         assert_eq!(
             extract_client_ip(&headers, &priority),
             Some("1.2.3.4".to_string())
@@ -1269,7 +1280,10 @@ mod tests {
 
         // Test X-Real-IP
         headers = HeaderMap::new();
-        headers.insert("x-real-ip", "10.0.0.1".parse().unwrap());
+        headers.insert(
+            "x-real-ip",
+            "10.0.0.1".parse().expect("valid header value"),
+        );
         assert_eq!(
             extract_client_ip(&headers, &priority),
             Some("10.0.0.1".to_string())
@@ -1277,8 +1291,14 @@ mod tests {
 
         // Test Priority (X-Forwarded-For > X-Real-IP)
         headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", "1.2.3.4".parse().unwrap());
-        headers.insert("x-real-ip", "10.0.0.1".parse().unwrap());
+        headers.insert(
+            "x-forwarded-for",
+            "1.2.3.4".parse().expect("valid header value"),
+        );
+        headers.insert(
+            "x-real-ip",
+            "10.0.0.1".parse().expect("valid header value"),
+        );
         assert_eq!(
             extract_client_ip(&headers, &priority),
             Some("1.2.3.4".to_string())
@@ -1292,7 +1312,9 @@ mod tests {
 
         headers.insert(
             "forwarded",
-            "for=192.0.2.60;proto=http;by=203.0.113.43".parse().unwrap(),
+            "for=192.0.2.60;proto=http;by=203.0.113.43"
+                .parse()
+                .expect("valid header value"),
         );
         assert_eq!(
             extract_client_ip(&headers, &priority),
@@ -1302,7 +1324,9 @@ mod tests {
         headers = HeaderMap::new();
         headers.insert(
             "forwarded",
-            "for=\"[2001:db8:cafe::17]:4711\"".parse().unwrap(),
+            "for=\"[2001:db8:cafe::17]:4711\""
+                .parse()
+                .expect("valid header value"),
         );
         assert_eq!(
             extract_client_ip(&headers, &priority),

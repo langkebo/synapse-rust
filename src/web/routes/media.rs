@@ -241,7 +241,7 @@ async fn download_media_v1(
                 "errcode": e.code(),
                 "error": e.message()
             }))
-            .expect("Failed to serialize error response to JSON");
+            .unwrap_or_else(|_| br#"{"errcode":"M_UNKNOWN","error":"Internal error"}"#.to_vec());
             let headers = [
                 ("Content-Type", "application/json".to_string()),
                 ("Content-Length", error_body.len().to_string()),

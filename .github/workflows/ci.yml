@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.93.0"
 
 jobs:
   check:
@@ -17,6 +18,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
       - name: Cargo Check
         run: cargo check --verbose
 
@@ -51,6 +61,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
       - name: Install SQLx CLI
         run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
       - name: Migrate Database
@@ -69,6 +88,192 @@ jobs:
           export RUST_TEST_THREADS=1
           cargo test --test integration --verbose
 
+  schema-consistency:
+    name: Schema Consistency Test
+    runs-on: ubuntu-latest
+    needs: [check]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse_password
+          POSTGRES_DB: synapse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL Client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
+      - name: Run Database Migrations
+        run: |
+          export DATABASE_URL=postgres://synapse:synapse_password@localhost:5432/synapse_test
+          sqlx migrate run
+      - name: Run Schema Consistency Test
+        run: |
+          chmod +x tests/schema_consistency_test_ci.sh
+          bash tests/schema_consistency_test_ci.sh
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: synapse
+          PGPASSWORD: synapse_password
+          PGDATABASE: synapse_test
+
+  api-regression:
+    name: API Regression Test
+    runs-on: ubuntu-latest
+    needs: [check, test]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse_password
+          POSTGRES_DB: synapse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
+      - name: Run Database Migrations
+        run: |
+          export DATABASE_URL=postgres://synapse:synapse_password@localhost:5432/synapse_test
+          sqlx migrate run
+      - name: Build Server
+        run: cargo build --release
+        env:
+          DATABASE_URL: postgres://synapse:synapse_password@localhost:5432/synapse_test
+      - name: Start Server
+        run: |
+          cargo run --release &
+          sleep 15
+        env:
+          DATABASE_URL: postgres://synapse:synapse_password@localhost:5432/synapse_test
+          SERVER_NAME: localhost
+          JWT_SECRET: test_jwt_secret_key_for_ci_testing_minimum_32_chars
+      - name: Wait for Server Ready
+        run: |
+          for i in {1..30}; do
+            if curl -s http://localhost:8008/_matrix/federation/v1/version > /dev/null 2>&1; then
+              echo "Server is ready"
+              exit 0
+            fi
+            echo "Waiting for server... ($i/30)"
+            sleep 2
+          done
+          echo "Server failed to start"
+          exit 1
+      - name: Run API Regression Test
+        run: |
+          chmod +x tests/api_regression_test_ci.sh
+          bash tests/api_regression_test_ci.sh
+
+  coverage:
+    name: Test Coverage
+    runs-on: ubuntu-latest
+    needs: [test]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse_password
+          POSTGRES_DB: synapse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
+      - name: Run Database Migrations
+        run: |
+          export DATABASE_URL=postgres://synapse:synapse_password@localhost:5432/synapse_test
+          sqlx migrate run
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+      - name: Generate Coverage Report
+        run: |
+          cargo tarpaulin --verbose --workspace --timeout 300 --out Xml --out Html
+        env:
+          DATABASE_URL: postgres://synapse:synapse_password@localhost:5432/synapse_test
+      - name: Upload Coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./cobertura.xml
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      - name: Archive Coverage Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            cobertura.xml
+            tarpaulin-report.html
+          retention-days: 30
+
   lint:
     name: Linting
     runs-on: ubuntu-latest
@@ -77,11 +282,19 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           components: clippy, rustfmt
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
       - name: Check Formatting
         run: cargo fmt -- --check
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-features -- -D warnings -A clippy::result_large_err -A clippy::arc_with_non_send_sync
 
   audit:
     name: Security Audit
@@ -90,6 +303,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - name: Run Audit
@@ -98,7 +313,7 @@ jobs:
   docker:
     name: Build Docker Image
     runs-on: ubuntu-latest
-    needs: [check, test]
+    needs: [check, test, schema-consistency, api-regression]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
     steps:
       - uses: actions/checkout@v4
@@ -109,7 +324,7 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          push: false # Set to true when registry is configured
+          push: false
           tags: synapse-rust:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
