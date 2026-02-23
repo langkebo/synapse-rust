@@ -470,3 +470,33 @@ impl MediaService {
         result.map_err(ApiError::not_found)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_thumbnail_method_from_str() {
+        assert_eq!(ThumbnailMethod::from_str("crop").unwrap(), ThumbnailMethod::Crop);
+        assert_eq!(ThumbnailMethod::from_str("CROP").unwrap(), ThumbnailMethod::Crop);
+        assert_eq!(ThumbnailMethod::from_str("scale").unwrap(), ThumbnailMethod::Scale);
+        assert_eq!(ThumbnailMethod::from_str("SCALE").unwrap(), ThumbnailMethod::Scale);
+        assert!(ThumbnailMethod::from_str("invalid").is_err());
+    }
+
+    #[test]
+    fn test_thumbnail_config_default() {
+        let config = ThumbnailConfig::default();
+        assert_eq!(config.width, 800);
+        assert_eq!(config.height, 600);
+        assert_eq!(config.method, ThumbnailMethod::Scale);
+        assert_eq!(config.quality, 80);
+    }
+
+    #[test]
+    fn test_thumbnail_method_equality() {
+        assert_eq!(ThumbnailMethod::Crop, ThumbnailMethod::Crop);
+        assert_eq!(ThumbnailMethod::Scale, ThumbnailMethod::Scale);
+        assert_ne!(ThumbnailMethod::Crop, ThumbnailMethod::Scale);
+    }
+}
