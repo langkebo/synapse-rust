@@ -1,0 +1,32 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug",
+            "program": "${workspaceFolder}/target/debug/${workspaceFolderBasename}",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "preLaunchTask": "cargo build"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug (Release)",
+            "program": "${workspaceFolder}/target/release/${workspaceFolderBasename}",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "preLaunchTask": "cargo build --release"
+        },
+        {
+            "type": "lldb",
+            "request": "attach",
+            "name": "Attach to Process",
+            "pid": "${command:pickProcess}",
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

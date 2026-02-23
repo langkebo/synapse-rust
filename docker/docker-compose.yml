@@ -1,0 +1,212 @@
+# ============================================================================
+# Synapse Rust Docker Compose Configuration
+# ============================================================================
+# 使用方法:
+#   首次部署:
+#     cd /home/hula/synapse_rust/synapse
+#     cargo build --release
+#     docker build -f docker/Dockerfile -t synapse-rust:latest .
+#     cd docker && docker compose up -d
+#
+#   日常运维:
+#     docker compose up -d      # 启动服务
+#     docker compose down       # 停止服务
+#     docker compose logs -f    # 查看日志
+#     docker compose ps         # 查看状态
+# ============================================================================
+
+services:
+  # ==========================================================================
+  # Synapse Rust - Matrix Homeserver
+  # ==========================================================================
+  synapse-rust:
+    image: synapse-rust:latest
+    container_name: synapse-rust
+    restart: unless-stopped
+    ports:
+      - "8008:8008"
+      - "9090:9090"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+      - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
+      - SERVER_NAME=${SERVER_NAME:-cjystx.top}
+      - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
+      - TZ=${TZ:-Asia/Shanghai}
+      - SECRET_KEY=${SECRET_KEY}
+      - MACAROON_SECRET=${MACAROON_SECRET}
+      - FORM_SECRET=${FORM_SECRET}
+      - REGISTRATION_SECRET=${REGISTRATION_SECRET}
+      - ADMIN_SECRET=${ADMIN_SECRET}
+      - FEDERATION_SIGNING_KEY=${FEDERATION_SIGNING_KEY}
+      - DB_PASSWORD=${DB_PASSWORD:-synapse}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8008/_matrix/federation/v1/version"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks:
+      - synapse_network
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=50M,mode=1777
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==========================================================================
+  # PostgreSQL - Primary Database
+  # ==========================================================================
+  db:
+    image: postgres:15-alpine
+    container_name: synapse-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=synapse
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-synapse}
+      - POSTGRES_DB=synapse_test
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+      - TZ=${TZ:-Asia/Shanghai}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse -d synapse_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - synapse_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c effective_cache_size=512MB
+      -c maintenance_work_mem=64MB
+      -c work_mem=16MB
+      -c max_connections=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c checkpoint_timeout=30min
+      -c max_wal_size=512MB
+      -c min_wal_size=64MB
+      -c log_min_duration_statement=1000
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==========================================================================
+  # Redis - Cache & Session Store
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: synapse-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save 60 1000
+      --tcp-backlog 511
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - synapse_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  # ==========================================================================
+  # Nginx - Reverse Proxy & SSL Termination
+  # ==========================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: synapse-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8448:8448"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/.well-known:/var/www/html/.well-known:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      synapse-rust:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - synapse_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ============================================================================
+# Volumes
+# ============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  synapse_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

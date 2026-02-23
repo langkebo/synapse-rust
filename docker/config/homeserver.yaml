@@ -1,0 +1,425 @@
+# ============================================================================
+# Synapse Rust Homeserver Configuration
+# ============================================================================
+# 服务器名称: cjystx.top
+# 服务器地址: matrix.cjystx.top:8008
+# 用户格式: @user:cjystx.top
+# 
+# 配置版本: v3.0
+# 更新日期: 2026-02-19
+# 参考: https://element-hq.github.io/synapse/latest/usage/configuration/config_documentation.html
+# ============================================================================
+
+# ============================================================================
+# 服务器配置
+# ============================================================================
+server:
+  name: "cjystx.top"
+  host: "0.0.0.0"
+  port: 8008
+  
+  public_baseurl: "https://matrix.cjystx.top"
+  
+  signing_key_path: "/app/data/cjystx.top.signing.key"
+  macaroon_secret_key: "${MACAROON_SECRET:-qTu&dL+9UNowy&LLFY6QoRvHdE,ORDly,j;NG+OAEQZS-eLMR;}"
+  form_secret: "${FORM_SECRET:-rI9#v915N1XHfT#ljskY4#hIBHk,P3cJ*0NivG~xHBg2Kkcq.R}"
+  server_name: "cjystx.top"
+  
+  registration_shared_secret: "${REGISTRATION_SECRET:-crDndDkz7OzM+8Xh=G#OIbFElJUfd-Cdu79BiDQ#tKe0K#p2:x}"
+  admin_contact: "admin@cjystx.top"
+  
+  max_upload_size: 104857600
+  max_image_resolution: 67108864
+  
+  enable_registration: true
+  enable_registration_captcha: false
+  
+  background_tasks_interval: 120
+  
+  expire_access_token: true
+  expire_access_token_lifetime: 7200
+  refresh_token_lifetime: 1209600
+  refresh_token_sliding_window_size: 2000
+  session_duration: 172800
+  
+  warmup_pool: true
+  suppress_key_server_warning: false
+  
+  # 是否提供 .well-known 服务
+  # 启用后，服务器将在 https://<server_name>/.well-known/matrix/server 提供服务
+  serve_server_wellknown: true
+  
+  # 文件描述符软限制（0表示使用硬限制）
+  soft_file_limit: 0
+  
+  # 用户代理后缀
+  user_agent_suffix: " (Synapse-Rust)"
+  
+  # Web 客户端位置（访问根路径时重定向）
+  web_client_location: "https://element.cjystx.top"
+
+# ============================================================================
+# 数据库配置
+# ============================================================================
+database:
+  host: "synapse-postgres"
+  port: 5432
+  username: "synapse"
+  password: "${DB_PASSWORD:-synapse}"
+  name: "synapse_test"
+  
+  pool_size: 20
+  max_size: 50
+  min_idle: 10
+  connection_timeout: 60
+
+# ============================================================================
+# Redis配置
+# ============================================================================
+redis:
+  host: "synapse-redis"
+  port: 6379
+  key_prefix: "synapse:cjystx.top:"
+  pool_size: 20
+  enabled: true
+
+# ============================================================================
+# 日志配置
+# ============================================================================
+logging:
+  level: "info"
+  format: "json"
+  log_file: "/app/logs/synapse.log"
+  log_dir: "/app/logs"
+
+# ============================================================================
+# 联邦配置
+# ============================================================================
+federation:
+  enabled: true
+  allow_ingress: true
+  server_name: "cjystx.top"
+  federation_port: 8448
+  
+  connection_pool_size: 10
+  max_transaction_payload: 100000
+  
+  signing_key: "${FEDERATION_SIGNING_KEY:-5XVPWT8O/DyaXT17qJpUnEO5aRl1Cmevojx0+8uPYV8=}"
+  key_id: "ed25519:testkb1OUw"
+  ca_file: null
+  client_ca_file: null
+  
+  # 信任的密钥服务器列表
+  # 用于获取其他服务器的签名密钥
+  trusted_key_servers:
+    - server_name: "matrix.org"
+    - server_name: "vector.im"
+  
+  # 密钥刷新间隔（秒）
+  key_refresh_interval: 86400
+  
+  # 是否抑制密钥服务器警告
+  suppress_key_server_warning: false
+
+# ============================================================================
+# 安全配置
+# ============================================================================
+security:
+  secret: "${SECRET_KEY:-e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d}"
+  expiry_time: 7200
+  refresh_token_expiry: 1209600
+  
+  argon2_m_cost: 8192
+  argon2_t_cost: 4
+  argon2_p_cost: 2
+
+# ============================================================================
+# 搜索配置
+# ============================================================================
+search:
+  elasticsearch_url: "http://elasticsearch:9200"
+  enabled: false
+
+# ============================================================================
+# 限流配置
+# ============================================================================
+rate_limit:
+  enabled: true
+  default:
+    per_second: 20
+    burst_size: 40
+  endpoints: []
+  ip_header_priority:
+    - "x-forwarded-for"
+    - "x-real-ip"
+    - "forwarded"
+  include_headers: true
+  exempt_paths:
+    - "/health"
+    - "/_matrix/federation/v1/version"
+  exempt_path_prefixes:
+    - "/.well-known"
+  endpoint_aliases: {}
+  fail_open_on_error: false
+
+# ============================================================================
+# 管理员注册配置
+# ============================================================================
+admin_registration:
+  enabled: true
+  shared_secret: "${ADMIN_SECRET:-test_shared_secret}"
+  nonce_timeout_seconds: 120
+
+# ============================================================================
+# Worker配置
+# ============================================================================
+worker:
+  enabled: false
+  instance_name: "master"
+  worker_app: null
+  instance_map: {}
+  stream_writers:
+    events: ["master"]
+    typing: ["master"]
+    to_device: ["master"]
+    account_data: ["master"]
+    receipts: ["master"]
+    presence: ["master"]
+    push_rules: ["master"]
+    device_lists: ["master"]
+  replication:
+    enabled: false
+    server_name: "master"
+    http:
+      enabled: false
+      host: "localhost"
+      port: 9092
+      secret: null
+      secret_path: null
+
+# ============================================================================
+# CORS配置
+# ============================================================================
+cors:
+  allowed_origins:
+    - "https://cjystx.top"
+    - "https://matrix.cjystx.top"
+    - "https://element.cjystx.top"
+  allow_credentials: true
+  allowed_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "OPTIONS"
+  allowed_headers:
+    - "Authorization"
+    - "Content-Type"
+    - "X-Requested-With"
+    - "X-Matrix-Device-Id"
+    - "Accept"
+  max_age_seconds: 172800
+
+# ============================================================================
+# SMTP邮件配置
+# ============================================================================
+smtp:
+  enabled: false
+  host: "smtp.example.com"
+  port: 587
+  username: "${SMTP_USER:-}"
+  password: "${SMTP_PASSWORD:-}"
+  from: "Matrix <noreply@cjystx.top>"
+  tls: true
+  verification_token_expire: 1800
+  rate_limit:
+    per_minute: 5
+    per_hour: 20
+
+# ============================================================================
+# VoIP/TURN配置
+# ============================================================================
+voip:
+  turn_uris:
+    - "turn:turn.cjystx.top:3478?transport=udp"
+    - "turn:turn.cjystx.top:3478?transport=tcp"
+  turn_shared_secret: "${TURN_SECRET:-}"
+  turn_username: null
+  turn_password: null
+  turn_user_lifetime: "1h"
+  turn_allow_guests: true
+  stun_uris: []
+
+# ============================================================================
+# 推送通知配置
+# ============================================================================
+push:
+  enabled: false
+  group_unread_count_by_room: true
+  include_content: false
+  app_id: null
+  apns: null
+  fcm: null
+  web_push: null
+  push_gateway_url: null
+  retry_count: 3
+  timeout: 10
+
+# ============================================================================
+# URL预览配置
+# ============================================================================
+url_preview:
+  enabled: true
+  ip_range_blacklist:
+    - "127.0.0.0/8"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "100.64.0.0/10"
+    - "169.254.0.0/16"
+    - "::1/128"
+    - "fe80::/10"
+    - "fc00::/7"
+  ip_range_whitelist: []
+  url_blacklist:
+    - domain: "127.0.0.1"
+    - domain: "localhost"
+  spider_enabled: true
+  oembed_enabled: false
+  max_spider_size: "10M"
+  cache_duration: 86400
+  user_agent: "Synapse-Rust/0.1.0 (Matrix Homeserver)"
+  timeout: 10
+  max_redirects: 5
+
+# ============================================================================
+# OIDC单点登录配置
+# ============================================================================
+oidc:
+  enabled: false
+  issuer: "https://auth.cjystx.top"
+  client_id: "${OIDC_CLIENT_ID:-}"
+  client_secret: "${OIDC_CLIENT_SECRET:-}"
+  scopes:
+    - "openid"
+    - "profile"
+    - "email"
+  attribute_mapping:
+    localpart: "preferred_username"
+    displayname: "name"
+    email: "email"
+  callback_url: null
+  allow_existing_users: true
+  block_unknown_users: false
+  authorization_endpoint: null
+  token_endpoint: null
+  userinfo_endpoint: null
+  jwks_uri: null
+  timeout: 10
+
+# ============================================================================
+# SAML单点登录配置
+# ============================================================================
+saml:
+  enabled: true
+  metadata_url: null
+  metadata_xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://mock-saml.example.com">
+      <md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+        <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://mock-saml.example.com/sso"/>
+        <md:SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://mock-saml.example.com/slo"/>
+        <md:KeyDescriptor use="signing">
+          <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+            <ds:X509Data>
+              <ds:X509Certificate>MIIC9jCCAd4CCQDvOJmMnJHkFDANBgkqhkiG9w0BAQsFADA9MQswCQYDVQQGEwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UECgwNTW9jayBTQU1MIFRlc3QwHhcNMjQwMTAxMDAwMDAwWhcNMjUwMTAxMDAwMDAwWjA9MQswCQYDVQQGEwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UECgwNTW9jayBTQU1MIFRlc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC7x7r8hJHnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFAgMBAAEwDQYJKoZIhvcNAQELBQADggEBAH8x7r8hJHnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkF</ds:X509Certificate>
+            </ds:X509Data>
+          </ds:KeyInfo>
+        </md:KeyDescriptor>
+      </md:IDPSSODescriptor>
+    </md:EntityDescriptor>
+  sp_entity_id: "https://matrix.cjystx.top"
+  sp_acs_url: null
+  sp_sls_url: null
+  sp_private_key: null
+  sp_private_key_path: null
+  sp_certificate: null
+  sp_certificate_path: null
+  attribute_mapping:
+    uid: "uid"
+    displayname: "cn"
+    email: "mail"
+  nameid_format: "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"
+  allow_existing_users: true
+  block_unknown_users: false
+  user_id_template: "{uid}"
+  use_name_id_for_user_id: false
+  sign_requests: false
+  want_response_signed: true
+  want_assertions_signed: true
+  want_assertions_encrypted: false
+  authn_context_class_ref: null
+  session_lifetime: 28800
+  metadata_refresh_interval: 3600
+  allowed_idp_entity_ids: []
+  timeout: 10
+
+# ============================================================================
+# OpenTelemetry配置
+# ============================================================================
+telemetry:
+  enabled: false
+  service_name: "synapse-rust"
+  service_version: "0.1.0"
+  service_namespace: "matrix"
+  otlp_endpoint: "http://otel-collector:4317"
+  otlp_headers: null
+  trace_enabled: true
+  metrics_enabled: true
+  logs_enabled: false
+  sampling_ratio: 0.1
+  batch_export: true
+  export_timeout_seconds: 30
+  max_queue_size: 2048
+  max_export_batch_size: 512
+  scheduled_delay_millis: 5000
+  resource_attributes: null
+
+# ============================================================================
+# Jaeger配置
+# ============================================================================
+jaeger:
+  enabled: false
+  agent_endpoint: "jaeger-agent:6831"
+  collector_endpoint: "http://jaeger-collector:14268/api/traces"
+  service_name: "synapse-rust"
+  sampling_rate: 0.1
+
+# ============================================================================
+# Prometheus配置
+# ============================================================================
+prometheus:
+  enabled: true
+  port: 9090
+  path: "/metrics"
+  include_namespace: true
+
+# ============================================================================
+# 消息保留策略配置
+# ============================================================================
+retention:
+  enabled: false
+  
+  # 默认保留策略
+  default_policy:
+    min_lifetime: 86400      # 最小保留1天
+    max_lifetime: 31536000   # 最大保留1年
+  
+  # 允许的保留期范围（秒）
+  allowed_lifetime_min: 86400      # 最小1天
+  allowed_lifetime_max: 157680000  # 最大5年
+  
+  # 清理任务配置
+  purge_jobs:
+    - interval: 86400    # 每天执行一次
+      batch_size: 100    # 每次清理100个房间

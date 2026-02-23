@@ -1,0 +1,69 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  DATABASE_URL: postgres://synapse:synapse@localhost:5432/synapse_test
+
+jobs:
+  test:
+    name: Test and Coverage
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse
+          POSTGRES_DB: synapse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust 1.93.0
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: 1.93.0
+        components: rustfmt, clippy
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install sqlx-cli and cargo-tarpaulin
+      run: |
+        cargo install sqlx-cli --no-default-features --features postgres || true
+        cargo install cargo-tarpaulin || true
+
+    - name: Run Migrations
+      run: |
+        sqlx migrate run
+
+    - name: Run Tests and Generate Coverage
+      run: |
+        cargo tarpaulin --ignore-tests --out Lcov --output-dir coverage/ --fail-under 90 -- --test-threads 1
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: coverage/lcov.info
+        fail_ci_if_error: true

@@ -1,0 +1,84 @@
+# ============================================================================
+# Docker Build Ignore File
+# ============================================================================
+# Build context: /home/hula/synapse_rust/synapse/
+# This file controls what gets sent to Docker daemon during build
+
+# Data directories (large, not needed for build)
+postgres_data/
+redis_data/
+data/
+media/
+logs/
+docker/data/
+docker/media/
+docker/logs/
+
+# Git data
+.git/
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Documentation (not needed in image)
+docs/
+*.md
+!README.md
+
+# Test files
+tests/
+*.test
+test_data.json
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Debug builds (only release needed)
+target/debug/
+target/*/debug/
+target/**/*.d
+target/**/*.rlib
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log
+
+# Docker files (prevent recursive copy)
+docker/Dockerfile*
+docker/docker-compose*
+docker/.dockerignore
+docker/monitoring/
+docker/*.md
+
+# SSL certificates (should be mounted, not baked in)
+docker/ssl/
+
+# Nginx configs (should be mounted)
+docker/nginx/
+
+# Environment files
+docker/.env
+.env
+.env.*
+
+# Backup files
+*.bak
+*.backup
+*~
