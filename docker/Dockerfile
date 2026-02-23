@@ -33,11 +33,14 @@ WORKDIR /app
 # Copy Cargo files first for better caching
 COPY Cargo.toml Cargo.lock ./
 
+# Copy benches directory for bench targets
+COPY benches ./benches
+
 # Create a dummy main.rs to download dependencies
 RUN mkdir -p src && echo 'fn main() {}' > src/main.rs
 
 # Download dependencies
-RUN cargo fetch --locked
+RUN cargo fetch
 
 # Copy the actual source code
 COPY src ./src

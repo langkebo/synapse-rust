@@ -72,7 +72,12 @@ impl ErrorContext for ApiError {
             | ApiError::DecryptionError(_)
             | ApiError::EncryptionError(_)
             | ApiError::Crypto(_)
-            | ApiError::BadRequest(_) => ErrorLayer::Application,
+            | ApiError::BadRequest(_)
+            | ApiError::NotJson(_)
+            | ApiError::RoomInUse(_)
+            | ApiError::Unrecognized(_)
+            | ApiError::UserDeactivated(_)
+            | ApiError::ConsentNotGiven(_) => ErrorLayer::Application,
         }
     }
 
@@ -91,7 +96,12 @@ impl ErrorContext for ApiError {
             ApiError::Authentication(_)
             | ApiError::DecryptionError(_)
             | ApiError::EncryptionError(_)
-            | ApiError::Crypto(_) => ErrorSeverity::High,
+            | ApiError::Crypto(_)
+            | ApiError::NotJson(_)
+            | ApiError::RoomInUse(_)
+            | ApiError::Unrecognized(_)
+            | ApiError::UserDeactivated(_)
+            | ApiError::ConsentNotGiven(_) => ErrorSeverity::High,
         }
     }
 
@@ -123,6 +133,11 @@ impl ErrorContext for ApiError {
             ApiError::Crypto(_) => {
                 "A cryptographic error occurred. Please try again later.".to_string()
             }
+            ApiError::NotJson(msg) => msg.clone(),
+            ApiError::RoomInUse(msg) => msg.clone(),
+            ApiError::Unrecognized(msg) => msg.clone(),
+            ApiError::UserDeactivated(msg) => msg.clone(),
+            ApiError::ConsentNotGiven(msg) => msg.clone(),
         }
     }
 
