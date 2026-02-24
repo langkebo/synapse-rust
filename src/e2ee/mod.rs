@@ -4,6 +4,7 @@ pub mod cross_signing;
 pub mod crypto;
 pub mod device_keys;
 pub mod megolm;
+pub mod olm;
 pub mod signature;
 pub mod to_device;
 
@@ -19,5 +20,7 @@ pub use device_keys::models::*;
 pub use device_keys::service::DeviceKeyService;
 pub use megolm::models::{EncryptedEvent, MegolmSession};
 pub use megolm::service::MegolmService;
+pub use olm::OlmService;
+pub use olm::models::*;
 pub use signature::EventSignature;
 pub use signature::SignatureService;

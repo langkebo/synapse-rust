@@ -48,6 +48,8 @@ x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 generic-array = "0.14"
 typenum = "1"
 
+vodozemac = "0.9"
+
 config = "0.14"
 
 jsonwebtoken = "9"
