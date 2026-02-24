@@ -36,17 +36,19 @@ impl MediaStorageBackendFactory {
         match config.backend_type {
             StorageBackendType::Filesystem => {
                 let fs_config = config.filesystem.clone().unwrap_or_default();
-                Ok(Box::new(crate::storage::media::filesystem::FilesystemBackend::new(fs_config)?))
+                Ok(Box::new(
+                    crate::storage::media::filesystem::FilesystemBackend::new(fs_config)?,
+                ))
             }
             StorageBackendType::S3 => {
                 let s3_config = config.s3.clone().ok_or_else(|| {
                     ApiError::internal("S3 configuration required for S3 backend".to_string())
                 })?;
-                Ok(Box::new(crate::storage::media::s3::S3Backend::new(s3_config)))
+                Ok(Box::new(crate::storage::media::s3::S3Backend::new(
+                    s3_config,
+                )))
             }
-            StorageBackendType::Memory => {
-                Ok(Box::new(MemoryBackend::new()))
-            }
+            StorageBackendType::Memory => Ok(Box::new(MemoryBackend::new())),
             _ => Err(ApiError::internal(format!(
                 "Unsupported storage backend: {:?}",
                 config.backend_type
@@ -63,8 +65,12 @@ pub struct MemoryBackend {
 impl MemoryBackend {
     pub fn new() -> Self {
         Self {
-            storage: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-            thumbnails: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            storage: std::sync::Arc::new(
+                tokio::sync::RwLock::new(std::collections::HashMap::new()),
+            ),
+            thumbnails: std::sync::Arc::new(tokio::sync::RwLock::new(
+                std::collections::HashMap::new(),
+            )),
         }
     }
 
@@ -75,7 +81,12 @@ impl MemoryBackend {
 
 #[async_trait]
 impl MediaStorageBackend for MemoryBackend {
-    async fn store(&self, media_id: &str, data: &[u8], _content_type: &str) -> Result<(), ApiError> {
+    async fn store(
+        &self,
+        media_id: &str,
+        data: &[u8],
+        _content_type: &str,
+    ) -> Result<(), ApiError> {
         let mut storage = self.storage.write().await;
         storage.insert(media_id.to_string(), data.to_vec());
         Ok(())
@@ -145,7 +156,7 @@ impl MediaStorageBackend for MemoryBackend {
         let storage = self.storage.read().await;
         let total_files = storage.len() as u64;
         let total_size: u64 = storage.values().map(|v| v.len() as u64).sum();
-        
+
         Ok(MediaStorageStats {
             total_files,
             total_size,

@@ -4,11 +4,11 @@
 //! tracking query performance, and identifying slow queries.
 
 use crate::common::metrics::MetricsCollector;
+use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 
 /// Statistics about the database connection pool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,13 +116,15 @@ impl PerformanceMonitor {
         // Update internal metrics
         {
             let mut metrics = self.query_metrics.write().await;
-            let entry = metrics.entry(operation.to_string()).or_insert_with(|| QueryMetricsData {
-                count: 0,
-                total_ms: 0,
-                min_ms: duration_ms,
-                max_ms: duration_ms,
-                slow_count: 0,
-            });
+            let entry = metrics
+                .entry(operation.to_string())
+                .or_insert_with(|| QueryMetricsData {
+                    count: 0,
+                    total_ms: 0,
+                    min_ms: duration_ms,
+                    max_ms: duration_ms,
+                    slow_count: 0,
+                });
 
             entry.count += 1;
             entry.total_ms += duration_ms;
@@ -141,18 +143,27 @@ impl PerformanceMonitor {
         }
 
         // Update metrics collector
-        if let Some(hist) = self.metrics.get_histogram(&format!("db_query_{}_ms", operation)) {
+        if let Some(hist) = self
+            .metrics
+            .get_histogram(&format!("db_query_{}_ms", operation))
+        {
             hist.observe(duration.as_secs_f64() * 1000.0);
         }
 
         // Increment query counter
-        if let Some(counter) = self.metrics.get_counter(&format!("db_query_{}_total", operation)) {
+        if let Some(counter) = self
+            .metrics
+            .get_counter(&format!("db_query_{}_total", operation))
+        {
             counter.inc();
         }
 
         // Track slow queries
         if duration_ms > self.slow_query_threshold_ms {
-            if let Some(counter) = self.metrics.get_counter(&format!("db_query_{}_slow_total", operation)) {
+            if let Some(counter) = self
+                .metrics
+                .get_counter(&format!("db_query_{}_slow_total", operation))
+            {
                 counter.inc();
             }
         }
@@ -219,7 +230,8 @@ impl PerformanceMonitor {
         // Check if all connections are active (potential connection leak)
         if stats.idle_connections == 0 && stats.total_connections > 0 {
             warnings.push(
-                "No idle connections - possible connection leak or consider increasing pool size".to_string()
+                "No idle connections - possible connection leak or consider increasing pool size"
+                    .to_string(),
             );
         }
 
@@ -269,12 +281,7 @@ where
 #[macro_export]
 macro_rules! timed_query {
     ($monitor:expr, $operation:expr, $expr:expr) => {
-        $crate::storage::performance::time_query(
-            &$monitor,
-            $operation,
-            async { $expr },
-        )
-        .await
+        $crate::storage::performance::time_query(&$monitor, $operation, async { $expr }).await
     };
 }
 

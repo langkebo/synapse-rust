@@ -2,16 +2,15 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
-    Router,
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
 use crate::storage::registration_token::{
-    CreateRegistrationTokenRequest, UpdateRegistrationTokenRequest,
-    RegistrationToken, RegistrationTokenUsage, RoomInvite,
+    CreateRegistrationTokenRequest, RegistrationToken, RegistrationTokenUsage, RoomInvite,
+    UpdateRegistrationTokenRequest,
 };
 use crate::web::routes::{AdminUser, AppState};
 
@@ -190,7 +189,11 @@ pub async fn create_token(
         email: body.email,
     };
 
-    let token = state.services.registration_token_service.create_token(request).await?;
+    let token = state
+        .services
+        .registration_token_service
+        .create_token(request)
+        .await?;
 
     Ok((StatusCode::CREATED, Json(TokenResponse::from(token))))
 }
@@ -199,7 +202,11 @@ pub async fn get_token(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let token = state.services.registration_token_service.get_token(&token).await?
+    let token = state
+        .services
+        .registration_token_service
+        .get_token(&token)
+        .await?
         .ok_or_else(|| ApiError::not_found("Token not found"))?;
 
     Ok(Json(TokenResponse::from(token)))
@@ -209,7 +216,11 @@ pub async fn get_token_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let token = state.services.registration_token_service.get_token_by_id(id).await?
+    let token = state
+        .services
+        .registration_token_service
+        .get_token_by_id(id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Token not found"))?;
 
     Ok(Json(TokenResponse::from(token)))
@@ -228,7 +239,11 @@ pub async fn update_token(
         expires_at: body.expires_at,
     };
 
-    let token = state.services.registration_token_service.update_token(id, request).await?;
+    let token = state
+        .services
+        .registration_token_service
+        .update_token(id, request)
+        .await?;
 
     Ok(Json(TokenResponse::from(token)))
 }
@@ -238,7 +253,11 @@ pub async fn delete_token(
     Path(id): Path<i64>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.registration_token_service.delete_token(id).await?;
+    state
+        .services
+        .registration_token_service
+        .delete_token(id)
+        .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -248,7 +267,11 @@ pub async fn deactivate_token(
     Path(id): Path<i64>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.registration_token_service.deactivate_token(id).await?;
+    state
+        .services
+        .registration_token_service
+        .deactivate_token(id)
+        .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -261,7 +284,11 @@ pub async fn get_all_tokens(
     let limit = query.limit.unwrap_or(100);
     let offset = query.offset.unwrap_or(0);
 
-    let tokens = state.services.registration_token_service.get_all_tokens(limit, offset).await?;
+    let tokens = state
+        .services
+        .registration_token_service
+        .get_all_tokens(limit, offset)
+        .await?;
 
     let response: Vec<TokenResponse> = tokens.into_iter().map(TokenResponse::from).collect();
 
@@ -272,7 +299,11 @@ pub async fn get_active_tokens(
     State(state): State<AppState>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let tokens = state.services.registration_token_service.get_active_tokens().await?;
+    let tokens = state
+        .services
+        .registration_token_service
+        .get_active_tokens()
+        .await?;
 
     let response: Vec<TokenResponse> = tokens.into_iter().map(TokenResponse::from).collect();
 
@@ -284,9 +315,14 @@ pub async fn get_token_usage(
     Path(id): Path<i64>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let usage = state.services.registration_token_service.get_token_usage(id).await?;
+    let usage = state
+        .services
+        .registration_token_service
+        .get_token_usage(id)
+        .await?;
 
-    let response: Vec<TokenUsageResponse> = usage.into_iter().map(TokenUsageResponse::from).collect();
+    let response: Vec<TokenUsageResponse> =
+        usage.into_iter().map(TokenUsageResponse::from).collect();
 
     Ok(Json(response))
 }
@@ -295,7 +331,11 @@ pub async fn validate_token(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result = state.services.registration_token_service.validate_token(&token).await?;
+    let result = state
+        .services
+        .registration_token_service
+        .validate_token(&token)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "valid": result.is_valid,
@@ -308,14 +348,18 @@ pub async fn create_batch(
     _auth_user: AdminUser,
     Json(body): Json<CreateBatchBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let (batch_id, tokens) = state.services.registration_token_service.create_batch(
-        body.count,
-        body.description,
-        body.expires_at,
-        Some(_auth_user.user_id.clone()),
-        body.allowed_email_domains,
-        body.auto_join_rooms,
-    ).await?;
+    let (batch_id, tokens) = state
+        .services
+        .registration_token_service
+        .create_batch(
+            body.count,
+            body.description,
+            body.expires_at,
+            Some(_auth_user.user_id.clone()),
+            body.allowed_email_domains,
+            body.auto_join_rooms,
+        )
+        .await?;
 
     let response = BatchResponse {
         batch_id,
@@ -330,7 +374,11 @@ pub async fn cleanup_expired(
     State(state): State<AppState>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.registration_token_service.cleanup_expired_tokens().await?;
+    let count = state
+        .services
+        .registration_token_service
+        .cleanup_expired_tokens()
+        .await?;
 
     Ok(Json(serde_json::json!({
         "tokens_cleaned": count,
@@ -349,7 +397,11 @@ pub async fn create_room_invite(
         expires_at: body.expires_at,
     };
 
-    let invite = state.services.registration_token_service.create_room_invite(request).await?;
+    let invite = state
+        .services
+        .registration_token_service
+        .create_room_invite(request)
+        .await?;
 
     Ok((StatusCode::CREATED, Json(RoomInviteResponse::from(invite))))
 }
@@ -358,7 +410,11 @@ pub async fn get_room_invite(
     State(state): State<AppState>,
     Path(invite_code): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let invite = state.services.registration_token_service.get_room_invite(&invite_code).await?
+    let invite = state
+        .services
+        .registration_token_service
+        .get_room_invite(&invite_code)
+        .await?
         .ok_or_else(|| ApiError::not_found("Room invite not found"))?;
 
     Ok(Json(RoomInviteResponse::from(invite)))
@@ -369,7 +425,11 @@ pub async fn use_room_invite(
     Path(invite_code): Path<String>,
     Json(body): Json<UseRoomInviteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.registration_token_service.use_room_invite(&invite_code, &body.invitee_user_id).await?;
+    state
+        .services
+        .registration_token_service
+        .use_room_invite(&invite_code, &body.invitee_user_id)
+        .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -380,7 +440,11 @@ pub async fn revoke_room_invite(
     _auth_user: AdminUser,
     Json(body): Json<RevokeInviteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.registration_token_service.revoke_room_invite(&invite_code, &body.reason).await?;
+    state
+        .services
+        .registration_token_service
+        .revoke_room_invite(&invite_code, &body.reason)
+        .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -388,20 +452,62 @@ pub async fn revoke_room_invite(
 pub fn create_registration_token_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/registration_tokens", post(create_token))
-        .route("/_synapse/admin/v1/registration_tokens", get(get_all_tokens))
-        .route("/_synapse/admin/v1/registration_tokens/active", get(get_active_tokens))
-        .route("/_synapse/admin/v1/registration_tokens/cleanup", post(cleanup_expired))
-        .route("/_synapse/admin/v1/registration_tokens/batch", post(create_batch))
-        .route("/_synapse/admin/v1/registration_tokens/{token}", get(get_token))
-        .route("/_synapse/admin/v1/registration_tokens/{token}/validate", get(validate_token))
-        .route("/_synapse/admin/v1/registration_tokens/id/{id}", get(get_token_by_id))
-        .route("/_synapse/admin/v1/registration_tokens/id/{id}", put(update_token))
-        .route("/_synapse/admin/v1/registration_tokens/id/{id}", delete(delete_token))
-        .route("/_synapse/admin/v1/registration_tokens/id/{id}/deactivate", post(deactivate_token))
-        .route("/_synapse/admin/v1/registration_tokens/id/{id}/usage", get(get_token_usage))
+        .route(
+            "/_synapse/admin/v1/registration_tokens",
+            get(get_all_tokens),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/active",
+            get(get_active_tokens),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/cleanup",
+            post(cleanup_expired),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/batch",
+            post(create_batch),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/{token}",
+            get(get_token),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/{token}/validate",
+            get(validate_token),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/id/{id}",
+            get(get_token_by_id),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/id/{id}",
+            put(update_token),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/id/{id}",
+            delete(delete_token),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/id/{id}/deactivate",
+            post(deactivate_token),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/id/{id}/usage",
+            get(get_token_usage),
+        )
         .route("/_synapse/admin/v1/room_invites", post(create_room_invite))
-        .route("/_synapse/admin/v1/room_invites/{invite_code}", get(get_room_invite))
-        .route("/_synapse/admin/v1/room_invites/{invite_code}/use", post(use_room_invite))
-        .route("/_synapse/admin/v1/room_invites/{invite_code}/revoke", post(revoke_room_invite))
+        .route(
+            "/_synapse/admin/v1/room_invites/{invite_code}",
+            get(get_room_invite),
+        )
+        .route(
+            "/_synapse/admin/v1/room_invites/{invite_code}/use",
+            post(use_room_invite),
+        )
+        .route(
+            "/_synapse/admin/v1/room_invites/{invite_code}/revoke",
+            post(revoke_room_invite),
+        )
         .with_state(state)
 }

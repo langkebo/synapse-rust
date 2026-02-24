@@ -120,10 +120,15 @@ impl RegistrationTokenStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_token(&self, request: CreateRegistrationTokenRequest) -> Result<RegistrationToken, sqlx::Error> {
+    pub async fn create_token(
+        &self,
+        request: CreateRegistrationTokenRequest,
+    ) -> Result<RegistrationToken, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         let token = request.token.unwrap_or_else(Self::generate_token);
-        let token_type = request.token_type.unwrap_or_else(|| "single_use".to_string());
+        let token_type = request
+            .token_type
+            .unwrap_or_else(|| "single_use".to_string());
 
         let row = sqlx::query_as::<_, RegistrationToken>(
             r#"
@@ -186,7 +191,11 @@ impl RegistrationTokenStorage {
         Ok(row)
     }
 
-    pub async fn update_token(&self, id: i64, request: UpdateRegistrationTokenRequest) -> Result<RegistrationToken, sqlx::Error> {
+    pub async fn update_token(
+        &self,
+        id: i64,
+        request: UpdateRegistrationTokenRequest,
+    ) -> Result<RegistrationToken, sqlx::Error> {
         let row = sqlx::query_as::<_, RegistrationToken>(
             r#"
             UPDATE registration_tokens SET
@@ -272,7 +281,15 @@ impl RegistrationTokenStorage {
         }
     }
 
-    pub async fn use_token(&self, token: &str, user_id: &str, username: Option<&str>, email: Option<&str>, ip_address: Option<&str>, user_agent: Option<&str>) -> Result<bool, sqlx::Error> {
+    pub async fn use_token(
+        &self,
+        token: &str,
+        user_id: &str,
+        username: Option<&str>,
+        email: Option<&str>,
+        ip_address: Option<&str>,
+        user_agent: Option<&str>,
+    ) -> Result<bool, sqlx::Error> {
         let validation = self.validate_token(token).await?;
 
         if !validation.is_valid {
@@ -323,7 +340,11 @@ impl RegistrationTokenStorage {
         Ok(true)
     }
 
-    pub async fn get_all_tokens(&self, limit: i64, offset: i64) -> Result<Vec<RegistrationToken>, sqlx::Error> {
+    pub async fn get_all_tokens(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<RegistrationToken>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RegistrationToken>(
             "SELECT * FROM registration_tokens ORDER BY created_ts DESC LIMIT $1 OFFSET $2",
         )
@@ -354,7 +375,10 @@ impl RegistrationTokenStorage {
         Ok(rows)
     }
 
-    pub async fn get_token_usage(&self, token_id: i64) -> Result<Vec<RegistrationTokenUsage>, sqlx::Error> {
+    pub async fn get_token_usage(
+        &self,
+        token_id: i64,
+    ) -> Result<Vec<RegistrationTokenUsage>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RegistrationTokenUsage>(
             "SELECT * FROM registration_token_usage WHERE token_id = $1 ORDER BY used_ts DESC",
         )
@@ -387,7 +411,10 @@ impl RegistrationTokenStorage {
         Ok(result.rows_affected() as i64)
     }
 
-    pub async fn create_room_invite(&self, request: CreateRoomInviteRequest) -> Result<RoomInvite, sqlx::Error> {
+    pub async fn create_room_invite(
+        &self,
+        request: CreateRoomInviteRequest,
+    ) -> Result<RoomInvite, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         let invite_code = Self::generate_token();
 
@@ -412,18 +439,24 @@ impl RegistrationTokenStorage {
         Ok(row)
     }
 
-    pub async fn get_room_invite(&self, invite_code: &str) -> Result<Option<RoomInvite>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RoomInvite>(
-            "SELECT * FROM room_invites WHERE invite_code = $1",
-        )
-        .bind(invite_code)
-        .fetch_optional(&*self.pool)
-        .await?;
+    pub async fn get_room_invite(
+        &self,
+        invite_code: &str,
+    ) -> Result<Option<RoomInvite>, sqlx::Error> {
+        let row =
+            sqlx::query_as::<_, RoomInvite>("SELECT * FROM room_invites WHERE invite_code = $1")
+                .bind(invite_code)
+                .fetch_optional(&*self.pool)
+                .await?;
 
         Ok(row)
     }
 
-    pub async fn use_room_invite(&self, invite_code: &str, invitee_user_id: &str) -> Result<bool, sqlx::Error> {
+    pub async fn use_room_invite(
+        &self,
+        invite_code: &str,
+        invitee_user_id: &str,
+    ) -> Result<bool, sqlx::Error> {
         let invite = self.get_room_invite(invite_code).await?;
 
         match invite {
@@ -462,7 +495,11 @@ impl RegistrationTokenStorage {
         }
     }
 
-    pub async fn revoke_room_invite(&self, invite_code: &str, reason: &str) -> Result<(), sqlx::Error> {
+    pub async fn revoke_room_invite(
+        &self,
+        invite_code: &str,
+        reason: &str,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -483,7 +520,11 @@ impl RegistrationTokenStorage {
         Ok(())
     }
 
-    pub async fn create_batch(&self, batch: &RegistrationTokenBatch, tokens: &[String]) -> Result<i64, sqlx::Error> {
+    pub async fn create_batch(
+        &self,
+        batch: &RegistrationTokenBatch,
+        tokens: &[String],
+    ) -> Result<i64, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RegistrationTokenBatch>(
@@ -529,7 +570,10 @@ impl RegistrationTokenStorage {
         Ok(row.id)
     }
 
-    pub async fn get_batch(&self, batch_id: &str) -> Result<Option<RegistrationTokenBatch>, sqlx::Error> {
+    pub async fn get_batch(
+        &self,
+        batch_id: &str,
+    ) -> Result<Option<RegistrationTokenBatch>, sqlx::Error> {
         let row = sqlx::query_as::<_, RegistrationTokenBatch>(
             "SELECT * FROM registration_token_batches WHERE batch_id = $1",
         )

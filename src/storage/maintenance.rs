@@ -156,7 +156,6 @@ impl DatabaseMaintenance {
 
         Ok(stats)
     }
-
 }
 
 #[derive(Debug, Clone)]

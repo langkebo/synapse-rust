@@ -15,14 +15,8 @@ pub fn create_push_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/pushers/set", post(set_pusher))
         .route("/_matrix/client/r0/pushers", get(get_pushers))
         .route("/_matrix/client/r0/pushers/set", post(set_pusher))
-        .route(
-            "/_matrix/client/v3/pushrules",
-            get(get_push_rules),
-        )
-        .route(
-            "/_matrix/client/r0/pushrules",
-            get(get_push_rules),
-        )
+        .route("/_matrix/client/v3/pushrules", get(get_push_rules))
+        .route("/_matrix/client/r0/pushrules", get(get_push_rules))
         .route(
             "/_matrix/client/v3/pushrules/{scope}",
             get(get_push_rules_scope),
@@ -75,14 +69,8 @@ pub fn create_push_router(state: AppState) -> Router<AppState> {
             "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
             put(set_push_rule_enabled),
         )
-        .route(
-            "/_matrix/client/v3/notifications",
-            get(get_notifications),
-        )
-        .route(
-            "/_matrix/client/r0/notifications",
-            get(get_notifications),
-        )
+        .route("/_matrix/client/v3/notifications", get(get_notifications))
+        .route("/_matrix/client/r0/notifications", get(get_notifications))
         .with_state(state)
 }
 
@@ -138,7 +126,7 @@ async fn get_pushers(
         FROM pushers 
         WHERE user_id = $1
         ORDER BY created_ts DESC
-        "#
+        "#,
     )
     .bind(&auth_user.user_id)
     .fetch_all(&*state.services.user_storage.pool)
@@ -171,8 +159,14 @@ async fn set_pusher(
     auth_user: AuthenticatedUser,
     Json(body): Json<SetPusherRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let kind = body.kind.unwrap_or_else(|| if body.data.is_some() { "http".to_string() } else { "null".to_string() });
-    
+    let kind = body.kind.unwrap_or_else(|| {
+        if body.data.is_some() {
+            "http".to_string()
+        } else {
+            "null".to_string()
+        }
+    });
+
     if kind != "null" {
         sqlx::query(
             r#"
@@ -199,14 +193,12 @@ async fn set_pusher(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to save pusher: {}", e)))?;
     } else {
-        sqlx::query(
-            "DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2"
-        )
-        .bind(&auth_user.user_id)
-        .bind(&body.pushkey)
-        .execute(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete pusher: {}", e)))?;
+        sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2")
+            .bind(&auth_user.user_id)
+            .bind(&body.pushkey)
+            .execute(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to delete pusher: {}", e)))?;
     }
 
     Ok(Json(json!({})))
@@ -302,10 +294,10 @@ async fn get_push_rule(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let rules = get_user_push_rules(&state, &auth_user.user_id, &scope, &kind).await?;
-    
-    let rule = rules.iter().find(|r| {
-        r.get("rule_id").and_then(|v| v.as_str()) == Some(&rule_id)
-    });
+
+    let rule = rules
+        .iter()
+        .find(|r| r.get("rule_id").and_then(|v| v.as_str()) == Some(&rule_id));
 
     match rule {
         Some(r) => Ok(Json(r.clone())),
@@ -320,10 +312,11 @@ async fn set_push_rule(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let actions = body.get("actions").cloned().unwrap_or(json!([]));
-    
+
     let conditions = body.get("conditions").cloned();
-    
-    let pattern = body.get("pattern")
+
+    let pattern = body
+        .get("pattern")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
@@ -355,7 +348,7 @@ async fn delete_push_rule(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let result = sqlx::query(
-        "DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4"
+        "DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4",
     )
     .bind(&auth_user.user_id)
     .bind(&scope)
@@ -425,7 +418,8 @@ async fn set_push_rule_enabled(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let enabled = body.get("enabled")
+    let enabled = body
+        .get("enabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
@@ -464,7 +458,7 @@ async fn get_notifications(
         WHERE user_id = $1
         ORDER BY ts DESC
         LIMIT $2
-        "#
+        "#,
     )
     .bind(&auth_user.user_id)
     .bind(limit as i64)
@@ -503,7 +497,7 @@ async fn get_user_push_rules(
         FROM push_rules
         WHERE user_id = $1 AND scope = $2 AND kind = $3
         ORDER BY priority DESC, created_ts ASC
-        "#
+        "#,
     )
     .bind(user_id)
     .bind(scope)

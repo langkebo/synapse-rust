@@ -22,7 +22,7 @@ impl CrossSigningStorage {
             ON CONFLICT (user_id, key_type) DO UPDATE
             SET key_data = EXCLUDED.key_data,
                 added_ts = EXCLUDED.added_ts
-            "#
+            "#,
         )
         .bind(&key.user_id)
         .bind(&key.key_type)
@@ -58,8 +58,14 @@ impl CrossSigningStorage {
             public_key: row.get("key_data"),
             usage: vec![],
             signatures: serde_json::json!({}),
-            created_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts") / 1000).unwrap_or_default(),
-            updated_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts") / 1000).unwrap_or_default(),
+            created_at: chrono::DateTime::from_timestamp_millis(
+                row.get::<i64, _>("added_ts") / 1000,
+            )
+            .unwrap_or_default(),
+            updated_at: chrono::DateTime::from_timestamp_millis(
+                row.get::<i64, _>("added_ts") / 1000,
+            )
+            .unwrap_or_default(),
         }))
     }
 
@@ -87,8 +93,14 @@ impl CrossSigningStorage {
                 public_key: row.get("key_data"),
                 usage: vec![],
                 signatures: serde_json::json!({}),
-                created_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts") / 1000).unwrap_or_default(),
-                updated_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts") / 1000).unwrap_or_default(),
+                created_at: chrono::DateTime::from_timestamp_millis(
+                    row.get::<i64, _>("added_ts") / 1000,
+                )
+                .unwrap_or_default(),
+                updated_at: chrono::DateTime::from_timestamp_millis(
+                    row.get::<i64, _>("added_ts") / 1000,
+                )
+                .unwrap_or_default(),
             })
             .collect())
     }
@@ -99,7 +111,7 @@ impl CrossSigningStorage {
             r#"
             UPDATE cross_signing_keys SET key_data = $1, added_ts = $2
             WHERE user_id = $3 AND key_type = $4
-            "#
+            "#,
         )
         .bind(&key.public_key)
         .bind(added_ts)
@@ -120,7 +132,7 @@ impl CrossSigningStorage {
             ON CONFLICT (user_id, device_id, algorithm) DO UPDATE SET
                 key_data = EXCLUDED.key_data,
                 ts_updated_ms = $6
-            "#
+            "#,
         )
         .bind(&key.user_id)
         .bind(&key.device_id)
@@ -185,7 +197,10 @@ impl CrossSigningStorage {
                 target_device_id: row.get("target_device_id"),
                 target_key_id: row.get("algorithm"),
                 signature: row.get("signature"),
-                created_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts") / 1000).unwrap_or_default(),
+                created_at: chrono::DateTime::from_timestamp_millis(
+                    row.get::<i64, _>("created_ts") / 1000,
+                )
+                .unwrap_or_default(),
             })
             .collect())
     }
@@ -218,7 +233,10 @@ impl CrossSigningStorage {
                 target_device_id: row.get("target_device_id"),
                 target_key_id: row.get("algorithm"),
                 signature: row.get("signature"),
-                created_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts") / 1000).unwrap_or_default(),
+                created_at: chrono::DateTime::from_timestamp_millis(
+                    row.get::<i64, _>("created_ts") / 1000,
+                )
+                .unwrap_or_default(),
             })
             .collect())
     }
@@ -251,7 +269,10 @@ impl CrossSigningStorage {
             target_device_id: row.get("target_device_id"),
             target_key_id: row.get("algorithm"),
             signature: row.get("signature"),
-            created_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts") / 1000).unwrap_or_default(),
+            created_at: chrono::DateTime::from_timestamp_millis(
+                row.get::<i64, _>("created_ts") / 1000,
+            )
+            .unwrap_or_default(),
         }))
     }
 

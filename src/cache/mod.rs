@@ -93,10 +93,12 @@ pub struct RedisCache {
 }
 
 impl RedisCache {
-    pub async fn new(config: &crate::common::config::RedisConfig) -> Result<Self, redis::RedisError> {
+    pub async fn new(
+        config: &crate::common::config::RedisConfig,
+    ) -> Result<Self, redis::RedisError> {
         let conn_str = format!("redis://{}:{}", config.host, config.port);
         let cfg = Config::from_url(conn_str);
-        
+
         let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
             redis::RedisError::from((
                 redis::ErrorKind::IoError,
@@ -104,11 +106,11 @@ impl RedisCache {
                 e.to_string(),
             ))
         })?;
-        
+
         // Note: deadpool-redis Config doesn't directly expose pool size in the same way as deadpool-postgres
         // We might need to adjust the pool builder if we want to enforce config.pool_size
         // For now, using default builder which is reasonable.
-        
+
         Ok(Self { pool })
     }
 
@@ -381,10 +383,7 @@ impl CacheManager {
         }
     }
 
-    pub fn with_redis_pool(
-        pool: Pool,
-        cache_config: CacheConfig,
-    ) -> Self {
+    pub fn with_redis_pool(pool: Pool, cache_config: CacheConfig) -> Self {
         let redis_cache = RedisCache::from_pool(pool);
         Self {
             local: LocalCache::new(&cache_config),
@@ -459,7 +458,7 @@ impl CacheManager {
         key: &str,
     ) -> Result<Option<T>, ApiError> {
         let key = key.to_string();
-        
+
         // L1: Local Cache
         if let Some(val) = self.local.get_raw(&key) {
             if let Ok(result) = serde_json::from_str(&val) {

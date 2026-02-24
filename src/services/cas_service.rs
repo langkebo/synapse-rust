@@ -1,14 +1,13 @@
 use crate::common::ApiError;
-use crate::storage::cas::{
-    CasStorage, CasTicket, CasProxyTicket, CasProxyGrantingTicket, CasSloSession,
-    CasUserAttribute, CreateTicketRequest, CreateProxyTicketRequest, CreatePgtRequest,
-    RegisterServiceRequest,
-};
 pub use crate::storage::cas::CasService as CasServiceModel;
+use crate::storage::cas::{
+    CasProxyGrantingTicket, CasProxyTicket, CasSloSession, CasStorage, CasTicket, CasUserAttribute,
+    CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest, RegisterServiceRequest,
+};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use rand::RngCore;
 use std::sync::Arc;
 use tracing::{info, instrument};
-use rand::RngCore;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
 pub struct CasService {
     storage: Arc<CasStorage>,
@@ -96,7 +95,9 @@ impl CasService {
 
                 let mut pgt_iou = None;
                 if let Some(pgt_url) = pgt_url {
-                    let pgt = self.create_proxy_granting_ticket(&t.user_id, service_url, Some(pgt_url)).await?;
+                    let pgt = self
+                        .create_proxy_granting_ticket(&t.user_id, service_url, Some(pgt_url))
+                        .await?;
                     pgt_iou = pgt.iou;
                 }
 
@@ -104,7 +105,10 @@ impl CasService {
 
                 Ok(CasValidationResponse::Success {
                     user: t.user_id.clone(),
-                    attributes: attributes.into_iter().map(|a| (a.attribute_name, a.attribute_value)).collect(),
+                    attributes: attributes
+                        .into_iter()
+                        .map(|a| (a.attribute_name, a.attribute_value))
+                        .collect(),
                     proxy_granting_ticket: pgt_iou,
                 })
             }
@@ -156,7 +160,10 @@ impl CasService {
     ) -> Result<CasProxyTicket, ApiError> {
         info!("Creating proxy ticket for PGT: {}", pgt_id);
 
-        let pgt = self.storage.get_pgt(pgt_id).await?
+        let pgt = self
+            .storage
+            .get_pgt(pgt_id)
+            .await?
             .ok_or_else(|| ApiError::bad_request("Invalid proxy granting ticket"))?;
 
         if pgt.expires_at < chrono::Utc::now() {
@@ -183,7 +190,9 @@ impl CasService {
         service_url: &str,
     ) -> Result<Option<CasProxyTicket>, ApiError> {
         info!("Validating proxy ticket: {}", proxy_ticket_id);
-        self.storage.validate_proxy_ticket(proxy_ticket_id, service_url).await
+        self.storage
+            .validate_proxy_ticket(proxy_ticket_id, service_url)
+            .await
     }
 
     #[instrument(skip(self))]
@@ -201,7 +210,10 @@ impl CasService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_service_by_url(&self, service_url: &str) -> Result<Option<CasServiceModel>, ApiError> {
+    pub async fn get_service_by_url(
+        &self,
+        service_url: &str,
+    ) -> Result<Option<CasServiceModel>, ApiError> {
         self.storage.get_service_by_url(service_url).await
     }
 
@@ -223,16 +235,24 @@ impl CasService {
         attribute_name: &str,
         attribute_value: &str,
     ) -> Result<CasUserAttribute, ApiError> {
-        self.storage.set_user_attribute(user_id, attribute_name, attribute_value).await
+        self.storage
+            .set_user_attribute(user_id, attribute_name, attribute_value)
+            .await
     }
 
     #[instrument(skip(self))]
-    pub async fn get_user_attributes(&self, user_id: &str) -> Result<Vec<CasUserAttribute>, ApiError> {
+    pub async fn get_user_attributes(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<CasUserAttribute>, ApiError> {
         self.storage.get_user_attributes(user_id).await
     }
 
     #[instrument(skip(self))]
-    pub async fn initiate_single_logout(&self, user_id: &str) -> Result<Vec<CasSloSession>, ApiError> {
+    pub async fn initiate_single_logout(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<CasSloSession>, ApiError> {
         info!("Initiating single logout for user: {}", user_id);
         let sessions = self.storage.get_active_slo_sessions(user_id).await?;
         Ok(sessions)
@@ -262,18 +282,25 @@ pub enum CasValidationResponse {
 impl CasValidationResponse {
     pub fn to_xml(&self) -> String {
         match self {
-            CasValidationResponse::Success { user, attributes, proxy_granting_ticket } => {
+            CasValidationResponse::Success {
+                user,
+                attributes,
+                proxy_granting_ticket,
+            } => {
                 let attrs_xml = if attributes.is_empty() {
                     String::new()
                 } else {
-                    let attrs: String = attributes.iter()
+                    let attrs: String = attributes
+                        .iter()
                         .map(|(k, v)| format!("<cas:{}>{}</cas:{}>", k, v, k))
                         .collect();
                     format!("<cas:attributes>{}</cas:attributes>", attrs)
                 };
 
                 let pgt_xml = match proxy_granting_ticket {
-                    Some(pgt) => format!("<cas:proxyGrantingTicket>{}</cas:proxyGrantingTicket>", pgt),
+                    Some(pgt) => {
+                        format!("<cas:proxyGrantingTicket>{}</cas:proxyGrantingTicket>", pgt)
+                    }
                     None => String::new(),
                 };
 

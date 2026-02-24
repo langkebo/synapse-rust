@@ -2,19 +2,18 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
-    Router,
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
 use crate::storage::room_summary::{
-    CreateRoomSummaryRequest, CreateSummaryMemberRequest,
-    UpdateSummaryMemberRequest, RoomSummaryMember, RoomSummaryStats,
+    CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryStats,
+    UpdateSummaryMemberRequest,
 };
-use crate::web::routes::AuthenticatedUser;
 use crate::web::routes::AppState;
+use crate::web::routes::AuthenticatedUser;
 
 #[derive(Debug, Deserialize)]
 pub struct QueryLimit {
@@ -89,7 +88,11 @@ pub async fn get_room_summary(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let summary = state.services.room_summary_service.get_summary(&room_id).await?
+    let summary = state
+        .services
+        .room_summary_service
+        .get_summary(&room_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Room summary not found"))?;
 
     Ok(Json(summary))
@@ -99,7 +102,11 @@ pub async fn get_user_summaries(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let summaries = state.services.room_summary_service.get_summaries_for_user(&auth_user.user_id).await?;
+    let summaries = state
+        .services
+        .room_summary_service
+        .get_summaries_for_user(&auth_user.user_id)
+        .await?;
 
     Ok(Json(summaries))
 }
@@ -109,7 +116,11 @@ pub async fn create_room_summary(
     _auth_user: AuthenticatedUser,
     Json(body): Json<CreateRoomSummaryRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let summary = state.services.room_summary_service.create_summary(body).await?;
+    let summary = state
+        .services
+        .room_summary_service
+        .create_summary(body)
+        .await?;
 
     Ok((StatusCode::CREATED, Json(summary)))
 }
@@ -127,7 +138,11 @@ pub async fn update_room_summary(
         ..Default::default()
     };
 
-    let summary = state.services.room_summary_service.update_summary(&room_id, request).await?;
+    let summary = state
+        .services
+        .room_summary_service
+        .update_summary(&room_id, request)
+        .await?;
 
     Ok(Json(summary))
 }
@@ -137,7 +152,11 @@ pub async fn delete_room_summary(
     Path(room_id): Path<String>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.room_summary_service.delete_summary(&room_id).await?;
+    state
+        .services
+        .room_summary_service
+        .delete_summary(&room_id)
+        .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -147,7 +166,11 @@ pub async fn sync_room_summary(
     Path(room_id): Path<String>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let summary = state.services.room_summary_service.sync_from_room(&room_id).await?;
+    let summary = state
+        .services
+        .room_summary_service
+        .sync_from_room(&room_id)
+        .await?;
 
     Ok(Json(summary))
 }
@@ -156,7 +179,11 @@ pub async fn get_members(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let members = state.services.room_summary_service.get_members(&room_id).await?;
+    let members = state
+        .services
+        .room_summary_service
+        .get_members(&room_id)
+        .await?;
 
     let response: Vec<MemberResponse> = members.into_iter().map(MemberResponse::from).collect();
 
@@ -179,7 +206,11 @@ pub async fn add_member(
         last_active_ts: body.last_active_ts,
     };
 
-    let member = state.services.room_summary_service.add_member(request).await?;
+    let member = state
+        .services
+        .room_summary_service
+        .add_member(request)
+        .await?;
 
     Ok((StatusCode::CREATED, Json(MemberResponse::from(member))))
 }
@@ -198,7 +229,11 @@ pub async fn update_member(
         last_active_ts: None,
     };
 
-    let member = state.services.room_summary_service.update_member(&room_id, &user_id, request).await?;
+    let member = state
+        .services
+        .room_summary_service
+        .update_member(&room_id, &user_id, request)
+        .await?;
 
     Ok(Json(MemberResponse::from(member)))
 }
@@ -208,7 +243,11 @@ pub async fn remove_member(
     Path((room_id, user_id)): Path<(String, String)>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.room_summary_service.remove_member(&room_id, &user_id).await?;
+    state
+        .services
+        .room_summary_service
+        .remove_member(&room_id, &user_id)
+        .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -217,7 +256,11 @@ pub async fn get_state(
     State(state): State<AppState>,
     Path((room_id, event_type, state_key)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let state = state.services.room_summary_service.get_state(&room_id, &event_type, &state_key).await?
+    let state = state
+        .services
+        .room_summary_service
+        .get_state(&room_id, &event_type, &state_key)
+        .await?
         .ok_or_else(|| ApiError::not_found("State not found"))?;
 
     Ok(Json(serde_json::json!({
@@ -233,13 +276,17 @@ pub async fn update_state(
     _auth_user: AuthenticatedUser,
     Json(body): Json<UpdateStateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let state = state.services.room_summary_service.update_state(
-        &room_id,
-        &event_type,
-        &state_key,
-        body.event_id.as_deref(),
-        body.content,
-    ).await?;
+    let state = state
+        .services
+        .room_summary_service
+        .update_state(
+            &room_id,
+            &event_type,
+            &state_key,
+            body.event_id.as_deref(),
+            body.content,
+        )
+        .await?;
 
     Ok(Json(serde_json::json!({
         "event_id": state.event_id,
@@ -252,16 +299,23 @@ pub async fn get_all_state(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let states = state.services.room_summary_service.get_all_state(&room_id).await?;
+    let states = state
+        .services
+        .room_summary_service
+        .get_all_state(&room_id)
+        .await?;
 
-    let response: Vec<serde_json::Value> = states.into_iter().map(|s| {
-        serde_json::json!({
-            "event_type": s.event_type,
-            "state_key": s.state_key,
-            "event_id": s.event_id,
-            "content": s.content,
+    let response: Vec<serde_json::Value> = states
+        .into_iter()
+        .map(|s| {
+            serde_json::json!({
+                "event_type": s.event_type,
+                "state_key": s.state_key,
+                "event_id": s.event_id,
+                "content": s.content,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(response))
 }
@@ -270,7 +324,11 @@ pub async fn get_stats(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let stats = state.services.room_summary_service.get_stats(&room_id).await?
+    let stats = state
+        .services
+        .room_summary_service
+        .get_stats(&room_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Stats not found"))?;
 
     Ok(Json(StatsResponse::from(stats)))
@@ -281,7 +339,11 @@ pub async fn recalculate_stats(
     Path(room_id): Path<String>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let stats = state.services.room_summary_service.recalculate_stats(&room_id).await?;
+    let stats = state
+        .services
+        .room_summary_service
+        .recalculate_stats(&room_id)
+        .await?;
 
     Ok(Json(StatsResponse::from(stats)))
 }
@@ -292,7 +354,11 @@ pub async fn process_updates(
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
-    let processed = state.services.room_summary_service.process_pending_updates(limit).await?;
+    let processed = state
+        .services
+        .room_summary_service
+        .process_pending_updates(limit)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "processed": processed,
@@ -304,7 +370,11 @@ pub async fn recalculate_heroes(
     Path(room_id): Path<String>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let hero_ids = state.services.room_summary_service.recalculate_heroes(&room_id).await?;
+    let hero_ids = state
+        .services
+        .room_summary_service
+        .recalculate_heroes(&room_id)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "heroes": hero_ids,
@@ -316,7 +386,11 @@ pub async fn clear_unread(
     Path(room_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.room_summary_service.clear_unread(&room_id).await?;
+    state
+        .services
+        .room_summary_service
+        .clear_unread(&room_id)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "user_id": auth_user.user_id,
@@ -328,23 +402,77 @@ pub async fn clear_unread(
 
 pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/v3/rooms/{room_id}/summary", get(get_room_summary))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary", put(update_room_summary))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary", delete(delete_room_summary))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary/sync", post(sync_room_summary))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary/members", get(get_members))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary/members", post(add_member))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}", put(update_member))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}", delete(remove_member))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary/state", get(get_all_state))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}", get(get_state))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}", put(update_state))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary/stats", get(get_stats))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary/stats/recalculate", post(recalculate_stats))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary/heroes/recalculate", post(recalculate_heroes))
-        .route("/_matrix/client/v3/rooms/{room_id}/summary/unread/clear", post(clear_unread))
-        .route("/_synapse/room_summary/v1/summaries", get(get_user_summaries))
-        .route("/_synapse/room_summary/v1/summaries", post(create_room_summary))
-        .route("/_synapse/room_summary/v1/updates/process", post(process_updates))
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary",
+            get(get_room_summary),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary",
+            put(update_room_summary),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary",
+            delete(delete_room_summary),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary/sync",
+            post(sync_room_summary),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary/members",
+            get(get_members),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary/members",
+            post(add_member),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}",
+            put(update_member),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}",
+            delete(remove_member),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary/state",
+            get(get_all_state),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}",
+            get(get_state),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}",
+            put(update_state),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary/stats",
+            get(get_stats),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary/stats/recalculate",
+            post(recalculate_stats),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary/heroes/recalculate",
+            post(recalculate_heroes),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary/unread/clear",
+            post(clear_unread),
+        )
+        .route(
+            "/_synapse/room_summary/v1/summaries",
+            get(get_user_summaries),
+        )
+        .route(
+            "/_synapse/room_summary/v1/summaries",
+            post(create_room_summary),
+        )
+        .route(
+            "/_synapse/room_summary/v1/updates/process",
+            post(process_updates),
+        )
         .with_state(state)
 }

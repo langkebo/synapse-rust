@@ -109,7 +109,12 @@ pub struct RecordUsageRequest {
 }
 
 impl RecordUsageRequest {
-    pub fn new(refresh_token_id: i64, user_id: impl Into<String>, new_access_token_id: impl Into<String>, success: bool) -> Self {
+    pub fn new(
+        refresh_token_id: i64,
+        user_id: impl Into<String>,
+        new_access_token_id: impl Into<String>,
+        success: bool,
+    ) -> Self {
         Self {
             refresh_token_id,
             user_id: user_id.into(),
@@ -160,7 +165,10 @@ impl RefreshTokenStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_token(&self, request: CreateRefreshTokenRequest) -> Result<RefreshToken, sqlx::Error> {
+    pub async fn create_token(
+        &self,
+        request: CreateRefreshTokenRequest,
+    ) -> Result<RefreshToken, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RefreshToken>(
@@ -190,23 +198,20 @@ impl RefreshTokenStorage {
     }
 
     pub async fn get_token(&self, token_hash: &str) -> Result<Option<RefreshToken>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RefreshToken>(
-            "SELECT * FROM refresh_tokens WHERE token_hash = $1",
-        )
-        .bind(token_hash)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let row =
+            sqlx::query_as::<_, RefreshToken>("SELECT * FROM refresh_tokens WHERE token_hash = $1")
+                .bind(token_hash)
+                .fetch_optional(&*self.pool)
+                .await?;
 
         Ok(row)
     }
 
     pub async fn get_token_by_id(&self, id: i64) -> Result<Option<RefreshToken>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RefreshToken>(
-            "SELECT * FROM refresh_tokens WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let row = sqlx::query_as::<_, RefreshToken>("SELECT * FROM refresh_tokens WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         Ok(row)
     }
@@ -284,7 +289,11 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
-    pub async fn revoke_all_user_tokens(&self, user_id: &str, reason: &str) -> Result<i64, sqlx::Error> {
+    pub async fn revoke_all_user_tokens(
+        &self,
+        user_id: &str,
+        reason: &str,
+    ) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
             r#"
             UPDATE refresh_tokens SET
@@ -302,7 +311,11 @@ impl RefreshTokenStorage {
         Ok(result.rows_affected() as i64)
     }
 
-    pub async fn update_token_usage(&self, token_hash: &str, access_token_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn update_token_usage(
+        &self,
+        token_hash: &str,
+        access_token_id: &str,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -350,7 +363,12 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
-    pub async fn create_family(&self, family_id: &str, user_id: &str, device_id: Option<&str>) -> Result<RefreshTokenFamily, sqlx::Error> {
+    pub async fn create_family(
+        &self,
+        family_id: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+    ) -> Result<RefreshTokenFamily, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RefreshTokenFamily>(
@@ -370,7 +388,10 @@ impl RefreshTokenStorage {
         Ok(row)
     }
 
-    pub async fn get_family(&self, family_id: &str) -> Result<Option<RefreshTokenFamily>, sqlx::Error> {
+    pub async fn get_family(
+        &self,
+        family_id: &str,
+    ) -> Result<Option<RefreshTokenFamily>, sqlx::Error> {
         let row = sqlx::query_as::<_, RefreshTokenFamily>(
             "SELECT * FROM refresh_token_families WHERE family_id = $1",
         )
@@ -400,7 +421,13 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
-    pub async fn record_rotation(&self, family_id: &str, old_token_hash: Option<&str>, new_token_hash: &str, reason: &str) -> Result<(), sqlx::Error> {
+    pub async fn record_rotation(
+        &self,
+        family_id: &str,
+        old_token_hash: Option<&str>,
+        new_token_hash: &str,
+        reason: &str,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -433,7 +460,10 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
-    pub async fn get_rotations(&self, family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error> {
+    pub async fn get_rotations(
+        &self,
+        family_id: &str,
+    ) -> Result<Vec<RefreshTokenRotation>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RefreshTokenRotation>(
             "SELECT * FROM refresh_token_rotations WHERE family_id = $1 ORDER BY rotated_ts DESC",
         )
@@ -444,7 +474,14 @@ impl RefreshTokenStorage {
         Ok(rows)
     }
 
-    pub async fn add_to_blacklist(&self, token_hash: &str, token_type: &str, user_id: &str, expires_at: i64, reason: Option<&str>) -> Result<(), sqlx::Error> {
+    pub async fn add_to_blacklist(
+        &self,
+        token_hash: &str,
+        token_type: &str,
+        user_id: &str,
+        expires_at: i64,
+        reason: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -483,12 +520,11 @@ impl RefreshTokenStorage {
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let result = sqlx::query(
-            "DELETE FROM refresh_tokens WHERE expires_at < $1 AND is_revoked = FALSE",
-        )
-        .bind(now)
-        .execute(&*self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM refresh_tokens WHERE expires_at < $1 AND is_revoked = FALSE")
+                .bind(now)
+                .execute(&*self.pool)
+                .await?;
 
         Ok(result.rows_affected() as i64)
     }
@@ -496,17 +532,18 @@ impl RefreshTokenStorage {
     pub async fn cleanup_blacklist(&self) -> Result<i64, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let result = sqlx::query(
-            "DELETE FROM token_blacklist WHERE expires_at < $1",
-        )
-        .bind(now)
-        .execute(&*self.pool)
-        .await?;
+        let result = sqlx::query("DELETE FROM token_blacklist WHERE expires_at < $1")
+            .bind(now)
+            .execute(&*self.pool)
+            .await?;
 
         Ok(result.rows_affected() as i64)
     }
 
-    pub async fn get_user_stats(&self, user_id: &str) -> Result<Option<RefreshTokenStats>, sqlx::Error> {
+    pub async fn get_user_stats(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<RefreshTokenStats>, sqlx::Error> {
         let row = sqlx::query_as::<_, RefreshTokenStats>(
             r#"
             SELECT 
@@ -528,7 +565,11 @@ impl RefreshTokenStorage {
         Ok(row)
     }
 
-    pub async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, sqlx::Error> {
+    pub async fn get_usage_history(
+        &self,
+        user_id: &str,
+        limit: i64,
+    ) -> Result<Vec<RefreshTokenUsage>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RefreshTokenUsage>(
             "SELECT * FROM refresh_token_usage WHERE user_id = $1 ORDER BY used_ts DESC LIMIT $2",
         )

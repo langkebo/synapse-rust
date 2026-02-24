@@ -1,7 +1,7 @@
 use crate::worker::types::*;
+use chrono::Utc;
 use sqlx::{FromRow, PgPool, Row};
 use std::sync::Arc;
-use chrono::Utc;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct WorkerRow {
@@ -120,7 +120,11 @@ pub struct UpdateConnectionStatsRequest {
 }
 
 impl UpdateConnectionStatsRequest {
-    pub fn new(source_worker_id: impl Into<String>, target_worker_id: impl Into<String>, connection_type: impl Into<String>) -> Self {
+    pub fn new(
+        source_worker_id: impl Into<String>,
+        target_worker_id: impl Into<String>,
+        connection_type: impl Into<String>,
+    ) -> Self {
         Self {
             source_worker_id: source_worker_id.into(),
             target_worker_id: target_worker_id.into(),
@@ -160,7 +164,10 @@ impl WorkerStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn register_worker(&self, request: RegisterWorkerRequest) -> Result<WorkerInfo, sqlx::Error> {
+    pub async fn register_worker(
+        &self,
+        request: RegisterWorkerRequest,
+    ) -> Result<WorkerInfo, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         let config = request.config.unwrap_or(serde_json::json!({}));
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
@@ -190,19 +197,20 @@ impl WorkerStorage {
     }
 
     pub async fn get_worker(&self, worker_id: &str) -> Result<Option<WorkerInfo>, sqlx::Error> {
-        let row = sqlx::query_as::<_, WorkerRow>(
-            r#"SELECT * FROM workers WHERE worker_id = $1"#
-        )
-        .bind(worker_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let row = sqlx::query_as::<_, WorkerRow>(r#"SELECT * FROM workers WHERE worker_id = $1"#)
+            .bind(worker_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         Ok(row.map(|r| r.into()))
     }
 
-    pub async fn get_workers_by_type(&self, worker_type: &str) -> Result<Vec<WorkerInfo>, sqlx::Error> {
+    pub async fn get_workers_by_type(
+        &self,
+        worker_type: &str,
+    ) -> Result<Vec<WorkerInfo>, sqlx::Error> {
         let rows = sqlx::query_as::<_, WorkerRow>(
-            r#"SELECT * FROM workers WHERE worker_type = $1 ORDER BY started_ts DESC"#
+            r#"SELECT * FROM workers WHERE worker_type = $1 ORDER BY started_ts DESC"#,
         )
         .bind(worker_type)
         .fetch_all(&*self.pool)
@@ -212,18 +220,20 @@ impl WorkerStorage {
     }
 
     pub async fn get_active_workers(&self) -> Result<Vec<WorkerInfo>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, WorkerRow>(
-            r#"SELECT * FROM active_workers"#
-        )
-        .fetch_all(&*self.pool)
-        .await?;
+        let rows = sqlx::query_as::<_, WorkerRow>(r#"SELECT * FROM active_workers"#)
+            .fetch_all(&*self.pool)
+            .await?;
 
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 
-    pub async fn update_worker_status(&self, worker_id: &str, status: &str) -> Result<(), sqlx::Error> {
+    pub async fn update_worker_status(
+        &self,
+        worker_id: &str,
+        status: &str,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             UPDATE workers SET status = $2, last_heartbeat_ts = $3 
@@ -241,9 +251,9 @@ impl WorkerStorage {
 
     pub async fn update_heartbeat(&self, worker_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
-            r#"UPDATE workers SET last_heartbeat_ts = $2, status = 'running' WHERE worker_id = $1"#
+            r#"UPDATE workers SET last_heartbeat_ts = $2, status = 'running' WHERE worker_id = $1"#,
         )
         .bind(worker_id)
         .bind(now)
@@ -255,9 +265,9 @@ impl WorkerStorage {
 
     pub async fn unregister_worker(&self, worker_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
-            r#"UPDATE workers SET status = 'stopped', stopped_ts = $2 WHERE worker_id = $1"#
+            r#"UPDATE workers SET status = 'stopped', stopped_ts = $2 WHERE worker_id = $1"#,
         )
         .bind(worker_id)
         .bind(now)
@@ -267,7 +277,10 @@ impl WorkerStorage {
         Ok(())
     }
 
-    pub async fn create_command(&self, request: SendCommandRequest) -> Result<WorkerCommand, sqlx::Error> {
+    pub async fn create_command(
+        &self,
+        request: SendCommandRequest,
+    ) -> Result<WorkerCommand, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         let command_id = uuid::Uuid::new_v4().to_string();
 
@@ -293,7 +306,11 @@ impl WorkerStorage {
         Ok(row.into())
     }
 
-    pub async fn get_pending_commands(&self, worker_id: &str, limit: i64) -> Result<Vec<WorkerCommand>, sqlx::Error> {
+    pub async fn get_pending_commands(
+        &self,
+        worker_id: &str,
+        limit: i64,
+    ) -> Result<Vec<WorkerCommand>, sqlx::Error> {
         let rows = sqlx::query_as::<_, WorkerCommandRow>(
             r#"
             SELECT * FROM worker_commands 
@@ -312,9 +329,9 @@ impl WorkerStorage {
 
     pub async fn mark_command_sent(&self, command_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
-            r#"UPDATE worker_commands SET status = 'sent', sent_ts = $2 WHERE command_id = $1"#
+            r#"UPDATE worker_commands SET status = 'sent', sent_ts = $2 WHERE command_id = $1"#,
         )
         .bind(command_id)
         .bind(now)
@@ -326,7 +343,7 @@ impl WorkerStorage {
 
     pub async fn complete_command(&self, command_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"UPDATE worker_commands SET status = 'completed', completed_ts = $2 WHERE command_id = $1"#
         )
@@ -340,7 +357,7 @@ impl WorkerStorage {
 
     pub async fn fail_command(&self, command_id: &str, error: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             UPDATE worker_commands SET 
@@ -369,7 +386,7 @@ impl WorkerStorage {
         event_data: serde_json::Value,
     ) -> Result<WorkerEvent, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         let stream_id: i64 = sqlx::query("SELECT nextval('worker_event_stream_id_seq')")
             .fetch_one(&*self.pool)
             .await?
@@ -397,9 +414,13 @@ impl WorkerStorage {
         Ok(row.into())
     }
 
-    pub async fn get_events_since(&self, stream_id: i64, limit: i64) -> Result<Vec<WorkerEvent>, sqlx::Error> {
+    pub async fn get_events_since(
+        &self,
+        stream_id: i64,
+        limit: i64,
+    ) -> Result<Vec<WorkerEvent>, sqlx::Error> {
         let rows = sqlx::query_as::<_, WorkerEventRow>(
-            r#"SELECT * FROM worker_events WHERE stream_id > $1 ORDER BY stream_id ASC LIMIT $2"#
+            r#"SELECT * FROM worker_events WHERE stream_id > $1 ORDER BY stream_id ASC LIMIT $2"#,
         )
         .bind(stream_id)
         .bind(limit)
@@ -409,7 +430,11 @@ impl WorkerStorage {
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 
-    pub async fn mark_event_processed(&self, event_id: &str, worker_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn mark_event_processed(
+        &self,
+        event_id: &str,
+        worker_id: &str,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             UPDATE worker_events SET processed_by = array_append(COALESCE(processed_by, '{}'), $2)
@@ -431,7 +456,7 @@ impl WorkerStorage {
         position: i64,
     ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             INSERT INTO replication_positions (worker_id, stream_name, stream_position, updated_ts)
@@ -451,7 +476,11 @@ impl WorkerStorage {
         Ok(())
     }
 
-    pub async fn get_replication_position(&self, worker_id: &str, stream_name: &str) -> Result<Option<i64>, sqlx::Error> {
+    pub async fn get_replication_position(
+        &self,
+        worker_id: &str,
+        stream_name: &str,
+    ) -> Result<Option<i64>, sqlx::Error> {
         let result = sqlx::query(
             r#"SELECT stream_position FROM replication_positions WHERE worker_id = $1 AND stream_name = $2"#
         )
@@ -463,9 +492,13 @@ impl WorkerStorage {
         Ok(result.map(|row| row.get("stream_position")))
     }
 
-    pub async fn record_load_stats(&self, worker_id: &str, stats: &WorkerLoadStatsUpdate) -> Result<(), sqlx::Error> {
+    pub async fn record_load_stats(
+        &self,
+        worker_id: &str,
+        stats: &WorkerLoadStatsUpdate,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             INSERT INTO worker_load_stats (
@@ -489,7 +522,10 @@ impl WorkerStorage {
         Ok(())
     }
 
-    pub async fn assign_task(&self, request: AssignTaskRequest) -> Result<WorkerTaskAssignment, sqlx::Error> {
+    pub async fn assign_task(
+        &self,
+        request: AssignTaskRequest,
+    ) -> Result<WorkerTaskAssignment, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         let task_id = uuid::Uuid::new_v4().to_string();
 
@@ -513,7 +549,10 @@ impl WorkerStorage {
         Ok(row)
     }
 
-    pub async fn get_pending_tasks(&self, limit: i64) -> Result<Vec<WorkerTaskAssignment>, sqlx::Error> {
+    pub async fn get_pending_tasks(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<WorkerTaskAssignment>, sqlx::Error> {
         let rows = sqlx::query_as::<_, WorkerTaskAssignment>(
             r#"
             SELECT * FROM worker_task_assignments 
@@ -529,9 +568,13 @@ impl WorkerStorage {
         Ok(rows)
     }
 
-    pub async fn assign_task_to_worker(&self, task_id: &str, worker_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn assign_task_to_worker(
+        &self,
+        task_id: &str,
+        worker_id: &str,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"UPDATE worker_task_assignments SET assigned_worker_id = $2, assigned_ts = $3, status = 'running' WHERE task_id = $1"#
         )
@@ -544,9 +587,13 @@ impl WorkerStorage {
         Ok(())
     }
 
-    pub async fn complete_task(&self, task_id: &str, result: Option<serde_json::Value>) -> Result<(), sqlx::Error> {
+    pub async fn complete_task(
+        &self,
+        task_id: &str,
+        result: Option<serde_json::Value>,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"UPDATE worker_task_assignments SET status = 'completed', completed_ts = $2, result = $3 WHERE task_id = $1"#
         )
@@ -561,7 +608,7 @@ impl WorkerStorage {
 
     pub async fn fail_task(&self, task_id: &str, error: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"UPDATE worker_task_assignments SET status = 'failed', completed_ts = $2, error_message = $3 WHERE task_id = $1"#
         )
@@ -581,7 +628,7 @@ impl WorkerStorage {
         connection_type: &str,
     ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             INSERT INTO worker_connections (
@@ -608,7 +655,7 @@ impl WorkerStorage {
         request: &UpdateConnectionStatsRequest,
     ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             UPDATE worker_connections SET
@@ -639,27 +686,30 @@ impl WorkerStorage {
             .fetch_all(&*self.pool)
             .await?;
 
-        Ok(rows.into_iter().map(|row| {
-            serde_json::json!({
-                "id": row.get::<i64, _>("id"),
-                "worker_id": row.get::<String, _>("worker_id"),
-                "worker_name": row.get::<String, _>("worker_name"),
-                "worker_type": row.get::<String, _>("worker_type"),
-                "status": row.get::<String, _>("status"),
-                "host": row.get::<String, _>("host"),
-                "port": row.get::<i32, _>("port"),
-                "last_heartbeat_ts": row.get::<Option<i64>, _>("last_heartbeat_ts"),
-                "started_ts": row.get::<i64, _>("started_ts"),
-                "cpu_usage": row.get::<Option<f32>, _>("cpu_usage"),
-                "memory_usage": row.get::<Option<i64>, _>("memory_usage"),
-                "active_connections": row.get::<Option<i32>, _>("active_connections"),
-                "requests_per_second": row.get::<Option<f32>, _>("requests_per_second"),
-                "average_latency_ms": row.get::<Option<f32>, _>("average_latency_ms"),
-                "queue_depth": row.get::<Option<i32>, _>("queue_depth"),
-                "pending_commands": row.get::<i64, _>("pending_commands"),
-                "active_tasks": row.get::<i64, _>("active_tasks"),
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "id": row.get::<i64, _>("id"),
+                    "worker_id": row.get::<String, _>("worker_id"),
+                    "worker_name": row.get::<String, _>("worker_name"),
+                    "worker_type": row.get::<String, _>("worker_type"),
+                    "status": row.get::<String, _>("status"),
+                    "host": row.get::<String, _>("host"),
+                    "port": row.get::<i32, _>("port"),
+                    "last_heartbeat_ts": row.get::<Option<i64>, _>("last_heartbeat_ts"),
+                    "started_ts": row.get::<i64, _>("started_ts"),
+                    "cpu_usage": row.get::<Option<f32>, _>("cpu_usage"),
+                    "memory_usage": row.get::<Option<i64>, _>("memory_usage"),
+                    "active_connections": row.get::<Option<i32>, _>("active_connections"),
+                    "requests_per_second": row.get::<Option<f32>, _>("requests_per_second"),
+                    "average_latency_ms": row.get::<Option<f32>, _>("average_latency_ms"),
+                    "queue_depth": row.get::<Option<i32>, _>("queue_depth"),
+                    "pending_commands": row.get::<i64, _>("pending_commands"),
+                    "active_tasks": row.get::<i64, _>("active_tasks"),
+                })
             })
-        }).collect())
+            .collect())
     }
 
     pub async fn get_type_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
@@ -667,18 +717,21 @@ impl WorkerStorage {
             .fetch_all(&*self.pool)
             .await?;
 
-        Ok(rows.into_iter().map(|row| {
-            serde_json::json!({
-                "worker_type": row.get::<String, _>("worker_type"),
-                "total_count": row.get::<i64, _>("total_count"),
-                "running_count": row.get::<i64, _>("running_count"),
-                "starting_count": row.get::<i64, _>("starting_count"),
-                "stopping_count": row.get::<i64, _>("stopping_count"),
-                "stopped_count": row.get::<i64, _>("stopped_count"),
-                "avg_cpu_usage": row.get::<Option<f64>, _>("avg_cpu_usage"),
-                "avg_memory_usage": row.get::<Option<f64>, _>("avg_memory_usage"),
-                "total_connections": row.get::<Option<i64>, _>("total_connections"),
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "worker_type": row.get::<String, _>("worker_type"),
+                    "total_count": row.get::<i64, _>("total_count"),
+                    "running_count": row.get::<i64, _>("running_count"),
+                    "starting_count": row.get::<i64, _>("starting_count"),
+                    "stopping_count": row.get::<i64, _>("stopping_count"),
+                    "stopped_count": row.get::<i64, _>("stopped_count"),
+                    "avg_cpu_usage": row.get::<Option<f64>, _>("avg_cpu_usage"),
+                    "avg_memory_usage": row.get::<Option<f64>, _>("avg_memory_usage"),
+                    "total_connections": row.get::<Option<i64>, _>("total_connections"),
+                })
             })
-        }).collect())
+            .collect())
     }
 }

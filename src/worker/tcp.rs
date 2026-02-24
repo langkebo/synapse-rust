@@ -47,7 +47,9 @@ impl TcpReplicationServer {
             let command_tx = self.command_tx.clone();
 
             tokio::spawn(async move {
-                if let Err(e) = Self::handle_connection(stream, protocol, server_name, command_tx).await {
+                if let Err(e) =
+                    Self::handle_connection(stream, protocol, server_name, command_tx).await
+                {
                     error!("Connection error from {}: {}", addr, e);
                 }
             });
@@ -145,9 +147,10 @@ impl TcpReplicationClient {
     }
 
     async fn send_name(&mut self) -> Result<(), ReplicationError> {
-        let stream = self.stream.as_mut().ok_or_else(|| {
-            ReplicationError::IoError("Not connected".to_string())
-        })?;
+        let stream = self
+            .stream
+            .as_mut()
+            .ok_or_else(|| ReplicationError::IoError("Not connected".to_string()))?;
 
         let name_cmd = ReplicationCommand::Name {
             name: self.worker_name.clone(),
@@ -160,10 +163,14 @@ impl TcpReplicationClient {
         Ok(())
     }
 
-    pub async fn send_command(&mut self, command: &ReplicationCommand) -> Result<(), ReplicationError> {
-        let stream = self.stream.as_mut().ok_or_else(|| {
-            ReplicationError::IoError("Not connected".to_string())
-        })?;
+    pub async fn send_command(
+        &mut self,
+        command: &ReplicationCommand,
+    ) -> Result<(), ReplicationError> {
+        let stream = self
+            .stream
+            .as_mut()
+            .ok_or_else(|| ReplicationError::IoError("Not connected".to_string()))?;
 
         stream
             .write_all(self.protocol.encode_command(command).as_slice())
@@ -175,9 +182,10 @@ impl TcpReplicationClient {
     }
 
     pub async fn receive_command(&mut self) -> Result<ReplicationCommand, ReplicationError> {
-        let stream = self.stream.as_mut().ok_or_else(|| {
-            ReplicationError::IoError("Not connected".to_string())
-        })?;
+        let stream = self
+            .stream
+            .as_mut()
+            .ok_or_else(|| ReplicationError::IoError("Not connected".to_string()))?;
 
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
@@ -198,7 +206,8 @@ impl TcpReplicationClient {
 
     pub async fn ping(&mut self) -> Result<i64, ReplicationError> {
         let start = chrono::Utc::now().timestamp_millis();
-        self.send_command(&ReplicationProtocol::create_ping()).await?;
+        self.send_command(&ReplicationProtocol::create_ping())
+            .await?;
 
         match timeout(Duration::from_secs(5), self.receive_command()).await {
             Ok(Ok(ReplicationCommand::Pong { timestamp: _, .. })) => {
@@ -215,12 +224,20 @@ impl TcpReplicationClient {
         }
     }
 
-    pub async fn sync_stream(&mut self, stream_name: &str, position: i64) -> Result<(), ReplicationError> {
+    pub async fn sync_stream(
+        &mut self,
+        stream_name: &str,
+        position: i64,
+    ) -> Result<(), ReplicationError> {
         self.send_command(&ReplicationProtocol::create_sync(stream_name, position))
             .await
     }
 
-    pub async fn send_position(&mut self, stream_name: &str, position: i64) -> Result<(), ReplicationError> {
+    pub async fn send_position(
+        &mut self,
+        stream_name: &str,
+        position: i64,
+    ) -> Result<(), ReplicationError> {
         self.send_command(&ReplicationProtocol::create_position(stream_name, position))
             .await
     }
@@ -254,12 +271,13 @@ impl ReplicationConnection {
     }
 
     pub async fn connect(&self, addr: &str) -> Result<(), ReplicationError> {
-        let mut client = TcpReplicationClient::new(self.server_name.clone(), self.worker_name.clone());
+        let mut client =
+            TcpReplicationClient::new(self.server_name.clone(), self.worker_name.clone());
         client.connect(addr).await?;
-        
+
         let mut guard = self.client.lock().await;
         *guard = Some(client);
-        
+
         Ok(())
     }
 

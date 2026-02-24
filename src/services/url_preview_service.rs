@@ -1,5 +1,5 @@
 use crate::cache::CacheManager;
-use crate::common::config::{UrlPreviewConfig, UrlBlacklistRule};
+use crate::common::config::{UrlBlacklistRule, UrlPreviewConfig};
 use crate::common::error::ApiError;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -39,11 +39,17 @@ impl UrlPreviewService {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout))
             .user_agent(&config.user_agent)
-            .redirect(reqwest::redirect::Policy::limited(config.max_redirects as usize))
+            .redirect(reqwest::redirect::Policy::limited(
+                config.max_redirects as usize,
+            ))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
-        Self { config, http_client, cache }
+        Self {
+            config,
+            http_client,
+            cache,
+        }
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -121,22 +127,26 @@ impl UrlPreviewService {
     }
 
     fn is_ip_blacklisted(&self, host: &str) -> bool {
-        if self.config.ip_range_whitelist.iter().any(|range| {
-            Self::ip_matches_range(host, range)
-        }) {
+        if self
+            .config
+            .ip_range_whitelist
+            .iter()
+            .any(|range| Self::ip_matches_range(host, range))
+        {
             return false;
         }
 
-        self.config.ip_range_blacklist.iter().any(|range| {
-            Self::ip_matches_range(host, range)
-        })
+        self.config
+            .ip_range_blacklist
+            .iter()
+            .any(|range| Self::ip_matches_range(host, range))
     }
 
     fn ip_matches_range(host: &str, range: &str) -> bool {
         if host == range {
             return true;
         }
-        
+
         if range.contains('/') {
             if let Ok(addr) = host.parse::<std::net::IpAddr>() {
                 if let Ok(network) = range.parse::<ipnetwork::IpNetwork>() {
@@ -144,23 +154,31 @@ impl UrlPreviewService {
                 }
             }
         }
-        
+
         false
     }
 
     async fn fetch_and_parse(&self, url: &str) -> Result<UrlPreview, ApiError> {
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(url)
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
             .send()
             .await
             .map_err(|e| ApiError::internal(format!("Failed to fetch URL: {}", e)))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::bad_request(format!("HTTP error: {}", response.status())));
+            return Err(ApiError::bad_request(format!(
+                "HTTP error: {}",
+                response.status()
+            )));
         }
 
-        let content_type = response.headers()
+        let content_type = response
+            .headers()
             .get("content-type")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
@@ -169,7 +187,9 @@ impl UrlPreviewService {
             return Err(ApiError::bad_request("Content is not HTML"));
         }
 
-        let body = response.text().await
+        let body = response
+            .text()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to read response: {}", e)))?;
 
         if body.len() > self.config.max_spider_size_bytes() {
@@ -192,14 +212,17 @@ impl UrlPreviewService {
             og_type: None,
         };
 
-        preview.title = self.extract_meta_content(html, "og:title")
+        preview.title = self
+            .extract_meta_content(html, "og:title")
             .or_else(|| self.extract_title(html));
 
-        preview.description = self.extract_meta_content(html, "og:description")
+        preview.description = self
+            .extract_meta_content(html, "og:description")
             .or_else(|| self.extract_meta_content(html, "description"))
             .or_else(|| self.extract_meta_name(html, "description"));
 
-        preview.image_url = self.extract_meta_content(html, "og:image")
+        preview.image_url = self
+            .extract_meta_content(html, "og:image")
             .map(|img| self.resolve_url(url, &img));
 
         preview.site_name = self.extract_meta_content(html, "og:site_name");
@@ -213,7 +236,7 @@ impl UrlPreviewService {
             r#"<meta\s+(?:property|name)=["']{}["']\s+content=["']([^"']+)["']"#,
             regex::escape(property)
         );
-        
+
         if let Ok(re) = Regex::new(&pattern) {
             if let Some(caps) = re.captures(html) {
                 return Some(caps[1].to_string());
@@ -224,7 +247,7 @@ impl UrlPreviewService {
             r#"<meta\s+content=["']([^"']+)["']\s+(?:property|name)=["']{}["']"#,
             regex::escape(property)
         );
-        
+
         if let Ok(re) = Regex::new(&pattern2) {
             if let Some(caps) = re.captures(html) {
                 return Some(caps[1].to_string());
@@ -239,7 +262,7 @@ impl UrlPreviewService {
             r#"<meta\s+name=["']{}["']\s+content=["']([^"']+)["']"#,
             regex::escape(name)
         );
-        
+
         if let Ok(re) = Regex::new(&pattern) {
             if let Some(caps) = re.captures(html) {
                 return Some(caps[1].to_string());
@@ -251,7 +274,7 @@ impl UrlPreviewService {
 
     fn extract_title(&self, html: &str) -> Option<String> {
         let pattern = r#"<title[^>]*>([^<]+)</title>"#;
-        
+
         if let Ok(re) = Regex::new(pattern) {
             if let Some(caps) = re.captures(html) {
                 let title = caps[1].trim();
@@ -280,7 +303,7 @@ impl UrlPreviewService {
 
     async fn get_cached_preview(&self, cache_key: &str) -> Option<CachedPreview> {
         let cached = self.cache.get::<CachedPreview>(cache_key).await.ok()??;
-        
+
         let now = chrono::Utc::now().timestamp();
         if cached.expires_at > now {
             Some(cached)
@@ -297,7 +320,11 @@ impl UrlPreviewService {
             expires_at: now + self.config.cache_duration as i64,
         };
 
-        if let Err(e) = self.cache.set(cache_key, &cached, self.config.cache_duration).await {
+        if let Err(e) = self
+            .cache
+            .set(cache_key, &cached, self.config.cache_duration)
+            .await
+        {
             warn!("Failed to cache URL preview: {}", e);
         }
     }
@@ -399,7 +426,8 @@ mod tests {
     #[test]
     fn test_extract_meta_content() {
         let service = create_test_service();
-        let html = r#"<html><head><meta property="og:title" content="Open Graph Title"></head></html>"#;
+        let html =
+            r#"<html><head><meta property="og:title" content="Open Graph Title"></head></html>"#;
         let title = service.extract_meta_content(html, "og:title");
         assert_eq!(title, Some("Open Graph Title".to_string()));
     }
@@ -419,12 +447,15 @@ mod tests {
             <body></body>
             </html>
         "#;
-        
+
         let preview = service.parse_html("https://example.com/page", html);
-        
+
         assert_eq!(preview.title, Some("OG Title".to_string()));
         assert_eq!(preview.description, Some("OG Description".to_string()));
-        assert_eq!(preview.image_url, Some("https://example.com/image.jpg".to_string()));
+        assert_eq!(
+            preview.image_url,
+            Some("https://example.com/image.jpg".to_string())
+        );
         assert_eq!(preview.site_name, Some("Example Site".to_string()));
     }
 
@@ -451,7 +482,7 @@ mod tests {
     #[test]
     fn test_ip_blacklist() {
         let service = create_test_service();
-        
+
         assert!(service.is_ip_blacklisted("127.0.0.1"));
         assert!(service.is_ip_blacklisted("10.0.0.1"));
         assert!(service.is_ip_blacklisted("192.168.1.1"));

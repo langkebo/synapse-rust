@@ -59,9 +59,13 @@ impl EventStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_event(&self, params: CreateEventParams, tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>) -> Result<RoomEvent, sqlx::Error> {
+    pub async fn create_event(
+        &self,
+        params: CreateEventParams,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
         let processed_ts = chrono::Utc::now().timestamp_millis();
-        
+
         let query = r#"
             INSERT INTO events (event_id, room_id, user_id, sender, event_type, content, state_key, origin_server_ts, processed_ts, unsigned)
             VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, '{}')
@@ -334,13 +338,11 @@ impl EventStorage {
 
     pub async fn redact_event_content(&self, event_id: &str) -> Result<(), sqlx::Error> {
         let redacted_content = serde_json::json!({});
-        sqlx::query(
-            "UPDATE events SET content = $1, redacted = true WHERE event_id = $2"
-        )
-        .bind(redacted_content)
-        .bind(event_id)
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query("UPDATE events SET content = $1, redacted = true WHERE event_id = $2")
+            .bind(redacted_content)
+            .bind(event_id)
+            .execute(&*self.pool)
+            .await?;
         Ok(())
     }
 
@@ -413,9 +415,9 @@ impl EventStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        let mut result: std::collections::HashMap<String, Vec<RoomEvent>> = 
+        let mut result: std::collections::HashMap<String, Vec<RoomEvent>> =
             room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
-        
+
         for event in events {
             if let Some(room_events) = result.get_mut(&event.room_id) {
                 if room_events.len() < limit_per_room as usize {
@@ -423,7 +425,7 @@ impl EventStorage {
                 }
             }
         }
-        
+
         Ok(result)
     }
 
@@ -452,9 +454,9 @@ impl EventStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        let mut result: std::collections::HashMap<String, Vec<RoomEvent>> = 
+        let mut result: std::collections::HashMap<String, Vec<RoomEvent>> =
             room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
-        
+
         for event in events {
             if let Some(room_events) = result.get_mut(&event.room_id) {
                 if room_events.len() < limit_per_room as usize {
@@ -462,7 +464,7 @@ impl EventStorage {
                 }
             }
         }
-        
+
         Ok(result)
     }
 }

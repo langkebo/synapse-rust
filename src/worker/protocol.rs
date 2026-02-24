@@ -4,9 +4,16 @@ use std::fmt;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ReplicationCommand {
-    Ping { timestamp: i64 },
-    Pong { timestamp: i64, server_name: String },
-    Name { name: String },
+    Ping {
+        timestamp: i64,
+    },
+    Pong {
+        timestamp: i64,
+        server_name: String,
+    },
+    Name {
+        name: String,
+    },
     Replicate {
         stream_name: String,
         token: String,
@@ -158,21 +165,34 @@ impl fmt::Display for ReplicationCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReplicationCommand::Ping { timestamp } => write!(f, "PING {}", timestamp),
-            ReplicationCommand::Pong { timestamp, server_name } => {
+            ReplicationCommand::Pong {
+                timestamp,
+                server_name,
+            } => {
                 write!(f, "PONG {} {}", timestamp, server_name)
             }
             ReplicationCommand::Name { name } => write!(f, "NAME {}", name),
-            ReplicationCommand::Replicate { stream_name, token, .. } => {
+            ReplicationCommand::Replicate {
+                stream_name, token, ..
+            } => {
                 write!(f, "REPLICATE {} {}", stream_name, token)
             }
-            ReplicationCommand::Rdata { stream_name, token, .. } => {
+            ReplicationCommand::Rdata {
+                stream_name, token, ..
+            } => {
                 write!(f, "RDATA {} {}", stream_name, token)
             }
-            ReplicationCommand::Position { stream_name, position } => {
+            ReplicationCommand::Position {
+                stream_name,
+                position,
+            } => {
                 write!(f, "POSITION {} {}", stream_name, position)
             }
             ReplicationCommand::Error { message } => write!(f, "ERROR {}", message),
-            ReplicationCommand::Sync { stream_name, position } => {
+            ReplicationCommand::Sync {
+                stream_name,
+                position,
+            } => {
                 write!(f, "SYNC {} {}", stream_name, position)
             }
             ReplicationCommand::UserSync { user_id, state } => {
@@ -216,7 +236,10 @@ impl ReplicationCommand {
                     .get(2)
                     .ok_or_else(|| ReplicationError::MissingField("server_name".to_string()))?
                     .to_string();
-                Ok(ReplicationCommand::Pong { timestamp, server_name })
+                Ok(ReplicationCommand::Pong {
+                    timestamp,
+                    server_name,
+                })
             }
             "NAME" => {
                 let name = parts

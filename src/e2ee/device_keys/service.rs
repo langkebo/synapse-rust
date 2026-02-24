@@ -236,13 +236,16 @@ impl DeviceKeyService {
                                 for (signing_user_id, signing_key_sigs) in sig_obj {
                                     if let Some(key_sigs) = signing_key_sigs.as_object() {
                                         for (signing_key_id, signature) in key_sigs {
-                                            let _ = self.storage.store_signature(
-                                                target_user_id,
-                                                target_key_id,
-                                                signing_user_id,
-                                                signing_key_id,
-                                                signature.as_str().unwrap_or(""),
-                                            ).await;
+                                            let _ = self
+                                                .storage
+                                                .store_signature(
+                                                    target_user_id,
+                                                    target_key_id,
+                                                    signing_user_id,
+                                                    signing_key_id,
+                                                    signature.as_str().unwrap_or(""),
+                                                )
+                                                .await;
                                         }
                                     }
                                 }

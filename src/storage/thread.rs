@@ -161,7 +161,7 @@ impl ThreadStorage {
         params: CreateThreadRootParams,
     ) -> Result<ThreadRoot, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query_as::<_, ThreadRoot>(
             r#"
             INSERT INTO thread_roots (
@@ -222,7 +222,7 @@ impl ThreadStorage {
         params: ThreadListParams,
     ) -> Result<Vec<ThreadRoot>, sqlx::Error> {
         let limit = params.limit.unwrap_or(50);
-        
+
         if let Some(from) = params.from {
             sqlx::query_as::<_, ThreadRoot>(
                 r#"
@@ -258,7 +258,7 @@ impl ThreadStorage {
         params: CreateThreadReplyParams,
     ) -> Result<ThreadReply, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query_as::<_, ThreadReply>(
             r#"
             INSERT INTO thread_replies (
@@ -290,7 +290,7 @@ impl ThreadStorage {
         from: Option<String>,
     ) -> Result<Vec<ThreadReply>, sqlx::Error> {
         let limit = limit.unwrap_or(50);
-        
+
         if let Some(from) = from {
             sqlx::query_as::<_, ThreadReply>(
                 r#"
@@ -372,7 +372,7 @@ impl ThreadStorage {
         notification_level: &str,
     ) -> Result<ThreadSubscription, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query_as::<_, ThreadSubscription>(
             r#"
             INSERT INTO thread_subscriptions (
@@ -423,7 +423,7 @@ impl ThreadStorage {
         user_id: &str,
     ) -> Result<ThreadSubscription, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query_as::<_, ThreadSubscription>(
             r#"
             INSERT INTO thread_subscriptions (
@@ -472,7 +472,7 @@ impl ThreadStorage {
         origin_server_ts: i64,
     ) -> Result<ThreadReadReceipt, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query_as::<_, ThreadReadReceipt>(
             r#"
             INSERT INTO thread_read_receipts (
@@ -552,7 +552,7 @@ impl ThreadStorage {
         is_falling_back: bool,
     ) -> Result<ThreadRelation, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query_as::<_, ThreadRelation>(
             r#"
             INSERT INTO thread_relations (
@@ -648,11 +648,7 @@ impl ThreadStorage {
         Ok(())
     }
 
-    pub async fn freeze_thread(
-        &self,
-        room_id: &str,
-        thread_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             UPDATE thread_roots
@@ -668,11 +664,7 @@ impl ThreadStorage {
         Ok(())
     }
 
-    pub async fn unfreeze_thread(
-        &self,
-        room_id: &str,
-        thread_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn unfreeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             UPDATE thread_roots
@@ -688,60 +680,44 @@ impl ThreadStorage {
         Ok(())
     }
 
-    pub async fn delete_thread(
-        &self,
-        room_id: &str,
-        thread_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         let mut tx = self.pool.begin().await?;
 
-        sqlx::query(
-            r#"DELETE FROM thread_replies WHERE room_id = $1 AND thread_id = $2"#,
-        )
-        .bind(room_id)
-        .bind(thread_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(r#"DELETE FROM thread_replies WHERE room_id = $1 AND thread_id = $2"#)
+            .bind(room_id)
+            .bind(thread_id)
+            .execute(&mut *tx)
+            .await?;
 
-        sqlx::query(
-            r#"DELETE FROM thread_roots WHERE room_id = $1 AND thread_id = $2"#,
-        )
-        .bind(room_id)
-        .bind(thread_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(r#"DELETE FROM thread_roots WHERE room_id = $1 AND thread_id = $2"#)
+            .bind(room_id)
+            .bind(thread_id)
+            .execute(&mut *tx)
+            .await?;
 
-        sqlx::query(
-            r#"DELETE FROM thread_subscriptions WHERE room_id = $1 AND thread_id = $2"#,
-        )
-        .bind(room_id)
-        .bind(thread_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(r#"DELETE FROM thread_subscriptions WHERE room_id = $1 AND thread_id = $2"#)
+            .bind(room_id)
+            .bind(thread_id)
+            .execute(&mut *tx)
+            .await?;
 
-        sqlx::query(
-            r#"DELETE FROM thread_read_receipts WHERE room_id = $1 AND thread_id = $2"#,
-        )
-        .bind(room_id)
-        .bind(thread_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(r#"DELETE FROM thread_read_receipts WHERE room_id = $1 AND thread_id = $2"#)
+            .bind(room_id)
+            .bind(thread_id)
+            .execute(&mut *tx)
+            .await?;
 
-        sqlx::query(
-            r#"DELETE FROM thread_summaries WHERE room_id = $1 AND thread_id = $2"#,
-        )
-        .bind(room_id)
-        .bind(thread_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(r#"DELETE FROM thread_summaries WHERE room_id = $1 AND thread_id = $2"#)
+            .bind(room_id)
+            .bind(thread_id)
+            .execute(&mut *tx)
+            .await?;
 
-        sqlx::query(
-            r#"DELETE FROM thread_statistics WHERE room_id = $1 AND thread_id = $2"#,
-        )
-        .bind(room_id)
-        .bind(thread_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(r#"DELETE FROM thread_statistics WHERE room_id = $1 AND thread_id = $2"#)
+            .bind(room_id)
+            .bind(thread_id)
+            .execute(&mut *tx)
+            .await?;
 
         tx.commit().await?;
         Ok(())
@@ -786,7 +762,7 @@ impl ThreadStorage {
     ) -> Result<Vec<ThreadSummary>, sqlx::Error> {
         let limit = limit.unwrap_or(20);
         let search_pattern = format!("%{}%", query);
-        
+
         sqlx::query_as::<_, ThreadSummary>(
             r#"
             SELECT * FROM thread_summaries
@@ -998,7 +974,7 @@ mod tests {
     fn test_thread_freeze_status() {
         let mut thread = create_test_thread_root();
         assert!(!thread.is_frozen);
-        
+
         thread.is_frozen = true;
         assert!(thread.is_frozen);
     }
@@ -1007,7 +983,7 @@ mod tests {
     fn test_thread_reply_edit_status() {
         let mut reply = create_test_thread_reply();
         assert!(!reply.is_edited);
-        
+
         reply.is_edited = true;
         assert!(reply.is_edited);
     }

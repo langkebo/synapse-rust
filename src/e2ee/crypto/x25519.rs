@@ -74,6 +74,10 @@ impl X25519KeyPair {
         &self.public
     }
 
+    pub fn secret_key(&self) -> &X25519SecretKey {
+        &self.secret
+    }
+
     pub fn diffie_hellman(&self, other_public: &X25519PublicKey) -> [u8; 32] {
         let secret = StaticSecret::from(*self.secret.as_bytes());
         let public = PublicKey::from(*other_public.as_bytes());

@@ -95,7 +95,9 @@ pub async fn sign_device(
     let signing_key_id = body["signing_key_id"].as_str().unwrap_or("");
     let signature = body["signature"].as_str().unwrap_or("");
 
-    service.sign_device(&user_id, &device_id, signing_key_id, signature).await?;
+    service
+        .sign_device(&user_id, &device_id, signing_key_id, signature)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "signed": true,
@@ -112,7 +114,9 @@ pub async fn sign_user(
     let signing_key_id = body["signing_key_id"].as_str().unwrap_or("");
     let signature = body["signature"].as_str().unwrap_or("");
 
-    service.sign_user(&user_id, &target_user_id, signing_key_id, signature).await?;
+    service
+        .sign_user(&user_id, &target_user_id, signing_key_id, signature)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "signed": true,

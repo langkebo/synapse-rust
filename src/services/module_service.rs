@@ -3,9 +3,9 @@ use crate::storage::module::*;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
-use std::str::FromStr;
 use tracing::{error, info, instrument};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,7 +61,7 @@ pub struct SpamCheckOutput {
 #[async_trait]
 pub trait SpamChecker: Send + Sync {
     fn name(&self) -> &str;
-    
+
     async fn check(&self, context: &SpamCheckContext) -> Result<SpamCheckOutput, ApiError>;
 }
 
@@ -85,8 +85,11 @@ pub struct ThirdPartyRuleOutput {
 #[async_trait]
 pub trait ThirdPartyRule: Send + Sync {
     fn name(&self) -> &str;
-    
-    async fn check(&self, context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError>;
+
+    async fn check(
+        &self,
+        context: &ThirdPartyRuleContext,
+    ) -> Result<ThirdPartyRuleOutput, ApiError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,7 +109,7 @@ pub struct PasswordAuthOutput {
 #[async_trait]
 pub trait PasswordAuthProviderTrait: Send + Sync {
     fn name(&self) -> &str;
-    
+
     async fn check(&self, context: &PasswordAuthContext) -> Result<PasswordAuthOutput, ApiError>;
 }
 
@@ -174,9 +177,15 @@ impl ModuleService {
 
     #[instrument(skip(self))]
     pub async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, ApiError> {
-        info!("Registering module: {} ({})", request.module_name, request.module_type);
+        info!(
+            "Registering module: {} ({})",
+            request.module_name, request.module_type
+        );
 
-        let module = self.storage.register_module(request).await
+        let module = self
+            .storage
+            .register_module(request)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to register module: {}", e)))?;
 
         Ok(module)
@@ -184,7 +193,10 @@ impl ModuleService {
 
     #[instrument(skip(self))]
     pub async fn get_module(&self, module_name: &str) -> Result<Option<Module>, ApiError> {
-        let module = self.storage.get_module(module_name).await
+        let module = self
+            .storage
+            .get_module(module_name)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get module: {}", e)))?;
 
         Ok(module)
@@ -192,7 +204,10 @@ impl ModuleService {
 
     #[instrument(skip(self))]
     pub async fn get_modules_by_type(&self, module_type: &str) -> Result<Vec<Module>, ApiError> {
-        let modules = self.storage.get_modules_by_type(module_type).await
+        let modules = self
+            .storage
+            .get_modules_by_type(module_type)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get modules: {}", e)))?;
 
         Ok(modules)
@@ -200,23 +215,40 @@ impl ModuleService {
 
     #[instrument(skip(self))]
     pub async fn get_all_modules(&self, limit: i64, offset: i64) -> Result<Vec<Module>, ApiError> {
-        let modules = self.storage.get_all_modules(limit, offset).await
+        let modules = self
+            .storage
+            .get_all_modules(limit, offset)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get modules: {}", e)))?;
 
         Ok(modules)
     }
 
     #[instrument(skip(self))]
-    pub async fn update_module_config(&self, module_name: &str, config: serde_json::Value) -> Result<Module, ApiError> {
-        let module = self.storage.update_module_config(module_name, config).await
+    pub async fn update_module_config(
+        &self,
+        module_name: &str,
+        config: serde_json::Value,
+    ) -> Result<Module, ApiError> {
+        let module = self
+            .storage
+            .update_module_config(module_name, config)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to update module config: {}", e)))?;
 
         Ok(module)
     }
 
     #[instrument(skip(self))]
-    pub async fn enable_module(&self, module_name: &str, enabled: bool) -> Result<Module, ApiError> {
-        let module = self.storage.enable_module(module_name, enabled).await
+    pub async fn enable_module(
+        &self,
+        module_name: &str,
+        enabled: bool,
+    ) -> Result<Module, ApiError> {
+        let module = self
+            .storage
+            .enable_module(module_name, enabled)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to enable/disable module: {}", e)))?;
 
         Ok(module)
@@ -224,14 +256,19 @@ impl ModuleService {
 
     #[instrument(skip(self))]
     pub async fn delete_module(&self, module_name: &str) -> Result<(), ApiError> {
-        self.storage.delete_module(module_name).await
+        self.storage
+            .delete_module(module_name)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to delete module: {}", e)))?;
 
         Ok(())
     }
 
     #[instrument(skip(self))]
-    pub async fn check_spam(&self, context: &SpamCheckContext) -> Result<SpamCheckOutput, ApiError> {
+    pub async fn check_spam(
+        &self,
+        context: &SpamCheckContext,
+    ) -> Result<SpamCheckOutput, ApiError> {
         let registry = self.registry.read().await;
         let checkers = registry.spam_checkers();
 
@@ -259,40 +296,52 @@ impl ModuleService {
                 Ok(output) => {
                     let execution_time = start.elapsed().as_millis() as i64;
 
-                    let _ = self.storage.create_spam_check_result(CreateSpamCheckRequest {
-                        event_id: context.event_id.clone(),
-                        room_id: context.room_id.clone(),
-                        sender: context.sender.clone(),
-                        event_type: context.event_type.clone(),
-                        content: context.content.clone(),
-                        result: output.result.as_str().to_string(),
-                        score: Some(output.score),
-                        reason: output.reason.clone(),
-                        checker_module: module_name.clone(),
-                        action_taken: output.action_taken.clone(),
-                    }).await;
+                    let _ = self
+                        .storage
+                        .create_spam_check_result(CreateSpamCheckRequest {
+                            event_id: context.event_id.clone(),
+                            room_id: context.room_id.clone(),
+                            sender: context.sender.clone(),
+                            event_type: context.event_type.clone(),
+                            content: context.content.clone(),
+                            result: output.result.as_str().to_string(),
+                            score: Some(output.score),
+                            reason: output.reason.clone(),
+                            checker_module: module_name.clone(),
+                            action_taken: output.action_taken.clone(),
+                        })
+                        .await;
 
-                    let _ = self.storage.record_execution(&module_name, true, None).await;
+                    let _ = self
+                        .storage
+                        .record_execution(&module_name, true, None)
+                        .await;
 
-                    let _ = self.storage.create_execution_log(CreateExecutionLogRequest {
-                        module_name: module_name.clone(),
-                        module_type: "spam_checker".to_string(),
-                        event_id: Some(context.event_id.clone()),
-                        room_id: Some(context.room_id.clone()),
-                        execution_time_ms: execution_time,
-                        success: true,
-                        error_message: None,
-                        metadata: Some(serde_json::json!({
-                            "result": output.result.as_str(),
-                            "score": output.score,
-                        })),
-                    }).await;
+                    let _ = self
+                        .storage
+                        .create_execution_log(CreateExecutionLogRequest {
+                            module_name: module_name.clone(),
+                            module_type: "spam_checker".to_string(),
+                            event_id: Some(context.event_id.clone()),
+                            room_id: Some(context.room_id.clone()),
+                            execution_time_ms: execution_time,
+                            success: true,
+                            error_message: None,
+                            metadata: Some(serde_json::json!({
+                                "result": output.result.as_str(),
+                                "score": output.score,
+                            })),
+                        })
+                        .await;
 
                     if output.score > final_result.score {
                         final_result = output;
                     }
 
-                    if matches!(final_result.result, SpamCheckResultType::Block | SpamCheckResultType::ShadowBan) {
+                    if matches!(
+                        final_result.result,
+                        SpamCheckResultType::Block | SpamCheckResultType::ShadowBan
+                    ) {
                         break;
                     }
                 }
@@ -302,18 +351,24 @@ impl ModuleService {
 
                     error!("Spam checker {} failed: {}", module_name, error_msg);
 
-                    let _ = self.storage.record_execution(&module_name, false, Some(&error_msg)).await;
+                    let _ = self
+                        .storage
+                        .record_execution(&module_name, false, Some(&error_msg))
+                        .await;
 
-                    let _ = self.storage.create_execution_log(CreateExecutionLogRequest {
-                        module_name: module_name.clone(),
-                        module_type: "spam_checker".to_string(),
-                        event_id: Some(context.event_id.clone()),
-                        room_id: Some(context.room_id.clone()),
-                        execution_time_ms: execution_time,
-                        success: false,
-                        error_message: Some(error_msg.clone()),
-                        metadata: None,
-                    }).await;
+                    let _ = self
+                        .storage
+                        .create_execution_log(CreateExecutionLogRequest {
+                            module_name: module_name.clone(),
+                            module_type: "spam_checker".to_string(),
+                            event_id: Some(context.event_id.clone()),
+                            room_id: Some(context.room_id.clone()),
+                            execution_time_ms: execution_time,
+                            success: false,
+                            error_message: Some(error_msg.clone()),
+                            metadata: None,
+                        })
+                        .await;
                 }
             }
         }
@@ -322,7 +377,10 @@ impl ModuleService {
     }
 
     #[instrument(skip(self))]
-    pub async fn check_third_party_rules(&self, context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError> {
+    pub async fn check_third_party_rules(
+        &self,
+        context: &ThirdPartyRuleContext,
+    ) -> Result<ThirdPartyRuleOutput, ApiError> {
         let registry = self.registry.read().await;
         let rules = registry.third_party_rules();
 
@@ -349,29 +407,35 @@ impl ModuleService {
                 Ok(output) => {
                     let execution_time = start.elapsed().as_millis() as i64;
 
-                    let _ = self.storage.create_third_party_rule_result(CreateThirdPartyRuleRequest {
-                        event_id: context.event_id.clone(),
-                        room_id: context.room_id.clone(),
-                        sender: context.sender.clone(),
-                        event_type: context.event_type.clone(),
-                        rule_name: rule_name.clone(),
-                        allowed: output.allowed,
-                        reason: output.reason.clone(),
-                        modified_content: output.modified_content.clone(),
-                    }).await;
+                    let _ = self
+                        .storage
+                        .create_third_party_rule_result(CreateThirdPartyRuleRequest {
+                            event_id: context.event_id.clone(),
+                            room_id: context.room_id.clone(),
+                            sender: context.sender.clone(),
+                            event_type: context.event_type.clone(),
+                            rule_name: rule_name.clone(),
+                            allowed: output.allowed,
+                            reason: output.reason.clone(),
+                            modified_content: output.modified_content.clone(),
+                        })
+                        .await;
 
-                    let _ = self.storage.create_execution_log(CreateExecutionLogRequest {
-                        module_name: rule_name.clone(),
-                        module_type: "third_party_rule".to_string(),
-                        event_id: Some(context.event_id.clone()),
-                        room_id: Some(context.room_id.clone()),
-                        execution_time_ms: execution_time,
-                        success: true,
-                        error_message: None,
-                        metadata: Some(serde_json::json!({
-                            "allowed": output.allowed,
-                        })),
-                    }).await;
+                    let _ = self
+                        .storage
+                        .create_execution_log(CreateExecutionLogRequest {
+                            module_name: rule_name.clone(),
+                            module_type: "third_party_rule".to_string(),
+                            event_id: Some(context.event_id.clone()),
+                            room_id: Some(context.room_id.clone()),
+                            execution_time_ms: execution_time,
+                            success: true,
+                            error_message: None,
+                            metadata: Some(serde_json::json!({
+                                "allowed": output.allowed,
+                            })),
+                        })
+                        .await;
 
                     if !output.allowed {
                         allowed = false;
@@ -389,16 +453,19 @@ impl ModuleService {
 
                     error!("Third party rule {} failed: {}", rule_name, error_msg);
 
-                    let _ = self.storage.create_execution_log(CreateExecutionLogRequest {
-                        module_name: rule_name.clone(),
-                        module_type: "third_party_rule".to_string(),
-                        event_id: Some(context.event_id.clone()),
-                        room_id: Some(context.room_id.clone()),
-                        execution_time_ms: execution_time,
-                        success: false,
-                        error_message: Some(error_msg),
-                        metadata: None,
-                    }).await;
+                    let _ = self
+                        .storage
+                        .create_execution_log(CreateExecutionLogRequest {
+                            module_name: rule_name.clone(),
+                            module_type: "third_party_rule".to_string(),
+                            event_id: Some(context.event_id.clone()),
+                            room_id: Some(context.room_id.clone()),
+                            execution_time_ms: execution_time,
+                            success: false,
+                            error_message: Some(error_msg),
+                            metadata: None,
+                        })
+                        .await;
                 }
             }
         }
@@ -415,7 +482,10 @@ impl ModuleService {
     }
 
     #[instrument(skip(self))]
-    pub async fn check_password_auth(&self, context: &PasswordAuthContext) -> Result<PasswordAuthOutput, ApiError> {
+    pub async fn check_password_auth(
+        &self,
+        context: &PasswordAuthContext,
+    ) -> Result<PasswordAuthOutput, ApiError> {
         let registry = self.registry.read().await;
         let providers = registry.password_providers();
 
@@ -434,19 +504,22 @@ impl ModuleService {
                 Ok(output) => {
                     let execution_time = start.elapsed().as_millis() as i64;
 
-                    let _ = self.storage.create_execution_log(CreateExecutionLogRequest {
-                        module_name: provider_name.clone(),
-                        module_type: "password_provider".to_string(),
-                        event_id: None,
-                        room_id: None,
-                        execution_time_ms: execution_time,
-                        success: true,
-                        error_message: None,
-                        metadata: Some(serde_json::json!({
-                            "valid": output.valid,
-                            "user_id": output.user_id,
-                        })),
-                    }).await;
+                    let _ = self
+                        .storage
+                        .create_execution_log(CreateExecutionLogRequest {
+                            module_name: provider_name.clone(),
+                            module_type: "password_provider".to_string(),
+                            event_id: None,
+                            room_id: None,
+                            execution_time_ms: execution_time,
+                            success: true,
+                            error_message: None,
+                            metadata: Some(serde_json::json!({
+                                "valid": output.valid,
+                                "user_id": output.user_id,
+                            })),
+                        })
+                        .await;
 
                     if output.valid {
                         return Ok(output);
@@ -458,16 +531,19 @@ impl ModuleService {
 
                     error!("Password provider {} failed: {}", provider_name, error_msg);
 
-                    let _ = self.storage.create_execution_log(CreateExecutionLogRequest {
-                        module_name: provider_name.clone(),
-                        module_type: "password_provider".to_string(),
-                        event_id: None,
-                        room_id: None,
-                        execution_time_ms: execution_time,
-                        success: false,
-                        error_message: Some(error_msg),
-                        metadata: None,
-                    }).await;
+                    let _ = self
+                        .storage
+                        .create_execution_log(CreateExecutionLogRequest {
+                            module_name: provider_name.clone(),
+                            module_type: "password_provider".to_string(),
+                            event_id: None,
+                            room_id: None,
+                            execution_time_ms: execution_time,
+                            success: false,
+                            error_message: Some(error_msg),
+                            metadata: None,
+                        })
+                        .await;
                 }
             }
         }
@@ -498,32 +574,60 @@ impl ModuleService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_spam_check_result(&self, event_id: &str) -> Result<Option<SpamCheckResult>, ApiError> {
-        let result = self.storage.get_spam_check_result(event_id).await
+    pub async fn get_spam_check_result(
+        &self,
+        event_id: &str,
+    ) -> Result<Option<SpamCheckResult>, ApiError> {
+        let result = self
+            .storage
+            .get_spam_check_result(event_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get spam check result: {}", e)))?;
 
         Ok(result)
     }
 
     #[instrument(skip(self))]
-    pub async fn get_spam_check_results_by_sender(&self, sender: &str, limit: i64) -> Result<Vec<SpamCheckResult>, ApiError> {
-        let results = self.storage.get_spam_check_results_by_sender(sender, limit).await
+    pub async fn get_spam_check_results_by_sender(
+        &self,
+        sender: &str,
+        limit: i64,
+    ) -> Result<Vec<SpamCheckResult>, ApiError> {
+        let results = self
+            .storage
+            .get_spam_check_results_by_sender(sender, limit)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get spam check results: {}", e)))?;
 
         Ok(results)
     }
 
     #[instrument(skip(self))]
-    pub async fn get_third_party_rule_results(&self, event_id: &str) -> Result<Vec<ThirdPartyRuleResult>, ApiError> {
-        let results = self.storage.get_third_party_rule_results(event_id).await
-            .map_err(|e| ApiError::internal(format!("Failed to get third party rule results: {}", e)))?;
+    pub async fn get_third_party_rule_results(
+        &self,
+        event_id: &str,
+    ) -> Result<Vec<ThirdPartyRuleResult>, ApiError> {
+        let results = self
+            .storage
+            .get_third_party_rule_results(event_id)
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to get third party rule results: {}", e))
+            })?;
 
         Ok(results)
     }
 
     #[instrument(skip(self))]
-    pub async fn get_execution_logs(&self, module_name: &str, limit: i64) -> Result<Vec<ModuleExecutionLog>, ApiError> {
-        let logs = self.storage.get_execution_logs(module_name, limit).await
+    pub async fn get_execution_logs(
+        &self,
+        module_name: &str,
+        limit: i64,
+    ) -> Result<Vec<ModuleExecutionLog>, ApiError> {
+        let logs = self
+            .storage
+            .get_execution_logs(module_name, limit)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get execution logs: {}", e)))?;
 
         Ok(logs)
@@ -540,8 +644,14 @@ impl AccountValidityService {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_validity(&self, request: CreateAccountValidityRequest) -> Result<AccountValidity, ApiError> {
-        let validity = self.storage.create_account_validity(request).await
+    pub async fn create_validity(
+        &self,
+        request: CreateAccountValidityRequest,
+    ) -> Result<AccountValidity, ApiError> {
+        let validity = self
+            .storage
+            .create_account_validity(request)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to create account validity: {}", e)))?;
 
         Ok(validity)
@@ -549,7 +659,10 @@ impl AccountValidityService {
 
     #[instrument(skip(self))]
     pub async fn get_validity(&self, user_id: &str) -> Result<Option<AccountValidity>, ApiError> {
-        let validity = self.storage.get_account_validity(user_id).await
+        let validity = self
+            .storage
+            .get_account_validity(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get account validity: {}", e)))?;
 
         Ok(validity)
@@ -568,8 +681,16 @@ impl AccountValidityService {
     }
 
     #[instrument(skip(self))]
-    pub async fn renew_account(&self, user_id: &str, token: &str, new_expiration_ts: i64) -> Result<AccountValidity, ApiError> {
-        let validity = self.storage.renew_account(user_id, token, new_expiration_ts).await
+    pub async fn renew_account(
+        &self,
+        user_id: &str,
+        token: &str,
+        new_expiration_ts: i64,
+    ) -> Result<AccountValidity, ApiError> {
+        let validity = self
+            .storage
+            .renew_account(user_id, token, new_expiration_ts)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to renew account: {}", e)))?;
 
         Ok(validity)
@@ -577,15 +698,23 @@ impl AccountValidityService {
 
     #[instrument(skip(self))]
     pub async fn set_renewal_token(&self, user_id: &str, token: &str) -> Result<(), ApiError> {
-        self.storage.set_renewal_token(user_id, token).await
+        self.storage
+            .set_renewal_token(user_id, token)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to set renewal token: {}", e)))?;
 
         Ok(())
     }
 
     #[instrument(skip(self))]
-    pub async fn get_expired_accounts(&self, before_ts: i64) -> Result<Vec<AccountValidity>, ApiError> {
-        let accounts = self.storage.get_expired_accounts(before_ts).await
+    pub async fn get_expired_accounts(
+        &self,
+        before_ts: i64,
+    ) -> Result<Vec<AccountValidity>, ApiError> {
+        let accounts = self
+            .storage
+            .get_expired_accounts(before_ts)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get expired accounts: {}", e)))?;
 
         Ok(accounts)
@@ -616,12 +745,15 @@ impl SpamChecker for SimpleSpamChecker {
 
     async fn check(&self, context: &SpamCheckContext) -> Result<SpamCheckOutput, ApiError> {
         let content_str = context.content.to_string();
-        
+
         if content_str.len() > self.max_message_length {
             return Ok(SpamCheckOutput {
                 result: SpamCheckResultType::Block,
                 score: 100,
-                reason: Some(format!("Message exceeds maximum length of {} characters", self.max_message_length)),
+                reason: Some(format!(
+                    "Message exceeds maximum length of {} characters",
+                    self.max_message_length
+                )),
                 action_taken: Some("blocked".to_string()),
             });
         }
@@ -666,7 +798,10 @@ impl ThirdPartyRule for SimpleThirdPartyRule {
         &self.name
     }
 
-    async fn check(&self, context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError> {
+    async fn check(
+        &self,
+        context: &ThirdPartyRuleContext,
+    ) -> Result<ThirdPartyRuleOutput, ApiError> {
         for blocked_type in &self.blocked_event_types {
             if context.event_type == *blocked_type {
                 return Ok(ThirdPartyRuleOutput {

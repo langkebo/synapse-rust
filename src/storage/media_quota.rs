@@ -116,7 +116,9 @@ pub struct MediaQuotaStorage {
 
 impl MediaQuotaStorage {
     pub fn new(pool: &Arc<PgPool>) -> Self {
-        Self { pool: (**pool).clone() }
+        Self {
+            pool: (**pool).clone(),
+        }
     }
 
     pub async fn get_default_config(&self) -> Result<Option<MediaQuotaConfig>, ApiError> {
@@ -142,11 +144,16 @@ impl MediaQuotaStorage {
         Ok(config)
     }
 
-    pub async fn create_config(&self, request: CreateQuotaConfigRequest) -> Result<MediaQuotaConfig, ApiError> {
-        let allowed_mime_types = serde_json::to_value(request.allowed_mime_types.unwrap_or_default())
-            .unwrap_or(serde_json::json!([]));
-        let blocked_mime_types = serde_json::to_value(request.blocked_mime_types.unwrap_or_default())
-            .unwrap_or(serde_json::json!([]));
+    pub async fn create_config(
+        &self,
+        request: CreateQuotaConfigRequest,
+    ) -> Result<MediaQuotaConfig, ApiError> {
+        let allowed_mime_types =
+            serde_json::to_value(request.allowed_mime_types.unwrap_or_default())
+                .unwrap_or(serde_json::json!([]));
+        let blocked_mime_types =
+            serde_json::to_value(request.blocked_mime_types.unwrap_or_default())
+                .unwrap_or(serde_json::json!([]));
 
         if request.is_default.unwrap_or(false) {
             sqlx::query(
@@ -194,13 +201,12 @@ impl MediaQuotaStorage {
     }
 
     pub async fn delete_config(&self, config_id: i32) -> Result<bool, ApiError> {
-        let result = sqlx::query(
-            r#"UPDATE media_quota_config SET is_enabled = FALSE WHERE id = $1"#,
-        )
-        .bind(config_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete quota config: {}", e)))?;
+        let result =
+            sqlx::query(r#"UPDATE media_quota_config SET is_enabled = FALSE WHERE id = $1"#)
+                .bind(config_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to delete quota config: {}", e)))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -217,7 +223,10 @@ impl MediaQuotaStorage {
         Ok(quota)
     }
 
-    pub async fn get_or_create_user_quota(&self, user_id: &str) -> Result<UserMediaQuota, ApiError> {
+    pub async fn get_or_create_user_quota(
+        &self,
+        user_id: &str,
+    ) -> Result<UserMediaQuota, ApiError> {
         if let Some(quota) = self.get_user_quota(user_id).await? {
             return Ok(quota);
         }
@@ -241,7 +250,10 @@ impl MediaQuotaStorage {
         Ok(quota)
     }
 
-    pub async fn set_user_quota(&self, request: SetUserQuotaRequest) -> Result<UserMediaQuota, ApiError> {
+    pub async fn set_user_quota(
+        &self,
+        request: SetUserQuotaRequest,
+    ) -> Result<UserMediaQuota, ApiError> {
         let now = Utc::now().timestamp_millis();
 
         let quota = sqlx::query_as::<_, UserMediaQuota>(
@@ -347,7 +359,11 @@ impl MediaQuotaStorage {
         Ok(())
     }
 
-    pub async fn check_quota(&self, user_id: &str, file_size: i64) -> Result<QuotaCheckResult, ApiError> {
+    pub async fn check_quota(
+        &self,
+        user_id: &str,
+        file_size: i64,
+    ) -> Result<QuotaCheckResult, ApiError> {
         let user_quota = self.get_or_create_user_quota(user_id).await?;
 
         let max_storage = if let Some(custom) = user_quota.custom_max_storage_bytes {
@@ -467,7 +483,11 @@ impl MediaQuotaStorage {
         Ok(alert)
     }
 
-    pub async fn get_user_alerts(&self, user_id: &str, unread_only: bool) -> Result<Vec<MediaQuotaAlert>, ApiError> {
+    pub async fn get_user_alerts(
+        &self,
+        user_id: &str,
+        unread_only: bool,
+    ) -> Result<Vec<MediaQuotaAlert>, ApiError> {
         let alerts = if unread_only {
             sqlx::query_as::<_, MediaQuotaAlert>(
                 r#"SELECT * FROM media_quota_alerts WHERE user_id = $1 AND is_read = FALSE ORDER BY created_ts DESC"#,
@@ -488,13 +508,11 @@ impl MediaQuotaStorage {
     }
 
     pub async fn mark_alert_read(&self, alert_id: i32) -> Result<bool, ApiError> {
-        let result = sqlx::query(
-            r#"UPDATE media_quota_alerts SET is_read = TRUE WHERE id = $1"#,
-        )
-        .bind(alert_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to mark alert read: {}", e)))?;
+        let result = sqlx::query(r#"UPDATE media_quota_alerts SET is_read = TRUE WHERE id = $1"#)
+            .bind(alert_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to mark alert read: {}", e)))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -691,7 +709,7 @@ mod tests {
     fn test_mime_type_validation() {
         let allowed = vec!["image/*", "video/*", "application/pdf"];
         let blocked = vec!["application/exe", "application/bat"];
-        
+
         assert!(allowed.contains(&"image/*"));
         assert!(blocked.contains(&"application/exe"));
     }

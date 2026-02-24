@@ -155,9 +155,13 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
-    pub async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
+    pub async fn remove_from_blacklist(
+        &self,
+        server_name: &str,
+        performed_by: &str,
+    ) -> Result<(), ApiError> {
         let now = Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             UPDATE federation_blacklist 
@@ -181,15 +185,19 @@ impl FederationBlacklistStorage {
             ip_address: None,
             user_agent: None,
             metadata: None,
-        }).await?;
+        })
+        .await?;
 
         info!("Removed server {} from blacklist", server_name);
         Ok(())
     }
 
-    pub async fn get_blacklist_entry(&self, server_name: &str) -> Result<Option<FederationBlacklist>, ApiError> {
+    pub async fn get_blacklist_entry(
+        &self,
+        server_name: &str,
+    ) -> Result<Option<FederationBlacklist>, ApiError> {
         let row = sqlx::query_as::<_, FederationBlacklist>(
-            "SELECT * FROM federation_blacklist WHERE server_name = $1 AND is_enabled = true"
+            "SELECT * FROM federation_blacklist WHERE server_name = $1 AND is_enabled = true",
         )
         .bind(server_name)
         .fetch_optional(&*self.pool)
@@ -201,7 +209,7 @@ impl FederationBlacklistStorage {
 
     pub async fn is_server_blocked(&self, server_name: &str) -> Result<bool, ApiError> {
         let entry = self.get_blacklist_entry(server_name).await?;
-        
+
         if let Some(entry) = entry {
             if let Some(expires_at) = entry.expires_at {
                 let now = Utc::now().timestamp_millis();
@@ -211,7 +219,7 @@ impl FederationBlacklistStorage {
             }
             return Ok(entry.block_type == "blacklist");
         }
-        
+
         Ok(false)
     }
 
@@ -230,14 +238,18 @@ impl FederationBlacklistStorage {
         Ok(row.is_some())
     }
 
-    pub async fn get_all_blacklist(&self, limit: i32, offset: i32) -> Result<Vec<FederationBlacklist>, ApiError> {
+    pub async fn get_all_blacklist(
+        &self,
+        limit: i32,
+        offset: i32,
+    ) -> Result<Vec<FederationBlacklist>, ApiError> {
         let rows = sqlx::query_as::<_, FederationBlacklist>(
             r#"
             SELECT * FROM federation_blacklist 
             WHERE is_enabled = true
             ORDER BY created_ts DESC
             LIMIT $1 OFFSET $2
-            "#
+            "#,
         )
         .bind(limit)
         .bind(offset)
@@ -248,7 +260,10 @@ impl FederationBlacklistStorage {
         Ok(rows)
     }
 
-    pub async fn create_log(&self, request: CreateLogRequest) -> Result<FederationBlacklistLog, ApiError> {
+    pub async fn create_log(
+        &self,
+        request: CreateLogRequest,
+    ) -> Result<FederationBlacklistLog, ApiError> {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, FederationBlacklistLog>(
@@ -276,9 +291,12 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
-    pub async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError> {
+    pub async fn update_access_stats(
+        &self,
+        request: UpdateStatsRequest,
+    ) -> Result<FederationAccessStats, ApiError> {
         let now = Utc::now().timestamp_millis();
-        
+
         let row = sqlx::query_as::<_, FederationAccessStats>(
             r#"
             INSERT INTO federation_access_stats (server_name, total_requests, successful_requests, failed_requests, 
@@ -315,9 +333,12 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
-    pub async fn get_access_stats(&self, server_name: &str) -> Result<Option<FederationAccessStats>, ApiError> {
+    pub async fn get_access_stats(
+        &self,
+        server_name: &str,
+    ) -> Result<Option<FederationAccessStats>, ApiError> {
         let row = sqlx::query_as::<_, FederationAccessStats>(
-            "SELECT * FROM federation_access_stats WHERE server_name = $1"
+            "SELECT * FROM federation_access_stats WHERE server_name = $1",
         )
         .bind(server_name)
         .fetch_optional(&*self.pool)
@@ -327,7 +348,10 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
-    pub async fn create_rule(&self, request: CreateRuleRequest) -> Result<FederationBlacklistRule, ApiError> {
+    pub async fn create_rule(
+        &self,
+        request: CreateRuleRequest,
+    ) -> Result<FederationBlacklistRule, ApiError> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, FederationBlacklistRule>(
@@ -376,13 +400,16 @@ impl FederationBlacklistStorage {
         .await
         .map_err(|e| ApiError::internal(format!("Failed to cleanup expired entries: {}", e)))?;
 
-        info!("Cleaned up {} expired blacklist entries", result.rows_affected());
+        info!(
+            "Cleaned up {} expired blacklist entries",
+            result.rows_affected()
+        );
         Ok(result.rows_affected())
     }
 
     pub async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError> {
         let row: Option<(String,)> = sqlx::query_as(
-            "SELECT config_value FROM federation_blacklist_config WHERE config_key = $1"
+            "SELECT config_value FROM federation_blacklist_config WHERE config_key = $1",
         )
         .bind(config_key)
         .fetch_optional(&*self.pool)
@@ -392,9 +419,13 @@ impl FederationBlacklistStorage {
         Ok(row.map(|r| r.0))
     }
 
-    pub async fn get_config_as_bool(&self, config_key: &str, default: bool) -> Result<bool, ApiError> {
+    pub async fn get_config_as_bool(
+        &self,
+        config_key: &str,
+        default: bool,
+    ) -> Result<bool, ApiError> {
         let value = self.get_config(config_key).await?;
-        
+
         Ok(match value {
             Some(v) => v.to_lowercase() == "true",
             None => default,
@@ -403,7 +434,7 @@ impl FederationBlacklistStorage {
 
     pub async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError> {
         let value = self.get_config(config_key).await?;
-        
+
         Ok(match value {
             Some(v) => v.parse().unwrap_or(default),
             None => default,

@@ -1,5 +1,5 @@
-use regex::Regex;
 use parking_lot::RwLock;
+use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
 

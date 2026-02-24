@@ -7,12 +7,12 @@ mod api_input_validation_tests;
 mod api_ip_block_test;
 mod api_profile_tests;
 mod api_room_tests;
-mod transaction_tests;
 mod cache_tests;
 mod concurrency_tests;
 mod metrics_tests;
-mod regex_cache_tests;
 mod protocol_compliance_tests;
+mod regex_cache_tests;
+mod transaction_tests;
 mod voice_routes_tests;
 
 use std::sync::Arc;

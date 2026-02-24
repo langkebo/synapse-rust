@@ -17,13 +17,11 @@ use std::time::Instant;
 static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
     std::env::var("CORS_ORIGIN_PATTERN")
         .ok()
-        .and_then(|pattern| {
-            match Regex::new(&pattern) {
-                Ok(regex) => Some(regex),
-                Err(e) => {
-                    tracing::error!("Invalid CORS_ORIGIN_PATTERN regex '{}': {}", pattern, e);
-                    None
-                }
+        .and_then(|pattern| match Regex::new(&pattern) {
+            Ok(regex) => Some(regex),
+            Err(e) => {
+                tracing::error!("Invalid CORS_ORIGIN_PATTERN regex '{}': {}", pattern, e);
+                None
             }
         })
 });
@@ -986,21 +984,21 @@ async fn get_federation_verify_key(
 
 fn get_local_verify_key(state: &crate::web::routes::AppState, key_id: &str) -> Option<[u8; 32]> {
     let config = &state.services.config.federation;
-    
+
     if !config.enabled {
         return None;
     }
-    
+
     let config_key_id = config.key_id.as_deref().unwrap_or("ed25519:1");
     if key_id != config_key_id {
         return None;
     }
-    
+
     let signing_key = config.signing_key.as_deref()?;
     let signing_key_bytes = decode_base64_32(signing_key)?;
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
-    
+
     Some(*verifying_key.as_bytes())
 }
 
@@ -1280,10 +1278,7 @@ mod tests {
 
         // Test X-Real-IP
         headers = HeaderMap::new();
-        headers.insert(
-            "x-real-ip",
-            "10.0.0.1".parse().expect("valid header value"),
-        );
+        headers.insert("x-real-ip", "10.0.0.1".parse().expect("valid header value"));
         assert_eq!(
             extract_client_ip(&headers, &priority),
             Some("10.0.0.1".to_string())
@@ -1295,10 +1290,7 @@ mod tests {
             "x-forwarded-for",
             "1.2.3.4".parse().expect("valid header value"),
         );
-        headers.insert(
-            "x-real-ip",
-            "10.0.0.1".parse().expect("valid header value"),
-        );
+        headers.insert("x-real-ip", "10.0.0.1".parse().expect("valid header value"));
         assert_eq!(
             extract_client_ip(&headers, &priority),
             Some("1.2.3.4".to_string())

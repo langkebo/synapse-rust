@@ -100,7 +100,10 @@ impl TelemetryService {
     }
 
     fn initialize_tracing(&self) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Initializing tracing with sampling ratio: {}", self.get_sampling_ratio());
+        info!(
+            "Initializing tracing with sampling ratio: {}",
+            self.get_sampling_ratio()
+        );
 
         if let Some(endpoint) = &self.config.otlp_endpoint {
             info!("OTLP tracing endpoint: {}", endpoint);

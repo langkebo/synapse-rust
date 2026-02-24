@@ -88,7 +88,9 @@ fn bench_validation_password(c: &mut Criterion) {
             let has_upper = password.chars().any(|c| c.is_uppercase());
             let has_lower = password.chars().any(|c| c.is_lowercase());
             let has_digit = password.chars().any(|c| c.is_ascii_digit());
-            let has_special = password.chars().any(|c| "!@#$%^&*()_+-=[]{}|;:,.<>?".contains(c));
+            let has_special = password
+                .chars()
+                .any(|c| "!@#$%^&*()_+-=[]{}|;:,.<>?".contains(c));
             has_upper && has_lower && has_digit && has_special
         })
     });
@@ -112,9 +114,9 @@ fn bench_string_operations(c: &mut Criterion) {
         let error_msg = black_box("duplicate key value violates unique constraint");
         b.iter(|| {
             let error_msg_lower = error_msg.to_lowercase();
-            error_msg_lower.contains("duplicate key") ||
-                error_msg_lower.contains("unique constraint") ||
-                error_msg_lower.contains("23505")
+            error_msg_lower.contains("duplicate key")
+                || error_msg_lower.contains("unique constraint")
+                || error_msg_lower.contains("23505")
         })
     });
 
@@ -148,16 +150,12 @@ fn bench_data_structures(c: &mut Criterion) {
 
     group.bench_function("vec_search_1000", |b| {
         let target = black_box("user_500");
-        b.iter(|| {
-            vec_data.iter().any(|x| x == target)
-        })
+        b.iter(|| vec_data.iter().any(|x| x == target))
     });
 
     group.bench_function("hashmap_lookup_1000", |b| {
         let target = black_box("user_500");
-        b.iter(|| {
-            map_data.contains_key(target)
-        })
+        b.iter(|| map_data.contains_key(target))
     });
 
     // HashSet membership check
@@ -165,9 +163,7 @@ fn bench_data_structures(c: &mut Criterion) {
 
     group.bench_function("hashset_contains_1000", |b| {
         let target = black_box("user_500");
-        b.iter(|| {
-            set_data.contains(target)
-        })
+        b.iter(|| set_data.contains(target))
     });
 
     group.finish();
@@ -189,16 +185,12 @@ fn bench_serialization(c: &mut Criterion) {
     });
 
     group.bench_function("serialize_user", |b| {
-        b.iter(|| {
-            serde_json::to_string(black_box(&user_data))
-        })
+        b.iter(|| serde_json::to_string(black_box(&user_data)))
     });
 
     let serialized = user_data.to_string();
     group.bench_function("deserialize_user", |b| {
-        b.iter(|| {
-            serde_json::from_str::<serde_json::Value>(black_box(&serialized))
-        })
+        b.iter(|| serde_json::from_str::<serde_json::Value>(black_box(&serialized)))
     });
 
     group.finish();
@@ -211,21 +203,24 @@ fn bench_collection_operations(c: &mut Criterion) {
     let users: Vec<String> = (0..100).map(|i| format!("@user{}:localhost", i)).collect();
     let _friend_ids: std::collections::HashSet<String> =
         (0..50).map(|i| format!("@user{}:localhost", i)).collect();
-    let blocked_ids: std::collections::HashSet<String> =
-        vec!["@user10:localhost".to_string(), "@user20:localhost".to_string()].into_iter().collect();
+    let blocked_ids: std::collections::HashSet<String> = vec![
+        "@user10:localhost".to_string(),
+        "@user20:localhost".to_string(),
+    ]
+    .into_iter()
+    .collect();
 
     group.bench_function("filter_with_hashset_100", |b| {
         b.iter(|| {
-            users.iter().filter(|u| !blocked_ids.contains(u.as_str())).count()
+            users
+                .iter()
+                .filter(|u| !blocked_ids.contains(u.as_str()))
+                .count()
         })
     });
 
     group.throughput(Throughput::Elements(10));
-    group.bench_function("map_collect_100", |b| {
-        b.iter(|| {
-            users.to_vec()
-        })
-    });
+    group.bench_function("map_collect_100", |b| b.iter(|| users.to_vec()));
 
     group.finish();
 }
@@ -234,16 +229,10 @@ fn bench_collection_operations(c: &mut Criterion) {
 fn bench_timestamp_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("timestamps");
 
-    group.bench_function("chrono_now", |b| {
-        b.iter(|| {
-            chrono::Utc::now().timestamp()
-        })
-    });
+    group.bench_function("chrono_now", |b| b.iter(|| chrono::Utc::now().timestamp()));
 
     group.bench_function("chrono_now_millis", |b| {
-        b.iter(|| {
-            chrono::Utc::now().timestamp_millis()
-        })
+        b.iter(|| chrono::Utc::now().timestamp_millis())
     });
 
     group.finish();
@@ -254,15 +243,11 @@ fn bench_format_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("format");
 
     group.bench_function("format_user_id", |b| {
-        b.iter(|| {
-            format!("@{}:localhost", black_box("alice"))
-        })
+        b.iter(|| format!("@{}:localhost", black_box("alice")))
     });
 
     group.bench_function("format_with_insert", |b| {
-        b.iter(|| {
-            "INSERT INTO users (user_id) VALUES ($1, $2)".to_string()
-        })
+        b.iter(|| "INSERT INTO users (user_id) VALUES ($1, $2)".to_string())
     });
 
     group.finish();

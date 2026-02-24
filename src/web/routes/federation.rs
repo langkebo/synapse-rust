@@ -497,7 +497,12 @@ async fn send_transaction(
             origin_server_ts,
         };
 
-        match state.services.event_storage.create_event(params, None).await {
+        match state
+            .services
+            .event_storage
+            .create_event(params, None)
+            .await
+        {
             Ok(_) => {
                 results.push(json!({
                     "event_id": event_id,
@@ -939,7 +944,9 @@ async fn room_directory_query(
     // 2. Try private sessions (Federation might ask for DM room info)
     // Deprecated: Private chat module removed.
     if room_id.starts_with("ps_") {
-         return Err(ApiError::not_found("Private session not supported".to_string()));
+        return Err(ApiError::not_found(
+            "Private session not supported".to_string(),
+        ));
     }
 
     Err(ApiError::not_found("Room not found".to_string()))
@@ -1240,7 +1247,7 @@ mod tests {
 
     #[test]
     fn test_decode_base64_32() {
-        let valid_key = "dGVzdGtleTEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU"; 
+        let valid_key = "dGVzdGtleTEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU";
         let result = decode_base64_32(valid_key);
         assert!(result.is_some());
     }

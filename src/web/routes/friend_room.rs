@@ -1,3 +1,5 @@
+use crate::common::ApiError;
+use crate::web::routes::{validate_user_id, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     routing::{delete, get, post, put},
@@ -5,22 +7,50 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use crate::common::ApiError;
-use crate::web::routes::{AppState, AuthenticatedUser, validate_user_id};
 
 pub fn create_friend_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v1/friends", get(get_friends))
-        .route("/_matrix/client/v1/friends/request", post(send_friend_request))
-        .route("/_matrix/client/v1/friends/request/{user_id}/accept", post(accept_friend_request))
-        .route("/_matrix/client/v1/friends/request/{user_id}/reject", post(reject_friend_request))
-        .route("/_matrix/client/v1/friends/request/{user_id}/cancel", post(cancel_friend_request))
-        .route("/_matrix/client/v1/friends/requests/incoming", get(get_incoming_requests))
-        .route("/_matrix/client/v1/friends/requests/outgoing", get(get_outgoing_requests))
-        .route("/_matrix/client/v1/friends/{user_id}", delete(remove_friend))
-        .route("/_matrix/client/v1/friends/{user_id}/note", put(update_friend_note))
-        .route("/_matrix/client/v1/friends/{user_id}/status", put(update_friend_status))
-        .route("/_matrix/client/v1/friends/{user_id}/info", get(get_friend_info))
+        .route(
+            "/_matrix/client/v1/friends/request",
+            post(send_friend_request),
+        )
+        .route(
+            "/_matrix/client/v1/friends/request/{user_id}/accept",
+            post(accept_friend_request),
+        )
+        .route(
+            "/_matrix/client/v1/friends/request/{user_id}/reject",
+            post(reject_friend_request),
+        )
+        .route(
+            "/_matrix/client/v1/friends/request/{user_id}/cancel",
+            post(cancel_friend_request),
+        )
+        .route(
+            "/_matrix/client/v1/friends/requests/incoming",
+            get(get_incoming_requests),
+        )
+        .route(
+            "/_matrix/client/v1/friends/requests/outgoing",
+            get(get_outgoing_requests),
+        )
+        .route(
+            "/_matrix/client/v1/friends/{user_id}",
+            delete(remove_friend),
+        )
+        .route(
+            "/_matrix/client/v1/friends/{user_id}/note",
+            put(update_friend_note),
+        )
+        .route(
+            "/_matrix/client/v1/friends/{user_id}/status",
+            put(update_friend_status),
+        )
+        .route(
+            "/_matrix/client/v1/friends/{user_id}/info",
+            get(get_friend_info),
+        )
         .with_state(state)
 }
 
@@ -69,7 +99,7 @@ async fn get_friends(
         .friend_room_service
         .get_friends(&auth_user.user_id)
         .await?;
-    
+
     Ok(Json(json!({
         "friends": friends,
         "total": friends.len()
@@ -84,7 +114,9 @@ async fn send_friend_request(
     validate_user_id(&body.user_id)?;
 
     if body.user_id == auth_user.user_id {
-        return Err(ApiError::bad_request("Cannot send friend request to yourself".to_string()));
+        return Err(ApiError::bad_request(
+            "Cannot send friend request to yourself".to_string(),
+        ));
     }
 
     let room_id = state
@@ -159,7 +191,7 @@ async fn get_incoming_requests(
         .friend_room_service
         .get_incoming_requests(&auth_user.user_id)
         .await?;
-    
+
     Ok(Json(json!({ "requests": requests })))
 }
 
@@ -172,7 +204,7 @@ async fn get_outgoing_requests(
         .friend_room_service
         .get_outgoing_requests(&auth_user.user_id)
         .await?;
-    
+
     Ok(Json(json!({ "requests": requests })))
 }
 
@@ -201,7 +233,9 @@ async fn update_friend_note(
     validate_user_id(&friend_id)?;
 
     if body.note.len() > 1000 {
-        return Err(ApiError::bad_request("Note exceeds maximum length of 1000 characters".to_string()));
+        return Err(ApiError::bad_request(
+            "Note exceeds maximum length of 1000 characters".to_string(),
+        ));
     }
 
     state

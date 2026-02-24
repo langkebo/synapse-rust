@@ -1580,13 +1580,13 @@ impl Config {
             config_values.security.secret
         );
 
-        config_values.resolve_env_variables().map_err(|e| {
-            format!("Failed to resolve environment variables: {}", e)
-        })?;
+        config_values
+            .resolve_env_variables()
+            .map_err(|e| format!("Failed to resolve environment variables: {}", e))?;
 
-        config_values.validate().map_err(|e| {
-            format!("Configuration validation failed: {}", e)
-        })?;
+        config_values
+            .validate()
+            .map_err(|e| format!("Configuration validation failed: {}", e))?;
 
         tracing::info!("Environment variables resolved successfully");
         tracing::debug!(
@@ -1778,11 +1778,9 @@ impl Config {
         }
 
         if self.security.secret.is_empty() {
-            return Err(
-                "security.secret is not configured. \
+            return Err("security.secret is not configured. \
                  Please set security.secret in your configuration file."
-                    .to_string(),
-            );
+                .to_string());
         }
 
         if self.security.secret.len() < 32 {
@@ -1792,9 +1790,7 @@ impl Config {
             );
         }
 
-        if self.cors.allowed_origins.iter().any(|o| o == "*")
-            && self.cors.allow_credentials
-        {
+        if self.cors.allowed_origins.iter().any(|o| o == "*") && self.cors.allow_credentials {
             tracing::warn!(
                 "CORS is configured to allow all origins ('*') with credentials. \
                  This is not recommended for production. \

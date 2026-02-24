@@ -6,9 +6,8 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::{
-    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, FederationConfig,
-    RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig,
-    VoipConfig, WorkerConfig,
+    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, FederationConfig, RateLimitConfig,
+    RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, VoipConfig, WorkerConfig,
 };
 use synapse_rust::services::{DatabaseInitService, ServiceContainer};
 use synapse_rust::web::routes::create_router;
@@ -66,7 +65,7 @@ async fn setup_test_app() -> axum::Router {
             ignored_user_list TEXT,
             PRIMARY KEY (device_id, user_id)
         )
-        "#
+        "#,
     )
     .execute(&*pool)
     .await
@@ -87,7 +86,7 @@ async fn setup_test_app() -> axum::Router {
             ip VARCHAR(255),
             invalidated_ts BIGINT
         )
-        "#
+        "#,
     )
     .execute(&*pool)
     .await
@@ -105,7 +104,7 @@ async fn setup_test_app() -> axum::Router {
             invalidated BOOLEAN DEFAULT FALSE,
             invalidated_ts BIGINT
         )
-        "#
+        "#,
     )
     .execute(&*pool)
     .await
@@ -200,6 +199,8 @@ async fn setup_test_app() -> axum::Router {
             argon2_t_cost: 1,
             argon2_p_cost: 1,
             allow_legacy_hashes: false,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
         },
         search: SearchConfig {
             elasticsearch_url: "http://localhost:9200".to_string(),
@@ -313,7 +314,10 @@ async fn test_trusted_private_chat_transaction() {
         let body = axum::body::to_bytes(response.into_body(), 1024)
             .await
             .unwrap();
-        panic!("Get room state failed: {:?}", String::from_utf8_lossy(&body));
+        panic!(
+            "Get room state failed: {:?}",
+            String::from_utf8_lossy(&body)
+        );
     }
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), 10240)
@@ -321,26 +325,35 @@ async fn test_trusted_private_chat_transaction() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     // The implementation wraps the array in a "state" field, though spec says it should be array
-    let state_events = json.get("state").and_then(|v| v.as_array()).expect("Expected state array");
+    let state_events = json
+        .get("state")
+        .and_then(|v| v.as_array())
+        .expect("Expected state array");
 
     // Verify history_visibility = invited
     let history_vis = state_events.iter().find(|e| {
-        e["type"] == "m.room.history_visibility" && 
-        e["content"]["history_visibility"] == "invited"
+        e["type"] == "m.room.history_visibility" && e["content"]["history_visibility"] == "invited"
     });
-    assert!(history_vis.is_some(), "Should have history_visibility = invited");
+    assert!(
+        history_vis.is_some(),
+        "Should have history_visibility = invited"
+    );
 
     // Verify guest_access = forbidden
     let guest_access = state_events.iter().find(|e| {
-        e["type"] == "m.room.guest_access" && 
-        e["content"]["guest_access"] == "forbidden"
+        e["type"] == "m.room.guest_access" && e["content"]["guest_access"] == "forbidden"
     });
-    assert!(guest_access.is_some(), "Should have guest_access = forbidden");
+    assert!(
+        guest_access.is_some(),
+        "Should have guest_access = forbidden"
+    );
 
     // Verify com.hula.privacy = block_screenshot
-    let privacy = state_events.iter().find(|e| {
-        e["type"] == "com.hula.privacy" && 
-        e["content"]["action"] == "block_screenshot"
-    });
-    assert!(privacy.is_some(), "Should have com.hula.privacy = block_screenshot");
+    let privacy = state_events
+        .iter()
+        .find(|e| e["type"] == "com.hula.privacy" && e["content"]["action"] == "block_screenshot");
+    assert!(
+        privacy.is_some(),
+        "Should have com.hula.privacy = block_screenshot"
+    );
 }

@@ -443,7 +443,11 @@ impl KeyBackupService {
             version: version.to_string(),
             total_keys,
             recovered_keys: total_keys,
-            status: if total_keys > 0 { "completed".to_string() } else { "empty".to_string() },
+            status: if total_keys > 0 {
+                "completed".to_string()
+            } else {
+                "empty".to_string()
+            },
             started_ts: backup.version * 1000,
             updated_ts: now,
         })
@@ -462,7 +466,11 @@ impl KeyBackupService {
 
         let key_count = self.get_backup_key_count(user_id).await?;
 
-        let signatures = backup.backup_data.get("signatures").cloned().unwrap_or(serde_json::json!({}));
+        let signatures = backup
+            .backup_data
+            .get("signatures")
+            .cloned()
+            .unwrap_or(serde_json::json!({}));
 
         Ok(BackupVerificationResponse {
             valid: !backup.algorithm.is_empty(),
@@ -523,7 +531,11 @@ impl KeyBackupService {
             rooms: rooms_map,
             total_sessions,
             has_more,
-            next_batch: if has_more { Some(format!("batch_{}", chrono::Utc::now().timestamp())) } else { None },
+            next_batch: if has_more {
+                Some(format!("batch_{}", chrono::Utc::now().timestamp()))
+            } else {
+                None
+            },
         })
     }
 
@@ -567,7 +579,9 @@ impl KeyBackupService {
         room_id: &str,
         session_id: &str,
     ) -> Result<Option<serde_json::Value>, ApiError> {
-        let key = self.get_backup_key(user_id, room_id, session_id, version).await?;
+        let key = self
+            .get_backup_key(user_id, room_id, session_id, version)
+            .await?;
 
         Ok(key.map(|k| {
             serde_json::json!({

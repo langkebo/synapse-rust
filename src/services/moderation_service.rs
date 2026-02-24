@@ -1,7 +1,7 @@
 use crate::common::*;
+use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
-use serde_json::json;
 
 #[derive(Debug, Clone)]
 pub struct ReputationConfig {

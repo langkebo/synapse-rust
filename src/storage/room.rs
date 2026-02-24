@@ -78,7 +78,7 @@ impl RoomStorage {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<Room, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        
+
         let query = r#"
             INSERT INTO rooms (room_id, creator, join_rule, version, is_public, member_count, history_visibility, creation_ts, last_activity_ts)
             VALUES ($1, $2, $3, $4, $5, 1, 'joined', $6, $7)
@@ -112,7 +112,7 @@ impl RoomStorage {
         // to see the uncommitted changes, unless read isolation allows otherwise.
         // But sqlx transaction reuse is tricky for select if we want to return the object.
         // For simplicity, we construct the Room object manually since we know what we inserted.
-        
+
         Ok(Room {
             room_id: room_id.to_string(),
             name: None,
@@ -512,6 +512,32 @@ impl RoomStorage {
             "UPDATE rooms SET is_public = false, name = COALESCE(name, '') || ' (SHUTDOWN)' WHERE room_id = $1",
         )
         .bind(room_id)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn set_room_version(&self, room_id: &str, version: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE rooms SET version = $1 WHERE room_id = $2")
+            .bind(version)
+            .bind(room_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO room_state_events (room_id, type, state_key, content, sender, origin_server_ts)
+            SELECT $1, type, state_key, content, sender, origin_server_ts
+            FROM room_state_events
+            WHERE room_id = $2
+            ON CONFLICT DO NOTHING
+            "#
+        )
+        .bind(target_room_id)
+        .bind(source_room_id)
         .execute(&*self.pool)
         .await?;
         Ok(())

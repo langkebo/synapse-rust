@@ -1,10 +1,10 @@
+use super::background_job::BackgroundJob;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinHandle;
-use super::background_job::BackgroundJob;
 
 #[cfg(test)]
 use tokio::sync::oneshot;
@@ -117,7 +117,11 @@ impl TaskQueue {
             .map_err(|e| TaskQueueError::SubmissionError(e.to_string()))
     }
 
-    pub fn submit_delayed<F, Fut>(&self, task: F, delay: std::time::Duration) -> Result<(), TaskQueueError>
+    pub fn submit_delayed<F, Fut>(
+        &self,
+        task: F,
+        delay: std::time::Duration,
+    ) -> Result<(), TaskQueueError>
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = TaskResultValue> + Send + 'static,
@@ -196,7 +200,12 @@ impl BackgroundTaskManager {
         Ok(task_id)
     }
 
-    pub fn submit_delayed_task<F, Fut>(&self, name: String, task: F, delay: std::time::Duration) -> Result<TaskId, TaskQueueError>
+    pub fn submit_delayed_task<F, Fut>(
+        &self,
+        name: String,
+        task: F,
+        delay: std::time::Duration,
+    ) -> Result<TaskId, TaskQueueError>
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = TaskResultValue> + Send + 'static,
@@ -206,22 +215,24 @@ impl BackgroundTaskManager {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let name_clone = name.clone();
 
-        self.task_queue
-            .submit_delayed(move || async move {
+        self.task_queue.submit_delayed(
+            move || async move {
                 let result = task().await;
                 TaskResultValue {
                     task_id,
                     success: result.success,
                     message: format!("Task '{}': {}", name_clone, result.message),
                 }
-            }, delay)?;
+            },
+            delay,
+        )?;
 
         Ok(task_id)
     }
 }
 
-use redis::AsyncCommands;
 use deadpool_redis::{Config, Pool, Runtime};
+use redis::AsyncCommands;
 
 pub struct RedisTaskQueue {
     pool: Pool,
@@ -231,7 +242,7 @@ impl RedisTaskQueue {
     pub async fn new(config: &crate::common::config::RedisConfig) -> Result<Self, TaskQueueError> {
         let conn_str = format!("redis://{}:{}", config.host, config.port);
         let cfg = Config::from_url(conn_str);
-        
+
         let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
             TaskQueueError::SubmissionError(format!("Failed to create Redis pool: {}", e))
         })?;
@@ -252,19 +263,25 @@ impl RedisTaskQueue {
         })?;
 
         // XADD mq:tasks:default * payload {json}
-        let id: String = conn.xadd(
-            "mq:tasks:default",
-            "*",
-            &[("payload", &payload)],
-        ).await.map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to XADD job: {}", e))
-        })?;
+        let id: String = conn
+            .xadd("mq:tasks:default", "*", &[("payload", &payload)])
+            .await
+            .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to XADD job: {}", e)))?;
 
-        tracing::info!("Submitted background job to Redis Stream: {} -> {}", id, payload);
+        tracing::info!(
+            "Submitted background job to Redis Stream: {} -> {}",
+            id,
+            payload
+        );
         Ok(id)
     }
 
-    pub async fn consume_loop<F, Fut>(&self, group_name: &str, consumer_name: &str, handler: F) -> Result<(), TaskQueueError>
+    pub async fn consume_loop<F, Fut>(
+        &self,
+        group_name: &str,
+        consumer_name: &str,
+        handler: F,
+    ) -> Result<(), TaskQueueError>
     where
         F: Fn(BackgroundJob) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), String>> + Send,
@@ -274,7 +291,9 @@ impl RedisTaskQueue {
             TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {}", e))
         })?;
 
-        let _: Result<(), _> = conn.xgroup_create_mkstream("mq:tasks:default", group_name, "$").await;
+        let _: Result<(), _> = conn
+            .xgroup_create_mkstream("mq:tasks:default", group_name, "$")
+            .await;
 
         loop {
             // XREADGROUP GROUP group_name consumer_name COUNT 1 BLOCK 2000 STREAMS mq:tasks:default >
@@ -283,24 +302,36 @@ impl RedisTaskQueue {
                 .count(1)
                 .block(2000);
 
-            let result: Result<redis::streams::StreamReadReply, _> = conn.xread_options(
-                &["mq:tasks:default"],
-                &[">"],
-                &opts,
-            ).await;
+            let result: Result<redis::streams::StreamReadReply, _> = conn
+                .xread_options(&["mq:tasks:default"], &[">"], &opts)
+                .await;
 
             match result {
                 Ok(reply) => {
                     for stream_key in reply.keys {
                         for stream_id in stream_key.ids {
                             if let Some(payload_val) = stream_id.map.get("payload") {
-                                if let Ok(payload_str) = redis::from_redis_value::<String>(payload_val) {
-                                    if let Ok(job) = serde_json::from_str::<BackgroundJob>(&payload_str) {
-                                        tracing::info!("Processing job {}: {:?}", stream_id.id, job);
+                                if let Ok(payload_str) =
+                                    redis::from_redis_value::<String>(payload_val)
+                                {
+                                    if let Ok(job) =
+                                        serde_json::from_str::<BackgroundJob>(&payload_str)
+                                    {
+                                        tracing::info!(
+                                            "Processing job {}: {:?}",
+                                            stream_id.id,
+                                            job
+                                        );
                                         match handler(job).await {
                                             Ok(_) => {
                                                 // XACK
-                                                let _: Result<(), _> = conn.xack("mq:tasks:default", group_name, &[&stream_id.id]).await;
+                                                let _: Result<(), _> = conn
+                                                    .xack(
+                                                        "mq:tasks:default",
+                                                        group_name,
+                                                        &[&stream_id.id],
+                                                    )
+                                                    .await;
                                             }
                                             Err(e) => {
                                                 tracing::error!("Job processing failed: {}", e);
@@ -308,7 +339,10 @@ impl RedisTaskQueue {
                                             }
                                         }
                                     } else {
-                                        tracing::error!("Failed to deserialize job payload: {}", payload_str);
+                                        tracing::error!(
+                                            "Failed to deserialize job payload: {}",
+                                            payload_str
+                                        );
                                     }
                                 }
                             }
@@ -321,7 +355,7 @@ impl RedisTaskQueue {
                     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                     // Re-acquire connection if needed
                     if let Ok(new_conn) = self.pool.get().await {
-                         conn = new_conn;
+                        conn = new_conn;
                     }
                 }
             }
@@ -345,20 +379,24 @@ impl RedisTaskQueue {
         // Wait, the error says `available field is: ids`. This means I might be using `xpending` which returns `StreamPendingReply` (the detailed one) instead of count?
         // Ah, `xpending` with just stream and group returns summary. `xpending` with count returns details.
         // The `redis` crate mapping might be tricky.
-        
+
         // Let's use `xpending_count` if available, or just parse generic Value.
         // Looking at the error: "available field is: `ids`". This suggests `StreamPendingReply` which is the result of XPENDING with start/end/count.
         // But I called `xpending("mq:tasks:default", group_name)`.
-        
+
         // Let's try to map to `redis::Value` and inspect/parse manually to avoid struct mismatch issues.
-        let info_val: redis::Value = conn.xpending("mq:tasks:default", group_name).await.map_err(|e| {
-             TaskQueueError::SubmissionError(format!("Failed to get pending info: {}", e))
-        })?;
-        
+        let info_val: redis::Value = conn
+            .xpending("mq:tasks:default", group_name)
+            .await
+            .map_err(|e| {
+                TaskQueueError::SubmissionError(format!("Failed to get pending info: {}", e))
+            })?;
+
         // Parse the summary response: [count, min_id, max_id, [[consumer, count], ...]]
-        let (count, _min, _max, consumers_list): (u64, String, String, Vec<(String, u64)>) = redis::from_redis_value(&info_val).map_err(|e| {
-             TaskQueueError::SubmissionError(format!("Failed to parse pending info: {}", e))
-        })?;
+        let (count, _min, _max, consumers_list): (u64, String, String, Vec<(String, u64)>) =
+            redis::from_redis_value(&info_val).map_err(|e| {
+                TaskQueueError::SubmissionError(format!("Failed to parse pending info: {}", e))
+            })?;
 
         Ok(QueueMetrics {
             queue_length,

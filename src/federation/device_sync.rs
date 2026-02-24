@@ -1,6 +1,6 @@
 use crate::cache::CacheManager;
-use crate::common::task_queue::RedisTaskQueue;
 use crate::common::background_job::BackgroundJob;
+use crate::common::task_queue::RedisTaskQueue;
 use crate::common::ApiError;
 use chrono::{Duration, TimeZone, Utc};
 use reqwest::{Client, StatusCode};
@@ -40,9 +40,9 @@ pub struct DeviceSyncManager {
 
 impl DeviceSyncManager {
     pub fn new(
-        pool: &Arc<Pool<Postgres>>, 
+        pool: &Arc<Pool<Postgres>>,
         cache_manager: Option<Arc<CacheManager>>,
-        task_queue: Option<Arc<RedisTaskQueue>>
+        task_queue: Option<Arc<RedisTaskQueue>>,
     ) -> Self {
         let http_client = Client::builder()
             .timeout(std::time::Duration::from_secs(10))
@@ -222,7 +222,7 @@ impl DeviceSyncManager {
             // To properly handle the revocation payload, we should probably serialize it into a Generic job
             // or update the FederationTransaction variant.
             // Let's use Generic for now to carry the full payload.
-             let payload = json!({
+            let payload = json!({
                 "type": "m.device_list_update",
                 "sender": user_id,
                 "content": {
@@ -232,9 +232,9 @@ impl DeviceSyncManager {
                 "destination": origin
             });
 
-            let job = BackgroundJob::Generic { 
+            let job = BackgroundJob::Generic {
                 name: "notify_device_revocation".to_string(),
-                payload 
+                payload,
             };
 
             if let Err(e) = queue.submit(job).await {
@@ -242,7 +242,11 @@ impl DeviceSyncManager {
                 // Fallback to sync execution if queue fails? Or just log error.
                 // For robustness, let's fall through to the sync implementation below if queue fails.
             } else {
-                tracing::info!("Submitted device revocation task for {} to {}", device_id, origin);
+                tracing::info!(
+                    "Submitted device revocation task for {} to {}",
+                    device_id,
+                    origin
+                );
                 return Ok(());
             }
         }

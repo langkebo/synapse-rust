@@ -1,7 +1,7 @@
 use crate::common::config::SamlConfig;
 use crate::common::error::ApiError;
 use crate::storage::saml::*;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -54,11 +54,7 @@ pub struct SamlService {
 }
 
 impl SamlService {
-    pub fn new(
-        config: Arc<SamlConfig>,
-        storage: Arc<SamlStorage>,
-        server_name: String,
-    ) -> Self {
+    pub fn new(config: Arc<SamlConfig>, storage: Arc<SamlStorage>, server_name: String) -> Self {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout))
             .build()
@@ -78,22 +74,25 @@ impl SamlService {
         self.config.is_enabled()
     }
 
-    pub async fn get_auth_redirect(&self, relay_state: Option<&str>) -> Result<SamlAuthRequest, ApiError> {
+    pub async fn get_auth_redirect(
+        &self,
+        relay_state: Option<&str>,
+    ) -> Result<SamlAuthRequest, ApiError> {
         let request_id = Self::generate_request_id();
-        
+
         let metadata = self.get_idp_metadata().await?;
-        
+
         let sso_url = metadata.sso_url;
-        
+
         let sp_entity_id = &self.config.sp_entity_id;
         let acs_url = self.config.get_sp_acs_url(&self.server_name);
-        
+
         let authn_request = self.build_authn_request(&request_id, sp_entity_id, &acs_url);
-        
+
         let redirect_url = self.build_redirect_url(&sso_url, &authn_request, relay_state)?;
-        
+
         info!("Generated SAML auth redirect for request: {}", request_id);
-        
+
         Ok(SamlAuthRequest {
             request_id,
             redirect_url,
@@ -109,17 +108,18 @@ impl SamlService {
         user_agent: Option<&str>,
     ) -> Result<SamlAuthResponse, ApiError> {
         let decoded = Self::decode_saml_response(saml_response)?;
-        
+
         let (name_id, issuer, attributes, session_index) = Self::parse_saml_assertion(&decoded)?;
-        
+
         self.validate_response(&issuer, &decoded)?;
-        
+
         let user = self.map_user(&name_id, &issuer, &attributes)?;
-        
-        let existing_mapping = self.storage
+
+        let existing_mapping = self
+            .storage
             .get_user_mapping_by_name_id(&name_id, &issuer)
             .await?;
-        
+
         let user_id = if let Some(mapping) = existing_mapping {
             if !self.config.allow_existing_users {
                 return Err(ApiError::unauthorized("Existing users not allowed"));
@@ -131,42 +131,49 @@ impl SamlService {
             }
             format!("@{}:{}", user.localpart, self.server_name)
         };
-        
+
         let session_id = Self::generate_session_id();
-        
-        let session = self.storage.create_session(CreateSamlSessionRequest {
-            session_id: session_id.clone(),
-            user_id: user_id.clone(),
-            name_id: Some(name_id.clone()),
-            issuer: Some(issuer.clone()),
-            session_index,
-            attributes: attributes.clone(),
-            expires_in_seconds: self.config.session_lifetime as i64,
-        }).await?;
-        
-        self.storage.create_user_mapping(CreateSamlUserMappingRequest {
-            name_id: name_id.clone(),
-            user_id: user_id.clone(),
-            issuer: issuer.clone(),
-            attributes: attributes.clone(),
-        }).await?;
-        
-        self.storage.create_auth_event(CreateSamlAuthEventRequest {
-            session_id: Some(session_id.clone()),
-            user_id: Some(user_id.clone()),
-            name_id: Some(name_id.clone()),
-            issuer: Some(issuer.clone()),
-            event_type: "login".to_string(),
-            status: "success".to_string(),
-            error_message: None,
-            ip_address: ip_address.map(|s| s.to_string()),
-            user_agent: user_agent.map(|s| s.to_string()),
-            request_id: relay_state.map(|s| s.to_string()),
-            attributes: attributes.clone(),
-        }).await?;
-        
+
+        let session = self
+            .storage
+            .create_session(CreateSamlSessionRequest {
+                session_id: session_id.clone(),
+                user_id: user_id.clone(),
+                name_id: Some(name_id.clone()),
+                issuer: Some(issuer.clone()),
+                session_index,
+                attributes: attributes.clone(),
+                expires_in_seconds: self.config.session_lifetime as i64,
+            })
+            .await?;
+
+        self.storage
+            .create_user_mapping(CreateSamlUserMappingRequest {
+                name_id: name_id.clone(),
+                user_id: user_id.clone(),
+                issuer: issuer.clone(),
+                attributes: attributes.clone(),
+            })
+            .await?;
+
+        self.storage
+            .create_auth_event(CreateSamlAuthEventRequest {
+                session_id: Some(session_id.clone()),
+                user_id: Some(user_id.clone()),
+                name_id: Some(name_id.clone()),
+                issuer: Some(issuer.clone()),
+                event_type: "login".to_string(),
+                status: "success".to_string(),
+                error_message: None,
+                ip_address: ip_address.map(|s| s.to_string()),
+                user_agent: user_agent.map(|s| s.to_string()),
+                request_id: relay_state.map(|s| s.to_string()),
+                attributes: attributes.clone(),
+            })
+            .await?;
+
         info!("SAML authentication successful for user: {}", user_id);
-        
+
         Ok(SamlAuthResponse {
             session_id,
             user_id,
@@ -182,61 +189,67 @@ impl SamlService {
         session_id: &str,
         reason: Option<&str>,
     ) -> Result<String, ApiError> {
-        let session = self.storage.get_session(session_id).await?
+        let session = self
+            .storage
+            .get_session(session_id)
+            .await?
             .ok_or_else(|| ApiError::not_found("Session not found"))?;
-        
+
         let metadata = self.get_idp_metadata().await?;
-        
-        let slo_url = metadata.slo_url
+
+        let slo_url = metadata
+            .slo_url
             .ok_or_else(|| ApiError::bad_request("IdP does not support Single Logout"))?;
-        
+
         let request_id = Self::generate_request_id();
-        
-        self.storage.create_logout_request(CreateSamlLogoutRequestRequest {
-            request_id: request_id.clone(),
-            session_id: Some(session_id.to_string()),
-            user_id: Some(session.user_id.clone()),
-            name_id: session.name_id.clone(),
-            issuer: session.issuer.clone(),
-            reason: reason.map(|s| s.to_string()),
-        }).await?;
-        
+
+        self.storage
+            .create_logout_request(CreateSamlLogoutRequestRequest {
+                request_id: request_id.clone(),
+                session_id: Some(session_id.to_string()),
+                user_id: Some(session.user_id.clone()),
+                name_id: session.name_id.clone(),
+                issuer: session.issuer.clone(),
+                reason: reason.map(|s| s.to_string()),
+            })
+            .await?;
+
         let logout_request = self.build_logout_request(&request_id, &session);
-        
+
         let redirect_url = self.build_redirect_url(&slo_url, &logout_request, None)?;
-        
+
         self.storage.invalidate_session(session_id).await?;
-        
+
         info!("Initiated SAML logout for session: {}", session_id);
-        
+
         Ok(redirect_url)
     }
 
-    pub async fn process_logout_response(
-        &self,
-        saml_response: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn process_logout_response(&self, saml_response: &str) -> Result<(), ApiError> {
         let decoded = Self::decode_saml_response(saml_response)?;
-        
+
         let request_id = Self::extract_in_response_to(&decoded)?;
-        
-        let logout_request = self.storage.get_logout_request(&request_id).await?
+
+        let logout_request = self
+            .storage
+            .get_logout_request(&request_id)
+            .await?
             .ok_or_else(|| ApiError::not_found("Logout request not found"))?;
-        
+
         self.storage.process_logout_request(&request_id).await?;
-        
+
         if let Some(session_id) = logout_request.session_id {
             let _ = self.storage.invalidate_session(&session_id).await;
         }
-        
+
         info!("Processed SAML logout response for request: {}", request_id);
-        
+
         Ok(())
     }
 
     pub async fn get_session(&self, session_id: &str) -> Result<Option<SamlSession>, ApiError> {
         let session = self.storage.get_session(session_id).await?;
-        
+
         if let Some(ref session) = session {
             if session.expires_at < Utc::now() {
                 self.storage.invalidate_session(session_id).await?;
@@ -244,48 +257,58 @@ impl SamlService {
             }
             self.storage.update_session_last_used(session_id).await?;
         }
-        
+
         Ok(session)
     }
 
-    pub async fn get_user_mapping(&self, user_id: &str) -> Result<Option<SamlUserMapping>, ApiError> {
+    pub async fn get_user_mapping(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<SamlUserMapping>, ApiError> {
         self.storage.get_user_mapping_by_user_id(user_id).await
     }
 
     pub async fn get_idp_metadata(&self) -> Result<SamlMetadata, ApiError> {
         if let Some(ref metadata) = self.cached_metadata {
             if let Some(last_refresh) = self.metadata_last_refresh {
-                let refresh_interval = chrono::Duration::seconds(self.config.metadata_refresh_interval as i64);
+                let refresh_interval =
+                    chrono::Duration::seconds(self.config.metadata_refresh_interval as i64);
                 if Utc::now() - last_refresh < refresh_interval {
                     return Ok(metadata.clone());
                 }
             }
         }
-        
+
         self.fetch_idp_metadata().await
     }
 
     async fn fetch_idp_metadata(&self) -> Result<SamlMetadata, ApiError> {
-        let metadata_xml = if let Some(ref url) = self.config.metadata_url {
-            let response = self.http_client.get(url).send().await
-                .map_err(|e| ApiError::internal(format!("Failed to fetch IdP metadata: {}", e)))?;
-            
-            if !response.status().is_success() {
-                return Err(ApiError::internal(format!("IdP metadata request failed: {}", response.status())));
-            }
-            
-            response.text().await
-                .map_err(|e| ApiError::internal(format!("Failed to read IdP metadata: {}", e)))?
-        } else if let Some(ref xml) = self.config.metadata_xml {
-            xml.clone()
-        } else {
-            return Err(ApiError::internal("No IdP metadata configured"));
-        };
-        
+        let metadata_xml =
+            if let Some(ref url) = self.config.metadata_url {
+                let response = self.http_client.get(url).send().await.map_err(|e| {
+                    ApiError::internal(format!("Failed to fetch IdP metadata: {}", e))
+                })?;
+
+                if !response.status().is_success() {
+                    return Err(ApiError::internal(format!(
+                        "IdP metadata request failed: {}",
+                        response.status()
+                    )));
+                }
+
+                response.text().await.map_err(|e| {
+                    ApiError::internal(format!("Failed to read IdP metadata: {}", e))
+                })?
+            } else if let Some(ref xml) = self.config.metadata_xml {
+                xml.clone()
+            } else {
+                return Err(ApiError::internal("No IdP metadata configured"));
+            };
+
         let metadata = Self::parse_metadata_xml(&metadata_xml)?;
-        
+
         info!("Fetched SAML IdP metadata for: {}", metadata.entity_id);
-        
+
         Ok(metadata)
     }
 
@@ -296,30 +319,33 @@ impl SamlService {
         attributes: &HashMap<String, Vec<String>>,
     ) -> Result<SamlUser, ApiError> {
         let mapping = &self.config.attribute_mapping;
-        
+
         let localpart = if self.config.use_name_id_for_user_id {
             name_id.to_string()
         } else if let Some(uid_attr) = &mapping.uid {
-            attributes.get(uid_attr)
+            attributes
+                .get(uid_attr)
                 .and_then(|v| v.first())
-                .map(|s| {
-                    self.config.user_id_template.replace("{uid}", s)
-                })
+                .map(|s| self.config.user_id_template.replace("{uid}", s))
                 .unwrap_or_else(|| name_id.to_string())
         } else {
             name_id.to_string()
         };
-        
-        let displayname = mapping.displayname.as_ref()
+
+        let displayname = mapping
+            .displayname
+            .as_ref()
             .and_then(|attr| attributes.get(attr))
             .and_then(|v| v.first())
             .map(|s| s.to_string());
-        
-        let email = mapping.email.as_ref()
+
+        let email = mapping
+            .email
+            .as_ref()
             .and_then(|attr| attributes.get(attr))
             .and_then(|v| v.first())
             .map(|s| s.to_string());
-        
+
         Ok(SamlUser {
             name_id: name_id.to_string(),
             localpart,
@@ -331,16 +357,21 @@ impl SamlService {
 
     fn validate_response(&self, issuer: &str, _response: &str) -> Result<(), ApiError> {
         if !self.config.allowed_idp_entity_ids.is_empty()
-            && !self.config.allowed_idp_entity_ids.iter().any(|id| id == issuer) {
-                return Err(ApiError::unauthorized("IdP not allowed"));
-            }
-        
+            && !self
+                .config
+                .allowed_idp_entity_ids
+                .iter()
+                .any(|id| id == issuer)
+        {
+            return Err(ApiError::unauthorized("IdP not allowed"));
+        }
+
         Ok(())
     }
 
     fn build_authn_request(&self, request_id: &str, sp_entity_id: &str, acs_url: &str) -> String {
         let nameid_format = &self.config.nameid_format;
-        
+
         let request = format!(
             r#"<samlp:AuthnRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
    ID="{}"
@@ -357,14 +388,14 @@ impl SamlService {
             sp_entity_id,
             nameid_format
         );
-        
+
         general_purpose::STANDARD.encode(request.as_bytes())
     }
 
     fn build_logout_request(&self, request_id: &str, session: &SamlSession) -> String {
         let name_id = session.name_id.as_deref().unwrap_or("");
         let sp_entity_id = &self.config.sp_entity_id;
-        
+
         let request = format!(
             r#"<samlp:LogoutRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
    ID="{}"
@@ -380,11 +411,16 @@ impl SamlService {
             name_id,
             session.session_index.as_deref().unwrap_or("")
         );
-        
+
         general_purpose::STANDARD.encode(request.as_bytes())
     }
 
-    fn build_redirect_url(&self, base_url: &str, saml_request: &str, relay_state: Option<&str>) -> Result<String, ApiError> {
+    fn build_redirect_url(
+        &self,
+        base_url: &str,
+        saml_request: &str,
+        relay_state: Option<&str>,
+    ) -> Result<String, ApiError> {
         let mut url = url::Url::parse(base_url)
             .map_err(|e| ApiError::internal(format!("Invalid SAML base URL: {}", e)))?;
         {
@@ -398,56 +434,62 @@ impl SamlService {
     }
 
     fn decode_saml_response(response: &str) -> Result<String, ApiError> {
-        general_purpose::STANDARD.decode(response)
+        general_purpose::STANDARD
+            .decode(response)
             .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
             .map_err(|e| ApiError::bad_request(format!("Invalid SAML response encoding: {}", e)))
     }
 
     #[allow(clippy::type_complexity)]
-    fn parse_saml_assertion(xml: &str) -> Result<(String, String, HashMap<String, Vec<String>>, Option<String>), ApiError> {
+    fn parse_saml_assertion(
+        xml: &str,
+    ) -> Result<(String, String, HashMap<String, Vec<String>>, Option<String>), ApiError> {
         let mut name_id = String::new();
         let mut issuer = String::new();
         let mut attributes = HashMap::new();
         let mut session_index = None;
-        
+
         if let Some(start) = xml.find("<saml:NameID>") {
             if let Some(end) = xml[start..].find("</saml:NameID>") {
                 name_id = xml[start + 13..start + end].to_string();
             }
         }
-        
+
         if let Some(start) = xml.find("<saml:Issuer>") {
             if let Some(end) = xml[start..].find("</saml:Issuer>") {
                 issuer = xml[start + 13..start + end].to_string();
             }
         }
-        
+
         if let Some(start) = xml.find("SessionIndex=\"") {
             let rest = &xml[start + 14..];
             if let Some(end) = rest.find('"') {
                 session_index = Some(rest[..end].to_string());
             }
         }
-        
+
         let attr_pattern = "<saml:Attribute Name=\"";
         let mut pos = 0;
         while let Some(start) = xml[pos..].find(attr_pattern) {
             let attr_start = pos + start + attr_pattern.len();
             if let Some(name_end) = xml[attr_start..].find('"') {
                 let attr_name = xml[attr_start..attr_start + name_end].to_string();
-                
+
                 let value_start = attr_start + name_end;
                 if let Some(values_start) = xml[value_start..].find("<saml:AttributeValue>") {
                     let vs = value_start + values_start + 21;
                     if let Some(values_end) = xml[vs..].find("</saml:AttributeValue>") {
                         let value = xml[vs..vs + values_end].to_string();
-                        attributes.entry(attr_name).or_insert_with(Vec::new).push(value);
+                        attributes
+                            .entry(attr_name)
+                            .or_insert_with(Vec::new)
+                            .push(value);
                     }
                 }
             }
             pos = attr_start;
         }
-        
+
         Ok((name_id, issuer, attributes, session_index))
     }
 
@@ -457,13 +499,13 @@ impl SamlService {
         let mut slo_url = None;
         let mut certificate = String::new();
         let valid_until = None;
-        
+
         if let Some(start) = xml.find("entityID=\"") {
             if let Some(end) = xml[start + 10..].find('"') {
                 entity_id = xml[start + 10..start + 10 + end].to_string();
             }
         }
-        
+
         if let Some(start) = xml.find("<md:SingleSignOnService") {
             let rest = &xml[start..];
             if let Some(loc_start) = rest.find("Location=\"") {
@@ -472,7 +514,7 @@ impl SamlService {
                 }
             }
         }
-        
+
         if let Some(start) = xml.find("<md:SingleLogoutService") {
             let rest = &xml[start..];
             if let Some(loc_start) = rest.find("Location=\"") {
@@ -481,17 +523,19 @@ impl SamlService {
                 }
             }
         }
-        
+
         if let Some(start) = xml.find("<ds:X509Certificate>") {
             if let Some(end) = xml[start..].find("</ds:X509Certificate>") {
                 certificate = xml[start + 20..start + end].to_string();
             }
         }
-        
+
         if entity_id.is_empty() || sso_url.is_empty() {
-            return Err(ApiError::internal("Invalid IdP metadata: missing required fields"));
+            return Err(ApiError::internal(
+                "Invalid IdP metadata: missing required fields",
+            ));
         }
-        
+
         Ok(SamlMetadata {
             entity_id,
             sso_url,
@@ -642,11 +686,14 @@ mod tests {
             </md:IDPSSODescriptor>
         </md:EntityDescriptor>
         "#;
-        
+
         let metadata = SamlService::parse_metadata_xml(xml).unwrap();
         assert_eq!(metadata.entity_id, "https://idp.example.com");
         assert_eq!(metadata.sso_url, "https://idp.example.com/sso");
-        assert_eq!(metadata.slo_url, Some("https://idp.example.com/slo".to_string()));
+        assert_eq!(
+            metadata.slo_url,
+            Some("https://idp.example.com/slo".to_string())
+        );
     }
 
     #[test]
@@ -668,8 +715,9 @@ mod tests {
             <saml:AuthnStatement SessionIndex="session123"/>
         </saml:Assertion>
         "#;
-        
-        let (name_id, issuer, attributes, session_index) = SamlService::parse_saml_assertion(xml).unwrap();
+
+        let (name_id, issuer, attributes, session_index) =
+            SamlService::parse_saml_assertion(xml).unwrap();
         assert_eq!(name_id, "user123");
         assert_eq!(issuer, "https://idp.example.com");
         assert_eq!(attributes.get("uid").unwrap().first().unwrap(), "testuser");

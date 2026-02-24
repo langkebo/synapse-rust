@@ -723,7 +723,7 @@ mod tests {
                 let local_len = usize::arbitrary(g) % 20 + 1;
                 let domain_len = usize::arbitrary(g) % 15 + 1;
                 let tld_len = usize::arbitrary(g) % 3 + 2;
-                
+
                 let local: String = (0..local_len)
                     .map(|_| {
                         let idx = usize::arbitrary(g) % 62;
@@ -752,7 +752,7 @@ mod tests {
                         (b'a' + idx as u8) as char
                     })
                     .collect();
-                
+
                 EmailInput(format!("{}@{}.{}", local, domain, tld))
             }
         }
@@ -772,7 +772,7 @@ mod tests {
             fn arbitrary(g: &mut Gen) -> Self {
                 let local_len = usize::arbitrary(g) % 20 + 1;
                 let server_len = usize::arbitrary(g) % 15 + 1;
-                
+
                 let local: String = (0..local_len)
                     .map(|_| {
                         let idx = usize::arbitrary(g) % 39;
@@ -795,7 +795,7 @@ mod tests {
                         }
                     })
                     .collect();
-                
+
                 MatrixIdInput(format!("@{}:{}.com", local, server))
             }
         }
