@@ -1,6 +1,6 @@
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2, Params,
+    Argon2,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
@@ -9,20 +9,18 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::common::argon2_config::Argon2Config;
+
 type HmacSha256 = Hmac<Sha256>;
 
 pub fn hash_password(password: &str) -> Result<String, String> {
-    hash_password_with_params(password, 4096, 3, 1)
+    let config = Argon2Config::get_global();
+    hash_password_with_config(password, &config)
 }
 
-pub fn hash_password_with_params(
-    password: &str,
-    m_cost: u32,
-    t_cost: u32,
-    p_cost: u32,
-) -> Result<String, String> {
+pub fn hash_password_with_config(password: &str, config: &Argon2Config) -> Result<String, String> {
     let salt = SaltString::generate(&mut rand::thread_rng());
-    let params = Params::new(m_cost, t_cost, p_cost, None).map_err(|e| e.to_string())?;
+    let params = config.to_argon2_params().map_err(|e| e.to_string())?;
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
 
     let password_hash = argon2
@@ -31,6 +29,17 @@ pub fn hash_password_with_params(
         .to_string();
 
     Ok(password_hash)
+}
+
+pub fn hash_password_with_params(
+    password: &str,
+    m_cost: u32,
+    t_cost: u32,
+    p_cost: u32,
+) -> Result<String, String> {
+    let config = Argon2Config::new(m_cost, t_cost, p_cost)
+        .map_err(|e| format!("Invalid Argon2 parameters: {}", e))?;
+    hash_password_with_config(password, &config)
 }
 
 pub fn verify_password(
@@ -111,6 +120,26 @@ fn secure_compare(a: &str, b: &str) -> bool {
 
 pub fn verify_password_legacy(password: &str, password_hash: &str) -> bool {
     verify_password(password, password_hash, true).unwrap_or(false)
+}
+
+pub fn is_legacy_hash(password_hash: &str) -> bool {
+    !password_hash.starts_with("$argon2")
+}
+
+pub fn migrate_password_hash(
+    password: &str,
+    m_cost: u32,
+    t_cost: u32,
+    p_cost: u32,
+) -> Result<String, String> {
+    hash_password_with_params(password, m_cost, t_cost, p_cost)
+}
+
+pub fn migrate_password_hash_with_config(
+    password: &str,
+    config: &Argon2Config,
+) -> Result<String, String> {
+    hash_password_with_config(password, config)
 }
 
 pub fn generate_token(length: usize) -> String {
@@ -205,26 +234,43 @@ pub fn generate_signing_key() -> (String, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::argon2_config::Argon2Config;
 
     #[test]
     fn test_hash_password_and_verify() {
+        let config = Argon2Config::new(65536, 3, 1).unwrap();
         let password = "test_password_123";
-        let hash = hash_password(password).unwrap();
+        let hash = hash_password_with_config(password, &config).unwrap();
         assert!(hash.starts_with("$argon2"));
         assert!(verify_password(password, &hash, false).unwrap());
         assert!(!verify_password("wrong_password", &hash, false).unwrap());
     }
 
     #[test]
-
     fn test_hash_password_with_params() {
         let password = "test_password";
-        let hash = hash_password_with_params(password, 4096, 3, 1).unwrap();
+        let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
         assert!(hash.starts_with("$argon2"));
     }
 
     #[test]
+    fn test_hash_password_backward_compatible() {
+        let password = "test_password";
+        let hash = hash_password_with_params(password, 4096, 3, 1).unwrap();
+        assert!(hash.starts_with("$argon2"));
+        assert!(verify_password(password, &hash, false).unwrap());
+    }
 
+    #[test]
+    fn test_hash_password_with_config() {
+        let config = Argon2Config::new(65536, 3, 1).unwrap();
+        let password = "test_password_with_config";
+        let hash = hash_password_with_config(password, &config).unwrap();
+        assert!(hash.starts_with("$argon2id$"));
+        assert!(verify_password(password, &hash, false).unwrap());
+    }
+
+    #[test]
     fn test_verify_password_invalid_format() {
         let result = verify_password("password", "invalid", true);
         assert!(result.is_err());
@@ -232,7 +278,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_verify_password_legacy_valid() {
         let password = "test_password";
         let salt = "testsalt12345678";
@@ -247,7 +292,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_verify_password_legacy_invalid() {
         assert!(!verify_password_legacy("password", "invalid"));
         assert!(!verify_password_legacy(
@@ -257,17 +301,65 @@ mod tests {
     }
 
     #[test]
+    fn test_is_legacy_hash() {
+        let argon2_hash = "$argon2id$v=19$m=65536,t=3,p=1$salt$hash";
+        assert!(!is_legacy_hash(argon2_hash));
 
+        let legacy_hash = "sha256$v=1$m=32,p=1$salt$hash";
+        assert!(is_legacy_hash(legacy_hash));
+
+        let bcrypt_hash = "$2b$12$abcdefghijklmnopqrstuv";
+        assert!(is_legacy_hash(bcrypt_hash));
+    }
+
+    #[test]
+    fn test_migrate_password_hash() {
+        let password = "password_to_migrate";
+        let new_hash = migrate_password_hash(password, 65536, 3, 1).unwrap();
+
+        assert!(new_hash.starts_with("$argon2"));
+        assert!(verify_password(password, &new_hash, false).unwrap());
+    }
+
+    #[test]
+    fn test_migrate_password_hash_with_config() {
+        let config = Argon2Config::new(65536, 3, 1).unwrap();
+        let password = "password_to_migrate_with_config";
+        let new_hash = migrate_password_hash_with_config(password, &config).unwrap();
+
+        assert!(new_hash.starts_with("$argon2id$"));
+        assert!(verify_password(password, &new_hash, false).unwrap());
+    }
+
+    #[test]
+    fn test_password_migration_flow() {
+        let password = "test_migration_flow";
+        let salt = "migrationtestsalt";
+        let mut hasher = Sha256::new();
+        hasher.update(password);
+        hasher.update(salt);
+        let result = hasher.finalize();
+        let encoded = URL_SAFE_NO_PAD.encode(result);
+        let legacy_hash = format!("sha256$v=1$m=32,p=1${}${}", salt, encoded);
+
+        assert!(is_legacy_hash(&legacy_hash));
+        assert!(verify_password_legacy(password, &legacy_hash));
+
+        let new_hash = migrate_password_hash(password, 65536, 3, 1).unwrap();
+        assert!(!is_legacy_hash(&new_hash));
+        assert!(verify_password(password, &new_hash, false).unwrap());
+    }
+
+    #[test]
     fn test_generate_token() {
         let token1 = generate_token(32);
         let token2 = generate_token(32);
-        assert_eq!(token1.len(), 43); // URL_SAFE_NO_PAD is shorter
+        assert_eq!(token1.len(), 43);
         assert_eq!(token2.len(), 43);
         assert_ne!(token1, token2);
     }
 
     #[test]
-
     fn test_generate_room_id() {
         let room_id = generate_room_id("example.com");
         assert!(room_id.starts_with('!'));
@@ -275,7 +367,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_generate_event_id() {
         let event_id = generate_event_id("example.com");
         assert!(event_id.starts_with('$'));
@@ -283,7 +374,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_generate_device_id() {
         let device_id = generate_device_id();
         assert!(device_id.starts_with("DEVICE"));
@@ -300,7 +390,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_compute_hash() {
         let data = b"test data";
         let hash = compute_hash(data);
@@ -309,7 +398,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_hmac_sha256() {
         let key = b"test_key";
         let data = b"test_data";
@@ -321,7 +409,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_random_string() {
         let s1 = random_string(10);
         let s2 = random_string(10);
@@ -332,7 +419,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_encode_decode_base64() {
         let original = b"hello world test data";
         let encoded = encode_base64(original);
@@ -341,14 +427,12 @@ mod tests {
     }
 
     #[test]
-
     fn test_decode_base64_invalid() {
         let result = decode_base64("!!!invalid base64!!!");
         assert!(result.is_err());
     }
 
     #[test]
-
     fn test_generate_signing_key() {
         let (key_id, key) = generate_signing_key();
         assert!(key_id.starts_with("ed25519:"));

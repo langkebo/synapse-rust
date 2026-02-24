@@ -295,6 +295,26 @@ jobs:
         run: cargo fmt -- --check
       - name: Clippy
         run: cargo clippy --all-features -- -D warnings -A clippy::result_large_err -A clippy::arc_with_non_send_sync
+      - name: Check for SELECT * queries
+        run: |
+          echo "Checking for SELECT * queries in storage files..."
+          FOUND=0
+          for file in $(find src/storage -name "*.rs"); do
+            if grep -nE "SELECT\s+\*\s+FROM" "$file" | grep -v "// " | grep -v "//"; then
+              echo "::error file=$file::Found SELECT * query. Please specify explicit column names."
+              FOUND=1
+            fi
+          done
+          if [ $FOUND -eq 1 ]; then
+            echo ""
+            echo "SELECT * queries are not allowed in storage files."
+            echo "Please replace SELECT * with explicit column names for:"
+            echo "  - Better performance (only fetch needed columns)"
+            echo "  - Explicit schema documentation"
+            echo "  - Easier maintenance and refactoring"
+            exit 1
+          fi
+          echo "No SELECT * queries found. Good!"
 
   audit:
     name: Security Audit

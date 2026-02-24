@@ -130,7 +130,7 @@ impl ServerNotificationStorage {
                 action_url, action_text, created_by
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-            RETURNING *
+            RETURNING id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
             "#,
         )
         .bind(&request.title)
@@ -161,7 +161,7 @@ impl ServerNotificationStorage {
         notification_id: i32,
     ) -> Result<Option<ServerNotification>, ApiError> {
         let notification = sqlx::query_as::<_, ServerNotification>(
-            r#"SELECT * FROM server_notifications WHERE id = $1"#,
+            r#"SELECT id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts FROM server_notifications WHERE id = $1"#,
         )
         .bind(notification_id)
         .fetch_optional(&self.pool)
@@ -176,7 +176,8 @@ impl ServerNotificationStorage {
 
         let notifications = sqlx::query_as::<_, ServerNotification>(
             r#"
-            SELECT * FROM server_notifications
+            SELECT id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
+            FROM server_notifications
             WHERE is_enabled = TRUE
             AND (starts_at IS NULL OR starts_at <= $1)
             AND (expires_at IS NULL OR expires_at > $1)
@@ -198,7 +199,8 @@ impl ServerNotificationStorage {
     ) -> Result<Vec<ServerNotification>, ApiError> {
         let notifications = sqlx::query_as::<_, ServerNotification>(
             r#"
-            SELECT * FROM server_notifications
+            SELECT id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
+            FROM server_notifications
             ORDER BY created_ts DESC
             LIMIT $1 OFFSET $2
             "#,
@@ -348,7 +350,8 @@ impl ServerNotificationStorage {
 
         sqlx::query_as::<_, UserNotificationStatus>(
             r#"
-            SELECT * FROM user_notification_status
+            SELECT id, user_id, notification_id, is_read, is_dismissed, read_ts, dismissed_ts, created_ts
+            FROM user_notification_status
             WHERE user_id = $1 AND notification_id = $2
             "#,
         )
@@ -472,7 +475,7 @@ impl ServerNotificationStorage {
                 name, title_template, content_template, notification_type, variables
             )
             VALUES ($1, $2, $3, $4, $5)
-            RETURNING *
+            RETURNING id, name, title_template, content_template, notification_type, variables, is_enabled, created_ts, updated_ts
             "#,
         )
         .bind(&request.name)
@@ -493,7 +496,7 @@ impl ServerNotificationStorage {
 
     pub async fn get_template(&self, name: &str) -> Result<Option<NotificationTemplate>, ApiError> {
         let template = sqlx::query_as::<_, NotificationTemplate>(
-            r#"SELECT * FROM notification_templates WHERE name = $1 AND is_enabled = TRUE"#,
+            r#"SELECT id, name, title_template, content_template, notification_type, variables, is_enabled, created_ts, updated_ts FROM notification_templates WHERE name = $1 AND is_enabled = TRUE"#,
         )
         .bind(name)
         .fetch_optional(&self.pool)
@@ -562,7 +565,7 @@ impl ServerNotificationStorage {
             r#"
             INSERT INTO scheduled_notifications (notification_id, scheduled_for)
             VALUES ($1, $2)
-            RETURNING *
+            RETURNING id, notification_id, scheduled_for, is_sent, sent_ts, created_ts
             "#,
         )
         .bind(notification_id)
@@ -581,7 +584,8 @@ impl ServerNotificationStorage {
 
         let scheduled = sqlx::query_as::<_, ScheduledNotification>(
             r#"
-            SELECT * FROM scheduled_notifications
+            SELECT id, notification_id, scheduled_for, is_sent, sent_ts, created_ts
+            FROM scheduled_notifications
             WHERE is_sent = FALSE AND scheduled_for <= $1
             "#,
         )

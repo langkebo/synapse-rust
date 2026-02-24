@@ -352,4 +352,140 @@ impl RoomMemberStorage {
         .await?;
         Ok(memberships)
     }
+
+    pub async fn get_joined_rooms_with_details(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<(String, String, Option<String>, Option<String>)>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
+            r#"
+            SELECT r.room_id, r.name, r.topic, r.avatar_url
+            FROM room_memberships rm
+            JOIN rooms r ON rm.room_id = r.room_id
+            WHERE rm.user_id = $1 AND rm.membership = 'join'
+            ORDER BY r.creation_ts DESC
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn get_room_members_with_profiles(
+        &self,
+        room_id: &str,
+        membership_type: &str,
+    ) -> Result<Vec<(RoomMember, Option<String>, Option<String>)>, sqlx::Error> {
+        let rows = sqlx::query(
+            r#"
+            SELECT rm.room_id, rm.user_id, rm.sender, rm.membership, rm.event_id, rm.event_type, 
+                   rm.display_name, rm.avatar_url, rm.is_banned, rm.invite_token, rm.updated_ts, 
+                   rm.joined_ts, rm.left_ts, rm.reason, rm.banned_by, rm.ban_reason, rm.ban_ts, rm.join_reason,
+                   u.displayname as user_displayname, u.avatar_url as user_avatar_url
+            FROM room_memberships rm
+            LEFT JOIN users u ON rm.user_id = u.user_id
+            WHERE rm.room_id = $1 AND rm.membership = $2
+            "#,
+        )
+        .bind(room_id)
+        .bind(membership_type)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|row| {
+                use sqlx::Row;
+                let member = RoomMember {
+                    room_id: row.get("room_id"),
+                    user_id: row.get("user_id"),
+                    sender: row.get("sender"),
+                    membership: row.get("membership"),
+                    event_id: row.get("event_id"),
+                    event_type: row.get("event_type"),
+                    display_name: row.get("display_name"),
+                    avatar_url: row.get("avatar_url"),
+                    is_banned: row.get("is_banned"),
+                    invite_token: row.get("invite_token"),
+                    updated_ts: row.get("updated_ts"),
+                    joined_ts: row.get("joined_ts"),
+                    left_ts: row.get("left_ts"),
+                    reason: row.get("reason"),
+                    banned_by: row.get("banned_by"),
+                    ban_reason: row.get("ban_reason"),
+                    ban_ts: row.get("ban_ts"),
+                    join_reason: row.get("join_reason"),
+                };
+                let user_displayname: Option<String> = row.get("user_displayname");
+                let user_avatar_url: Option<String> = row.get("user_avatar_url");
+                (member, user_displayname, user_avatar_url)
+            })
+            .collect())
+    }
+
+    pub async fn get_members_batch(
+        &self,
+        room_ids: &[String],
+        membership_type: &str,
+    ) -> Result<std::collections::HashMap<String, Vec<RoomMember>>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rows: Vec<RoomMember> = sqlx::query_as(
+            r#"
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            FROM room_memberships 
+            WHERE room_id = ANY($1) AND membership = $2
+            "#,
+        )
+        .bind(room_ids)
+        .bind(membership_type)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, Vec<RoomMember>> =
+            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+
+        for member in rows {
+            if let Some(room_members) = result.get_mut(&member.room_id) {
+                room_members.push(member);
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub async fn get_joined_members_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<RoomMember>>, sqlx::Error> {
+        self.get_members_batch(room_ids, "join").await
+    }
+
+    pub async fn check_membership_batch(
+        &self,
+        room_id: &str,
+        user_ids: &[String],
+        membership_type: &str,
+    ) -> Result<std::collections::HashSet<String>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+
+        let rows: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT user_id FROM room_memberships 
+            WHERE room_id = $1 AND user_id = ANY($2) AND membership = $3
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_ids)
+        .bind(membership_type)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
 }

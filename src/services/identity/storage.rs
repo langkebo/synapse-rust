@@ -17,12 +17,13 @@ pub struct IdentityStorage {
 
 impl IdentityStorage {
     pub fn new(pool: &PgPool) -> Self {
-        Self {
-            pool: pool.clone(),
-        }
+        Self { pool: pool.clone() }
     }
 
-    pub async fn get_user_three_pids(&self, user_id: &str) -> Result<Vec<ThirdPartyId>, sqlx::Error> {
+    pub async fn get_user_three_pids(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<ThirdPartyId>, sqlx::Error> {
         let rows = sqlx::query_as::<_, ThreePidRow>(
             r#"
             SELECT address, medium, user_id, validated_at, added_at
@@ -69,7 +70,12 @@ impl IdentityStorage {
         Ok(())
     }
 
-    pub async fn remove_three_pid(&self, address: &str, medium: &str, user_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn remove_three_pid(
+        &self,
+        address: &str,
+        medium: &str,
+        user_id: &str,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
             DELETE FROM user_threepids
@@ -85,7 +91,11 @@ impl IdentityStorage {
         Ok(())
     }
 
-    pub async fn get_three_pid_user(&self, address: &str, medium: &str) -> Result<Option<String>, sqlx::Error> {
+    pub async fn get_three_pid_user(
+        &self,
+        address: &str,
+        medium: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
         let row = sqlx::query!(
             r#"
             SELECT user_id FROM user_threepids
@@ -100,7 +110,12 @@ impl IdentityStorage {
         Ok(row.map(|r| r.user_id))
     }
 
-    pub async fn validate_three_pid(&self, address: &str, medium: &str, user_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn validate_three_pid(
+        &self,
+        address: &str,
+        medium: &str,
+        user_id: &str,
+    ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query!(
@@ -120,7 +135,9 @@ impl IdentityStorage {
         Ok(())
     }
 
-    pub async fn get_pending_three_pid_validations(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+    pub async fn get_pending_three_pid_validations(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query!(
             r#"
             SELECT address, medium, user_id, validated_at, added_at

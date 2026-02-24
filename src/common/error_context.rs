@@ -69,6 +69,7 @@ impl ErrorContext for ApiError {
             | ApiError::EncryptionError(_)
             | ApiError::Crypto(_)
             | ApiError::BadRequest(_) => ErrorLayer::Application,
+            _ => ErrorLayer::Application,
         }
     }
 
@@ -89,6 +90,7 @@ impl ErrorContext for ApiError {
             | ApiError::DecryptionError(_)
             | ApiError::EncryptionError(_)
             | ApiError::Crypto(_) => ErrorSeverity::High,
+            _ => ErrorSeverity::Medium,
         }
     }
 
@@ -120,6 +122,30 @@ impl ErrorContext for ApiError {
             ApiError::Crypto(_) => {
                 "A cryptographic error occurred. Please try again later.".to_string()
             }
+            ApiError::MissingToken => "Authentication token is required.".to_string(),
+            ApiError::NotJson(msg) => msg.clone(),
+            ApiError::UserDeactivated(msg) => msg.clone(),
+            ApiError::InvalidUsername(msg) => msg.clone(),
+            ApiError::RoomInUse(msg) => msg.clone(),
+            ApiError::InvalidRoomState(msg) => msg.clone(),
+            ApiError::ThreepidInUse(msg) => msg.clone(),
+            ApiError::ThreepidNotFound(msg) => msg.clone(),
+            ApiError::ThreepidAuthFailed(msg) => msg.clone(),
+            ApiError::ThreepidDenied(msg) => msg.clone(),
+            ApiError::ServerNotTrusted(msg) => msg.clone(),
+            ApiError::UnsupportedRoomVersion(msg) => msg.clone(),
+            ApiError::IncompatibleRoomVersion(msg) => msg.clone(),
+            ApiError::BadState(msg) => msg.clone(),
+            ApiError::GuestAccessForbidden(msg) => msg.clone(),
+            ApiError::CaptchaNeeded(msg) => msg.clone(),
+            ApiError::CaptchaInvalid(msg) => msg.clone(),
+            ApiError::MissingParam(msg) => msg.clone(),
+            ApiError::TooLarge(msg) => msg.clone(),
+            ApiError::Exclusive(msg) => msg.clone(),
+            ApiError::ResourceLimitExceeded(msg) => msg.clone(),
+            ApiError::CannotLeaveServerNoticeRoom(msg) => msg.clone(),
+            ApiError::Unknown(msg) => msg.clone(),
+            ApiError::Unrecognized(msg) => msg.clone(),
         }
     }
 

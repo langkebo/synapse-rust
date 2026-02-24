@@ -24,6 +24,12 @@ impl ValidationError {
     }
 }
 
+impl std::fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.field, self.message)
+    }
+}
+
 impl From<ValidationError> for ApiError {
     fn from(err: ValidationError) -> Self {
         ApiError::bad_request(format!("{}: {}", err.field, err.message))

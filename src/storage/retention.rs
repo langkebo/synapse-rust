@@ -130,7 +130,7 @@ impl RetentionStorage {
                 min_lifetime = EXCLUDED.min_lifetime,
                 expire_on_clients = EXCLUDED.expire_on_clients,
                 updated_ts = EXCLUDED.updated_ts
-            RETURNING *
+            RETURNING id, room_id, max_lifetime, min_lifetime, expire_on_clients, is_server_default, created_ts, updated_ts
             "#,
         )
         .bind(&request.room_id)
@@ -149,7 +149,7 @@ impl RetentionStorage {
         room_id: &str,
     ) -> Result<Option<RoomRetentionPolicy>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRetentionPolicy>(
-            "SELECT * FROM room_retention_policies WHERE room_id = $1",
+            "SELECT id, room_id, max_lifetime, min_lifetime, expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies WHERE room_id = $1",
         )
         .bind(room_id)
         .fetch_optional(&*self.pool)
@@ -337,7 +337,7 @@ impl RetentionStorage {
             r#"
             INSERT INTO retention_cleanup_logs (room_id, started_ts, status)
             VALUES ($1, $2, 'running')
-            RETURNING *
+            RETURNING id, room_id, events_deleted, state_events_deleted, media_deleted, bytes_freed, started_ts, completed_ts, status, error_message
             "#,
         )
         .bind(room_id)
@@ -445,7 +445,7 @@ impl RetentionStorage {
 
     pub async fn get_stats(&self, room_id: &str) -> Result<Option<RetentionStats>, sqlx::Error> {
         let row =
-            sqlx::query_as::<_, RetentionStats>("SELECT * FROM retention_stats WHERE room_id = $1")
+            sqlx::query_as::<_, RetentionStats>("SELECT id, room_id, total_events, events_in_retention, events_expired, last_cleanup_ts, next_cleanup_ts FROM retention_stats WHERE room_id = $1")
                 .bind(room_id)
                 .fetch_optional(&*self.pool)
                 .await?;
@@ -525,7 +525,7 @@ impl RetentionStorage {
         limit: i64,
     ) -> Result<Vec<RetentionCleanupLog>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RetentionCleanupLog>(
-            "SELECT * FROM retention_cleanup_logs WHERE room_id = $1 ORDER BY started_ts DESC LIMIT $2",
+            "SELECT id, room_id, events_deleted, state_events_deleted, media_deleted, bytes_freed, started_ts, completed_ts, status, error_message FROM retention_cleanup_logs WHERE room_id = $1 ORDER BY started_ts DESC LIMIT $2",
         )
         .bind(room_id)
         .bind(limit)

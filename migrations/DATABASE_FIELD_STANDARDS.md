@@ -224,6 +224,7 @@ if let Some(expires_at) = token.expires_at {
 | 1.0.0 | 2026-02-19 | 初始版本，统一字段命名规范 |
 | 1.1.0 | 2026-02-20 | 新增 devices 表规范，明确禁止使用 created_at 字段 |
 | 1.2.0 | 2026-02-22 | 新增 pushers, cross_signing_keys, device_keys, device_signatures, push_rule, push_device, push_notification_queue 表规范 |
+| 1.3.0 | 2026-02-28 | 完成字段命名统一：users 表 deactivated->is_deactivated, shadow_banned->is_shadow_banned；统一时间字段类型为 BIGINT |
 
 ## 7. 常见问题修复
 

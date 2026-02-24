@@ -85,15 +85,16 @@ impl GeoIpService {
     }
 
     async fn lookup_ipapi(&self, ip: &str) -> Result<GeoIpResult, ApiError> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or_else(|| ApiError::internal("IPAPI API key not configured".to_string()))?;
 
-        let url = format!(
-            "http://api.ipapi.com/{}?access_key={}",
-            ip, api_key
-        );
+        let url = format!("http://api.ipapi.com/{}?access_key={}", ip, api_key);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(&url)
             .send()
             .await
@@ -106,16 +107,27 @@ impl GeoIpService {
             )));
         }
 
-        let json: serde_json::Value = response.json().await
+        let json: serde_json::Value = response
+            .json()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to parse IPAPI response: {}", e)))?;
 
         Ok(GeoIpResult {
-            country: json.get("country_code").and_then(|v| v.as_str()).map(String::from),
-            region: json.get("region_name").and_then(|v| v.as_str()).map(String::from),
+            country: json
+                .get("country_code")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            region: json
+                .get("region_name")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             city: json.get("city").and_then(|v| v.as_str()).map(String::from),
             latitude: json.get("latitude").and_then(|v| v.as_f64()),
             longitude: json.get("longitude").and_then(|v| v.as_f64()),
-            isp: json.get("connection").and_then(|v| v.as_str()).map(String::from),
+            isp: json
+                .get("connection")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             org: json.get("org").and_then(|v| v.as_str()).map(String::from),
             is_datacenter: false,
             is_vpn: false,
@@ -124,15 +136,16 @@ impl GeoIpService {
     }
 
     async fn lookup_ipstack(&self, ip: &str) -> Result<GeoIpResult, ApiError> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or_else(|| ApiError::internal("IPStack API key not configured".to_string()))?;
 
-        let url = format!(
-            "http://api.ipstack.com/{}?access_key={}",
-            ip, api_key
-        );
+        let url = format!("http://api.ipstack.com/{}?access_key={}", ip, api_key);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(&url)
             .send()
             .await
@@ -145,12 +158,20 @@ impl GeoIpService {
             )));
         }
 
-        let json: serde_json::Value = response.json().await
+        let json: serde_json::Value = response
+            .json()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to parse IPStack response: {}", e)))?;
 
         Ok(GeoIpResult {
-            country: json.get("country_code").and_then(|v| v.as_str()).map(String::from),
-            region: json.get("region_name").and_then(|v| v.as_str()).map(String::from),
+            country: json
+                .get("country_code")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            region: json
+                .get("region_name")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             city: json.get("city").and_then(|v| v.as_str()).map(String::from),
             latitude: json.get("latitude").and_then(|v| v.as_f64()),
             longitude: json.get("longitude").and_then(|v| v.as_f64()),
@@ -163,15 +184,17 @@ impl GeoIpService {
     }
 
     pub async fn check_access(&self, ip: &str) -> Result<bool, ApiError> {
-        let _: IpAddr = ip.parse()
+        let _: IpAddr = ip
+            .parse()
             .map_err(|_| ApiError::bad_request("Invalid IP address".to_string()))?;
 
         let rules = self.rules.read().await;
-        
-        let mut matching_rules: Vec<&IpAccessRule> = rules.iter()
+
+        let mut matching_rules: Vec<&IpAccessRule> = rules
+            .iter()
             .filter(|rule| self.matches_ip_pattern(ip, &rule.ip_pattern))
             .collect();
-        
+
         matching_rules.sort_by_key(|r| r.priority);
 
         if let Some(rule) = matching_rules.first() {

@@ -672,7 +672,7 @@ impl ApplicationServiceStorage {
                             "id": row.get::<i64, _>("id"),
                             "as_id": row.get::<String, _>("as_id"),
                             "name": row.get::<Option<String>, _>("name"),
-                            "is_active": row.get::<bool, _>("is_active"),
+                            "is_enabled": row.get::<bool, _>("is_enabled"),
                             "rate_limited": row.get::<bool, _>("rate_limited"),
                             "virtual_user_count": row.get::<i64, _>("virtual_user_count"),
                             "pending_event_count": row.get::<i64, _>("pending_event_count"),

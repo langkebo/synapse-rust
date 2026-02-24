@@ -201,3 +201,12 @@ trusted_key_servers:
 
 password_config:
    enabled: true
+
+## Argon2 Password Hashing Configuration ##
+## OWASP Recommended Minimum: m_cost=65536, t_cost=3, p_cost=1
+## See: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
+
+security:
+  argon2_m_cost: {{ SYNAPSE_ARGON2_M_COST or 65536 }}
+  argon2_t_cost: {{ SYNAPSE_ARGON2_T_COST or 3 }}
+  argon2_p_cost: {{ SYNAPSE_ARGON2_P_COST or 1 }}

@@ -1,6 +1,7 @@
 use argon2::password_hash::{rand_core::OsRng, SaltString};
-use argon2::Params;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+
+use crate::common::argon2_config::{Argon2Config, Argon2ConfigError};
 
 #[derive(Debug, Clone)]
 pub struct Argon2Params {
@@ -12,12 +13,51 @@ pub struct Argon2Params {
 
 impl Default for Argon2Params {
     fn default() -> Self {
+        let config = Argon2Config::get_global();
+        Self::from(config)
+    }
+}
+
+impl From<Argon2Config> for Argon2Params {
+    fn from(config: Argon2Config) -> Self {
         Self {
-            t_cost: 3,
-            m_cost: 65536,
-            p_cost: 4,
-            output_len: 32,
+            t_cost: config.t_cost,
+            m_cost: config.m_cost,
+            p_cost: config.p_cost,
+            output_len: config.output_len.unwrap_or(32),
         }
+    }
+}
+
+impl Argon2Params {
+    pub fn new(
+        m_cost: u32,
+        t_cost: u32,
+        p_cost: u32,
+        output_len: usize,
+    ) -> Result<Self, super::CryptoError> {
+        let config = Argon2Config::new_with_output_len(m_cost, t_cost, p_cost, Some(output_len))
+            .map_err(|e| super::CryptoError::HashError(e.to_string()))?;
+        Ok(Self::from(config))
+    }
+
+    pub fn from_config(config: &Argon2Config) -> Self {
+        Self {
+            t_cost: config.t_cost,
+            m_cost: config.m_cost,
+            p_cost: config.p_cost,
+            output_len: config.output_len.unwrap_or(32),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), Argon2ConfigError> {
+        let config = Argon2Config::new_with_output_len(
+            self.m_cost,
+            self.t_cost,
+            self.p_cost,
+            Some(self.output_len),
+        )?;
+        config.validate_owasp()
     }
 }
 
@@ -28,7 +68,7 @@ pub struct Argon2Kdf {
 
 impl Argon2Kdf {
     pub fn new(params: Argon2Params) -> Result<Self, super::CryptoError> {
-        let params_obj = Params::new(
+        let config = Argon2Config::new_with_output_len(
             params.m_cost,
             params.t_cost,
             params.p_cost,
@@ -36,12 +76,37 @@ impl Argon2Kdf {
         )
         .map_err(|e| super::CryptoError::HashError(e.to_string()))?;
 
+        let params_obj = config
+            .to_argon2_params()
+            .map_err(|e| super::CryptoError::HashError(e.to_string()))?;
+
         let algorithm = Argon2::new(
             argon2::Algorithm::Argon2id,
             argon2::Version::V0x13,
             params_obj,
         );
         Ok(Self { algorithm, params })
+    }
+
+    pub fn from_config(config: &Argon2Config) -> Result<Self, super::CryptoError> {
+        let params_obj = config
+            .to_argon2_params()
+            .map_err(|e| super::CryptoError::HashError(e.to_string()))?;
+
+        let algorithm = Argon2::new(
+            argon2::Algorithm::Argon2id,
+            argon2::Version::V0x13,
+            params_obj,
+        );
+        Ok(Self {
+            algorithm,
+            params: Argon2Params::from_config(config),
+        })
+    }
+
+    pub fn with_global_config() -> Result<Self, super::CryptoError> {
+        let config = Argon2Config::get_global();
+        Self::from_config(&config)
     }
 
     pub fn hash_password(&self, password: &str) -> Result<String, super::CryptoError> {
@@ -69,6 +134,10 @@ impl Argon2Kdf {
             .map_err(|e| super::CryptoError::HashError(e.to_string()))?;
         Ok(output)
     }
+
+    pub fn params(&self) -> &Argon2Params {
+        &self.params
+    }
 }
 
 #[cfg(test)]
@@ -80,20 +149,15 @@ mod tests {
         let params = Argon2Params::default();
         assert_eq!(params.t_cost, 3);
         assert_eq!(params.m_cost, 65536);
-        assert_eq!(params.p_cost, 4);
+        assert_eq!(params.p_cost, 1);
         assert_eq!(params.output_len, 32);
     }
 
     #[test]
     fn test_argon2_params_custom() {
-        let params = Argon2Params {
-            t_cost: 2,
-            m_cost: 32768,
-            p_cost: 2,
-            output_len: 64,
-        };
-        assert_eq!(params.t_cost, 2);
-        assert_eq!(params.m_cost, 32768);
+        let params = Argon2Params::new(65536, 3, 2, 64).unwrap();
+        assert_eq!(params.t_cost, 3);
+        assert_eq!(params.m_cost, 65536);
         assert_eq!(params.p_cost, 2);
         assert_eq!(params.output_len, 64);
     }
@@ -101,23 +165,18 @@ mod tests {
     #[test]
     fn test_argon2_kdf_new_default_params() {
         let kdf = Argon2Kdf::new(Argon2Params::default()).unwrap();
-        let params = kdf.params;
+        let params = kdf.params();
         assert_eq!(params.t_cost, 3);
         assert_eq!(params.m_cost, 65536);
-        assert_eq!(params.p_cost, 4);
+        assert_eq!(params.p_cost, 1);
         assert_eq!(params.output_len, 32);
     }
 
     #[test]
     fn test_argon2_kdf_new_custom_params() {
-        let params = Argon2Params {
-            t_cost: 2,
-            m_cost: 32768,
-            p_cost: 2,
-            output_len: 64,
-        };
+        let params = Argon2Params::new(65536, 3, 2, 64).unwrap();
         let kdf = Argon2Kdf::new(params).unwrap();
-        assert_eq!(kdf.params.output_len, 64);
+        assert_eq!(kdf.params().output_len, 64);
     }
 
     #[test]
@@ -212,12 +271,7 @@ mod tests {
 
     #[test]
     fn test_argon2_derive_key_custom_output_length() {
-        let params = Argon2Params {
-            t_cost: 2,
-            m_cost: 32768,
-            p_cost: 2,
-            output_len: 64,
-        };
+        let params = Argon2Params::new(65536, 3, 2, 64).unwrap();
         let kdf = Argon2Kdf::new(params).unwrap();
         let password = "password";
         let salt = b"salt12345678";
@@ -247,5 +301,46 @@ mod tests {
 
         assert!(verify1);
         assert!(verify2);
+    }
+
+    #[test]
+    fn test_argon2_kdf_from_config() {
+        let config = Argon2Config::new(65536, 3, 1).unwrap();
+        let kdf = Argon2Kdf::from_config(&config).unwrap();
+
+        let password = "test_password";
+        let hash = kdf.hash_password(password).unwrap();
+        assert!(kdf.verify_password(password, &hash).unwrap());
+    }
+
+    #[test]
+    fn test_argon2_params_from_config() {
+        let config = Argon2Config {
+            m_cost: 131072,
+            t_cost: 4,
+            p_cost: 2,
+            output_len: Some(64),
+        };
+
+        let params = Argon2Params::from(config);
+        assert_eq!(params.m_cost, 131072);
+        assert_eq!(params.t_cost, 4);
+        assert_eq!(params.p_cost, 2);
+        assert_eq!(params.output_len, 64);
+    }
+
+    #[test]
+    fn test_argon2_params_validate() {
+        let params = Argon2Params {
+            m_cost: 4096,
+            t_cost: 3,
+            p_cost: 1,
+            output_len: 32,
+        };
+
+        assert!(params.validate().is_err());
+
+        let valid_params = Argon2Params::default();
+        assert!(valid_params.validate().is_ok());
     }
 }

@@ -925,16 +925,28 @@ impl RoomService {
         new_version: &str,
         user_id: &str,
     ) -> ApiResult<String> {
-        let old_room = self.room_storage.get_room(old_room_id).await
+        let old_room = self
+            .room_storage
+            .get_room(old_room_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get old room: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
         let new_room_id = generate_room_id(&self.server_name);
 
         let create_config = CreateRoomConfig {
-            visibility: Some(if old_room.is_public { "public".to_string() } else { "private".to_string() }),
+            visibility: Some(if old_room.is_public {
+                "public".to_string()
+            } else {
+                "private".to_string()
+            }),
             room_alias_name: None,
-            name: Some(old_room.name.clone().unwrap_or_else(|| "Upgraded Room".to_string())),
+            name: Some(
+                old_room
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| "Upgraded Room".to_string()),
+            ),
             topic: old_room.topic.clone(),
             invite_list: Some(vec![user_id.to_string()]),
             preset: Some("private_chat".to_string()),
@@ -946,14 +958,19 @@ impl RoomService {
 
         self.create_room(user_id, create_config).await?;
 
-        self.room_storage.set_room_version(old_room_id, new_version).await
+        self.room_storage
+            .set_room_version(old_room_id, new_version)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to update room version: {}", e)))?;
 
         Ok(new_room_id)
     }
 
     pub async fn get_tombstone_event(&self, room_id: &str) -> ApiResult<Option<serde_json::Value>> {
-        let state_events = self.event_storage.get_state_events(room_id).await
+        let state_events = self
+            .event_storage
+            .get_state_events(room_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get state events: {}", e)))?;
 
         for event in state_events {
@@ -976,15 +993,22 @@ impl RoomService {
         target_room_id: &str,
         user_id: &str,
     ) -> ApiResult<()> {
-        let target_room = self.room_storage.get_room(target_room_id).await
+        let target_room = self
+            .room_storage
+            .get_room(target_room_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get target room: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Target room not found".to_string()))?;
 
         if target_room.creator != user_id {
-            return Err(ApiError::forbidden("Only room creator can migrate content".to_string()));
+            return Err(ApiError::forbidden(
+                "Only room creator can migrate content".to_string(),
+            ));
         }
 
-        self.room_storage.copy_room_state(source_room_id, target_room_id).await
+        self.room_storage
+            .copy_room_state(source_room_id, target_room_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to copy room state: {}", e)))?;
 
         Ok(())
@@ -995,14 +1019,22 @@ impl RoomService {
     }
 
     pub async fn is_room_upgrade_allowed(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
-        let room = self.room_storage.get_room(room_id).await
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-        let members = self.member_storage.get_room_members(room_id, "join").await
+        let members = self
+            .member_storage
+            .get_room_members(room_id, "join")
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get members: {}", e)))?;
 
-        let is_member = members.iter().any(|m| m.user_id == user_id && m.membership == "join");
+        let is_member = members
+            .iter()
+            .any(|m| m.user_id == user_id && m.membership == "join");
 
         if !is_member {
             return Ok(false);

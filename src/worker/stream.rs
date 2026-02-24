@@ -271,9 +271,12 @@ impl StreamWriterManager {
         positions.values().cloned().collect()
     }
 
-    pub async fn update_positions_bulk(&self, updates: HashMap<String, i64>) -> Result<(), ApiError> {
+    pub async fn update_positions_bulk(
+        &self,
+        updates: HashMap<String, i64>,
+    ) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         {
             let mut positions = self.positions.write().await;
             for (stream_name, position) in updates {
@@ -302,9 +305,13 @@ impl StreamWriterManager {
         self.update_position(stream_name, 0).await
     }
 
-    pub async fn advance_position_if_greater(&self, stream_name: &str, new_position: i64) -> Result<bool, ApiError> {
+    pub async fn advance_position_if_greater(
+        &self,
+        stream_name: &str,
+        new_position: i64,
+    ) -> Result<bool, ApiError> {
         let current = self.get_position(stream_name).await.unwrap_or(0);
-        
+
         if new_position > current {
             self.update_position(stream_name, new_position).await?;
             Ok(true)

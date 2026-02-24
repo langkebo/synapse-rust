@@ -11,11 +11,11 @@ impl WebhookNotifier {
     pub fn new(config: WebhookConfig) -> Self {
         let (sender, receiver) = mpsc::channel(100);
         let enabled = config.enabled;
-        
+
         if enabled {
             let http_client = reqwest::Client::new();
             let config_clone = config.clone();
-            
+
             tokio::spawn(async move {
                 Self::event_processor(http_client, config_clone, receiver).await;
             });
@@ -38,11 +38,12 @@ impl WebhookNotifier {
             }
 
             let result = Self::deliver_with_retry(&http_client, &config, &event).await;
-            
+
             if !result.success {
                 tracing::warn!(
                     "Webhook delivery failed after {} attempts: {:?}",
-                    result.attempts, result.error_message
+                    result.attempts,
+                    result.error_message
                 );
             }
         }
@@ -90,8 +91,7 @@ impl WebhookNotifier {
             request = request.header("X-Webhook-Secret", secret);
         }
 
-        let response = request.send().await
-            .map_err(|e| e.to_string())?;
+        let response = request.send().await.map_err(|e| e.to_string())?;
 
         let status = response.status();
         let body = response.text().await.ok();
@@ -119,7 +119,13 @@ impl WebhookNotifier {
         }
     }
 
-    pub async fn notify_login(&self, user_id: &str, device_id: Option<&str>, ip: Option<&str>, user_agent: Option<&str>) {
+    pub async fn notify_login(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        ip: Option<&str>,
+        user_agent: Option<&str>,
+    ) {
         self.notify(WebhookEvent {
             event_type: WebhookEventType::UserLogin,
             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -132,7 +138,8 @@ impl WebhookNotifier {
                 city: None,
                 extra: None,
             },
-        }).await;
+        })
+        .await;
     }
 
     pub async fn notify_logout(&self, user_id: &str, device_id: Option<&str>) {
@@ -148,7 +155,8 @@ impl WebhookNotifier {
                 city: None,
                 extra: None,
             },
-        }).await;
+        })
+        .await;
     }
 
     pub async fn notify_failed_login(&self, user_id: &str, ip: &str, reason: &str) {
@@ -164,6 +172,7 @@ impl WebhookNotifier {
                 city: None,
                 extra: Some(serde_json::json!({ "reason": reason })),
             },
-        }).await;
+        })
+        .await;
     }
 }

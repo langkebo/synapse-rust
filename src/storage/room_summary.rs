@@ -175,7 +175,7 @@ impl RoomSummaryStorage {
                 updated_ts, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 0, 0, '[]'::jsonb, $12, $13)
-            RETURNING *
+            RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
             "#,
         )
         .bind(&request.room_id)
@@ -207,7 +207,7 @@ impl RoomSummaryStorage {
 
     pub async fn get_summary(&self, room_id: &str) -> Result<Option<RoomSummary>, sqlx::Error> {
         let row =
-            sqlx::query_as::<_, RoomSummary>("SELECT * FROM room_summaries WHERE room_id = $1")
+            sqlx::query_as::<_, RoomSummary>("SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts FROM room_summaries WHERE room_id = $1")
                 .bind(room_id)
                 .fetch_optional(&*self.pool)
                 .await?;
@@ -238,7 +238,7 @@ impl RoomSummaryStorage {
                 last_message_ts = COALESCE($14, last_message_ts),
                 hero_users = COALESCE($15, hero_users)
             WHERE room_id = $1
-            RETURNING *
+            RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
             "#,
         )
         .bind(room_id)
@@ -276,7 +276,7 @@ impl RoomSummaryStorage {
         room_ids: &[String],
     ) -> Result<Vec<RoomSummary>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummary>(
-            "SELECT * FROM room_summaries WHERE room_id = ANY($1)",
+            "SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts FROM room_summaries WHERE room_id = ANY($1)",
         )
         .bind(room_ids)
         .fetch_all(&*self.pool)
@@ -322,7 +322,7 @@ impl RoomSummaryStorage {
                 membership = EXCLUDED.membership,
                 last_active_ts = COALESCE(EXCLUDED.last_active_ts, room_summary_members.last_active_ts),
                 updated_ts = EXCLUDED.updated_ts
-            RETURNING *
+            RETURNING id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
             "#,
         )
         .bind(&request.room_id)
@@ -354,7 +354,7 @@ impl RoomSummaryStorage {
                 is_hero = COALESCE($6, is_hero),
                 last_active_ts = COALESCE($7, last_active_ts)
             WHERE room_id = $1 AND user_id = $2
-            RETURNING *
+            RETURNING id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
             "#,
         )
         .bind(room_id)
@@ -382,7 +382,7 @@ impl RoomSummaryStorage {
 
     pub async fn get_members(&self, room_id: &str) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummaryMember>(
-            "SELECT * FROM room_summary_members WHERE room_id = $1 ORDER BY is_hero DESC, user_id",
+            "SELECT id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts FROM room_summary_members WHERE room_id = $1 ORDER BY is_hero DESC, user_id",
         )
         .bind(room_id)
         .fetch_all(&*self.pool)
@@ -465,7 +465,7 @@ impl RoomSummaryStorage {
 
     pub async fn get_all_state(&self, room_id: &str) -> Result<Vec<RoomSummaryState>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummaryState>(
-            "SELECT * FROM room_summary_state WHERE room_id = $1",
+            "SELECT id, room_id, event_type, state_key, event_id, content, updated_ts FROM room_summary_state WHERE room_id = $1",
         )
         .bind(room_id)
         .fetch_all(&*self.pool)
@@ -476,7 +476,7 @@ impl RoomSummaryStorage {
 
     pub async fn get_stats(&self, room_id: &str) -> Result<Option<RoomSummaryStats>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomSummaryStats>(
-            "SELECT * FROM room_summary_stats WHERE room_id = $1",
+            "SELECT id, room_id, total_events, total_state_events, total_messages, total_media, storage_size, last_updated_ts FROM room_summary_stats WHERE room_id = $1",
         )
         .bind(room_id)
         .fetch_optional(&*self.pool)
@@ -557,7 +557,8 @@ impl RoomSummaryStorage {
     ) -> Result<Vec<RoomSummaryUpdateQueueItem>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummaryUpdateQueueItem>(
             r#"
-            SELECT * FROM room_summary_update_queue
+            SELECT id, room_id, event_id, event_type, state_key, priority, status, created_ts, processed_ts, error_message, retry_count
+            FROM room_summary_update_queue
             WHERE status = 'pending'
             ORDER BY priority DESC, created_ts ASC
             LIMIT $1

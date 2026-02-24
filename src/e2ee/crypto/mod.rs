@@ -29,6 +29,15 @@ pub enum CryptoError {
 
     #[error("Hash error: {0}")]
     HashError(String),
+
+    #[error("Nonce reuse detected")]
+    NonceReuseDetected,
+
+    #[error("Nonce counter overflow")]
+    NonceCounterOverflow,
+
+    #[error("Invalid nonce length")]
+    InvalidNonceLength,
 }
 
 impl PartialEq for CryptoError {
@@ -40,6 +49,9 @@ impl PartialEq for CryptoError {
             (Self::EncryptionError(s1), Self::EncryptionError(s2)) => s1 == s2,
             (Self::DecryptionError(s1), Self::DecryptionError(s2)) => s1 == s2,
             (Self::HashError(s1), Self::HashError(s2)) => s1 == s2,
+            (Self::NonceReuseDetected, Self::NonceReuseDetected) => true,
+            (Self::NonceCounterOverflow, Self::NonceCounterOverflow) => true,
+            (Self::InvalidNonceLength, Self::InvalidNonceLength) => true,
             _ => false,
         }
     }

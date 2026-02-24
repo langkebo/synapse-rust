@@ -1483,7 +1483,7 @@ pub async fn get_users_v2(
         .unwrap_or(true);
 
     let mut query = sqlx::QueryBuilder::new(
-        "SELECT user_id, username, creation_ts, is_admin, updated_ts, is_guest, user_type, deactivated, displayname, avatar_url FROM users WHERE 1=1"
+        "SELECT user_id, username, creation_ts, is_admin, updated_ts, is_guest, user_type, is_deactivated, displayname, avatar_url FROM users WHERE 1=1"
     );
 
     if !guests {
@@ -1516,7 +1516,7 @@ pub async fn get_users_v2(
                 "admin": row.get::<Option<bool>, _>("is_admin").unwrap_or(false),
                 "is_guest": row.get::<Option<bool>, _>("is_guest").unwrap_or(false),
                 "user_type": row.get::<Option<String>, _>("user_type"),
-                "deactivated": row.get::<Option<bool>, _>("deactivated").unwrap_or(false),
+                "deactivated": row.get::<Option<bool>, _>("is_deactivated").unwrap_or(false),
                 "displayname": row.get::<Option<String>, _>("displayname"),
                 "avatar_url": row.get::<Option<String>, _>("avatar_url")
             })

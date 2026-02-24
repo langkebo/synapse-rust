@@ -238,7 +238,12 @@ impl EventStorage {
     pub async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
         sqlx::query_as::<_, StateEvent>(
             r#"
-            SELECT * FROM events WHERE room_id = $1 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
+            SELECT event_id, room_id, user_id as sender, event_type, content, state_key, 
+                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
+                   COALESCE(redacted, false) as redacted,
+                   COALESCE(origin_server_ts, 0) as origin_server_ts,
+                   depth, processed_ts, not_before, status, reference_image, origin, user_id
+            FROM events WHERE room_id = $1 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
             "#,
         )
         .bind(room_id)
@@ -253,7 +258,12 @@ impl EventStorage {
     ) -> Result<Vec<StateEvent>, sqlx::Error> {
         sqlx::query_as::<_, StateEvent>(
             r#"
-            SELECT * FROM events WHERE room_id = $1 AND event_type = $2 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
+            SELECT event_id, room_id, user_id as sender, event_type, content, state_key, 
+                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
+                   COALESCE(redacted, false) as redacted,
+                   COALESCE(origin_server_ts, 0) as origin_server_ts,
+                   depth, processed_ts, not_before, status, reference_image, origin, user_id
+            FROM events WHERE room_id = $1 AND event_type = $2 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
             "#,
         )
         .bind(room_id)
@@ -463,6 +473,135 @@ impl EventStorage {
                     room_events.push(event);
                 }
             }
+        }
+
+        Ok(result)
+    }
+
+    pub async fn get_events_batch(
+        &self,
+        event_ids: &[String],
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        if event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        sqlx::query_as(
+            r#"
+            SELECT event_id, room_id, user_id, event_type, content, state_key, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_ts, 0) as processed_ts, 
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
+            FROM events 
+            WHERE event_id = ANY($1)
+            "#,
+        )
+        .bind(event_ids)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_events_map(
+        &self,
+        event_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, RoomEvent>, sqlx::Error> {
+        if event_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let events = self.get_events_batch(event_ids).await?;
+
+        Ok(events.into_iter().map(|e| (e.event_id.clone(), e)).collect())
+    }
+
+    pub async fn get_state_events_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<StateEvent>>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let events: Vec<StateEvent> = sqlx::query_as(
+            r#"
+            SELECT event_id, room_id, user_id as sender, event_type, content, state_key, 
+                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
+                   COALESCE(redacted, false) as redacted,
+                   COALESCE(origin_server_ts, 0) as origin_server_ts,
+                   depth, processed_ts, not_before, status, reference_image, origin, user_id
+            FROM events 
+            WHERE room_id = ANY($1) AND state_key IS NOT NULL
+            ORDER BY room_id, origin_server_ts DESC
+            "#,
+        )
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, Vec<StateEvent>> =
+            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+
+        for event in events {
+            if let Some(room_events) = result.get_mut(&event.room_id) {
+                room_events.push(event);
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub async fn get_latest_events_for_rooms(
+        &self,
+        room_ids: &[String],
+        _limit_per_room: i64,
+    ) -> Result<std::collections::HashMap<String, RoomEvent>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let events: Vec<RoomEvent> = sqlx::query_as(
+            r#"
+            SELECT DISTINCT ON (room_id) 
+                   event_id, room_id, user_id, event_type, content, state_key, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, 
+                   COALESCE(processed_ts, 0) as processed_ts, 
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
+            FROM events 
+            WHERE room_id = ANY($1)
+            ORDER BY room_id, origin_server_ts DESC
+            "#,
+        )
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(events.into_iter().map(|e| (e.room_id.clone(), e)).collect())
+    }
+
+    pub async fn get_room_message_counts_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, i64>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            r#"
+            SELECT room_id, COUNT(*) as count
+            FROM events 
+            WHERE room_id = ANY($1) AND event_type = 'm.room.message'
+            GROUP BY room_id
+            "#,
+        )
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, i64> =
+            room_ids.iter().map(|id| (id.clone(), 0)).collect();
+
+        for (room_id, count) in rows {
+            result.insert(room_id, count);
         }
 
         Ok(result)

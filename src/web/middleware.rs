@@ -26,7 +26,175 @@ static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
         })
 });
 
-const FEDERATION_SIGNATURE_TTL_MS: u64 = 300 * 1000; // 5分钟容忍度
+const FEDERATION_SIGNATURE_TTL_MS: u64 = 300 * 1000;
+
+#[derive(Debug, Clone)]
+pub struct CorsSecurityReport {
+    pub is_development_mode: bool,
+    pub allows_any_origin: bool,
+    pub allowed_origins: Vec<String>,
+    pub has_pattern: bool,
+    pub warnings: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+impl CorsSecurityReport {
+    pub fn has_issues(&self) -> bool {
+        !self.errors.is_empty() || !self.warnings.is_empty()
+    }
+}
+
+pub fn check_cors_security() -> CorsSecurityReport {
+    let is_dev = is_dev_mode();
+    let allowed_origins = get_allowed_origins();
+    let allows_any_origin = allowed_origins.iter().any(|o| o == "*");
+    let has_pattern = CORS_ORIGINS_REGEX.is_some();
+
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+
+    if is_dev {
+        warnings.push(
+            "⚠️  DEVELOPMENT MODE ENABLED - CORS allows all origins. DO NOT use in production!"
+                .to_string(),
+        );
+    }
+
+    if !is_dev && allows_any_origin {
+        errors.push(
+            "🚨 SECURITY ERROR: Production environment cannot use '*' as CORS origin. \
+             Please configure ALLOWED_ORIGINS environment variable with specific domains."
+                .to_string(),
+        );
+    }
+
+    if !is_dev && allowed_origins.is_empty() && !has_pattern {
+        errors.push(
+            "🚨 SECURITY ERROR: No CORS origins configured in production. \
+             Set ALLOWED_ORIGINS or CORS_ORIGIN_PATTERN environment variable."
+                .to_string(),
+        );
+    }
+
+    if !is_dev && allows_any_origin {
+        warnings.push(
+            "⚠️  CORS wildcard origin detected in production configuration. \
+             This is a security risk and may expose your server to CSRF attacks."
+                .to_string(),
+        );
+    }
+
+    CorsSecurityReport {
+        is_development_mode: is_dev,
+        allows_any_origin,
+        allowed_origins,
+        has_pattern,
+        warnings,
+        errors,
+    }
+}
+
+pub fn log_cors_security_report(report: &CorsSecurityReport) {
+    println!();
+    println!("╔════════════════════════════════════════════════════════════════╗");
+    println!("║              CORS Security Configuration Check                 ║");
+    println!("╠════════════════════════════════════════════════════════════════╣");
+
+    if report.is_development_mode {
+        println!("║  🔧 MODE: DEVELOPMENT                                          ║");
+        println!("║  ⚠️  WARNING: Development mode is ACTIVE                        ║");
+        println!("║  ⚠️  All CORS origins are permitted - NOT SAFE FOR PRODUCTION  ║");
+    } else {
+        println!("║  🏭 MODE: PRODUCTION                                           ║");
+    }
+
+    println!("╠════════════════════════════════════════════════════════════════╣");
+
+    if report.allows_any_origin {
+        println!("║  🌐 CORS Origin: * (ANY ORIGIN)                                ║");
+    } else if report.has_pattern {
+        println!("║  🌐 CORS Origin: Pattern-based matching                        ║");
+    } else if report.allowed_origins.is_empty() {
+        println!("║  🌐 CORS Origin: NOT CONFIGURED                                ║");
+    } else {
+        println!("║  🌐 CORS Origins:                                              ║");
+        for origin in &report.allowed_origins {
+            let truncated = if origin.len() > 50 {
+                format!("{}...", &origin[..47])
+            } else {
+                origin.clone()
+            };
+            println!("║    - {:<58}║", truncated);
+        }
+    }
+
+    println!("╠════════════════════════════════════════════════════════════════╣");
+
+    if !report.errors.is_empty() {
+        println!("║  🚨 ERRORS:                                                    ║");
+        for error in &report.errors {
+            for line in textwrap::wrap(error, 60) {
+                println!("║    {}{}", line, " ".repeat(60 - line.len()));
+            }
+        }
+    }
+
+    if !report.warnings.is_empty() {
+        println!("║  ⚠️  WARNINGS:                                                  ║");
+        for warning in &report.warnings {
+            for line in textwrap::wrap(warning, 60) {
+                println!("║    {}{}", line, " ".repeat(60 - line.len()));
+            }
+        }
+    }
+
+    if !report.has_issues() {
+        println!("║  ✅ CORS configuration looks secure                            ║");
+    }
+
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!();
+
+    for error in &report.errors {
+        tracing::error!("{}", error);
+    }
+    for warning in &report.warnings {
+        tracing::warn!("{}", warning);
+    }
+}
+
+pub fn validate_cors_config_for_production() -> Result<(), String> {
+    let report = check_cors_security();
+
+    if !report.errors.is_empty() {
+        return Err(report.errors.join("; "));
+    }
+
+    Ok(())
+}
+
+pub fn validate_bind_address_for_dev_mode(host: &str) -> Result<(), String> {
+    if !is_dev_mode() {
+        return Ok(());
+    }
+
+    let local_addresses = ["127.0.0.1", "localhost", "::1", "0.0.0.0", "::", "[::]"];
+
+    let is_local = local_addresses.iter().any(|&local| {
+        host.eq_ignore_ascii_case(local) || host.starts_with("127.") || host.starts_with("::1")
+    });
+
+    if !is_local {
+        return Err(format!(
+            "Development mode should only bind to local addresses. \
+             Current bind address '{}' is not local. \
+             For development, use '127.0.0.1' or 'localhost'.",
+            host
+        ));
+    }
+
+    Ok(())
+}
 const FEDERATION_KEY_CACHE_TTL: u64 = 3600;
 #[allow(dead_code)]
 const FEDERATION_SIGNATURE_CACHE_TTL: u64 = 300;
@@ -451,30 +619,42 @@ pub async fn rate_limit_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    let config = &state.services.config.rate_limit;
-    if !config.enabled {
+    let config = state.services.config.rate_limit.clone();
+    let file_config = state.rate_limit_config_manager.as_ref().map(|m| m.get_config());
+
+    let enabled = file_config.as_ref().map(|c| c.enabled).unwrap_or(config.enabled);
+    if !enabled {
         return next.run(request).await;
     }
 
     let path = request.uri().path();
-    if config.exempt_paths.iter().any(|p| p == path)
-        || config
-            .exempt_path_prefixes
+    let exempt_paths = file_config.as_ref().map(|c| c.exempt_paths.as_slice()).unwrap_or(&config.exempt_paths);
+    let exempt_path_prefixes = file_config.as_ref().map(|c| c.exempt_path_prefixes.as_slice()).unwrap_or(&config.exempt_path_prefixes);
+    
+    if exempt_paths.iter().any(|p: &String| p == path)
+        || exempt_path_prefixes
             .iter()
-            .any(|p| !p.is_empty() && path.starts_with(p))
+            .any(|p: &String| !p.is_empty() && path.starts_with(p))
     {
         return next.run(request).await;
     }
 
-    let ip = extract_client_ip(request.headers(), config.ip_header_priority.as_slice())
+    let ip_header_priority = file_config.as_ref().map(|c| c.ip_header_priority.as_slice()).unwrap_or(&config.ip_header_priority);
+    let ip = extract_client_ip(request.headers(), ip_header_priority)
         .unwrap_or_else(|| "unknown".to_string());
 
-    let (endpoint_id, rule) = select_endpoint_rule(config, path);
-    let endpoint_id = config
-        .endpoint_aliases
-        .get(&endpoint_id)
-        .cloned()
-        .unwrap_or(endpoint_id);
+    let (endpoint_id, per_second, burst_size) = match &file_config {
+        Some(fc) => {
+            let (id, r) = crate::common::rate_limit_config::select_endpoint_rule(fc, path);
+            let aliased_id = fc.endpoint_aliases.get(&id).cloned().unwrap_or(id);
+            (aliased_id, r.per_second, r.burst_size)
+        }
+        None => {
+            let (id, r) = select_endpoint_rule(&config, path);
+            let aliased_id = config.endpoint_aliases.get(&id).cloned().unwrap_or(id);
+            (aliased_id, r.per_second, r.burst_size)
+        }
+    };
 
     let redis_prefix = state.services.config.redis.key_prefix.as_str();
     let cache_key = format!(
@@ -483,14 +663,17 @@ pub async fn rate_limit_middleware(
         CacheKeyBuilder::ip_rate_limit(&ip, endpoint_id.as_str())
     );
 
+    let fail_open = file_config.as_ref().map(|c| c.fail_open_on_error).unwrap_or(config.fail_open_on_error);
+    let include_headers = file_config.as_ref().map(|c| c.include_headers).unwrap_or(config.include_headers);
+
     let decision = match state
         .cache
-        .rate_limit_token_bucket_take(&cache_key, rule.per_second, rule.burst_size)
+        .rate_limit_token_bucket_take(&cache_key, per_second, burst_size)
         .await
     {
         Ok(d) => d,
         Err(e) => {
-            if state.services.config.rate_limit.fail_open_on_error {
+            if fail_open {
                 tracing::warn!("Rate limiter error, allowing request: {}", e);
                 return next.run(request).await;
             } else {
@@ -528,11 +711,11 @@ pub async fn rate_limit_middleware(
             response.headers_mut().insert("retry-after", v);
         }
 
-        if config.include_headers {
+        if include_headers {
             if let Ok(v) = decision.remaining.to_string().parse() {
                 response.headers_mut().insert("x-ratelimit-remaining", v);
             }
-            if let Ok(v) = rule.burst_size.to_string().parse() {
+            if let Ok(v) = burst_size.to_string().parse() {
                 response.headers_mut().insert("x-ratelimit-limit", v);
             }
             if let Ok(v) = retry_after_ms.to_string().parse() {
@@ -544,11 +727,11 @@ pub async fn rate_limit_middleware(
     }
 
     let mut response = next.run(request).await;
-    if config.include_headers {
+    if include_headers {
         if let Ok(v) = decision.remaining.to_string().parse() {
             response.headers_mut().insert("x-ratelimit-remaining", v);
         }
-        if let Ok(v) = rule.burst_size.to_string().parse() {
+        if let Ok(v) = burst_size.to_string().parse() {
             response.headers_mut().insert("x-ratelimit-limit", v);
         }
     }
@@ -562,7 +745,7 @@ pub async fn auth_middleware(
 ) -> Response {
     let token = match extract_token(request.headers()) {
         Some(token) => token,
-        None => return ApiError::unauthorized("Missing access token".to_string()).into_response(),
+        None => return ApiError::missing_token().into_response(),
     };
 
     if let Err(err) = state.services.auth_service.validate_token(&token).await {
@@ -828,24 +1011,29 @@ async fn verify_federation_signature_with_cache(
     signature: &str,
     signed_bytes: &[u8],
 ) -> Result<(), ApiError> {
-    let cache_key = format!(
-        "federation:signature_cache:{}:{}:{}",
-        origin,
-        key_id,
-        compute_signature_content_hash(signed_bytes)
-    );
+    use crate::cache::CacheEntryKey;
 
-    if let Ok(Some(_)) = state.cache.get::<String>(&cache_key).await {
-        tracing::debug!("Signature cache hit for {}:{}", origin, key_id);
-        return Ok(());
+    let content_hash = compute_signature_content_hash(signed_bytes);
+    let cache_key = CacheEntryKey::new(origin, key_id, &content_hash);
+
+    if let Some(entry) = state.federation_signature_cache.get_signature(&cache_key) {
+        if !entry.is_expired() {
+            tracing::debug!("Signature cache hit for {}:{}", origin, key_id);
+            if entry.verified {
+                return Ok(());
+            } else {
+                return Err(ApiError::unauthorized(
+                    "Cached signature verification failed".to_string(),
+                ));
+            }
+        }
     }
 
     let result = verify_federation_signature(state, origin, key_id, signature, signed_bytes).await;
 
-    if result.is_ok() {
-        let ttl = 300u64;
-        let _ = state.cache.set(&cache_key, "valid", ttl).await;
-    }
+    state
+        .federation_signature_cache
+        .set_signature(&cache_key, result.is_ok());
 
     result
 }
@@ -1448,5 +1636,153 @@ mod tests {
         assert!(hash
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='));
+    }
+
+    #[test]
+    fn test_cors_security_report_development_mode() {
+        std::env::set_var("RUST_ENV", "development");
+        std::env::remove_var("ALLOWED_ORIGINS");
+
+        let report = check_cors_security();
+
+        assert!(report.is_development_mode);
+        assert!(report.has_issues());
+        assert!(!report.warnings.is_empty());
+
+        std::env::remove_var("RUST_ENV");
+    }
+
+    #[test]
+    fn test_cors_security_report_production_with_wildcard() {
+        std::env::set_var("RUST_ENV", "production");
+        std::env::set_var("ALLOWED_ORIGINS", "*");
+
+        let report = check_cors_security();
+
+        assert!(!report.is_development_mode);
+        assert!(report.allows_any_origin);
+        assert!(!report.errors.is_empty());
+
+        let validation = validate_cors_config_for_production();
+        assert!(validation.is_err());
+
+        std::env::remove_var("RUST_ENV");
+        std::env::remove_var("ALLOWED_ORIGINS");
+    }
+
+    #[test]
+    fn test_cors_security_report_production_no_origins() {
+        std::env::set_var("RUST_ENV", "production");
+        std::env::remove_var("ALLOWED_ORIGINS");
+        std::env::remove_var("CORS_ORIGIN_PATTERN");
+
+        let report = check_cors_security();
+
+        assert!(!report.is_development_mode);
+        assert!(report.allowed_origins.is_empty());
+        assert!(!report.has_pattern);
+        assert!(!report.errors.is_empty());
+
+        std::env::remove_var("RUST_ENV");
+    }
+
+    #[test]
+    fn test_cors_security_report_production_with_specific_origins() {
+        std::env::set_var("RUST_ENV", "production");
+        std::env::set_var(
+            "ALLOWED_ORIGINS",
+            "https://example.com,https://app.example.com",
+        );
+
+        let report = check_cors_security();
+
+        assert!(!report.is_development_mode);
+        assert!(!report.allows_any_origin);
+        assert_eq!(report.allowed_origins.len(), 2);
+        assert!(report
+            .allowed_origins
+            .contains(&"https://example.com".to_string()));
+        assert!(report
+            .allowed_origins
+            .contains(&"https://app.example.com".to_string()));
+
+        let validation = validate_cors_config_for_production();
+        assert!(validation.is_ok());
+
+        std::env::remove_var("RUST_ENV");
+        std::env::remove_var("ALLOWED_ORIGINS");
+    }
+
+    #[test]
+    fn test_validate_bind_address_for_dev_mode_local() {
+        std::env::set_var("RUST_ENV", "development");
+
+        assert!(validate_bind_address_for_dev_mode("127.0.0.1").is_ok());
+        assert!(validate_bind_address_for_dev_mode("localhost").is_ok());
+        assert!(validate_bind_address_for_dev_mode("::1").is_ok());
+        assert!(validate_bind_address_for_dev_mode("0.0.0.0").is_ok());
+        assert!(validate_bind_address_for_dev_mode("127.0.0.5").is_ok());
+
+        std::env::remove_var("RUST_ENV");
+    }
+
+    #[test]
+    fn test_validate_bind_address_for_dev_mode_non_local() {
+        std::env::set_var("RUST_ENV", "development");
+
+        let result = validate_bind_address_for_dev_mode("192.168.1.1");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Development mode should only bind to local addresses"));
+
+        let result = validate_bind_address_for_dev_mode("example.com");
+        assert!(result.is_err());
+
+        std::env::remove_var("RUST_ENV");
+    }
+
+    #[test]
+    fn test_validate_bind_address_for_production_mode() {
+        std::env::set_var("RUST_ENV", "production");
+
+        assert!(validate_bind_address_for_dev_mode("0.0.0.0").is_ok());
+        assert!(validate_bind_address_for_dev_mode("192.168.1.1").is_ok());
+        assert!(validate_bind_address_for_dev_mode("example.com").is_ok());
+
+        std::env::remove_var("RUST_ENV");
+    }
+
+    #[test]
+    fn test_cors_security_report_has_issues() {
+        let report_with_errors = CorsSecurityReport {
+            is_development_mode: false,
+            allows_any_origin: true,
+            allowed_origins: vec!["*".to_string()],
+            has_pattern: false,
+            warnings: vec![],
+            errors: vec!["Test error".to_string()],
+        };
+        assert!(report_with_errors.has_issues());
+
+        let report_with_warnings = CorsSecurityReport {
+            is_development_mode: true,
+            allows_any_origin: true,
+            allowed_origins: vec![],
+            has_pattern: false,
+            warnings: vec!["Test warning".to_string()],
+            errors: vec![],
+        };
+        assert!(report_with_warnings.has_issues());
+
+        let report_clean = CorsSecurityReport {
+            is_development_mode: false,
+            allows_any_origin: false,
+            allowed_origins: vec!["https://example.com".to_string()],
+            has_pattern: false,
+            warnings: vec![],
+            errors: vec![],
+        };
+        assert!(!report_clean.has_issues());
     }
 }

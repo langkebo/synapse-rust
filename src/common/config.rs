@@ -1232,6 +1232,75 @@ pub struct RedisConfig {
     pub pool_size: u32,
     /// 是否启用 Redis 缓存
     pub enabled: bool,
+    /// 连接超时时间（毫秒）
+    #[serde(default = "default_redis_connection_timeout")]
+    pub connection_timeout_ms: u64,
+    /// 命令超时时间（毫秒）
+    #[serde(default = "default_redis_command_timeout")]
+    pub command_timeout_ms: u64,
+    /// 熔断器配置
+    #[serde(default)]
+    pub circuit_breaker: CircuitBreakerConfig,
+}
+
+/// 熔断器配置
+#[derive(Debug, Clone, Deserialize)]
+pub struct CircuitBreakerConfig {
+    /// 是否启用熔断器
+    #[serde(default = "default_circuit_breaker_enabled")]
+    pub enabled: bool,
+    /// 熔断器打开的失败阈值
+    #[serde(default = "default_failure_threshold")]
+    pub failure_threshold: u32,
+    /// 熔断器半开状态下的成功阈值
+    #[serde(default = "default_success_threshold")]
+    pub success_threshold: u32,
+    /// 熔断器打开后的超时时间（毫秒）
+    #[serde(default = "default_timeout_ms")]
+    pub timeout_ms: u64,
+    /// 滑动窗口大小（秒）
+    #[serde(default = "default_window_size_seconds")]
+    pub window_size_seconds: u64,
+}
+
+fn default_redis_connection_timeout() -> u64 {
+    500
+}
+
+fn default_redis_command_timeout() -> u64 {
+    500
+}
+
+fn default_circuit_breaker_enabled() -> bool {
+    true
+}
+
+fn default_failure_threshold() -> u32 {
+    5
+}
+
+fn default_success_threshold() -> u32 {
+    3
+}
+
+fn default_timeout_ms() -> u64 {
+    30000
+}
+
+fn default_window_size_seconds() -> u64 {
+    60
+}
+
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_circuit_breaker_enabled(),
+            failure_threshold: default_failure_threshold(),
+            success_threshold: default_success_threshold(),
+            timeout_ms: default_timeout_ms(),
+            window_size_seconds: default_window_size_seconds(),
+        }
+    }
 }
 
 /// 日志配置。
@@ -1284,6 +1353,15 @@ pub struct FederationConfig {
     /// 是否抑制密钥服务器警告
     #[serde(default)]
     pub suppress_key_server_warning: bool,
+    /// 签名验证缓存 TTL（秒），默认 1 小时
+    #[serde(default = "default_signature_cache_ttl")]
+    pub signature_cache_ttl: u64,
+    /// 密钥缓存 TTL（秒），默认 1 小时
+    #[serde(default = "default_key_cache_ttl")]
+    pub key_cache_ttl: u64,
+    /// 密钥轮换宽限期（毫秒），默认 10 分钟
+    #[serde(default = "default_key_rotation_grace_period_ms")]
+    pub key_rotation_grace_period_ms: u64,
 }
 
 /// 信任的密钥服务器配置
@@ -1305,6 +1383,18 @@ fn default_trusted_key_servers() -> Vec<TrustedKeyServer> {
 
 fn default_key_refresh_interval() -> u64 {
     86400
+}
+
+fn default_signature_cache_ttl() -> u64 {
+    3600
+}
+
+fn default_key_cache_ttl() -> u64 {
+    3600
+}
+
+fn default_key_rotation_grace_period_ms() -> u64 {
+    600 * 1000
 }
 
 /// 安全配置。
@@ -1347,7 +1437,7 @@ fn default_login_lockout_duration_seconds() -> u64 {
 }
 
 fn default_argon2_m_cost() -> u32 {
-    4096
+    65536
 }
 
 fn default_argon2_t_cost() -> u32 {
@@ -1798,6 +1888,20 @@ impl Config {
             );
         }
 
+        if let Err(e) =
+            crate::common::argon2_config::Argon2Config::from(&self.security).validate_owasp()
+        {
+            tracing::warn!(
+                "Argon2 parameters do not meet OWASP recommendations: {}. \
+                 Current: m_cost={}, t_cost={}, p_cost={}. \
+                 Recommended minimum: m_cost=65536, t_cost=3, p_cost=1.",
+                e,
+                self.security.argon2_m_cost,
+                self.security.argon2_t_cost,
+                self.security.argon2_p_cost
+            );
+        }
+
         Ok(())
     }
 
@@ -1944,6 +2048,9 @@ mod tests {
                 key_prefix: "test:".to_string(),
                 pool_size: 10,
                 enabled: true,
+                connection_timeout_ms: 500,
+                command_timeout_ms: 500,
+                circuit_breaker: CircuitBreakerConfig::default(),
             },
             logging: LoggingConfig {
                 level: "info".to_string(),
@@ -1965,6 +2072,9 @@ mod tests {
                 trusted_key_servers: vec![],
                 key_refresh_interval: 86400,
                 suppress_key_server_warning: false,
+                signature_cache_ttl: 3600,
+                key_cache_ttl: 3600,
+                key_rotation_grace_period_ms: 600000,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -2055,6 +2165,9 @@ mod tests {
                 key_prefix: "prod:".to_string(),
                 pool_size: 20,
                 enabled: true,
+                connection_timeout_ms: 500,
+                command_timeout_ms: 500,
+                circuit_breaker: CircuitBreakerConfig::default(),
             },
             logging: LoggingConfig {
                 level: "info".to_string(),
@@ -2076,6 +2189,9 @@ mod tests {
                 trusted_key_servers: vec![],
                 key_refresh_interval: 86400,
                 suppress_key_server_warning: false,
+                signature_cache_ttl: 3600,
+                key_cache_ttl: 3600,
+                key_rotation_grace_period_ms: 600000,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -2182,11 +2298,28 @@ mod tests {
             key_prefix: "synapse:".to_string(),
             pool_size: 16,
             enabled: true,
+            connection_timeout_ms: 500,
+            command_timeout_ms: 500,
+            circuit_breaker: CircuitBreakerConfig::default(),
         };
 
         assert_eq!(config.host, "127.0.0.1");
         assert_eq!(config.port, 6379);
         assert!(config.enabled);
+        assert_eq!(config.connection_timeout_ms, 500);
+        assert_eq!(config.command_timeout_ms, 500);
+        assert!(config.circuit_breaker.enabled);
+    }
+
+    #[test]
+    fn test_circuit_breaker_config_defaults() {
+        let config = CircuitBreakerConfig::default();
+
+        assert!(config.enabled);
+        assert_eq!(config.failure_threshold, 5);
+        assert_eq!(config.success_threshold, 3);
+        assert_eq!(config.timeout_ms, 30000);
+        assert_eq!(config.window_size_seconds, 60);
     }
 
     #[test]
@@ -2219,6 +2352,9 @@ mod tests {
             trusted_key_servers: vec![],
             key_refresh_interval: 86400,
             suppress_key_server_warning: false,
+            signature_cache_ttl: 3600,
+            key_cache_ttl: 3600,
+            key_rotation_grace_period_ms: 600000,
         };
 
         assert!(config.enabled);

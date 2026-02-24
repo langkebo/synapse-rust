@@ -8,6 +8,7 @@ pub mod e2ee_routes;
 pub mod event_report;
 pub mod federation;
 pub mod federation_blacklist;
+pub mod federation_cache;
 pub mod friend_room;
 pub mod key_backup;
 pub mod media;
@@ -15,6 +16,7 @@ pub mod media_quota;
 pub mod module;
 pub mod push;
 pub mod push_notification;
+pub mod rate_limit_admin;
 pub mod refresh_token;
 pub mod registration_token;
 pub mod retention;
@@ -39,6 +41,7 @@ pub use e2ee_routes::create_e2ee_router;
 pub use event_report::create_event_report_router;
 pub use federation::create_federation_router;
 pub use federation_blacklist::create_federation_blacklist_router;
+pub use federation_cache::create_federation_cache_router;
 pub use friend_room::create_friend_router;
 pub use key_backup::create_key_backup_router;
 pub use media::create_media_router;
@@ -46,6 +49,7 @@ pub use media_quota::create_media_quota_router;
 pub use module::create_module_router;
 pub use push::create_push_router;
 pub use push_notification::create_push_notification_router;
+pub use rate_limit_admin::create_rate_limit_admin_router;
 pub use refresh_token::create_refresh_token_router;
 pub use registration_token::create_registration_token_router;
 pub use retention::create_retention_router;
@@ -112,6 +116,8 @@ pub struct AppState {
     pub services: ServiceContainer,
     pub cache: Arc<CacheManager>,
     pub health_checker: Arc<crate::common::health::HealthChecker>,
+    pub federation_signature_cache: Arc<crate::cache::FederationSignatureCache>,
+    pub rate_limit_config_manager: Option<Arc<crate::common::rate_limit_config::RateLimitConfigManager>>,
 }
 
 impl AppState {
@@ -128,11 +134,26 @@ impl AppState {
             (*cache).clone(),
         )));
 
+        let federation_signature_cache = Arc::new(crate::cache::FederationSignatureCache::new(
+            crate::cache::SignatureCacheConfig::from_federation_config(
+                services.config.federation.signature_cache_ttl,
+                services.config.federation.key_cache_ttl,
+                services.config.federation.key_rotation_grace_period_ms,
+            ),
+        ));
+
         Self {
             services,
             cache,
             health_checker: Arc::new(health_checker),
+            federation_signature_cache,
+            rate_limit_config_manager: None,
         }
+    }
+
+    pub fn with_rate_limit_config(mut self, manager: Arc<crate::common::rate_limit_config::RateLimitConfigManager>) -> Self {
+        self.rate_limit_config_manager = Some(manager);
+        self
     }
 }
 
@@ -325,6 +346,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_push_notification_router())
         .merge(create_telemetry_router())
         .merge(create_thread_routes(state.clone()))
+        .merge(create_rate_limit_admin_router())
         .route("/_matrix/client/v3/voip/turnServer", get(get_turn_server))
         .route("/_matrix/client/v3/voip/config", get(get_voip_config))
         .route(

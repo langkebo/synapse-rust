@@ -217,7 +217,7 @@ impl SpaceStorage {
                 join_rule, visibility, creation_ts, is_public, parent_space_id
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING *
+            RETURNING space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id
             "#,
         )
         .bind(&space_id)
@@ -241,14 +241,14 @@ impl SpaceStorage {
     }
 
     pub async fn get_space(&self, space_id: &str) -> Result<Option<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r#"SELECT * FROM spaces WHERE space_id = $1"#)
+        sqlx::query_as::<_, Space>(r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id FROM spaces WHERE space_id = $1"#)
             .bind(space_id)
             .fetch_optional(&*self.pool)
             .await
     }
 
     pub async fn get_space_by_room(&self, room_id: &str) -> Result<Option<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r#"SELECT * FROM spaces WHERE room_id = $1"#)
+        sqlx::query_as::<_, Space>(r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id FROM spaces WHERE room_id = $1"#)
             .bind(room_id)
             .fetch_optional(&*self.pool)
             .await
@@ -272,7 +272,7 @@ impl SpaceStorage {
                 is_public = COALESCE($7, is_public),
                 updated_ts = $8
             WHERE space_id = $1
-            RETURNING *
+            RETURNING space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id
             "#,
         )
         .bind(space_id)
@@ -342,7 +342,7 @@ impl SpaceStorage {
 
     pub async fn get_space_children(&self, space_id: &str) -> Result<Vec<SpaceChild>, sqlx::Error> {
         sqlx::query_as::<_, SpaceChild>(
-            r#"SELECT * FROM space_children WHERE space_id = $1 AND removed_ts IS NULL ORDER BY "order""#
+            r#"SELECT id, space_id, room_id, via_servers, "order", suggested, added_by, added_ts, removed_ts FROM space_children WHERE space_id = $1 AND removed_ts IS NULL ORDER BY "order""#
         )
         .bind(space_id)
         .fetch_all(&*self.pool)
@@ -351,7 +351,7 @@ impl SpaceStorage {
 
     pub async fn get_child_spaces(&self, room_id: &str) -> Result<Vec<SpaceChild>, sqlx::Error> {
         sqlx::query_as::<_, SpaceChild>(
-            r#"SELECT * FROM space_children WHERE room_id = $1 AND removed_ts IS NULL"#,
+            r#"SELECT id, space_id, room_id, via_servers, "order", suggested, added_by, added_ts, removed_ts FROM space_children WHERE room_id = $1 AND removed_ts IS NULL"#,
         )
         .bind(room_id)
         .fetch_all(&*self.pool)
@@ -377,7 +377,7 @@ impl SpaceStorage {
                 inviter = EXCLUDED.inviter,
                 left_ts = NULL,
                 updated_ts = $4
-            RETURNING *
+            RETURNING space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter
             "#,
         )
         .bind(space_id)
@@ -534,7 +534,7 @@ impl SpaceStorage {
             r#"
             INSERT INTO space_events (event_id, space_id, event_type, sender, content, state_key, origin_server_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING *
+            RETURNING event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts
             "#,
         )
         .bind(event_id)
@@ -557,7 +557,7 @@ impl SpaceStorage {
         match event_type {
             Some(et) => {
                 sqlx::query_as::<_, SpaceEvent>(
-                    r#"SELECT * FROM space_events WHERE space_id = $1 AND event_type = $2 ORDER BY origin_server_ts DESC LIMIT $3"#
+                    r#"SELECT event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts FROM space_events WHERE space_id = $1 AND event_type = $2 ORDER BY origin_server_ts DESC LIMIT $3"#
                 )
                 .bind(space_id)
                 .bind(et)
@@ -582,7 +582,8 @@ impl SpaceStorage {
 
         sqlx::query_as::<_, Space>(
             r#"
-            SELECT * FROM spaces 
+            SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id
+            FROM spaces 
             WHERE is_public = TRUE AND (name ILIKE $1 OR topic ILIKE $1)
             ORDER BY creation_ts DESC 
             LIMIT $2
@@ -667,7 +668,7 @@ impl SpaceStorage {
 
         let children = if suggested_only {
             sqlx::query_as::<_, SpaceChild>(
-                r#"SELECT * FROM space_children WHERE space_id = $1 AND suggested = TRUE AND removed_ts IS NULL ORDER BY "order""#
+                r#"SELECT id, space_id, room_id, via_servers, "order", suggested, added_by, added_ts, removed_ts FROM space_children WHERE space_id = $1 AND suggested = TRUE AND removed_ts IS NULL ORDER BY "order""#
             )
             .bind(space_id)
             .fetch_all(&*self.pool)

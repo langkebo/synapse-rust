@@ -553,6 +553,9 @@ impl ServiceContainer {
                 key_prefix: "test:".to_string(),
                 pool_size: 10,
                 enabled: false,
+                connection_timeout_ms: 5000,
+                command_timeout_ms: 3000,
+                circuit_breaker: crate::common::config::CircuitBreakerConfig::default(),
             },
             logging: crate::common::config::LoggingConfig {
                 level: "info".to_string(),
@@ -574,6 +577,9 @@ impl ServiceContainer {
                 trusted_key_servers: vec![],
                 key_refresh_interval: 86400,
                 suppress_key_server_warning: false,
+                signature_cache_ttl: 3600,
+                key_cache_ttl: 3600,
+                key_rotation_grace_period_ms: 600000,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -719,17 +725,17 @@ pub mod application_service;
 pub mod background_update_service;
 pub mod cache;
 pub mod captcha_service;
-pub mod content_scanner;
 pub mod cas_service;
+pub mod content_scanner;
 pub mod database_initializer;
 pub mod event_report_service;
 pub mod federation_blacklist_service;
 pub mod friend_room_service;
 pub mod geo_ip;
+pub mod identity;
 pub mod media_quota_service;
 pub mod media_service;
 pub mod message_queue;
-pub mod identity;
 pub mod moderation_service;
 pub mod module_service;
 pub mod oidc_service;
