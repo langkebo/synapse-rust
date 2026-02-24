@@ -169,6 +169,9 @@ async fn setup_test_app() -> axum::Router {
             key_prefix: "test:".to_string(),
             pool_size: 10,
             enabled: false,
+            connection_timeout_ms: 500,
+            command_timeout_ms: 500,
+            circuit_breaker: synapse_rust::common::config::CircuitBreakerConfig::default(),
         },
         logging: synapse_rust::common::config::LoggingConfig {
             level: "info".to_string(),
@@ -190,6 +193,9 @@ async fn setup_test_app() -> axum::Router {
             trusted_key_servers: vec![],
             key_refresh_interval: 86400,
             suppress_key_server_warning: false,
+            signature_cache_ttl: 3600,
+            key_cache_ttl: 3600,
+            key_rotation_grace_period_ms: 600000,
         },
         security: SecurityConfig {
             secret: "test_secret".to_string(),

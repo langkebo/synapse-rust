@@ -94,7 +94,8 @@ impl VoiceUsageStatsStorage {
 
         let stats = sqlx::query_as::<_, VoiceUsageStats>(
             r#"
-            SELECT * FROM voice_usage_stats
+            SELECT id, user_id, date, message_count, total_duration_ms, total_file_size, created_ts, updated_ts
+            FROM voice_usage_stats
             WHERE user_id = $1 AND date >= $2
             ORDER BY date DESC
             "#,
@@ -160,7 +161,7 @@ impl VoiceMessageStorage {
             r#"
             INSERT INTO voice_messages (message_id, room_id, user_id, duration_ms, file_size, content_type, waveform_data, file_path, session_id, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING *
+            RETURNING message_id, room_id, user_id, duration_ms, file_size, content_type, waveform_data, file_path, session_id, transcribe_text, created_ts, processed, processed_at, duration_seconds, sample_rate, channels, bitrate, format, sender_id
             "#,
         )
         .bind(&message.message_id)
@@ -182,7 +183,8 @@ impl VoiceMessageStorage {
     pub async fn get_message(&self, message_id: &str) -> Result<Option<VoiceMessage>, sqlx::Error> {
         let row = sqlx::query(
             r#"
-            SELECT * FROM voice_messages
+            SELECT message_id, room_id, user_id, duration_ms, file_size, content_type, waveform_data, file_path, session_id, transcribe_text, created_ts, processed, processed_at, duration_seconds, sample_rate, channels, bitrate, format, sender_id
+            FROM voice_messages
             WHERE message_id = $1
             "#,
         )
@@ -225,7 +227,8 @@ impl VoiceMessageStorage {
     ) -> Result<Vec<VoiceMessage>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT * FROM voice_messages
+            SELECT message_id, room_id, user_id, duration_ms, file_size, content_type, waveform_data, file_path, session_id, transcribe_text, created_ts, processed, processed_at, duration_seconds, sample_rate, channels, bitrate, format, sender_id
+            FROM voice_messages
             WHERE user_id = $1
             ORDER BY created_ts DESC
             LIMIT $2 OFFSET $3
@@ -248,7 +251,8 @@ impl VoiceMessageStorage {
     ) -> Result<Vec<VoiceMessage>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT * FROM voice_messages
+            SELECT message_id, room_id, user_id, duration_ms, file_size, content_type, waveform_data, file_path, session_id, transcribe_text, created_ts, processed, processed_at, duration_seconds, sample_rate, channels, bitrate, format, sender_id
+            FROM voice_messages
             WHERE room_id = $1
             ORDER BY created_ts DESC
             LIMIT $2 OFFSET $3
@@ -271,7 +275,8 @@ impl VoiceMessageStorage {
     ) -> Result<Vec<VoiceMessage>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT * FROM voice_messages
+            SELECT message_id, room_id, user_id, duration_ms, file_size, content_type, waveform_data, file_path, session_id, transcribe_text, created_ts, processed, processed_at, duration_seconds, sample_rate, channels, bitrate, format, sender_id
+            FROM voice_messages
             WHERE session_id = $1
             ORDER BY created_ts DESC
             LIMIT $2 OFFSET $3
@@ -331,7 +336,8 @@ impl VoiceMessageStorage {
     pub async fn get_recent_messages(&self, limit: i64) -> Result<Vec<VoiceMessage>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT * FROM voice_messages
+            SELECT message_id, room_id, user_id, duration_ms, file_size, content_type, waveform_data, file_path, session_id, transcribe_text, created_ts, processed, processed_at, duration_seconds, sample_rate, channels, bitrate, format, sender_id
+            FROM voice_messages
             ORDER BY created_ts DESC
             LIMIT $1
             "#,
@@ -362,7 +368,8 @@ impl VoiceMessageStorage {
 
         let rows = sqlx::query(
             r#"
-            SELECT * FROM voice_messages
+            SELECT message_id, room_id, user_id, duration_ms, file_size, content_type, waveform_data, file_path, session_id, transcribe_text, created_ts, processed, processed_at, duration_seconds, sample_rate, channels, bitrate, format, sender_id
+            FROM voice_messages
             WHERE user_id = $1 AND created_ts >= $2 AND created_ts <= $3
             ORDER BY created_ts DESC
             "#,

@@ -151,6 +151,110 @@ impl DeviceStorage {
         .await?;
         Ok(result.is_some())
     }
+
+    pub async fn get_devices_batch(
+        &self,
+        device_ids: &[String],
+    ) -> Result<Vec<Device>, sqlx::Error> {
+        if device_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        sqlx::query_as::<_, Device>(
+            r#"
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
+            FROM devices WHERE device_id = ANY($1)
+            ORDER BY last_seen_ts DESC
+            "#,
+        )
+        .bind(device_ids)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_users_devices_batch(
+        &self,
+        user_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<Device>>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let devices: Vec<Device> = sqlx::query_as(
+            r#"
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
+            FROM devices WHERE user_id = ANY($1)
+            ORDER BY user_id, last_seen_ts DESC
+            "#,
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, Vec<Device>> =
+            user_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+
+        for device in devices {
+            if let Some(user_devices) = result.get_mut(&device.user_id) {
+                user_devices.push(device);
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub async fn get_device_keys_for_users(
+        &self,
+        user_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, std::collections::HashMap<String, Device>>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let devices: Vec<Device> = sqlx::query_as(
+            r#"
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
+            FROM devices 
+            WHERE user_id = ANY($1) AND device_key IS NOT NULL
+            "#,
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, std::collections::HashMap<String, Device>> =
+            user_ids.iter().map(|id| (id.clone(), std::collections::HashMap::new())).collect();
+
+        for device in devices {
+            if let Some(user_devices) = result.get_mut(&device.user_id) {
+                user_devices.insert(device.device_id.clone(), device);
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub async fn update_devices_last_seen_batch(
+        &self,
+        device_ids: &[String],
+    ) -> Result<u64, sqlx::Error> {
+        if device_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let result = sqlx::query(
+            r#"
+            UPDATE devices SET last_seen_ts = $1 WHERE device_id = ANY($2)
+            "#,
+        )
+        .bind(now)
+        .bind(device_ids)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
 }
 
 #[cfg(test)]

@@ -246,6 +246,17 @@
 - 冗余字段移除: 4 个字段 ✅
 - Rust 代码同步更新 ✅
 
+**第三阶段优化 (2026-02-28)**:
+- ✅ `users.deactivated` → `is_deactivated`
+- ✅ `users.shadow_banned` → `is_shadow_banned`
+- ✅ `application_service_statistics.is_active` → `is_enabled`
+- ✅ `media_quota_config.is_active` → `is_enabled`
+- ✅ `notification_templates.is_active` → `is_enabled`
+- ✅ 时间字段类型统一: push_device, push_rule, push_notification_queue, push_config, push_stats, registration_captcha, captcha_template, captcha_config, saml_sessions, saml_identity_providers, cas_tickets, cas_services, cas_user_attributes, modules, module_execution_logs, federation_blacklist, federation_blacklist_rule, federation_blacklist_log, federation_blacklist_config
+- ✅ 更新 `storage/schema_validator.rs` 期望列名
+- ✅ 更新 `web/routes/admin.rs` SQL 查询
+- ✅ 更新 `storage/application_service.rs` 字段引用
+
 **待完成**:
 - 无
 

@@ -151,8 +151,16 @@ impl SearchService {
             "keys": event.keys
         });
 
-        let url = format!("{}/{}/_doc/{}", self.base_url, self.index_name, event.event_id);
-        let response = self.client.put(&url).json(&doc).send().await
+        let url = format!(
+            "{}/{}/_doc/{}",
+            self.base_url, self.index_name, event.event_id
+        );
+        let response = self
+            .client
+            .put(&url)
+            .json(&doc)
+            .send()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to index event: {}", e)))?;
 
         if !response.status().is_success() {
@@ -188,7 +196,9 @@ impl SearchService {
         }
 
         let url = format!("{}/_bulk", self.base_url);
-        let response = self.client.post(&url)
+        let response = self
+            .client
+            .post(&url)
             .header("Content-Type", "application/x-ndjson")
             .body(body)
             .send()
@@ -208,7 +218,11 @@ impl SearchService {
         }
 
         let url = format!("{}/{}/_doc/{}", self.base_url, self.index_name, event_id);
-        let response = self.client.delete(&url).send().await
+        let response = self
+            .client
+            .delete(&url)
+            .send()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to delete event: {}", e)))?;
 
         let status = response.status();
@@ -246,7 +260,11 @@ impl SearchService {
     }
 
     fn extract_keys(content: &str) -> Vec<String> {
-        content.split_whitespace().take(10).map(|s| s.to_lowercase()).collect()
+        content
+            .split_whitespace()
+            .take(10)
+            .map(|s| s.to_lowercase())
+            .collect()
     }
 
     pub async fn search_messages(
@@ -276,7 +294,9 @@ impl SearchService {
             return Err(ApiError::internal("Elasticsearch is disabled".to_string()));
         }
 
-        let from = next_batch.and_then(|nb| nb.parse::<usize>().ok()).unwrap_or(options.offset as usize);
+        let from = next_batch
+            .and_then(|nb| nb.parse::<usize>().ok())
+            .unwrap_or(options.offset as usize);
 
         let mut must_clauses = Vec::new();
         let mut filter_clauses = Vec::new();
@@ -338,12 +358,18 @@ impl SearchService {
         }
 
         let url = format!("{}/{}/_search", self.base_url, self.index_name);
-        let response = self.client.post(&url).json(&search_body).send().await
+        let response = self
+            .client
+            .post(&url)
+            .json(&search_body)
+            .send()
+            .await
             .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
 
-        let response_json: Value = response.json().await.map_err(|e| {
-            ApiError::internal(format!("Failed to parse search response: {}", e))
-        })?;
+        let response_json: Value = response
+            .json()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to parse search response: {}", e)))?;
 
         let hits_array = response_json
             .get("hits")
@@ -366,15 +392,43 @@ impl SearchService {
                 let highlight = hit.get("highlight").and_then(|h| h.as_object());
 
                 SearchResultItem {
-                    event_id: source.get("event_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    room_id: source.get("room_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    sender: source.get("sender").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    content: source.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    event_type: source.get("event_type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    origin_server_ts: source.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
-                    highlights: highlight.and_then(|h| h.get("content")).and_then(|c| c.as_array()).map(|arr| {
-                        arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
-                    }),
+                    event_id: source
+                        .get("event_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    room_id: source
+                        .get("room_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    sender: source
+                        .get("sender")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    content: source
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    event_type: source
+                        .get("event_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    origin_server_ts: source
+                        .get("origin_server_ts")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0),
+                    highlights: highlight
+                        .and_then(|h| h.get("content"))
+                        .and_then(|c| c.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        }),
                     room_name: None,
                 }
             })
@@ -403,7 +457,12 @@ impl SearchService {
         });
 
         let url = format!("{}/{}/_delete_by_query", self.base_url, self.index_name);
-        let response = self.client.post(&url).json(&delete_by_query).send().await
+        let response = self
+            .client
+            .post(&url)
+            .json(&delete_by_query)
+            .send()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to delete room index: {}", e)))?;
 
         if !response.status().is_success() {

@@ -34,7 +34,12 @@ impl IdentityService {
             .map_err(|e| ApiError::internal(format!("Failed to add 3PID: {}", e)))
     }
 
-    pub async fn remove_three_pid(&self, address: &str, medium: &str, user_id: &str) -> ApiResult<()> {
+    pub async fn remove_three_pid(
+        &self,
+        address: &str,
+        medium: &str,
+        user_id: &str,
+    ) -> ApiResult<()> {
         self.storage
             .remove_three_pid(address, medium, user_id)
             .await
@@ -58,7 +63,8 @@ impl IdentityService {
             "token": id_access_token
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .json(&body)
             .send()
@@ -66,14 +72,13 @@ impl IdentityService {
             .map_err(|e| ApiError::internal(format!("Failed to bind 3PID: {}", e)))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!("Identity server returned error: {}", response.status())));
+            return Err(ApiError::internal(format!(
+                "Identity server returned error: {}",
+                response.status()
+            )));
         }
 
-        let three_pid = ThirdPartyId::new(
-            &format!("{}:{}", id_server, sid),
-            "unknown",
-            user_id,
-        );
+        let three_pid = ThirdPartyId::new(&format!("{}:{}", id_server, sid), "unknown", user_id);
         self.storage
             .add_three_pid(&three_pid)
             .await
@@ -98,7 +103,8 @@ impl IdentityService {
             "id_access_token": id_access_token
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .json(&body)
             .send()
@@ -106,7 +112,10 @@ impl IdentityService {
             .map_err(|e| ApiError::internal(format!("Failed to unbind 3PID: {}", e)))?;
 
         if !response.status().is_success() && response.status().as_u16() != 404 {
-            return Err(ApiError::internal(format!("Identity server returned error: {}", response.status())));
+            return Err(ApiError::internal(format!(
+                "Identity server returned error: {}",
+                response.status()
+            )));
         }
 
         Ok(())
@@ -131,7 +140,8 @@ impl IdentityService {
             "token": id_access_token
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .json(&body)
             .send()
@@ -139,13 +149,19 @@ impl IdentityService {
             .map_err(|e| ApiError::internal(format!("Failed to request verification: {}", e)))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!("Identity server returned error: {}", response.status())));
+            return Err(ApiError::internal(format!(
+                "Identity server returned error: {}",
+                response.status()
+            )));
         }
 
-        let json: serde_json::Value = response.json().await
+        let json: serde_json::Value = response
+            .json()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to parse response: {}", e)))?;
 
-        let sid = json.get("sid")
+        let sid = json
+            .get("sid")
             .and_then(|v| v.as_str())
             .map(String::from)
             .ok_or_else(|| ApiError::internal("Missing sid in response".to_string()))?;
@@ -159,14 +175,18 @@ impl IdentityService {
         sid: &str,
         client_secret: &str,
     ) -> ApiResult<bool> {
-        let url = format!("https://{}/_matrix/identity/v3/3pid/getValidationStatus", id_server);
+        let url = format!(
+            "https://{}/_matrix/identity/v3/3pid/getValidationStatus",
+            id_server
+        );
 
         let body = serde_json::json!({
             "sid": sid,
             "client_secret": client_secret
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .json(&body)
             .send()
@@ -177,7 +197,9 @@ impl IdentityService {
             return Ok(false);
         }
 
-        let json: serde_json::Value = response.json().await
+        let json: serde_json::Value = response
+            .json()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to parse response: {}", e)))?;
 
         Ok(json.get("valid").and_then(|v| v.as_bool()).unwrap_or(false))
@@ -190,7 +212,11 @@ impl IdentityService {
             .map_err(|e| ApiError::internal(format!("Failed to lookup 3PID: {}", e)))
     }
 
-    pub async fn hash_lookup(&self, addresses: &[String], mediums: &[String]) -> ApiResult<Vec<serde_json::Value>> {
+    pub async fn hash_lookup(
+        &self,
+        addresses: &[String],
+        mediums: &[String],
+    ) -> ApiResult<Vec<serde_json::Value>> {
         let mut results = Vec::new();
 
         for address in addresses {
@@ -226,7 +252,8 @@ impl IdentityService {
             "id_access_token": id_access_token
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .json(&body)
             .send()
@@ -241,19 +268,24 @@ impl IdentityService {
                     signed: None,
                 });
             }
-            return Err(ApiError::internal(format!("Identity server returned error: {}", status)));
+            return Err(ApiError::internal(format!(
+                "Identity server returned error: {}",
+                status
+            )));
         }
 
-        let json: serde_json::Value = response.json().await
+        let json: serde_json::Value = response
+            .json()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to parse response: {}", e)))?;
 
-        let user_id = json.get("user_id").and_then(|v| v.as_str()).map(String::from);
+        let user_id = json
+            .get("user_id")
+            .and_then(|v| v.as_str())
+            .map(String::from);
         let signed = json.get("signed").cloned();
 
-        Ok(InvitationResponse {
-            user_id,
-            signed,
-        })
+        Ok(InvitationResponse { user_id, signed })
     }
 
     pub fn get_trusted_servers(&self) -> &[String] {

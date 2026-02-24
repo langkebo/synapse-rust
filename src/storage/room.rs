@@ -526,7 +526,11 @@ impl RoomStorage {
         Ok(())
     }
 
-    pub async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn copy_room_state(
+        &self,
+        source_room_id: &str,
+        target_room_id: &str,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             INSERT INTO room_state_events (room_id, type, state_key, content, sender, origin_server_ts)
@@ -694,6 +698,232 @@ impl RoomStorage {
         .execute(&*self.pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn get_rooms_map(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Room>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rooms = self.get_rooms_batch(room_ids).await?;
+
+        Ok(rooms.into_iter().map(|r| (r.room_id.clone(), r)).collect())
+    }
+
+    pub async fn get_rooms_with_member_counts(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, (Room, i64)>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rows: Vec<RoomWithMembersRecord> = sqlx::query_as(
+            r#"
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rule, r.creator,
+                   r.version, r.encryption, r.is_public, r.member_count, r.history_visibility,
+                   r.creation_ts, COUNT(rm.user_id) as joined_members
+            FROM rooms r
+            LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
+            WHERE r.room_id = ANY($1)
+            GROUP BY r.room_id
+            "#,
+        )
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|row| {
+                let room = Room {
+                    room_id: row.room_id.clone(),
+                    name: row.name.clone(),
+                    topic: row.topic.clone(),
+                    avatar_url: row.avatar_url.clone(),
+                    canonical_alias: row.canonical_alias.clone(),
+                    join_rule: row
+                        .join_rule
+                        .clone()
+                        .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                    creator: row.creator.clone(),
+                    version: row.version.clone().unwrap_or_else(|| "1".to_string()),
+                    encryption: row.encryption.clone(),
+                    is_public: row.is_public.unwrap_or(false),
+                    member_count: row.member_count.unwrap_or(0),
+                    history_visibility: row
+                        .history_visibility
+                        .clone()
+                        .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
+                    creation_ts: row.creation_ts,
+                };
+                (row.room_id.clone(), (room, row.joined_members.unwrap_or(0)))
+            })
+            .collect())
+    }
+
+    pub async fn check_rooms_exist_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashSet<String>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+
+        let rows: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT room_id FROM rooms WHERE room_id = ANY($1)
+            "#,
+        )
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
+
+    pub async fn get_public_rooms_with_aliases(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<(Room, Vec<String>)>, sqlx::Error> {
+        let rows: Vec<RoomRecord> = sqlx::query_as(
+            r#"
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rule, creator, version,
+                  encryption, is_public, member_count, history_visibility, creation_ts
+            FROM rooms WHERE is_public = TRUE
+            ORDER BY creation_ts DESC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let room_ids: Vec<String> = rows.iter().map(|r| r.room_id.clone()).collect();
+        let aliases = self.get_room_aliases_batch(&room_ids).await?;
+
+        Ok(rows
+            .iter()
+            .map(|row| {
+                let room = Room {
+                    room_id: row.room_id.clone(),
+                    name: row.name.clone(),
+                    topic: row.topic.clone(),
+                    avatar_url: row.avatar_url.clone(),
+                    canonical_alias: row.canonical_alias.clone(),
+                    join_rule: row
+                        .join_rule
+                        .clone()
+                        .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                    creator: row.creator.clone(),
+                    version: row.version.clone().unwrap_or_else(|| "1".to_string()),
+                    encryption: row.encryption.clone(),
+                    is_public: row.is_public.unwrap_or(false),
+                    member_count: row.member_count.unwrap_or(0),
+                    history_visibility: row
+                        .history_visibility
+                        .clone()
+                        .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
+                    creation_ts: row.creation_ts,
+                };
+                let room_aliases = aliases.get(&row.room_id).cloned().unwrap_or_default();
+                (room, room_aliases)
+            })
+            .collect())
+    }
+
+    pub async fn get_room_aliases_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<String>>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            r#"
+            SELECT room_id, alias FROM room_aliases WHERE room_id = ANY($1)
+            "#,
+        )
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, Vec<String>> =
+            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+
+        for (room_id, alias) in rows {
+            if let Some(aliases) = result.get_mut(&room_id) {
+                aliases.push(alias);
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub async fn get_rooms_by_aliases_batch(
+        &self,
+        aliases: &[String],
+    ) -> Result<std::collections::HashMap<String, String>, sqlx::Error> {
+        if aliases.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            r#"
+            SELECT alias, room_id FROM room_aliases WHERE alias = ANY($1)
+            "#,
+        )
+        .bind(aliases)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
+
+    pub async fn increment_member_counts_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<u64, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let result = sqlx::query(
+            r#"
+            UPDATE rooms SET member_count = member_count + 1 WHERE room_id = ANY($1)
+            "#,
+        )
+        .bind(room_ids)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    pub async fn decrement_member_counts_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<u64, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let result = sqlx::query(
+            r#"
+            UPDATE rooms SET member_count = member_count - 1 WHERE room_id = ANY($1) AND member_count > 0
+            "#,
+        )
+        .bind(room_ids)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
     }
 }
 

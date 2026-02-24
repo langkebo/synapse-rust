@@ -84,7 +84,7 @@ impl MegolmService {
         let session_key = self.decrypt_session_key(&session.session_key)?;
 
         let cipher_key = Aes256GcmKey::from_bytes(session_key);
-        let encrypted = Aes256GcmCipher::encrypt(&cipher_key, plaintext)?;
+        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&cipher_key, plaintext)?;
 
         let mut updated_session = session.clone();
         updated_session.message_index += 1;
@@ -154,7 +154,7 @@ impl MegolmService {
 
     fn encrypt_session_key(&self, key: &Aes256GcmKey) -> Result<String, ApiError> {
         let cipher_key = Aes256GcmKey::from_bytes(self.encryption_key);
-        let encrypted = Aes256GcmCipher::encrypt(&cipher_key, &key.as_bytes()[..])?;
+        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&cipher_key, &key.as_bytes()[..])?;
         let json = serde_json::to_string(&encrypted)
             .map_err(|e| CryptoError::EncryptionError(e.to_string()))?;
         Ok(base64::Engine::encode(

@@ -1,6 +1,8 @@
 use crate::cache::*;
 use crate::common::config::SecurityConfig;
-use crate::common::crypto::{hash_password_with_params, verify_password as verify_password_common};
+use crate::common::crypto::{
+    hash_password_with_params, is_legacy_hash, migrate_password_hash, verify_password as verify_password_common,
+};
 use crate::common::metrics::MetricsCollector;
 use crate::common::validation::Validator;
 use crate::common::*;
@@ -115,7 +117,7 @@ impl AuthService {
             ));
         }
         if let Err(e) = self.validator.validate_username(username) {
-            return Err(e.into());
+            return Err(ApiError::invalid_username(e.to_string()));
         }
 
         let existing_user = self
@@ -125,7 +127,7 @@ impl AuthService {
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if existing_user.is_some() {
-            return Err(ApiError::conflict("Username already taken".to_string()));
+            return Err(ApiError::user_in_use("Username already taken"));
         }
 
         let user_id = format!("@{}:{}", username, self.server_name);
@@ -221,7 +223,20 @@ impl AuthService {
         self.clear_login_failures(&user.user_id).await?;
 
         if self.is_user_deactivated(&user) {
-            return Err(ApiError::forbidden("User is deactivated".to_string()));
+            return Err(ApiError::user_deactivated(
+                "User account has been deactivated",
+            ));
+        }
+
+        if is_legacy_hash(password_hash) {
+            if let Err(e) = self.migrate_password(&user.user_id, password).await {
+                ::tracing::warn!(
+                    target: "password_migration",
+                    user_id = user.user_id,
+                    error = %e,
+                    "Failed to migrate legacy password hash"
+                );
+            }
         }
 
         self.log_login_success(&user, device_id);
@@ -537,7 +552,7 @@ impl AuthService {
                 ::tracing::debug!(target: "token_validation", "User found, is_deactivated: {:?}", u.is_deactivated);
                 if u.is_deactivated == Some(true) {
                     ::tracing::debug!(target: "token_validation", "User is deactivated, rejecting token");
-                    return Err(ApiError::unauthorized("User is deactivated".to_string()));
+                    return Err(ApiError::user_deactivated("User is deactivated"));
                 }
                 let is_admin = u.is_admin.unwrap_or(false);
                 let mut final_claims = claims.clone();
@@ -673,6 +688,50 @@ impl AuthService {
     fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool, ApiError> {
         verify_password_common(password, password_hash, self.allow_legacy_hashes)
             .map_err(ApiError::internal)
+    }
+
+    async fn migrate_password(&self, user_id: &str, password: &str) -> Result<(), ApiError> {
+        let start = std::time::Instant::now();
+
+        let password_str = password.to_string();
+        let m_cost = self.argon2_m_cost;
+        let t_cost = self.argon2_t_cost;
+        let p_cost = self.argon2_p_cost;
+
+        let new_hash = tokio::task::spawn_blocking(move || {
+            migrate_password_hash(&password_str, m_cost, t_cost, p_cost)
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("Migration task panicked: {}", e)))?
+        .map_err(ApiError::internal)?;
+
+        self.user_storage
+            .update_password(user_id, &new_hash)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to update password hash: {}", e)))?;
+
+        let duration = start.elapsed().as_secs_f64();
+
+        ::tracing::info!(
+            target: "password_migration",
+            event = "password_migrated",
+            user_id = user_id,
+            duration_ms = duration * 1000.0,
+            "Successfully migrated legacy password hash to Argon2"
+        );
+
+        self.increment_counter("password_migration_success_total");
+
+        if let Some(hist) = self.metrics.get_histogram("password_migration_duration_seconds") {
+            hist.observe(duration);
+        } else {
+            let hist = self
+                .metrics
+                .register_histogram("password_migration_duration_seconds".to_string());
+            hist.observe(duration);
+        }
+
+        Ok(())
     }
 
     pub fn generate_email_verification_token(&self) -> Result<String, Box<dyn std::error::Error>> {

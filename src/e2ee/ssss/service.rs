@@ -19,13 +19,15 @@ impl SecretStorageService {
         Self { storage }
     }
 
-    pub fn create_key(&self, _user_id: &str, algorithm: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
+    pub fn create_key(
+        &self,
+        _user_id: &str,
+        algorithm: &str,
+    ) -> Result<SecretStorageKeyCreationTerm, ApiError> {
         let key_id = format!("{}", uuid::Uuid::new_v4());
 
         match algorithm {
-            "org.matrix.msc2697.v1.curve25519-aes-sha2" => {
-                self.create_curve25519_key(&key_id)
-            }
+            "org.matrix.msc2697.v1.curve25519-aes-sha2" => self.create_curve25519_key(&key_id),
             "aes-hmac-sha2" => self.create_aes_hmac_key(&key_id),
             _ => Err(ApiError::bad_request(format!(
                 "Unsupported secret storage algorithm: {}",
@@ -52,10 +54,14 @@ impl SecretStorageService {
         let key_data = format!("{}:{}", private_key_base64, public_key_base64);
 
         let session_key = Aes256GcmKey::generate();
-        let encrypted = Aes256GcmCipher::encrypt(&session_key, key_data.as_bytes())
+        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&session_key, key_data.as_bytes())
             .map_err(|e| ApiError::internal(format!("Encryption failed: {}", e)))?;
 
-        let encrypted_key = format!("{}.{}", BASE64.encode(&encrypted[..12]), BASE64.encode(&encrypted[12..]));
+        let encrypted_key = format!(
+            "{}.{}",
+            BASE64.encode(&encrypted[..12]),
+            BASE64.encode(&encrypted[12..])
+        );
 
         Ok(SecretStorageKeyCreationTerm {
             key_id: key_id.to_string(),
@@ -68,10 +74,7 @@ impl SecretStorageService {
         })
     }
 
-    fn create_aes_hmac_key(
-        &self,
-        key_id: &str,
-    ) -> Result<SecretStorageKeyCreationTerm, ApiError> {
+    fn create_aes_hmac_key(&self, key_id: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
         let mut key_bytes = [0u8; SSSS_KEY_LENGTH];
         rand::thread_rng().fill(&mut key_bytes);
         let key_base64 = BASE64.encode(key_bytes);
@@ -147,10 +150,7 @@ impl SecretStorageService {
         self.storage.get_key(user_id, key_id).await
     }
 
-    pub async fn get_all_keys(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<SecretStorageKey>, ApiError> {
+    pub async fn get_all_keys(&self, user_id: &str) -> Result<Vec<SecretStorageKey>, ApiError> {
         self.storage.get_all_keys(user_id).await
     }
 
@@ -183,11 +183,13 @@ impl SecretStorageService {
     ) -> Result<String, ApiError> {
         let parts: Vec<&str> = key_data.encrypted_key.split('.').collect();
         if parts.len() != 2 {
-            return Err(ApiError::bad_request("Invalid encrypted key format".to_string()));
+            return Err(ApiError::bad_request(
+                "Invalid encrypted key format".to_string(),
+            ));
         }
 
         let session_key = Aes256GcmKey::generate();
-        let encrypted = Aes256GcmCipher::encrypt(&session_key, secret.as_bytes())
+        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&session_key, secret.as_bytes())
             .map_err(|e| ApiError::internal(format!("Encryption failed: {}", e)))?;
 
         Ok(BASE64.encode(&encrypted))
@@ -203,7 +205,8 @@ impl SecretStorageService {
             return Err(ApiError::bad_request("Invalid key format".to_string()));
         }
 
-        let key_bytes = BASE64.decode(parts[0])
+        let key_bytes = BASE64
+            .decode(parts[0])
             .map_err(|e| ApiError::bad_request(format!("Invalid key base64: {}", e)))?;
 
         let mut key_arr = [0u8; 32];
@@ -214,7 +217,7 @@ impl SecretStorageService {
         }
 
         let key = Aes256GcmKey::from_bytes(key_arr);
-        let encrypted = Aes256GcmCipher::encrypt(&key, secret.as_bytes())
+        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, secret.as_bytes())
             .map_err(|e| ApiError::internal(format!("Encryption failed: {}", e)))?;
 
         Ok(BASE64.encode(&encrypted))
@@ -263,11 +266,7 @@ impl SecretStorageService {
         Ok(result)
     }
 
-    pub async fn delete_secret(
-        &self,
-        user_id: &str,
-        secret_name: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_secret(&self, user_id: &str, secret_name: &str) -> Result<(), ApiError> {
         self.storage.delete_secret(user_id, secret_name).await
     }
 

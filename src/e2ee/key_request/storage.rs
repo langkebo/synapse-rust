@@ -9,9 +9,7 @@ pub struct KeyRequestStorage {
 
 impl KeyRequestStorage {
     pub fn new(pool: &PgPool) -> Self {
-        Self {
-            pool: pool.clone(),
-        }
+        Self { pool: pool.clone() }
     }
 
     pub async fn create_request(&self, request: &KeyRequestInfo) -> Result<(), ApiError> {
@@ -68,7 +66,10 @@ impl KeyRequestStorage {
         }))
     }
 
-    pub async fn get_requests_for_user(&self, user_id: &str) -> Result<Vec<KeyRequestInfo>, ApiError> {
+    pub async fn get_requests_for_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<KeyRequestInfo>, ApiError> {
         let rows = sqlx::query!(
             r#"
             SELECT request_id, user_id, device_id, room_id, session_id, algorithm, 
@@ -133,11 +134,7 @@ impl KeyRequestStorage {
             .collect())
     }
 
-    pub async fn fulfill_request(
-        &self,
-        request_id: &str,
-        device_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn fulfill_request(&self, request_id: &str, device_id: &str) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query!(

@@ -403,6 +403,110 @@ impl UserStorage {
         .await
     }
 
+    pub async fn get_user_profiles_map(
+        &self,
+        user_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, UserProfile>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let profiles = self.get_user_profiles_batch(user_ids).await?;
+
+        Ok(profiles
+            .into_iter()
+            .map(|p| (p.user_id.clone(), p))
+            .collect())
+    }
+
+    pub async fn get_users_batch(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<User>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        sqlx::query_as::<_, User>(
+            r#"
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
+                   is_guest, consent_version, appservice_id, user_type, is_shadow_banned, generation,
+                   invalid_update_ts, migration_state, creation_ts, updated_ts
+            FROM users
+            WHERE user_id = ANY($1)
+            "#,
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_users_map(
+        &self,
+        user_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, User>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let users = self.get_users_batch(user_ids).await?;
+
+        Ok(users.into_iter().map(|u| (u.user_id.clone(), u)).collect())
+    }
+
+    pub async fn update_displayname_batch(
+        &self,
+        updates: &[(String, Option<String>)],
+    ) -> Result<u64, sqlx::Error> {
+        if updates.is_empty() {
+            return Ok(0);
+        }
+
+        let mut count = 0u64;
+        for (user_id, displayname) in updates {
+            sqlx::query(r#"UPDATE users SET displayname = $1 WHERE user_id = $2"#)
+                .bind(displayname)
+                .bind(user_id)
+                .execute(&*self.pool)
+                .await?;
+            count += 1;
+        }
+
+        Ok(count)
+    }
+
+    pub async fn search_users_with_presence(
+        &self,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<UserSearchResultWithPresence>, sqlx::Error> {
+        let search_pattern = format!("%{}%", query);
+        sqlx::query_as::<_, UserSearchResultWithPresence>(
+            r#"
+            SELECT u.user_id, u.username, COALESCE(u.displayname, u.username) as displayname, 
+                   u.avatar_url, u.creation_ts,
+                   p.presence, p.last_active_ts
+            FROM users u
+            LEFT JOIN presence p ON u.user_id = p.user_id
+            WHERE (u.username ILIKE $1 OR u.user_id ILIKE $1 OR u.displayname ILIKE $1)
+            AND COALESCE(u.is_deactivated, FALSE) = FALSE
+            ORDER BY
+                CASE
+                    WHEN u.username = $2 THEN 0
+                    WHEN u.username ILIKE $2 THEN 1
+                    ELSE 2
+                END,
+                u.creation_ts DESC
+            LIMIT $3
+            "#,
+        )
+        .bind(search_pattern)
+        .bind(query)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
     pub async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(r#"DELETE FROM users WHERE user_id = $1"#)
             .bind(user_id)
@@ -428,6 +532,17 @@ pub struct UserProfile {
     pub displayname: Option<String>,
     pub avatar_url: Option<String>,
     pub creation_ts: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct UserSearchResultWithPresence {
+    pub user_id: String,
+    pub username: String,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub creation_ts: i64,
+    pub presence: Option<String>,
+    pub last_active_ts: Option<i64>,
 }
 
 #[cfg(test)]

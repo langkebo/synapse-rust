@@ -2,9 +2,9 @@ use crate::e2ee::key_request::models::{KeyRequestInfo, KeyShareResponse};
 use crate::e2ee::key_request::storage::KeyRequestStorage;
 use crate::e2ee::megolm::MegolmService;
 use crate::error::ApiError;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::collections::HashMap;
 
 pub struct KeyRequestService {
     storage: KeyRequestStorage,
@@ -76,7 +76,8 @@ impl KeyRequestService {
         algorithm: &str,
         _requesting_device_id: &str,
     ) -> Result<String, ApiError> {
-        self.create_request(user_id, device_id, room_id, session_id, algorithm).await
+        self.create_request(user_id, device_id, room_id, session_id, algorithm)
+            .await
     }
 
     pub async fn fulfill_request(
@@ -133,7 +134,10 @@ impl KeyRequestService {
         self.storage.get_request(request_id).await
     }
 
-    pub async fn get_pending_requests(&self, user_id: Option<&str>) -> Result<Vec<KeyRequestInfo>, ApiError> {
+    pub async fn get_pending_requests(
+        &self,
+        user_id: Option<&str>,
+    ) -> Result<Vec<KeyRequestInfo>, ApiError> {
         match user_id {
             Some(uid) => self.storage.get_requests_for_user(uid).await,
             None => self.storage.get_all_pending_requests().await,

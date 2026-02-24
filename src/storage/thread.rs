@@ -169,7 +169,7 @@ impl ThreadStorage {
                 origin_server_ts, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-            RETURNING *
+            RETURNING id, room_id, root_event_id, sender, thread_id, content, origin_server_ts, last_reply_event_id, last_reply_sender, last_reply_ts, reply_count, is_frozen, created_ts, updated_ts
             "#,
         )
         .bind(&params.room_id)
@@ -190,7 +190,8 @@ impl ThreadStorage {
     ) -> Result<Option<ThreadRoot>, sqlx::Error> {
         sqlx::query_as::<_, ThreadRoot>(
             r#"
-            SELECT * FROM thread_roots
+            SELECT id, room_id, root_event_id, sender, thread_id, content, origin_server_ts, last_reply_event_id, last_reply_sender, last_reply_ts, reply_count, is_frozen, created_ts, updated_ts
+            FROM thread_roots
             WHERE room_id = $1 AND thread_id = $2
             "#,
         )
@@ -207,7 +208,8 @@ impl ThreadStorage {
     ) -> Result<Option<ThreadRoot>, sqlx::Error> {
         sqlx::query_as::<_, ThreadRoot>(
             r#"
-            SELECT * FROM thread_roots
+            SELECT id, room_id, root_event_id, sender, thread_id, content, origin_server_ts, last_reply_event_id, last_reply_sender, last_reply_ts, reply_count, is_frozen, created_ts, updated_ts
+            FROM thread_roots
             WHERE room_id = $1 AND root_event_id = $2
             "#,
         )
@@ -226,7 +228,8 @@ impl ThreadStorage {
         if let Some(from) = params.from {
             sqlx::query_as::<_, ThreadRoot>(
                 r#"
-                SELECT * FROM thread_roots
+                SELECT id, room_id, root_event_id, sender, thread_id, content, origin_server_ts, last_reply_event_id, last_reply_sender, last_reply_ts, reply_count, is_frozen, created_ts, updated_ts
+                FROM thread_roots
                 WHERE room_id = $1 AND thread_id > $2
                 ORDER BY thread_id ASC
                 LIMIT $3
@@ -240,7 +243,8 @@ impl ThreadStorage {
         } else {
             sqlx::query_as::<_, ThreadRoot>(
                 r#"
-                SELECT * FROM thread_roots
+                SELECT id, room_id, root_event_id, sender, thread_id, content, origin_server_ts, last_reply_event_id, last_reply_sender, last_reply_ts, reply_count, is_frozen, created_ts, updated_ts
+                FROM thread_roots
                 WHERE room_id = $1
                 ORDER BY last_reply_ts DESC NULLS LAST, origin_server_ts DESC
                 LIMIT $2
@@ -266,7 +270,7 @@ impl ThreadStorage {
                 in_reply_to_event_id, content, origin_server_ts, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *
+            RETURNING id, room_id, thread_id, event_id, root_event_id, sender, in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts
             "#,
         )
         .bind(&params.room_id)
@@ -505,7 +509,8 @@ impl ThreadStorage {
     ) -> Result<Option<ThreadReadReceipt>, sqlx::Error> {
         sqlx::query_as::<_, ThreadReadReceipt>(
             r#"
-            SELECT * FROM thread_read_receipts
+            SELECT id, room_id, thread_id, user_id, last_read_event_id, last_read_ts, unread_count, updated_ts
+            FROM thread_read_receipts
             WHERE room_id = $1 AND thread_id = $2 AND user_id = $3
             "#,
         )
@@ -581,7 +586,8 @@ impl ThreadStorage {
     ) -> Result<Option<ThreadSummary>, sqlx::Error> {
         sqlx::query_as::<_, ThreadSummary>(
             r#"
-            SELECT * FROM thread_summaries
+            SELECT id, room_id, thread_id, root_event_id, root_sender, root_content, root_origin_server_ts, latest_event_id, latest_sender, latest_content, latest_origin_server_ts, reply_count, participants, is_frozen, created_ts, updated_ts
+            FROM thread_summaries
             WHERE room_id = $1 AND thread_id = $2
             "#,
         )
@@ -598,7 +604,8 @@ impl ThreadStorage {
     ) -> Result<Option<ThreadStatistics>, sqlx::Error> {
         sqlx::query_as::<_, ThreadStatistics>(
             r#"
-            SELECT * FROM thread_statistics
+            SELECT id, room_id, thread_id, total_replies, total_participants, total_edits, total_redactions, first_reply_ts, last_reply_ts, avg_reply_time_ms, created_ts, updated_ts
+            FROM thread_statistics
             WHERE room_id = $1 AND thread_id = $2
             "#,
         )
@@ -731,7 +738,8 @@ impl ThreadStorage {
         if let Some(room_id) = room_id {
             sqlx::query_as::<_, ThreadReadReceipt>(
                 r#"
-                SELECT * FROM thread_read_receipts
+                SELECT id, room_id, thread_id, user_id, last_read_event_id, last_read_ts, unread_count, updated_ts
+                FROM thread_read_receipts
                 WHERE user_id = $1 AND room_id = $2 AND unread_count > 0
                 ORDER BY updated_ts DESC
                 "#,
@@ -743,7 +751,8 @@ impl ThreadStorage {
         } else {
             sqlx::query_as::<_, ThreadReadReceipt>(
                 r#"
-                SELECT * FROM thread_read_receipts
+                SELECT id, room_id, thread_id, user_id, last_read_event_id, last_read_ts, unread_count, updated_ts
+                FROM thread_read_receipts
                 WHERE user_id = $1 AND unread_count > 0
                 ORDER BY updated_ts DESC
                 "#,
@@ -765,7 +774,8 @@ impl ThreadStorage {
 
         sqlx::query_as::<_, ThreadSummary>(
             r#"
-            SELECT * FROM thread_summaries
+            SELECT id, room_id, thread_id, root_event_id, root_sender, root_content, root_origin_server_ts, latest_event_id, latest_sender, latest_content, latest_origin_server_ts, reply_count, participants, is_frozen, created_ts, updated_ts
+            FROM thread_summaries
             WHERE room_id = $1 
             AND (
                 root_content::text ILIKE $2 

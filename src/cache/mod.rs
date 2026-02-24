@@ -10,13 +10,28 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::time::timeout;
 
+pub mod circuit_breaker;
+pub mod federation_signature_cache;
+pub mod invalidation;
 pub mod query_cache;
 pub mod strategy;
 
+pub use circuit_breaker::{CircuitBreaker, CircuitBreakerMetrics, CircuitState};
+pub use federation_signature_cache::{
+    CacheEntryKey, FederationSignatureCache, KeyRotationCallback, KeyRotationEvent,
+    SignatureCacheConfig, SignatureCacheEntry, SignatureCacheStats, DEFAULT_KEY_CACHE_TTL,
+    DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS, DEFAULT_SIGNATURE_CACHE_TTL,
+};
+pub use invalidation::{
+    CacheInvalidationBroadcaster, CacheInvalidationConfig, CacheInvalidationManager,
+    CacheInvalidationMessage, CacheInvalidationSubscriber, InvalidationReceiver,
+    InvalidationType, CACHE_INVALIDATION_CHANNEL, DEFAULT_LOCAL_CACHE_TTL_SECS,
+    DEFAULT_REDIS_CACHE_TTL_SECS,
+};
 pub use query_cache::{CacheConfig as QueryCacheConfig, CacheEntry, CacheStats, QueryCache};
 pub use strategy::{CacheKeyBuilder, CacheTtl};
 
-const REDIS_TIMEOUT: Duration = Duration::from_millis(200);
+const DEFAULT_REDIS_TIMEOUT_MS: u64 = 500;
 
 #[derive(Debug, Error)]
 pub enum CacheError {
@@ -30,6 +45,87 @@ pub enum CacheError {
     OperationFailed(String),
     #[error("Serialization error: {0}")]
     SerializationError(String),
+    #[error("Circuit breaker is open: {0}")]
+    CircuitBreakerOpen(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct DegradationMetrics {
+    pub local_cache_hits: u64,
+    pub local_cache_misses: u64,
+    pub redis_cache_hits: u64,
+    pub redis_cache_misses: u64,
+    pub circuit_breaker_rejections: u64,
+    pub fallback_operations: u64,
+    pub total_degraded_requests: u64,
+}
+
+impl Default for DegradationMetrics {
+    fn default() -> Self {
+        Self {
+            local_cache_hits: 0,
+            local_cache_misses: 0,
+            redis_cache_hits: 0,
+            redis_cache_misses: 0,
+            circuit_breaker_rejections: 0,
+            fallback_operations: 0,
+            total_degraded_requests: 0,
+        }
+    }
+}
+
+impl DegradationMetrics {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn record_local_hit(&mut self) {
+        self.local_cache_hits += 1;
+    }
+
+    pub fn record_local_miss(&mut self) {
+        self.local_cache_misses += 1;
+    }
+
+    pub fn record_redis_hit(&mut self) {
+        self.redis_cache_hits += 1;
+    }
+
+    pub fn record_redis_miss(&mut self) {
+        self.redis_cache_misses += 1;
+    }
+
+    pub fn record_circuit_breaker_rejection(&mut self) {
+        self.circuit_breaker_rejections += 1;
+    }
+
+    pub fn record_fallback(&mut self) {
+        self.fallback_operations += 1;
+    }
+
+    pub fn record_degraded_request(&mut self) {
+        self.total_degraded_requests += 1;
+    }
+
+    pub fn hit_rate(&self) -> f64 {
+        let total = self.local_cache_hits
+            + self.local_cache_misses
+            + self.redis_cache_hits
+            + self.redis_cache_misses;
+        if total == 0 {
+            return 0.0;
+        }
+        let hits = self.local_cache_hits + self.redis_cache_hits;
+        (hits as f64 / total as f64) * 100.0
+    }
+
+    pub fn degradation_rate(&self) -> f64 {
+        let total = self.total_degraded_requests;
+        if total == 0 {
+            return 0.0;
+        }
+        (self.fallback_operations as f64 / total as f64) * 100.0
+    }
 }
 
 pub struct CacheConfig {
@@ -90,6 +186,10 @@ impl LocalCache {
 #[derive(Clone, Debug)]
 pub struct RedisCache {
     pool: Pool,
+    connection_timeout: Duration,
+    command_timeout: Duration,
+    circuit_breaker: Arc<CircuitBreaker>,
+    degradation_metrics: Arc<parking_lot::RwLock<DegradationMetrics>>,
 }
 
 impl RedisCache {
@@ -107,66 +207,133 @@ impl RedisCache {
             ))
         })?;
 
-        // Note: deadpool-redis Config doesn't directly expose pool size in the same way as deadpool-postgres
-        // We might need to adjust the pool builder if we want to enforce config.pool_size
-        // For now, using default builder which is reasonable.
+        let connection_timeout = Duration::from_millis(config.connection_timeout_ms);
+        let command_timeout = Duration::from_millis(config.command_timeout_ms);
+        let circuit_breaker = Arc::new(CircuitBreaker::new(config.circuit_breaker.clone()));
 
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            connection_timeout,
+            command_timeout,
+            circuit_breaker,
+            degradation_metrics: Arc::new(parking_lot::RwLock::new(DegradationMetrics::new())),
+        })
     }
 
     pub fn from_pool(pool: Pool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            connection_timeout: Duration::from_millis(DEFAULT_REDIS_TIMEOUT_MS),
+            command_timeout: Duration::from_millis(DEFAULT_REDIS_TIMEOUT_MS),
+            circuit_breaker: Arc::new(CircuitBreaker::new(
+                crate::common::config::CircuitBreakerConfig::default(),
+            )),
+            degradation_metrics: Arc::new(parking_lot::RwLock::new(DegradationMetrics::new())),
+        }
+    }
+
+    pub fn from_pool_with_config(pool: Pool, config: &crate::common::config::RedisConfig) -> Self {
+        Self {
+            pool,
+            connection_timeout: Duration::from_millis(config.connection_timeout_ms),
+            command_timeout: Duration::from_millis(config.command_timeout_ms),
+            circuit_breaker: Arc::new(CircuitBreaker::new(config.circuit_breaker.clone())),
+            degradation_metrics: Arc::new(parking_lot::RwLock::new(DegradationMetrics::new())),
+        }
+    }
+
+    pub fn get_circuit_breaker(&self) -> &CircuitBreaker {
+        &self.circuit_breaker
+    }
+
+    pub fn get_degradation_metrics(&self) -> DegradationMetrics {
+        self.degradation_metrics.read().clone()
     }
 
     pub async fn get(&self, key: &str) -> Option<String> {
-        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await;
+        if !self.circuit_breaker.is_call_allowed() {
+            self.degradation_metrics
+                .write()
+                .record_circuit_breaker_rejection();
+            tracing::warn!(target: "cache", "Circuit breaker is open, rejecting Redis GET request");
+            return None;
+        }
+
+        let conn_result = timeout(self.connection_timeout, self.pool.get()).await;
         match conn_result {
             Ok(Ok(mut conn)) => {
-                let cmd_result = timeout(REDIS_TIMEOUT, conn.get::<_, Option<String>>(key)).await;
+                let cmd_result =
+                    timeout(self.command_timeout, conn.get::<_, Option<String>>(key)).await;
                 match cmd_result {
-                    Ok(Ok(val)) => val,
+                    Ok(Ok(val)) => {
+                        self.circuit_breaker.record_success();
+                        if val.is_some() {
+                            self.degradation_metrics.write().record_redis_hit();
+                        } else {
+                            self.degradation_metrics.write().record_redis_miss();
+                        }
+                        val
+                    }
                     Ok(Err(e)) => {
                         tracing::error!(target: "cache", "Redis GET command failed: {}", e);
+                        self.circuit_breaker.record_failure();
                         None
                     }
                     Err(_) => {
                         tracing::warn!(target: "cache", "Redis GET command timed out");
+                        self.circuit_breaker.record_timeout();
                         None
                     }
                 }
             }
             Ok(Err(e)) => {
                 tracing::error!(target: "cache", "Redis connection failed: {}", e);
+                self.circuit_breaker.record_failure();
                 None
             }
             Err(_) => {
                 tracing::warn!(target: "cache", "Redis connection timed out");
+                self.circuit_breaker.record_timeout();
                 None
             }
         }
     }
 
     pub async fn set(&self, key: &str, value: &str, ttl: u64) -> Result<(), CacheError> {
-        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get())
+        if !self.circuit_breaker.is_call_allowed() {
+            self.degradation_metrics
+                .write()
+                .record_circuit_breaker_rejection();
+            return Err(CacheError::CircuitBreakerOpen(
+                "Circuit breaker is open, rejecting Redis SET request".to_string(),
+            ));
+        }
+
+        let conn_result = timeout(self.connection_timeout, self.pool.get())
             .await
             .map_err(|_| CacheError::ConnectionTimeout("Redis pool get timeout".to_string()))?;
 
         let mut conn = conn_result.map_err(|e| CacheError::PoolExhaustion(e.to_string()))?;
 
         let set_result = if ttl > 0 {
-            timeout(REDIS_TIMEOUT, conn.set_ex(key, value, ttl)).await
+            timeout(self.command_timeout, conn.set_ex(key, value, ttl)).await
         } else {
-            timeout(REDIS_TIMEOUT, conn.set(key, value)).await
+            timeout(self.command_timeout, conn.set(key, value)).await
         };
 
         match set_result {
-            Ok(Ok(())) => Ok(()),
+            Ok(Ok(())) => {
+                self.circuit_breaker.record_success();
+                Ok(())
+            }
             Ok(Err(e)) => {
                 tracing::error!(target: "cache", "Redis SET command failed: {}", e);
+                self.circuit_breaker.record_failure();
                 Err(CacheError::OperationFailed(e.to_string()))
             }
             Err(_) => {
                 tracing::warn!(target: "cache", "Redis SET command timed out");
+                self.circuit_breaker.record_timeout();
                 Err(CacheError::CommandTimeout(
                     "Redis SET command timeout".to_string(),
                 ))
@@ -175,20 +342,34 @@ impl RedisCache {
     }
 
     pub async fn delete(&self, key: &str) -> Result<(), CacheError> {
-        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get())
+        if !self.circuit_breaker.is_call_allowed() {
+            self.degradation_metrics
+                .write()
+                .record_circuit_breaker_rejection();
+            return Err(CacheError::CircuitBreakerOpen(
+                "Circuit breaker is open, rejecting Redis DELETE request".to_string(),
+            ));
+        }
+
+        let conn_result = timeout(self.connection_timeout, self.pool.get())
             .await
             .map_err(|_| CacheError::ConnectionTimeout("Redis pool get timeout".to_string()))?;
 
         let mut conn = conn_result.map_err(|e| CacheError::PoolExhaustion(e.to_string()))?;
 
-        match timeout(REDIS_TIMEOUT, conn.del(key)).await {
-            Ok(Ok(())) => Ok(()),
+        match timeout(self.command_timeout, conn.del(key)).await {
+            Ok(Ok(())) => {
+                self.circuit_breaker.record_success();
+                Ok(())
+            }
             Ok(Err(e)) => {
                 tracing::error!(target: "cache", "Redis DELETE command failed: {}", e);
+                self.circuit_breaker.record_failure();
                 Err(CacheError::OperationFailed(e.to_string()))
             }
             Err(_) => {
                 tracing::warn!(target: "cache", "Redis DELETE command timed out");
+                self.circuit_breaker.record_timeout();
                 Err(CacheError::CommandTimeout(
                     "Redis DELETE command timeout".to_string(),
                 ))
@@ -202,9 +383,21 @@ impl RedisCache {
         field: &str,
         delta: i64,
     ) -> Result<i64, redis::RedisError> {
-        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await.map_err(|_| {
-            redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
-        })?;
+        if !self.circuit_breaker.is_call_allowed() {
+            self.degradation_metrics
+                .write()
+                .record_circuit_breaker_rejection();
+            return Err(redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Circuit breaker is open",
+            )));
+        }
+
+        let conn_result = timeout(self.connection_timeout, self.pool.get())
+            .await
+            .map_err(|_| {
+                redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
+            })?;
 
         let mut conn = conn_result.map_err(|e| {
             redis::RedisError::from((
@@ -214,17 +407,40 @@ impl RedisCache {
             ))
         })?;
 
-        timeout(REDIS_TIMEOUT, conn.hincr(key, field, delta))
+        let result = timeout(self.command_timeout, conn.hincr(key, field, delta))
             .await
             .map_err(|_| {
                 redis::RedisError::from((redis::ErrorKind::IoError, "Redis command timeout"))
-            })?
+            })?;
+
+        match result {
+            Ok(val) => {
+                self.circuit_breaker.record_success();
+                Ok(val)
+            }
+            Err(e) => {
+                self.circuit_breaker.record_failure();
+                Err(e)
+            }
+        }
     }
 
     pub async fn hgetall(&self, key: &str) -> Result<HashMap<String, String>, redis::RedisError> {
-        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await.map_err(|_| {
-            redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
-        })?;
+        if !self.circuit_breaker.is_call_allowed() {
+            self.degradation_metrics
+                .write()
+                .record_circuit_breaker_rejection();
+            return Err(redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Circuit breaker is open",
+            )));
+        }
+
+        let conn_result = timeout(self.connection_timeout, self.pool.get())
+            .await
+            .map_err(|_| {
+                redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
+            })?;
 
         let mut conn = conn_result.map_err(|e| {
             redis::RedisError::from((
@@ -234,20 +450,45 @@ impl RedisCache {
             ))
         })?;
 
-        timeout(REDIS_TIMEOUT, conn.hgetall(key))
+        let result = timeout(self.command_timeout, conn.hgetall(key))
             .await
             .map_err(|_| {
                 redis::RedisError::from((redis::ErrorKind::IoError, "Redis command timeout"))
-            })?
+            })?;
+
+        match result {
+            Ok(val) => {
+                self.circuit_breaker.record_success();
+                Ok(val)
+            }
+            Err(e) => {
+                self.circuit_breaker.record_failure();
+                Err(e)
+            }
+        }
     }
 
     pub async fn expire(&self, key: &str, ttl: u64) {
-        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await;
+        if !self.circuit_breaker.is_call_allowed() {
+            self.degradation_metrics
+                .write()
+                .record_circuit_breaker_rejection();
+            return;
+        }
+
+        let conn_result = timeout(self.connection_timeout, self.pool.get()).await;
         if let Ok(Ok(mut conn)) = conn_result {
-            let _: Result<(), redis::RedisError> =
-                timeout(REDIS_TIMEOUT, conn.expire(key, ttl as i64))
+            let result: Result<(), redis::RedisError> =
+                timeout(self.command_timeout, conn.expire(key, ttl as i64))
                     .await
                     .unwrap_or(Ok(()));
+
+            match result {
+                Ok(()) => self.circuit_breaker.record_success(),
+                Err(_) => self.circuit_breaker.record_failure(),
+            }
+        } else {
+            self.circuit_breaker.record_failure();
         }
     }
 
@@ -259,9 +500,21 @@ impl RedisCache {
         burst_size: u32,
         ttl_seconds: u64,
     ) -> Result<RateLimitDecision, redis::RedisError> {
-        let conn_result = timeout(REDIS_TIMEOUT, self.pool.get()).await.map_err(|_| {
-            redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
-        })?;
+        if !self.circuit_breaker.is_call_allowed() {
+            self.degradation_metrics
+                .write()
+                .record_circuit_breaker_rejection();
+            return Err(redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Circuit breaker is open",
+            )));
+        }
+
+        let conn_result = timeout(self.connection_timeout, self.pool.get())
+            .await
+            .map_err(|_| {
+                redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
+            })?;
 
         let mut conn = conn_result.map_err(|e| {
             redis::RedisError::from((
@@ -318,7 +571,7 @@ return {allowed, retry_after, remaining}
         );
 
         let cmd_result = timeout(
-            REDIS_TIMEOUT,
+            self.command_timeout,
             script
                 .key(key)
                 .arg(now_ms as i64)
@@ -332,13 +585,20 @@ return {allowed, retry_after, remaining}
             redis::RedisError::from((redis::ErrorKind::IoError, "Redis script timeout"))
         })?;
 
-        let (allowed, retry_after_seconds, remaining) = cmd_result?;
-
-        Ok(RateLimitDecision {
-            allowed: allowed != 0,
-            retry_after_seconds: retry_after_seconds.max(0) as u64,
-            remaining: remaining.max(0) as u32,
-        })
+        match cmd_result {
+            Ok((allowed, retry_after_seconds, remaining)) => {
+                self.circuit_breaker.record_success();
+                Ok(RateLimitDecision {
+                    allowed: allowed != 0,
+                    retry_after_seconds: retry_after_seconds.max(0) as u64,
+                    remaining: remaining.max(0) as u32,
+                })
+            }
+            Err(e) => {
+                self.circuit_breaker.record_failure();
+                Err(e)
+            }
+        }
     }
 }
 
@@ -348,6 +608,8 @@ pub struct CacheManager {
     redis: Option<Arc<RedisCache>>,
     use_redis: bool,
     rate_limit_local: Arc<parking_lot::Mutex<HashMap<String, LocalRateLimitState>>>,
+    invalidation_manager: Option<Arc<CacheInvalidationManager>>,
+    local_cache_ttl: Duration,
 }
 
 impl CacheManager {
@@ -357,6 +619,8 @@ impl CacheManager {
             redis: None,
             use_redis: false,
             rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            invalidation_manager: None,
+            local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
         }
     }
 
@@ -365,12 +629,31 @@ impl CacheManager {
         cache_config: CacheConfig,
     ) -> Result<Self, redis::RedisError> {
         match RedisCache::new(config).await {
-            Ok(redis_cache) => Ok(Self {
-                local: LocalCache::new(&cache_config),
-                redis: Some(Arc::new(redis_cache)),
-                use_redis: true,
-                rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
-            }),
+            Ok(redis_cache) => {
+                let pool = redis_cache.pool.clone();
+                let redis_url = format!("redis://{}:{}", config.host, config.port);
+                let invalidation_config = CacheInvalidationConfig {
+                    enabled: true,
+                    channel_name: CACHE_INVALIDATION_CHANNEL.to_string(),
+                    local_cache_ttl_secs: DEFAULT_LOCAL_CACHE_TTL_SECS,
+                    redis_cache_ttl_secs: DEFAULT_REDIS_CACHE_TTL_SECS,
+                    instance_id: format!("instance-{}", uuid::Uuid::new_v4()),
+                    redis_url,
+                };
+                let invalidation_manager = Arc::new(CacheInvalidationManager::new(
+                    Some(pool),
+                    invalidation_config,
+                ));
+
+                Ok(Self {
+                    local: LocalCache::new(&cache_config),
+                    redis: Some(Arc::new(redis_cache)),
+                    use_redis: true,
+                    rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+                    invalidation_manager: Some(invalidation_manager),
+                    local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
+                })
+            }
             Err(e) => {
                 tracing::warn!("Failed to connect to Redis: {}, using local cache only", e);
                 Ok(Self {
@@ -378,18 +661,139 @@ impl CacheManager {
                     redis: None,
                     use_redis: false,
                     rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+                    invalidation_manager: None,
+                    local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
                 })
             }
         }
     }
 
     pub fn with_redis_pool(pool: Pool, cache_config: CacheConfig) -> Self {
-        let redis_cache = RedisCache::from_pool(pool);
+        Self::with_redis_pool_and_url(pool, cache_config, "redis://127.0.0.1:6379")
+    }
+
+    pub fn with_redis_pool_and_url(pool: Pool, cache_config: CacheConfig, redis_url: &str) -> Self {
+        let redis_cache = RedisCache::from_pool(pool.clone());
+        let invalidation_config = CacheInvalidationConfig {
+            enabled: true,
+            channel_name: CACHE_INVALIDATION_CHANNEL.to_string(),
+            local_cache_ttl_secs: DEFAULT_LOCAL_CACHE_TTL_SECS,
+            redis_cache_ttl_secs: DEFAULT_REDIS_CACHE_TTL_SECS,
+            instance_id: format!("instance-{}", uuid::Uuid::new_v4()),
+            redis_url: redis_url.to_string(),
+        };
+        let invalidation_manager = Arc::new(CacheInvalidationManager::new(
+            Some(pool),
+            invalidation_config,
+        ));
+
         Self {
             local: LocalCache::new(&cache_config),
             redis: Some(Arc::new(redis_cache)),
             use_redis: true,
             rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            invalidation_manager: Some(invalidation_manager),
+            local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
+        }
+    }
+
+    pub fn with_redis_pool_and_invalidation(
+        pool: Pool,
+        cache_config: CacheConfig,
+        invalidation_config: CacheInvalidationConfig,
+    ) -> Self {
+        let redis_cache = RedisCache::from_pool(pool.clone());
+        let invalidation_manager = Arc::new(CacheInvalidationManager::new(
+            Some(pool),
+            invalidation_config.clone(),
+        ));
+
+        Self {
+            local: LocalCache::new(&cache_config),
+            redis: Some(Arc::new(redis_cache)),
+            use_redis: true,
+            rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            invalidation_manager: Some(invalidation_manager),
+            local_cache_ttl: Duration::from_secs(invalidation_config.local_cache_ttl_secs),
+        }
+    }
+
+    pub async fn start_invalidation_subscriber(&self) -> Result<(), ApiError> {
+        if let Some(im) = &self.invalidation_manager {
+            im.start_subscriber().await?;
+        }
+        Ok(())
+    }
+
+    pub fn invalidation_manager(&self) -> Option<&Arc<CacheInvalidationManager>> {
+        self.invalidation_manager.as_ref()
+    }
+
+    pub fn local_cache_ttl(&self) -> Duration {
+        self.local_cache_ttl
+    }
+
+    pub fn invalidate_local_key(&self, key: &str) {
+        self.local.remove(key);
+    }
+
+    pub fn invalidate_local_pattern(&self, pattern: &str) {
+        let keys_to_remove: Vec<String> = self
+            .local
+            .cache
+            .iter()
+            .filter(|(k, _)| {
+                if pattern.contains('*') {
+                    let prefix = pattern.trim_end_matches('*');
+                    k.starts_with(prefix)
+                } else {
+                    k.contains(pattern)
+                }
+            })
+            .map(|(k, _)| k.to_string())
+            .collect();
+
+        for key in keys_to_remove {
+            self.local.remove(&key);
+        }
+    }
+
+    pub fn invalidate_local_all(&self) {
+        self.local.cache.invalidate_all();
+    }
+
+    pub async fn broadcast_invalidation(
+        &self,
+        key: &str,
+        invalidation_type: InvalidationType,
+    ) -> Result<(), ApiError> {
+        if let Some(im) = &self.invalidation_manager {
+            im.broadcaster()
+                .ok_or_else(|| ApiError::internal("Invalidation broadcaster not available"))?
+                .broadcast_invalidation(key, invalidation_type)
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub fn subscribe_to_invalidations(&self) -> Option<InvalidationReceiver> {
+        self.invalidation_manager.as_ref().and_then(|im| im.subscribe())
+    }
+
+    pub async fn handle_invalidation_message(&self, msg: &CacheInvalidationMessage) {
+        match msg.invalidation_type {
+            InvalidationType::Key => {
+                self.local.remove(&msg.key);
+            }
+            InvalidationType::Pattern => {
+                self.invalidate_local_pattern(&msg.key);
+            }
+            InvalidationType::Prefix => {
+                self.invalidate_local_pattern(&msg.key);
+            }
+            InvalidationType::All => {
+                self.local.cache.invalidate_all();
+            }
         }
     }
 
@@ -432,6 +836,9 @@ impl CacheManager {
         if let Some(redis) = &self.redis {
             let _ = redis.delete(token).await;
         }
+        if let Err(e) = self.broadcast_invalidation(token, InvalidationType::Key).await {
+            tracing::warn!("Failed to broadcast token invalidation: {}", e);
+        }
     }
 
     pub async fn is_user_active(&self, user_id: &str) -> Option<bool> {
@@ -450,6 +857,29 @@ impl CacheManager {
         self.local.remove(key);
         if let Some(redis) = &self.redis {
             let _ = redis.delete(key).await;
+        }
+        if let Err(e) = self.broadcast_invalidation(key, InvalidationType::Key).await {
+            tracing::warn!("Failed to broadcast key invalidation: {}", e);
+        }
+    }
+
+    pub async fn delete_with_invalidation(&self, key: &str, invalidation_type: InvalidationType) {
+        match invalidation_type {
+            InvalidationType::Key => {
+                self.local.remove(key);
+                if let Some(redis) = &self.redis {
+                    let _ = redis.delete(key).await;
+                }
+            }
+            InvalidationType::Pattern | InvalidationType::Prefix => {
+                self.invalidate_local_pattern(key);
+            }
+            InvalidationType::All => {
+                self.local.cache.invalidate_all();
+            }
+        }
+        if let Err(e) = self.broadcast_invalidation(key, invalidation_type).await {
+            tracing::warn!("Failed to broadcast invalidation: {}", e);
         }
     }
 

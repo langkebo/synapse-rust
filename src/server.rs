@@ -11,15 +11,21 @@ use tracing::info;
 
 use crate::cache::*;
 use crate::common::config::Config;
+use crate::common::rate_limit_config::{RateLimitConfigFile, RateLimitConfigManager, start_config_watcher};
 use crate::services::*;
 use crate::storage::*;
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
+use crate::web::middleware::{
+    check_cors_security, log_cors_security_report, validate_bind_address_for_dev_mode,
+    validate_cors_config_for_production,
+};
 use crate::web::routes::create_router;
 use crate::web::AppState;
 
 const DEFAULT_MAX_LIFETIME: Duration = Duration::from_secs(1800);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 
+#[allow(dead_code)]
 pub struct SynapseServer {
     app_state: Arc<AppState>,
     router: Router,
@@ -27,12 +33,26 @@ pub struct SynapseServer {
     media_path: std::path::PathBuf,
     scheduled_tasks: Arc<ScheduledTasks>,
     metrics_collector: Arc<TaskMetricsCollector>,
+    rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
+    config_watcher_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 use crate::common::task_queue::RedisTaskQueue;
 
 impl SynapseServer {
     pub async fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
+        let cors_report = check_cors_security();
+        log_cors_security_report(&cors_report);
+
+        if let Err(e) = validate_cors_config_for_production() {
+            tracing::error!("CORS configuration validation failed: {}", e);
+            return Err(e.into());
+        }
+
+        if let Err(e) = validate_bind_address_for_dev_mode(&config.server.host) {
+            tracing::warn!("{}", e);
+        }
+
         let pool_options = PgPoolOptions::new()
             .max_connections(config.database.max_size)
             .min_connections(config.database.min_idle.unwrap_or(5))
@@ -74,10 +94,18 @@ impl SynapseServer {
             let tq = RedisTaskQueue::from_pool(redis_pool.clone());
             task_queue = Some(Arc::new(tq));
 
-            Arc::new(CacheManager::with_redis_pool(
+            let cache = Arc::new(CacheManager::with_redis_pool(
                 redis_pool,
                 CacheConfig::default(),
-            ))
+            ));
+
+            if let Err(e) = cache.start_invalidation_subscriber().await {
+                tracing::warn!("Failed to start cache invalidation subscriber: {}", e);
+            } else {
+                info!("Cache invalidation subscriber started successfully");
+            }
+
+            cache
         } else {
             info!("Redis disabled. Using local in-memory cache.");
             Arc::new(CacheManager::new(CacheConfig::default()))
@@ -85,6 +113,41 @@ impl SynapseServer {
 
         let services = ServiceContainer::new(&pool, cache.clone(), config.clone(), task_queue);
         let app_state = Arc::new(AppState::new(services, cache));
+
+        let rate_limit_config_path = std::path::PathBuf::from(
+            std::env::var("RATE_LIMIT_CONFIG_PATH")
+                .unwrap_or_else(|_| "/app/config/rate_limit.yaml".to_string())
+        );
+
+        let (rate_limit_config_manager, config_watcher_handle) = 
+            if rate_limit_config_path.exists() {
+                match RateLimitConfigManager::from_file(&rate_limit_config_path).await {
+                    Ok(manager) => {
+                        let manager = Arc::new(manager);
+                        let config = manager.get_config();
+                        let handle = start_config_watcher(manager.clone(), config.reload_interval_seconds).await;
+                        info!("Rate limit config loaded from {:?}", rate_limit_config_path);
+                        (Some(manager), Some(handle))
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to load rate limit config from {:?}: {}. Using default config.", rate_limit_config_path, e);
+                        let default_config = RateLimitConfigFile::default();
+                        let manager = Arc::new(RateLimitConfigManager::new(default_config, rate_limit_config_path));
+                        (Some(manager), None)
+                    }
+                }
+            } else {
+                info!("Rate limit config file not found at {:?}. Using default config.", rate_limit_config_path.display());
+                let default_config = RateLimitConfigFile::default();
+                let manager = Arc::new(RateLimitConfigManager::new(default_config, rate_limit_config_path));
+                (Some(manager), None)
+            };
+
+        let app_state = if let Some(ref manager) = rate_limit_config_manager {
+            Arc::new((*app_state).clone().with_rate_limit_config(manager.clone()))
+        } else {
+            app_state
+        };
 
         let scheduled_tasks = Arc::new(ScheduledTasks::new(Arc::new(Database::from_pool(
             (*pool).clone(),
@@ -159,6 +222,8 @@ impl SynapseServer {
             media_path,
             scheduled_tasks,
             metrics_collector,
+            rate_limit_config_manager,
+            config_watcher_handle,
         })
     }
 

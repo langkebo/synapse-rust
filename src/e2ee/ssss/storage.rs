@@ -9,9 +9,7 @@ pub struct SecretStorage {
 
 impl SecretStorage {
     pub fn new(pool: &PgPool) -> Self {
-        Self {
-            pool: pool.clone(),
-        }
+        Self { pool: pool.clone() }
     }
 
     pub async fn create_key(&self, key: &SecretStorageKey) -> Result<(), ApiError> {
@@ -40,7 +38,11 @@ impl SecretStorage {
         Ok(())
     }
 
-    pub async fn get_key(&self, user_id: &str, key_id: &str) -> Result<Option<SecretStorageKey>, ApiError> {
+    pub async fn get_key(
+        &self,
+        user_id: &str,
+        key_id: &str,
+    ) -> Result<Option<SecretStorageKey>, ApiError> {
         let row = sqlx::query!(
             r#"
             SELECT key_id, user_id, algorithm, encrypted_key, public_key, signatures, created_ts
@@ -196,7 +198,11 @@ impl SecretStorage {
         Ok(())
     }
 
-    pub async fn delete_secrets(&self, user_id: &str, secret_names: &[String]) -> Result<(), ApiError> {
+    pub async fn delete_secrets(
+        &self,
+        user_id: &str,
+        secret_names: &[String],
+    ) -> Result<(), ApiError> {
         if secret_names.is_empty() {
             return Ok(());
         }
