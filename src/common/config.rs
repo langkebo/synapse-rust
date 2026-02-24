@@ -1570,6 +1570,10 @@ impl Config {
             format!("Failed to resolve environment variables: {}", e)
         })?;
 
+        config_values.validate().map_err(|e| {
+            format!("Configuration validation failed: {}", e)
+        })?;
+
         tracing::info!("Environment variables resolved successfully");
         tracing::debug!(
             "After resolution - federation.signing_key: {:?}",
@@ -1745,6 +1749,43 @@ impl Config {
                 .take()
                 .map(|v| resolve_env_in_string(&v))
                 .transpose()?;
+        }
+
+        Ok(())
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.admin_registration.enabled && self.admin_registration.shared_secret.is_empty() {
+            return Err(
+                "admin_registration.enabled is true but shared_secret is not configured. \
+                 Please set admin_registration.shared_secret in your configuration file."
+                    .to_string(),
+            );
+        }
+
+        if self.security.secret.is_empty() {
+            return Err(
+                "security.secret is not configured. \
+                 Please set security.secret in your configuration file."
+                    .to_string(),
+            );
+        }
+
+        if self.security.secret.len() < 32 {
+            tracing::warn!(
+                "security.secret is shorter than 32 characters. \
+                 Consider using a longer secret for better security."
+            );
+        }
+
+        if self.cors.allowed_origins.iter().any(|o| o == "*")
+            && self.cors.allow_credentials
+        {
+            tracing::warn!(
+                "CORS is configured to allow all origins ('*') with credentials. \
+                 This is not recommended for production. \
+                 Consider specifying explicit allowed origins."
+            );
         }
 
         Ok(())

@@ -279,7 +279,13 @@ impl RegistrationTokenStorage {
             return Ok(false);
         }
 
-        let token_id = validation.token_id.unwrap();
+        let token_id = match validation.token_id {
+            Some(id) => id,
+            None => {
+                tracing::error!("Token validation succeeded but token_id is None");
+                return Ok(false);
+            }
+        };
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
