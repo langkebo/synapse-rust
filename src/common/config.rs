@@ -1978,6 +1978,8 @@ mod tests {
                 argon2_t_cost: 3,
                 argon2_p_cost: 1,
                 allow_legacy_hashes: false,
+                login_failure_lockout_threshold: 5,
+                login_lockout_duration_seconds: 900,
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -2087,6 +2089,8 @@ mod tests {
                 argon2_t_cost: 3,
                 argon2_p_cost: 1,
                 allow_legacy_hashes: false,
+                login_failure_lockout_threshold: 5,
+                login_lockout_duration_seconds: 900,
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -2236,6 +2240,8 @@ mod tests {
             argon2_t_cost: 3,
             argon2_p_cost: 1,
             allow_legacy_hashes: false,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
         };
 
         assert!(config.secret.len() > 16);
