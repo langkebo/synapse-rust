@@ -1330,6 +1330,20 @@ pub struct SecurityConfig {
     /// 是否允许旧版 SHA-256 密码哈希验证（出于安全考虑，建议设置为 false）
     #[serde(default = "default_allow_legacy_hashes")]
     pub allow_legacy_hashes: bool,
+    /// 登录失败锁定阈值（连续失败多少次后锁定账户）
+    #[serde(default = "default_login_failure_lockout_threshold")]
+    pub login_failure_lockout_threshold: u32,
+    /// 锁定持续时间（秒）
+    #[serde(default = "default_login_lockout_duration_seconds")]
+    pub login_lockout_duration_seconds: u64,
+}
+
+fn default_login_failure_lockout_threshold() -> u32 {
+    5
+}
+
+fn default_login_lockout_duration_seconds() -> u64 {
+    900
 }
 
 fn default_argon2_m_cost() -> u32 {

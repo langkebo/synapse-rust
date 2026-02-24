@@ -39,6 +39,8 @@ pub struct AuthService {
     pub argon2_t_cost: u32,
     pub argon2_p_cost: u32,
     pub allow_legacy_hashes: bool,
+    pub login_failure_lockout_threshold: u32,
+    pub login_lockout_duration_seconds: u64,
 }
 
 impl AuthService {
@@ -65,6 +67,8 @@ impl AuthService {
             argon2_t_cost: security.argon2_t_cost,
             argon2_p_cost: security.argon2_p_cost,
             allow_legacy_hashes: security.allow_legacy_hashes,
+            login_failure_lockout_threshold: security.login_failure_lockout_threshold,
+            login_lockout_duration_seconds: security.login_lockout_duration_seconds,
         }
     }
 
@@ -199,12 +203,22 @@ impl AuthService {
     ) -> ApiResult<(User, String, String, String)> {
         let user = self.get_user_by_username(username).await?;
 
+        if self.is_account_locked(&user.user_id).await? {
+            self.log_login_failure(username, "account_locked");
+            return Err(ApiError::rate_limited(
+                "Account is temporarily locked due to too many failed login attempts. Please try again later.".to_string(),
+            ));
+        }
+
         let password_hash = self.get_user_password_hash(&user)?;
 
         if !self.verify_user_password(password, password_hash).await? {
+            self.record_login_failure(&user.user_id).await?;
             self.log_login_failure(username, "invalid_credentials");
             return Err(ApiError::unauthorized("Invalid credentials".to_string()));
         }
+
+        self.clear_login_failures(&user.user_id).await?;
 
         if self.is_user_deactivated(&user) {
             return Err(ApiError::forbidden("User is deactivated".to_string()));
@@ -222,6 +236,49 @@ impl AuthService {
             .await?;
 
         Ok((user, access_token, refresh_token, device_id))
+    }
+
+    async fn is_account_locked(&self, user_id: &str) -> ApiResult<bool> {
+        let key = format!("auth:lockout:{}", user_id);
+        let lockout_until: Option<i64> = self.cache.get(&key).await?;
+        
+        if let Some(timestamp) = lockout_until {
+            if timestamp > Utc::now().timestamp() {
+                return Ok(true);
+            }
+            let _ = self.cache.delete(&key).await;
+        }
+        Ok(false)
+    }
+
+    async fn record_login_failure(&self, user_id: &str) -> ApiResult<()> {
+        let key = format!("auth:failures:{}", user_id);
+        let failures: i64 = self.cache.get(&key).await?.unwrap_or(0) + 1;
+        
+        let _ = self.cache.set(&key, &failures, self.login_lockout_duration_seconds).await;
+        
+        if failures >= self.login_failure_lockout_threshold as i64 {
+            let lockout_until = Utc::now().timestamp() + self.login_lockout_duration_seconds as i64;
+            let lockout_key = format!("auth:lockout:{}", user_id);
+            let _ = self.cache.set(&lockout_key, &lockout_until, self.login_lockout_duration_seconds).await;
+            
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "account_locked",
+                user_id = user_id,
+                failure_count = failures,
+                lockout_duration_seconds = self.login_lockout_duration_seconds,
+                "Account locked due to too many failed login attempts"
+            );
+        }
+        
+        Ok(())
+    }
+
+    async fn clear_login_failures(&self, user_id: &str) -> ApiResult<()> {
+        let key = format!("auth:failures:{}", user_id);
+        let _ = self.cache.delete(&key).await;
+        Ok(())
     }
 
     async fn get_user_by_username(&self, username: &str) -> ApiResult<User> {
