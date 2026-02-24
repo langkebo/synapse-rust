@@ -369,8 +369,11 @@ fn create_auth_router() -> Router<AppState> {
             post(submit_email_token),
         )
         .route("/_matrix/client/r0/login", get(get_login_flows).post(login))
+        .route("/_matrix/client/v3/login", get(get_login_flows).post(login))
         .route("/_matrix/client/r0/logout", post(logout))
         .route("/_matrix/client/r0/logout/all", post(logout_all))
+        .route("/_matrix/client/v3/logout", post(logout))
+        .route("/_matrix/client/v3/logout/all", post(logout_all))
         .route("/_matrix/client/r0/refresh", post(refresh_token))
 }
 
@@ -390,10 +393,12 @@ fn create_account_router() -> Router<AppState> {
             put(update_avatar),
         )
         .route("/_matrix/client/r0/account/password", post(change_password))
+        .route("/_matrix/client/v3/account/password", post(change_password))
         .route(
             "/_matrix/client/r0/account/deactivate",
             post(deactivate_account),
         )
+        .route("/_matrix/client/v3/account/deactivate", post(deactivate_account))
         .route("/_matrix/client/r0/account/3pid", get(get_threepids).post(add_threepid))
         .route(
             "/_matrix/client/r0/account/3pid/delete",
@@ -407,12 +412,21 @@ fn create_account_router() -> Router<AppState> {
             "/_matrix/client/r0/profile/{user_id}",
             get(get_profile),
         )
+        .route("/_matrix/client/v3/profile/{user_id}", get(get_profile))
         .route(
             "/_matrix/client/r0/profile/{user_id}/displayname",
             get(get_displayname).put(update_displayname),
         )
         .route(
+            "/_matrix/client/v3/profile/{user_id}/displayname",
+            get(get_displayname).put(update_displayname),
+        )
+        .route(
             "/_matrix/client/r0/profile/{user_id}/avatar_url",
+            get(get_avatar_url).put(update_avatar),
+        )
+        .route(
+            "/_matrix/client/v3/profile/{user_id}/avatar_url",
             get(get_avatar_url).put(update_avatar),
         )
 }
