@@ -61,7 +61,10 @@ impl PushService {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
-        Self { config, http_client }
+        Self {
+            config,
+            http_client,
+        }
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -91,14 +94,23 @@ impl PushService {
         device: &MatrixPushDevice,
         notification: &PushNotification,
     ) -> Result<PushResponse, ApiError> {
-        let gateway_url: String = self.config.push_gateway_url.clone()
-            .or_else(|| device.data.as_ref().and_then(|d| d.get("url").and_then(|u| u.as_str().map(|s| s.to_string()))))
+        let gateway_url: String = self
+            .config
+            .push_gateway_url
+            .clone()
+            .or_else(|| {
+                device
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("url").and_then(|u| u.as_str().map(|s| s.to_string())))
+            })
             .ok_or_else(|| ApiError::bad_request("No push gateway URL configured"))?;
 
         let payload = self.build_push_payload(device, notification);
 
         for attempt in 0..self.config.retry_count {
-            match self.http_client
+            match self
+                .http_client
                 .post(&gateway_url)
                 .json(&payload)
                 .send()
@@ -106,7 +118,9 @@ impl PushService {
             {
                 Ok(response) => {
                     if response.status().is_success() {
-                        let response_data: PushResponse = response.json().await
+                        let response_data: PushResponse = response
+                            .json()
+                            .await
                             .unwrap_or(PushResponse { rejected: vec![] });
                         info!("HTTP push sent successfully to {}", device.pushkey);
                         return Ok(response_data);
@@ -117,14 +131,22 @@ impl PushService {
                 Err(e) => {
                     warn!("HTTP push attempt {} failed: {}", attempt + 1, e);
                     if attempt < self.config.retry_count - 1 {
-                        tokio::time::sleep(std::time::Duration::from_millis(100 * (attempt + 1) as u64)).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            100 * (attempt + 1) as u64,
+                        ))
+                        .await;
                     }
                 }
             }
         }
 
-        error!("HTTP push failed after {} attempts", self.config.retry_count);
-        Ok(PushResponse { rejected: vec![device.pushkey.clone()] })
+        error!(
+            "HTTP push failed after {} attempts",
+            self.config.retry_count
+        );
+        Ok(PushResponse {
+            rejected: vec![device.pushkey.clone()],
+        })
     }
 
     async fn send_fcm_push(
@@ -132,10 +154,15 @@ impl PushService {
         device: &MatrixPushDevice,
         notification: &PushNotification,
     ) -> Result<PushResponse, ApiError> {
-        let fcm_config = self.config.fcm.as_ref()
+        let fcm_config = self
+            .config
+            .fcm
+            .as_ref()
             .ok_or_else(|| ApiError::internal("FCM not configured"))?;
 
-        let api_key = fcm_config.api_key.as_ref()
+        let api_key = fcm_config
+            .api_key
+            .as_ref()
             .ok_or_else(|| ApiError::internal("FCM API key not configured"))?;
 
         let fcm_payload = serde_json::json!({
@@ -154,7 +181,8 @@ impl PushService {
             "priority": "high",
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post("https://fcm.googleapis.com/fcm/send")
             .header("Authorization", format!("key={}", api_key))
             .header("Content-Type", "application/json")
@@ -169,12 +197,16 @@ impl PushService {
                     Ok(PushResponse { rejected: vec![] })
                 } else {
                     warn!("FCM push failed with status: {}", resp.status());
-                    Ok(PushResponse { rejected: vec![device.pushkey.clone()] })
+                    Ok(PushResponse {
+                        rejected: vec![device.pushkey.clone()],
+                    })
                 }
             }
             Err(e) => {
                 error!("FCM push failed: {}", e);
-                Ok(PushResponse { rejected: vec![device.pushkey.clone()] })
+                Ok(PushResponse {
+                    rejected: vec![device.pushkey.clone()],
+                })
             }
         }
     }
@@ -184,7 +216,10 @@ impl PushService {
         device: &MatrixPushDevice,
         notification: &PushNotification,
     ) -> Result<PushResponse, ApiError> {
-        let apns_config = self.config.apns.as_ref()
+        let apns_config = self
+            .config
+            .apns
+            .as_ref()
             .ok_or_else(|| ApiError::internal("APNs not configured"))?;
 
         let endpoint = if apns_config.production {
@@ -208,7 +243,8 @@ impl PushService {
 
         let url = format!("{}{}", endpoint, device.pushkey);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .header("apns-topic", &apns_config.topic)
             .header("apns-priority", "10")
@@ -224,12 +260,16 @@ impl PushService {
                     Ok(PushResponse { rejected: vec![] })
                 } else {
                     warn!("APNs push failed with status: {}", resp.status());
-                    Ok(PushResponse { rejected: vec![device.pushkey.clone()] })
+                    Ok(PushResponse {
+                        rejected: vec![device.pushkey.clone()],
+                    })
                 }
             }
             Err(e) => {
                 error!("APNs push failed: {}", e);
-                Ok(PushResponse { rejected: vec![device.pushkey.clone()] })
+                Ok(PushResponse {
+                    rejected: vec![device.pushkey.clone()],
+                })
             }
         }
     }
@@ -239,13 +279,19 @@ impl PushService {
         device: &MatrixPushDevice,
         notification: &PushNotification,
     ) -> Result<PushResponse, ApiError> {
-        let _webpush_config = self.config.web_push.as_ref()
+        let _webpush_config = self
+            .config
+            .web_push
+            .as_ref()
             .ok_or_else(|| ApiError::internal("Web Push not configured"))?;
 
-        let subscription_data = device.data.as_ref()
+        let subscription_data = device
+            .data
+            .as_ref()
             .ok_or_else(|| ApiError::bad_request("Web Push subscription data missing"))?;
 
-        let endpoint = subscription_data.get("endpoint")
+        let endpoint = subscription_data
+            .get("endpoint")
             .and_then(|e| e.as_str())
             .ok_or_else(|| ApiError::bad_request("Web Push endpoint missing"))?;
 
@@ -269,7 +315,11 @@ impl PushService {
         Ok(PushResponse { rejected: vec![] })
     }
 
-    fn build_push_payload(&self, device: &MatrixPushDevice, notification: &PushNotification) -> serde_json::Value {
+    fn build_push_payload(
+        &self,
+        device: &MatrixPushDevice,
+        notification: &PushNotification,
+    ) -> serde_json::Value {
         serde_json::json!({
             "notification": {
                 "id": notification.event_id,

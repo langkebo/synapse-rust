@@ -209,7 +209,10 @@ impl UserStorage {
         Ok(result.is_some())
     }
 
-    pub async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn filter_existing_users(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<String>, sqlx::Error> {
         if user_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -355,7 +358,7 @@ impl UserStorage {
         user_id: &str,
     ) -> Result<Option<UserProfile>, sqlx::Error> {
         let key = format!("user:profile:{}", user_id);
-        
+
         // Try to get from cache
         if let Ok(Some(profile)) = self.cache.get::<UserProfile>(&key).await {
             return Ok(Some(profile));
@@ -371,7 +374,7 @@ impl UserStorage {
         .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
-        
+
         // Set cache if found
         if let Some(profile) = &result {
             let _ = self.cache.set(&key, profile, USER_PROFILE_CACHE_TTL).await;

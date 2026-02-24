@@ -1,10 +1,10 @@
-use crate::common::*;
-use crate::common::task_queue::RedisTaskQueue;
 use crate::common::background_job::BackgroundJob;
+use crate::common::task_queue::RedisTaskQueue;
+use crate::common::*;
 use crate::services::*;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ThumbnailMethod {
@@ -55,10 +55,10 @@ impl MediaService {
     pub fn new(media_path: &str, task_queue: Option<Arc<RedisTaskQueue>>) -> Self {
         let path = PathBuf::from(media_path);
         let thumbnail_path = path.join("thumbnails");
-        
+
         ::tracing::info!("MediaService::new called with path: {}", media_path);
         ::tracing::info!("Media path exists: {}", path.exists());
-        
+
         if !path.exists() {
             ::tracing::info!("Attempting to create media directory: {}", path.display());
             if let Err(e) = std::fs::create_dir_all(&path) {
@@ -70,20 +70,49 @@ impl MediaService {
 
         if !thumbnail_path.exists() {
             if let Err(e) = std::fs::create_dir_all(&thumbnail_path) {
-                ::tracing::error!("Failed to create thumbnail directory {}: {}", thumbnail_path.display(), e);
+                ::tracing::error!(
+                    "Failed to create thumbnail directory {}: {}",
+                    thumbnail_path.display(),
+                    e
+                );
             }
         }
 
         let default_thumbnail_configs = vec![
-            ThumbnailConfig { width: 32, height: 32, method: ThumbnailMethod::Crop, quality: 70 },
-            ThumbnailConfig { width: 96, height: 96, method: ThumbnailMethod::Crop, quality: 70 },
-            ThumbnailConfig { width: 320, height: 240, method: ThumbnailMethod::Scale, quality: 80 },
-            ThumbnailConfig { width: 640, height: 480, method: ThumbnailMethod::Scale, quality: 80 },
-            ThumbnailConfig { width: 800, height: 600, method: ThumbnailMethod::Scale, quality: 80 },
+            ThumbnailConfig {
+                width: 32,
+                height: 32,
+                method: ThumbnailMethod::Crop,
+                quality: 70,
+            },
+            ThumbnailConfig {
+                width: 96,
+                height: 96,
+                method: ThumbnailMethod::Crop,
+                quality: 70,
+            },
+            ThumbnailConfig {
+                width: 320,
+                height: 240,
+                method: ThumbnailMethod::Scale,
+                quality: 80,
+            },
+            ThumbnailConfig {
+                width: 640,
+                height: 480,
+                method: ThumbnailMethod::Scale,
+                quality: 80,
+            },
+            ThumbnailConfig {
+                width: 800,
+                height: 600,
+                method: ThumbnailMethod::Scale,
+                quality: 80,
+            },
         ];
 
-        Self { 
-            media_path: path, 
+        Self {
+            media_path: path,
             thumbnail_path,
             task_queue,
             default_thumbnail_configs,
@@ -99,7 +128,10 @@ impl MediaService {
     ) -> ApiResult<serde_json::Value> {
         let media_id = random_string(32);
         let extension = self.get_extension_from_content_type(content_type);
-        let user_id_encoded = user_id.replace('@', "_at_").replace(':', "_col_").replace('.', "_dot_");
+        let user_id_encoded = user_id
+            .replace('@', "_at_")
+            .replace(':', "_col_")
+            .replace('.', "_dot_");
         let file_name = format!("{}.{}.{}", media_id, user_id_encoded, extension);
         let file_path = self.media_path.join(&file_name);
         let media_path_display = self.media_path.display().to_string();
@@ -111,7 +143,10 @@ impl MediaService {
         );
 
         if !self.media_path.exists() {
-            ::tracing::warn!("Media path does not exist, attempting to create: {}", self.media_path.display());
+            ::tracing::warn!(
+                "Media path does not exist, attempting to create: {}",
+                self.media_path.display()
+            );
             if let Err(e) = std::fs::create_dir_all(&self.media_path) {
                 ::tracing::error!("Failed to create media directory: {}", e);
                 return Err(ApiError::internal(format!(
@@ -122,13 +157,14 @@ impl MediaService {
         }
 
         let content_vec = content.to_vec();
-        let write_result = tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
-            .await
-            .map_err(|e| ApiError::internal(format!("Write task panicked: {}", e)))?;
+        let write_result =
+            tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
+                .await
+                .map_err(|e| ApiError::internal(format!("Write task panicked: {}", e)))?;
 
         if let Err(e) = write_result {
             ::tracing::error!("Failed to save media file - Error: {}", e);
-            
+
             let error_msg = match e.kind() {
                 std::io::ErrorKind::PermissionDenied => {
                     format!(
@@ -143,18 +179,24 @@ impl MediaService {
                 std::io::ErrorKind::StorageFull => {
                     "Storage full. Please free up disk space.".to_string()
                 }
-                _ => format!("Failed to save media: {}", e)
+                _ => format!("Failed to save media: {}", e),
             };
-            
+
             return Err(ApiError::internal(error_msg));
         }
 
         ::tracing::info!("Successfully saved media file: {}", file_name);
 
         if let Some(queue) = &self.task_queue {
-            let job = BackgroundJob::ProcessMedia { file_id: file_name.clone() };
+            let job = BackgroundJob::ProcessMedia {
+                file_id: file_name.clone(),
+            };
             if let Err(e) = queue.submit(job).await {
-                ::tracing::warn!("Failed to submit media processing task for {}: {}", file_name, e);
+                ::tracing::warn!(
+                    "Failed to submit media processing task for {}: {}",
+                    file_name,
+                    e
+                );
             } else {
                 ::tracing::info!("Submitted media processing task for {}", file_name);
             }
@@ -212,8 +254,7 @@ impl MediaService {
         height: u32,
         method: &str,
     ) -> Result<Vec<u8>, ApiError> {
-        let thumbnail_method = ThumbnailMethod::from_str(method)
-            .map_err(ApiError::bad_request)?;
+        let thumbnail_method = ThumbnailMethod::from_str(method).map_err(ApiError::bad_request)?;
         let thumbnail_filename = format!("{}_{}x{}_{}.jpg", media_id, width, height, method);
         let thumbnail_path = self.thumbnail_path.join(&thumbnail_filename);
 
@@ -223,9 +264,10 @@ impl MediaService {
         }
 
         let original_content = self.download_media(_server_name, media_id).await?;
-        
-        let thumbnail = self.generate_thumbnail(&original_content, width, height, thumbnail_method)?;
-        
+
+        let thumbnail =
+            self.generate_thumbnail(&original_content, width, height, thumbnail_method)?;
+
         if let Err(e) = tokio::fs::write(&thumbnail_path, &thumbnail).await {
             ::tracing::warn!("Failed to cache thumbnail {}: {}", thumbnail_filename, e);
         }
@@ -251,19 +293,22 @@ impl MediaService {
                 let (orig_width, orig_height) = (img.width(), img.height());
                 let aspect_ratio = (orig_width as f32 / target_width as f32)
                     .max(orig_height as f32 / target_height as f32);
-                
+
                 let crop_width = (target_width as f32 * aspect_ratio) as u32;
                 let crop_height = (target_height as f32 * aspect_ratio) as u32;
-                
+
                 let x = (orig_width.saturating_sub(crop_width)) / 2;
                 let y = (orig_height.saturating_sub(crop_height)) / 2;
-                
-                let cropped = img.crop(x, y, crop_width.min(orig_width), crop_height.min(orig_height));
+
+                let cropped = img.crop(
+                    x,
+                    y,
+                    crop_width.min(orig_width),
+                    crop_height.min(orig_height),
+                );
                 cropped.resize_exact(target_width, target_height, FilterType::Lanczos3)
             }
-            ThumbnailMethod::Scale => {
-                img.resize(target_width, target_height, FilterType::Lanczos3)
-            }
+            ThumbnailMethod::Scale => img.resize(target_width, target_height, FilterType::Lanczos3),
         };
 
         let mut output = Vec::new();
@@ -396,7 +441,11 @@ impl MediaService {
         }))
     }
 
-    pub async fn get_media_info(&self, server_name: &str, media_id: &str) -> ApiResult<serde_json::Value> {
+    pub async fn get_media_info(
+        &self,
+        server_name: &str,
+        media_id: &str,
+    ) -> ApiResult<serde_json::Value> {
         let media_path = self.media_path.clone();
         let server_name = server_name.to_string();
         let media_id = media_id.to_string();
@@ -456,7 +505,11 @@ impl MediaService {
                             if let Err(e) = std::fs::remove_file(&path) {
                                 return Err(format!("Failed to delete media file: {}", e));
                             }
-                            ::tracing::info!("Deleted media: {} from server {}", file_name, server_name);
+                            ::tracing::info!(
+                                "Deleted media: {} from server {}",
+                                file_name,
+                                server_name
+                            );
                             return Ok(());
                         }
                     }
@@ -477,10 +530,22 @@ mod tests {
 
     #[test]
     fn test_thumbnail_method_from_str() {
-        assert_eq!(ThumbnailMethod::from_str("crop").unwrap(), ThumbnailMethod::Crop);
-        assert_eq!(ThumbnailMethod::from_str("CROP").unwrap(), ThumbnailMethod::Crop);
-        assert_eq!(ThumbnailMethod::from_str("scale").unwrap(), ThumbnailMethod::Scale);
-        assert_eq!(ThumbnailMethod::from_str("SCALE").unwrap(), ThumbnailMethod::Scale);
+        assert_eq!(
+            ThumbnailMethod::from_str("crop").unwrap(),
+            ThumbnailMethod::Crop
+        );
+        assert_eq!(
+            ThumbnailMethod::from_str("CROP").unwrap(),
+            ThumbnailMethod::Crop
+        );
+        assert_eq!(
+            ThumbnailMethod::from_str("scale").unwrap(),
+            ThumbnailMethod::Scale
+        );
+        assert_eq!(
+            ThumbnailMethod::from_str("SCALE").unwrap(),
+            ThumbnailMethod::Scale
+        );
         assert!(ThumbnailMethod::from_str("invalid").is_err());
     }
 

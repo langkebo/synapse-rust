@@ -2,11 +2,7 @@ use crate::common::error::ApiError;
 use crate::services::telemetry_service::{ExportConfig, TelemetryService};
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -132,9 +128,7 @@ pub async fn get_metrics_summary(
     Ok(Json(response))
 }
 
-pub async fn health_check(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, ApiError> {
+pub async fn health_check(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let config = &state.services.config.telemetry;
     let jaeger = &state.services.config.jaeger;
     let prometheus = &state.services.config.prometheus;
@@ -164,7 +158,13 @@ pub fn create_telemetry_router() -> axum::Router<AppState> {
 
     axum::Router::new()
         .route("/_synapse/admin/v1/telemetry/status", get(get_status))
-        .route("/_synapse/admin/v1/telemetry/attributes", get(get_resource_attributes))
-        .route("/_synapse/admin/v1/telemetry/metrics", get(get_metrics_summary))
+        .route(
+            "/_synapse/admin/v1/telemetry/attributes",
+            get(get_resource_attributes),
+        )
+        .route(
+            "/_synapse/admin/v1/telemetry/metrics",
+            get(get_metrics_summary),
+        )
         .route("/_synapse/admin/v1/telemetry/health", get(health_check))
 }

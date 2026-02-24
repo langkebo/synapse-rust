@@ -1,12 +1,12 @@
 use crate::common::ApiError;
 use crate::storage::server_notification::{CreateNotificationRequest, CreateTemplateRequest};
-use crate::web::routes::{AppState, AuthenticatedUser, AdminUser};
+use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    Json, Router,
     routing::{delete, get, post, put},
+    Json, Router,
 };
 use serde::Deserialize;
 
@@ -66,30 +66,80 @@ struct BroadcastBody {
 
 pub fn create_server_notification_router() -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/v1/notifications", get(get_user_notifications))
-        .route("/_matrix/client/v1/notifications/{notification_id}/read", put(mark_as_read))
-        .route("/_matrix/client/v1/notifications/{notification_id}/dismiss", put(dismiss_notification))
-        .route("/_matrix/client/v1/notifications/read-all", put(mark_all_read))
-        .route("/_matrix/admin/v1/notifications", get(list_all_notifications))
+        .route(
+            "/_matrix/client/v1/notifications",
+            get(get_user_notifications),
+        )
+        .route(
+            "/_matrix/client/v1/notifications/{notification_id}/read",
+            put(mark_as_read),
+        )
+        .route(
+            "/_matrix/client/v1/notifications/{notification_id}/dismiss",
+            put(dismiss_notification),
+        )
+        .route(
+            "/_matrix/client/v1/notifications/read-all",
+            put(mark_all_read),
+        )
+        .route(
+            "/_matrix/admin/v1/notifications",
+            get(list_all_notifications),
+        )
         .route("/_matrix/admin/v1/notifications", post(create_notification))
-        .route("/_matrix/admin/v1/notifications/{notification_id}", get(get_notification))
-        .route("/_matrix/admin/v1/notifications/{notification_id}", put(update_notification))
-        .route("/_matrix/admin/v1/notifications/{notification_id}", delete(delete_notification))
-        .route("/_matrix/admin/v1/notifications/{notification_id}/deactivate", post(deactivate_notification))
-        .route("/_matrix/admin/v1/notifications/{notification_id}/schedule", post(schedule_notification))
-        .route("/_matrix/admin/v1/notifications/{notification_id}/broadcast", post(broadcast_notification))
-        .route("/_matrix/admin/v1/notification-templates", get(list_templates))
-        .route("/_matrix/admin/v1/notification-templates", post(create_template))
-        .route("/_matrix/admin/v1/notification-templates/{name}", get(get_template))
-        .route("/_matrix/admin/v1/notification-templates/{name}", delete(delete_template))
-        .route("/_matrix/admin/v1/notification-templates/create-notification", post(create_from_template))
+        .route(
+            "/_matrix/admin/v1/notifications/{notification_id}",
+            get(get_notification),
+        )
+        .route(
+            "/_matrix/admin/v1/notifications/{notification_id}",
+            put(update_notification),
+        )
+        .route(
+            "/_matrix/admin/v1/notifications/{notification_id}",
+            delete(delete_notification),
+        )
+        .route(
+            "/_matrix/admin/v1/notifications/{notification_id}/deactivate",
+            post(deactivate_notification),
+        )
+        .route(
+            "/_matrix/admin/v1/notifications/{notification_id}/schedule",
+            post(schedule_notification),
+        )
+        .route(
+            "/_matrix/admin/v1/notifications/{notification_id}/broadcast",
+            post(broadcast_notification),
+        )
+        .route(
+            "/_matrix/admin/v1/notification-templates",
+            get(list_templates),
+        )
+        .route(
+            "/_matrix/admin/v1/notification-templates",
+            post(create_template),
+        )
+        .route(
+            "/_matrix/admin/v1/notification-templates/{name}",
+            get(get_template),
+        )
+        .route(
+            "/_matrix/admin/v1/notification-templates/{name}",
+            delete(delete_template),
+        )
+        .route(
+            "/_matrix/admin/v1/notification-templates/create-notification",
+            post(create_from_template),
+        )
 }
 
 async fn get_user_notifications(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let notifications = state.services.server_notification_service
+    let notifications = state
+        .services
+        .server_notification_service
         .get_user_notifications(&auth_user.user_id)
         .await?;
     Ok(Json(notifications))
@@ -100,7 +150,9 @@ async fn mark_as_read(
     auth_user: AuthenticatedUser,
     Path(notification_id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.server_notification_service
+    state
+        .services
+        .server_notification_service
         .mark_as_read(&auth_user.user_id, notification_id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -111,7 +163,9 @@ async fn dismiss_notification(
     auth_user: AuthenticatedUser,
     Path(notification_id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.server_notification_service
+    state
+        .services
+        .server_notification_service
         .mark_as_dismissed(&auth_user.user_id, notification_id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -121,7 +175,9 @@ async fn mark_all_read(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.server_notification_service
+    let count = state
+        .services
+        .server_notification_service
         .mark_all_as_read(&auth_user.user_id)
         .await?;
     Ok(Json(serde_json::json!({ "marked_count": count })))
@@ -132,7 +188,9 @@ async fn list_all_notifications(
     _admin: AdminUser,
     Query(query): Query<ListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let notifications = state.services.server_notification_service
+    let notifications = state
+        .services
+        .server_notification_service
         .list_all_notifications(query.limit.unwrap_or(100), query.offset.unwrap_or(0))
         .await?;
     Ok(Json(notifications))
@@ -158,7 +216,9 @@ async fn create_notification(
         created_by: Some(admin.user_id),
     };
 
-    let notification = state.services.server_notification_service
+    let notification = state
+        .services
+        .server_notification_service
         .create_notification(request)
         .await?;
     Ok((StatusCode::CREATED, Json(notification)))
@@ -169,7 +229,9 @@ async fn get_notification(
     _admin: AdminUser,
     Path(notification_id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let notification = state.services.server_notification_service
+    let notification = state
+        .services
+        .server_notification_service
         .get_notification(notification_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Notification not found"))?;
@@ -197,7 +259,9 @@ async fn update_notification(
         created_by: None,
     };
 
-    let notification = state.services.server_notification_service
+    let notification = state
+        .services
+        .server_notification_service
         .update_notification(notification_id, request)
         .await?;
     Ok(Json(notification))
@@ -208,7 +272,9 @@ async fn delete_notification(
     _admin: AdminUser,
     Path(notification_id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let deleted = state.services.server_notification_service
+    let deleted = state
+        .services
+        .server_notification_service
         .delete_notification(notification_id)
         .await?;
     if deleted {
@@ -223,7 +289,9 @@ async fn deactivate_notification(
     _admin: AdminUser,
     Path(notification_id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.server_notification_service
+    state
+        .services
+        .server_notification_service
         .deactivate_notification(notification_id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -235,7 +303,9 @@ async fn schedule_notification(
     Path(notification_id): Path<i32>,
     Json(body): Json<ScheduleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let scheduled = state.services.server_notification_service
+    let scheduled = state
+        .services
+        .server_notification_service
         .schedule_notification(notification_id, body.scheduled_for)
         .await?;
     Ok(Json(scheduled))
@@ -247,7 +317,9 @@ async fn broadcast_notification(
     Path(notification_id): Path<i32>,
     Json(body): Json<BroadcastBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.server_notification_service
+    state
+        .services
+        .server_notification_service
         .broadcast_notification(notification_id, &body.delivery_method)
         .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -257,7 +329,11 @@ async fn list_templates(
     State(state): State<AppState>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let templates = state.services.server_notification_service.list_templates().await?;
+    let templates = state
+        .services
+        .server_notification_service
+        .list_templates()
+        .await?;
     Ok(Json(templates))
 }
 
@@ -274,7 +350,9 @@ async fn create_template(
         variables: body.variables,
     };
 
-    let template = state.services.server_notification_service
+    let template = state
+        .services
+        .server_notification_service
         .create_template(request)
         .await?;
     Ok((StatusCode::CREATED, Json(template)))
@@ -285,7 +363,9 @@ async fn get_template(
     _admin: AdminUser,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let template = state.services.server_notification_service
+    let template = state
+        .services
+        .server_notification_service
         .get_template(&name)
         .await?
         .ok_or_else(|| ApiError::not_found("Template not found"))?;
@@ -297,7 +377,9 @@ async fn delete_template(
     _admin: AdminUser,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let deleted = state.services.server_notification_service
+    let deleted = state
+        .services
+        .server_notification_service
         .delete_template(&name)
         .await?;
     if deleted {
@@ -312,7 +394,9 @@ async fn create_from_template(
     _admin: AdminUser,
     Json(body): Json<CreateFromTemplateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let notification = state.services.server_notification_service
+    let notification = state
+        .services
+        .server_notification_service
         .create_from_template(
             &body.template_name,
             body.variables,

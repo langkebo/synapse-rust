@@ -2,10 +2,7 @@ use crate::common::error::ApiError;
 use crate::services::VoipService;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
-use axum::{
-    extract::State,
-    Json,
-};
+use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -94,7 +91,9 @@ pub async fn get_turn_credentials_guest(
     }
 
     if !voip_service.can_guest_use_turn() {
-        return Err(ApiError::forbidden("Guest access to TURN server is disabled"));
+        return Err(ApiError::forbidden(
+            "Guest access to TURN server is disabled",
+        ));
     }
 
     let creds = voip_service.generate_turn_credentials("@guest:anonymous")?;

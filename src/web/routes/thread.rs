@@ -1,8 +1,7 @@
 use crate::common::error::ApiError;
 use crate::services::thread_service::{
-    CreateReplyRequest, CreateThreadRequest, GetThreadRequest, ListThreadsRequest,
-    MarkReadRequest, SubscribeRequest, ThreadDetailResponse, ThreadListResponse,
-    UnreadThreadsResponse,
+    CreateReplyRequest, CreateThreadRequest, GetThreadRequest, ListThreadsRequest, MarkReadRequest,
+    SubscribeRequest, ThreadDetailResponse, ThreadListResponse, UnreadThreadsResponse,
 };
 use crate::web::routes::{AppState, AuthenticatedUser, OptionalAuthenticatedUser};
 use axum::{
@@ -123,22 +122,70 @@ impl From<crate::storage::thread::ThreadReply> for ReplyResponse {
 
 pub fn create_thread_routes(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/v1/rooms/{room_id}/threads", post(create_thread))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads", get(list_threads))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/search", get(search_threads))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/unread", get(get_unread_threads))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}", get(get_thread))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}", delete(delete_thread))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/freeze", post(freeze_thread))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze", post(unfreeze_thread))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies", post(add_reply))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies", get(get_replies))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe", post(subscribe_thread))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe", post(unsubscribe_thread))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/mute", post(mute_thread))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read", post(mark_read))
-        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/stats", get(get_stats))
-        .route("/_matrix/client/v1/rooms/{room_id}/replies/{event_id}/redact", post(redact_reply))
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads",
+            post(create_thread),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads",
+            get(list_threads),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/search",
+            get(search_threads),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/unread",
+            get(get_unread_threads),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}",
+            get(get_thread),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}",
+            delete(delete_thread),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/freeze",
+            post(freeze_thread),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze",
+            post(unfreeze_thread),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies",
+            post(add_reply),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies",
+            get(get_replies),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe",
+            post(subscribe_thread),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe",
+            post(unsubscribe_thread),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/mute",
+            post(mute_thread),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read",
+            post(mark_read),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/stats",
+            get(get_stats),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/replies/{event_id}/redact",
+            post(redact_reply),
+        )
         .with_state(state)
 }
 
@@ -149,18 +196,22 @@ async fn create_thread(
     Json(body): Json<CreateThreadBody>,
 ) -> Result<Json<ThreadResponse>, ApiError> {
     let user_id = auth_user.user_id;
-    
+
     let request = CreateThreadRequest {
         room_id,
         root_event_id: body.root_event_id,
         content: body.content,
-        origin_server_ts: body.origin_server_ts.unwrap_or_else(|| {
-            chrono::Utc::now().timestamp_millis()
-        }),
+        origin_server_ts: body
+            .origin_server_ts
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
     };
 
-    let thread = state.services.thread_service.create_thread(&user_id, request).await?;
-    
+    let thread = state
+        .services
+        .thread_service
+        .create_thread(&user_id, request)
+        .await?;
+
     Ok(Json(ThreadResponse::from(thread)))
 }
 
@@ -195,7 +246,11 @@ async fn get_thread(
     };
 
     let user_id_str = auth_user.user_id.as_deref();
-    let response = state.services.thread_service.get_thread(request, user_id_str).await?;
+    let response = state
+        .services
+        .thread_service
+        .get_thread(request, user_id_str)
+        .await?;
     Ok(Json(response))
 }
 
@@ -218,7 +273,11 @@ async fn delete_thread(
         )));
     }
 
-    state.services.thread_service.delete_thread(&room_id, &thread_id).await?;
+    state
+        .services
+        .thread_service
+        .delete_thread(&room_id, &thread_id)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -241,7 +300,11 @@ async fn freeze_thread(
         )));
     }
 
-    state.services.thread_service.freeze_thread(&room_id, &thread_id).await?;
+    state
+        .services
+        .thread_service
+        .freeze_thread(&room_id, &thread_id)
+        .await?;
     Ok(StatusCode::OK)
 }
 
@@ -264,7 +327,11 @@ async fn unfreeze_thread(
         )));
     }
 
-    state.services.thread_service.unfreeze_thread(&room_id, &thread_id).await?;
+    state
+        .services
+        .thread_service
+        .unfreeze_thread(&room_id, &thread_id)
+        .await?;
     Ok(StatusCode::OK)
 }
 
@@ -275,7 +342,7 @@ async fn add_reply(
     Json(body): Json<CreateReplyBody>,
 ) -> Result<Json<ReplyResponse>, ApiError> {
     let user_id = auth_user.user_id;
-    
+
     let request = CreateReplyRequest {
         room_id,
         thread_id,
@@ -283,12 +350,16 @@ async fn add_reply(
         root_event_id: body.root_event_id,
         content: body.content,
         in_reply_to_event_id: body.in_reply_to_event_id,
-        origin_server_ts: body.origin_server_ts.unwrap_or_else(|| {
-            chrono::Utc::now().timestamp_millis()
-        }),
+        origin_server_ts: body
+            .origin_server_ts
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
     };
 
-    let reply = state.services.thread_service.add_reply(&user_id, request).await?;
+    let reply = state
+        .services
+        .thread_service
+        .add_reply(&user_id, request)
+        .await?;
     Ok(Json(ReplyResponse::from(reply)))
 }
 
@@ -299,7 +370,7 @@ async fn get_replies(
     _auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<ReplyResponse>>, ApiError> {
     let storage = &state.services.thread_storage;
-    
+
     let replies = storage
         .get_thread_replies(&room_id, &thread_id, query.limit, query.from)
         .await
@@ -315,7 +386,7 @@ async fn subscribe_thread(
     Json(body): Json<SubscribeBody>,
 ) -> Result<Json<crate::storage::thread::ThreadSubscription>, ApiError> {
     let user_id = auth_user.user_id;
-    
+
     let request = SubscribeRequest {
         room_id,
         thread_id,
@@ -333,8 +404,12 @@ async fn unsubscribe_thread(
     auth_user: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
     let user_id = auth_user.user_id;
-    
-    state.services.thread_service.unsubscribe(&room_id, &thread_id, &user_id).await?;
+
+    state
+        .services
+        .thread_service
+        .unsubscribe(&room_id, &thread_id, &user_id)
+        .await?;
     Ok(StatusCode::OK)
 }
 
@@ -344,8 +419,12 @@ async fn mute_thread(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<crate::storage::thread::ThreadSubscription>, ApiError> {
     let user_id = auth_user.user_id;
-    
-    let subscription = state.services.thread_service.mute_thread(&room_id, &thread_id, &user_id).await?;
+
+    let subscription = state
+        .services
+        .thread_service
+        .mute_thread(&room_id, &thread_id, &user_id)
+        .await?;
     Ok(Json(subscription))
 }
 
@@ -356,7 +435,7 @@ async fn mark_read(
     Json(body): Json<MarkReadBody>,
 ) -> Result<Json<crate::storage::thread::ThreadReadReceipt>, ApiError> {
     let user_id = auth_user.user_id;
-    
+
     let request = MarkReadRequest {
         room_id,
         thread_id,
@@ -375,8 +454,12 @@ async fn get_unread_threads(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<UnreadThreadsResponse>, ApiError> {
     let user_id = auth_user.user_id;
-    
-    let response = state.services.thread_service.get_unread_threads(&user_id, Some(&room_id)).await?;
+
+    let response = state
+        .services
+        .thread_service
+        .get_unread_threads(&user_id, Some(&room_id))
+        .await?;
     Ok(Json(response))
 }
 
@@ -386,7 +469,11 @@ async fn search_threads(
     Query(query): Query<SearchQuery>,
     _auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<crate::storage::thread::ThreadSummary>>, ApiError> {
-    let results = state.services.thread_service.search_threads(&room_id, &query.q, query.limit).await?;
+    let results = state
+        .services
+        .thread_service
+        .search_threads(&room_id, &query.q, query.limit)
+        .await?;
     Ok(Json(results))
 }
 
@@ -395,7 +482,11 @@ async fn get_stats(
     Path((room_id, thread_id)): Path<(String, String)>,
     _auth_user: AuthenticatedUser,
 ) -> Result<Json<Option<crate::storage::thread::ThreadStatistics>>, ApiError> {
-    let stats = state.services.thread_service.get_thread_statistics(&room_id, &thread_id).await?;
+    let stats = state
+        .services
+        .thread_service
+        .get_thread_statistics(&room_id, &thread_id)
+        .await?;
     Ok(Json(stats))
 }
 
@@ -404,6 +495,10 @@ async fn redact_reply(
     Path((room_id, event_id)): Path<(String, String)>,
     _auth_user: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
-    state.services.thread_service.redact_reply(&room_id, &event_id).await?;
+    state
+        .services
+        .thread_service
+        .redact_reply(&room_id, &event_id)
+        .await?;
     Ok(StatusCode::OK)
 }

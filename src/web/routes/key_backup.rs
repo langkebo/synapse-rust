@@ -44,10 +44,7 @@ pub fn create_key_backup_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/room_keys/{version}/keys/{room_id}/{session_id}",
             get(get_room_key),
         )
-        .route(
-            "/_matrix/client/r0/room_keys/recover",
-            post(recover_keys),
-        )
+        .route("/_matrix/client/r0/room_keys/recover", post(recover_keys))
         .route(
             "/_matrix/client/r0/room_keys/recovery/{version}/progress",
             get(get_recovery_progress),
@@ -74,9 +71,14 @@ pub fn create_key_backup_router(_state: AppState) -> Router<AppState> {
         )
         .route(
             "/_matrix/client/v3/room_keys/version/{version}",
-            get(get_backup_version).put(update_backup_version).delete(delete_backup_version),
+            get(get_backup_version)
+                .put(update_backup_version)
+                .delete(delete_backup_version),
         )
-        .route("/_matrix/client/v3/room_keys/keys", get(get_room_keys).put(put_room_keys))
+        .route(
+            "/_matrix/client/v3/room_keys/keys",
+            get(get_room_keys).put(put_room_keys),
+        )
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -273,12 +275,7 @@ async fn put_room_keys(
     state
         .services
         .backup_service
-        .upload_room_keys_for_room(
-            &auth_user.user_id,
-            room_id,
-            &version,
-            sessions.clone(),
-        )
+        .upload_room_keys_for_room(&auth_user.user_id, room_id, &version, sessions.clone())
         .await?;
 
     Ok(Json(serde_json::json!({
@@ -487,11 +484,14 @@ async fn batch_recover_keys(
     let response = state
         .services
         .backup_service
-        .batch_recover_keys(&auth_user.user_id, crate::e2ee::backup::models::BatchRecoveryRequest {
-            version: body.version,
-            room_ids: body.room_ids,
-            session_limit: body.session_limit,
-        })
+        .batch_recover_keys(
+            &auth_user.user_id,
+            crate::e2ee::backup::models::BatchRecoveryRequest {
+                version: body.version,
+                room_ids: body.room_ids,
+                session_limit: body.session_limit,
+            },
+        )
         .await?;
 
     Ok(Json(serde_json::to_value(response)?))

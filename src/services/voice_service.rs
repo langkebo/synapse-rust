@@ -342,21 +342,39 @@ impl VoiceStorage {
 
             // Use Redis Hash for today's stats (Fast write)
             let daily_key = format!("voice_stats_daily:{}:{}", user_id, today_str);
-            
+
             // Execute updates with basic error logging
             // We don't abort on one failure to try to keep stats as consistent as possible
-            if let Err(e) = cache.hincrby(&daily_key, "total_duration_ms", duration_delta).await {
-                ::tracing::error!("Failed to update total_duration_ms in Redis for {}: {}", daily_key, e);
+            if let Err(e) = cache
+                .hincrby(&daily_key, "total_duration_ms", duration_delta)
+                .await
+            {
+                ::tracing::error!(
+                    "Failed to update total_duration_ms in Redis for {}: {}",
+                    daily_key,
+                    e
+                );
             }
-            
-            if let Err(e) = cache.hincrby(&daily_key, "total_file_size", size_delta).await {
-                 ::tracing::error!("Failed to update total_file_size in Redis for {}: {}", daily_key, e);
+
+            if let Err(e) = cache
+                .hincrby(&daily_key, "total_file_size", size_delta)
+                .await
+            {
+                ::tracing::error!(
+                    "Failed to update total_file_size in Redis for {}: {}",
+                    daily_key,
+                    e
+                );
             }
-            
+
             if let Err(e) = cache.hincrby(&daily_key, "message_count", 1).await {
-                 ::tracing::error!("Failed to update message_count in Redis for {}: {}", daily_key, e);
+                ::tracing::error!(
+                    "Failed to update message_count in Redis for {}: {}",
+                    daily_key,
+                    e
+                );
             }
-            
+
             cache.expire(&daily_key, 86400 * 2).await;
         });
 
@@ -521,13 +539,22 @@ impl VoiceService {
     ) -> ApiResult<serde_json::Value> {
         // Validate content type whitelist
         let allowed_types = [
-            "audio/ogg", "audio/mp4", "audio/mpeg", "audio/webm", "audio/wav", "audio/aac", "audio/flac"
+            "audio/ogg",
+            "audio/mp4",
+            "audio/mpeg",
+            "audio/webm",
+            "audio/wav",
+            "audio/aac",
+            "audio/flac",
         ];
-        
+
         // Simple check if it starts with any of the allowed types (to handle parameters like ; codecs=...)
-        if !allowed_types.iter().any(|t| params.content_type.starts_with(t)) {
-             return Err(ApiError::bad_request(format!(
-                "Unsupported audio content type: {}. Allowed: {:?}", 
+        if !allowed_types
+            .iter()
+            .any(|t| params.content_type.starts_with(t))
+        {
+            return Err(ApiError::bad_request(format!(
+                "Unsupported audio content type: {}. Allowed: {:?}",
                 params.content_type, allowed_types
             )));
         }
@@ -535,26 +562,31 @@ impl VoiceService {
         // Validate content size (e.g. max 50MB)
         const MAX_SIZE: usize = 50 * 1024 * 1024;
         if params.content.len() > MAX_SIZE {
-             return Err(ApiError::bad_request(format!(
-                "Voice message too large: {} bytes (max {} bytes)", 
-                params.content.len(), MAX_SIZE
+            return Err(ApiError::bad_request(format!(
+                "Voice message too large: {} bytes (max {} bytes)",
+                params.content.len(),
+                MAX_SIZE
             )));
         }
 
         let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
         let message_id = format!("vm_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
         let extension = self.get_extension_from_content_type(&params.content_type);
-        
+
         // Ensure message_id contains only safe characters (it's a UUID hex string, so safe by definition, but good practice)
         if !message_id.chars().all(|c| c.is_alphanumeric() || c == '_') {
-             return Err(ApiError::internal("Generated invalid message ID".to_string()));
+            return Err(ApiError::internal(
+                "Generated invalid message ID".to_string(),
+            ));
         }
 
         let file_name = format!("{}.{}", message_id, extension);
-        
+
         // Path traversal check (redundant since we generated the filename, but critical for security reviews)
         if file_name.contains("..") || file_name.contains("/") || file_name.contains("\\") {
-             return Err(ApiError::internal("Security check failed: Invalid file name generated".to_string()));
+            return Err(ApiError::internal(
+                "Security check failed: Invalid file name generated".to_string(),
+            ));
         }
 
         let file_path = self.voice_path.join(&file_name);

@@ -53,7 +53,7 @@ impl ReadReceiptService {
         receipt_type: ReadReceiptType,
     ) -> ApiResult<()> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         let receipt = ReadReceipt {
             user_id: user_id.to_string(),
             room_id: room_id.to_string(),
@@ -104,7 +104,7 @@ impl ReadReceiptService {
 
         let mut receipts = self.receipts.write().await;
         let room_receipts = receipts.entry(room_id.to_string()).or_insert_with(Vec::new);
-        
+
         room_receipts.retain(|r| r.user_id != user_id);
         room_receipts.push(receipt);
 
@@ -134,9 +134,7 @@ impl ReadReceiptService {
         let receipts = self.receipts.read().await;
         Ok(receipts
             .get(room_id)
-            .and_then(|room_receipts| {
-                room_receipts.iter().find(|r| r.user_id == user_id).cloned()
-            }))
+            .and_then(|room_receipts| room_receipts.iter().find(|r| r.user_id == user_id).cloned()))
     }
 
     pub async fn get_unread_count(
@@ -147,11 +145,9 @@ impl ReadReceiptService {
     ) -> ApiResult<i64> {
         let receipts = self.receipts.read().await;
         let room_receipts = receipts.get(room_id).cloned().unwrap_or_default();
-        
-        let user_receipt = room_receipts
-            .iter()
-            .find(|r| r.user_id == user_id);
-        
+
+        let user_receipt = room_receipts.iter().find(|r| r.user_id == user_id);
+
         if let Some(receipt) = user_receipt {
             if since_event_id.is_some() {
                 let receipts_since = room_receipts
@@ -178,9 +174,7 @@ impl ReadReceiptService {
             .cloned()
             .unwrap_or_default()
             .into_iter()
-            .filter(|r| {
-                r.event_id == event_id || event_id.is_empty()
-            })
+            .filter(|r| r.event_id == event_id || event_id.is_empty())
             .filter(|r| r.receipt_type == ReadReceiptType::Read)
             .collect())
     }
@@ -196,9 +190,7 @@ impl ReadReceiptService {
             .cloned()
             .unwrap_or_default()
             .into_iter()
-            .filter(|r| {
-                r.event_id == event_id || event_id.is_empty()
-            })
+            .filter(|r| r.event_id == event_id || event_id.is_empty())
             .filter(|r| r.receipt_type == ReadReceiptType::ReadPrivate)
             .collect())
     }
@@ -206,7 +198,7 @@ impl ReadReceiptService {
     pub async fn cleanup_old_receipts(&self, max_age_ms: i64) {
         let now = chrono::Utc::now().timestamp_millis();
         let mut receipts = self.receipts.write().await;
-        
+
         let empty_rooms: Vec<String> = receipts
             .iter_mut()
             .filter_map(|(room_id, room_receipts)| {
@@ -218,7 +210,7 @@ impl ReadReceiptService {
                 }
             })
             .collect();
-        
+
         for room_id in empty_rooms {
             receipts.remove(&room_id);
         }
@@ -239,7 +231,7 @@ mod tests {
             timestamp: 1234567890,
             receipt_type: ReadReceiptType::Read,
         };
-        
+
         assert_eq!(receipt.user_id, "@alice:example.com");
         assert_eq!(receipt.receipt_type, ReadReceiptType::Read);
     }

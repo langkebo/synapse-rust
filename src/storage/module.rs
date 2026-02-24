@@ -257,7 +257,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, sqlx::Error> {
+    pub async fn register_module(
+        &self,
+        request: CreateModuleRequest,
+    ) -> Result<Module, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, Module>(
@@ -280,18 +283,19 @@ impl ModuleStorage {
         .fetch_one(&*self.pool)
         .await?;
 
-        info!("Registered module: {} ({})", request.module_name, request.module_type);
+        info!(
+            "Registered module: {} ({})",
+            request.module_name, request.module_type
+        );
         Ok(row)
     }
 
     #[instrument(skip(self))]
     pub async fn get_module(&self, module_name: &str) -> Result<Option<Module>, sqlx::Error> {
-        let row = sqlx::query_as::<_, Module>(
-            "SELECT * FROM modules WHERE module_name = $1",
-        )
-        .bind(module_name)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let row = sqlx::query_as::<_, Module>("SELECT * FROM modules WHERE module_name = $1")
+            .bind(module_name)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         Ok(row)
     }
@@ -309,7 +313,11 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_all_modules(&self, limit: i64, offset: i64) -> Result<Vec<Module>, sqlx::Error> {
+    pub async fn get_all_modules(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Module>, sqlx::Error> {
         let rows = sqlx::query_as::<_, Module>(
             "SELECT * FROM modules ORDER BY module_type, priority ASC LIMIT $1 OFFSET $2",
         )
@@ -322,7 +330,11 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn update_module_config(&self, module_name: &str, config: serde_json::Value) -> Result<Module, sqlx::Error> {
+    pub async fn update_module_config(
+        &self,
+        module_name: &str,
+        config: serde_json::Value,
+    ) -> Result<Module, sqlx::Error> {
         let row = sqlx::query_as::<_, Module>(
             r#"
             UPDATE modules SET config = $2
@@ -339,7 +351,11 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn enable_module(&self, module_name: &str, enabled: bool) -> Result<Module, sqlx::Error> {
+    pub async fn enable_module(
+        &self,
+        module_name: &str,
+        enabled: bool,
+    ) -> Result<Module, sqlx::Error> {
         let row = sqlx::query_as::<_, Module>(
             r#"
             UPDATE modules SET enabled = $2
@@ -367,7 +383,12 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn record_execution(&self, module_name: &str, success: bool, error: Option<&str>) -> Result<(), sqlx::Error> {
+    pub async fn record_execution(
+        &self,
+        module_name: &str,
+        success: bool,
+        error: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -391,7 +412,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_spam_check_result(&self, request: CreateSpamCheckRequest) -> Result<SpamCheckResult, sqlx::Error> {
+    pub async fn create_spam_check_result(
+        &self,
+        request: CreateSpamCheckRequest,
+    ) -> Result<SpamCheckResult, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, SpamCheckResult>(
@@ -427,7 +451,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_spam_check_result(&self, event_id: &str) -> Result<Option<SpamCheckResult>, sqlx::Error> {
+    pub async fn get_spam_check_result(
+        &self,
+        event_id: &str,
+    ) -> Result<Option<SpamCheckResult>, sqlx::Error> {
         let row = sqlx::query_as::<_, SpamCheckResult>(
             "SELECT * FROM spam_check_results WHERE event_id = $1 ORDER BY checked_ts DESC LIMIT 1",
         )
@@ -439,7 +466,11 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_spam_check_results_by_sender(&self, sender: &str, limit: i64) -> Result<Vec<SpamCheckResult>, sqlx::Error> {
+    pub async fn get_spam_check_results_by_sender(
+        &self,
+        sender: &str,
+        limit: i64,
+    ) -> Result<Vec<SpamCheckResult>, sqlx::Error> {
         let rows = sqlx::query_as::<_, SpamCheckResult>(
             "SELECT * FROM spam_check_results WHERE sender = $1 ORDER BY checked_ts DESC LIMIT $2",
         )
@@ -452,7 +483,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_third_party_rule_result(&self, request: CreateThirdPartyRuleRequest) -> Result<ThirdPartyRuleResult, sqlx::Error> {
+    pub async fn create_third_party_rule_result(
+        &self,
+        request: CreateThirdPartyRuleRequest,
+    ) -> Result<ThirdPartyRuleResult, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, ThirdPartyRuleResult>(
@@ -485,7 +519,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_third_party_rule_results(&self, event_id: &str) -> Result<Vec<ThirdPartyRuleResult>, sqlx::Error> {
+    pub async fn get_third_party_rule_results(
+        &self,
+        event_id: &str,
+    ) -> Result<Vec<ThirdPartyRuleResult>, sqlx::Error> {
         let rows = sqlx::query_as::<_, ThirdPartyRuleResult>(
             "SELECT * FROM third_party_rule_results WHERE event_id = $1 ORDER BY checked_ts DESC",
         )
@@ -497,7 +534,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_execution_log(&self, request: CreateExecutionLogRequest) -> Result<ModuleExecutionLog, sqlx::Error> {
+    pub async fn create_execution_log(
+        &self,
+        request: CreateExecutionLogRequest,
+    ) -> Result<ModuleExecutionLog, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, ModuleExecutionLog>(
@@ -525,7 +565,11 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_execution_logs(&self, module_name: &str, limit: i64) -> Result<Vec<ModuleExecutionLog>, sqlx::Error> {
+    pub async fn get_execution_logs(
+        &self,
+        module_name: &str,
+        limit: i64,
+    ) -> Result<Vec<ModuleExecutionLog>, sqlx::Error> {
         let rows = sqlx::query_as::<_, ModuleExecutionLog>(
             "SELECT * FROM module_execution_logs WHERE module_name = $1 ORDER BY executed_ts DESC LIMIT $2",
         )
@@ -538,7 +582,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_account_validity(&self, request: CreateAccountValidityRequest) -> Result<AccountValidity, sqlx::Error> {
+    pub async fn create_account_validity(
+        &self,
+        request: CreateAccountValidityRequest,
+    ) -> Result<AccountValidity, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, AccountValidity>(
@@ -563,7 +610,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_account_validity(&self, user_id: &str) -> Result<Option<AccountValidity>, sqlx::Error> {
+    pub async fn get_account_validity(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<AccountValidity>, sqlx::Error> {
         let row = sqlx::query_as::<_, AccountValidity>(
             "SELECT * FROM account_validity WHERE user_id = $1",
         )
@@ -575,7 +625,12 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn renew_account(&self, user_id: &str, renewal_token: &str, new_expiration_ts: i64) -> Result<AccountValidity, sqlx::Error> {
+    pub async fn renew_account(
+        &self,
+        user_id: &str,
+        renewal_token: &str,
+        new_expiration_ts: i64,
+    ) -> Result<AccountValidity, sqlx::Error> {
         let row = sqlx::query_as::<_, AccountValidity>(
             r#"
             UPDATE account_validity SET
@@ -613,7 +668,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_expired_accounts(&self, before_ts: i64) -> Result<Vec<AccountValidity>, sqlx::Error> {
+    pub async fn get_expired_accounts(
+        &self,
+        before_ts: i64,
+    ) -> Result<Vec<AccountValidity>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccountValidity>(
             "SELECT * FROM account_validity WHERE expiration_ts < $1 AND is_valid = true",
         )
@@ -625,7 +683,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_password_auth_provider(&self, request: CreatePasswordAuthProviderRequest) -> Result<PasswordAuthProvider, sqlx::Error> {
+    pub async fn create_password_auth_provider(
+        &self,
+        request: CreatePasswordAuthProviderRequest,
+    ) -> Result<PasswordAuthProvider, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, PasswordAuthProvider>(
@@ -650,7 +711,9 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_password_auth_providers(&self) -> Result<Vec<PasswordAuthProvider>, sqlx::Error> {
+    pub async fn get_password_auth_providers(
+        &self,
+    ) -> Result<Vec<PasswordAuthProvider>, sqlx::Error> {
         let rows = sqlx::query_as::<_, PasswordAuthProvider>(
             "SELECT * FROM password_auth_providers WHERE enabled = true ORDER BY priority ASC",
         )
@@ -661,7 +724,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_presence_route(&self, request: CreatePresenceRouteRequest) -> Result<PresenceRoute, sqlx::Error> {
+    pub async fn create_presence_route(
+        &self,
+        request: CreatePresenceRouteRequest,
+    ) -> Result<PresenceRoute, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, PresenceRoute>(
@@ -697,7 +763,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_media_callback(&self, request: CreateMediaCallbackRequest) -> Result<MediaCallback, sqlx::Error> {
+    pub async fn create_media_callback(
+        &self,
+        request: CreateMediaCallbackRequest,
+    ) -> Result<MediaCallback, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, MediaCallback>(
@@ -725,7 +794,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_media_callbacks(&self, callback_type: Option<&str>) -> Result<Vec<MediaCallback>, sqlx::Error> {
+    pub async fn get_media_callbacks(
+        &self,
+        callback_type: Option<&str>,
+    ) -> Result<Vec<MediaCallback>, sqlx::Error> {
         let rows = if let Some(cb_type) = callback_type {
             sqlx::query_as::<_, MediaCallback>(
                 "SELECT * FROM media_callbacks WHERE enabled = true AND callback_type = $1",
@@ -734,18 +806,19 @@ impl ModuleStorage {
             .fetch_all(&*self.pool)
             .await?
         } else {
-            sqlx::query_as::<_, MediaCallback>(
-                "SELECT * FROM media_callbacks WHERE enabled = true",
-            )
-            .fetch_all(&*self.pool)
-            .await?
+            sqlx::query_as::<_, MediaCallback>("SELECT * FROM media_callbacks WHERE enabled = true")
+                .fetch_all(&*self.pool)
+                .await?
         };
 
         Ok(rows)
     }
 
     #[instrument(skip(self))]
-    pub async fn create_rate_limit_callback(&self, request: CreateRateLimitCallbackRequest) -> Result<RateLimitCallback, sqlx::Error> {
+    pub async fn create_rate_limit_callback(
+        &self,
+        request: CreateRateLimitCallbackRequest,
+    ) -> Result<RateLimitCallback, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RateLimitCallback>(
@@ -781,7 +854,10 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_account_data_callback(&self, request: CreateAccountDataCallbackRequest) -> Result<AccountDataCallback, sqlx::Error> {
+    pub async fn create_account_data_callback(
+        &self,
+        request: CreateAccountDataCallbackRequest,
+    ) -> Result<AccountDataCallback, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, AccountDataCallback>(
@@ -806,7 +882,9 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_account_data_callbacks(&self) -> Result<Vec<AccountDataCallback>, sqlx::Error> {
+    pub async fn get_account_data_callbacks(
+        &self,
+    ) -> Result<Vec<AccountDataCallback>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccountDataCallback>(
             "SELECT * FROM account_data_callbacks WHERE enabled = true ORDER BY priority ASC",
         )

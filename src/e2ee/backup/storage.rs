@@ -60,7 +60,7 @@ impl KeyBackupStorage {
             WHERE user_id = $1
             ORDER BY version DESC
             LIMIT 1
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -76,7 +76,7 @@ impl KeyBackupStorage {
             FROM key_backups
             WHERE user_id = $1
             ORDER BY version DESC
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_all(&*self.pool)

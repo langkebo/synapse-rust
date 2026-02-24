@@ -113,7 +113,10 @@ impl RetentionStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_room_policy(&self, request: CreateRoomRetentionPolicyRequest) -> Result<RoomRetentionPolicy, sqlx::Error> {
+    pub async fn create_room_policy(
+        &self,
+        request: CreateRoomRetentionPolicyRequest,
+    ) -> Result<RoomRetentionPolicy, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomRetentionPolicy>(
@@ -141,7 +144,10 @@ impl RetentionStorage {
         Ok(row)
     }
 
-    pub async fn get_room_policy(&self, room_id: &str) -> Result<Option<RoomRetentionPolicy>, sqlx::Error> {
+    pub async fn get_room_policy(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<RoomRetentionPolicy>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRetentionPolicy>(
             "SELECT * FROM room_retention_policies WHERE room_id = $1",
         )
@@ -152,7 +158,11 @@ impl RetentionStorage {
         Ok(row)
     }
 
-    pub async fn update_room_policy(&self, room_id: &str, request: UpdateRoomRetentionPolicyRequest) -> Result<RoomRetentionPolicy, sqlx::Error> {
+    pub async fn update_room_policy(
+        &self,
+        room_id: &str,
+        request: UpdateRoomRetentionPolicyRequest,
+    ) -> Result<RoomRetentionPolicy, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRetentionPolicy>(
             r#"
             UPDATE room_retention_policies SET
@@ -192,7 +202,10 @@ impl RetentionStorage {
         Ok(row)
     }
 
-    pub async fn update_server_policy(&self, request: UpdateServerRetentionPolicyRequest) -> Result<ServerRetentionPolicy, sqlx::Error> {
+    pub async fn update_server_policy(
+        &self,
+        request: UpdateServerRetentionPolicyRequest,
+    ) -> Result<ServerRetentionPolicy, sqlx::Error> {
         let row = sqlx::query_as::<_, ServerRetentionPolicy>(
             r#"
             UPDATE server_retention_policy SET
@@ -212,18 +225,36 @@ impl RetentionStorage {
         Ok(row)
     }
 
-    pub async fn get_effective_policy(&self, room_id: &str) -> Result<EffectiveRetentionPolicy, sqlx::Error> {
+    pub async fn get_effective_policy(
+        &self,
+        room_id: &str,
+    ) -> Result<EffectiveRetentionPolicy, sqlx::Error> {
         let room_policy = self.get_room_policy(room_id).await?;
         let server_policy = self.get_server_policy().await?;
 
         Ok(EffectiveRetentionPolicy {
-            max_lifetime: room_policy.as_ref().and_then(|p| p.max_lifetime).or(server_policy.max_lifetime),
-            min_lifetime: room_policy.as_ref().map(|p| p.min_lifetime).unwrap_or(server_policy.min_lifetime),
-            expire_on_clients: room_policy.as_ref().map(|p| p.expire_on_clients).unwrap_or(server_policy.expire_on_clients),
+            max_lifetime: room_policy
+                .as_ref()
+                .and_then(|p| p.max_lifetime)
+                .or(server_policy.max_lifetime),
+            min_lifetime: room_policy
+                .as_ref()
+                .map(|p| p.min_lifetime)
+                .unwrap_or(server_policy.min_lifetime),
+            expire_on_clients: room_policy
+                .as_ref()
+                .map(|p| p.expire_on_clients)
+                .unwrap_or(server_policy.expire_on_clients),
         })
     }
 
-    pub async fn queue_cleanup(&self, room_id: &str, event_id: &str, event_type: &str, origin_server_ts: i64) -> Result<(), sqlx::Error> {
+    pub async fn queue_cleanup(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        event_type: &str,
+        origin_server_ts: i64,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -244,7 +275,10 @@ impl RetentionStorage {
         Ok(())
     }
 
-    pub async fn get_pending_cleanups(&self, limit: i64) -> Result<Vec<RetentionCleanupQueueItem>, sqlx::Error> {
+    pub async fn get_pending_cleanups(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<RetentionCleanupQueueItem>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RetentionCleanupQueueItem>(
             r#"
             SELECT * FROM retention_cleanup_queue
@@ -293,7 +327,10 @@ impl RetentionStorage {
         Ok(())
     }
 
-    pub async fn create_cleanup_log(&self, room_id: &str) -> Result<RetentionCleanupLog, sqlx::Error> {
+    pub async fn create_cleanup_log(
+        &self,
+        room_id: &str,
+    ) -> Result<RetentionCleanupLog, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RetentionCleanupLog>(
@@ -311,7 +348,14 @@ impl RetentionStorage {
         Ok(row)
     }
 
-    pub async fn complete_cleanup_log(&self, id: i64, events_deleted: i64, state_events_deleted: i64, media_deleted: i64, bytes_freed: i64) -> Result<(), sqlx::Error> {
+    pub async fn complete_cleanup_log(
+        &self,
+        id: i64,
+        events_deleted: i64,
+        state_events_deleted: i64,
+        media_deleted: i64,
+        bytes_freed: i64,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -359,7 +403,12 @@ impl RetentionStorage {
         Ok(())
     }
 
-    pub async fn record_deleted_event(&self, room_id: &str, event_id: &str, reason: &str) -> Result<(), sqlx::Error> {
+    pub async fn record_deleted_event(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        reason: &str,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -378,7 +427,11 @@ impl RetentionStorage {
         Ok(())
     }
 
-    pub async fn get_deleted_events(&self, room_id: &str, since_ts: i64) -> Result<Vec<DeletedEventIndex>, sqlx::Error> {
+    pub async fn get_deleted_events(
+        &self,
+        room_id: &str,
+        since_ts: i64,
+    ) -> Result<Vec<DeletedEventIndex>, sqlx::Error> {
         let rows = sqlx::query_as::<_, DeletedEventIndex>(
             "SELECT * FROM deleted_events_index WHERE room_id = $1 AND deletion_ts > $2 ORDER BY deletion_ts ASC",
         )
@@ -391,17 +444,23 @@ impl RetentionStorage {
     }
 
     pub async fn get_stats(&self, room_id: &str) -> Result<Option<RetentionStats>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RetentionStats>(
-            "SELECT * FROM retention_stats WHERE room_id = $1",
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let row =
+            sqlx::query_as::<_, RetentionStats>("SELECT * FROM retention_stats WHERE room_id = $1")
+                .bind(room_id)
+                .fetch_optional(&*self.pool)
+                .await?;
 
         Ok(row)
     }
 
-    pub async fn update_stats(&self, room_id: &str, total_events: i64, events_in_retention: i64, events_expired: i64, next_cleanup_ts: Option<i64>) -> Result<(), sqlx::Error> {
+    pub async fn update_stats(
+        &self,
+        room_id: &str,
+        total_events: i64,
+        events_in_retention: i64,
+        events_expired: i64,
+        next_cleanup_ts: Option<i64>,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -428,7 +487,11 @@ impl RetentionStorage {
         Ok(())
     }
 
-    pub async fn delete_events_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error> {
+    pub async fn delete_events_before(
+        &self,
+        room_id: &str,
+        cutoff_ts: i64,
+    ) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
             r#"
             DELETE FROM events 
@@ -456,7 +519,11 @@ impl RetentionStorage {
         Ok(rows)
     }
 
-    pub async fn get_cleanup_logs(&self, room_id: &str, limit: i64) -> Result<Vec<RetentionCleanupLog>, sqlx::Error> {
+    pub async fn get_cleanup_logs(
+        &self,
+        room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<RetentionCleanupLog>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RetentionCleanupLog>(
             "SELECT * FROM retention_cleanup_logs WHERE room_id = $1 ORDER BY started_ts DESC LIMIT $2",
         )
@@ -480,12 +547,10 @@ impl RetentionStorage {
     }
 
     pub async fn schedule_room_cleanup(&self, room_id: &str) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query(
-            "SELECT schedule_retention_cleanup($1)",
-        )
-        .bind(room_id)
-        .execute(&*self.pool)
-        .await?;
+        let result = sqlx::query("SELECT schedule_retention_cleanup($1)")
+            .bind(room_id)
+            .execute(&*self.pool)
+            .await?;
 
         Ok(result.rows_affected() as i64)
     }

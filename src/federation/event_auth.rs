@@ -320,7 +320,7 @@ impl EventAuthChain {
         event_id: &str,
     ) -> Option<i64> {
         let cache_key = format!("depth:{}", event_id);
-        
+
         if let Some(cached) = self.get_cached_depth(&cache_key).await {
             return Some(cached);
         }

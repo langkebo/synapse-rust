@@ -59,8 +59,9 @@ impl DeviceKeyStorage {
             "public_key": key.public_key,
             "signatures": key.signatures,
             "display_name": key.display_name,
-        }).to_string();
-        
+        })
+        .to_string();
+
         let result = sqlx::query(
             r#"
             INSERT INTO device_keys (user_id, device_id, algorithm, key_data, added_ts, last_seen_ts, is_verified, ts_updated_ms)
@@ -87,7 +88,10 @@ impl DeviceKeyStorage {
             Ok(_) => Ok(()),
             Err(e) => {
                 tracing::error!("Failed to create/update device key: {}", e);
-                Err(ApiError::internal(format!("Failed to save device key: {}", e)))
+                Err(ApiError::internal(format!(
+                    "Failed to save device key: {}",
+                    e
+                )))
             }
         }
     }
@@ -95,18 +99,38 @@ impl DeviceKeyStorage {
     fn parse_key_data(row: &sqlx::postgres::PgRow) -> DeviceKey {
         let key_data: String = row.get("key_data");
         let parsed: serde_json::Value = serde_json::from_str(&key_data).unwrap_or_default();
-        
+
         DeviceKey {
             id: 0,
             user_id: row.get("user_id"),
             device_id: row.get("device_id"),
-            display_name: parsed.get("display_name").and_then(|v| v.as_str()).map(String::from),
+            display_name: parsed
+                .get("display_name")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             algorithm: row.get("algorithm"),
-            key_id: parsed.get("key_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            public_key: parsed.get("public_key").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            signatures: parsed.get("signatures").cloned().unwrap_or(serde_json::json!({})),
-            created_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts") / 1000).unwrap_or_default(),
-            updated_at: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("ts_updated_ms") / 1000).unwrap_or_default(),
+            key_id: parsed
+                .get("key_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            public_key: parsed
+                .get("public_key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            signatures: parsed
+                .get("signatures")
+                .cloned()
+                .unwrap_or(serde_json::json!({})),
+            created_at: chrono::DateTime::from_timestamp_millis(
+                row.get::<i64, _>("added_ts") / 1000,
+            )
+            .unwrap_or_default(),
+            updated_at: chrono::DateTime::from_timestamp_millis(
+                row.get::<i64, _>("ts_updated_ms") / 1000,
+            )
+            .unwrap_or_default(),
         }
     }
 
@@ -270,7 +294,7 @@ impl DeviceKeyStorage {
         signature: &str,
     ) -> Result<(), ApiError> {
         let now_ms = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             INSERT INTO key_signatures (

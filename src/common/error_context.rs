@@ -15,11 +15,7 @@ pub enum ErrorSeverity {
 
 /// CRITICAL FIX: Safe error handling helper that logs internal errors
 /// while returning sanitized messages to users
-pub fn safe_db_error<T: std::fmt::Display>(
-    context: &str,
-    operation: &str,
-    error: T,
-) -> ApiError {
+pub fn safe_db_error<T: std::fmt::Display>(context: &str, operation: &str, error: T) -> ApiError {
     // Log the full error for debugging
     tracing::error!(
         context = context,
@@ -29,14 +25,14 @@ pub fn safe_db_error<T: std::fmt::Display>(
     );
 
     // Return sanitized message to user
-    ApiError::internal(format!("An error occurred while {}", operation.to_lowercase()))
+    ApiError::internal(format!(
+        "An error occurred while {}",
+        operation.to_lowercase()
+    ))
 }
 
 /// Helper for handling database errors in web handlers
-pub fn handle_db_error<T: std::fmt::Display>(
-    error: T,
-    operation: &str,
-) -> ApiError {
+pub fn handle_db_error<T: std::fmt::Display>(error: T, operation: &str) -> ApiError {
     safe_db_error("web_handler", operation, error)
 }
 
@@ -84,9 +80,10 @@ impl ErrorContext for ApiError {
             ApiError::Unauthorized(_) | ApiError::Forbidden(_) | ApiError::RateLimited => {
                 ErrorSeverity::High
             }
-            ApiError::Gone(_) | ApiError::NotFound(_) | ApiError::Conflict(_) | ApiError::Validation(_) => {
-                ErrorSeverity::Medium
-            }
+            ApiError::Gone(_)
+            | ApiError::NotFound(_)
+            | ApiError::Conflict(_)
+            | ApiError::Validation(_) => ErrorSeverity::Medium,
             ApiError::BadRequest(_) | ApiError::InvalidInput(_) => ErrorSeverity::Low,
             ApiError::Authentication(_)
             | ApiError::DecryptionError(_)

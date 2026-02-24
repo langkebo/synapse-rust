@@ -133,7 +133,11 @@ impl ComparisonResult {
 
         format!(
             "| {} {} | {:.2} ms | {:.2} ms | {:.1}% |",
-            status_icon, self.operation, self.baseline_time_ms, self.optimized_time_ms, self.improvement_percent
+            status_icon,
+            self.operation,
+            self.baseline_time_ms,
+            self.optimized_time_ms,
+            self.improvement_percent
         )
     }
 }
@@ -141,11 +145,11 @@ impl ComparisonResult {
 /// Status of a performance comparison.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComparisonStatus {
-    Excellent, // >= 80% improvement
-    Good,      // >= 50% improvement
-    Moderate,  // >= 20% improvement
-    Minimal,   // > 0% improvement
-    Regression,// Worsened performance
+    Excellent,  // >= 80% improvement
+    Good,       // >= 50% improvement
+    Moderate,   // >= 20% improvement
+    Minimal,    // > 0% improvement
+    Regression, // Worsened performance
 }
 
 /// Helper to create benchmark IDs with context.
@@ -158,14 +162,13 @@ pub fn benchmark_id(name: &str, size: usize) -> BenchmarkId {
 pub fn setup_benchmark_pool() -> sqlx::PgPool {
     use std::env;
 
-    let database_url = env::var("BENCHMARK_DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://synapse:synapse@localhost:5432/synapse_bench".to_string());
+    let database_url = env::var("BENCHMARK_DATABASE_URL").unwrap_or_else(|_| {
+        "postgresql://synapse:synapse@localhost:5432/synapse_bench".to_string()
+    });
 
     tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(async {
-            sqlx::PgPool::connect(&database_url).await.unwrap()
-        })
+        .block_on(async { sqlx::PgPool::connect(&database_url).await.unwrap() })
 }
 
 #[cfg(test)]

@@ -36,18 +36,9 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
             "/_matrix/media/r1/download/{server_name}/{media_id}",
             get(download_media_v1),
         )
-        .route(
-            "/_matrix/media/v3/preview_url",
-            get(preview_url),
-        )
-        .route(
-            "/_matrix/media/v1/preview_url",
-            get(preview_url),
-        )
-        .route(
-            "/_matrix/media/v3/config",
-            get(media_config),
-        )
+        .route("/_matrix/media/v3/preview_url", get(preview_url))
+        .route("/_matrix/media/v1/preview_url", get(preview_url))
+        .route("/_matrix/media/v3/config", get(media_config))
         .route(
             "/_matrix/media/v1/delete/{server_name}/{media_id}",
             post(delete_media),
@@ -75,7 +66,9 @@ async fn upload_media_v3(
     let content_bytes = body.to_vec();
 
     if content_bytes.is_empty() {
-        return Err(ApiError::bad_request("No file content provided".to_string()));
+        return Err(ApiError::bad_request(
+            "No file content provided".to_string(),
+        ));
     }
 
     let media_service = state.services.media_service.clone();
@@ -109,7 +102,9 @@ async fn upload_media(
     let content_bytes = body.to_vec();
 
     if content_bytes.is_empty() {
-        return Err(ApiError::bad_request("No file content provided".to_string()));
+        return Err(ApiError::bad_request(
+            "No file content provided".to_string(),
+        ));
     }
 
     Ok(Json(
@@ -206,7 +201,9 @@ async fn upload_media_v1(
     let content_bytes = body.to_vec();
 
     if content_bytes.is_empty() {
-        return Err(ApiError::bad_request("No file content provided".to_string()));
+        return Err(ApiError::bad_request(
+            "No file content provided".to_string(),
+        ));
     }
 
     Ok(Json(
@@ -285,13 +282,11 @@ async fn preview_url(
 
     match state.services.media_service.preview_url(url, ts).await {
         Ok(preview) => Ok(Json(preview)),
-        Err(e) => {
-            Ok(Json(json!({
-                "url": url,
-                "title": "Preview unavailable",
-                "description": format!("Could not generate preview: {}", e.message())
-            })))
-        }
+        Err(e) => Ok(Json(json!({
+            "url": url,
+            "title": "Preview unavailable",
+            "description": format!("Could not generate preview: {}", e.message())
+        }))),
     }
 }
 
@@ -314,7 +309,9 @@ async fn delete_media(
         .unwrap_or("");
 
     if !is_admin && uploader != auth_user.user_id {
-        return Err(ApiError::forbidden("You can only delete your own media".to_string()));
+        return Err(ApiError::forbidden(
+            "You can only delete your own media".to_string(),
+        ));
     }
 
     state

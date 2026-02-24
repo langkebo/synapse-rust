@@ -35,7 +35,7 @@ impl S3Backend {
 impl MediaStorageBackend for S3Backend {
     async fn store(&self, media_id: &str, data: &[u8], content_type: &str) -> Result<(), ApiError> {
         let _key = self.object_key(media_id);
-        
+
         tracing::info!(
             "S3 store: bucket={}, key={}, size={}, content_type={}",
             self.config.bucket,
@@ -49,50 +49,42 @@ impl MediaStorageBackend for S3Backend {
 
     async fn retrieve(&self, media_id: &str) -> Result<Option<Vec<u8>>, ApiError> {
         let _key = self.object_key(media_id);
-        
-        tracing::info!(
-            "S3 retrieve: bucket={}, key={}",
-            self.config.bucket,
-            _key
-        );
 
-        Err(ApiError::internal("S3 backend not fully implemented".to_string()))
+        tracing::info!("S3 retrieve: bucket={}, key={}", self.config.bucket, _key);
+
+        Err(ApiError::internal(
+            "S3 backend not fully implemented".to_string(),
+        ))
     }
 
     async fn delete(&self, media_id: &str) -> Result<bool, ApiError> {
         let _key = self.object_key(media_id);
-        
-        tracing::info!(
-            "S3 delete: bucket={}, key={}",
-            self.config.bucket,
-            _key
-        );
 
-        Err(ApiError::internal("S3 backend not fully implemented".to_string()))
+        tracing::info!("S3 delete: bucket={}, key={}", self.config.bucket, _key);
+
+        Err(ApiError::internal(
+            "S3 backend not fully implemented".to_string(),
+        ))
     }
 
     async fn exists(&self, media_id: &str) -> Result<bool, ApiError> {
         let _key = self.object_key(media_id);
-        
-        tracing::info!(
-            "S3 exists: bucket={}, key={}",
-            self.config.bucket,
-            _key
-        );
 
-        Err(ApiError::internal("S3 backend not fully implemented".to_string()))
+        tracing::info!("S3 exists: bucket={}, key={}", self.config.bucket, _key);
+
+        Err(ApiError::internal(
+            "S3 backend not fully implemented".to_string(),
+        ))
     }
 
     async fn get_size(&self, media_id: &str) -> Result<Option<u64>, ApiError> {
         let _key = self.object_key(media_id);
-        
-        tracing::info!(
-            "S3 get_size: bucket={}, key={}",
-            self.config.bucket,
-            _key
-        );
 
-        Err(ApiError::internal("S3 backend not fully implemented".to_string()))
+        tracing::info!("S3 get_size: bucket={}, key={}", self.config.bucket, _key);
+
+        Err(ApiError::internal(
+            "S3 backend not fully implemented".to_string(),
+        ))
     }
 
     async fn store_thumbnail(
@@ -104,7 +96,7 @@ impl MediaStorageBackend for S3Backend {
         data: &[u8],
     ) -> Result<(), ApiError> {
         let _key = self.thumbnail_key(media_id, width, height, method);
-        
+
         tracing::info!(
             "S3 store_thumbnail: bucket={}, key={}, size={}",
             self.config.bucket,
@@ -112,7 +104,9 @@ impl MediaStorageBackend for S3Backend {
             data.len()
         );
 
-        Err(ApiError::internal("S3 backend not fully implemented".to_string()))
+        Err(ApiError::internal(
+            "S3 backend not fully implemented".to_string(),
+        ))
     }
 
     async fn retrieve_thumbnail(
@@ -123,30 +117,36 @@ impl MediaStorageBackend for S3Backend {
         method: &str,
     ) -> Result<Option<Vec<u8>>, ApiError> {
         let _key = self.thumbnail_key(media_id, width, height, method);
-        
+
         tracing::info!(
             "S3 retrieve_thumbnail: bucket={}, key={}",
             self.config.bucket,
             _key
         );
 
-        Err(ApiError::internal("S3 backend not fully implemented".to_string()))
+        Err(ApiError::internal(
+            "S3 backend not fully implemented".to_string(),
+        ))
     }
 
     async fn delete_thumbnails(&self, media_id: &str) -> Result<u64, ApiError> {
         let _prefix = format!("thumbnails/{}/", self.object_key(media_id));
-        
+
         tracing::info!(
             "S3 delete_thumbnails: bucket={}, prefix={}",
             self.config.bucket,
             _prefix
         );
 
-        Err(ApiError::internal("S3 backend not fully implemented".to_string()))
+        Err(ApiError::internal(
+            "S3 backend not fully implemented".to_string(),
+        ))
     }
 
     async fn get_stats(&self) -> Result<MediaStorageStats, ApiError> {
-        Err(ApiError::internal("S3 backend not fully implemented".to_string()))
+        Err(ApiError::internal(
+            "S3 backend not fully implemented".to_string(),
+        ))
     }
 
     async fn health_check(&self) -> Result<bool, ApiError> {

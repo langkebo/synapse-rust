@@ -5,16 +5,15 @@ use crate::common::task_queue::RedisTaskQueue;
 use crate::common::*;
 // Import config types explicitly to avoid conflicts with the external `config` crate
 use crate::common::config::{
-    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, FederationConfig,
-    RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig,
-    WorkerConfig,
+    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, FederationConfig, RateLimitConfig,
+    RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, WorkerConfig,
 };
 use crate::e2ee::backup::KeyBackupService;
 use crate::e2ee::cross_signing::CrossSigningService;
 use crate::e2ee::device_keys::DeviceKeyService;
 use crate::e2ee::megolm::MegolmService;
 use crate::e2ee::to_device::ToDeviceService;
-use crate::federation::{DeviceSyncManager, EventAuthChain, KeyRotationManager, FriendFederation};
+use crate::federation::{DeviceSyncManager, EventAuthChain, FriendFederation, KeyRotationManager};
 use crate::storage::email_verification::EmailVerificationStorage;
 use crate::storage::*;
 use sqlx::{Pool, Postgres};
@@ -120,7 +119,8 @@ pub struct ServiceContainer {
     /// 注册令牌存储
     pub registration_token_storage: crate::storage::registration_token::RegistrationTokenStorage,
     /// 注册令牌服务
-    pub registration_token_service: Arc<crate::services::registration_token_service::RegistrationTokenService>,
+    pub registration_token_service:
+        Arc<crate::services::registration_token_service::RegistrationTokenService>,
     /// 事件报告存储
     pub event_report_storage: crate::storage::event_report::EventReportStorage,
     /// 事件报告服务
@@ -128,7 +128,8 @@ pub struct ServiceContainer {
     /// 背景更新存储
     pub background_update_storage: crate::storage::background_update::BackgroundUpdateStorage,
     /// 背景更新服务
-    pub background_update_service: Arc<crate::services::background_update_service::BackgroundUpdateService>,
+    pub background_update_service:
+        Arc<crate::services::background_update_service::BackgroundUpdateService>,
     /// 模块存储
     pub module_storage: crate::storage::module::ModuleStorage,
     /// 模块服务
@@ -144,13 +145,16 @@ pub struct ServiceContainer {
     /// 验证码服务
     pub captcha_service: Arc<crate::services::captcha_service::CaptchaService>,
     /// 联邦黑名单存储
-    pub federation_blacklist_storage: crate::storage::federation_blacklist::FederationBlacklistStorage,
+    pub federation_blacklist_storage:
+        crate::storage::federation_blacklist::FederationBlacklistStorage,
     /// 联邦黑名单服务
-    pub federation_blacklist_service: Arc<crate::services::federation_blacklist_service::FederationBlacklistService>,
+    pub federation_blacklist_service:
+        Arc<crate::services::federation_blacklist_service::FederationBlacklistService>,
     /// 推送通知存储
     pub push_notification_storage: crate::storage::push_notification::PushNotificationStorage,
     /// 推送通知服务
-    pub push_notification_service: Arc<crate::services::push_notification_service::PushNotificationService>,
+    pub push_notification_service:
+        Arc<crate::services::push_notification_service::PushNotificationService>,
     /// 线程存储
     pub thread_storage: crate::storage::thread::ThreadStorage,
     /// 线程服务
@@ -166,7 +170,8 @@ pub struct ServiceContainer {
     /// 服务器通知存储
     pub server_notification_storage: crate::storage::server_notification::ServerNotificationStorage,
     /// 服务器通知服务
-    pub server_notification_service: Arc<crate::services::server_notification_service::ServerNotificationService>,
+    pub server_notification_service:
+        Arc<crate::services::server_notification_service::ServerNotificationService>,
 }
 
 impl ServiceContainer {
@@ -186,8 +191,8 @@ impl ServiceContainer {
     ///
     /// 返回完全配置的服务容器实例
     pub fn new(
-        pool: &Arc<sqlx::PgPool>, 
-        cache: Arc<CacheManager>, 
+        pool: &Arc<sqlx::PgPool>,
+        cache: Arc<CacheManager>,
         config: Config,
         task_queue: Option<Arc<RedisTaskQueue>>,
     ) -> Self {
@@ -218,6 +223,7 @@ impl ServiceContainer {
         let search_service = Arc::new(crate::services::search_service::SearchService::new(
             &config.search.elasticsearch_url,
             config.search.enabled,
+            "synapse_messages",
         ));
 
         let server_name_for_storage = config.server.get_server_name().to_string();
@@ -263,7 +269,8 @@ impl ServiceContainer {
         let event_auth_chain = EventAuthChain::new();
         let server_name = config.server.name.clone();
         let key_rotation_manager = KeyRotationManager::new(pool, &server_name);
-        let device_sync_manager = DeviceSyncManager::new(pool, Some(cache.clone()), task_queue.clone());
+        let device_sync_manager =
+            DeviceSyncManager::new(pool, Some(cache.clone()), task_queue.clone());
 
         let friend_storage = FriendRoomStorage::new(pool.clone());
         let friend_room_service = Arc::new(FriendRoomService::new(
@@ -295,45 +302,60 @@ impl ServiceContainer {
         ));
 
         let room_summary_storage = crate::storage::room_summary::RoomSummaryStorage::new(pool);
-        let room_summary_service = Arc::new(crate::services::room_summary_service::RoomSummaryService::new(
-            Arc::new(room_summary_storage.clone()),
-            Arc::new(event_storage.clone()),
-        ));
+        let room_summary_service = Arc::new(
+            crate::services::room_summary_service::RoomSummaryService::new(
+                Arc::new(room_summary_storage.clone()),
+                Arc::new(event_storage.clone()),
+            ),
+        );
 
         let retention_storage = crate::storage::retention::RetentionStorage::new(pool);
-        let retention_service = Arc::new(crate::services::retention_service::RetentionService::new(
-            Arc::new(retention_storage.clone()),
-            pool.clone(),
-        ));
+        let retention_service =
+            Arc::new(crate::services::retention_service::RetentionService::new(
+                Arc::new(retention_storage.clone()),
+                pool.clone(),
+            ));
 
         let refresh_token_storage = crate::storage::refresh_token::RefreshTokenStorage::new(pool);
-        let refresh_token_service = Arc::new(crate::services::refresh_token_service::RefreshTokenService::new(
-            Arc::new(refresh_token_storage.clone()),
-            604800000,
-        ));
+        let refresh_token_service = Arc::new(
+            crate::services::refresh_token_service::RefreshTokenService::new(
+                Arc::new(refresh_token_storage.clone()),
+                604800000,
+            ),
+        );
 
-        let registration_token_storage = crate::storage::registration_token::RegistrationTokenStorage::new(pool);
-        let registration_token_service = Arc::new(crate::services::registration_token_service::RegistrationTokenService::new(
-            Arc::new(registration_token_storage.clone()),
-        ));
+        let registration_token_storage =
+            crate::storage::registration_token::RegistrationTokenStorage::new(pool);
+        let registration_token_service = Arc::new(
+            crate::services::registration_token_service::RegistrationTokenService::new(Arc::new(
+                registration_token_storage.clone(),
+            )),
+        );
 
         let event_report_storage = crate::storage::event_report::EventReportStorage::new(pool);
-        let event_report_service = Arc::new(crate::services::event_report_service::EventReportService::new(
-            Arc::new(event_report_storage.clone()),
-        ));
+        let event_report_service = Arc::new(
+            crate::services::event_report_service::EventReportService::new(Arc::new(
+                event_report_storage.clone(),
+            )),
+        );
 
-        let background_update_storage = crate::storage::background_update::BackgroundUpdateStorage::new(pool);
-        let background_update_service = Arc::new(crate::services::background_update_service::BackgroundUpdateService::new(
-            Arc::new(background_update_storage.clone()),
-        ));
+        let background_update_storage =
+            crate::storage::background_update::BackgroundUpdateStorage::new(pool);
+        let background_update_service = Arc::new(
+            crate::services::background_update_service::BackgroundUpdateService::new(Arc::new(
+                background_update_storage.clone(),
+            )),
+        );
 
         let module_storage = crate::storage::module::ModuleStorage::new(pool);
         let module_service = Arc::new(crate::services::module_service::ModuleService::new(
             Arc::new(module_storage.clone()),
         ));
-        let account_validity_service = Arc::new(crate::services::module_service::AccountValidityService::new(
-            Arc::new(module_storage.clone()),
-        ));
+        let account_validity_service = Arc::new(
+            crate::services::module_service::AccountValidityService::new(Arc::new(
+                module_storage.clone(),
+            )),
+        );
 
         let saml_storage = crate::storage::saml::SamlStorage::new(pool);
         let saml_service = Arc::new(crate::services::saml_service::SamlService::new(
@@ -347,15 +369,21 @@ impl ServiceContainer {
             Arc::new(captcha_storage.clone()),
         ));
 
-        let federation_blacklist_storage = crate::storage::federation_blacklist::FederationBlacklistStorage::new(pool);
-        let federation_blacklist_service = Arc::new(crate::services::federation_blacklist_service::FederationBlacklistService::new(
-            Arc::new(federation_blacklist_storage.clone()),
-        ));
+        let federation_blacklist_storage =
+            crate::storage::federation_blacklist::FederationBlacklistStorage::new(pool);
+        let federation_blacklist_service = Arc::new(
+            crate::services::federation_blacklist_service::FederationBlacklistService::new(
+                Arc::new(federation_blacklist_storage.clone()),
+            ),
+        );
 
-        let push_notification_storage = crate::storage::push_notification::PushNotificationStorage::new(pool);
-        let push_notification_service = Arc::new(crate::services::push_notification_service::PushNotificationService::new(
-            Arc::new(push_notification_storage.clone()),
-        ));
+        let push_notification_storage =
+            crate::storage::push_notification::PushNotificationStorage::new(pool);
+        let push_notification_service = Arc::new(
+            crate::services::push_notification_service::PushNotificationService::new(Arc::new(
+                push_notification_storage.clone(),
+            )),
+        );
 
         let thread_storage = crate::storage::thread::ThreadStorage::new(pool);
         let thread_service = Arc::new(crate::services::thread_service::ThreadService::new(
@@ -369,14 +397,19 @@ impl ServiceContainer {
         ));
 
         let media_quota_storage = crate::storage::media_quota::MediaQuotaStorage::new(pool);
-        let media_quota_service = Arc::new(crate::services::media_quota_service::MediaQuotaService::new(
-            Arc::new(media_quota_storage.clone()),
-        ));
+        let media_quota_service = Arc::new(
+            crate::services::media_quota_service::MediaQuotaService::new(Arc::new(
+                media_quota_storage.clone(),
+            )),
+        );
 
-        let server_notification_storage = crate::storage::server_notification::ServerNotificationStorage::new(pool);
-        let server_notification_service = Arc::new(crate::services::server_notification_service::ServerNotificationService::new(
-            Arc::new(server_notification_storage.clone()),
-        ));
+        let server_notification_storage =
+            crate::storage::server_notification::ServerNotificationStorage::new(pool);
+        let server_notification_service = Arc::new(
+            crate::services::server_notification_service::ServerNotificationService::new(Arc::new(
+                server_notification_storage.clone(),
+            )),
+        );
 
         Self {
             user_storage,
@@ -684,17 +717,23 @@ impl PresenceStorage {
 pub mod admin_registration_service;
 pub mod application_service;
 pub mod background_update_service;
-pub mod cas_service;
+pub mod cache;
 pub mod captcha_service;
+pub mod content_scanner;
+pub mod cas_service;
 pub mod database_initializer;
 pub mod event_report_service;
 pub mod federation_blacklist_service;
 pub mod friend_room_service;
+pub mod geo_ip;
 pub mod media_quota_service;
 pub mod media_service;
+pub mod message_queue;
+pub mod identity;
 pub mod moderation_service;
 pub mod module_service;
 pub mod oidc_service;
+pub mod push;
 pub mod push_notification_service;
 pub mod push_service;
 pub mod read_receipt_service;
@@ -714,6 +753,7 @@ pub mod thread_service;
 pub mod url_preview_service;
 pub mod voice_service;
 pub mod voip_service;
+pub mod webhook_notification;
 
 pub use admin_registration_service::*;
 pub use application_service::*;

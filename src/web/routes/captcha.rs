@@ -50,7 +50,9 @@ pub async fn send_captcha(
         template_name: body.template_name,
     };
 
-    let response = state.services.captcha_service
+    let response = state
+        .services
+        .captcha_service
         .send_captcha(request, None, None)
         .await?;
 
@@ -70,7 +72,11 @@ pub async fn verify_captcha(
         code: body.code,
     };
 
-    let verified = state.services.captcha_service.verify_captcha(request).await?;
+    let verified = state
+        .services
+        .captcha_service
+        .verify_captcha(request)
+        .await?;
 
     Ok(Json(VerifyResponse { verified }))
 }
@@ -79,7 +85,9 @@ pub async fn get_captcha_status(
     State(state): State<AppState>,
     Query(query): Query<CaptchaIdQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let captcha = state.services.captcha_service
+    let captcha = state
+        .services
+        .captcha_service
         .get_captcha(&query.captcha_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Captcha not found"))?;
@@ -101,9 +109,7 @@ pub struct CaptchaIdQuery {
     pub captcha_id: String,
 }
 
-pub async fn cleanup_expired(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, ApiError> {
+pub async fn cleanup_expired(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let count = state.services.captcha_service.cleanup_expired().await?;
 
     Ok(Json(serde_json::json!({
@@ -116,8 +122,17 @@ pub fn create_captcha_router() -> axum::Router<AppState> {
     use axum::routing::*;
 
     axum::Router::new()
-        .route("/_matrix/client/r0/register/captcha/send", post(send_captcha))
-        .route("/_matrix/client/r0/register/captcha/verify", post(verify_captcha))
-        .route("/_matrix/client/r0/register/captcha/status", get(get_captcha_status))
+        .route(
+            "/_matrix/client/r0/register/captcha/send",
+            post(send_captcha),
+        )
+        .route(
+            "/_matrix/client/r0/register/captcha/verify",
+            post(verify_captcha),
+        )
+        .route(
+            "/_matrix/client/r0/register/captcha/status",
+            get(get_captcha_status),
+        )
         .route("/_synapse/admin/v1/captcha/cleanup", post(cleanup_expired))
 }

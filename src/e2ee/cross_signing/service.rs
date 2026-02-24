@@ -220,10 +220,7 @@ impl CrossSigningService {
         Ok(SignatureUploadResponse { fail })
     }
 
-    pub async fn get_user_signatures(
-        &self,
-        user_id: &str,
-    ) -> Result<UserSignatures, ApiError> {
+    pub async fn get_user_signatures(&self, user_id: &str) -> Result<UserSignatures, ApiError> {
         let signatures = self.storage.get_user_signatures(user_id).await?;
 
         Ok(UserSignatures {
@@ -288,16 +285,14 @@ impl CrossSigningService {
 
         self.upload_cross_signing_keys(upload).await?;
 
-        let master_key_signature = master_key["signatures"]
-            .as_object()
-            .and_then(|sigs| {
-                sigs.values().next().and_then(|v| {
-                    v.as_object()
-                        .and_then(|obj| obj.values().next())
-                        .and_then(|sig_val| sig_val.as_str())
-                        .map(|s| s.to_string())
-                })
-            });
+        let master_key_signature = master_key["signatures"].as_object().and_then(|sigs| {
+            sigs.values().next().and_then(|v| {
+                v.as_object()
+                    .and_then(|obj| obj.values().next())
+                    .and_then(|sig_val| sig_val.as_str())
+                    .map(|s| s.to_string())
+            })
+        });
 
         Ok(CrossSigningSetupResponse {
             master_key,
@@ -315,10 +310,7 @@ impl CrossSigningService {
         self.storage.get_device_signatures(user_id, device_id).await
     }
 
-    pub async fn delete_cross_signing_keys(
-        &self,
-        user_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_cross_signing_keys(&self, user_id: &str) -> Result<(), ApiError> {
         self.storage.delete_cross_signing_keys(user_id).await
     }
 

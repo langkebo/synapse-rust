@@ -12,7 +12,10 @@ impl FriendRoomStorage {
     }
 
     /// 查找用户的好友列表房间 ID
-    pub async fn get_friend_list_room_id(&self, user_id: &str) -> Result<Option<String>, sqlx::Error> {
+    pub async fn get_friend_list_room_id(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
         let row = sqlx::query(
             r#"
             SELECT e.room_id
@@ -33,7 +36,10 @@ impl FriendRoomStorage {
     }
 
     /// 获取房间内的所有好友列表事件内容
-    pub async fn get_friend_list_content(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
+    pub async fn get_friend_list_content(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
         let row = sqlx::query(
             r#"
             SELECT e.content
@@ -59,7 +65,7 @@ impl FriendRoomStorage {
         request_type: &str,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let event_type = format!("m.friend_requests.{}", request_type);
-        
+
         let row = sqlx::query(
             r#"
             SELECT e.content
@@ -86,7 +92,7 @@ impl FriendRoomStorage {
     /// 检查用户是否在好友列表中
     pub async fn is_friend(&self, room_id: &str, friend_id: &str) -> Result<bool, sqlx::Error> {
         let content = self.get_friend_list_content(room_id).await?;
-        
+
         Ok(content
             .and_then(|c| c.get("friends").cloned())
             .and_then(|f| f.as_array().cloned())
@@ -108,17 +114,20 @@ impl FriendRoomStorage {
         friend_id: &str,
     ) -> Result<Option<serde_json::Value>, sqlx::Error> {
         let content = self.get_friend_list_content(room_id).await?;
-        
+
         Ok(content
             .and_then(|c| c.get("friends").cloned())
             .and_then(|f| f.as_array().cloned())
             .and_then(|friends| {
-                friends.iter().find(|f| {
-                    f.get("user_id")
-                        .and_then(|u| u.as_str())
-                        .map(|u| u == friend_id)
-                        .unwrap_or(false)
-                }).cloned()
+                friends
+                    .iter()
+                    .find(|f| {
+                        f.get("user_id")
+                            .and_then(|u| u.as_str())
+                            .map(|u| u == friend_id)
+                            .unwrap_or(false)
+                    })
+                    .cloned()
             }))
     }
 }
@@ -126,6 +135,5 @@ impl FriendRoomStorage {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_storage_creation() {
-    }
+    fn test_storage_creation() {}
 }

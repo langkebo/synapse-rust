@@ -132,7 +132,11 @@ pub async fn register_device(
         metadata: None,
     };
 
-    let device = state.services.push_notification_service.register_device(request).await?;
+    let device = state
+        .services
+        .push_notification_service
+        .register_device(request)
+        .await?;
 
     Ok(Json(DeviceResponse::from(device)))
 }
@@ -142,7 +146,9 @@ pub async fn unregister_device(
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.push_notification_service
+    state
+        .services
+        .push_notification_service
         .unregister_device(&auth_user.user_id, &device_id)
         .await?;
 
@@ -155,7 +161,9 @@ pub async fn get_devices(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let devices = state.services.push_notification_service
+    let devices = state
+        .services
+        .push_notification_service
         .get_user_devices(&auth_user.user_id)
         .await?;
 
@@ -181,7 +189,11 @@ pub async fn send_notification(
         priority: body.priority,
     };
 
-    state.services.push_notification_service.send_notification(request).await?;
+    state
+        .services
+        .push_notification_service
+        .send_notification(request)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "message": "Notification queued"
@@ -204,7 +216,11 @@ pub async fn create_rule(
         enabled: body.enabled,
     };
 
-    let rule = state.services.push_notification_service.create_push_rule(request).await?;
+    let rule = state
+        .services
+        .push_notification_service
+        .create_push_rule(request)
+        .await?;
 
     Ok(Json(RuleResponse::from(rule)))
 }
@@ -213,7 +229,9 @@ pub async fn get_rules(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let rules = state.services.push_notification_service
+    let rules = state
+        .services
+        .push_notification_service
         .get_push_rules(&auth_user.user_id)
         .await?;
 
@@ -227,7 +245,9 @@ pub async fn delete_rule(
     auth_user: AuthenticatedUser,
     Path(path): Path<RulePath>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.push_notification_service
+    state
+        .services
+        .push_notification_service
         .delete_push_rule(&auth_user.user_id, &path.scope, &path.kind, &path.rule_id)
         .await?;
 
@@ -243,7 +263,9 @@ pub async fn process_queue(
 ) -> Result<impl IntoResponse, ApiError> {
     let batch_size = query.batch_size.unwrap_or(100);
 
-    let processed = state.services.push_notification_service
+    let processed = state
+        .services
+        .push_notification_service
         .process_pending_notifications(batch_size)
         .await?;
 
@@ -260,7 +282,11 @@ pub async fn cleanup_logs(
 ) -> Result<impl IntoResponse, ApiError> {
     let days = query.days.unwrap_or(30);
 
-    let cleaned = state.services.push_notification_service.cleanup_old_logs(days).await?;
+    let cleaned = state
+        .services
+        .push_notification_service
+        .cleanup_old_logs(days)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "cleaned": cleaned,
@@ -274,11 +300,17 @@ pub fn create_push_notification_router() -> axum::Router<AppState> {
     axum::Router::new()
         .route("/_matrix/client/r0/push/devices", get(get_devices))
         .route("/_matrix/client/r0/push/devices", post(register_device))
-        .route("/_matrix/client/r0/push/devices/{device_id}", delete(unregister_device))
+        .route(
+            "/_matrix/client/r0/push/devices/{device_id}",
+            delete(unregister_device),
+        )
         .route("/_matrix/client/r0/push/send", post(send_notification))
         .route("/_matrix/client/r0/push/rules", get(get_rules))
         .route("/_matrix/client/r0/push/rules", post(create_rule))
-        .route("/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}", delete(delete_rule))
+        .route(
+            "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}",
+            delete(delete_rule),
+        )
         .route("/_synapse/admin/v1/push/process", post(process_queue))
         .route("/_synapse/admin/v1/push/cleanup", post(cleanup_logs))
 }

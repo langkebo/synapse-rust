@@ -106,7 +106,7 @@ impl ThreadService {
         );
 
         let thread_id = format!("${}", uuid::Uuid::new_v4().simple());
-        
+
         let params = CreateThreadRootParams {
             room_id: request.room_id,
             root_event_id: request.root_event_id,
@@ -116,14 +116,10 @@ impl ThreadService {
             origin_server_ts: request.origin_server_ts,
         };
 
-        let thread_root = self
-            .storage
-            .create_thread_root(params)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to create thread root");
-                ApiError::internal(format!("Failed to create thread: {}", e))
-            })?;
+        let thread_root = self.storage.create_thread_root(params).await.map_err(|e| {
+            warn!(error = %e, "Failed to create thread root");
+            ApiError::internal(format!("Failed to create thread: {}", e))
+        })?;
 
         self.storage
             .create_thread_relation(
@@ -165,7 +161,9 @@ impl ThreadService {
             .ok_or_else(|| ApiError::not_found("Thread not found"))?;
 
         if thread_root.is_frozen {
-            return Err(ApiError::bad_request("Thread is frozen and cannot accept new replies"));
+            return Err(ApiError::bad_request(
+                "Thread is frozen and cannot accept new replies",
+            ));
         }
 
         let params = CreateThreadReplyParams {
@@ -179,10 +177,14 @@ impl ThreadService {
             origin_server_ts: request.origin_server_ts,
         };
 
-        let reply = self.storage.create_thread_reply(params).await.map_err(|e| {
-            warn!(error = %e, "Failed to create thread reply");
-            ApiError::internal(format!("Failed to create reply: {}", e))
-        })?;
+        let reply = self
+            .storage
+            .create_thread_reply(params)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, "Failed to create thread reply");
+                ApiError::internal(format!("Failed to create reply: {}", e))
+            })?;
 
         self.storage
             .create_thread_relation(
@@ -232,7 +234,12 @@ impl ThreadService {
 
         let replies = if request.include_replies {
             self.storage
-                .get_thread_replies(&request.room_id, &request.thread_id, request.reply_limit, None)
+                .get_thread_replies(
+                    &request.room_id,
+                    &request.thread_id,
+                    request.reply_limit,
+                    None,
+                )
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed to get replies: {}", e)))?
         } else {
@@ -408,10 +415,7 @@ impl ThreadService {
             })
     }
 
-    pub async fn mark_read(
-        &self,
-        request: MarkReadRequest,
-    ) -> Result<ThreadReadReceipt, ApiError> {
+    pub async fn mark_read(&self, request: MarkReadRequest) -> Result<ThreadReadReceipt, ApiError> {
         self.storage
             .update_read_receipt(
                 &request.room_id,
@@ -463,11 +467,7 @@ impl ThreadService {
             })
     }
 
-    pub async fn redact_reply(
-        &self,
-        room_id: &str,
-        event_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn redact_reply(&self, room_id: &str, event_id: &str) -> Result<(), ApiError> {
         self.storage
             .mark_reply_redacted(room_id, event_id)
             .await
@@ -477,13 +477,9 @@ impl ThreadService {
             })
     }
 
-    pub async fn freeze_thread(
-        &self,
-        room_id: &str,
-        thread_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
         info!(room_id = %room_id, thread_id = %thread_id, "Freezing thread");
-        
+
         self.storage
             .freeze_thread(room_id, thread_id)
             .await
@@ -493,13 +489,9 @@ impl ThreadService {
             })
     }
 
-    pub async fn unfreeze_thread(
-        &self,
-        room_id: &str,
-        thread_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn unfreeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
         info!(room_id = %room_id, thread_id = %thread_id, "Unfreezing thread");
-        
+
         self.storage
             .unfreeze_thread(room_id, thread_id)
             .await
@@ -509,13 +501,9 @@ impl ThreadService {
             })
     }
 
-    pub async fn delete_thread(
-        &self,
-        room_id: &str,
-        thread_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
         info!(room_id = %room_id, thread_id = %thread_id, "Deleting thread");
-        
+
         self.storage
             .delete_thread(room_id, thread_id)
             .await

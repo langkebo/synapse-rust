@@ -4,8 +4,8 @@ use tokio::sync::RwLock;
 
 pub mod application_service;
 pub mod background_update;
-pub mod cas;
 pub mod captcha;
+pub mod cas;
 pub mod device;
 pub mod email_verification;
 pub mod event;
@@ -35,8 +35,8 @@ pub mod user;
 pub mod voice;
 
 pub use self::application_service::*;
-pub use self::cas::*;
 pub use self::captcha::*;
+pub use self::cas::*;
 pub use self::device::*;
 pub use self::event::*;
 pub use self::federation_blacklist::*;
@@ -49,7 +49,7 @@ pub use self::monitoring::{
     DuplicateEntry, ForeignKeyViolation, NullConstraintViolation, OrphanedRecord,
     PerformanceMetrics, VacuumStats,
 };
-pub use self::performance::{PerformanceMonitor, PoolStatistics, QueryMetrics, time_query};
+pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
 pub use self::push_notification::*;
 pub use self::room::*;
 pub use self::saml::*;
@@ -164,9 +164,7 @@ impl Database {
 ///
 /// 成功时返回 `Ok(())`，失败时返回 `Err(sqlx::Error)`
 pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
-    sqlx::migrate!("./migrations")
-        .run(pool)
-        .await?;
+    sqlx::migrate!("./migrations").run(pool).await?;
     Ok(())
 }
 

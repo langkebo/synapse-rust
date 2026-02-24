@@ -57,7 +57,9 @@ pub async fn saml_login(
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let auth_request = state.services.saml_service
+    let auth_request = state
+        .services
+        .saml_service
         .get_auth_redirect(query.redirect_url.as_deref())
         .await?;
 
@@ -74,7 +76,9 @@ pub async fn saml_login_redirect(
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let auth_request = state.services.saml_service
+    let auth_request = state
+        .services
+        .saml_service
         .get_auth_redirect(query.redirect_url.as_deref())
         .await?;
 
@@ -85,14 +89,24 @@ pub async fn saml_callback_post(
     State(state): State<AppState>,
     Json(body): Json<SamlCallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    handle_saml_callback(&state, body.saml_response.as_deref(), body.relay_state.as_deref()).await
+    handle_saml_callback(
+        &state,
+        body.saml_response.as_deref(),
+        body.relay_state.as_deref(),
+    )
+    .await
 }
 
 pub async fn saml_callback_get(
     State(state): State<AppState>,
     Query(query): Query<SamlCallbackQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    handle_saml_callback(&state, query.saml_response.as_deref(), query.relay_state.as_deref()).await
+    handle_saml_callback(
+        &state,
+        query.saml_response.as_deref(),
+        query.relay_state.as_deref(),
+    )
+    .await
 }
 
 async fn handle_saml_callback(
@@ -104,22 +118,32 @@ async fn handle_saml_callback(
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let saml_response = saml_response
-        .ok_or_else(|| ApiError::bad_request("Missing SAML response"))?;
+    let saml_response =
+        saml_response.ok_or_else(|| ApiError::bad_request("Missing SAML response"))?;
 
-    let auth_result = state.services.saml_service
+    let auth_result = state
+        .services
+        .saml_service
         .process_auth_response(saml_response, relay_state, None, None)
         .await?;
 
-    let user = state.services.user_storage
+    let user = state
+        .services
+        .user_storage
         .get_user_by_id(&auth_result.user_id)
         .await?
         .ok_or_else(|| ApiError::internal("User not found after SAML auth"))?;
 
     let device_id = "SAML_DEVICE".to_string();
-    
-    let access_token = state.services.auth_service
-        .generate_access_token(&auth_result.user_id, &device_id, user.is_admin.unwrap_or(false))
+
+    let access_token = state
+        .services
+        .auth_service
+        .generate_access_token(
+            &auth_result.user_id,
+            &device_id,
+            user.is_admin.unwrap_or(false),
+        )
         .await?;
 
     let expires_in = 3600_i64;
@@ -141,17 +165,23 @@ pub async fn saml_logout(
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let mapping = state.services.saml_service
+    let mapping = state
+        .services
+        .saml_service
         .get_user_mapping(&_auth_user.user_id)
         .await?;
 
     if let Some(_mapping) = mapping {
-        let sessions = state.services.saml_storage
+        let sessions = state
+            .services
+            .saml_storage
             .get_session_by_user(&_auth_user.user_id)
             .await?;
 
         if let Some(session) = sessions {
-            let redirect_url = state.services.saml_service
+            let redirect_url = state
+                .services
+                .saml_service
                 .initiate_logout(&session.session_id, Some("User initiated logout"))
                 .await?;
 
@@ -174,10 +204,13 @@ pub async fn saml_logout_callback(
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let saml_response = query.saml_response
+    let saml_response = query
+        .saml_response
         .ok_or_else(|| ApiError::bad_request("Missing SAML response"))?;
 
-    state.services.saml_service
+    state
+        .services
+        .saml_service
         .process_logout_response(&saml_response)
         .await?;
 
@@ -203,9 +236,7 @@ pub async fn get_saml_metadata(
     }))
 }
 
-pub async fn get_sp_metadata(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, ApiError> {
+pub async fn get_sp_metadata(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     if !state.services.saml_service.is_enabled() {
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
@@ -261,13 +292,31 @@ pub fn create_saml_router() -> axum::Router<AppState> {
     use axum::routing::*;
 
     axum::Router::new()
-        .route("/_matrix/client/r0/login/sso/redirect/saml", get(saml_login_redirect))
-        .route("/_matrix/client/r0/login/sso/redirect/saml", post(saml_login))
-        .route("/_matrix/client/r0/login/saml/callback", get(saml_callback_get))
-        .route("/_matrix/client/r0/login/saml/callback", post(saml_callback_post))
+        .route(
+            "/_matrix/client/r0/login/sso/redirect/saml",
+            get(saml_login_redirect),
+        )
+        .route(
+            "/_matrix/client/r0/login/sso/redirect/saml",
+            post(saml_login),
+        )
+        .route(
+            "/_matrix/client/r0/login/saml/callback",
+            get(saml_callback_get),
+        )
+        .route(
+            "/_matrix/client/r0/login/saml/callback",
+            post(saml_callback_post),
+        )
         .route("/_matrix/client/r0/logout/saml", get(saml_logout))
-        .route("/_matrix/client/r0/logout/saml/callback", get(saml_logout_callback))
+        .route(
+            "/_matrix/client/r0/logout/saml/callback",
+            get(saml_logout_callback),
+        )
         .route("/_matrix/client/r0/saml/metadata", get(get_saml_metadata))
         .route("/_matrix/client/r0/saml/sp_metadata", get(get_sp_metadata))
-        .route("/_synapse/admin/v1/saml/metadata/refresh", post(refresh_idp_metadata))
+        .route(
+            "/_synapse/admin/v1/saml/metadata/refresh",
+            post(refresh_idp_metadata),
+        )
 }

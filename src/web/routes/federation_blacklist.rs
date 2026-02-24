@@ -80,7 +80,9 @@ pub async fn add_to_blacklist(
         expires_in_days: body.expires_in_days,
     };
 
-    let entry = state.services.federation_blacklist_service
+    let entry = state
+        .services
+        .federation_blacklist_service
         .add_to_blacklist(request, &_auth_user.user_id)
         .await?;
 
@@ -92,7 +94,9 @@ pub async fn remove_from_blacklist(
     _auth_user: AuthenticatedUser,
     Path(server_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.federation_blacklist_service
+    state
+        .services
+        .federation_blacklist_service
         .remove_from_blacklist(&server_name, &_auth_user.user_id)
         .await?;
 
@@ -105,7 +109,9 @@ pub async fn check_server(
     State(state): State<AppState>,
     Query(query): Query<CheckServerQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result = state.services.federation_blacklist_service
+    let result = state
+        .services
+        .federation_blacklist_service
         .check_server(&query.server_name)
         .await?;
 
@@ -141,11 +147,16 @@ pub async fn get_blacklist(
     let limit = query.limit.unwrap_or(100).min(1000);
     let offset = query.offset.unwrap_or(0);
 
-    let entries = state.services.federation_blacklist_service
+    let entries = state
+        .services
+        .federation_blacklist_service
         .get_blacklist(limit, offset)
         .await?;
 
-    let response: Vec<BlacklistEntryResponse> = entries.into_iter().map(BlacklistEntryResponse::from).collect();
+    let response: Vec<BlacklistEntryResponse> = entries
+        .into_iter()
+        .map(BlacklistEntryResponse::from)
+        .collect();
 
     Ok(Json(response))
 }
@@ -155,7 +166,9 @@ pub async fn get_server_stats(
     _auth_user: AuthenticatedUser,
     Path(server_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let stats = state.services.federation_blacklist_service
+    let stats = state
+        .services
+        .federation_blacklist_service
         .get_stats(&server_name)
         .await?;
 
@@ -204,7 +217,11 @@ pub async fn create_rule(
         created_by: _auth_user.user_id.clone(),
     };
 
-    let rule = state.services.federation_blacklist_service.create_rule(request).await?;
+    let rule = state
+        .services
+        .federation_blacklist_service
+        .create_rule(request)
+        .await?;
 
     Ok(Json(RuleResponse::from(rule)))
 }
@@ -213,7 +230,11 @@ pub async fn get_rules(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let rules = state.services.federation_blacklist_service.get_rules().await?;
+    let rules = state
+        .services
+        .federation_blacklist_service
+        .get_rules()
+        .await?;
 
     let response: Vec<RuleResponse> = rules.into_iter().map(RuleResponse::from).collect();
 
@@ -224,7 +245,11 @@ pub async fn cleanup_expired(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.federation_blacklist_service.cleanup_expired().await?;
+    let count = state
+        .services
+        .federation_blacklist_service
+        .cleanup_expired()
+        .await?;
 
     Ok(Json(serde_json::json!({
         "cleaned_count": count,
@@ -236,12 +261,36 @@ pub fn create_federation_blacklist_router() -> axum::Router<AppState> {
     use axum::routing::*;
 
     axum::Router::new()
-        .route("/_synapse/admin/v1/federation/blacklist", post(add_to_blacklist))
-        .route("/_synapse/admin/v1/federation/blacklist/{server_name}", delete(remove_from_blacklist))
-        .route("/_synapse/admin/v1/federation/blacklist/check", get(check_server))
-        .route("/_synapse/admin/v1/federation/blacklist/list", get(get_blacklist))
-        .route("/_synapse/admin/v1/federation/blacklist/stats/{server_name}", get(get_server_stats))
-        .route("/_synapse/admin/v1/federation/blacklist/rules", post(create_rule))
-        .route("/_synapse/admin/v1/federation/blacklist/rules", get(get_rules))
-        .route("/_synapse/admin/v1/federation/blacklist/cleanup", post(cleanup_expired))
+        .route(
+            "/_synapse/admin/v1/federation/blacklist",
+            post(add_to_blacklist),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/blacklist/{server_name}",
+            delete(remove_from_blacklist),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/blacklist/check",
+            get(check_server),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/blacklist/list",
+            get(get_blacklist),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/blacklist/stats/{server_name}",
+            get(get_server_stats),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/blacklist/rules",
+            post(create_rule),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/blacklist/rules",
+            get(get_rules),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/blacklist/cleanup",
+            post(cleanup_expired),
+        )
 }

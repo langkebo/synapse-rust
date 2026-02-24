@@ -60,29 +60,30 @@ impl SynapseServer {
         let mut task_queue: Option<Arc<RedisTaskQueue>> = None;
 
         let cache = if config.redis.enabled {
-            info!("Redis enabled. Connecting to: {}:{}", config.redis.host, config.redis.port);
-            
+            info!(
+                "Redis enabled. Connecting to: {}:{}",
+                config.redis.host, config.redis.port
+            );
+
             let conn_str = format!("redis://{}:{}", config.redis.host, config.redis.port);
             let redis_cfg = deadpool_redis::Config::from_url(conn_str);
             let redis_pool = redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
-            
+
             info!("Redis pool created.");
 
             let tq = RedisTaskQueue::from_pool(redis_pool.clone());
             task_queue = Some(Arc::new(tq));
 
-            Arc::new(CacheManager::with_redis_pool(redis_pool, CacheConfig::default()))
+            Arc::new(CacheManager::with_redis_pool(
+                redis_pool,
+                CacheConfig::default(),
+            ))
         } else {
             info!("Redis disabled. Using local in-memory cache.");
             Arc::new(CacheManager::new(CacheConfig::default()))
         };
 
-        let services = ServiceContainer::new(
-            &pool, 
-            cache.clone(), 
-            config.clone(),
-            task_queue
-        );
+        let services = ServiceContainer::new(&pool, cache.clone(), config.clone(), task_queue);
         let app_state = Arc::new(AppState::new(services, cache));
 
         let scheduled_tasks = Arc::new(ScheduledTasks::new(Arc::new(Database::from_pool(

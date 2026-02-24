@@ -256,9 +256,9 @@ impl DatabaseInitService {
 
     async fn step_migrations(&self) -> Result<String, sqlx::Error> {
         info!("执行数据库迁移...");
-        
+
         self.ensure_schema_migrations_table().await?;
-        
+
         let migrations_dir = if std::path::Path::new("/app/migrations").exists() {
             std::path::Path::new("/app/migrations")
         } else if std::path::Path::new("./migrations").exists() {
@@ -293,24 +293,29 @@ impl DatabaseInitService {
                 description TEXT
             )
         "#;
-        
+
         sqlx::raw_sql(create_table_sql).execute(&*self.pool).await?;
         info!("schema_migrations 表已就绪");
         Ok(())
     }
 
     async fn is_migration_executed(&self, version: &str) -> Result<bool, sqlx::Error> {
-        let result: Option<(bool,)> = sqlx::query_as(
-            "SELECT success FROM schema_migrations WHERE version = $1"
-        )
-        .bind(version)
-        .fetch_optional(&*self.pool)
-        .await?;
-        
+        let result: Option<(bool,)> =
+            sqlx::query_as("SELECT success FROM schema_migrations WHERE version = $1")
+                .bind(version)
+                .fetch_optional(&*self.pool)
+                .await?;
+
         Ok(result.map(|(success,)| success).unwrap_or(false))
     }
 
-    async fn record_migration(&self, version: &str, checksum: &str, execution_time_ms: i64, success: bool) -> Result<(), sqlx::Error> {
+    async fn record_migration(
+        &self,
+        version: &str,
+        checksum: &str,
+        execution_time_ms: i64,
+        success: bool,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO schema_migrations (version, checksum, execution_time_ms, success)
                VALUES ($1, $2, $3, $4)
@@ -318,7 +323,7 @@ impl DatabaseInitService {
                    checksum = EXCLUDED.checksum,
                    executed_at = NOW(),
                    execution_time_ms = EXCLUDED.execution_time_ms,
-                   success = EXCLUDED.success"#
+                   success = EXCLUDED.success"#,
         )
         .bind(version)
         .bind(checksum)
@@ -326,29 +331,32 @@ impl DatabaseInitService {
         .bind(success)
         .execute(&*self.pool)
         .await?;
-        
+
         Ok(())
     }
 
     fn calculate_checksum(content: &str) -> String {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         content.hash(&mut hasher);
         format!("{:016x}", hasher.finish())
     }
 
-    async fn run_runtime_migrations(&self, migrations_dir: &std::path::Path) -> Result<String, sqlx::Error> {
+    async fn run_runtime_migrations(
+        &self,
+        migrations_dir: &std::path::Path,
+    ) -> Result<String, sqlx::Error> {
         let mut migration_files: Vec<std::path::PathBuf> = std::fs::read_dir(migrations_dir)
             .map_err(|e| sqlx::Error::Configuration(e.to_string().into()))?
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
             .filter(|path| path.extension().is_some_and(|ext| ext == "sql"))
             .collect();
-        
+
         migration_files.sort();
-        
+
         info!("发现 {} 个迁移文件", migration_files.len());
 
         let mut success_count = 0;
@@ -356,12 +364,13 @@ impl DatabaseInitService {
         let mut error_count = 0;
 
         for migration_file in migration_files {
-            let filename = migration_file.file_name()
+            let filename = migration_file
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown");
-            
+
             let version = filename.split('_').next().unwrap_or(filename);
-            
+
             match self.is_migration_executed(version).await {
                 Ok(true) => {
                     debug!("迁移 {} 已执行，跳过", filename);
@@ -398,8 +407,9 @@ impl DatabaseInitService {
                     Ok(_) => {}
                     Err(e) => {
                         let err_str = e.to_string();
-                        if err_str.contains("already exists") || 
-                           err_str.contains("duplicate key value") {
+                        if err_str.contains("already exists")
+                            || err_str.contains("duplicate key value")
+                        {
                         } else {
                             let preview: String = trimmed.chars().take(100).collect();
                             warn!("迁移 {} 语句执行警告: {} - {}", filename, preview, e);
@@ -410,8 +420,11 @@ impl DatabaseInitService {
             }
 
             let execution_time_ms = start_time.elapsed().as_millis() as i64;
-            
-            if let Err(e) = self.record_migration(version, &checksum, execution_time_ms, file_success).await {
+
+            if let Err(e) = self
+                .record_migration(version, &checksum, execution_time_ms, file_success)
+                .await
+            {
                 warn!("记录迁移状态失败 {}: {}", filename, e);
             }
 
@@ -423,8 +436,14 @@ impl DatabaseInitService {
             }
         }
 
-        info!("迁移完成: 成功={}, 跳过={}, 错误={}", success_count, skip_count, error_count);
-        Ok(format!("数据库迁移执行完成 (成功: {}, 跳过: {}, 错误: {})", success_count, skip_count, error_count))
+        info!(
+            "迁移完成: 成功={}, 跳过={}, 错误={}",
+            success_count, skip_count, error_count
+        );
+        Ok(format!(
+            "数据库迁移执行完成 (成功: {}, 跳过: {}, 错误: {})",
+            success_count, skip_count, error_count
+        ))
     }
 
     fn split_sql_statements(&self, sql: &str) -> Vec<String> {
@@ -448,7 +467,11 @@ impl DatabaseInitService {
 
         while i < chars.len() {
             let c = chars[i];
-            let next_c = if i + 1 < chars.len() { Some(chars[i + 1]) } else { None };
+            let next_c = if i + 1 < chars.len() {
+                Some(chars[i + 1])
+            } else {
+                None
+            };
             let prev_c = if i > 0 { Some(chars[i - 1]) } else { None };
 
             match state {
@@ -517,7 +540,8 @@ impl DatabaseInitService {
                         let tag_len = dollar_tag.len();
                         let start = i.saturating_sub(tag_len - 1);
                         if start + tag_len <= chars.len() {
-                            let potential_tag: String = chars[start..start + tag_len].iter().collect();
+                            let potential_tag: String =
+                                chars[start..start + tag_len].iter().collect();
                             if potential_tag == dollar_tag {
                                 state = State::Normal;
                                 dollar_tag.clear();

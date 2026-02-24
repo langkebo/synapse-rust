@@ -80,7 +80,7 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
         .unwrap();
-    
+
     let body = axum::body::to_bytes(response.into_body(), 1024)
         .await
         .unwrap();
@@ -112,7 +112,7 @@ async fn test_ip_block_fix() {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
         .unwrap();
-    
+
     // Before fix: This would be 500
     // After fix: This should be 200
     assert_eq!(response.status(), StatusCode::OK);

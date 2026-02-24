@@ -65,7 +65,7 @@ impl RoomMemberStorage {
             "#;
 
         if let Some(tx) = tx {
-             sqlx::query_as::<_, RoomMember>(query)
+            sqlx::query_as::<_, RoomMember>(query)
                 .bind(room_id)
                 .bind(user_id)
                 .bind(sender)
@@ -79,7 +79,7 @@ impl RoomMemberStorage {
                 .fetch_one(&mut **tx)
                 .await
         } else {
-             sqlx::query_as::<_, RoomMember>(query)
+            sqlx::query_as::<_, RoomMember>(query)
                 .bind(room_id)
                 .bind(user_id)
                 .bind(sender)

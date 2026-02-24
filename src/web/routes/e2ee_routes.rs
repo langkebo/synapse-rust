@@ -1,6 +1,6 @@
 use super::{AppState, AuthenticatedUser};
-use crate::ApiError;
 use crate::web::routes::MatrixJson;
+use crate::ApiError;
 use axum::{
     extract::{Path, Query, State},
     routing::{get, post, put},
@@ -26,8 +26,14 @@ pub fn create_e2ee_router(_state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/keys/query", post(query_keys))
         .route("/_matrix/client/v3/keys/claim", post(claim_keys))
         .route("/_matrix/client/v3/keys/changes", get(key_changes))
-        .route("/_matrix/client/v3/keys/signatures/upload", post(upload_signatures))
-        .route("/_matrix/client/r0/keys/signatures/upload", post(upload_signatures))
+        .route(
+            "/_matrix/client/v3/keys/signatures/upload",
+            post(upload_signatures),
+        )
+        .route(
+            "/_matrix/client/r0/keys/signatures/upload",
+            post(upload_signatures),
+        )
 }
 
 #[axum::debug_handler]
@@ -146,7 +152,9 @@ async fn room_key_distribution(
         .await
         .map_err(|e| crate::error::ApiError::internal(format!("Database error: {}", e)))?
     {
-        return Err(crate::error::ApiError::not_found("Room not found".to_string()));
+        return Err(crate::error::ApiError::not_found(
+            "Room not found".to_string(),
+        ));
     }
 
     let session = state

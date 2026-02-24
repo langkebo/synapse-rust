@@ -12,14 +12,8 @@ use std::collections::HashMap;
 
 pub fn create_search_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/_matrix/client/v3/search",
-            post(search),
-        )
-        .route(
-            "/_matrix/client/r0/search",
-            post(search),
-        )
+        .route("/_matrix/client/v3/search", post(search))
+        .route("/_matrix/client/r0/search", post(search))
         .route(
             "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads",
             get(get_threads),
@@ -121,7 +115,13 @@ async fn search(
     });
 
     if let Some(room_events) = &body.search_categories.room_events {
-        let room_results = search_room_events(&state, &auth_user.user_id, room_events, next_batch.as_deref()).await?;
+        let room_results = search_room_events(
+            &state,
+            &auth_user.user_id,
+            room_events,
+            next_batch.as_deref(),
+        )
+        .await?;
         results["search_categories"]["room_events"] = room_results;
     }
 
@@ -143,7 +143,7 @@ async fn search_room_events(
     let search_pattern = format!("%{}%", search.search_term.to_lowercase());
 
     let mut query_builder = sqlx::QueryBuilder::new(
-        "SELECT event_id, room_id, sender, type, content, origin_server_ts FROM events WHERE "
+        "SELECT event_id, room_id, sender, type, content, origin_server_ts FROM events WHERE ",
     );
 
     query_builder.push("(LOWER(content::text) LIKE ");
@@ -264,7 +264,7 @@ async fn search_users(
         WHERE LOWER(user_id) LIKE $1 OR LOWER(displayname) LIKE $1
         ORDER BY user_id
         LIMIT $2
-        "#
+        "#,
     )
     .bind(&search_pattern)
     .bind(limit)
@@ -302,14 +302,13 @@ async fn get_threads(
 
     let from = params.get("from").cloned();
 
-    let member_check = sqlx::query(
-        "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2"
-    )
-    .bind(&room_id)
-    .bind(&auth_user.user_id)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let member_check =
+        sqlx::query("SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2")
+            .bind(&room_id)
+            .bind(&auth_user.user_id)
+            .fetch_optional(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     if member_check.is_none() {
         return Err(ApiError::forbidden("Not a member of this room".to_string()));
@@ -325,7 +324,7 @@ async fn get_threads(
           AND content::jsonb->'m.relates_to'->>'rel_type' = 'm.thread'
         ORDER BY origin_server_ts DESC
         LIMIT $2
-        "#
+        "#,
     )
     .bind(&room_id)
     .bind(limit as i64)
@@ -375,7 +374,7 @@ async fn get_room_hierarchy(
             SELECT room_id FROM room_parents WHERE parent_id = $1
         )
         LIMIT $2
-        "#
+        "#,
     )
     .bind(&room_id)
     .bind(limit as i64)
@@ -419,19 +418,15 @@ async fn timestamp_to_event(
         .and_then(|v| v.parse().ok())
         .ok_or_else(|| ApiError::bad_request("Missing ts parameter".to_string()))?;
 
-    let dir = params
-        .get("dir")
-        .map(|v| v.as_str())
-        .unwrap_or("f");
+    let dir = params.get("dir").map(|v| v.as_str()).unwrap_or("f");
 
-    let member_check = sqlx::query(
-        "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2"
-    )
-    .bind(&room_id)
-    .bind(&auth_user.user_id)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let member_check =
+        sqlx::query("SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2")
+            .bind(&room_id)
+            .bind(&auth_user.user_id)
+            .fetch_optional(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     if member_check.is_none() {
         return Err(ApiError::forbidden("Not a member of this room".to_string()));
@@ -461,7 +456,9 @@ async fn timestamp_to_event(
             "event_id": row.get::<Option<String>, _>("event_id"),
             "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts").unwrap_or(0)
         }))),
-        None => Err(ApiError::not_found("No event found at this timestamp".to_string())),
+        None => Err(ApiError::not_found(
+            "No event found at this timestamp".to_string(),
+        )),
     }
 }
 
@@ -476,14 +473,13 @@ async fn get_event_context(
         .and_then(|v| v.parse().ok())
         .unwrap_or(10);
 
-    let member_check = sqlx::query(
-        "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2"
-    )
-    .bind(&room_id)
-    .bind(&auth_user.user_id)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let member_check =
+        sqlx::query("SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2")
+            .bind(&room_id)
+            .bind(&auth_user.user_id)
+            .fetch_optional(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     if member_check.is_none() {
         return Err(ApiError::forbidden("Not a member of this room".to_string()));
@@ -503,7 +499,9 @@ async fn get_event_context(
         None => return Err(ApiError::not_found("Event not found".to_string())),
     };
 
-    let target_ts = target_event.get::<Option<i64>, _>("origin_server_ts").unwrap_or(0);
+    let target_ts = target_event
+        .get::<Option<i64>, _>("origin_server_ts")
+        .unwrap_or(0);
 
     let events_before = sqlx::query(
         "SELECT event_id, sender, type, content, origin_server_ts FROM events WHERE room_id = $1 AND origin_server_ts < $2 ORDER BY origin_server_ts DESC LIMIT $3"

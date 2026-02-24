@@ -135,7 +135,12 @@ pub struct CreateNotificationLogRequest {
 }
 
 impl CreateNotificationLogRequest {
-    pub fn new(user_id: impl Into<String>, device_id: impl Into<String>, push_type: impl Into<String>, success: bool) -> Self {
+    pub fn new(
+        user_id: impl Into<String>,
+        device_id: impl Into<String>,
+        push_type: impl Into<String>,
+        success: bool,
+    ) -> Self {
         Self {
             user_id: user_id.into(),
             device_id: device_id.into(),
@@ -231,13 +236,16 @@ impl PushNotificationStorage {
         .await
         .map_err(|e| ApiError::internal(format!("Failed to register device: {}", e)))?;
 
-        info!("Registered push device: {} for user: {}", request.device_id, request.user_id);
+        info!(
+            "Registered push device: {} for user: {}",
+            request.device_id, request.user_id
+        );
         Ok(row)
     }
 
     pub async fn unregister_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
-            "UPDATE push_device SET is_enabled = false WHERE user_id = $1 AND device_id = $2"
+            "UPDATE push_device SET is_enabled = false WHERE user_id = $1 AND device_id = $2",
         )
         .bind(user_id)
         .bind(device_id)
@@ -245,13 +253,16 @@ impl PushNotificationStorage {
         .await
         .map_err(|e| ApiError::internal(format!("Failed to unregister device: {}", e)))?;
 
-        info!("Unregistered push device: {} for user: {}", device_id, user_id);
+        info!(
+            "Unregistered push device: {} for user: {}",
+            device_id, user_id
+        );
         Ok(())
     }
 
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<PushDevice>, ApiError> {
         let rows = sqlx::query_as::<_, PushDevice>(
-            "SELECT * FROM push_device WHERE user_id = $1 AND is_enabled = true"
+            "SELECT * FROM push_device WHERE user_id = $1 AND is_enabled = true",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -261,9 +272,13 @@ impl PushNotificationStorage {
         Ok(rows)
     }
 
-    pub async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<PushDevice>, ApiError> {
+    pub async fn get_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<Option<PushDevice>, ApiError> {
         let row = sqlx::query_as::<_, PushDevice>(
-            "SELECT * FROM push_device WHERE user_id = $1 AND device_id = $2 AND is_enabled = true"
+            "SELECT * FROM push_device WHERE user_id = $1 AND device_id = $2 AND is_enabled = true",
         )
         .bind(user_id)
         .bind(device_id)
@@ -274,9 +289,13 @@ impl PushNotificationStorage {
         Ok(row)
     }
 
-    pub async fn update_device_last_used(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
+    pub async fn update_device_last_used(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             "UPDATE push_device SET last_used_at = to_timestamp($1 / 1000.0), updated_ts = $1 WHERE user_id = $2 AND device_id = $3"
         )
@@ -290,14 +309,19 @@ impl PushNotificationStorage {
         Ok(())
     }
 
-    pub async fn record_device_error(&self, user_id: &str, device_id: &str, error: &str) -> Result<(), ApiError> {
+    pub async fn record_device_error(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        error: &str,
+    ) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
             UPDATE push_device 
             SET last_error = $1, error_count = error_count + 1, updated_ts = $4
             WHERE user_id = $2 AND device_id = $3
-            "#
+            "#,
         )
         .bind(error)
         .bind(user_id)
@@ -344,7 +368,10 @@ impl PushNotificationStorage {
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create push rule: {}", e)))?;
 
-        info!("Created push rule: {} for user: {}", request.rule_id, request.user_id);
+        info!(
+            "Created push rule: {} for user: {}",
+            request.rule_id, request.user_id
+        );
         Ok(row)
     }
 
@@ -354,7 +381,7 @@ impl PushNotificationStorage {
             SELECT * FROM push_rules 
             WHERE (user_id = $1 OR user_id = '.default') AND is_enabled = true
             ORDER BY priority ASC
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -364,7 +391,13 @@ impl PushNotificationStorage {
         Ok(rows)
     }
 
-    pub async fn delete_push_rule(&self, user_id: &str, scope: &str, kind: &str, rule_id: &str) -> Result<(), ApiError> {
+    pub async fn delete_push_rule(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+    ) -> Result<(), ApiError> {
         sqlx::query(
             "DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4"
         )
@@ -410,9 +443,12 @@ impl PushNotificationStorage {
         Ok(row)
     }
 
-    pub async fn get_pending_notifications(&self, limit: i32) -> Result<Vec<PushNotificationQueue>, ApiError> {
+    pub async fn get_pending_notifications(
+        &self,
+        limit: i32,
+    ) -> Result<Vec<PushNotificationQueue>, ApiError> {
         let now = chrono::Utc::now();
-        
+
         let rows = sqlx::query_as::<_, PushNotificationQueue>(
             r#"
             SELECT * FROM push_notification_queue 
@@ -420,7 +456,7 @@ impl PushNotificationStorage {
             ORDER BY priority DESC, created_ts ASC
             LIMIT $2
             FOR UPDATE SKIP LOCKED
-            "#
+            "#,
         )
         .bind(now)
         .bind(limit)
@@ -433,9 +469,9 @@ impl PushNotificationStorage {
 
     pub async fn mark_notification_sent(&self, id: i32) -> Result<(), ApiError> {
         let now = chrono::Utc::now();
-        
+
         sqlx::query(
-            "UPDATE push_notification_queue SET status = 'sent', sent_at = $1 WHERE id = $2"
+            "UPDATE push_notification_queue SET status = 'sent', sent_at = $1 WHERE id = $2",
         )
         .bind(now)
         .bind(id)
@@ -446,9 +482,14 @@ impl PushNotificationStorage {
         Ok(())
     }
 
-    pub async fn mark_notification_failed(&self, id: i32, error: &str, retry: bool) -> Result<(), ApiError> {
+    pub async fn mark_notification_failed(
+        &self,
+        id: i32,
+        error: &str,
+        retry: bool,
+    ) -> Result<(), ApiError> {
         let now = chrono::Utc::now();
-        
+
         if retry {
             sqlx::query(
                 r#"
@@ -509,20 +550,23 @@ impl PushNotificationStorage {
     }
 
     pub async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError> {
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT config_value FROM push_config WHERE config_key = $1"
-        )
-        .bind(config_key)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get config: {}", e)))?;
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT config_value FROM push_config WHERE config_key = $1")
+                .bind(config_key)
+                .fetch_optional(&*self.pool)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get config: {}", e)))?;
 
         Ok(row.map(|r| r.0))
     }
 
-    pub async fn get_config_as_bool(&self, config_key: &str, default: bool) -> Result<bool, ApiError> {
+    pub async fn get_config_as_bool(
+        &self,
+        config_key: &str,
+        default: bool,
+    ) -> Result<bool, ApiError> {
         let value = self.get_config(config_key).await?;
-        
+
         Ok(match value {
             Some(v) => v.to_lowercase() == "true",
             None => default,
@@ -531,7 +575,7 @@ impl PushNotificationStorage {
 
     pub async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError> {
         let value = self.get_config(config_key).await?;
-        
+
         Ok(match value {
             Some(v) => v.parse().unwrap_or(default),
             None => default,
@@ -540,16 +584,17 @@ impl PushNotificationStorage {
 
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
         let cutoff = Utc::now() - chrono::Duration::days(days as i64);
-        
-        let result = sqlx::query(
-            "DELETE FROM push_notification_log WHERE sent_at < $1"
-        )
-        .bind(cutoff)
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to cleanup logs: {}", e)))?;
 
-        info!("Cleaned up {} old notification logs", result.rows_affected());
+        let result = sqlx::query("DELETE FROM push_notification_log WHERE sent_at < $1")
+            .bind(cutoff)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to cleanup logs: {}", e)))?;
+
+        info!(
+            "Cleaned up {} old notification logs",
+            result.rows_affected()
+        );
         Ok(result.rows_affected())
     }
 }

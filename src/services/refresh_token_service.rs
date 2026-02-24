@@ -1,9 +1,9 @@
 use crate::common::ApiError;
 use crate::storage::refresh_token::*;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use tracing::{info, warn, instrument};
-use sha2::{Sha256, Digest};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use tracing::{info, instrument, warn};
 
 pub struct RefreshTokenService {
     storage: Arc<RefreshTokenStorage>,
@@ -12,7 +12,10 @@ pub struct RefreshTokenService {
 
 impl RefreshTokenService {
     pub fn new(storage: Arc<RefreshTokenStorage>, default_expiry_ms: i64) -> Self {
-        Self { storage, default_expiry_ms }
+        Self {
+            storage,
+            default_expiry_ms,
+        }
     }
 
     pub fn hash_token(token: &str) -> String {
@@ -37,11 +40,16 @@ impl RefreshTokenService {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_token(&self, request: CreateRefreshTokenRequest) -> Result<RefreshToken, ApiError> {
+    pub async fn create_token(
+        &self,
+        request: CreateRefreshTokenRequest,
+    ) -> Result<RefreshToken, ApiError> {
         info!("Creating refresh token for user: {}", request.user_id);
 
-        let token = self.storage.create_token(request).await
-            .map_err(|e| ApiError::internal(format!("Failed to create refresh token: {}", e)))?;
+        let token =
+            self.storage.create_token(request).await.map_err(|e| {
+                ApiError::internal(format!("Failed to create refresh token: {}", e))
+            })?;
 
         Ok(token)
     }
@@ -50,14 +58,20 @@ impl RefreshTokenService {
     pub async fn validate_token(&self, token: &str) -> Result<RefreshToken, ApiError> {
         let token_hash = Self::hash_token(token);
 
-        let is_blacklisted = self.storage.is_blacklisted(&token_hash).await
+        let is_blacklisted = self
+            .storage
+            .is_blacklisted(&token_hash)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to check blacklist: {}", e)))?;
 
         if is_blacklisted {
             return Err(ApiError::unauthorized("Token has been revoked"));
         }
 
-        let token_record = self.storage.get_token(&token_hash).await
+        let token_record = self
+            .storage
+            .get_token(&token_hash)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get token: {}", e)))?
             .ok_or_else(|| ApiError::unauthorized("Invalid refresh token"))?;
 
@@ -92,76 +106,106 @@ impl RefreshTokenService {
         let old_token_hash = Self::hash_token(refresh_token);
 
         let family_id = match self.storage.get_rotations(&old_token.user_id).await {
-            Ok(rotations) if !rotations.is_empty() => {
-                rotations[0].family_id.clone()
-            }
+            Ok(rotations) if !rotations.is_empty() => rotations[0].family_id.clone(),
             _ => {
                 let family_id = Self::generate_family_id();
-                if let Err(e) = self.storage.create_family(&family_id, &old_token.user_id, old_token.device_id.as_deref()).await {
+                if let Err(e) = self
+                    .storage
+                    .create_family(
+                        &family_id,
+                        &old_token.user_id,
+                        old_token.device_id.as_deref(),
+                    )
+                    .await
+                {
                     warn!("Failed to create token family: {}", e);
                 }
                 family_id
             }
         };
 
-        let rotations = self.storage.get_rotations(&family_id).await.unwrap_or_default();
+        let rotations = self
+            .storage
+            .get_rotations(&family_id)
+            .await
+            .unwrap_or_default();
         if let Some(last_rotation) = rotations.first() {
             if last_rotation.new_token_hash != old_token_hash {
-                warn!("Potential token replay attack detected for user: {}", old_token.user_id);
-                
-                self.storage.mark_family_compromised(&family_id).await
-                    .map_err(|e| ApiError::internal(format!("Failed to mark family compromised: {}", e)))?;
+                warn!(
+                    "Potential token replay attack detected for user: {}",
+                    old_token.user_id
+                );
 
-                self.storage.revoke_all_user_tokens(&old_token.user_id, "Potential token replay attack").await
+                self.storage
+                    .mark_family_compromised(&family_id)
+                    .await
+                    .map_err(|e| {
+                        ApiError::internal(format!("Failed to mark family compromised: {}", e))
+                    })?;
+
+                self.storage
+                    .revoke_all_user_tokens(&old_token.user_id, "Potential token replay attack")
+                    .await
                     .map_err(|e| ApiError::internal(format!("Failed to revoke tokens: {}", e)))?;
 
-                return Err(ApiError::unauthorized("Token reuse detected. All tokens revoked."));
+                return Err(ApiError::unauthorized(
+                    "Token reuse detected. All tokens revoked.",
+                ));
             }
         }
 
-        self.storage.revoke_token(&old_token_hash, "Rotated").await
+        self.storage
+            .revoke_token(&old_token_hash, "Rotated")
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to revoke old token: {}", e)))?;
 
-        let new_token_record = self.storage.create_token(CreateRefreshTokenRequest {
-            token_hash: new_token_hash.clone(),
-            user_id: old_token.user_id.clone(),
-            device_id: old_token.device_id.clone(),
-            access_token_id: Some(new_access_token_id.to_string()),
-            scope: old_token.scope.clone(),
-            expires_at: chrono::Utc::now().timestamp_millis() + self.default_expiry_ms,
-            client_info: old_token.client_info.clone(),
-            ip_address: ip_address.map(|s| s.to_string()),
-            user_agent: user_agent.map(|s| s.to_string()),
-        }).await.map_err(|e| ApiError::internal(format!("Failed to create new token: {}", e)))?;
+        let new_token_record = self
+            .storage
+            .create_token(CreateRefreshTokenRequest {
+                token_hash: new_token_hash.clone(),
+                user_id: old_token.user_id.clone(),
+                device_id: old_token.device_id.clone(),
+                access_token_id: Some(new_access_token_id.to_string()),
+                scope: old_token.scope.clone(),
+                expires_at: chrono::Utc::now().timestamp_millis() + self.default_expiry_ms,
+                client_info: old_token.client_info.clone(),
+                ip_address: ip_address.map(|s| s.to_string()),
+                user_agent: user_agent.map(|s| s.to_string()),
+            })
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to create new token: {}", e)))?;
 
-        self.storage.record_rotation(&family_id, Some(&old_token_hash), &new_token_hash, "refresh").await
+        self.storage
+            .record_rotation(
+                &family_id,
+                Some(&old_token_hash),
+                &new_token_hash,
+                "refresh",
+            )
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to record rotation: {}", e)))?;
 
-        let usage_request = RecordUsageRequest::new(
-            old_token.id,
-            &old_token.user_id,
-            new_access_token_id,
-            true,
-        );
-        
+        let usage_request =
+            RecordUsageRequest::new(old_token.id, &old_token.user_id, new_access_token_id, true);
+
         let usage_request = if let Some(old_at) = &old_token.access_token_id {
             usage_request.old_access_token_id(old_at)
         } else {
             usage_request
         };
-        
+
         let usage_request = if let Some(ip) = ip_address {
             usage_request.ip_address(ip)
         } else {
             usage_request
         };
-        
+
         let usage_request = if let Some(ua) = user_agent {
             usage_request.user_agent(ua)
         } else {
             usage_request
         };
-        
+
         self.storage.record_usage(&usage_request).await.ok();
 
         Ok((new_refresh_token, new_token_record))
@@ -171,7 +215,9 @@ impl RefreshTokenService {
     pub async fn revoke_token(&self, token: &str, reason: &str) -> Result<(), ApiError> {
         let token_hash = Self::hash_token(token);
 
-        self.storage.revoke_token(&token_hash, reason).await
+        self.storage
+            .revoke_token(&token_hash, reason)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to revoke token: {}", e)))?;
 
         info!("Token revoked: {}", token_hash);
@@ -181,7 +227,9 @@ impl RefreshTokenService {
 
     #[instrument(skip(self))]
     pub async fn revoke_token_by_id(&self, id: i64, reason: &str) -> Result<(), ApiError> {
-        self.storage.revoke_token_by_id(id, reason).await
+        self.storage
+            .revoke_token_by_id(id, reason)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to revoke token: {}", e)))?;
 
         info!("Token revoked by id: {}", id);
@@ -190,10 +238,17 @@ impl RefreshTokenService {
     }
 
     #[instrument(skip(self))]
-    pub async fn revoke_all_user_tokens(&self, user_id: &str, reason: &str) -> Result<i64, ApiError> {
+    pub async fn revoke_all_user_tokens(
+        &self,
+        user_id: &str,
+        reason: &str,
+    ) -> Result<i64, ApiError> {
         info!("Revoking all tokens for user: {}", user_id);
 
-        let count = self.storage.revoke_all_user_tokens(user_id, reason).await
+        let count = self
+            .storage
+            .revoke_all_user_tokens(user_id, reason)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to revoke tokens: {}", e)))?;
 
         Ok(count)
@@ -201,7 +256,10 @@ impl RefreshTokenService {
 
     #[instrument(skip(self))]
     pub async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, ApiError> {
-        let tokens = self.storage.get_user_tokens(user_id).await
+        let tokens = self
+            .storage
+            .get_user_tokens(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get tokens: {}", e)))?;
 
         Ok(tokens)
@@ -209,33 +267,58 @@ impl RefreshTokenService {
 
     #[instrument(skip(self))]
     pub async fn get_active_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, ApiError> {
-        let tokens = self.storage.get_active_tokens(user_id).await
+        let tokens = self
+            .storage
+            .get_active_tokens(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get active tokens: {}", e)))?;
 
         Ok(tokens)
     }
 
     #[instrument(skip(self))]
-    pub async fn get_user_stats(&self, user_id: &str) -> Result<Option<RefreshTokenStats>, ApiError> {
-        let stats = self.storage.get_user_stats(user_id).await
+    pub async fn get_user_stats(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<RefreshTokenStats>, ApiError> {
+        let stats = self
+            .storage
+            .get_user_stats(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get stats: {}", e)))?;
 
         Ok(stats)
     }
 
     #[instrument(skip(self))]
-    pub async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, ApiError> {
-        let history = self.storage.get_usage_history(user_id, limit).await
+    pub async fn get_usage_history(
+        &self,
+        user_id: &str,
+        limit: i64,
+    ) -> Result<Vec<RefreshTokenUsage>, ApiError> {
+        let history = self
+            .storage
+            .get_usage_history(user_id, limit)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get usage history: {}", e)))?;
 
         Ok(history)
     }
 
     #[instrument(skip(self))]
-    pub async fn add_to_blacklist(&self, token: &str, token_type: &str, user_id: &str, expires_at: i64, reason: Option<&str>) -> Result<(), ApiError> {
+    pub async fn add_to_blacklist(
+        &self,
+        token: &str,
+        token_type: &str,
+        user_id: &str,
+        expires_at: i64,
+        reason: Option<&str>,
+    ) -> Result<(), ApiError> {
         let token_hash = Self::hash_token(token);
 
-        self.storage.add_to_blacklist(&token_hash, token_type, user_id, expires_at, reason).await
+        self.storage
+            .add_to_blacklist(&token_hash, token_type, user_id, expires_at, reason)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to add to blacklist: {}", e)))?;
 
         Ok(())
@@ -245,13 +328,22 @@ impl RefreshTokenService {
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, ApiError> {
         info!("Cleaning up expired tokens");
 
-        let count = self.storage.cleanup_expired_tokens().await
+        let count = self
+            .storage
+            .cleanup_expired_tokens()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to cleanup tokens: {}", e)))?;
 
-        let blacklist_count = self.storage.cleanup_blacklist().await
+        let blacklist_count = self
+            .storage
+            .cleanup_blacklist()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to cleanup blacklist: {}", e)))?;
 
-        info!("Cleaned up {} expired tokens and {} blacklist entries", count, blacklist_count);
+        info!(
+            "Cleaned up {} expired tokens and {} blacklist entries",
+            count, blacklist_count
+        );
 
         Ok(count)
     }
@@ -260,7 +352,9 @@ impl RefreshTokenService {
     pub async fn delete_token(&self, token: &str) -> Result<(), ApiError> {
         let token_hash = Self::hash_token(token);
 
-        self.storage.delete_token(&token_hash).await
+        self.storage
+            .delete_token(&token_hash)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to delete token: {}", e)))?;
 
         Ok(())

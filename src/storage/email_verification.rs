@@ -125,7 +125,7 @@ impl EmailVerificationStorage {
         email: &str,
     ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        
+
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
             r#"
             SELECT id, user_id, email, token, expires_ts, created_ts, used, session_data
@@ -165,7 +165,7 @@ mod tests {
             used: false,
             session_data: None,
         };
-        
+
         assert_eq!(token.id, 1);
         assert_eq!(token.email, "test@example.com");
         assert!(!token.used);

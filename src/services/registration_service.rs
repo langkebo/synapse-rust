@@ -1,6 +1,6 @@
+use crate::common::background_job::BackgroundJob;
 use crate::common::metrics::MetricsCollector;
 use crate::common::task_queue::RedisTaskQueue;
-use crate::common::background_job::BackgroundJob;
 use crate::common::*;
 use crate::services::*;
 use std::sync::Arc;
@@ -82,9 +82,12 @@ impl RegistrationService {
             let email_job = BackgroundJob::SendEmail {
                 to: user.user_id.clone(), // Assuming user_id can be an email or we look it up
                 subject: "Welcome to Synapse!".to_string(),
-                body: format!("Hello {}, welcome to our Matrix server!", displayname.unwrap_or(username)),
+                body: format!(
+                    "Hello {}, welcome to our Matrix server!",
+                    displayname.unwrap_or(username)
+                ),
             };
-            
+
             if let Err(e) = queue.submit(email_job).await {
                 ::tracing::warn!("Failed to submit welcome email task: {}", e);
                 // Non-blocking error, continue

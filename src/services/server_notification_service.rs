@@ -13,13 +13,19 @@ impl ServerNotificationService {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_notification(&self, request: CreateNotificationRequest) -> Result<ServerNotification, ApiError> {
+    pub async fn create_notification(
+        &self,
+        request: CreateNotificationRequest,
+    ) -> Result<ServerNotification, ApiError> {
         info!("Creating notification: {}", request.title);
         self.storage.create_notification(request).await
     }
 
     #[instrument(skip(self))]
-    pub async fn get_notification(&self, notification_id: i32) -> Result<Option<ServerNotification>, ApiError> {
+    pub async fn get_notification(
+        &self,
+        notification_id: i32,
+    ) -> Result<Option<ServerNotification>, ApiError> {
         self.storage.get_notification(notification_id).await
     }
 
@@ -29,14 +35,24 @@ impl ServerNotificationService {
     }
 
     #[instrument(skip(self))]
-    pub async fn list_all_notifications(&self, limit: i64, offset: i64) -> Result<Vec<ServerNotification>, ApiError> {
+    pub async fn list_all_notifications(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ServerNotification>, ApiError> {
         self.storage.list_all_notifications(limit, offset).await
     }
 
     #[instrument(skip(self))]
-    pub async fn update_notification(&self, notification_id: i32, request: CreateNotificationRequest) -> Result<ServerNotification, ApiError> {
+    pub async fn update_notification(
+        &self,
+        notification_id: i32,
+        request: CreateNotificationRequest,
+    ) -> Result<ServerNotification, ApiError> {
         info!("Updating notification: {}", notification_id);
-        self.storage.update_notification(notification_id, request).await
+        self.storage
+            .update_notification(notification_id, request)
+            .await
     }
 
     #[instrument(skip(self))]
@@ -52,20 +68,39 @@ impl ServerNotificationService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_user_notifications(&self, user_id: &str) -> Result<Vec<NotificationWithStatus>, ApiError> {
+    pub async fn get_user_notifications(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<NotificationWithStatus>, ApiError> {
         self.storage.get_user_notifications(user_id).await
     }
 
     #[instrument(skip(self))]
-    pub async fn mark_as_read(&self, user_id: &str, notification_id: i32) -> Result<bool, ApiError> {
-        info!("Marking notification {} as read for user {}", notification_id, user_id);
+    pub async fn mark_as_read(
+        &self,
+        user_id: &str,
+        notification_id: i32,
+    ) -> Result<bool, ApiError> {
+        info!(
+            "Marking notification {} as read for user {}",
+            notification_id, user_id
+        );
         self.storage.mark_as_read(user_id, notification_id).await
     }
 
     #[instrument(skip(self))]
-    pub async fn mark_as_dismissed(&self, user_id: &str, notification_id: i32) -> Result<bool, ApiError> {
-        info!("Dismissing notification {} for user {}", notification_id, user_id);
-        self.storage.mark_as_dismissed(user_id, notification_id).await
+    pub async fn mark_as_dismissed(
+        &self,
+        user_id: &str,
+        notification_id: i32,
+    ) -> Result<bool, ApiError> {
+        info!(
+            "Dismissing notification {} for user {}",
+            notification_id, user_id
+        );
+        self.storage
+            .mark_as_dismissed(user_id, notification_id)
+            .await
     }
 
     #[instrument(skip(self))]
@@ -75,7 +110,10 @@ impl ServerNotificationService {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_template(&self, request: CreateTemplateRequest) -> Result<NotificationTemplate, ApiError> {
+    pub async fn create_template(
+        &self,
+        request: CreateTemplateRequest,
+    ) -> Result<NotificationTemplate, ApiError> {
         info!("Creating notification template: {}", request.name);
         self.storage.create_template(request).await
     }
@@ -104,7 +142,10 @@ impl ServerNotificationService {
         target_audience: Option<String>,
         target_user_ids: Option<Vec<String>>,
     ) -> Result<ServerNotification, ApiError> {
-        let template = self.storage.get_template(template_name).await?
+        let template = self
+            .storage
+            .get_template(template_name)
+            .await?
             .ok_or_else(|| ApiError::not_found("Template not found"))?;
 
         let mut title = template.title_template.clone();
@@ -140,8 +181,13 @@ impl ServerNotificationService {
         notification_id: i32,
         scheduled_for: i64,
     ) -> Result<ScheduledNotification, ApiError> {
-        info!("Scheduling notification {} for {}", notification_id, scheduled_for);
-        self.storage.schedule_notification(notification_id, scheduled_for).await
+        info!(
+            "Scheduling notification {} for {}",
+            notification_id, scheduled_for
+        );
+        self.storage
+            .schedule_notification(notification_id, scheduled_for)
+            .await
     }
 
     #[instrument(skip(self))]
@@ -150,7 +196,11 @@ impl ServerNotificationService {
         let mut processed = 0i64;
 
         for scheduled in pending {
-            if let Some(_notification) = self.storage.get_notification(scheduled.notification_id).await? {
+            if let Some(_notification) = self
+                .storage
+                .get_notification(scheduled.notification_id)
+                .await?
+            {
                 self.storage.mark_scheduled_sent(scheduled.id).await?;
                 processed += 1;
             }
@@ -165,15 +215,14 @@ impl ServerNotificationService {
         notification_id: i32,
         delivery_method: &str,
     ) -> Result<(), ApiError> {
-        info!("Broadcasting notification {} via {}", notification_id, delivery_method);
-        
-        self.storage.log_delivery(
-            notification_id,
-            None,
-            delivery_method,
-            "broadcast",
-            None,
-        ).await?;
+        info!(
+            "Broadcasting notification {} via {}",
+            notification_id, delivery_method
+        );
+
+        self.storage
+            .log_delivery(notification_id, None, delivery_method, "broadcast", None)
+            .await?;
 
         Ok(())
     }

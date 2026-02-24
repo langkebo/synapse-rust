@@ -241,7 +241,7 @@ impl AuthService {
     async fn is_account_locked(&self, user_id: &str) -> ApiResult<bool> {
         let key = format!("auth:lockout:{}", user_id);
         let lockout_until: Option<i64> = self.cache.get(&key).await?;
-        
+
         if let Some(timestamp) = lockout_until {
             if timestamp > Utc::now().timestamp() {
                 return Ok(true);
@@ -254,14 +254,24 @@ impl AuthService {
     async fn record_login_failure(&self, user_id: &str) -> ApiResult<()> {
         let key = format!("auth:failures:{}", user_id);
         let failures: i64 = self.cache.get(&key).await?.unwrap_or(0) + 1;
-        
-        let _ = self.cache.set(&key, &failures, self.login_lockout_duration_seconds).await;
-        
+
+        let _ = self
+            .cache
+            .set(&key, &failures, self.login_lockout_duration_seconds)
+            .await;
+
         if failures >= self.login_failure_lockout_threshold as i64 {
             let lockout_until = Utc::now().timestamp() + self.login_lockout_duration_seconds as i64;
             let lockout_key = format!("auth:lockout:{}", user_id);
-            let _ = self.cache.set(&lockout_key, &lockout_until, self.login_lockout_duration_seconds).await;
-            
+            let _ = self
+                .cache
+                .set(
+                    &lockout_key,
+                    &lockout_until,
+                    self.login_lockout_duration_seconds,
+                )
+                .await;
+
             ::tracing::warn!(
                 target: "security_audit",
                 event = "account_locked",
@@ -271,7 +281,7 @@ impl AuthService {
                 "Account locked due to too many failed login attempts"
             );
         }
-        
+
         Ok(())
     }
 

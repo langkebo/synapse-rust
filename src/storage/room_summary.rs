@@ -160,7 +160,10 @@ impl RoomSummaryStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_summary(&self, request: CreateRoomSummaryRequest) -> Result<RoomSummary, sqlx::Error> {
+    pub async fn create_summary(
+        &self,
+        request: CreateRoomSummaryRequest,
+    ) -> Result<RoomSummary, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummary>(
@@ -182,8 +185,16 @@ impl RoomSummaryStorage {
         .bind(&request.avatar_url)
         .bind(&request.canonical_alias)
         .bind(request.join_rules.unwrap_or_else(|| "invite".to_string()))
-        .bind(request.history_visibility.unwrap_or_else(|| "shared".to_string()))
-        .bind(request.guest_access.unwrap_or_else(|| "forbidden".to_string()))
+        .bind(
+            request
+                .history_visibility
+                .unwrap_or_else(|| "shared".to_string()),
+        )
+        .bind(
+            request
+                .guest_access
+                .unwrap_or_else(|| "forbidden".to_string()),
+        )
         .bind(request.is_direct.unwrap_or(false))
         .bind(request.is_space.unwrap_or(false))
         .bind(now)
@@ -195,17 +206,20 @@ impl RoomSummaryStorage {
     }
 
     pub async fn get_summary(&self, room_id: &str) -> Result<Option<RoomSummary>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RoomSummary>(
-            "SELECT * FROM room_summaries WHERE room_id = $1",
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let row =
+            sqlx::query_as::<_, RoomSummary>("SELECT * FROM room_summaries WHERE room_id = $1")
+                .bind(room_id)
+                .fetch_optional(&*self.pool)
+                .await?;
 
         Ok(row)
     }
 
-    pub async fn update_summary(&self, room_id: &str, request: UpdateRoomSummaryRequest) -> Result<RoomSummary, sqlx::Error> {
+    pub async fn update_summary(
+        &self,
+        room_id: &str,
+        request: UpdateRoomSummaryRequest,
+    ) -> Result<RoomSummary, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomSummary>(
             r#"
             UPDATE room_summaries SET
@@ -257,7 +271,10 @@ impl RoomSummaryStorage {
         Ok(())
     }
 
-    pub async fn get_summaries_by_ids(&self, room_ids: &[String]) -> Result<Vec<RoomSummary>, sqlx::Error> {
+    pub async fn get_summaries_by_ids(
+        &self,
+        room_ids: &[String],
+    ) -> Result<Vec<RoomSummary>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummary>(
             "SELECT * FROM room_summaries WHERE room_id = ANY($1)",
         )
@@ -268,7 +285,10 @@ impl RoomSummaryStorage {
         Ok(rows)
     }
 
-    pub async fn get_summaries_for_user(&self, user_id: &str) -> Result<Vec<RoomSummary>, sqlx::Error> {
+    pub async fn get_summaries_for_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<RoomSummary>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummary>(
             r#"
             SELECT rs.* FROM room_summaries rs
@@ -284,7 +304,10 @@ impl RoomSummaryStorage {
         Ok(rows)
     }
 
-    pub async fn add_member(&self, request: CreateSummaryMemberRequest) -> Result<RoomSummaryMember, sqlx::Error> {
+    pub async fn add_member(
+        &self,
+        request: CreateSummaryMemberRequest,
+    ) -> Result<RoomSummaryMember, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummaryMember>(
@@ -316,7 +339,12 @@ impl RoomSummaryStorage {
         Ok(row)
     }
 
-    pub async fn update_member(&self, room_id: &str, user_id: &str, request: UpdateSummaryMemberRequest) -> Result<RoomSummaryMember, sqlx::Error> {
+    pub async fn update_member(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        request: UpdateSummaryMemberRequest,
+    ) -> Result<RoomSummaryMember, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomSummaryMember>(
             r#"
             UPDATE room_summary_members SET
@@ -363,7 +391,11 @@ impl RoomSummaryStorage {
         Ok(rows)
     }
 
-    pub async fn get_heroes(&self, room_id: &str, limit: i64) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
+    pub async fn get_heroes(
+        &self,
+        room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummaryMember>(
             r#"
             SELECT * FROM room_summary_members 
@@ -380,7 +412,14 @@ impl RoomSummaryStorage {
         Ok(rows)
     }
 
-    pub async fn set_state(&self, room_id: &str, event_type: &str, state_key: &str, event_id: Option<&str>, content: serde_json::Value) -> Result<RoomSummaryState, sqlx::Error> {
+    pub async fn set_state(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        state_key: &str,
+        event_id: Option<&str>,
+        content: serde_json::Value,
+    ) -> Result<RoomSummaryState, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummaryState>(
@@ -406,7 +445,12 @@ impl RoomSummaryStorage {
         Ok(row)
     }
 
-    pub async fn get_state(&self, room_id: &str, event_type: &str, state_key: &str) -> Result<Option<RoomSummaryState>, sqlx::Error> {
+    pub async fn get_state(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        state_key: &str,
+    ) -> Result<Option<RoomSummaryState>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomSummaryState>(
             "SELECT * FROM room_summary_state WHERE room_id = $1 AND event_type = $2 AND state_key = $3",
         )
@@ -441,7 +485,15 @@ impl RoomSummaryStorage {
         Ok(row)
     }
 
-    pub async fn update_stats(&self, room_id: &str, total_events: i64, total_state_events: i64, total_messages: i64, total_media: i64, storage_size: i64) -> Result<RoomSummaryStats, sqlx::Error> {
+    pub async fn update_stats(
+        &self,
+        room_id: &str,
+        total_events: i64,
+        total_state_events: i64,
+        total_messages: i64,
+        total_media: i64,
+        storage_size: i64,
+    ) -> Result<RoomSummaryStats, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummaryStats>(
@@ -471,7 +523,14 @@ impl RoomSummaryStorage {
         Ok(row)
     }
 
-    pub async fn queue_update(&self, room_id: &str, event_id: &str, event_type: &str, state_key: Option<&str>, priority: i32) -> Result<(), sqlx::Error> {
+    pub async fn queue_update(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        event_type: &str,
+        state_key: Option<&str>,
+        priority: i32,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -492,7 +551,10 @@ impl RoomSummaryStorage {
         Ok(())
     }
 
-    pub async fn get_pending_updates(&self, limit: i64) -> Result<Vec<RoomSummaryUpdateQueueItem>, sqlx::Error> {
+    pub async fn get_pending_updates(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<RoomSummaryUpdateQueueItem>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummaryUpdateQueueItem>(
             r#"
             SELECT * FROM room_summary_update_queue
@@ -541,7 +603,11 @@ impl RoomSummaryStorage {
         Ok(())
     }
 
-    pub async fn increment_unread_notifications(&self, room_id: &str, highlight: bool) -> Result<(), sqlx::Error> {
+    pub async fn increment_unread_notifications(
+        &self,
+        room_id: &str,
+        highlight: bool,
+    ) -> Result<(), sqlx::Error> {
         if highlight {
             sqlx::query(
                 "UPDATE room_summaries SET unread_notifications = unread_notifications + 1, unread_highlight = unread_highlight + 1 WHERE room_id = $1",

@@ -18,7 +18,10 @@ impl MediaQuotaService {
         user_id: &str,
         file_size: i64,
     ) -> Result<QuotaCheckResult, ApiError> {
-        info!("Checking upload quota for user: {}, size: {}", user_id, file_size);
+        info!(
+            "Checking upload quota for user: {}, size: {}",
+            user_id, file_size
+        );
 
         let server_quota = self.storage.get_server_quota().await?;
         if server_quota.max_file_size_bytes > 0 && file_size > server_quota.max_file_size_bytes {
@@ -42,7 +45,9 @@ impl MediaQuotaService {
                     reason: Some("Server storage quota exceeded".to_string()),
                     current_usage: server_quota.current_storage_bytes,
                     quota_limit: server_quota.max_storage_bytes,
-                    usage_percent: (server_quota.current_storage_bytes as f64 / server_quota.max_storage_bytes as f64) * 100.0,
+                    usage_percent: (server_quota.current_storage_bytes as f64
+                        / server_quota.max_storage_bytes as f64)
+                        * 100.0,
                 });
             }
         }
@@ -50,14 +55,17 @@ impl MediaQuotaService {
         let result = self.storage.check_quota(user_id, file_size).await?;
 
         if result.usage_percent >= 80.0 && result.usage_percent < 100.0 {
-            let _ = self.storage.create_alert(
-                user_id,
-                "warning",
-                80,
-                result.current_usage,
-                result.quota_limit,
-                Some("You are approaching your storage quota limit"),
-            ).await;
+            let _ = self
+                .storage
+                .create_alert(
+                    user_id,
+                    "warning",
+                    80,
+                    result.current_usage,
+                    result.quota_limit,
+                    Some("You are approaching your storage quota limit"),
+                )
+                .await;
         }
 
         Ok(result)
@@ -71,15 +79,20 @@ impl MediaQuotaService {
         file_size: i64,
         mime_type: Option<&str>,
     ) -> Result<(), ApiError> {
-        info!("Recording upload for user: {}, media: {}", user_id, media_id);
+        info!(
+            "Recording upload for user: {}, media: {}",
+            user_id, media_id
+        );
 
-        self.storage.update_usage(UpdateUsageRequest {
-            user_id: user_id.to_string(),
-            media_id: media_id.to_string(),
-            file_size_bytes: file_size,
-            mime_type: mime_type.map(|s| s.to_string()),
-            operation: "upload".to_string(),
-        }).await
+        self.storage
+            .update_usage(UpdateUsageRequest {
+                user_id: user_id.to_string(),
+                media_id: media_id.to_string(),
+                file_size_bytes: file_size,
+                mime_type: mime_type.map(|s| s.to_string()),
+                operation: "upload".to_string(),
+            })
+            .await
     }
 
     #[instrument(skip(self))]
@@ -89,15 +102,20 @@ impl MediaQuotaService {
         media_id: &str,
         file_size: i64,
     ) -> Result<(), ApiError> {
-        info!("Recording delete for user: {}, media: {}", user_id, media_id);
+        info!(
+            "Recording delete for user: {}, media: {}",
+            user_id, media_id
+        );
 
-        self.storage.update_usage(UpdateUsageRequest {
-            user_id: user_id.to_string(),
-            media_id: media_id.to_string(),
-            file_size_bytes: file_size,
-            mime_type: None,
-            operation: "delete".to_string(),
-        }).await
+        self.storage
+            .update_usage(UpdateUsageRequest {
+                user_id: user_id.to_string(),
+                media_id: media_id.to_string(),
+                file_size_bytes: file_size,
+                mime_type: None,
+                operation: "delete".to_string(),
+            })
+            .await
     }
 
     #[instrument(skip(self))]
@@ -109,15 +127,18 @@ impl MediaQuotaService {
             self.storage.get_default_config().await?
         };
 
-        let max_storage = user_quota.custom_max_storage_bytes
+        let max_storage = user_quota
+            .custom_max_storage_bytes
             .or(config.as_ref().map(|c| c.max_storage_bytes))
             .unwrap_or(0);
 
-        let max_file_size = user_quota.custom_max_file_size_bytes
+        let max_file_size = user_quota
+            .custom_max_file_size_bytes
             .or(config.as_ref().map(|c| c.max_file_size_bytes))
             .unwrap_or(0);
 
-        let max_files = user_quota.custom_max_files_count
+        let max_files = user_quota
+            .custom_max_files_count
             .or(config.as_ref().map(|c| c.max_files_count))
             .unwrap_or(0);
 
@@ -138,13 +159,19 @@ impl MediaQuotaService {
     }
 
     #[instrument(skip(self))]
-    pub async fn set_user_quota(&self, request: SetUserQuotaRequest) -> Result<UserMediaQuota, ApiError> {
+    pub async fn set_user_quota(
+        &self,
+        request: SetUserQuotaRequest,
+    ) -> Result<UserMediaQuota, ApiError> {
         info!("Setting user quota for: {}", request.user_id);
         self.storage.set_user_quota(request).await
     }
 
     #[instrument(skip(self))]
-    pub async fn create_quota_config(&self, request: CreateQuotaConfigRequest) -> Result<MediaQuotaConfig, ApiError> {
+    pub async fn create_quota_config(
+        &self,
+        request: CreateQuotaConfigRequest,
+    ) -> Result<MediaQuotaConfig, ApiError> {
         info!("Creating quota config: {}", request.name);
         self.storage.create_config(request).await
     }
@@ -174,16 +201,22 @@ impl MediaQuotaService {
         alert_threshold_percent: Option<i32>,
     ) -> Result<ServerMediaQuota, ApiError> {
         info!("Updating server quota");
-        self.storage.update_server_quota(
-            max_storage_bytes,
-            max_file_size_bytes,
-            max_files_count,
-            alert_threshold_percent,
-        ).await
+        self.storage
+            .update_server_quota(
+                max_storage_bytes,
+                max_file_size_bytes,
+                max_files_count,
+                alert_threshold_percent,
+            )
+            .await
     }
 
     #[instrument(skip(self))]
-    pub async fn get_user_alerts(&self, user_id: &str, unread_only: bool) -> Result<Vec<MediaQuotaAlert>, ApiError> {
+    pub async fn get_user_alerts(
+        &self,
+        user_id: &str,
+        unread_only: bool,
+    ) -> Result<Vec<MediaQuotaAlert>, ApiError> {
         self.storage.get_user_alerts(user_id, unread_only).await
     }
 

@@ -1,7 +1,7 @@
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Row};
 use std::sync::Arc;
-use chrono::Utc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ApplicationService {
@@ -278,25 +278,31 @@ impl ApplicationServiceStorage {
 
     pub async fn get_by_id(&self, as_id: &str) -> Result<Option<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
-            r#"SELECT * FROM application_services WHERE as_id = $1"#
+            r#"SELECT * FROM application_services WHERE as_id = $1"#,
         )
         .bind(as_id)
         .fetch_optional(&*self.pool)
         .await
     }
 
-    pub async fn get_by_token(&self, as_token: &str) -> Result<Option<ApplicationService>, sqlx::Error> {
+    pub async fn get_by_token(
+        &self,
+        as_token: &str,
+    ) -> Result<Option<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
-            r#"SELECT * FROM application_services WHERE as_token = $1 AND is_enabled = TRUE"#
+            r#"SELECT * FROM application_services WHERE as_token = $1 AND is_enabled = TRUE"#,
         )
         .bind(as_token)
         .fetch_optional(&*self.pool)
         .await
     }
 
-    pub async fn get_by_hs_token(&self, hs_token: &str) -> Result<Option<ApplicationService>, sqlx::Error> {
+    pub async fn get_by_hs_token(
+        &self,
+        hs_token: &str,
+    ) -> Result<Option<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
-            r#"SELECT * FROM application_services WHERE hs_token = $1 AND is_enabled = TRUE"#
+            r#"SELECT * FROM application_services WHERE hs_token = $1 AND is_enabled = TRUE"#,
         )
         .bind(hs_token)
         .fetch_optional(&*self.pool)
@@ -383,9 +389,13 @@ impl ApplicationServiceStorage {
         .await
     }
 
-    pub async fn get_state(&self, as_id: &str, state_key: &str) -> Result<Option<ApplicationServiceState>, sqlx::Error> {
+    pub async fn get_state(
+        &self,
+        as_id: &str,
+        state_key: &str,
+    ) -> Result<Option<ApplicationServiceState>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceState>(
-            r#"SELECT * FROM application_service_state WHERE as_id = $1 AND state_key = $2"#
+            r#"SELECT * FROM application_service_state WHERE as_id = $1 AND state_key = $2"#,
         )
         .bind(as_id)
         .bind(state_key)
@@ -393,9 +403,12 @@ impl ApplicationServiceStorage {
         .await
     }
 
-    pub async fn get_all_states(&self, as_id: &str) -> Result<Vec<ApplicationServiceState>, sqlx::Error> {
+    pub async fn get_all_states(
+        &self,
+        as_id: &str,
+    ) -> Result<Vec<ApplicationServiceState>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceState>(
-            r#"SELECT * FROM application_service_state WHERE as_id = $1"#
+            r#"SELECT * FROM application_service_state WHERE as_id = $1"#,
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
@@ -435,7 +448,11 @@ impl ApplicationServiceStorage {
         .await
     }
 
-    pub async fn get_pending_events(&self, as_id: &str, limit: i64) -> Result<Vec<ApplicationServiceEvent>, sqlx::Error> {
+    pub async fn get_pending_events(
+        &self,
+        as_id: &str,
+        limit: i64,
+    ) -> Result<Vec<ApplicationServiceEvent>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceEvent>(
             r#"SELECT * FROM application_service_events WHERE as_id = $1 AND processed_ts IS NULL ORDER BY origin_server_ts ASC LIMIT $2"#
         )
@@ -445,7 +462,11 @@ impl ApplicationServiceStorage {
         .await
     }
 
-    pub async fn mark_event_processed(&self, event_id: &str, transaction_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn mark_event_processed(
+        &self,
+        event_id: &str,
+        transaction_id: &str,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query(
             r#"UPDATE application_service_events SET processed_ts = $2, transaction_id = $3 WHERE event_id = $1"#
@@ -480,7 +501,11 @@ impl ApplicationServiceStorage {
         .await
     }
 
-    pub async fn complete_transaction(&self, as_id: &str, transaction_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn complete_transaction(
+        &self,
+        as_id: &str,
+        transaction_id: &str,
+    ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query(
             r#"UPDATE application_service_transactions SET completed_ts = $3 WHERE as_id = $1 AND transaction_id = $2"#
@@ -510,7 +535,10 @@ impl ApplicationServiceStorage {
         Ok(())
     }
 
-    pub async fn get_pending_transactions(&self, as_id: &str) -> Result<Vec<ApplicationServiceTransaction>, sqlx::Error> {
+    pub async fn get_pending_transactions(
+        &self,
+        as_id: &str,
+    ) -> Result<Vec<ApplicationServiceTransaction>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceTransaction>(
             r#"SELECT * FROM application_service_transactions WHERE as_id = $1 AND completed_ts IS NULL ORDER BY sent_ts ASC"#
         )
@@ -546,9 +574,12 @@ impl ApplicationServiceStorage {
         .await
     }
 
-    pub async fn get_virtual_users(&self, as_id: &str) -> Result<Vec<ApplicationServiceUser>, sqlx::Error> {
+    pub async fn get_virtual_users(
+        &self,
+        as_id: &str,
+    ) -> Result<Vec<ApplicationServiceUser>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceUser>(
-            r#"SELECT * FROM application_service_users WHERE as_id = $1"#
+            r#"SELECT * FROM application_service_users WHERE as_id = $1"#,
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
@@ -557,7 +588,7 @@ impl ApplicationServiceStorage {
 
     pub async fn is_user_in_namespace(&self, user_id: &str) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query(
-            r#"SELECT as_id FROM application_service_user_namespaces WHERE $1 ~ regex"#
+            r#"SELECT as_id FROM application_service_user_namespaces WHERE $1 ~ regex"#,
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -566,9 +597,12 @@ impl ApplicationServiceStorage {
         Ok(result.map(|row| row.get("as_id")))
     }
 
-    pub async fn is_room_alias_in_namespace(&self, alias: &str) -> Result<Option<String>, sqlx::Error> {
+    pub async fn is_room_alias_in_namespace(
+        &self,
+        alias: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query(
-            r#"SELECT as_id FROM application_service_room_alias_namespaces WHERE $1 ~ regex"#
+            r#"SELECT as_id FROM application_service_room_alias_namespaces WHERE $1 ~ regex"#,
         )
         .bind(alias)
         .fetch_optional(&*self.pool)
@@ -577,9 +611,12 @@ impl ApplicationServiceStorage {
         Ok(result.map(|row| row.get("as_id")))
     }
 
-    pub async fn is_room_id_in_namespace(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
+    pub async fn is_room_id_in_namespace(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query(
-            r#"SELECT as_id FROM application_service_room_namespaces WHERE $1 ~ regex"#
+            r#"SELECT as_id FROM application_service_room_namespaces WHERE $1 ~ regex"#,
         )
         .bind(room_id)
         .fetch_optional(&*self.pool)
@@ -588,27 +625,36 @@ impl ApplicationServiceStorage {
         Ok(result.map(|row| row.get("as_id")))
     }
 
-    pub async fn get_user_namespaces(&self, as_id: &str) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
+    pub async fn get_user_namespaces(
+        &self,
+        as_id: &str,
+    ) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceNamespace>(
-            r#"SELECT * FROM application_service_user_namespaces WHERE as_id = $1"#
+            r#"SELECT * FROM application_service_user_namespaces WHERE as_id = $1"#,
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
         .await
     }
 
-    pub async fn get_room_alias_namespaces(&self, as_id: &str) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
+    pub async fn get_room_alias_namespaces(
+        &self,
+        as_id: &str,
+    ) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceNamespace>(
-            r#"SELECT * FROM application_service_room_alias_namespaces WHERE as_id = $1"#
+            r#"SELECT * FROM application_service_room_alias_namespaces WHERE as_id = $1"#,
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
         .await
     }
 
-    pub async fn get_room_namespaces(&self, as_id: &str) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
+    pub async fn get_room_namespaces(
+        &self,
+        as_id: &str,
+    ) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceNamespace>(
-            r#"SELECT * FROM application_service_room_namespaces WHERE as_id = $1"#
+            r#"SELECT * FROM application_service_room_namespaces WHERE as_id = $1"#,
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
@@ -654,7 +700,7 @@ mod tests {
 
         let json = serde_json::to_string(&rule).unwrap();
         let deserialized: NamespaceRule = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(rule.exclusive, deserialized.exclusive);
         assert_eq!(rule.regex, deserialized.regex);
         assert_eq!(rule.group_id, deserialized.group_id);
@@ -678,7 +724,7 @@ mod tests {
 
         let json = serde_json::to_string(&namespaces).unwrap();
         let deserialized: Namespaces = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(namespaces.users.len(), deserialized.users.len());
         assert_eq!(namespaces.aliases.len(), deserialized.aliases.len());
         assert_eq!(namespaces.rooms.len(), deserialized.rooms.len());
@@ -705,7 +751,7 @@ mod tests {
 
         let json = serde_json::to_string(&request).unwrap();
         let deserialized: RegisterApplicationServiceRequest = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(request.as_id, deserialized.as_id);
         assert_eq!(request.url, deserialized.url);
         assert_eq!(request.as_token, deserialized.as_token);

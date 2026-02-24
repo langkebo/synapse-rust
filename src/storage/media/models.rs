@@ -38,8 +38,7 @@ pub struct MediaUploadResponse {
     pub media_id: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum StorageBackendType {
     #[default]
     Filesystem,
@@ -48,7 +47,6 @@ pub enum StorageBackendType {
     GCS,
     Memory,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageBackendConfig {

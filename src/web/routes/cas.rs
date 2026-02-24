@@ -1,13 +1,13 @@
 use crate::common::ApiError;
-use crate::services::cas_service::{CasValidationResponse};
+use crate::services::cas_service::CasValidationResponse;
 use crate::storage::cas::{CasService as CasServiceModel, RegisterServiceRequest};
 use crate::web::routes::AppState;
 use axum::{
     extract::{Path, Query, State},
     http::{header, StatusCode},
     response::IntoResponse,
-    Json, Router,
     routing::{delete, get, post},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use url::form_urlencoded;
@@ -113,21 +113,35 @@ pub fn cas_routes() -> Router<AppState> {
         .route("/admin/services", post(register_service))
         .route("/admin/services", get(list_services))
         .route("/admin/services/{service_id}", delete(delete_service))
-        .route("/admin/users/{user_id}/attributes", post(set_user_attribute))
-        .route("/admin/users/{user_id}/attributes", get(get_user_attributes))
+        .route(
+            "/admin/users/{user_id}/attributes",
+            post(set_user_attribute),
+        )
+        .route(
+            "/admin/users/{user_id}/attributes",
+            get(get_user_attributes),
+        )
 }
 
 async fn login_redirect(
     State(state): State<AppState>,
     Query(query): Query<ServiceTicketQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let _service = state.services.cas_service.get_service_by_url(&query.service).await?;
-    
-    let encoded_service: String = form_urlencoded::byte_serialize(query.service.as_bytes()).collect();
-    
+    let _service = state
+        .services
+        .cas_service
+        .get_service_by_url(&query.service)
+        .await?;
+
+    let encoded_service: String =
+        form_urlencoded::byte_serialize(query.service.as_bytes()).collect();
+
     Ok((
         StatusCode::FOUND,
-        [(header::LOCATION, format!("/cas/login?service={}", encoded_service))],
+        [(
+            header::LOCATION,
+            format!("/cas/login?service={}", encoded_service),
+        )],
         Json(serde_json::json!({
             "redirect_url": format!("/cas/login?service={}", encoded_service)
         })),
@@ -138,27 +152,18 @@ async fn service_validate(
     State(state): State<AppState>,
     Query(query): Query<ValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result = state.services.cas_service
+    let result = state
+        .services
+        .cas_service
         .validate_service_ticket(&query.ticket, &query.service)
         .await?;
 
     match result {
         Some(ticket) => {
-            let response = format!(
-                "yes\n{}\n",
-                ticket.user_id
-            );
-            Ok((
-                [(header::CONTENT_TYPE, "text/plain")],
-                response,
-            ))
+            let response = format!("yes\n{}\n", ticket.user_id);
+            Ok(([(header::CONTENT_TYPE, "text/plain")], response))
         }
-        None => {
-            Ok((
-                [(header::CONTENT_TYPE, "text/plain")],
-                "no\n\n".to_string(),
-            ))
-        }
+        None => Ok(([(header::CONTENT_TYPE, "text/plain")], "no\n\n".to_string())),
     }
 }
 
@@ -166,7 +171,9 @@ async fn proxy_validate(
     State(state): State<AppState>,
     Query(query): Query<ProxyValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result = state.services.cas_service
+    let result = state
+        .services
+        .cas_service
         .validate_proxy_ticket(&query.ticket, &query.service)
         .await?;
 
@@ -199,7 +206,9 @@ async fn proxy(
     State(state): State<AppState>,
     Query(query): Query<ProxyQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ticket = state.services.cas_service
+    let ticket = state
+        .services
+        .cas_service
         .create_proxy_ticket(&query.pgt, &query.target_service)
         .await?;
 
@@ -219,7 +228,9 @@ async fn p3_service_validate(
     State(state): State<AppState>,
     Query(query): Query<P3ServiceValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let response = state.services.cas_service
+    let response = state
+        .services
+        .cas_service
         .validate_service_ticket_v3(
             &query.ticket,
             &query.service,
@@ -261,13 +272,11 @@ async fn register_service(
     };
 
     let service = state.services.cas_service.register_service(request).await?;
-    
+
     Ok((StatusCode::CREATED, Json(ServiceResponse::from(service))))
 }
 
-async fn list_services(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, ApiError> {
+async fn list_services(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let services = state.services.cas_service.list_services().await?;
     let response: Vec<ServiceResponse> = services.into_iter().map(ServiceResponse::from).collect();
     Ok(Json(response))
@@ -277,8 +286,12 @@ async fn delete_service(
     State(state): State<AppState>,
     Path(service_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let deleted = state.services.cas_service.delete_service(&service_id).await?;
-    
+    let deleted = state
+        .services
+        .cas_service
+        .delete_service(&service_id)
+        .await?;
+
     if deleted {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -291,10 +304,12 @@ async fn set_user_attribute(
     Path(user_id): Path<String>,
     Json(body): Json<SetAttributeBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let attr = state.services.cas_service
+    let attr = state
+        .services
+        .cas_service
         .set_user_attribute(&user_id, &body.attribute_name, &body.attribute_value)
         .await?;
-    
+
     Ok(Json(serde_json::json!({
         "user_id": attr.user_id,
         "attribute_name": attr.attribute_name,
@@ -306,14 +321,21 @@ async fn get_user_attributes(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let attrs = state.services.cas_service.get_user_attributes(&user_id).await?;
-    
-    let response: Vec<serde_json::Value> = attrs.into_iter()
-        .map(|a| serde_json::json!({
-            "name": a.attribute_name,
-            "value": a.attribute_value,
-        }))
+    let attrs = state
+        .services
+        .cas_service
+        .get_user_attributes(&user_id)
+        .await?;
+
+    let response: Vec<serde_json::Value> = attrs
+        .into_iter()
+        .map(|a| {
+            serde_json::json!({
+                "name": a.attribute_name,
+                "value": a.attribute_value,
+            })
+        })
         .collect();
-    
+
     Ok(Json(response))
 }

@@ -2,8 +2,8 @@ pub mod account_data;
 pub mod admin;
 pub mod app_service;
 pub mod background_update;
-pub mod cas;
 pub mod captcha;
+pub mod cas;
 pub mod e2ee_routes;
 pub mod event_report;
 pub mod federation;
@@ -33,8 +33,8 @@ pub use account_data::create_account_data_router;
 pub use admin::create_admin_router;
 pub use app_service::create_app_service_router;
 pub use background_update::create_background_update_router;
-pub use cas::cas_routes;
 pub use captcha::create_captcha_router;
+pub use cas::cas_routes;
 pub use e2ee_routes::create_e2ee_router;
 pub use event_report::create_event_report_router;
 pub use federation::create_federation_router;
@@ -57,9 +57,9 @@ pub use space::create_space_router;
 pub use telemetry::create_telemetry_router;
 pub use thread::create_thread_routes;
 pub use voice::create_voice_router;
+pub use voip::get_turn_credentials_guest;
 pub use voip::get_turn_server;
 pub use voip::get_voip_config;
-pub use voip::get_turn_credentials_guest;
 pub use worker::create_worker_router;
 
 use crate::cache::*;
@@ -219,34 +219,26 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
 
         async move {
             match token_result {
-                Ok(token) => {
-                    match state.services.auth_service.validate_token(&token).await {
-                        Ok((user_id, device_id, is_admin)) => {
-                            Ok(OptionalAuthenticatedUser {
-                                user_id: Some(user_id),
-                                device_id,
-                                is_admin,
-                                access_token: Some(token),
-                            })
-                        }
-                        Err(_) => {
-                            Ok(OptionalAuthenticatedUser {
-                                user_id: None,
-                                device_id: None,
-                                is_admin: false,
-                                access_token: None,
-                            })
-                        }
-                    }
-                }
-                Err(_) => {
-                    Ok(OptionalAuthenticatedUser {
+                Ok(token) => match state.services.auth_service.validate_token(&token).await {
+                    Ok((user_id, device_id, is_admin)) => Ok(OptionalAuthenticatedUser {
+                        user_id: Some(user_id),
+                        device_id,
+                        is_admin,
+                        access_token: Some(token),
+                    }),
+                    Err(_) => Ok(OptionalAuthenticatedUser {
                         user_id: None,
                         device_id: None,
                         is_admin: false,
                         access_token: None,
-                    })
-                }
+                    }),
+                },
+                Err(_) => Ok(OptionalAuthenticatedUser {
+                    user_id: None,
+                    device_id: None,
+                    is_admin: false,
+                    access_token: None,
+                }),
             }
         }
     }
@@ -271,11 +263,13 @@ fn extract_token_from_headers(headers: &HeaderMap) -> Result<String, ApiError> {
         .ok_or_else(|| {
             ApiError::unauthorized("Missing or invalid authorization header".to_string())
         })?;
-    
+
     if token.trim().is_empty() {
-        return Err(ApiError::unauthorized("Empty authorization token".to_string()));
+        return Err(ApiError::unauthorized(
+            "Empty authorization token".to_string(),
+        ));
     }
-    
+
     Ok(token)
 }
 
@@ -333,14 +327,32 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_thread_routes(state.clone()))
         .route("/_matrix/client/v3/voip/turnServer", get(get_turn_server))
         .route("/_matrix/client/v3/voip/config", get(get_voip_config))
-        .route("/_matrix/client/v3/voip/turnServer/guest", get(get_turn_credentials_guest))
+        .route(
+            "/_matrix/client/v3/voip/turnServer/guest",
+            get(get_turn_credentials_guest),
+        )
         .route("/_matrix/client/v3/account/whoami", get(whoami))
-        .route("/_matrix/client/v3/account/3pid", get(get_threepids).post(add_threepid))
-        .route("/_matrix/client/v3/user_directory/search", post(search_user_directory))
-        .route("/_matrix/client/v3/publicRooms", get(get_public_rooms).post(query_public_rooms))
+        .route(
+            "/_matrix/client/v3/account/3pid",
+            get(get_threepids).post(add_threepid),
+        )
+        .route(
+            "/_matrix/client/v3/user_directory/search",
+            post(search_user_directory),
+        )
+        .route(
+            "/_matrix/client/v3/publicRooms",
+            get(get_public_rooms).post(query_public_rooms),
+        )
         .route("/_matrix/client/v3/devices", get(get_devices))
-        .route("/_matrix/client/v3/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
-        .route("/_matrix/client/v3/presence/{user_id}/status", get(get_presence).put(set_presence))
+        .route(
+            "/_matrix/client/v3/devices/{device_id}",
+            get(get_device).put(update_device).delete(delete_device),
+        )
+        .route(
+            "/_matrix/client/v3/presence/{user_id}/status",
+            get(get_presence).put(set_presence),
+        )
         .route("/_matrix/client/v3/sync", get(sync))
         .route("/_matrix/client/v3/createRoom", post(create_room))
         .layer(axum::middleware::from_fn(cors_middleware))
@@ -355,7 +367,10 @@ pub fn create_router(state: AppState) -> Router {
 
 fn create_auth_router() -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/r0/register", get(get_register_flows).post(register))
+        .route(
+            "/_matrix/client/r0/register",
+            get(get_register_flows).post(register),
+        )
         .route(
             "/_matrix/client/r0/register/available",
             get(check_username_availability),
@@ -398,8 +413,14 @@ fn create_account_router() -> Router<AppState> {
             "/_matrix/client/r0/account/deactivate",
             post(deactivate_account),
         )
-        .route("/_matrix/client/v3/account/deactivate", post(deactivate_account))
-        .route("/_matrix/client/r0/account/3pid", get(get_threepids).post(add_threepid))
+        .route(
+            "/_matrix/client/v3/account/deactivate",
+            post(deactivate_account),
+        )
+        .route(
+            "/_matrix/client/r0/account/3pid",
+            get(get_threepids).post(add_threepid),
+        )
         .route(
             "/_matrix/client/r0/account/3pid/delete",
             post(delete_threepid),
@@ -408,10 +429,7 @@ fn create_account_router() -> Router<AppState> {
             "/_matrix/client/r0/account/3pid/unbind",
             post(unbind_threepid),
         )
-        .route(
-            "/_matrix/client/r0/profile/{user_id}",
-            get(get_profile),
-        )
+        .route("/_matrix/client/r0/profile/{user_id}", get(get_profile))
         .route("/_matrix/client/v3/profile/{user_id}", get(get_profile))
         .route(
             "/_matrix/client/r0/profile/{user_id}/displayname",
@@ -508,9 +526,15 @@ fn create_room_router() -> Router<AppState> {
             post(set_read_markers),
         )
         .route("/_matrix/client/r0/rooms/{room_id}/join", post(join_room))
-        .route("/_matrix/client/r0/join/{room_id_or_alias}", post(join_room_by_id_or_alias))
+        .route(
+            "/_matrix/client/r0/join/{room_id_or_alias}",
+            post(join_room_by_id_or_alias),
+        )
         .route("/_matrix/client/r0/rooms/{room_id}/leave", post(leave_room))
-        .route("/_matrix/client/r0/rooms/{room_id}/forget", post(forget_room))
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/forget",
+            post(forget_room),
+        )
         .route(
             "/_matrix/client/r0/rooms/{room_id}/members",
             get(get_room_members),
@@ -640,7 +664,7 @@ async fn get_capabilities() -> Json<Value> {
 async fn get_well_known_server(State(state): State<AppState>) -> Json<Value> {
     let server_name = &state.services.config.server.name;
     let port = state.services.config.server.port;
-    
+
     Json(json!({
         "m.server": format!("{}:{}", server_name, port)
     }))
@@ -649,7 +673,7 @@ async fn get_well_known_server(State(state): State<AppState>) -> Json<Value> {
 async fn get_well_known_client(State(state): State<AppState>) -> Json<Value> {
     let server_name = &state.services.config.server.name;
     let base_url = format!("https://{}", server_name);
-    
+
     Json(json!({
         "m.homeserver": {
             "base_url": base_url
@@ -662,7 +686,7 @@ async fn get_well_known_client(State(state): State<AppState>) -> Json<Value> {
 
 async fn get_well_known_support(State(state): State<AppState>) -> Json<Value> {
     let server_name = &state.services.config.server.name;
-    
+
     Json(json!({
         "contacts": [
             {
@@ -1183,7 +1207,10 @@ async fn get_displayname(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get profile: {}", e)))?;
 
-    let displayname = profile.get("displayname").and_then(|v| v.as_str()).unwrap_or("");
+    let displayname = profile
+        .get("displayname")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     Ok(Json(json!({ "displayname": displayname })))
 }
 
@@ -1201,7 +1228,10 @@ async fn get_avatar_url(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get profile: {}", e)))?;
 
-    let avatar_url = profile.get("avatar_url").and_then(|v| v.as_str()).unwrap_or("");
+    let avatar_url = profile
+        .get("avatar_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     Ok(Json(json!({ "avatar_url": avatar_url })))
 }
 
@@ -1348,28 +1378,31 @@ async fn get_threepids(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
-    
+
     let threepids = sqlx::query(
         r#"
         SELECT medium, address, validated_at, added_at
         FROM user_threepids
         WHERE user_id = $1
-        "#
+        "#,
     )
     .bind(user_id)
     .fetch_all(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to get threepids: {}", e)))?;
-    
-    let threepids_list: Vec<Value> = threepids.iter().map(|row| {
-        json!({
-            "medium": row.get::<String, _>("medium"),
-            "address": row.get::<String, _>("address"),
-            "validated_at": row.get::<Option<i64>, _>("validated_at").unwrap_or(0),
-            "added_at": row.get::<Option<i64>, _>("added_at").unwrap_or(0)
+
+    let threepids_list: Vec<Value> = threepids
+        .iter()
+        .map(|row| {
+            json!({
+                "medium": row.get::<String, _>("medium"),
+                "address": row.get::<String, _>("address"),
+                "validated_at": row.get::<Option<i64>, _>("validated_at").unwrap_or(0),
+                "added_at": row.get::<Option<i64>, _>("added_at").unwrap_or(0)
+            })
         })
-    }).collect();
-    
+        .collect();
+
     Ok(Json(json!({
         "threepids": threepids_list
     })))
@@ -1397,21 +1430,24 @@ async fn add_threepid(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
     let now = chrono::Utc::now().timestamp_millis();
-    
-    let medium = body.get("medium").and_then(|v| v.as_str()).unwrap_or("email");
+
+    let medium = body
+        .get("medium")
+        .and_then(|v| v.as_str())
+        .unwrap_or("email");
     let address = body.get("address").and_then(|v| v.as_str()).unwrap_or("");
-    
+
     if address.is_empty() {
         return Err(ApiError::bad_request("Address is required".to_string()));
     }
-    
+
     sqlx::query(
         r#"
         INSERT INTO user_threepids (user_id, medium, address, validated_at, added_at)
         VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (user_id, medium, address) DO UPDATE
         SET validated_at = EXCLUDED.validated_at
-        "#
+        "#,
     )
     .bind(user_id)
     .bind(medium)
@@ -1421,7 +1457,7 @@ async fn add_threepid(
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to add threepid: {}", e)))?;
-    
+
     Ok(Json(json!({})))
 }
 
@@ -1437,12 +1473,12 @@ async fn delete_threepid(
     Json(body): Json<DeleteThreepidRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
-    
+
     sqlx::query(
         r#"
         DELETE FROM user_threepids
         WHERE user_id = $1 AND medium = $2 AND address = $3
-        "#
+        "#,
     )
     .bind(user_id)
     .bind(&body.medium)
@@ -1450,7 +1486,7 @@ async fn delete_threepid(
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to delete threepid: {}", e)))?;
-    
+
     Ok(Json(json!({})))
 }
 
@@ -1460,12 +1496,12 @@ async fn unbind_threepid(
     Json(body): Json<DeleteThreepidRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
-    
+
     sqlx::query(
         r#"
         DELETE FROM user_threepids
         WHERE user_id = $1 AND medium = $2 AND address = $3
-        "#
+        "#,
     )
     .bind(user_id)
     .bind(&body.medium)
@@ -1473,7 +1509,7 @@ async fn unbind_threepid(
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to unbind threepid: {}", e)))?;
-    
+
     Ok(Json(json!({})))
 }
 
@@ -1639,9 +1675,7 @@ async fn sync(
         .get("set_presence")
         .and_then(|v| v.as_str())
         .unwrap_or("online");
-    let since = params
-        .get("since")
-        .and_then(|v| v.as_str());
+    let since = params.get("since").and_then(|v| v.as_str());
 
     Ok(Json(
         state
@@ -1660,10 +1694,7 @@ async fn get_events(
     let token = extract_token_from_headers(&headers)?;
     let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
 
-    let from = params
-        .get("from")
-        .and_then(|v| v.as_str())
-        .unwrap_or("0");
+    let from = params.get("from").and_then(|v| v.as_str()).unwrap_or("0");
     let timeout = params
         .get("timeout")
         .and_then(|v| v.as_u64())
@@ -1695,7 +1726,7 @@ async fn get_joined_rooms(
         FROM room_memberships 
         WHERE user_id = $1 AND membership = 'join'
         ORDER BY room_id
-        "#
+        "#,
     )
     .bind(user_id)
     .fetch_all(&*state.services.room_storage.pool)
@@ -1826,7 +1857,10 @@ async fn join_room_by_id_or_alias(
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
     } else {
-        let alias = format!("#{}:{}", room_id_or_alias, state.services.config.server.name);
+        let alias = format!(
+            "#{}:{}",
+            room_id_or_alias, state.services.config.server.name
+        );
         state
             .services
             .room_service

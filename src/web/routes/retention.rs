@@ -2,20 +2,19 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
-    Router,
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
 use crate::storage::retention::{
-    CreateRoomRetentionPolicyRequest, UpdateRoomRetentionPolicyRequest,
-    UpdateServerRetentionPolicyRequest, RoomRetentionPolicy, ServerRetentionPolicy,
-    EffectiveRetentionPolicy, RetentionCleanupLog, RetentionStats, DeletedEventIndex,
+    CreateRoomRetentionPolicyRequest, DeletedEventIndex, EffectiveRetentionPolicy,
+    RetentionCleanupLog, RetentionStats, RoomRetentionPolicy, ServerRetentionPolicy,
+    UpdateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest,
 };
-use crate::web::routes::AuthenticatedUser;
 use crate::web::routes::AppState;
+use crate::web::routes::AuthenticatedUser;
 
 #[derive(Debug, Deserialize)]
 pub struct QueryLimit {
@@ -169,7 +168,11 @@ pub async fn get_room_policy(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let policy = state.services.retention_service.get_room_policy(&room_id).await?
+    let policy = state
+        .services
+        .retention_service
+        .get_room_policy(&room_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Room retention policy not found"))?;
 
     Ok(Json(RoomPolicyResponse::from(policy)))
@@ -179,7 +182,11 @@ pub async fn get_effective_policy(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let policy = state.services.retention_service.get_effective_policy(&room_id).await?;
+    let policy = state
+        .services
+        .retention_service
+        .get_effective_policy(&room_id)
+        .await?;
 
     Ok(Json(EffectivePolicyResponse::from(policy)))
 }
@@ -197,7 +204,11 @@ pub async fn set_room_policy(
         expire_on_clients: body.expire_on_clients,
     };
 
-    let policy = state.services.retention_service.set_room_policy(request).await?;
+    let policy = state
+        .services
+        .retention_service
+        .set_room_policy(request)
+        .await?;
 
     Ok((StatusCode::CREATED, Json(RoomPolicyResponse::from(policy))))
 }
@@ -214,7 +225,11 @@ pub async fn update_room_policy(
         expire_on_clients: body.expire_on_clients,
     };
 
-    let policy = state.services.retention_service.update_room_policy(&room_id, request).await?;
+    let policy = state
+        .services
+        .retention_service
+        .update_room_policy(&room_id, request)
+        .await?;
 
     Ok(Json(RoomPolicyResponse::from(policy)))
 }
@@ -224,7 +239,11 @@ pub async fn delete_room_policy(
     Path(room_id): Path<String>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.retention_service.delete_room_policy(&room_id).await?;
+    state
+        .services
+        .retention_service
+        .delete_room_policy(&room_id)
+        .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -248,7 +267,11 @@ pub async fn update_server_policy(
         expire_on_clients: body.expire_on_clients,
     };
 
-    let policy = state.services.retention_service.update_server_policy(request).await?;
+    let policy = state
+        .services
+        .retention_service
+        .update_server_policy(request)
+        .await?;
 
     Ok(Json(ServerPolicyResponse::from(policy)))
 }
@@ -258,7 +281,11 @@ pub async fn run_cleanup(
     Path(room_id): Path<String>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let log = state.services.retention_service.run_cleanup(&room_id).await?;
+    let log = state
+        .services
+        .retention_service
+        .run_cleanup(&room_id)
+        .await?;
 
     Ok(Json(CleanupLogResponse::from(log)))
 }
@@ -268,7 +295,11 @@ pub async fn schedule_cleanup(
     Path(room_id): Path<String>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.retention_service.schedule_room_cleanup(&room_id).await?;
+    let count = state
+        .services
+        .retention_service
+        .schedule_room_cleanup(&room_id)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "room_id": room_id,
@@ -282,7 +313,11 @@ pub async fn process_pending_cleanups(
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
-    let processed = state.services.retention_service.process_pending_cleanups(limit).await?;
+    let processed = state
+        .services
+        .retention_service
+        .process_pending_cleanups(limit)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "processed": processed,
@@ -293,7 +328,11 @@ pub async fn get_stats(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let stats = state.services.retention_service.get_stats(&room_id).await?
+    let stats = state
+        .services
+        .retention_service
+        .get_stats(&room_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Retention stats not found"))?;
 
     Ok(Json(StatsResponse::from(stats)))
@@ -305,9 +344,14 @@ pub async fn get_cleanup_logs(
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(10);
-    let logs = state.services.retention_service.get_cleanup_logs(&room_id, limit).await?;
+    let logs = state
+        .services
+        .retention_service
+        .get_cleanup_logs(&room_id, limit)
+        .await?;
 
-    let response: Vec<CleanupLogResponse> = logs.into_iter().map(CleanupLogResponse::from).collect();
+    let response: Vec<CleanupLogResponse> =
+        logs.into_iter().map(CleanupLogResponse::from).collect();
 
     Ok(Json(response))
 }
@@ -318,9 +362,14 @@ pub async fn get_deleted_events(
     Query(query): Query<QuerySince>,
 ) -> Result<impl IntoResponse, ApiError> {
     let since = query.since.unwrap_or(0);
-    let events = state.services.retention_service.get_deleted_events(&room_id, since).await?;
+    let events = state
+        .services
+        .retention_service
+        .get_deleted_events(&room_id, since)
+        .await?;
 
-    let response: Vec<DeletedEventResponse> = events.into_iter().map(DeletedEventResponse::from).collect();
+    let response: Vec<DeletedEventResponse> =
+        events.into_iter().map(DeletedEventResponse::from).collect();
 
     Ok(Json(response))
 }
@@ -328,9 +377,14 @@ pub async fn get_deleted_events(
 pub async fn get_rooms_with_policies(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let policies = state.services.retention_service.get_rooms_with_policies().await?;
+    let policies = state
+        .services
+        .retention_service
+        .get_rooms_with_policies()
+        .await?;
 
-    let response: Vec<RoomPolicyResponse> = policies.into_iter().map(RoomPolicyResponse::from).collect();
+    let response: Vec<RoomPolicyResponse> =
+        policies.into_iter().map(RoomPolicyResponse::from).collect();
 
     Ok(Json(response))
 }
@@ -339,7 +393,11 @@ pub async fn get_pending_cleanup_count(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.retention_service.get_pending_cleanup_count(&room_id).await?;
+    let count = state
+        .services
+        .retention_service
+        .get_pending_cleanup_count(&room_id)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "room_id": room_id,
@@ -351,7 +409,11 @@ pub async fn run_scheduled_cleanups(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let total_cleaned = state.services.retention_service.run_scheduled_cleanups().await?;
+    let total_cleaned = state
+        .services
+        .retention_service
+        .run_scheduled_cleanups()
+        .await?;
 
     Ok(Json(serde_json::json!({
         "total_events_cleaned": total_cleaned,
@@ -360,21 +422,66 @@ pub async fn run_scheduled_cleanups(
 
 pub fn create_retention_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_synapse/retention/v1/rooms/{room_id}/policy", get(get_room_policy))
-        .route("/_synapse/retention/v1/rooms/{room_id}/policy", post(set_room_policy))
-        .route("/_synapse/retention/v1/rooms/{room_id}/policy", put(update_room_policy))
-        .route("/_synapse/retention/v1/rooms/{room_id}/policy", delete(delete_room_policy))
-        .route("/_synapse/retention/v1/rooms/{room_id}/effective_policy", get(get_effective_policy))
-        .route("/_synapse/retention/v1/rooms/{room_id}/cleanup", post(run_cleanup))
-        .route("/_synapse/retention/v1/rooms/{room_id}/cleanup/schedule", post(schedule_cleanup))
-        .route("/_synapse/retention/v1/rooms/{room_id}/stats", get(get_stats))
-        .route("/_synapse/retention/v1/rooms/{room_id}/logs", get(get_cleanup_logs))
-        .route("/_synapse/retention/v1/rooms/{room_id}/deleted", get(get_deleted_events))
-        .route("/_synapse/retention/v1/rooms/{room_id}/pending", get(get_pending_cleanup_count))
-        .route("/_synapse/retention/v1/server/policy", get(get_server_policy))
-        .route("/_synapse/retention/v1/server/policy", put(update_server_policy))
+        .route(
+            "/_synapse/retention/v1/rooms/{room_id}/policy",
+            get(get_room_policy),
+        )
+        .route(
+            "/_synapse/retention/v1/rooms/{room_id}/policy",
+            post(set_room_policy),
+        )
+        .route(
+            "/_synapse/retention/v1/rooms/{room_id}/policy",
+            put(update_room_policy),
+        )
+        .route(
+            "/_synapse/retention/v1/rooms/{room_id}/policy",
+            delete(delete_room_policy),
+        )
+        .route(
+            "/_synapse/retention/v1/rooms/{room_id}/effective_policy",
+            get(get_effective_policy),
+        )
+        .route(
+            "/_synapse/retention/v1/rooms/{room_id}/cleanup",
+            post(run_cleanup),
+        )
+        .route(
+            "/_synapse/retention/v1/rooms/{room_id}/cleanup/schedule",
+            post(schedule_cleanup),
+        )
+        .route(
+            "/_synapse/retention/v1/rooms/{room_id}/stats",
+            get(get_stats),
+        )
+        .route(
+            "/_synapse/retention/v1/rooms/{room_id}/logs",
+            get(get_cleanup_logs),
+        )
+        .route(
+            "/_synapse/retention/v1/rooms/{room_id}/deleted",
+            get(get_deleted_events),
+        )
+        .route(
+            "/_synapse/retention/v1/rooms/{room_id}/pending",
+            get(get_pending_cleanup_count),
+        )
+        .route(
+            "/_synapse/retention/v1/server/policy",
+            get(get_server_policy),
+        )
+        .route(
+            "/_synapse/retention/v1/server/policy",
+            put(update_server_policy),
+        )
         .route("/_synapse/retention/v1/rooms", get(get_rooms_with_policies))
-        .route("/_synapse/retention/v1/cleanups/process", post(process_pending_cleanups))
-        .route("/_synapse/retention/v1/cleanups/run_scheduled", post(run_scheduled_cleanups))
+        .route(
+            "/_synapse/retention/v1/cleanups/process",
+            post(process_pending_cleanups),
+        )
+        .route(
+            "/_synapse/retention/v1/cleanups/run_scheduled",
+            post(run_scheduled_cleanups),
+        )
         .with_state(state)
 }

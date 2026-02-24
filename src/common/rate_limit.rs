@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct RateLimitConfig {
@@ -47,7 +47,7 @@ impl RateLimitEntry {
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_refill);
         let tokens_to_add = (elapsed.as_secs_f64() * rate as f64) as u32;
-        
+
         if tokens_to_add > 0 {
             self.tokens = (self.tokens + tokens_to_add).min(burst);
             self.last_refill = now;
@@ -97,7 +97,7 @@ impl RateLimiter {
         endpoint: &str,
     ) -> Result<RateLimitInfo, RateLimitInfo> {
         let config = &self.config;
-        
+
         if config.per_user {
             if let Some(uid) = user_id {
                 let key = format!("user:{}", uid);
@@ -159,7 +159,7 @@ impl RateLimiter {
         } else {
             let blocked_until = Instant::now() + Duration::from_secs(config.window_seconds);
             entry.blocked_until = Some(blocked_until);
-            
+
             Err(RateLimitInfo {
                 limit: config.burst_size,
                 remaining: 0,
@@ -204,15 +204,10 @@ impl RateLimiter {
         let now = Instant::now();
         let expire_threshold = Duration::from_secs(self.config.window_seconds * 2);
 
-        user_entries.retain(|_, entry| {
-            now.duration_since(entry.last_refill) < expire_threshold
-        });
-        ip_entries.retain(|_, entry| {
-            now.duration_since(entry.last_refill) < expire_threshold
-        });
-        endpoint_entries.retain(|_, entry| {
-            now.duration_since(entry.last_refill) < expire_threshold
-        });
+        user_entries.retain(|_, entry| now.duration_since(entry.last_refill) < expire_threshold);
+        ip_entries.retain(|_, entry| now.duration_since(entry.last_refill) < expire_threshold);
+        endpoint_entries
+            .retain(|_, entry| now.duration_since(entry.last_refill) < expire_threshold);
     }
 
     pub async fn get_stats(&self) -> RateLimitStats {
@@ -226,7 +221,10 @@ impl RateLimiter {
             active_endpoints: endpoint_entries.len(),
             total_requests: user_entries.values().map(|e| e.request_count).sum::<u64>()
                 + ip_entries.values().map(|e| e.request_count).sum::<u64>()
-                + endpoint_entries.values().map(|e| e.request_count).sum::<u64>(),
+                + endpoint_entries
+                    .values()
+                    .map(|e| e.request_count)
+                    .sum::<u64>(),
         }
     }
 }
@@ -253,7 +251,9 @@ mod tests {
         let limiter = RateLimiter::new(config);
 
         for _ in 0..5 {
-            let result = limiter.check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test").await;
+            let result = limiter
+                .check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test")
+                .await;
             assert!(result.is_ok());
         }
     }
@@ -267,10 +267,18 @@ mod tests {
         };
         let limiter = RateLimiter::new(config);
 
-        limiter.check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test").await.ok();
-        limiter.check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test").await.ok();
-        
-        let result = limiter.check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test").await;
+        limiter
+            .check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test")
+            .await
+            .ok();
+        limiter
+            .check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test")
+            .await
+            .ok();
+
+        let result = limiter
+            .check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test")
+            .await;
         assert!(result.is_err());
     }
 
@@ -283,7 +291,10 @@ mod tests {
         };
         let limiter = RateLimiter::new(config);
 
-        let info = limiter.check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test").await.unwrap();
+        let info = limiter
+            .check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test")
+            .await
+            .unwrap();
         assert_eq!(info.limit, 100);
         assert!(info.remaining < 100);
         assert!(info.retry_after.is_none());
@@ -309,8 +320,14 @@ mod tests {
         let config = RateLimitConfig::default();
         let limiter = RateLimiter::new(config);
 
-        limiter.check_rate_limit(Some("@user1:test.com"), "127.0.0.1", "/test").await.ok();
-        limiter.check_rate_limit(Some("@user2:test.com"), "127.0.0.2", "/test").await.ok();
+        limiter
+            .check_rate_limit(Some("@user1:test.com"), "127.0.0.1", "/test")
+            .await
+            .ok();
+        limiter
+            .check_rate_limit(Some("@user2:test.com"), "127.0.0.2", "/test")
+            .await
+            .ok();
 
         let stats = limiter.get_stats().await;
         assert!(stats.active_users >= 2);

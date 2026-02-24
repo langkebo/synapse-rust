@@ -62,7 +62,10 @@ impl Default for RoomFilter {
     fn default() -> Self {
         Self {
             state: Some(SyncFilter::default()),
-            timeline: Some(SyncFilter { limit: Some(50), ..Default::default() }),
+            timeline: Some(SyncFilter {
+                limit: Some(50),
+                ..Default::default()
+            }),
             ephemeral: Some(SyncFilter::default()),
             account_data: Some(SyncFilter::default()),
         }
@@ -125,7 +128,10 @@ impl SyncService {
         set_presence: &str,
         since: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        if let Some(presence) = set_presence.strip_prefix("online").or_else(|| set_presence.strip_prefix("unavailable")) {
+        if let Some(presence) = set_presence
+            .strip_prefix("online")
+            .or_else(|| set_presence.strip_prefix("unavailable"))
+        {
             self.presence_storage
                 .set_presence(user_id, presence, None)
                 .await
@@ -143,7 +149,7 @@ impl SyncService {
 
         let limit = 50i64;
         let since_ts = since_token.as_ref().map(|t| t.stream_id).unwrap_or(0);
-        
+
         let room_events = if is_incremental {
             self.event_storage
                 .get_room_events_since_batch(&room_ids, since_ts, limit)
@@ -162,19 +168,21 @@ impl SyncService {
 
         for room_id in &room_ids {
             let events = room_events.get(room_id).cloned().unwrap_or_default();
-            let room_sync = self.build_room_sync(room_id, user_id, events, is_incremental).await?;
-            
+            let room_sync = self
+                .build_room_sync(room_id, user_id, events, is_incremental)
+                .await?;
+
             if room_sync.is_object() && !room_sync.as_object().is_some_and(|o| o.is_empty()) {
                 rooms.insert(room_id.clone(), room_sync);
             }
         }
 
         let presence_events = self.get_presence_events(user_id, &since_token).await?;
-        
+
         let account_data_events = self.get_account_data_events(user_id).await?;
-        
+
         let to_device_events = self.get_to_device_events(user_id, &since_token).await?;
-        
+
         let device_lists = self.get_device_lists(user_id, &since_token).await?;
 
         let next_batch = SyncToken {
@@ -217,21 +225,18 @@ impl SyncService {
             self.get_room_state_events(room_id).await?
         };
 
-        let event_list: Vec<serde_json::Value> = events
-            .iter()
-            .map(|e| self.event_to_json(e))
-            .collect();
+        let event_list: Vec<serde_json::Value> =
+            events.iter().map(|e| self.event_to_json(e)).collect();
 
-        let state_list: Vec<serde_json::Value> = state_events
-            .iter()
-            .map(|e| self.event_to_json(e))
-            .collect();
+        let state_list: Vec<serde_json::Value> =
+            state_events.iter().map(|e| self.event_to_json(e)).collect();
 
         let ephemeral_events = self.get_room_ephemeral_events(room_id, user_id).await?;
-        
+
         let account_data_events = self.get_room_account_data_events(room_id, user_id).await?;
 
-        let (highlight_count, notification_count) = self.get_unread_counts(room_id, user_id).await?;
+        let (highlight_count, notification_count) =
+            self.get_unread_counts(room_id, user_id).await?;
 
         let prev_batch = events
             .first()
@@ -276,7 +281,11 @@ impl SyncService {
         Ok(vec![])
     }
 
-    async fn get_presence_events(&self, _user_id: &str, _since: &Option<SyncToken>) -> ApiResult<Vec<serde_json::Value>> {
+    async fn get_presence_events(
+        &self,
+        _user_id: &str,
+        _since: &Option<SyncToken>,
+    ) -> ApiResult<Vec<serde_json::Value>> {
         Ok(vec![])
     }
 
@@ -284,22 +293,38 @@ impl SyncService {
         Ok(vec![])
     }
 
-    async fn get_to_device_events(&self, _user_id: &str, _since: &Option<SyncToken>) -> ApiResult<Vec<serde_json::Value>> {
+    async fn get_to_device_events(
+        &self,
+        _user_id: &str,
+        _since: &Option<SyncToken>,
+    ) -> ApiResult<Vec<serde_json::Value>> {
         Ok(vec![])
     }
 
-    async fn get_device_lists(&self, _user_id: &str, _since: &Option<SyncToken>) -> ApiResult<serde_json::Value> {
+    async fn get_device_lists(
+        &self,
+        _user_id: &str,
+        _since: &Option<SyncToken>,
+    ) -> ApiResult<serde_json::Value> {
         Ok(json!({
             "changed": [],
             "left": []
         }))
     }
 
-    async fn get_room_ephemeral_events(&self, _room_id: &str, _user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+    async fn get_room_ephemeral_events(
+        &self,
+        _room_id: &str,
+        _user_id: &str,
+    ) -> ApiResult<Vec<serde_json::Value>> {
         Ok(vec![])
     }
 
-    async fn get_room_account_data_events(&self, _room_id: &str, _user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+    async fn get_room_account_data_events(
+        &self,
+        _room_id: &str,
+        _user_id: &str,
+    ) -> ApiResult<Vec<serde_json::Value>> {
         Ok(vec![])
     }
 
@@ -332,10 +357,8 @@ impl SyncService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get messages: {}", e)))?;
 
-        let event_list: Vec<serde_json::Value> = events
-            .iter()
-            .map(|e| self.event_to_json(e))
-            .collect();
+        let event_list: Vec<serde_json::Value> =
+            events.iter().map(|e| self.event_to_json(e)).collect();
 
         let end_token = events
             .last()
@@ -392,11 +415,19 @@ impl SyncService {
         Ok(response)
     }
 
-    pub async fn get_filter(&self, _user_id: &str, _filter_id: &str) -> ApiResult<serde_json::Value> {
+    pub async fn get_filter(
+        &self,
+        _user_id: &str,
+        _filter_id: &str,
+    ) -> ApiResult<serde_json::Value> {
         Ok(json!({}))
     }
 
-    pub async fn set_filter(&self, _user_id: &str, _filter: &serde_json::Value) -> ApiResult<String> {
+    pub async fn set_filter(
+        &self,
+        _user_id: &str,
+        _filter: &serde_json::Value,
+    ) -> ApiResult<String> {
         Ok(format!("filter_{}", chrono::Utc::now().timestamp_millis()))
     }
 
@@ -412,7 +443,9 @@ impl SyncService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get rooms: {}", e)))?;
 
-        let since_ts = from.trim_start_matches('s').trim_start_matches('t')
+        let since_ts = from
+            .trim_start_matches('s')
+            .trim_start_matches('t')
             .parse::<i64>()
             .unwrap_or(0);
 

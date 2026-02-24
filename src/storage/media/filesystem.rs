@@ -36,14 +36,14 @@ impl FilesystemBackend {
 
     fn get_media_path(&self, media_id: &str) -> PathBuf {
         let mut path = self.base_path.clone();
-        
+
         if self.max_path_depth > 0 {
             let chars: Vec<char> = media_id.chars().collect();
             for i in 0..self.max_path_depth.min(chars.len() as u32) {
                 path.push(chars[i as usize].to_string());
             }
         }
-        
+
         path.push(media_id);
         path
     }
@@ -56,29 +56,34 @@ impl FilesystemBackend {
 
 #[async_trait]
 impl MediaStorageBackend for FilesystemBackend {
-    async fn store(&self, media_id: &str, data: &[u8], _content_type: &str) -> Result<(), ApiError> {
+    async fn store(
+        &self,
+        media_id: &str,
+        data: &[u8],
+        _content_type: &str,
+    ) -> Result<(), ApiError> {
         let path = self.get_media_path(media_id);
-        
+
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).await.map_err(|e| {
-                ApiError::internal(format!("Failed to create directory: {}", e))
-            })?;
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to create directory: {}", e)))?;
         }
 
-        let mut file = fs::File::create(&path).await.map_err(|e| {
-            ApiError::internal(format!("Failed to create file: {}", e))
-        })?;
+        let mut file = fs::File::create(&path)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to create file: {}", e)))?;
 
-        file.write_all(data).await.map_err(|e| {
-            ApiError::internal(format!("Failed to write file: {}", e))
-        })?;
+        file.write_all(data)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to write file: {}", e)))?;
 
         Ok(())
     }
 
     async fn retrieve(&self, media_id: &str) -> Result<Option<Vec<u8>>, ApiError> {
         let path = self.get_media_path(media_id);
-        
+
         if !path.exists() {
             return Ok(None);
         }
@@ -90,23 +95,23 @@ impl MediaStorageBackend for FilesystemBackend {
         };
 
         let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).await.map_err(|e| {
-            ApiError::internal(format!("Failed to read file: {}", e))
-        })?;
+        file.read_to_end(&mut buffer)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to read file: {}", e)))?;
 
         Ok(Some(buffer))
     }
 
     async fn delete(&self, media_id: &str) -> Result<bool, ApiError> {
         let path = self.get_media_path(media_id);
-        
+
         if !path.exists() {
             return Ok(false);
         }
 
-        fs::remove_file(&path).await.map_err(|e| {
-            ApiError::internal(format!("Failed to delete file: {}", e))
-        })?;
+        fs::remove_file(&path)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to delete file: {}", e)))?;
 
         Ok(true)
     }
@@ -118,14 +123,14 @@ impl MediaStorageBackend for FilesystemBackend {
 
     async fn get_size(&self, media_id: &str) -> Result<Option<u64>, ApiError> {
         let path = self.get_media_path(media_id);
-        
+
         if !path.exists() {
             return Ok(None);
         }
 
-        let metadata = fs::metadata(&path).await.map_err(|e| {
-            ApiError::internal(format!("Failed to get file metadata: {}", e))
-        })?;
+        let metadata = fs::metadata(&path)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get file metadata: {}", e)))?;
 
         Ok(Some(metadata.len()))
     }
@@ -139,18 +144,20 @@ impl MediaStorageBackend for FilesystemBackend {
         data: &[u8],
     ) -> Result<(), ApiError> {
         let path = self.get_thumbnail_path(media_id, width, height, method);
-        
-        fs::create_dir_all(&self.thumbnail_path).await.map_err(|e| {
-            ApiError::internal(format!("Failed to create thumbnail directory: {}", e))
-        })?;
 
-        let mut file = fs::File::create(&path).await.map_err(|e| {
-            ApiError::internal(format!("Failed to create thumbnail file: {}", e))
-        })?;
+        fs::create_dir_all(&self.thumbnail_path)
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to create thumbnail directory: {}", e))
+            })?;
 
-        file.write_all(data).await.map_err(|e| {
-            ApiError::internal(format!("Failed to write thumbnail: {}", e))
-        })?;
+        let mut file = fs::File::create(&path)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to create thumbnail file: {}", e)))?;
+
+        file.write_all(data)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to write thumbnail: {}", e)))?;
 
         Ok(())
     }
@@ -163,7 +170,7 @@ impl MediaStorageBackend for FilesystemBackend {
         method: &str,
     ) -> Result<Option<Vec<u8>>, ApiError> {
         let path = self.get_thumbnail_path(media_id, width, height, method);
-        
+
         if !path.exists() {
             return Ok(None);
         }
@@ -171,36 +178,47 @@ impl MediaStorageBackend for FilesystemBackend {
         let mut file = match fs::File::open(&path).await {
             Ok(f) => f,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(ApiError::internal(format!("Failed to open thumbnail: {}", e))),
+            Err(e) => {
+                return Err(ApiError::internal(format!(
+                    "Failed to open thumbnail: {}",
+                    e
+                )))
+            }
         };
 
         let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).await.map_err(|e| {
-            ApiError::internal(format!("Failed to read thumbnail: {}", e))
-        })?;
+        file.read_to_end(&mut buffer)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to read thumbnail: {}", e)))?;
 
         Ok(Some(buffer))
     }
 
     async fn delete_thumbnails(&self, media_id: &str) -> Result<u64, ApiError> {
         let mut count = 0u64;
-        
+
         let mut entries = match fs::read_dir(&self.thumbnail_path).await {
             Ok(e) => e,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
-            Err(e) => return Err(ApiError::internal(format!("Failed to read thumbnail directory: {}", e))),
+            Err(e) => {
+                return Err(ApiError::internal(format!(
+                    "Failed to read thumbnail directory: {}",
+                    e
+                )))
+            }
         };
 
-        while let Some(entry) = entries.next_entry().await.map_err(|e| {
-            ApiError::internal(format!("Failed to read directory entry: {}", e))
-        })? {
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to read directory entry: {}", e)))?
+        {
             let file_name = entry.file_name();
             let name = file_name.to_string_lossy();
-            
-            if name.starts_with(media_id)
-                && fs::remove_file(entry.path()).await.is_ok() {
-                    count += 1;
-                }
+
+            if name.starts_with(media_id) && fs::remove_file(entry.path()).await.is_ok() {
+                count += 1;
+            }
         }
 
         Ok(count)
@@ -219,14 +237,12 @@ impl MediaStorageBackend for FilesystemBackend {
             oldest: &mut Option<chrono::DateTime<chrono::Utc>>,
             newest: &mut Option<chrono::DateTime<chrono::Utc>>,
         ) -> Result<(), ApiError> {
-            let entries = std::fs::read_dir(path).map_err(|e| {
-                ApiError::internal(format!("Failed to read directory: {}", e))
-            })?;
+            let entries = std::fs::read_dir(path)
+                .map_err(|e| ApiError::internal(format!("Failed to read directory: {}", e)))?;
 
             for entry in entries {
-                let entry = entry.map_err(|e| {
-                    ApiError::internal(format!("Failed to read entry: {}", e))
-                })?;
+                let entry = entry
+                    .map_err(|e| ApiError::internal(format!("Failed to read entry: {}", e)))?;
 
                 let path = entry.path();
                 if path.is_dir() {
@@ -241,7 +257,7 @@ impl MediaStorageBackend for FilesystemBackend {
 
                     if let Ok(modified) = metadata.modified() {
                         let datetime: chrono::DateTime<chrono::Utc> = modified.into();
-                        
+
                         if oldest.as_ref().is_none_or(|&old| datetime < old) {
                             *oldest = Some(datetime);
                         }
@@ -255,7 +271,13 @@ impl MediaStorageBackend for FilesystemBackend {
             Ok(())
         }
 
-        process_directory(&self.base_path, &mut total_files, &mut total_size, &mut oldest_file, &mut newest_file)?;
+        process_directory(
+            &self.base_path,
+            &mut total_files,
+            &mut total_size,
+            &mut oldest_file,
+            &mut newest_file,
+        )?;
 
         Ok(MediaStorageStats {
             total_files,

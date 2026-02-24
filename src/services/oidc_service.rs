@@ -89,37 +89,52 @@ impl OidcService {
         }
 
         let discovery_url = format!("{}/.well-known/openid-configuration", self.config.issuer);
-        
+
         debug!("Fetching OIDC discovery document from {}", discovery_url);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(&discovery_url)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to fetch discovery document: {}", e)))?;
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to fetch discovery document: {}", e))
+            })?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!("Discovery request failed: {}", response.status())));
+            return Err(ApiError::internal(format!(
+                "Discovery request failed: {}",
+                response.status()
+            )));
         }
 
-        let discovery: OidcDiscoveryDocument = response.json().await
-            .map_err(|e| ApiError::internal(format!("Failed to parse discovery document: {}", e)))?;
+        let discovery: OidcDiscoveryDocument = response.json().await.map_err(|e| {
+            ApiError::internal(format!("Failed to parse discovery document: {}", e))
+        })?;
 
         self.discovery = Some(discovery.clone());
         Ok(discovery)
     }
 
-    pub fn get_authorization_url(&self, state: &str, redirect_uri: &str) -> Result<String, ApiError> {
+    pub fn get_authorization_url(
+        &self,
+        state: &str,
+        redirect_uri: &str,
+    ) -> Result<String, ApiError> {
         let scope = self.config.scopes.join(" ");
-        
+
         let default_auth = format!("{}/authorize", self.config.issuer);
-        let auth_endpoint = self.config.authorization_endpoint.as_ref()
+        let auth_endpoint = self
+            .config
+            .authorization_endpoint
+            .as_ref()
             .or_else(|| self.discovery.as_ref().map(|d| &d.authorization_endpoint))
             .map(|s| s.as_str())
             .unwrap_or(&default_auth);
 
-        let mut url = url::Url::parse(auth_endpoint)
-            .map_err(|e| ApiError::internal(format!("Invalid OIDC authorization endpoint: {}", e)))?;
+        let mut url = url::Url::parse(auth_endpoint).map_err(|e| {
+            ApiError::internal(format!("Invalid OIDC authorization endpoint: {}", e))
+        })?;
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("client_id", &self.config.client_id);
@@ -138,7 +153,10 @@ impl OidcService {
         redirect_uri: &str,
     ) -> Result<OidcTokenResponse, ApiError> {
         let default_token = format!("{}/token", self.config.issuer);
-        let token_endpoint = self.config.token_endpoint.as_ref()
+        let token_endpoint = self
+            .config
+            .token_endpoint
+            .as_ref()
             .or_else(|| self.discovery.as_ref().map(|d| &d.token_endpoint))
             .map(|s| s.as_str())
             .unwrap_or(&default_token);
@@ -156,26 +174,37 @@ impl OidcService {
             request = request.basic_auth(&self.config.client_id, Some(secret));
         }
 
-        let response = request.send().await
+        let response = request
+            .send()
+            .await
             .map_err(|e| ApiError::internal(format!("Token exchange failed: {}", e)))?;
 
         if !response.status().is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(ApiError::internal(format!("Token exchange failed: {}", body)));
+            return Err(ApiError::internal(format!(
+                "Token exchange failed: {}",
+                body
+            )));
         }
 
-        response.json().await
+        response
+            .json()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to parse token response: {}", e)))
     }
 
     pub async fn get_user_info(&self, access_token: &str) -> Result<OidcUserInfo, ApiError> {
         let default_userinfo = format!("{}/userinfo", self.config.issuer);
-        let userinfo_endpoint = self.config.userinfo_endpoint.as_ref()
+        let userinfo_endpoint = self
+            .config
+            .userinfo_endpoint
+            .as_ref()
             .or_else(|| self.discovery.as_ref().map(|d| &d.userinfo_endpoint))
             .map(|s| s.as_str())
             .unwrap_or(&default_userinfo);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(userinfo_endpoint)
             .bearer_auth(access_token)
             .send()
@@ -183,25 +212,36 @@ impl OidcService {
             .map_err(|e| ApiError::internal(format!("UserInfo request failed: {}", e)))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!("UserInfo request failed: {}", response.status())));
+            return Err(ApiError::internal(format!(
+                "UserInfo request failed: {}",
+                response.status()
+            )));
         }
 
-        response.json().await
+        response
+            .json()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to parse UserInfo: {}", e)))
     }
 
     pub fn map_user(&self, user_info: &OidcUserInfo) -> OidcUser {
         let mapping = &self.config.attribute_mapping;
 
-        let localpart = mapping.localpart.as_ref()
+        let localpart = mapping
+            .localpart
+            .as_ref()
             .and_then(|attr| Self::get_attribute(user_info, attr))
             .unwrap_or(&user_info.sub);
 
-        let displayname = mapping.displayname.as_ref()
+        let displayname = mapping
+            .displayname
+            .as_ref()
             .and_then(|attr| Self::get_attribute(user_info, attr))
             .map(|s| s.to_string());
 
-        let email = mapping.email.as_ref()
+        let email = mapping
+            .email
+            .as_ref()
             .and_then(|attr| Self::get_attribute(user_info, attr))
             .map(|s| s.to_string());
 
@@ -230,7 +270,9 @@ impl OidcService {
     pub fn generate_state() -> String {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        (0..32).map(|_| rng.sample(rand::distributions::Alphanumeric) as char).collect()
+        (0..32)
+            .map(|_| rng.sample(rand::distributions::Alphanumeric) as char)
+            .collect()
     }
 
     pub fn get_config(&self) -> &OidcConfig {
@@ -249,13 +291,19 @@ mod tests {
             issuer: "https://accounts.example.com".to_string(),
             client_id: "test-client-id".to_string(),
             client_secret: Some("test-client-secret".to_string()),
-            scopes: vec!["openid".to_string(), "profile".to_string(), "email".to_string()],
+            scopes: vec![
+                "openid".to_string(),
+                "profile".to_string(),
+                "email".to_string(),
+            ],
             attribute_mapping: OidcAttributeMapping {
                 localpart: Some("preferred_username".to_string()),
                 displayname: Some("name".to_string()),
                 email: Some("email".to_string()),
             },
-            callback_url: Some("https://matrix.example.com/_matrix/client/r0/login/sso/redirect".to_string()),
+            callback_url: Some(
+                "https://matrix.example.com/_matrix/client/r0/login/sso/redirect".to_string(),
+            ),
             allow_existing_users: true,
             block_unknown_users: false,
             authorization_endpoint: None,
@@ -299,8 +347,10 @@ mod tests {
     #[test]
     fn test_get_authorization_url() {
         let service = create_test_service();
-        let url = service.get_authorization_url("test-state", "https://matrix.example.com/callback").unwrap();
-        
+        let url = service
+            .get_authorization_url("test-state", "https://matrix.example.com/callback")
+            .unwrap();
+
         assert!(url.contains("client_id=test-client-id"));
         assert!(url.contains("response_type=code"));
         assert!(url.contains("state=test-state"));
@@ -323,7 +373,7 @@ mod tests {
         };
 
         let user = service.map_user(&user_info);
-        
+
         assert_eq!(user.subject, "user123");
         assert_eq!(user.localpart, "testuser");
         assert_eq!(user.displayname, Some("Test User".to_string()));
@@ -335,7 +385,7 @@ mod tests {
         let mut config = create_test_config();
         config.attribute_mapping.localpart = None;
         let service = OidcService::new(Arc::new(config));
-        
+
         let user_info = OidcUserInfo {
             sub: "user123".to_string(),
             name: None,
