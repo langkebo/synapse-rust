@@ -81,7 +81,7 @@ redis:
   port: 6379
   key_prefix: "synapse:cjystx.top:"
   pool_size: 20
-  enabled: true
+  enabled: false
 
 # ============================================================================
 # 日志配置
@@ -129,9 +129,9 @@ security:
   expiry_time: 7200
   refresh_token_expiry: 1209600
   
-  argon2_m_cost: 8192
-  argon2_t_cost: 4
-  argon2_p_cost: 2
+  argon2_m_cost: 65536
+  argon2_t_cost: 3
+  argon2_p_cost: 1
 
 # ============================================================================
 # 搜索配置
@@ -202,6 +202,7 @@ worker:
 # ============================================================================
 cors:
   allowed_origins:
+    - "*"
     - "https://cjystx.top"
     - "https://matrix.cjystx.top"
     - "https://element.cjystx.top"

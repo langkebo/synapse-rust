@@ -4,6 +4,19 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    std::panic::set_hook(Box::new(|panic_info| {
+        let location = panic_info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column())).unwrap_or_else(|| "unknown".to_string());
+        let message = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Unknown panic".to_string()
+        };
+        eprintln!("PANIC at {}: {}", location, message);
+        eprintln!("Backtrace: {:?}", std::backtrace::Backtrace::capture());
+    }));
+
     let env_filter = EnvFilter::builder()
         .parse(
             std::env::var("RUST_LOG")
