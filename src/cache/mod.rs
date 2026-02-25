@@ -737,6 +737,23 @@ impl CacheManager {
         self.local.remove(key);
     }
 
+    pub fn get_keys_with_prefix(&self, prefix: &str) -> Vec<String> {
+        self.local
+            .cache
+            .iter()
+            .filter(|(k, _)| k.starts_with(prefix))
+            .map(|(k, _)| k.to_string())
+            .collect()
+    }
+
+    pub fn get_local_raw(&self, key: &str) -> Option<String> {
+        self.local.get_raw(key)
+    }
+
+    pub fn remove_local(&self, key: &str) {
+        self.local.remove(key);
+    }
+
     pub fn invalidate_local_pattern(&self, pattern: &str) {
         let keys_to_remove: Vec<String> = self
             .local

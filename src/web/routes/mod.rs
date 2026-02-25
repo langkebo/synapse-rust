@@ -347,8 +347,14 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_telemetry_router())
         .merge(create_thread_routes(state.clone()))
         .merge(create_rate_limit_admin_router())
+        .route("/_matrix/client/r0/voip/turnServer", get(get_turn_server))
         .route("/_matrix/client/v3/voip/turnServer", get(get_turn_server))
+        .route("/_matrix/client/r0/voip/config", get(get_voip_config))
         .route("/_matrix/client/v3/voip/config", get(get_voip_config))
+        .route(
+            "/_matrix/client/r0/voip/turnServer/guest",
+            get(get_turn_credentials_guest),
+        )
         .route(
             "/_matrix/client/v3/voip/turnServer/guest",
             get(get_turn_credentials_guest),

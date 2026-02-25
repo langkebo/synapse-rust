@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MatrixErrorCode {
     Forbidden,
     UnknownToken,
@@ -123,6 +122,95 @@ impl MatrixErrorCode {
 impl std::fmt::Display for MatrixErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+impl Serialize for MatrixErrorCode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for MatrixErrorCode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "M_FORBIDDEN" => Ok(MatrixErrorCode::Forbidden),
+            "M_UNKNOWN_TOKEN" => Ok(MatrixErrorCode::UnknownToken),
+            "M_MISSING_TOKEN" => Ok(MatrixErrorCode::MissingToken),
+            "M_BAD_JSON" => Ok(MatrixErrorCode::BadJson),
+            "M_NOT_JSON" => Ok(MatrixErrorCode::NotJson),
+            "M_NOT_FOUND" => Ok(MatrixErrorCode::NotFound),
+            "M_LIMIT_EXCEEDED" => Ok(MatrixErrorCode::LimitExceeded),
+            "M_UNKNOWN" => Ok(MatrixErrorCode::Unknown),
+            "M_UNRECOGNIZED" => Ok(MatrixErrorCode::Unrecognized),
+            "M_UNAUTHORIZED" => Ok(MatrixErrorCode::Unauthorized),
+            "M_USER_DEACTIVATED" => Ok(MatrixErrorCode::UserDeactivated),
+            "M_USER_IN_USE" => Ok(MatrixErrorCode::UserInUse),
+            "M_INVALID_USERNAME" => Ok(MatrixErrorCode::InvalidUsername),
+            "M_ROOM_IN_USE" => Ok(MatrixErrorCode::RoomInUse),
+            "M_INVALID_ROOM_STATE" => Ok(MatrixErrorCode::InvalidRoomState),
+            "M_THREEPID_IN_USE" => Ok(MatrixErrorCode::ThreepidInUse),
+            "M_THREEPID_NOT_FOUND" => Ok(MatrixErrorCode::ThreepidNotFound),
+            "M_THREEPID_AUTH_FAILED" => Ok(MatrixErrorCode::ThreepidAuthFailed),
+            "M_THREEPID_DENIED" => Ok(MatrixErrorCode::ThreepidDenied),
+            "M_SERVER_NOT_TRUSTED" => Ok(MatrixErrorCode::ServerNotTrusted),
+            "M_UNSUPPORTED_ROOM_VERSION" => Ok(MatrixErrorCode::UnsupportedRoomVersion),
+            "M_INCOMPATIBLE_ROOM_VERSION" => Ok(MatrixErrorCode::IncompatibleRoomVersion),
+            "M_BAD_STATE" => Ok(MatrixErrorCode::BadState),
+            "M_GUEST_ACCESS_FORBIDDEN" => Ok(MatrixErrorCode::GuestAccessForbidden),
+            "M_CAPTCHA_NEEDED" => Ok(MatrixErrorCode::CaptchaNeeded),
+            "M_CAPTCHA_INVALID" => Ok(MatrixErrorCode::CaptchaInvalid),
+            "M_MISSING_PARAM" => Ok(MatrixErrorCode::MissingParam),
+            "M_INVALID_PARAM" => Ok(MatrixErrorCode::InvalidParam),
+            "M_TOO_LARGE" => Ok(MatrixErrorCode::TooLarge),
+            "M_EXCLUSIVE" => Ok(MatrixErrorCode::Exclusive),
+            "M_RESOURCE_LIMIT_EXCEEDED" => Ok(MatrixErrorCode::ResourceLimitExceeded),
+            "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM" => Ok(MatrixErrorCode::CannotLeaveServerNoticeRoom),
+            _ => Err(serde::de::Error::unknown_variant(
+                &s,
+                &[
+                    "M_FORBIDDEN",
+                    "M_UNKNOWN_TOKEN",
+                    "M_MISSING_TOKEN",
+                    "M_BAD_JSON",
+                    "M_NOT_JSON",
+                    "M_NOT_FOUND",
+                    "M_LIMIT_EXCEEDED",
+                    "M_UNKNOWN",
+                    "M_UNRECOGNIZED",
+                    "M_UNAUTHORIZED",
+                    "M_USER_DEACTIVATED",
+                    "M_USER_IN_USE",
+                    "M_INVALID_USERNAME",
+                    "M_ROOM_IN_USE",
+                    "M_INVALID_ROOM_STATE",
+                    "M_THREEPID_IN_USE",
+                    "M_THREEPID_NOT_FOUND",
+                    "M_THREEPID_AUTH_FAILED",
+                    "M_THREEPID_DENIED",
+                    "M_SERVER_NOT_TRUSTED",
+                    "M_UNSUPPORTED_ROOM_VERSION",
+                    "M_INCOMPATIBLE_ROOM_VERSION",
+                    "M_BAD_STATE",
+                    "M_GUEST_ACCESS_FORBIDDEN",
+                    "M_CAPTCHA_NEEDED",
+                    "M_CAPTCHA_INVALID",
+                    "M_MISSING_PARAM",
+                    "M_INVALID_PARAM",
+                    "M_TOO_LARGE",
+                    "M_EXCLUSIVE",
+                    "M_RESOURCE_LIMIT_EXCEEDED",
+                    "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM",
+                ],
+            )),
+        }
     }
 }
 

@@ -124,6 +124,7 @@ impl FederationSignatureCache {
         let signature_cache = Cache::builder()
             .max_capacity(config.max_capacity)
             .time_to_live(Duration::from_secs(config.signature_ttl))
+            .support_invalidation_closures()
             .build();
 
         Self {
@@ -400,6 +401,8 @@ mod tests {
 
         cache.set_signature(&key1, true);
         cache.set_signature(&key2, true);
+
+        cache.signature_cache.run_pending_tasks();
 
         let stats = cache.get_stats();
         assert_eq!(stats.entry_count, 2);

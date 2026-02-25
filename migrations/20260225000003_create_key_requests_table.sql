@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Synapse-Rust 数据库迁移脚本
--- 版本: 20260225000001
+-- 版本: 20260225000003
 -- 描述: 创建密钥请求表
 -- =============================================================================
 
@@ -41,5 +41,5 @@ CREATE INDEX IF NOT EXISTS idx_e2ee_key_requests_fulfilled
 -- =============================================================================
 
 INSERT INTO schema_migrations (version, description, success)
-VALUES ('20260225000001', 'Create key requests table', TRUE)
+VALUES ('20260225000003', 'Create key requests table', TRUE)
 ON CONFLICT (version) DO UPDATE SET success = TRUE, executed_at = NOW();
