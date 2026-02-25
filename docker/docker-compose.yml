@@ -32,6 +32,7 @@ services:
       - SERVER_NAME=${SERVER_NAME:-cjystx.top}
       - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
       - TZ=${TZ:-Asia/Shanghai}
+      - ALLOWED_ORIGINS=https://cjystx.top,https://matrix.cjystx.top,https://element.cjystx.top
       - SECRET_KEY=${SECRET_KEY}
       - MACAROON_SECRET=${MACAROON_SECRET}
       - FORM_SECRET=${FORM_SECRET}

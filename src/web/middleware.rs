@@ -134,7 +134,8 @@ pub fn log_cors_security_report(report: &CorsSecurityReport) {
         println!("║  🚨 ERRORS:                                                    ║");
         for error in &report.errors {
             for line in textwrap::wrap(error, 60) {
-                println!("║    {}{}", line, " ".repeat(60 - line.len()));
+                let padding = if line.len() < 60 { 60 - line.len() } else { 0 };
+                println!("║    {}{}", line, " ".repeat(padding));
             }
         }
     }
@@ -143,7 +144,8 @@ pub fn log_cors_security_report(report: &CorsSecurityReport) {
         println!("║  ⚠️  WARNINGS:                                                  ║");
         for warning in &report.warnings {
             for line in textwrap::wrap(warning, 60) {
-                println!("║    {}{}", line, " ".repeat(60 - line.len()));
+                let padding = if line.len() < 60 { 60 - line.len() } else { 0 };
+                println!("║    {}{}", line, " ".repeat(padding));
             }
         }
     }

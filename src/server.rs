@@ -86,7 +86,7 @@ impl SynapseServer {
             );
 
             let conn_str = format!("redis://{}:{}", config.redis.host, config.redis.port);
-            let redis_cfg = deadpool_redis::Config::from_url(conn_str);
+            let redis_cfg = deadpool_redis::Config::from_url(&conn_str);
             let redis_pool = redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
 
             info!("Redis pool created.");
@@ -94,9 +94,10 @@ impl SynapseServer {
             let tq = RedisTaskQueue::from_pool(redis_pool.clone());
             task_queue = Some(Arc::new(tq));
 
-            let cache = Arc::new(CacheManager::with_redis_pool(
+            let cache = Arc::new(CacheManager::with_redis_pool_and_url(
                 redis_pool,
                 CacheConfig::default(),
+                &conn_str,
             ));
 
             if let Err(e) = cache.start_invalidation_subscriber().await {
