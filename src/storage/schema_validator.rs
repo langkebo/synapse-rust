@@ -1,268 +1,40 @@
 use sqlx::{Pool, Postgres};
+use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::info;
 
-/// Stores information about a single table's schema validation results.
-/// Contains expected columns, actual columns, and validation status.
-#[derive(Debug, Clone)]
-pub struct SchemaInfo {
-    /// The name of the table being validated
-    pub table_name: String,
-    /// Columns expected by the application schema
-    pub expected_columns: Vec<String>,
-    /// Columns actually present in the database
-    pub actual_columns: Vec<String>,
-    /// Columns missing from the database
-    pub missing_columns: Vec<String>,
-    /// Extra columns in the database not in the schema
-    pub extra_columns: Vec<String>,
-    /// Whether the table schema is valid (no missing columns)
-    pub is_valid: bool,
-}
-
-/// Result of validating all critical tables in the database.
-/// Provides a comprehensive overview of database schema health.
-#[derive(Debug, Clone)]
-pub struct SchemaValidationResult {
-    /// Overall health status of the database schema
-    pub is_healthy: bool,
-    /// Detailed validation info for each table
-    pub schema_info: Vec<SchemaInfo>,
-    /// Recommended repair actions for invalid tables
-    pub repair_actions: Vec<String>,
-    /// Errors encountered during validation
-    pub errors: Vec<String>,
-}
-
-/// Validates database schema against expected structure.
-/// Provides detailed information about missing or extra columns.
 pub struct SchemaValidator {
     pool: Arc<Pool<Postgres>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ColumnInfo {
+    pub column_name: String,
+    pub data_type: String,
+    pub is_nullable: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TableSchema {
+    pub table_name: String,
+    pub columns: Vec<ColumnInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TableSchemaInfo {
+    pub table_name: String,
+    pub missing_columns: Vec<String>,
+}
+
 impl SchemaValidator {
-    /// Creates a new SchemaValidator with the given database pool.
-    ///
-    /// # Arguments
-    /// * `pool` - Shared PostgreSQL connection pool
-    ///
-    /// # Returns
-    /// A new SchemaValidator instance
-    pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
-        Self { pool: pool.clone() }
+    pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
+        Self { pool }
     }
 
-    /// Validates all critical tables in the database.
-    ///
-    /// Validates the following tables:
-    /// - users
-    /// - devices
-    /// - rooms
-    /// - room_memberships
-    /// - room_events
-    /// - friends
-    /// - friend_requests
-    /// - blocked_users
-    ///
-    /// # Returns
-    /// Result containing SchemaValidationResult with detailed validation info
-    ///
-    /// # Errors
-    /// Returns sqlx::Error if database queries fail
-    pub async fn validate_all(&self) -> Result<SchemaValidationResult, sqlx::Error> {
-        let mut result = SchemaValidationResult {
-            is_healthy: true,
-            schema_info: Vec::new(),
-            repair_actions: Vec::new(),
-            errors: Vec::new(),
-        };
-
-        let critical_tables = vec![
-            "users",
-            "devices",
-            "rooms",
-            "room_memberships",
-            "events",
-            "friends",
-            "friend_requests",
-            "blocked_users",
-            "device_keys",
-            "voice_messages",
-        ];
-
-        for table in critical_tables {
-            match self.validate_table(table).await {
-                Ok(info) => {
-                    let is_valid = info.is_valid;
-                    let missing_columns = info.missing_columns.clone();
-                    result.schema_info.push(info);
-                    if !is_valid {
-                        result.is_healthy = false;
-                        result.repair_actions.extend(
-                            missing_columns
-                                .iter()
-                                .map(|c| format!("ADD COLUMN {} TO {}", c, table)),
-                        );
-                    }
-                }
-                Err(e) => {
-                    result.is_healthy = false;
-                    result.errors.push(format!("{}: {}", table, e));
-                }
-            }
-        }
-
-        Ok(result)
-    }
-
-    async fn validate_table(&self, table_name: &str) -> Result<SchemaInfo, sqlx::Error> {
-        let expected_columns = self.get_expected_columns(table_name);
-        let actual_columns = self.get_actual_columns(table_name).await?;
-
-        let missing_columns: Vec<String> = expected_columns
-            .iter()
-            .filter(|c| !actual_columns.contains(c))
-            .cloned()
-            .collect();
-
-        let extra_columns: Vec<String> = actual_columns
-            .iter()
-            .filter(|c| !expected_columns.contains(c))
-            .cloned()
-            .collect();
-
-        Ok(SchemaInfo {
-            table_name: table_name.to_string(),
-            expected_columns: expected_columns.clone(),
-            actual_columns,
-            missing_columns: missing_columns.clone(),
-            extra_columns,
-            is_valid: missing_columns.is_empty(),
-        })
-    }
-
-    fn get_expected_columns(&self, table_name: &str) -> Vec<String> {
-        match table_name {
-            "users" => vec![
-                "user_id".to_string(),
-                "username".to_string(),
-                "password_hash".to_string(),
-                "displayname".to_string(),
-                "avatar_url".to_string(),
-                "is_admin".to_string(),
-                "is_deactivated".to_string(),
-                "is_guest".to_string(),
-                "consent_version".to_string(),
-                "appservice_id".to_string(),
-                "user_type".to_string(),
-                "is_shadow_banned".to_string(),
-                "generation".to_string(),
-                "invalid_update_ts".to_string(),
-                "migration_state".to_string(),
-                "creation_ts".to_string(),
-                "updated_ts".to_string(),
-            ],
-            "devices" => vec![
-                "device_id".to_string(),
-                "user_id".to_string(),
-                "display_name".to_string(),
-                "created_ts".to_string(),
-            ],
-            "rooms" => vec![
-                "room_id".to_string(),
-                "creator".to_string(),
-                "is_public".to_string(),
-                "name".to_string(),
-                "topic".to_string(),
-                "avatar_url".to_string(),
-                "creation_ts".to_string(),
-                "last_activity_ts".to_string(),
-            ],
-            "room_memberships" => vec![
-                "room_id".to_string(),
-                "user_id".to_string(),
-                "sender".to_string(),
-                "membership".to_string(),
-                "event_id".to_string(),
-                "event_type".to_string(),
-                "display_name".to_string(),
-                "avatar_url".to_string(),
-                "is_banned".to_string(),
-                "invite_token".to_string(),
-                "updated_ts".to_string(),
-                "joined_ts".to_string(),
-                "left_ts".to_string(),
-                "reason".to_string(),
-                "banned_by".to_string(),
-                "ban_reason".to_string(),
-                "ban_ts".to_string(),
-                "join_reason".to_string(),
-            ],
-            "events" => vec![
-                "event_id".to_string(),
-                "room_id".to_string(),
-                "user_id".to_string(),
-                "sender".to_string(),
-                "event_type".to_string(),
-                "content".to_string(),
-                "state_key".to_string(),
-                "origin_server_ts".to_string(),
-                "processed_ts".to_string(),
-            ],
-            "friends" => vec![
-                "user_id".to_string(),
-                "friend_id".to_string(),
-                "created_ts".to_string(),
-            ],
-            "friend_requests" => vec![
-                "id".to_string(),
-                "from_user_id".to_string(),
-                "to_user_id".to_string(),
-                "message".to_string(),
-                "status".to_string(),
-                "created_ts".to_string(),
-                "updated_ts".to_string(),
-            ],
-            "blocked_users" => vec![
-                "user_id".to_string(),
-                "blocked_user_id".to_string(),
-                "reason".to_string(),
-                "created_ts".to_string(),
-            ],
-            "device_keys" => vec![
-                "id".to_string(),
-                "user_id".to_string(),
-                "device_id".to_string(),
-                "display_name".to_string(),
-                "algorithm".to_string(),
-                "key_id".to_string(),
-                "public_key".to_string(),
-                "signatures".to_string(),
-                "created_at".to_string(),
-                "updated_at".to_string(),
-                "ts_updated_ms".to_string(),
-            ],
-            "voice_messages" => vec![
-                "id".to_string(),
-                "message_id".to_string(),
-                "user_id".to_string(),
-                "room_id".to_string(),
-                "session_id".to_string(),
-                "file_path".to_string(),
-                "content_type".to_string(),
-                "duration_ms".to_string(),
-                "file_size".to_string(),
-                "waveform_data".to_string(),
-                "created_ts".to_string(),
-            ],
-            _ => vec![],
-        }
-    }
-
-    async fn get_actual_columns(&self, table_name: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<String> = sqlx::query_scalar::<_, String>(
+    pub async fn get_table_columns(&self, table_name: &str) -> Result<Vec<ColumnInfo>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String, String, String)>(
             r#"
-            SELECT column_name FROM information_schema.columns
+            SELECT column_name, data_type, is_nullable
+            FROM information_schema.columns
             WHERE table_name = $1
             ORDER BY ordinal_position
             "#,
@@ -271,127 +43,288 @@ impl SchemaValidator {
         .fetch_all(&*self.pool)
         .await?;
 
+        Ok(rows
+            .into_iter()
+            .map(|(column_name, data_type, is_nullable)| ColumnInfo {
+                column_name,
+                data_type,
+                is_nullable,
+            })
+            .collect())
+    }
+
+    pub async fn get_all_tables(&self) -> Result<Vec<String>, sqlx::Error> {
+        let rows: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+            AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+            "#,
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+
         Ok(rows)
     }
 
-    pub async fn repair_missing_columns(&self) -> Result<Vec<String>, sqlx::Error> {
-        let mut repairs = Vec::new();
-        let validation = self.validate_all().await?;
+    pub async fn validate_column_exists(&self, table_name: &str, column_name: &str) -> Result<bool, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM information_schema.columns
+            WHERE table_name = $1 AND column_name = $2
+            "#,
+        )
+        .bind(table_name)
+        .bind(column_name)
+        .fetch_one(&*self.pool)
+        .await?;
 
-        for info in validation.schema_info {
-            for column in &info.missing_columns {
-                let repair = self.add_column(&info.table_name, column).await?;
-                repairs.push(repair);
+        Ok(count > 0)
+    }
+
+    pub async fn validate_table_exists(&self, table_name: &str) -> Result<bool, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM information_schema.tables
+            WHERE table_name = $1 AND table_schema = 'public'
+            "#,
+        )
+        .bind(table_name)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(count > 0)
+    }
+
+    pub async fn get_schema_map(&self) -> Result<HashMap<String, Vec<String>>, sqlx::Error> {
+        let tables = self.get_all_tables().await?;
+        let mut schema_map = HashMap::new();
+
+        for table in tables {
+            let columns = self.get_table_columns(&table).await?;
+            let column_names: Vec<String> = columns.into_iter().map(|c| c.column_name).collect();
+            schema_map.insert(table.clone(), column_names);
+        }
+
+        Ok(schema_map)
+    }
+
+    pub async fn validate_required_columns(&self, requirements: &[(&str, &str)]) -> Result<Vec<String>, sqlx::Error> {
+        let mut missing = Vec::new();
+
+        for (table, column) in requirements {
+            if !self.validate_column_exists(table, column).await? {
+                missing.push(format!("{}.{}", table, column));
             }
         }
 
-        Ok(repairs)
+        Ok(missing)
     }
 
-    async fn add_column(&self, table_name: &str, column_name: &str) -> Result<String, sqlx::Error> {
-        let column_def = self
-            .get_column_definition(table_name, column_name)
-            .map_err(sqlx::Error::Protocol)?;
+    pub async fn validate_required_tables(&self, tables: &[&str]) -> Result<Vec<String>, sqlx::Error> {
+        let mut missing = Vec::new();
 
-        sqlx::query(&format!(
-            "ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {}",
-            table_name, column_name, column_def
-        ))
-        .execute(&*self.pool)
-        .await?;
-
-        let msg = format!("Added column {} to table {}", column_name, table_name);
-        info!("{}", msg);
-        Ok(msg)
-    }
-
-    fn get_column_definition(&self, table_name: &str, column_name: &str) -> Result<String, String> {
-        match table_name {
-            "device_keys" => match column_name {
-                "id" => Ok("UUID DEFAULT gen_random_uuid()".to_string()),
-                "user_id" => Ok("VARCHAR(255) NOT NULL".to_string()),
-                "device_id" => Ok("VARCHAR(255) NOT NULL".to_string()),
-                "display_name" => Ok("VARCHAR(255)".to_string()),
-                "algorithm" => Ok("VARCHAR(100)".to_string()),
-                "key_id" => Ok("VARCHAR(255)".to_string()),
-                "public_key" => Ok("TEXT".to_string()),
-                "signatures" => Ok("JSONB".to_string()),
-                "created_at" => Ok("TIMESTAMPTZ DEFAULT NOW()".to_string()),
-                "updated_at" => Ok("TIMESTAMPTZ DEFAULT NOW()".to_string()),
-                "ts_updated_ms" => Ok("BIGINT".to_string()),
-                _ => Err(format!("Unknown column: {}", column_name)),
-            },
-            "voice_messages" => match column_name {
-                "id" => Ok("BIGSERIAL PRIMARY KEY".to_string()),
-                "message_id" => Ok("VARCHAR(255) NOT NULL UNIQUE".to_string()),
-                "user_id" => Ok("VARCHAR(255) NOT NULL".to_string()),
-                "room_id" => Ok("VARCHAR(255)".to_string()),
-                "session_id" => Ok("VARCHAR(255)".to_string()),
-                "file_path" => Ok("VARCHAR(512)".to_string()),
-                "content_type" => Ok("VARCHAR(100)".to_string()),
-                "duration_ms" => Ok("INT NOT NULL".to_string()),
-                "file_size" => Ok("BIGINT NOT NULL".to_string()),
-                "waveform_data" => Ok("TEXT".to_string()),
-                "created_ts" => Ok("BIGINT NOT NULL".to_string()),
-                _ => Err(format!("Unknown column: {}", column_name)),
-            },
-            _ => Err(format!("Unknown table: {}", table_name)),
+        for table in tables {
+            if !self.validate_table_exists(table).await? {
+                missing.push(table.to_string());
+            }
         }
+
+        Ok(missing)
+    }
+
+    pub async fn check_schema_consistency(&self) -> Result<SchemaConsistencyReport, sqlx::Error> {
+        let mut report = SchemaConsistencyReport::default();
+
+        let required_tables = vec![
+            "users", "rooms", "events", "devices", "access_tokens",
+            "presence", "federation_signing_keys", "notifications",
+            "room_memberships", "account_data", "push_rules",
+        ];
+
+        report.missing_tables = self.validate_required_tables(&required_tables).await?;
+
+        let required_columns: Vec<(&str, &str)> = vec![
+            ("rooms", "room_id"),
+            ("rooms", "name"),
+            ("rooms", "join_rules"),
+            ("rooms", "creator"),
+            ("rooms", "room_version"),
+            ("rooms", "is_public"),
+            ("rooms", "member_count"),
+            ("rooms", "creation_ts"),
+            ("users", "user_id"),
+            ("users", "password_hash"),
+            ("users", "creation_ts"),
+            ("presence", "user_id"),
+            ("presence", "presence"),
+            ("presence", "updated_ts"),
+            ("federation_signing_keys", "server_name"),
+            ("federation_signing_keys", "key_id"),
+            ("federation_signing_keys", "created_ts"),
+            ("notifications", "user_id"),
+            ("notifications", "ts"),
+        ];
+
+        report.missing_columns = self.validate_required_columns(&required_columns).await?;
+
+        report.is_valid = report.missing_tables.is_empty() && report.missing_columns.is_empty();
+
+        Ok(report)
+    }
+
+    pub async fn validate_all(&self) -> Result<SchemaValidationResult, sqlx::Error> {
+        let report = self.check_schema_consistency().await?;
+        
+        let mut schema_info = Vec::new();
+        let tables_to_check = vec!["rooms", "users", "presence", "federation_signing_keys", "notifications"];
+        
+        for table in tables_to_check {
+            let columns = self.get_table_columns(table).await?;
+            let column_names: Vec<String> = columns.iter().map(|c| c.column_name.clone()).collect();
+            let missing: Vec<String> = column_names.iter().filter(|c| !column_names.contains(c)).cloned().collect();
+            schema_info.push(TableSchemaInfo {
+                table_name: table.to_string(),
+                missing_columns: missing,
+            });
+        }
+
+        Ok(SchemaValidationResult {
+            is_valid: report.is_valid,
+            is_healthy: report.is_valid,
+            missing_tables: report.missing_tables,
+            missing_columns: report.missing_columns,
+            missing_indexes: Vec::new(),
+            schema_info,
+        })
+    }
+
+    pub async fn repair_missing_columns(&self) -> Result<Vec<String>, sqlx::Error> {
+        let mut repaired = Vec::new();
+
+        let columns_to_add = vec![
+            ("rooms", "name", "VARCHAR(255)"),
+            ("rooms", "topic", "TEXT"),
+            ("rooms", "avatar_url", "TEXT"),
+            ("rooms", "canonical_alias", "VARCHAR(255)"),
+            ("rooms", "member_count", "BIGINT DEFAULT 0"),
+            ("rooms", "history_visibility", "VARCHAR(50) DEFAULT 'joined'"),
+            ("rooms", "encryption", "VARCHAR(50)"),
+            ("rooms", "last_activity_ts", "BIGINT"),
+        ];
+
+        for (table, column, col_type) in columns_to_add {
+            if !self.validate_column_exists(table, column).await? {
+                let sql = format!("ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {}", table, column, col_type);
+                sqlx::query(&sql)
+                    .execute(&*self.pool)
+                    .await?;
+                repaired.push(format!("{}.{}", table, column));
+            }
+        }
+
+        Ok(repaired)
     }
 
     pub async fn validate_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
-        let mut issues = Vec::new();
-
-        let required_indexes = vec![
-            ("friends", "idx_friends_user"),
-            ("friends", "idx_friends_friend"),
-            ("friend_requests", "idx_friend_requests_target"),
-        ];
-
-        for (table, index_name) in required_indexes {
-            let exists = self.index_exists(index_name).await?;
-            if !exists {
-                let issue = format!("Missing index: {} on table {}", index_name, table);
-                info!("{}", issue);
-                issues.push(issue);
-            }
-        }
-
-        Ok(issues)
-    }
-
-    async fn index_exists(&self, index_name: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query_scalar::<_, i32>(
+        let rows: Vec<String> = sqlx::query_scalar(
             r#"
-            SELECT 1 as "exists" FROM pg_indexes WHERE indexname = $1
+            SELECT indexname
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+            ORDER BY indexname
             "#,
         )
-        .bind(index_name)
-        .fetch_optional(&*self.pool)
+        .fetch_all(&*self.pool)
         .await?;
 
-        Ok(result.is_some())
+        Ok(rows)
     }
 
     pub async fn create_missing_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
         let mut created = Vec::new();
 
-        let index_creations = vec![
-            ("idx_friends_user", "CREATE INDEX IF NOT EXISTS idx_friends_user ON friends(user_id)"),
-            ("idx_friends_friend", "CREATE INDEX IF NOT EXISTS idx_friends_friend ON friends(friend_id)"),
-            ("idx_friend_requests_target", "CREATE INDEX IF NOT EXISTS idx_friend_requests_target ON friend_requests(to_user_id)"),
+        let indexes_to_create = vec![
+            ("idx_rooms_name", "rooms(name)"),
+            ("idx_rooms_member_count", "rooms(member_count)"),
+            ("idx_notifications_user_id", "notifications(user_id)"),
+            ("idx_notifications_ts", "notifications(ts DESC)"),
         ];
 
-        for (name, index_query) in index_creations {
-            let exists = self.index_exists(name).await?;
+        for (index_name, index_def) in indexes_to_create {
+            let exists: bool = self.index_exists(index_name).await?;
             if !exists {
-                sqlx::query(index_query).execute(&*self.pool).await?;
-                let msg = format!("Created index: {}", name);
-                info!("{}", msg);
-                created.push(msg);
+                let sql = format!("CREATE INDEX IF NOT EXISTS {} ON {}", index_name, index_def);
+                sqlx::query(&sql)
+                    .execute(&*self.pool)
+                    .await?;
+                created.push(index_name.to_string());
             }
         }
 
         Ok(created)
+    }
+
+    async fn index_exists(&self, index_name: &str) -> Result<bool, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM pg_indexes
+            WHERE schemaname = 'public' AND indexname = $1
+            "#,
+        )
+        .bind(index_name)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(count > 0)
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct SchemaConsistencyReport {
+    pub is_valid: bool,
+    pub missing_tables: Vec<String>,
+    pub missing_columns: Vec<String>,
+}
+
+impl SchemaConsistencyReport {
+    pub fn to_string(&self) -> String {
+        if self.is_valid {
+            "Schema is consistent".to_string()
+        } else {
+            let mut msg = String::new();
+            if !self.missing_tables.is_empty() {
+                msg.push_str(&format!("Missing tables: {}\n", self.missing_tables.join(", ")));
+            }
+            if !self.missing_columns.is_empty() {
+                msg.push_str(&format!("Missing columns: {}\n", self.missing_columns.join(", ")));
+            }
+            msg
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct SchemaValidationResult {
+    pub is_valid: bool,
+    pub is_healthy: bool,
+    pub missing_tables: Vec<String>,
+    pub missing_columns: Vec<String>,
+    pub missing_indexes: Vec<String>,
+    pub schema_info: Vec<TableSchemaInfo>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_schema_validator() {
+        let _ = SchemaConsistencyReport::default();
     }
 }

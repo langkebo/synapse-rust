@@ -234,13 +234,13 @@ impl SecurityStorage {
         target: Option<&str>,
         details: Option<Value>,
     ) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
+        let now = chrono::Utc::now().timestamp_millis();
         let details_str = details.map(|d| d.to_string());
 
         let row = sqlx::query(
             r#"
-            INSERT INTO security_events (event_type, user_id, details, description, created_at, created_ts)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO security_events (event_type, user_id, details, description, created_ts)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING id
             "#,
         )
@@ -248,7 +248,6 @@ impl SecurityStorage {
         .bind(Some(admin_id))
         .bind(details_str)
         .bind(target)
-        .bind(now)
         .bind(now)
         .fetch_one(&*self.pool)
         .await?;
@@ -265,13 +264,13 @@ impl SecurityStorage {
             ip_address: Option<String>,
             user_agent: Option<String>,
             details: Option<String>,
-            created_at: i64,
+            created_ts: i64,
         }
         let rows: Vec<SecurityEventRow> = sqlx::query_as(
             r#"
-            SELECT id, event_type, user_id, ip_address, user_agent, details, created_at
+            SELECT id, event_type, user_id, ip_address, user_agent, details, created_ts
             FROM security_events
-            ORDER BY created_at DESC
+            ORDER BY created_ts DESC
             LIMIT $1
             "#,
         )
@@ -289,7 +288,7 @@ impl SecurityStorage {
                     "ip_address": r.ip_address,
                     "user_agent": r.user_agent,
                     "details": r.details,
-                    "created_at": r.created_at
+                    "created_ts": r.created_ts
                 })
             })
             .collect())

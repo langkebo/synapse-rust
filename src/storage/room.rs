@@ -30,7 +30,7 @@ struct RoomRecord {
     topic: Option<String>,
     avatar_url: Option<String>,
     canonical_alias: Option<String>,
-    join_rule: Option<String>,
+    join_rules: Option<String>,
     creator: String,
     version: Option<String>,
     encryption: Option<String>,
@@ -47,7 +47,7 @@ struct RoomWithMembersRecord {
     topic: Option<String>,
     avatar_url: Option<String>,
     canonical_alias: Option<String>,
-    join_rule: Option<String>,
+    join_rules: Option<String>,
     creator: String,
     version: Option<String>,
     encryption: Option<String>,
@@ -80,7 +80,7 @@ impl RoomStorage {
         let now = chrono::Utc::now().timestamp();
 
         let query = r#"
-            INSERT INTO rooms (room_id, creator, join_rule, version, is_public, member_count, history_visibility, creation_ts, last_activity_ts)
+            INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, member_count, history_visibility, creation_ts, last_activity_ts)
             VALUES ($1, $2, $3, $4, $5, 1, 'joined', $6, $7)
             "#;
 
@@ -133,7 +133,7 @@ impl RoomStorage {
     pub async fn get_room(&self, room_id: &str) -> Result<Option<Room>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRecord>(
             r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rule, creator, version,
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules, creator, room_version,
                   encryption, is_public, member_count, history_visibility, creation_ts
             FROM rooms WHERE room_id = $1
             "#,
@@ -149,7 +149,7 @@ impl RoomStorage {
                 avatar_url: row.avatar_url,
                 canonical_alias: row.canonical_alias,
                 join_rule: row
-                    .join_rule
+                    .join_rules
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator: row.creator,
                 version: row.version.unwrap_or_else(|| "1".to_string()),
@@ -173,7 +173,7 @@ impl RoomStorage {
 
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rule, creator, version,
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules, creator, room_version,
                   encryption, is_public, member_count, history_visibility, creation_ts
             FROM rooms
             WHERE room_id = ANY($1)
@@ -192,7 +192,7 @@ impl RoomStorage {
                 avatar_url: row.avatar_url.clone(),
                 canonical_alias: row.canonical_alias.clone(),
                 join_rule: row
-                    .join_rule
+                    .join_rules
                     .clone()
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator: row.creator.clone(),
@@ -224,7 +224,7 @@ impl RoomStorage {
     pub async fn get_public_rooms(&self, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rule, creator, version,
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules, creator, room_version,
                   encryption, is_public, member_count, history_visibility, creation_ts
             FROM rooms WHERE is_public = TRUE
             ORDER BY creation_ts DESC
@@ -243,7 +243,7 @@ impl RoomStorage {
                 avatar_url: row.avatar_url.clone(),
                 canonical_alias: row.canonical_alias.clone(),
                 join_rule: row
-                    .join_rule
+                    .join_rules
                     .clone()
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator: row.creator.clone(),
@@ -267,8 +267,8 @@ impl RoomStorage {
     ) -> Result<Vec<(Room, i64)>, sqlx::Error> {
         let rows: Vec<RoomWithMembersRecord> = sqlx::query_as(
             r#"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rule, r.creator,
-                   r.version, r.encryption, r.is_public, r.member_count, r.history_visibility,
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator,
+                   r.room_version, r.encryption, r.is_public, r.member_count, r.history_visibility,
                    r.creation_ts, COUNT(rm.user_id) as joined_members
             FROM rooms r
             LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
@@ -292,7 +292,7 @@ impl RoomStorage {
                         avatar_url: row.avatar_url.clone(),
                         canonical_alias: row.canonical_alias.clone(),
                         join_rule: row
-                            .join_rule
+                            .join_rules
                             .clone()
                             .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                         creator: row.creator.clone(),
@@ -723,8 +723,8 @@ impl RoomStorage {
 
         let rows: Vec<RoomWithMembersRecord> = sqlx::query_as(
             r#"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rule, r.creator,
-                   r.version, r.encryption, r.is_public, r.member_count, r.history_visibility,
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator,
+                   r.room_version, r.encryption, r.is_public, r.member_count, r.history_visibility,
                    r.creation_ts, COUNT(rm.user_id) as joined_members
             FROM rooms r
             LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
@@ -746,7 +746,7 @@ impl RoomStorage {
                     avatar_url: row.avatar_url.clone(),
                     canonical_alias: row.canonical_alias.clone(),
                     join_rule: row
-                        .join_rule
+                        .join_rules
                         .clone()
                         .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                     creator: row.creator.clone(),
@@ -792,7 +792,7 @@ impl RoomStorage {
     ) -> Result<Vec<(Room, Vec<String>)>, sqlx::Error> {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rule, creator, version,
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules, creator, room_version,
                   encryption, is_public, member_count, history_visibility, creation_ts
             FROM rooms WHERE is_public = TRUE
             ORDER BY creation_ts DESC
@@ -817,7 +817,7 @@ impl RoomStorage {
                     avatar_url: row.avatar_url.clone(),
                     canonical_alias: row.canonical_alias.clone(),
                     join_rule: row
-                        .join_rule
+                        .join_rules
                         .clone()
                         .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                     creator: row.creator.clone(),

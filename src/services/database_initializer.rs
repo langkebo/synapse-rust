@@ -55,7 +55,7 @@ impl DatabaseInitService {
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self {
             pool: pool.clone(),
-            schema_validator: SchemaValidator::new(&pool),
+            schema_validator: SchemaValidator::new(pool),
             cache_ttl_seconds: DEFAULT_CACHE_TTL_SECONDS,
             environment: Environment::from_env(),
         }
@@ -72,7 +72,7 @@ impl DatabaseInitService {
     pub fn with_cache_ttl(pool: Arc<PgPool>, ttl_seconds: i64) -> Self {
         Self {
             pool: pool.clone(),
-            schema_validator: SchemaValidator::new(&pool),
+            schema_validator: SchemaValidator::new(pool),
             cache_ttl_seconds: ttl_seconds,
             environment: Environment::from_env(),
         }
