@@ -187,6 +187,10 @@ impl CircuitBreaker {
     }
 
     pub fn record_failure(&self) {
+        if !self.config.enabled {
+            return;
+        }
+
         self.failed_requests.fetch_add(1, Ordering::Relaxed);
 
         let current_state = *self.state.read();

@@ -483,5 +483,35 @@ pub fn create_retention_router(state: AppState) -> Router<AppState> {
             "/_synapse/retention/v1/cleanups/run_scheduled",
             post(run_scheduled_cleanups),
         )
+        .route(
+            "/_matrix/client/v1/config/room_retention",
+            get(get_room_retention_config),
+        )
+        .route(
+            "/_matrix/client/r0/config/room_retention",
+            get(get_room_retention_config),
+        )
         .with_state(state)
+}
+
+#[axum::debug_handler]
+pub async fn get_room_retention_config(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let policy = state.services.retention_service.get_server_policy().await?;
+
+    let default_policy = serde_json::json!({
+        "max_lifetime": policy.max_lifetime,
+        "min_lifetime": policy.min_lifetime,
+        "expire_on_clients": policy.expire_on_clients,
+    });
+
+    Ok(Json(serde_json::json!({
+        "default_policy": if policy.max_lifetime.is_some() || policy.min_lifetime > 0 {
+            Some(default_policy)
+        } else {
+            None
+        },
+        "server_default": policy.max_lifetime.or(Some(policy.min_lifetime)),
+    })))
 }

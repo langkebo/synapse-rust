@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn test_hash_password_backward_compatible() {
         let password = "test_password";
-        let hash = hash_password_with_params(password, 4096, 3, 1).unwrap();
+        let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
         assert!(hash.starts_with("$argon2"));
         assert!(verify_password(password, &hash, false).unwrap());
     }

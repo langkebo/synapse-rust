@@ -1487,7 +1487,7 @@ impl Default for CorsConfig {
 }
 
 fn default_allowed_origins() -> Vec<String> {
-    vec!["*".to_string()]
+    Vec::new()
 }
 
 fn default_allow_credentials() -> bool {
@@ -1874,9 +1874,12 @@ impl Config {
         }
 
         if self.security.secret.len() < 32 {
-            tracing::warn!(
-                "security.secret is shorter than 32 characters. \
-                 Consider using a longer secret for better security."
+            return Err(
+                "security.secret must be at least 32 characters for adequate security. \
+                 Current length: {}. \
+                 Generate a secure secret with: openssl rand -hex 32"
+                    .replace("{}", &self.security.secret.len().to_string())
+                    .to_string(),
             );
         }
 
@@ -1885,6 +1888,15 @@ impl Config {
                 "CORS is configured to allow all origins ('*') with credentials. \
                  This is not recommended for production. \
                  Consider specifying explicit allowed origins."
+            );
+        }
+
+        if self.security.allow_legacy_hashes {
+            tracing::warn!(
+                "⚠️ DEPRECATED: security.allow_legacy_hashes is enabled. \
+                 Legacy SHA-256 password hashes are deprecated and will be removed in a future version. \
+                 Please migrate all passwords to Argon2 by forcing password resets. \
+                 Set allow_legacy_hashes: false after migration is complete."
             );
         }
 

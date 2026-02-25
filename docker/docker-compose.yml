@@ -3,7 +3,7 @@
 # ============================================================================
 # 使用方法:
 #   首次部署:
-#     cd /home/hula/synapse_rust/synapse
+#     cd /home/hula/synapse_rust/synapse-rust
 #     cargo build --release
 #     docker build -f docker/Dockerfile -t synapse-rust:latest .
 #     cd docker && docker compose up -d
@@ -13,6 +13,12 @@
 #     docker compose down       # 停止服务
 #     docker compose logs -f    # 查看日志
 #     docker compose ps         # 查看状态
+#
+#   数据库迁移:
+#     docker compose exec synapse-rust /app/scripts/run-migrations.sh
+#
+#   查看迁移状态:
+#     docker compose exec db psql -U synapse -d synapse_test -c "SELECT * FROM schema_migrations ORDER BY version DESC LIMIT 20;"
 # ============================================================================
 
 services:
@@ -40,10 +46,19 @@ services:
       - ADMIN_SECRET=${ADMIN_SECRET}
       - FEDERATION_SIGNING_KEY=${FEDERATION_SIGNING_KEY}
       - DB_PASSWORD=${DB_PASSWORD:-synapse}
+      - DATABASE_URL=postgres://synapse:${DB_PASSWORD:-synapse}@db:5432/synapse_test
+      - REDIS_URL=redis://redis:6379
+      - RUN_MIGRATIONS=${RUN_MIGRATIONS:-true}
+      - MIGRATION_TIMEOUT=${MIGRATION_TIMEOUT:-300}
+      - DB_WAIT_ATTEMPTS=${DB_WAIT_ATTEMPTS:-30}
+      - DB_WAIT_INTERVAL=${DB_WAIT_INTERVAL:-2}
+      - STOP_ON_MIGRATION_FAILURE=${STOP_ON_MIGRATION_FAILURE:-true}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./config:/app/config:ro
+      - ./migrations:/app/migrations:ro
+      - migration_logs:/app/logs/migrations
     depends_on:
       db:
         condition: service_healthy
@@ -54,7 +69,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 10
-      start_period: 60s
+      start_period: 90s
     networks:
       - synapse_network
     security_opt:
@@ -200,6 +215,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  migration_logs:
     driver: local
 
 # ============================================================================

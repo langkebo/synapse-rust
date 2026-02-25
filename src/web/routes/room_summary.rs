@@ -455,6 +455,22 @@ pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
             post(recalculate_stats),
         )
         .route(
+            "/_matrix/client/r0/rooms/{room_id}/summary",
+            get(get_room_summary),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/summary/members",
+            get(get_members),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/summary/state",
+            get(get_all_state),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/summary/stats",
+            get(get_stats),
+        )
+        .route(
             "/_matrix/client/v3/rooms/{room_id}/summary/heroes/recalculate",
             post(recalculate_heroes),
         )

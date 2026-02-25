@@ -10,12 +10,12 @@
 # - Smaller final image (no build tools included)
 #
 # Build Commands:
-#   cd /home/hula/synapse_rust/synapse
+#   cd /home/hula/synapse_rust/synapse-rust
 #   cargo build --release
 #   docker build -f docker/Dockerfile -t synapse-rust:latest .
 #
 # Run Commands:
-#   cd /home/hula/synapse_rust/synapse/docker
+#   cd /home/hula/synapse_rust/synapse-rust/docker
 #   docker compose up -d
 # ============================================================================
 
@@ -25,8 +25,8 @@
 FROM debian:bookworm-slim AS runtime
 
 LABEL maintainer="Synapse Rust Team"
-LABEL version="1.0.0"
-LABEL description="Synapse Rust Matrix Homeserver"
+LABEL version="2.0.0"
+LABEL description="Synapse Rust Matrix Homeserver with Auto Migration"
 
 # ============================================================================
 # Install Runtime Dependencies
@@ -37,6 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     tzdata \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -55,16 +56,18 @@ RUN mkdir -p /app/bin \
     /app/data/media/thumbnails \
     /app/data/media/quarantine \
     /app/data/media/tmp \
+    /app/data/keys \
     /app/logs \
     /app/config \
-    /app/migrations && \
+    /app/migrations \
+    /app/scripts && \
     chown -R synapse:synapse /app && \
     chmod -R 755 /app && \
     chmod 777 /app/data/media/tmp
 
 # ============================================================================
 # Copy Pre-compiled Binaries
-# Build context is synapse directory (parent of docker/)
+# Build context is synapse-rust directory (parent of docker/)
 # ============================================================================
 COPY --chown=synapse:synapse target/release/synapse-rust /usr/local/bin/synapse-rust
 COPY --chown=synapse:synapse target/release/generate_test_keypair /usr/local/bin/generate_test_keypair
@@ -75,10 +78,17 @@ COPY --chown=synapse:synapse docker/config/homeserver.yaml /app/config/homeserve
 # Copy Migrations Directory
 COPY --chown=synapse:synapse migrations /app/migrations
 
-# Make binaries executable with restricted permissions
+# Copy Entrypoint and Migration Scripts
+COPY --chown=synapse:synapse docker/docker-entrypoint.sh /app/scripts/docker-entrypoint.sh
+COPY --chown=synapse:synapse docker/run-migrations.sh /app/scripts/run-migrations.sh
+
+# Make binaries and scripts executable with restricted permissions
 RUN chmod +x /usr/local/bin/synapse-rust /usr/local/bin/generate_test_keypair && \
     chmod 500 /usr/local/bin/synapse-rust && \
-    chmod 500 /usr/local/bin/generate_test_keypair
+    chmod 500 /usr/local/bin/generate_test_keypair && \
+    chmod +x /app/scripts/docker-entrypoint.sh /app/scripts/run-migrations.sh && \
+    chmod 550 /app/scripts/docker-entrypoint.sh && \
+    chmod 550 /app/scripts/run-migrations.sh
 
 # ============================================================================
 # Environment Variables
@@ -92,15 +102,16 @@ ENV SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
 ENV TZ=Asia/Shanghai
 ENV PATH=/usr/local/bin:/usr/bin:/bin
 
+ENV RUN_MIGRATIONS=true
+ENV MIGRATION_TIMEOUT=300
+ENV DB_WAIT_ATTEMPTS=30
+ENV DB_WAIT_INTERVAL=2
+ENV STOP_ON_MIGRATION_FAILURE=true
+
 # ============================================================================
 # Working Directory
 # ============================================================================
 WORKDIR /app
-
-# ============================================================================
-# Security: Switch to Non-Root User
-# ============================================================================
-USER synapse
 
 # ============================================================================
 # Port Exposure
@@ -113,10 +124,11 @@ EXPOSE 8008 8448 9090
 # ============================================================================
 # Health Checks
 # ============================================================================
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
     CMD curl -sf http://localhost:8008/_matrix/federation/v1/version || exit 1
 
 # ============================================================================
 # Entry Point
 # ============================================================================
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
 CMD ["synapse-rust"]

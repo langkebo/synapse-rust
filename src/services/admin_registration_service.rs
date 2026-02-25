@@ -61,6 +61,45 @@ impl AdminRegistrationService {
         }
     }
 
+    pub fn start_nonce_cleanup_task(self: Arc<Self>) {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                if let Err(e) = self.cleanup_expired_nonces().await {
+                    ::tracing::error!("Failed to cleanup expired nonces: {}", e);
+                }
+            }
+        });
+    }
+
+    async fn cleanup_expired_nonces(&self) -> Result<(), String> {
+        let cutoff_ts = Utc::now().timestamp() - (self.config.nonce_timeout_seconds as i64 * 2);
+
+        let keys = self.cache.get_keys_with_prefix("admin:register:nonce:");
+
+        let mut cleaned = 0u64;
+        for key in keys {
+            if let Some(ts_str) = self.cache.get_local_raw(&key) {
+                if let Ok(ts) = ts_str.parse::<i64>() {
+                    if ts < cutoff_ts {
+                        self.cache.remove_local(&key);
+                        cleaned += 1;
+                    }
+                }
+            }
+        }
+
+        if cleaned > 0 {
+            ::tracing::debug!("Cleaned up {} expired admin registration nonces from local cache", cleaned);
+            if let Some(counter) = self.metrics.get_counter("admin_nonce_cleanup_total") {
+                counter.inc_by(cleaned);
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn generate_nonce(&self) -> ApiResult<NonceResponse> {
         let start = std::time::Instant::now();
         let nonce = {

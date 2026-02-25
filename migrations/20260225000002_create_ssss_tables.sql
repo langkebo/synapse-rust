@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Synapse-Rust 数据库迁移脚本
--- 版本: 20260225000000
+-- 版本: 20260225000002
 -- 描述: 创建 SSSS (Secret Storage) 表
 -- =============================================================================
 
@@ -50,5 +50,5 @@ CREATE INDEX IF NOT EXISTS idx_e2ee_stored_secrets_user_id
 -- =============================================================================
 
 INSERT INTO schema_migrations (version, description, success)
-VALUES ('20260225000000', 'Create SSSS tables', TRUE)
+VALUES ('20260225000002', 'Create SSSS tables', TRUE)
 ON CONFLICT (version) DO UPDATE SET success = TRUE, executed_at = NOW();
