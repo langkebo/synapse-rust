@@ -85,9 +85,9 @@ async fn set_account_data(
 
     sqlx::query(
         r#"
-        INSERT INTO account_data (user_id, data_type, content, updated_at)
+        INSERT INTO account_data (user_id, data_type, content, updated_ts)
         VALUES ($1, $2, $3, $4)
-        ON CONFLICT (user_id, data_type) DO UPDATE SET content = $3, updated_at = $4
+        ON CONFLICT (user_id, data_type) DO UPDATE SET content = $3, updated_ts = $4
         "#,
     )
     .bind(&user_id)
@@ -158,9 +158,9 @@ async fn set_room_account_data(
 
     sqlx::query(
         r#"
-        INSERT INTO room_account_data (user_id, room_id, data_type, content, updated_at)
+        INSERT INTO room_account_data (user_id, room_id, data_type, content, updated_ts)
         VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (user_id, room_id, data_type) DO UPDATE SET content = $4, updated_at = $5
+        ON CONFLICT (user_id, room_id, data_type) DO UPDATE SET content = $4, updated_ts = $5
         "#,
     )
     .bind(&user_id)
@@ -223,7 +223,7 @@ async fn create_filter(
 
     sqlx::query(
         r#"
-        INSERT INTO filters (filter_id, user_id, content, created_at)
+        INSERT INTO filters (filter_id, user_id, content, created_ts)
         VALUES ($1, $2, $3, $4)
         "#,
     )
@@ -279,18 +279,18 @@ async fn get_openid_token(
 
     let token = crate::common::random_string(32);
     let expires_in = 3600;
-    let now = chrono::Utc::now().timestamp();
+    let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
         r#"
-        INSERT INTO openid_tokens (token, user_id, created_at, expires_at)
+        INSERT INTO openid_tokens (token, user_id, created_ts, expires_at)
         VALUES ($1, $2, $3, $4)
         "#,
     )
     .bind(&token)
     .bind(&user_id)
     .bind(now)
-    .bind(now + expires_in)
+    .bind(now + (expires_in * 1000))
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to create OpenID token: {}", e)))?;

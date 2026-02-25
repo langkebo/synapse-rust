@@ -650,8 +650,8 @@ impl PresenceStorage {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            INSERT INTO presence (user_id, presence, status_msg, last_active_ts, created_ts, updated_ts)
-            VALUES ($1, $2, $3, $4, $4, $4)
+            INSERT INTO presence (user_id, presence, status_msg, last_active_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $4)
             ON CONFLICT (user_id) DO UPDATE SET
                 presence = EXCLUDED.presence,
                 status_msg = EXCLUDED.status_msg,
