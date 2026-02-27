@@ -555,3 +555,167 @@ impl RetentionStorage {
         Ok(result.rows_affected() as i64)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_room_retention_policy_creation() {
+        let policy = RoomRetentionPolicy {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            max_lifetime: Some(86400000),
+            min_lifetime: 0,
+            expire_on_clients: true,
+            is_server_default: false,
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+        };
+        assert_eq!(policy.room_id, "!room:example.com");
+        assert!(policy.max_lifetime.is_some());
+    }
+
+    #[test]
+    fn test_room_retention_policy_max_lifetime_none() {
+        let policy = RoomRetentionPolicy {
+            id: 2,
+            room_id: "!room2:example.com".to_string(),
+            max_lifetime: None,
+            min_lifetime: 0,
+            expire_on_clients: false,
+            is_server_default: false,
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+        };
+        assert!(policy.max_lifetime.is_none());
+    }
+
+    #[test]
+    fn test_server_retention_policy_defaults() {
+        let policy = ServerRetentionPolicy {
+            id: 1,
+            max_lifetime: Some(2592000000),
+            min_lifetime: 0,
+            expire_on_clients: true,
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+        };
+        assert!(policy.max_lifetime.is_some());
+    }
+
+    #[test]
+    fn test_retention_cleanup_queue_item() {
+        let item = RetentionCleanupQueueItem {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            event_id: Some("$event:example.com".to_string()),
+            event_type: Some("m.room.message".to_string()),
+            origin_server_ts: 1234567890,
+            scheduled_ts: 1234567890,
+            status: "pending".to_string(),
+            created_ts: 1234567890,
+            processed_ts: None,
+            error_message: None,
+            retry_count: 0,
+        };
+        assert_eq!(item.status, "pending");
+        assert!(item.event_id.is_some());
+    }
+
+    #[test]
+    fn test_retention_cleanup_queue_item_processed() {
+        let item = RetentionCleanupQueueItem {
+            id: 2,
+            room_id: "!room:example.com".to_string(),
+            event_id: Some("$event2:example.com".to_string()),
+            event_type: Some("m.room.message".to_string()),
+            origin_server_ts: 1234567890,
+            scheduled_ts: 1234567890,
+            status: "processed".to_string(),
+            created_ts: 1234567890,
+            processed_ts: Some(1234567900),
+            error_message: None,
+            retry_count: 1,
+        };
+        assert_eq!(item.status, "processed");
+        assert!(item.processed_ts.is_some());
+    }
+
+    #[test]
+    fn test_retention_cleanup_log() {
+        let log = RetentionCleanupLog {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            events_deleted: 100,
+            state_events_deleted: 10,
+            media_deleted: 50,
+            bytes_freed: 1048576,
+            started_ts: 1234567890,
+            completed_ts: Some(1234567990),
+            status: "completed".to_string(),
+            error_message: None,
+        };
+        assert_eq!(log.events_deleted, 100);
+        assert!(log.completed_ts.is_some());
+    }
+
+    #[test]
+    fn test_deleted_event_index() {
+        let index = DeletedEventIndex {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            event_id: "$event:example.com".to_string(),
+            deletion_ts: 1234567890,
+            reason: "Retention policy expired".to_string(),
+        };
+        assert_eq!(index.event_id, "$event:example.com");
+    }
+
+    #[test]
+    fn test_retention_stats() {
+        let stats = RetentionStats {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            total_events: 1000,
+            events_in_retention: 800,
+            events_expired: 200,
+            last_cleanup_ts: Some(1234567890),
+            next_cleanup_ts: Some(1234570890),
+        };
+        assert_eq!(stats.total_events, 1000);
+        assert_eq!(stats.events_expired, 200);
+    }
+
+    #[test]
+    fn test_create_room_retention_policy_request() {
+        let request = CreateRoomRetentionPolicyRequest {
+            room_id: "!room:example.com".to_string(),
+            max_lifetime: Some(86400000),
+            min_lifetime: Some(0),
+            expire_on_clients: Some(true),
+        };
+        assert_eq!(request.room_id, "!room:example.com");
+    }
+
+    #[test]
+    fn test_effective_retention_policy() {
+        let policy = EffectiveRetentionPolicy {
+            max_lifetime: Some(86400000),
+            min_lifetime: 0,
+            expire_on_clients: true,
+        };
+        assert_eq!(policy.max_lifetime, Some(86400000));
+        assert!(policy.expire_on_clients);
+    }
+
+    #[test]
+    fn test_effective_retention_policy_no_max_lifetime() {
+        let policy = EffectiveRetentionPolicy {
+            max_lifetime: None,
+            min_lifetime: 0,
+            expire_on_clients: false,
+        };
+        assert!(policy.max_lifetime.is_none());
+    }
+}

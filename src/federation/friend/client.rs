@@ -130,3 +130,87 @@ impl FriendFederationClient {
         Ok(friends)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_friend_federation_client_creation() {
+        let client = FriendFederationClient::new("example.com".to_string());
+        assert_eq!(client.server_name, "example.com");
+    }
+
+    #[test]
+    fn test_federation_client_keypair() {
+        let client = FriendFederationClient::new("test.server".to_string());
+        assert!(!client.keypair.public_key.is_empty());
+        assert!(!client.keypair.secret_key.is_empty());
+    }
+
+    #[test]
+    fn test_server_name_format() {
+        let server_names = vec![
+            "matrix.org",
+            "example.com:8448",
+            "server.local",
+        ];
+
+        for name in server_names {
+            let client = FriendFederationClient::new(name.to_string());
+            assert_eq!(client.server_name, name);
+        }
+    }
+
+    #[test]
+    fn test_federation_path_format() {
+        let user_id = "@alice:example.com";
+        let path = format!("/_matrix/federation/v1/user/friends/{}", user_id);
+        
+        assert!(path.starts_with("/_matrix/federation/"));
+        assert!(path.contains(user_id));
+    }
+
+    #[test]
+    fn test_invite_path_format() {
+        let event_id = uuid::Uuid::new_v4();
+        let path = format!("/_matrix/federation/v1/send/{}", event_id);
+        
+        assert!(path.starts_with("/_matrix/federation/v1/send/"));
+    }
+
+    #[test]
+    fn test_friends_response_parsing() {
+        let response = serde_json::json!({
+            "friends": ["@alice:example.com", "@bob:example.com"]
+        });
+
+        let friends: Vec<String> = response
+            .get("friends")
+            .and_then(|v| v.as_array())
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+
+        assert_eq!(friends.len(), 2);
+        assert!(friends.contains(&"@alice:example.com".to_string()));
+    }
+
+    #[test]
+    fn test_empty_friends_response() {
+        let response = serde_json::json!({
+            "friends": []
+        });
+
+        let friends: Vec<String> = response
+            .get("friends")
+            .and_then(|v| v.as_array())
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+
+        assert!(friends.is_empty());
+    }
+}

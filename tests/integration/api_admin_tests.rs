@@ -185,5 +185,12 @@ async fn test_admin_flow() {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let status = response.status();
+    if status != StatusCode::OK {
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        println!("Rooms list failed: {:?}", String::from_utf8_lossy(&body));
+        panic!("Rooms list failed with status {:?}", status);
+    }
 }

@@ -212,15 +212,23 @@ impl DatabaseInitService {
             "#,
         )
         .fetch_optional(&*self.pool)
-        .await?;
+        .await;
 
-        if let Some(row) = result {
-            let last_init_ts: i64 = row.0;
-            let now = chrono::Utc::now().timestamp();
-            let elapsed = now - last_init_ts;
+        match result {
+            Ok(Some(row)) => {
+                let last_init_ts: i64 = row.0;
+                let now = chrono::Utc::now().timestamp();
+                let elapsed = now - last_init_ts;
 
-            if elapsed > 0 && elapsed < self.cache_ttl_seconds {
-                return Ok(true);
+                if elapsed > 0 && elapsed < self.cache_ttl_seconds {
+                    return Ok(true);
+                }
+            }
+            Ok(None) => {
+                debug!("db_metadata 表不存在或无缓存记录");
+            }
+            Err(e) => {
+                debug!("检查缓存失败，继续执行初始化: {}", e);
             }
         }
 

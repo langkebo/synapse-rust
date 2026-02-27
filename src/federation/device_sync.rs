@@ -460,21 +460,141 @@ struct DeviceRow {
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
-    // use sqlx::PgPool;
-    // use std::env;
+    use super::*;
 
-    // async fn create_test_pool() -> Arc<PgPool> {
-    //     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-    //         "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()
-    //     });
-    //     // Use connect_lazy to allow creating the pool without an immediate connection check.
-    //     // This allows tests that don't actually use the DB to pass without a running server.
-    //     match PgPool::connect_lazy(&database_url) {
-    //         Ok(pool) => Arc::new(pool),
-    //         Err(_) => {
-    //             panic!("Failed to create lazy pool connection");
-    //         }
-    //     }
-    // }
+    fn create_test_device_info() -> DeviceInfo {
+        DeviceInfo {
+            device_id: "DEVICE123".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            keys: Some(json!({"ed25519:DEVICE123": "key_base64"})),
+            device_display_name: Some("My Phone".to_string()),
+            last_seen_ts: Some(1234567890),
+            last_seen_ip: Some("192.168.1.1".to_string()),
+            is_blocked: false,
+            verified: true,
+        }
+    }
+
+    #[test]
+    fn test_device_info_creation() {
+        let device = create_test_device_info();
+        
+        assert_eq!(device.device_id, "DEVICE123");
+        assert_eq!(device.user_id, "@alice:example.com");
+        assert!(device.verified);
+        assert!(!device.is_blocked);
+    }
+
+    #[test]
+    fn test_device_info_user_id_format() {
+        let device = create_test_device_info();
+        
+        assert!(device.user_id.starts_with('@'));
+        assert!(device.user_id.contains(':'));
+    }
+
+    #[test]
+    fn test_device_info_optional_fields() {
+        let device = DeviceInfo {
+            device_id: "DEVICE456".to_string(),
+            user_id: "@bob:example.com".to_string(),
+            keys: None,
+            device_display_name: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
+            is_blocked: false,
+            verified: false,
+        };
+        
+        assert!(device.keys.is_none());
+        assert!(device.device_display_name.is_none());
+        assert!(device.last_seen_ts.is_none());
+    }
+
+    #[test]
+    fn test_device_info_blocked_status() {
+        let blocked_device = DeviceInfo {
+            device_id: "BLOCKED".to_string(),
+            user_id: "@user:example.com".to_string(),
+            keys: None,
+            device_display_name: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
+            is_blocked: true,
+            verified: false,
+        };
+        
+        assert!(blocked_device.is_blocked);
+    }
+
+    #[test]
+    fn test_device_info_verified_status() {
+        let verified_device = DeviceInfo {
+            device_id: "VERIFIED".to_string(),
+            user_id: "@user:example.com".to_string(),
+            keys: None,
+            device_display_name: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
+            is_blocked: false,
+            verified: true,
+        };
+        
+        assert!(verified_device.verified);
+    }
+
+    #[test]
+    fn test_device_info_keys_format() {
+        let device = create_test_device_info();
+        
+        assert!(device.keys.is_some());
+        let keys = device.keys.unwrap();
+        assert!(keys.get("ed25519:DEVICE123").is_some());
+    }
+
+    #[test]
+    fn test_device_info_serialization() {
+        let device = create_test_device_info();
+        let json = serde_json::to_string(&device).unwrap();
+        
+        assert!(json.contains("DEVICE123"));
+        assert!(json.contains("@alice:example.com"));
+    }
+
+    #[test]
+    fn test_device_info_deserialization() {
+        let json = r#"{
+            "device_id": "TEST_DEVICE",
+            "user_id": "@test:example.com",
+            "keys": null,
+            "device_display_name": "Test Device",
+            "last_seen_ts": 1234567890,
+            "last_seen_ip": "10.0.0.1",
+            "is_blocked": false,
+            "verified": true
+        }"#;
+        
+        let device: DeviceInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(device.device_id, "TEST_DEVICE");
+        assert_eq!(device.user_id, "@test:example.com");
+    }
+
+    #[test]
+    fn test_device_cache_ttl_constant() {
+        assert_eq!(DEVICE_SYNC_CACHE_TTL, 3600);
+    }
+
+    #[test]
+    fn test_device_key_expiry_days_constant() {
+        assert_eq!(DEVICE_KEY_EXPIRY_DAYS, 365);
+    }
+
+    #[test]
+    fn test_device_info_clone() {
+        let device = create_test_device_info();
+        let cloned = device.clone();
+        
+        assert_eq!(device.device_id, cloned.device_id);
+        assert_eq!(device.user_id, cloned.user_id);
+    }
 }

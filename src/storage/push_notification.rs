@@ -598,3 +598,472 @@ impl PushNotificationStorage {
         Ok(result.rows_affected())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_register_device_request_creation() {
+        let request = RegisterDeviceRequest {
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEVICE123".to_string(),
+            push_token: "apns_token_abc123".to_string(),
+            push_type: "apns".to_string(),
+            app_id: Some("com.example.app".to_string()),
+            platform: Some("ios".to_string()),
+            platform_version: Some("17.0".to_string()),
+            app_version: Some("1.0.0".to_string()),
+            locale: Some("en-US".to_string()),
+            timezone: Some("America/New_York".to_string()),
+            metadata: Some(json!({"key": "value"})),
+        };
+
+        assert_eq!(request.user_id, "@alice:example.com");
+        assert_eq!(request.device_id, "DEVICE123");
+        assert_eq!(request.push_token, "apns_token_abc123");
+        assert_eq!(request.push_type, "apns");
+        assert!(request.app_id.is_some());
+        assert!(request.metadata.is_some());
+    }
+
+    #[test]
+    fn test_register_device_request_minimal_fields() {
+        let request = RegisterDeviceRequest {
+            user_id: "@bob:example.com".to_string(),
+            device_id: "DEVICE456".to_string(),
+            push_token: "fcm_token_xyz789".to_string(),
+            push_type: "fcm".to_string(),
+            app_id: None,
+            platform: None,
+            platform_version: None,
+            app_version: None,
+            locale: None,
+            timezone: None,
+            metadata: None,
+        };
+
+        assert_eq!(request.user_id, "@bob:example.com");
+        assert_eq!(request.push_type, "fcm");
+        assert!(request.app_id.is_none());
+        assert!(request.platform.is_none());
+        assert!(request.metadata.is_none());
+    }
+
+    #[test]
+    fn test_create_push_rule_request_creation() {
+        let conditions = json!([
+            {"kind": "event_match", "key": "type", "pattern": "m.room.message"}
+        ]);
+        let actions = json!(["notify", {"set_tweak": "highlight", "value": true}]);
+
+        let request = CreatePushRuleRequest {
+            user_id: "@alice:example.com".to_string(),
+            rule_id: ".m.rule.message".to_string(),
+            scope: "global".to_string(),
+            kind: "content".to_string(),
+            priority: 0,
+            conditions: conditions.clone(),
+            actions: actions.clone(),
+            enabled: true,
+        };
+
+        assert_eq!(request.user_id, "@alice:example.com");
+        assert_eq!(request.rule_id, ".m.rule.message");
+        assert_eq!(request.scope, "global");
+        assert_eq!(request.kind, "content");
+        assert_eq!(request.priority, 0);
+        assert!(request.enabled);
+        assert_eq!(request.conditions, conditions);
+        assert_eq!(request.actions, actions);
+    }
+
+    #[test]
+    fn test_queue_notification_request_creation() {
+        let content = json!({
+            "room_name": "Test Room",
+            "sender": "@bob:example.com",
+            "body": "Hello World"
+        });
+
+        let request = QueueNotificationRequest {
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEVICE123".to_string(),
+            event_id: Some("$event123".to_string()),
+            room_id: Some("!room123:example.com".to_string()),
+            notification_type: Some("m.room.message".to_string()),
+            content: content.clone(),
+            priority: 10,
+        };
+
+        assert_eq!(request.user_id, "@alice:example.com");
+        assert_eq!(request.device_id, "DEVICE123");
+        assert!(request.event_id.is_some());
+        assert!(request.room_id.is_some());
+        assert_eq!(request.priority, 10);
+        assert_eq!(request.content, content);
+    }
+
+    #[test]
+    fn test_queue_notification_request_minimal() {
+        let request = QueueNotificationRequest {
+            user_id: "@charlie:example.com".to_string(),
+            device_id: "DEVICE789".to_string(),
+            event_id: None,
+            room_id: None,
+            notification_type: None,
+            content: json!({}),
+            priority: 0,
+        };
+
+        assert_eq!(request.user_id, "@charlie:example.com");
+        assert!(request.event_id.is_none());
+        assert!(request.room_id.is_none());
+        assert!(request.notification_type.is_none());
+        assert_eq!(request.priority, 0);
+    }
+
+    #[test]
+    fn test_create_notification_log_request_builder() {
+        let request = CreateNotificationLogRequest::new(
+            "@alice:example.com",
+            "DEVICE123",
+            "apns",
+            true,
+        )
+        .event_id("$event456")
+        .room_id("!room456:example.com")
+        .notification_type("m.room.message")
+        .response_time_ms(150);
+
+        assert_eq!(request.user_id, "@alice:example.com");
+        assert_eq!(request.device_id, "DEVICE123");
+        assert_eq!(request.push_type, "apns");
+        assert!(request.success);
+        assert_eq!(request.event_id, Some("$event456".to_string()));
+        assert_eq!(request.room_id, Some("!room456:example.com".to_string()));
+        assert_eq!(request.notification_type, Some("m.room.message".to_string()));
+        assert_eq!(request.response_time_ms, Some(150));
+        assert!(request.error_message.is_none());
+        assert!(request.provider_response.is_none());
+    }
+
+    #[test]
+    fn test_create_notification_log_request_failure() {
+        let request = CreateNotificationLogRequest::new(
+            "@bob:example.com",
+            "DEVICE456",
+            "fcm",
+            false,
+        )
+        .error_message("Invalid token")
+        .provider_response("{\"error\": \"InvalidRegistration\"}");
+
+        assert_eq!(request.user_id, "@bob:example.com");
+        assert_eq!(request.push_type, "fcm");
+        assert!(!request.success);
+        assert_eq!(request.error_message, Some("Invalid token".to_string()));
+        assert_eq!(
+            request.provider_response,
+            Some("{\"error\": \"InvalidRegistration\"}".to_string())
+        );
+    }
+
+    #[test]
+    fn test_create_notification_log_request_default() {
+        let request = CreateNotificationLogRequest::default();
+
+        assert!(request.user_id.is_empty());
+        assert!(request.device_id.is_empty());
+        assert!(request.push_type.is_empty());
+        assert!(!request.success);
+        assert!(request.event_id.is_none());
+        assert!(request.room_id.is_none());
+        assert!(request.notification_type.is_none());
+        assert!(request.error_message.is_none());
+        assert!(request.provider_response.is_none());
+        assert!(request.response_time_ms.is_none());
+    }
+
+    #[test]
+    fn test_push_device_serialization() {
+        let device = PushDevice {
+            id: 1,
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEVICE123".to_string(),
+            push_token: "token123".to_string(),
+            push_type: "apns".to_string(),
+            app_id: Some("com.example.app".to_string()),
+            platform: Some("ios".to_string()),
+            platform_version: Some("17.0".to_string()),
+            app_version: Some("1.0.0".to_string()),
+            locale: Some("en-US".to_string()),
+            timezone: Some("America/New_York".to_string()),
+            enabled: true,
+            created_ts: 1700000000000,
+            updated_ts: Some(1700000001000),
+            last_used_at: None,
+            last_error: None,
+            error_count: 0,
+            metadata: json!({}),
+        };
+
+        let json_str = serde_json::to_string(&device).unwrap();
+        let deserialized: PushDevice = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(deserialized.id, device.id);
+        assert_eq!(deserialized.user_id, device.user_id);
+        assert_eq!(deserialized.device_id, device.device_id);
+        assert_eq!(deserialized.push_type, device.push_type);
+        assert_eq!(deserialized.enabled, device.enabled);
+    }
+
+    #[test]
+    fn test_push_rule_serialization() {
+        let rule = PushRule {
+            id: 1,
+            user_id: "@alice:example.com".to_string(),
+            rule_id: ".m.rule.message".to_string(),
+            scope: "global".to_string(),
+            kind: "content".to_string(),
+            priority: 0,
+            conditions: json!([{"kind": "event_match"}]),
+            actions: json!(["notify"]),
+            enabled: true,
+            is_default: false,
+            created_ts: 1700000000000,
+            updated_ts: None,
+            pattern: Some("*.com".to_string()),
+        };
+
+        let json_str = serde_json::to_string(&rule).unwrap();
+        let deserialized: PushRule = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(deserialized.id, rule.id);
+        assert_eq!(deserialized.rule_id, rule.rule_id);
+        assert_eq!(deserialized.scope, rule.scope);
+        assert_eq!(deserialized.kind, rule.kind);
+        assert_eq!(deserialized.enabled, rule.enabled);
+        assert_eq!(deserialized.pattern, rule.pattern);
+    }
+
+    #[test]
+    fn test_push_notification_queue_status_values() {
+        let valid_statuses = vec!["pending", "sent", "failed"];
+
+        for status in valid_statuses {
+            let queue_item = PushNotificationQueue {
+                id: 1,
+                user_id: "@alice:example.com".to_string(),
+                device_id: "DEVICE123".to_string(),
+                event_id: None,
+                room_id: None,
+                notification_type: None,
+                content: json!({}),
+                priority: 0,
+                status: status.to_string(),
+                attempts: 0,
+                max_attempts: 3,
+                next_attempt_at: Utc::now(),
+                created_ts: 1700000000000,
+                sent_at: None,
+                error_message: None,
+            };
+
+            assert_eq!(queue_item.status, status);
+        }
+    }
+
+    #[test]
+    fn test_push_notification_queue_retry_logic() {
+        let queue_item = PushNotificationQueue {
+            id: 1,
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEVICE123".to_string(),
+            event_id: Some("$event123".to_string()),
+            room_id: Some("!room123:example.com".to_string()),
+            notification_type: Some("m.room.message".to_string()),
+            content: json!({"body": "test"}),
+            priority: 5,
+            status: "pending".to_string(),
+            attempts: 2,
+            max_attempts: 5,
+            next_attempt_at: Utc::now(),
+            created_ts: 1700000000000,
+            sent_at: None,
+            error_message: Some("Temporary failure".to_string()),
+        };
+
+        assert!(queue_item.attempts < queue_item.max_attempts);
+        assert_eq!(queue_item.status, "pending");
+        assert!(queue_item.error_message.is_some());
+    }
+
+    #[test]
+    fn test_push_notification_log_success() {
+        let log = PushNotificationLog {
+            id: 1,
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEVICE123".to_string(),
+            event_id: Some("$event123".to_string()),
+            room_id: Some("!room123:example.com".to_string()),
+            notification_type: Some("m.room.message".to_string()),
+            push_type: "apns".to_string(),
+            sent_at: Utc::now(),
+            success: true,
+            error_message: None,
+            provider_response: Some("{\"status\": \"ok\"}".to_string()),
+            response_time_ms: Some(100),
+            metadata: json!({}),
+        };
+
+        assert!(log.success);
+        assert!(log.error_message.is_none());
+        assert!(log.response_time_ms.is_some());
+    }
+
+    #[test]
+    fn test_push_notification_log_failure() {
+        let log = PushNotificationLog {
+            id: 1,
+            user_id: "@bob:example.com".to_string(),
+            device_id: "DEVICE456".to_string(),
+            event_id: None,
+            room_id: None,
+            notification_type: None,
+            push_type: "fcm".to_string(),
+            sent_at: Utc::now(),
+            success: false,
+            error_message: Some("InvalidRegistration".to_string()),
+            provider_response: Some("{\"error\": \"InvalidRegistration\"}".to_string()),
+            response_time_ms: Some(50),
+            metadata: json!({}),
+        };
+
+        assert!(!log.success);
+        assert!(log.error_message.is_some());
+        assert_eq!(log.push_type, "fcm");
+    }
+
+    #[test]
+    fn test_push_device_error_tracking() {
+        let device = PushDevice {
+            id: 1,
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEVICE123".to_string(),
+            push_token: "token123".to_string(),
+            push_type: "apns".to_string(),
+            app_id: None,
+            platform: None,
+            platform_version: None,
+            app_version: None,
+            locale: None,
+            timezone: None,
+            enabled: true,
+            created_ts: 1700000000000,
+            updated_ts: None,
+            last_used_at: None,
+            last_error: Some("Unregistered".to_string()),
+            error_count: 3,
+            metadata: json!({}),
+        };
+
+        assert!(device.last_error.is_some());
+        assert!(device.error_count > 0);
+        assert!(device.enabled);
+    }
+
+    #[test]
+    fn test_push_rule_priority_ordering() {
+        let rule_high = PushRule {
+            id: 1,
+            user_id: "@alice:example.com".to_string(),
+            rule_id: "high_priority".to_string(),
+            scope: "global".to_string(),
+            kind: "override".to_string(),
+            priority: 0,
+            conditions: json!([]),
+            actions: json!(["notify"]),
+            enabled: true,
+            is_default: false,
+            created_ts: 1700000000000,
+            updated_ts: None,
+            pattern: None,
+        };
+
+        let rule_low = PushRule {
+            id: 2,
+            user_id: "@alice:example.com".to_string(),
+            rule_id: "low_priority".to_string(),
+            scope: "global".to_string(),
+            kind: "content".to_string(),
+            priority: 100,
+            conditions: json!([]),
+            actions: json!(["notify"]),
+            enabled: true,
+            is_default: false,
+            created_ts: 1700000000000,
+            updated_ts: None,
+            pattern: None,
+        };
+
+        assert!(rule_high.priority < rule_low.priority);
+    }
+
+    #[test]
+    fn test_queue_notification_priority_boundaries() {
+        let high_priority = QueueNotificationRequest {
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEVICE123".to_string(),
+            event_id: None,
+            room_id: None,
+            notification_type: None,
+            content: json!({}),
+            priority: i32::MAX,
+        };
+
+        let low_priority = QueueNotificationRequest {
+            user_id: "@bob:example.com".to_string(),
+            device_id: "DEVICE456".to_string(),
+            event_id: None,
+            room_id: None,
+            notification_type: None,
+            content: json!({}),
+            priority: i32::MIN,
+        };
+
+        assert_eq!(high_priority.priority, i32::MAX);
+        assert_eq!(low_priority.priority, i32::MIN);
+        assert!(high_priority.priority > low_priority.priority);
+    }
+
+    #[test]
+    fn test_notification_content_json_format() {
+        let content = json!({
+            "room_name": "Test Room",
+            "sender_display_name": "Alice",
+            "sender_avatar_url": "mxc://example.com/avatar",
+            "event_id": "$event123",
+            "room_id": "!room123:example.com",
+            "counts": {
+                "unread": 5,
+                "missed_calls": 2
+            }
+        });
+
+        let request = QueueNotificationRequest {
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEVICE123".to_string(),
+            event_id: Some("$event123".to_string()),
+            room_id: Some("!room123:example.com".to_string()),
+            notification_type: Some("m.room.message".to_string()),
+            content: content.clone(),
+            priority: 10,
+        };
+
+        assert!(request.content.get("counts").is_some());
+        assert_eq!(request.content["counts"]["unread"], 5);
+        assert_eq!(request.content["room_name"], "Test Room");
+    }
+}

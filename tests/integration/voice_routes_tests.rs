@@ -10,7 +10,6 @@ use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
-// Simplified setup_test_app similar to api_admin_tests.rs
 async fn setup_test_app() -> Option<axum::Router> {
     if !super::init_test_database().await {
         return None;
@@ -21,12 +20,10 @@ async fn setup_test_app() -> Option<axum::Router> {
     Some(create_router(state))
 }
 
-// Helper to register a test user and get token
 async fn create_test_user(app: &axum::Router) -> String {
     let username = format!("user_{}", rand::random::<u32>());
-    let password = "password123";
+    let password = "Password123!";
 
-    // Register
     let request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/r0/register")
@@ -44,11 +41,16 @@ async fn create_test_user(app: &axum::Router) -> String {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 10240)
         .await
         .unwrap();
+    
+    if status != StatusCode::OK {
+        panic!("Registration failed with status {}: {:?}", status, String::from_utf8_lossy(&body));
+    }
+    
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["access_token"].as_str().unwrap().to_string()
 }
@@ -70,11 +72,16 @@ async fn test_voice_config_endpoint() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
+
+    if status != StatusCode::OK {
+        eprintln!("Error response body: {:?}", String::from_utf8_lossy(&body));
+    }
+
+    assert_eq!(status, StatusCode::OK);
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert!(json.get("supported_formats").is_some());
@@ -98,8 +105,8 @@ async fn test_voice_convert_endpoint() {
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
-                        "content": "base64data",
-                        "target_format": "mp3"
+                        "message_id": "test_message_id",
+                        "target_format": "audio/mpeg"
                     })
                     .to_string(),
                 ))
@@ -108,11 +115,17 @@ async fn test_voice_convert_endpoint() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
+
+    if status != StatusCode::OK {
+        eprintln!("Error response body: {:?}", String::from_utf8_lossy(&body));
+    }
+
+    assert_eq!(status, StatusCode::OK);
+
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["status"], "success");
@@ -135,7 +148,7 @@ async fn test_voice_optimize_endpoint() {
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
-                        "content": "base64data"
+                        "message_id": "test_message_id"
                     })
                     .to_string(),
                 ))
@@ -144,11 +157,17 @@ async fn test_voice_optimize_endpoint() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
+
+    if status != StatusCode::OK {
+        eprintln!("Error response body: {:?}", String::from_utf8_lossy(&body));
+    }
+
+    assert_eq!(status, StatusCode::OK);
+
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["status"], "success");

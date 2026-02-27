@@ -442,3 +442,118 @@ impl BackgroundUpdateStorage {
         Ok(rows)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_background_update_creation() {
+        let update = BackgroundUpdate {
+            job_name: "update_user_indices".to_string(),
+            job_type: "index_update".to_string(),
+            description: Some("Update user indices".to_string()),
+            table_name: Some("users".to_string()),
+            column_name: None,
+            status: "running".to_string(),
+            progress: 50,
+            total_items: 100,
+            processed_items: 50,
+            created_ts: 1234567800,
+            started_ts: Some(1234567800),
+            completed_ts: None,
+            last_updated_ts: Some(1234567890),
+            error_message: None,
+            retry_count: 0,
+            max_retries: 3,
+            batch_size: 1000,
+            sleep_ms: 100,
+            depends_on: None,
+            metadata: None,
+        };
+        assert_eq!(update.job_name, "update_user_indices");
+        assert_eq!(update.progress, 50);
+    }
+
+    #[test]
+    fn test_background_update_completed() {
+        let update = BackgroundUpdate {
+            job_name: "vacuum_tables".to_string(),
+            job_type: "vacuum".to_string(),
+            description: None,
+            table_name: Some("events".to_string()),
+            column_name: None,
+            status: "completed".to_string(),
+            progress: 100,
+            total_items: 100,
+            processed_items: 100,
+            created_ts: 1234567800,
+            started_ts: Some(1234567800),
+            completed_ts: Some(1234567890),
+            last_updated_ts: Some(1234567890),
+            error_message: None,
+            retry_count: 0,
+            max_retries: 3,
+            batch_size: 1000,
+            sleep_ms: 100,
+            depends_on: None,
+            metadata: None,
+        };
+        assert_eq!(update.status, "completed");
+    }
+
+    #[test]
+    fn test_background_update_history_creation() {
+        let history = BackgroundUpdateHistory {
+            id: 1,
+            job_name: "update_user_indices".to_string(),
+            execution_start_ts: 1234567800,
+            execution_end_ts: Some(1234567890),
+            status: "completed".to_string(),
+            items_processed: 100,
+            error_message: None,
+            metadata: None,
+        };
+        assert_eq!(history.status, "completed");
+    }
+
+    #[test]
+    fn test_background_update_lock_creation() {
+        let lock = BackgroundUpdateLock {
+            job_name: "update_lock".to_string(),
+            locked_by: Some("@admin:example.com".to_string()),
+            locked_ts: 1234567890,
+            expires_ts: 1234568190,
+        };
+        assert_eq!(lock.job_name, "update_lock");
+    }
+
+    #[test]
+    fn test_create_background_update_request() {
+        let request = CreateBackgroundUpdateRequest {
+            job_name: "new_update".to_string(),
+            job_type: "custom".to_string(),
+            description: Some("New update job".to_string()),
+            table_name: None,
+            column_name: None,
+            total_items: Some(1000),
+            batch_size: Some(1000),
+            sleep_ms: Some(100),
+            depends_on: None,
+            metadata: None,
+        };
+        assert_eq!(request.job_name, "new_update");
+    }
+
+    #[test]
+    fn test_update_background_update_request() {
+        let request = UpdateBackgroundUpdateRequest {
+            progress: Some(75),
+            status: Some("running".to_string()),
+            total_items: Some(100),
+            processed_items: Some(75),
+            error_message: None,
+        };
+        assert!(request.progress.is_some());
+    }
+}

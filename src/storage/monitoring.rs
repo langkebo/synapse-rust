@@ -572,3 +572,159 @@ pub async fn record_performance_metric(
 ) -> Result<(), sqlx::Error> {
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_database_health_status_creation() {
+        let pool_status = ConnectionPoolStatus {
+            total_connections: 20,
+            idle_connections: 10,
+            busy_connections: 5,
+            max_connections: 20,
+            connection_utilization: 0.5,
+            average_connection_wait_time_ms: 10.0,
+        };
+        
+        let perf_metrics = PerformanceMetrics {
+            average_query_time_ms: 50.5,
+            slow_queries_count: 10,
+            total_queries: 1000,
+            transactions_per_second: 100.5,
+            cache_hit_ratio: 0.95,
+            deadlock_count: 0,
+            vacuum_analyze_stats: vec![],
+        };
+        
+        let status = DatabaseHealthStatus {
+            is_healthy: true,
+            connection_pool_status: pool_status,
+            performance_metrics: perf_metrics,
+            last_checked: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+        };
+        assert!(status.is_healthy);
+    }
+
+    #[test]
+    fn test_database_health_status_unhealthy() {
+        let pool_status = ConnectionPoolStatus {
+            total_connections: 20,
+            idle_connections: 0,
+            busy_connections: 20,
+            max_connections: 20,
+            connection_utilization: 1.0,
+            average_connection_wait_time_ms: 5000.0,
+        };
+        
+        let perf_metrics = PerformanceMetrics {
+            average_query_time_ms: 5000.0,
+            slow_queries_count: 100,
+            total_queries: 1000,
+            transactions_per_second: 10.0,
+            cache_hit_ratio: 0.5,
+            deadlock_count: 5,
+            vacuum_analyze_stats: vec![],
+        };
+        
+        let status = DatabaseHealthStatus {
+            is_healthy: false,
+            connection_pool_status: pool_status,
+            performance_metrics: perf_metrics,
+            last_checked: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+        };
+        assert!(!status.is_healthy);
+    }
+
+    #[test]
+    fn test_connection_pool_status_creation() {
+        let status = ConnectionPoolStatus {
+            total_connections: 20,
+            idle_connections: 10,
+            busy_connections: 5,
+            max_connections: 20,
+            connection_utilization: 0.5,
+            average_connection_wait_time_ms: 10.0,
+        };
+        assert_eq!(status.total_connections, 20);
+        assert_eq!(status.busy_connections, 5);
+    }
+
+    #[test]
+    fn test_performance_metrics_creation() {
+        let metrics = PerformanceMetrics {
+            average_query_time_ms: 50.5,
+            slow_queries_count: 10,
+            total_queries: 1000,
+            transactions_per_second: 100.5,
+            cache_hit_ratio: 0.95,
+            deadlock_count: 0,
+            vacuum_analyze_stats: vec![],
+        };
+        assert_eq!(metrics.average_query_time_ms, 50.5);
+        assert_eq!(metrics.total_queries, 1000);
+    }
+
+    #[test]
+    fn test_vacuum_stats_creation() {
+        let stats = VacuumStats {
+            table_name: "users".to_string(),
+            last_vacuum: None,
+            last_analyze: None,
+            dead_tuple_count: 100,
+            dead_tuple_ratio: 0.05,
+        };
+        assert_eq!(stats.table_name, "users");
+        assert_eq!(stats.dead_tuple_count, 100);
+    }
+
+    #[test]
+    fn test_data_integrity_report_creation() {
+        let report = DataIntegrityReport {
+            check_timestamp: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            foreign_key_violations: vec![],
+            orphaned_records: vec![],
+            duplicate_entries: vec![],
+            null_constraint_violations: vec![],
+            overall_integrity_score: 100.0,
+        };
+        assert_eq!(report.overall_integrity_score, 100.0);
+    }
+
+    #[test]
+    fn test_foreign_key_violation_creation() {
+        let violation = ForeignKeyViolation {
+            table_name: "events".to_string(),
+            column_name: "user_id".to_string(),
+            violating_row_id: 123,
+            referenced_table: "users".to_string(),
+        };
+        assert_eq!(violation.table_name, "events");
+        assert_eq!(violation.referenced_table, "users");
+    }
+
+    #[test]
+    fn test_orphaned_record_creation() {
+        let record = OrphanedRecord {
+            table_name: "events".to_string(),
+            column_name: "user_id".to_string(),
+            orphan_count: 10,
+            sample_orphans: vec!["1".to_string(), "2".to_string()],
+        };
+        assert_eq!(record.table_name, "events");
+        assert_eq!(record.orphan_count, 10);
+    }
+
+    #[test]
+    fn test_duplicate_entry_creation() {
+        let entry = DuplicateEntry {
+            table_name: "user_directory".to_string(),
+            column_name: "user_id".to_string(),
+            duplicate_count: 2,
+            sample_duplicates: vec!["@alice:example.com".to_string()],
+        };
+        assert_eq!(entry.table_name, "user_directory");
+        assert_eq!(entry.duplicate_count, 2);
+    }
+}

@@ -57,7 +57,6 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./config:/app/config:ro
-      - ./migrations:/app/migrations:ro
       - migration_logs:/app/logs/migrations
     depends_on:
       db:

@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod password_hash_pool_tests {
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
 
     use synapse_rust::password_hash_pool::{
-        hash_password_pooled, verify_password_pooled, PasswordHashPool, PasswordHashPoolConfig,
-        PasswordHashError, PoolStatus, get_pool_status,
+        PasswordHashPool, PasswordHashPoolConfig,
+        PasswordHashError,
     };
     use synapse_rust::argon2_config::Argon2Config;
     use tokio::sync::Barrier;
@@ -89,10 +89,10 @@ mod password_hash_pool_tests {
         let permit1 = pool.semaphore().clone().try_acquire_owned().unwrap();
         assert_eq!(pool.available_permits(), 2);
 
-        let permit2 = pool.semaphore().clone().try_acquire_owned().unwrap();
+        let _permit2 = pool.semaphore().clone().try_acquire_owned().unwrap();
         assert_eq!(pool.available_permits(), 1);
 
-        let permit3 = pool.semaphore().clone().try_acquire_owned().unwrap();
+        let _permit3 = pool.semaphore().clone().try_acquire_owned().unwrap();
         assert_eq!(pool.available_permits(), 0);
 
         let permit4 = pool.semaphore().clone().try_acquire_owned();
@@ -313,7 +313,7 @@ mod password_hash_pool_tests {
 
         let initial_active = pool.metrics().active_operations.get();
 
-        let hash = pool.hash_password("test").await.unwrap();
+        let _hash = pool.hash_password("test").await.unwrap();
 
         let final_active = pool.metrics().active_operations.get();
         assert_eq!(initial_active, final_active, "Active operations should return to initial after completion");

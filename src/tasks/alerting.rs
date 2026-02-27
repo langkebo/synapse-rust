@@ -58,6 +58,7 @@ pub struct AlertState {
 }
 
 pub struct AlertManager {
+    #[allow(dead_code)]
     config: AlertConfig,
     rules: Vec<AlertRule>,
     triggered_alerts: Vec<AlertState>,
@@ -114,8 +115,8 @@ impl AlertManager {
             }
 
             if let Some(alert) = self.evaluate_rule(rule, health) {
-                alerts.push(alert);
-                self.triggered_alerts.push(alert.clone());
+                alerts.push(alert.clone());
+                self.triggered_alerts.push(alert);
             }
         }
 
@@ -190,5 +191,161 @@ impl AlertManager {
 impl Default for AlertManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_alert_config_default() {
+        let config = AlertConfig::default();
+        
+        assert!(config.enabled);
+        assert_eq!(config.connection_pool_threshold, 85.0);
+        assert_eq!(config.slow_query_threshold_ms, 100);
+        assert_eq!(config.max_slow_queries, 10);
+        assert_eq!(config.integrity_score_threshold, 90.0);
+        assert_eq!(config.check_interval, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_alert_severity_variants() {
+        let critical = AlertSeverity::Critical;
+        let warning = AlertSeverity::Warning;
+        let info = AlertSeverity::Info;
+
+        assert!(matches!(critical, AlertSeverity::Critical));
+        assert!(matches!(warning, AlertSeverity::Warning));
+        assert!(matches!(info, AlertSeverity::Info));
+    }
+
+    #[test]
+    fn test_alert_condition_variants() {
+        let pool_high = AlertCondition::ConnectionPoolHigh { threshold: 90.0 };
+        let slow_queries = AlertCondition::SlowQueriesHigh { count: 5 };
+        let integrity_low = AlertCondition::IntegrityScoreLow { threshold: 95.0 };
+        let query_time = AlertCondition::QueryTimeHigh { threshold_ms: 50 };
+
+        assert!(matches!(pool_high, AlertCondition::ConnectionPoolHigh { .. }));
+        assert!(matches!(slow_queries, AlertCondition::SlowQueriesHigh { .. }));
+        assert!(matches!(integrity_low, AlertCondition::IntegrityScoreLow { .. }));
+        assert!(matches!(query_time, AlertCondition::QueryTimeHigh { .. }));
+    }
+
+    #[test]
+    fn test_alert_rule_creation() {
+        let rule = AlertRule {
+            name: "Test Alert".to_string(),
+            severity: AlertSeverity::Warning,
+            condition: AlertCondition::SlowQueriesHigh { count: 10 },
+            message: "Test message".to_string(),
+            enabled: true,
+        };
+
+        assert_eq!(rule.name, "Test Alert");
+        assert!(rule.enabled);
+    }
+
+    #[test]
+    fn test_alert_state_creation() {
+        let state = AlertState {
+            triggered_at: chrono::Utc::now(),
+            rule_name: "Test Rule".to_string(),
+            severity: AlertSeverity::Critical,
+            message: "Critical alert triggered".to_string(),
+            acknowledged: false,
+        };
+
+        assert_eq!(state.rule_name, "Test Rule");
+        assert!(!state.acknowledged);
+    }
+
+    #[test]
+    fn test_alert_manager_creation() {
+        let manager = AlertManager::new();
+        
+        assert!(manager.config.enabled);
+        assert!(!manager.rules.is_empty());
+        assert!(manager.triggered_alerts.is_empty());
+    }
+
+    #[test]
+    fn test_alert_manager_default() {
+        let manager = AlertManager::default();
+        
+        assert!(manager.config.enabled);
+    }
+
+    #[test]
+    fn test_alert_config_serialization() {
+        let config = AlertConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        
+        assert!(json.contains("enabled"));
+        assert!(json.contains("connection_pool_threshold"));
+    }
+
+    #[test]
+    fn test_alert_severity_serialization() {
+        let critical = AlertSeverity::Critical;
+        let json = serde_json::to_string(&critical).unwrap();
+        
+        assert!(json.contains("Critical"));
+    }
+
+    #[test]
+    fn test_alert_rule_serialization() {
+        let rule = AlertRule {
+            name: "Test".to_string(),
+            severity: AlertSeverity::Warning,
+            condition: AlertCondition::ConnectionPoolHigh { threshold: 85.0 },
+            message: "Test".to_string(),
+            enabled: true,
+        };
+
+        let json = serde_json::to_string(&rule).unwrap();
+        assert!(json.contains("Test"));
+        assert!(json.contains("Warning"));
+    }
+
+    #[test]
+    fn test_alert_state_serialization() {
+        let state = AlertState {
+            triggered_at: chrono::Utc::now(),
+            rule_name: "Rule".to_string(),
+            severity: AlertSeverity::Info,
+            message: "Info alert".to_string(),
+            acknowledged: true,
+        };
+
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("Rule"));
+        assert!(json.contains("Info"));
+    }
+
+    #[test]
+    fn test_alert_config_clone() {
+        let config = AlertConfig::default();
+        let cloned = config.clone();
+        
+        assert_eq!(config.enabled, cloned.enabled);
+        assert_eq!(config.connection_pool_threshold, cloned.connection_pool_threshold);
+    }
+
+    #[test]
+    fn test_alert_rule_clone() {
+        let rule = AlertRule {
+            name: "Clone Test".to_string(),
+            severity: AlertSeverity::Critical,
+            condition: AlertCondition::QueryTimeHigh { threshold_ms: 100 },
+            message: "Clone message".to_string(),
+            enabled: false,
+        };
+
+        let cloned = rule.clone();
+        assert_eq!(rule.name, cloned.name);
+        assert_eq!(rule.enabled, cloned.enabled);
     }
 }

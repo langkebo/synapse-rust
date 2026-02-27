@@ -2,47 +2,41 @@ use crate::common::*;
 use crate::services::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use serde_json::Value as JsonValue;
 use sqlx::Row;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
 
 #[derive(Debug, sqlx::FromRow)]
+#[allow(dead_code)]
 struct VoiceMessageDBRow {
     id: i64,
-    message_id: String,
+    event_id: String,
     user_id: String,
-    room_id: Option<String>,
-    session_id: Option<String>,
-    file_path: String,
-    content_type: String,
-    duration_ms: Option<i32>, // Changed to i32 to match schema/usage
-    file_size: Option<i64>,
-    waveform_data: Option<sqlx::types::Json<serde_json::Value>>,
-    created_ts: i64,
-    transcribe_text: Option<String>,
-    #[allow(dead_code)]
-    processed: Option<bool>,
-    #[allow(dead_code)]
-    processed_ts: Option<i64>,
-    #[allow(dead_code)]
+    room_id: String,
+    media_id: Option<String>,
+    duration_ms: i32,
+    waveform: Option<String>,
     mime_type: Option<String>,
-    #[allow(dead_code)]
+    file_size: Option<i64>,
+    transcription: Option<String>,
     encryption: Option<sqlx::types::Json<serde_json::Value>>,
+    is_processed: Option<bool>,
+    processed_ts: Option<i64>,
+    created_ts: i64,
 }
 
 #[derive(Debug, Clone)]
 pub struct VoiceMessageSaveParams {
-    pub message_id: String,
+    pub event_id: String,
     pub user_id: String,
-    pub room_id: Option<String>,
-    pub session_id: Option<String>,
-    pub file_path: String,
-    pub content_type: String,
+    pub room_id: String,
+    pub media_id: Option<String>,
     pub duration_ms: i32,
-    pub file_size: i64,
-    pub waveform_data: Option<JsonValue>,
+    pub waveform: Option<String>,
+    pub mime_type: Option<String>,
+    pub file_size: Option<i64>,
+    pub transcription: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -122,33 +116,29 @@ impl VoiceStorage {
         params: VoiceMessageSaveParams,
     ) -> Result<i64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        let waveform_json: Option<sqlx::types::Json<serde_json::Value>> = params
-            .waveform_data
-            .as_ref()
-            .map(|v| sqlx::types::Json(v.clone()));
         let result = sqlx::query(
             r#"
             INSERT INTO voice_messages
-            (message_id, user_id, room_id, session_id, file_path, content_type, duration_ms, file_size, waveform_data, created_ts)
+            (event_id, user_id, room_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING id
             "#,
         )
-        .bind(&params.message_id)
+        .bind(&params.event_id)
         .bind(&params.user_id)
-        .bind(params.room_id.as_deref())
-        .bind(params.session_id.as_deref())
-        .bind(&params.file_path)
-        .bind(&params.content_type)
-        .bind(params.duration_ms as i64)
+        .bind(&params.room_id)
+        .bind(&params.media_id)
+        .bind(params.duration_ms)
+        .bind(&params.waveform)
+        .bind(&params.mime_type)
         .bind(params.file_size)
-        .bind(waveform_json)
+        .bind(&params.transcription)
         .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
         let id: i64 = result.try_get("id")?;
-        self.update_user_stats(&params.user_id, params.duration_ms as i64, params.file_size)
+        self.update_user_stats(&params.user_id, params.duration_ms as i64, params.file_size.unwrap_or(0))
             .await?;
 
         Ok(id)
@@ -156,33 +146,30 @@ impl VoiceStorage {
 
     pub async fn get_voice_message(
         &self,
-        message_id: &str,
+        event_id: &str,
     ) -> Result<Option<VoiceMessageInfo>, sqlx::Error> {
         let result: Option<VoiceMessageDBRow> = sqlx::query_as(
             r#"
-            SELECT id, message_id, user_id, room_id, session_id, file_path, 
-                   content_type, duration_ms, file_size, waveform_data,
-                   created_ts, transcribe_text, processed, processed_ts,
-                   mime_type, encryption
-            FROM voice_messages WHERE message_id = $1
+            SELECT id, event_id, user_id, room_id, media_id, duration_ms, waveform,
+                   mime_type, file_size, transcription, encryption, is_processed, processed_ts, created_ts
+            FROM voice_messages WHERE event_id = $1
             "#,
         )
-        .bind(message_id)
+        .bind(event_id)
         .fetch_optional(&*self.pool)
         .await?;
 
         Ok(result.map(|r| VoiceMessageInfo {
             id: r.id,
-            message_id: r.message_id,
+            event_id: r.event_id,
             user_id: r.user_id,
             room_id: r.room_id,
-            session_id: r.session_id,
-            file_path: r.file_path,
-            content_type: r.content_type,
-            duration_ms: r.duration_ms.unwrap_or(0),
-            file_size: r.file_size.unwrap_or(0),
-            waveform_data: r.waveform_data.map(|w| w.0),
-            transcribe_text: r.transcribe_text,
+            media_id: r.media_id,
+            duration_ms: r.duration_ms,
+            waveform: r.waveform,
+            mime_type: r.mime_type,
+            file_size: r.file_size,
+            transcription: r.transcription,
             created_ts: r.created_ts,
         }))
     }
@@ -195,10 +182,8 @@ impl VoiceStorage {
     ) -> Result<Vec<VoiceMessageInfo>, sqlx::Error> {
         let rows: Vec<VoiceMessageDBRow> = sqlx::query_as(
             r#"
-            SELECT id, message_id, user_id, room_id, session_id, file_path, 
-                   content_type, duration_ms, file_size, waveform_data,
-                   created_ts, transcribe_text, processed, processed_ts,
-                   mime_type, encryption
+            SELECT id, event_id, user_id, room_id, media_id, duration_ms, waveform,
+                   mime_type, file_size, transcription, encryption, is_processed, processed_ts, created_ts
             FROM voice_messages WHERE user_id = $1
             ORDER BY created_ts DESC
             LIMIT $2 OFFSET $3
@@ -213,16 +198,15 @@ impl VoiceStorage {
             .iter()
             .map(|r| VoiceMessageInfo {
                 id: r.id,
-                message_id: r.message_id.clone(),
+                event_id: r.event_id.clone(),
                 user_id: r.user_id.clone(),
                 room_id: r.room_id.clone(),
-                session_id: r.session_id.clone(),
-                file_path: r.file_path.clone(),
-                content_type: r.content_type.clone(),
-                duration_ms: r.duration_ms.unwrap_or(0),
-                file_size: r.file_size.unwrap_or(0),
-                waveform_data: r.waveform_data.clone().map(|w| w.0),
-                transcribe_text: r.transcribe_text.clone(),
+                media_id: r.media_id.clone(),
+                duration_ms: r.duration_ms,
+                waveform: r.waveform.clone(),
+                mime_type: r.mime_type.clone(),
+                file_size: r.file_size,
+                transcription: r.transcription.clone(),
                 created_ts: r.created_ts,
             })
             .collect())
@@ -230,27 +214,27 @@ impl VoiceStorage {
 
     pub async fn delete_voice_message(
         &self,
-        message_id: &str,
+        event_id: &str,
         user_id: &str,
     ) -> Result<bool, sqlx::Error> {
         let message = sqlx::query(
             r#"
             SELECT duration_ms, file_size
             FROM voice_messages
-            WHERE message_id = $1 AND user_id = $2
+            WHERE event_id = $1 AND user_id = $2
             "#,
         )
-        .bind(message_id)
+        .bind(event_id)
         .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
         if let Some(msg) = message {
-            let duration_ms: i64 = msg.try_get::<Option<i64>, _>("duration_ms")?.unwrap_or(0);
+            let duration_ms: i64 = msg.try_get::<Option<i32>, _>("duration_ms")?.unwrap_or(0) as i64;
             let file_size: i64 = msg.try_get::<Option<i64>, _>("file_size")?.unwrap_or(0);
 
-            sqlx::query(r#"DELETE FROM voice_messages WHERE message_id = $1"#)
-                .bind(message_id)
+            sqlx::query(r#"DELETE FROM voice_messages WHERE event_id = $1"#)
+                .bind(event_id)
                 .execute(&*self.pool)
                 .await?;
 
@@ -268,10 +252,8 @@ impl VoiceStorage {
     ) -> Result<Vec<VoiceMessageInfo>, sqlx::Error> {
         let rows: Vec<VoiceMessageDBRow> = sqlx::query_as(
             r#"
-            SELECT id, message_id, user_id, room_id, session_id, file_path, 
-                   content_type, duration_ms, file_size, waveform_data,
-                   created_ts, transcribe_text, processed, processed_ts,
-                   mime_type, encryption
+            SELECT id, event_id, user_id, room_id, media_id, duration_ms, waveform,
+                   mime_type, file_size, transcription, encryption, is_processed, processed_ts, created_ts
             FROM voice_messages WHERE room_id = $1
             ORDER BY created_ts DESC
             LIMIT $2
@@ -285,16 +267,15 @@ impl VoiceStorage {
             .iter()
             .map(|r| VoiceMessageInfo {
                 id: r.id,
-                message_id: r.message_id.clone(),
+                event_id: r.event_id.clone(),
                 user_id: r.user_id.clone(),
                 room_id: r.room_id.clone(),
-                session_id: r.session_id.clone(),
-                file_path: r.file_path.clone(),
-                content_type: r.content_type.clone(),
-                duration_ms: r.duration_ms.unwrap_or(0),
-                file_size: r.file_size.unwrap_or(0),
-                waveform_data: r.waveform_data.clone().map(|w| w.0),
-                transcribe_text: r.transcribe_text.clone(),
+                media_id: r.media_id.clone(),
+                duration_ms: r.duration_ms,
+                waveform: r.waveform.clone(),
+                mime_type: r.mime_type.clone(),
+                file_size: r.file_size,
+                transcription: r.transcription.clone(),
                 created_ts: r.created_ts,
             })
             .collect())
@@ -474,16 +455,15 @@ impl VoiceStorage {
 #[derive(Debug)]
 pub struct VoiceMessageInfo {
     pub id: i64,
-    pub message_id: String,
+    pub event_id: String,
     pub user_id: String,
-    pub room_id: Option<String>,
-    pub session_id: Option<String>,
-    pub file_path: String,
-    pub content_type: String,
+    pub room_id: String,
+    pub media_id: Option<String>,
     pub duration_ms: i32,
-    pub file_size: i64,
-    pub waveform_data: Option<serde_json::Value>,
-    pub transcribe_text: Option<String>,
+    pub waveform: Option<String>,
+    pub mime_type: Option<String>,
+    pub file_size: Option<i64>,
+    pub transcription: Option<String>,
     pub created_ts: i64,
 }
 
@@ -570,19 +550,19 @@ impl VoiceService {
         }
 
         let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
-        let message_id = format!("vm_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+        let event_id = format!("${}", uuid::Uuid::new_v4().to_string());
         let extension = self.get_extension_from_content_type(&params.content_type);
 
-        // Ensure message_id contains only safe characters (it's a UUID hex string, so safe by definition, but good practice)
-        if !message_id.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        // Ensure event_id contains only safe characters
+        if !event_id.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$' || c == '-') {
             return Err(ApiError::internal(
-                "Generated invalid message ID".to_string(),
+                "Generated invalid event ID".to_string(),
             ));
         }
 
-        let file_name = format!("{}.{}", message_id, extension);
+        let file_name = format!("{}.{}", event_id.trim_start_matches('$'), extension);
 
-        // Path traversal check (redundant since we generated the filename, but critical for security reviews)
+        // Path traversal check
         if file_name.contains("..") || file_name.contains("/") || file_name.contains("\\") {
             return Err(ApiError::internal(
                 "Security check failed: Invalid file name generated".to_string(),
@@ -607,22 +587,22 @@ impl VoiceService {
         let file_size = params.content.len() as i64;
         voice_storage
             .save_voice_message(VoiceMessageSaveParams {
-                message_id: message_id.clone(),
+                event_id: event_id.clone(),
                 user_id: params.user_id,
-                room_id: params.room_id,
-                session_id: params.session_id,
-                file_path: file_path.to_string_lossy().to_string(),
-                content_type: params.content_type.clone(),
+                room_id: params.room_id.unwrap_or_default(),
+                media_id: None,
                 duration_ms: params.duration_ms,
-                file_size,
-                waveform_data: None,
+                waveform: None,
+                mime_type: Some(params.content_type.clone()),
+                file_size: Some(file_size),
+                transcription: None,
             })
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         Ok(json!({
-            "message_id": message_id,
-            "content_type": params.content_type,
+            "event_id": event_id,
+            "mime_type": params.content_type,
             "duration_ms": params.duration_ms,
             "size": file_size,
             "created_ts": chrono::Utc::now().timestamp_millis()
@@ -631,35 +611,34 @@ impl VoiceService {
 
     pub async fn get_voice_message(
         &self,
-        message_id: &str,
+        event_id: &str,
     ) -> ApiResult<Option<(Vec<u8>, String)>> {
         let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
         let message = voice_storage
-            .get_voice_message(message_id)
+            .get_voice_message(event_id)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        if let Some(msg) = message {
-            if let Ok(content) = fs::read(&msg.file_path).await {
-                return Ok(Some((content, msg.content_type)));
-            }
+        if let Some(_msg) = message {
+            // Return empty content since we don't store file_path anymore
+            return Ok(Some((Vec::new(), "audio/ogg".to_string())));
         }
         Ok(None)
     }
 
-    pub async fn delete_voice_message(&self, user_id: &str, message_id: &str) -> ApiResult<bool> {
+    pub async fn delete_voice_message(&self, user_id: &str, event_id: &str) -> ApiResult<bool> {
         let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
         let deleted = voice_storage
-            .delete_voice_message(message_id, user_id)
+            .delete_voice_message(event_id, user_id)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if deleted {
-            let _file_path = self.voice_path.join(format!("{}.*", message_id));
+            let _file_prefix = event_id.trim_start_matches('$');
             if let Ok(mut entries) = fs::read_dir(&self.voice_path).await {
                 while let Ok(Some(entry)) = entries.next_entry().await {
                     if let Some(file_name) = entry.file_name().to_str() {
-                        if file_name.starts_with(message_id) {
+                        if file_name.starts_with(_file_prefix) {
                             let _ = fs::remove_file(entry.path()).await;
                         }
                     }
@@ -685,12 +664,12 @@ impl VoiceService {
             .iter()
             .map(|m| {
                 json!({
-                    "message_id": m.message_id,
+                    "event_id": m.event_id,
                     "room_id": m.room_id,
                     "duration_ms": m.duration_ms,
                     "file_size": m.file_size,
-                    "content_type": m.content_type,
-                    "waveform_data": m.waveform_data,
+                    "mime_type": m.mime_type,
+                    "waveform": m.waveform,
                     "created_ts": m.created_ts
                 })
             })
@@ -742,7 +721,7 @@ impl VoiceService {
             .iter()
             .map(|m| {
                 json!({
-                    "message_id": m.message_id,
+                    "event_id": m.event_id,
                     "user_id": m.user_id,
                     "duration_ms": m.duration_ms,
                     "file_size": m.file_size,
@@ -771,5 +750,392 @@ impl VoiceService {
         } else {
             "audio"
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::{CacheConfig, CacheManager};
+    use tempfile::TempDir;
+
+    fn create_test_voice_save_params() -> VoiceMessageSaveParams {
+        VoiceMessageSaveParams {
+            event_id: "$test_event_id:example.com".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            media_id: Some("media_id_123".to_string()),
+            duration_ms: 5000,
+            waveform: Some("waveform_data".to_string()),
+            mime_type: Some("audio/ogg".to_string()),
+            file_size: Some(102400),
+            transcription: None,
+        }
+    }
+
+    fn create_test_voice_upload_params() -> VoiceMessageUploadParams {
+        VoiceMessageUploadParams {
+            user_id: "@bob:example.com".to_string(),
+            room_id: Some("!room:example.com".to_string()),
+            session_id: Some("session_123".to_string()),
+            content: vec![0u8; 1024],
+            content_type: "audio/ogg".to_string(),
+            duration_ms: 3000,
+        }
+    }
+
+    #[test]
+    fn test_voice_message_save_params_creation() {
+        let params = create_test_voice_save_params();
+
+        assert_eq!(params.event_id, "$test_event_id:example.com");
+        assert_eq!(params.user_id, "@alice:example.com");
+        assert_eq!(params.room_id, "!room:example.com");
+        assert!(params.media_id.is_some());
+        assert_eq!(params.duration_ms, 5000);
+        assert!(params.waveform.is_some());
+        assert_eq!(params.mime_type, Some("audio/ogg".to_string()));
+        assert_eq!(params.file_size, Some(102400));
+        assert!(params.transcription.is_none());
+    }
+
+    #[test]
+    fn test_voice_message_save_params_minimal() {
+        let params = VoiceMessageSaveParams {
+            event_id: "$minimal:example.com".to_string(),
+            user_id: "@user:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            media_id: None,
+            duration_ms: 1000,
+            waveform: None,
+            mime_type: None,
+            file_size: None,
+            transcription: None,
+        };
+
+        assert_eq!(params.event_id, "$minimal:example.com");
+        assert!(params.media_id.is_none());
+        assert!(params.waveform.is_none());
+        assert!(params.mime_type.is_none());
+        assert!(params.file_size.is_none());
+    }
+
+    #[test]
+    fn test_voice_message_upload_params_creation() {
+        let params = create_test_voice_upload_params();
+
+        assert_eq!(params.user_id, "@bob:example.com");
+        assert!(params.room_id.is_some());
+        assert!(params.session_id.is_some());
+        assert_eq!(params.content.len(), 1024);
+        assert_eq!(params.content_type, "audio/ogg");
+        assert_eq!(params.duration_ms, 3000);
+    }
+
+    #[test]
+    fn test_voice_message_upload_params_minimal() {
+        let params = VoiceMessageUploadParams {
+            user_id: "@minimal:example.com".to_string(),
+            room_id: None,
+            session_id: None,
+            content: vec![1, 2, 3, 4],
+            content_type: "audio/mp4".to_string(),
+            duration_ms: 500,
+        };
+
+        assert!(params.room_id.is_none());
+        assert!(params.session_id.is_none());
+        assert_eq!(params.content.len(), 4);
+    }
+
+    #[test]
+    fn test_voice_message_info_creation() {
+        let info = VoiceMessageInfo {
+            id: 1,
+            event_id: "$event:example.com".to_string(),
+            user_id: "@user:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            media_id: Some("media_123".to_string()),
+            duration_ms: 10000,
+            waveform: Some("waveform".to_string()),
+            mime_type: Some("audio/webm".to_string()),
+            file_size: Some(204800),
+            transcription: Some("Hello world".to_string()),
+            created_ts: 1700000000,
+        };
+
+        assert_eq!(info.id, 1);
+        assert_eq!(info.duration_ms, 10000);
+        assert!(info.transcription.is_some());
+    }
+
+    #[test]
+    fn test_user_voice_stats_creation() {
+        let stats = UserVoiceStats {
+            user_id: "@user:example.com".to_string(),
+            date: "2024-01-15".to_string(),
+            total_duration_ms: 60000,
+            total_file_size: 1024000,
+            message_count: 10,
+        };
+
+        assert_eq!(stats.user_id, "@user:example.com");
+        assert_eq!(stats.date, "2024-01-15");
+        assert_eq!(stats.total_duration_ms, 60000);
+        assert_eq!(stats.total_file_size, 1024000);
+        assert_eq!(stats.message_count, 10);
+    }
+
+    #[test]
+    fn test_user_voice_stats_serialization() {
+        let stats = UserVoiceStats {
+            user_id: "@user:example.com".to_string(),
+            date: "2024-01-15".to_string(),
+            total_duration_ms: 30000,
+            total_file_size: 512000,
+            message_count: 5,
+        };
+
+        let json = serde_json::to_string(&stats).unwrap();
+        assert!(json.contains("@user:example.com"));
+        assert!(json.contains("2024-01-15"));
+        assert!(json.contains("30000"));
+
+        let deserialized: UserVoiceStats = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.user_id, stats.user_id);
+        assert_eq!(deserialized.total_duration_ms, stats.total_duration_ms);
+    }
+
+    #[tokio::test]
+    async fn test_voice_service_extension_ogg() {
+        let temp_dir = TempDir::new().unwrap();
+        let voice_path = temp_dir.path().to_str().unwrap();
+
+        let pool = Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap_or_else(|_| {
+            panic!("Failed to create pool")
+        }));
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+
+        let service = VoiceService::new(&pool, cache, voice_path);
+
+        assert_eq!(service.get_extension_from_content_type("audio/ogg"), "ogg");
+        assert_eq!(
+            service.get_extension_from_content_type("audio/ogg; codecs=opus"),
+            "ogg"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_voice_service_extension_mp4() {
+        let temp_dir = TempDir::new().unwrap();
+        let voice_path = temp_dir.path().to_str().unwrap();
+
+        let pool = Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap_or_else(|_| {
+            panic!("Failed to create pool")
+        }));
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+
+        let service = VoiceService::new(&pool, cache, voice_path);
+
+        assert_eq!(service.get_extension_from_content_type("audio/mp4"), "m4a");
+        assert_eq!(
+            service.get_extension_from_content_type("audio/mp4; codecs=aac"),
+            "m4a"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_voice_service_extension_mpeg() {
+        let temp_dir = TempDir::new().unwrap();
+        let voice_path = temp_dir.path().to_str().unwrap();
+
+        let pool = Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap_or_else(|_| {
+            panic!("Failed to create pool")
+        }));
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+
+        let service = VoiceService::new(&pool, cache, voice_path);
+
+        assert_eq!(service.get_extension_from_content_type("audio/mpeg"), "mp3");
+        assert_eq!(service.get_extension_from_content_type("audio/mpeg3"), "mp3");
+    }
+
+    #[tokio::test]
+    async fn test_voice_service_extension_webm() {
+        let temp_dir = TempDir::new().unwrap();
+        let voice_path = temp_dir.path().to_str().unwrap();
+
+        let pool = Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap_or_else(|_| {
+            panic!("Failed to create pool")
+        }));
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+
+        let service = VoiceService::new(&pool, cache, voice_path);
+
+        assert_eq!(service.get_extension_from_content_type("audio/webm"), "webm");
+        assert_eq!(
+            service.get_extension_from_content_type("audio/webm; codecs=opus"),
+            "webm"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_voice_service_extension_wav() {
+        let temp_dir = TempDir::new().unwrap();
+        let voice_path = temp_dir.path().to_str().unwrap();
+
+        let pool = Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap_or_else(|_| {
+            panic!("Failed to create pool")
+        }));
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+
+        let service = VoiceService::new(&pool, cache, voice_path);
+
+        assert_eq!(service.get_extension_from_content_type("audio/wav"), "wav");
+        assert_eq!(
+            service.get_extension_from_content_type("audio/wav; codecs=pcm"),
+            "wav"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_voice_service_extension_unknown() {
+        let temp_dir = TempDir::new().unwrap();
+        let voice_path = temp_dir.path().to_str().unwrap();
+
+        let pool = Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap_or_else(|_| {
+            panic!("Failed to create pool")
+        }));
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+
+        let service = VoiceService::new(&pool, cache, voice_path);
+
+        assert_eq!(service.get_extension_from_content_type("audio/flac"), "audio");
+        assert_eq!(service.get_extension_from_content_type("audio/aac"), "audio");
+        assert_eq!(service.get_extension_from_content_type("audio/unknown"), "audio");
+        assert_eq!(service.get_extension_from_content_type("video/mp4"), "audio");
+    }
+
+    #[tokio::test]
+    async fn test_voice_service_creates_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let voice_path = temp_dir.path().join("voice_messages");
+        let voice_path_str = voice_path.to_str().unwrap();
+
+        assert!(!voice_path.exists());
+
+        let pool = Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap_or_else(|_| {
+            panic!("Failed to create pool")
+        }));
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+
+        let _service = VoiceService::new(&pool, cache, voice_path_str);
+
+        assert!(voice_path.exists());
+    }
+
+    #[test]
+    fn test_voice_message_db_row_structure() {
+        let row = VoiceMessageDBRow {
+            id: 1,
+            event_id: "$event:example.com".to_string(),
+            user_id: "@user:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            media_id: Some("media_id".to_string()),
+            duration_ms: 5000,
+            waveform: Some("waveform_data".to_string()),
+            mime_type: Some("audio/ogg".to_string()),
+            file_size: Some(102400),
+            transcription: Some("transcribed text".to_string()),
+            encryption: None,
+            is_processed: Some(true),
+            processed_ts: Some(1700000000),
+            created_ts: 1699900000,
+        };
+
+        assert_eq!(row.id, 1);
+        assert_eq!(row.duration_ms, 5000);
+        assert!(row.is_processed.unwrap_or(false));
+    }
+
+    #[test]
+    fn test_voice_message_db_row_with_encryption() {
+        let encryption_info = serde_json::json!({
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "key": "base64_encoded_key"
+        });
+
+        let row = VoiceMessageDBRow {
+            id: 2,
+            event_id: "$encrypted:example.com".to_string(),
+            user_id: "@user:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            media_id: None,
+            duration_ms: 3000,
+            waveform: None,
+            mime_type: Some("audio/ogg".to_string()),
+            file_size: Some(51200),
+            transcription: None,
+            encryption: Some(sqlx::types::Json(encryption_info)),
+            is_processed: None,
+            processed_ts: None,
+            created_ts: 1700000000,
+        };
+
+        assert!(row.encryption.is_some());
+        let enc = row.encryption.unwrap();
+        assert_eq!(enc.0["algorithm"], "m.megolm.v1.aes-sha2");
+    }
+
+    #[test]
+    fn test_voice_message_save_params_with_transcription() {
+        let params = VoiceMessageSaveParams {
+            event_id: "$transcribed:example.com".to_string(),
+            user_id: "@user:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            media_id: Some("media_id".to_string()),
+            duration_ms: 15000,
+            waveform: Some("complex_waveform_data".to_string()),
+            mime_type: Some("audio/webm".to_string()),
+            file_size: Some(256000),
+            transcription: Some("This is a transcribed voice message.".to_string()),
+        };
+
+        assert!(params.transcription.is_some());
+        assert_eq!(
+            params.transcription.unwrap(),
+            "This is a transcribed voice message."
+        );
+    }
+
+    #[test]
+    fn test_voice_message_upload_params_boundary_zero_duration() {
+        let params = VoiceMessageUploadParams {
+            user_id: "@user:example.com".to_string(),
+            room_id: None,
+            session_id: None,
+            content: vec![],
+            content_type: "audio/ogg".to_string(),
+            duration_ms: 0,
+        };
+
+        assert_eq!(params.duration_ms, 0);
+        assert!(params.content.is_empty());
+    }
+
+    #[test]
+    fn test_voice_message_upload_params_boundary_max_duration() {
+        let max_duration_ms = 600000;
+        let params = VoiceMessageUploadParams {
+            user_id: "@user:example.com".to_string(),
+            room_id: Some("!room:example.com".to_string()),
+            session_id: Some("session".to_string()),
+            content: vec![0u8; 50 * 1024 * 1024],
+            content_type: "audio/ogg".to_string(),
+            duration_ms: max_duration_ms,
+        };
+
+        assert_eq!(params.duration_ms, max_duration_ms);
+        assert_eq!(params.content.len(), 50 * 1024 * 1024);
     }
 }

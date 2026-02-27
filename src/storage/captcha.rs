@@ -405,3 +405,96 @@ impl CaptchaStorage {
         Ok(result.rows_affected())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_registration_captcha_creation() {
+        let captcha = RegistrationCaptcha {
+            id: 1,
+            captcha_id: "captcha123".to_string(),
+            captcha_type: "image".to_string(),
+            target: "registration".to_string(),
+            code: "abc123".to_string(),
+            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
+            expires_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            used_at: None,
+            verified_at: None,
+            ip_address: Some("192.168.1.1".to_string()),
+            user_agent: Some("Mozilla/5.0".to_string()),
+            attempt_count: 0,
+            max_attempts: 3,
+            status: "active".to_string(),
+            metadata: serde_json::json!({}),
+        };
+        assert_eq!(captcha.captcha_id, "captcha123");
+        assert_eq!(captcha.status, "active");
+    }
+
+    #[test]
+    fn test_captcha_send_log_creation() {
+        let log = CaptchaSendLog {
+            id: 1,
+            captcha_id: Some("captcha123".to_string()),
+            captcha_type: "image".to_string(),
+            target: "registration".to_string(),
+            sent_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            ip_address: Some("192.168.1.1".to_string()),
+            user_agent: Some("Mozilla/5.0".to_string()),
+            success: true,
+            error_message: None,
+            provider: None,
+            provider_response: None,
+        };
+        assert!(log.success);
+    }
+
+    #[test]
+    fn test_captcha_rate_limit_creation() {
+        let rate_limit = CaptchaRateLimit {
+            id: 1,
+            target: "registration".to_string(),
+            ip_address: Some("192.168.1.1".to_string()),
+            captcha_type: "image".to_string(),
+            request_count: 3,
+            first_request_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            last_request_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            blocked_until: None,
+        };
+        assert_eq!(rate_limit.request_count, 3);
+    }
+
+    #[test]
+    fn test_captcha_template_creation() {
+        let template = CaptchaTemplate {
+            id: 1,
+            template_name: "default".to_string(),
+            captcha_type: "image".to_string(),
+            subject: Some("Captcha".to_string()),
+            content: "<html><body>{{captcha}}</body></html>".to_string(),
+            variables: serde_json::json!({}),
+            is_default: true,
+            enabled: true,
+            created_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            updated_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+        };
+        assert_eq!(template.template_name, "default");
+    }
+
+    #[test]
+    fn test_create_captcha_request() {
+        let request = CreateCaptchaRequest {
+            captcha_type: "image".to_string(),
+            target: "registration".to_string(),
+            code: "abc123".to_string(),
+            expires_in_seconds: 300,
+            ip_address: None,
+            user_agent: None,
+            max_attempts: 3,
+            metadata: None,
+        };
+        assert_eq!(request.captcha_type, "image");
+    }
+}

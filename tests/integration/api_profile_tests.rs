@@ -28,7 +28,7 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         .body(Body::from(
             json!({
                 "username": username,
-                "password": "password123",
+                "password": "Password123!",
                 "auth": { "type": "m.login.dummy" }
             })
             .to_string(),

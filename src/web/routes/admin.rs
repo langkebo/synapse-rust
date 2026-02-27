@@ -1809,6 +1809,128 @@ pub async fn delete_user_device_admin(
     Ok(Json(json!({})))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_admin_routes_structure() {
+        let routes = vec![
+            "/_synapse/admin/v1/server_version",
+            "/_synapse/admin/v1/server_stats",
+            "/_synapse/admin/v1/users",
+            "/_synapse/admin/v1/rooms",
+            "/_synapse/admin/v1/register/nonce",
+            "/_synapse/admin/v1/register",
+            "/_synapse/admin/v1/status",
+            "/_synapse/admin/v1/config",
+        ];
+
+        for route in routes {
+            assert!(route.starts_with("/_synapse/admin/"));
+        }
+    }
+
+    #[test]
+    fn test_pagination_limits() {
+        assert!(MIN_PAGINATION_LIMIT >= 0);
+        assert!(MAX_PAGINATION_LIMIT > MIN_PAGINATION_LIMIT);
+    }
+
+    #[test]
+    fn test_ip_network_ipv4() {
+        let ip: IpAddr = "192.168.1.1".parse().unwrap();
+        assert!(ip.is_ipv4());
+        
+        let network = Ipv4Network::new(Ipv4Addr::new(192, 168, 1, 0), 24).unwrap();
+        assert!(network.contains(Ipv4Addr::new(192, 168, 1, 100)));
+    }
+
+    #[test]
+    fn test_ip_network_ipv6() {
+        let ip: IpAddr = "::1".parse().unwrap();
+        assert!(ip.is_ipv6());
+    }
+
+    #[test]
+    fn test_admin_register_request_validation() {
+        let request = AdminRegisterRequest {
+            nonce: "test_nonce".to_string(),
+            username: "admin".to_string(),
+            password: "password123".to_string(),
+            admin: Some(true),
+            user_type: None,
+            displayname: None,
+            mac: "mac_signature".to_string(),
+        };
+
+        assert_eq!(request.nonce, "test_nonce");
+        assert_eq!(request.username, "admin");
+    }
+
+    #[test]
+    fn test_nonce_response_structure() {
+        let response = NonceResponse {
+            nonce: "random_nonce".to_string(),
+        };
+
+        assert!(!response.nonce.is_empty());
+    }
+
+    #[test]
+    fn test_admin_register_response_structure() {
+        let response = AdminRegisterResponse {
+            user_id: "@admin:example.com".to_string(),
+            access_token: "token123".to_string(),
+            refresh_token: "refresh_token".to_string(),
+            expires_in: 3600,
+            device_id: "DEVICE".to_string(),
+            home_server: "example.com".to_string(),
+        };
+
+        assert!(response.user_id.starts_with('@'));
+        assert!(!response.access_token.is_empty());
+    }
+
+    #[test]
+    fn test_rate_limit_constants() {
+        assert!(ADMIN_REGISTER_RATE_LIMIT > 0);
+        assert!(ADMIN_REGISTER_NONCE_RATE_LIMIT > 0);
+    }
+
+    #[test]
+    fn test_server_version_response() {
+        let response = json!({
+            "server_version": "1.0.0",
+            "python_version": "rust"
+        });
+
+        assert!(response.get("server_version").is_some());
+    }
+
+    #[test]
+    fn test_user_stats_response() {
+        let response = json!({
+            "total_users": 100,
+            "active_users": 50
+        });
+
+        assert!(response.get("total_users").is_some());
+        assert!(response.get("active_users").is_some());
+    }
+
+    #[test]
+    fn test_room_stats_response() {
+        let response = json!({
+            "total_rooms": 25,
+            "active_rooms": 10
+        });
+
+        assert!(response.get("total_rooms").is_some());
+        assert!(response.get("active_rooms").is_some());
+    }
+}
+
 #[axum::debug_handler]
 pub async fn get_room_members_admin(
     _admin: AdminUser,

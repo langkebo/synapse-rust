@@ -654,3 +654,128 @@ pub fn create_space_router(state: AppState) -> Router<AppState> {
         )
         .with_state(state)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_space_routes_structure() {
+        let routes = vec![
+            "/_matrix/client/v1/spaces",
+            "/_matrix/client/v1/spaces/{space_id}",
+            "/_matrix/client/v1/spaces/{space_id}/hierarchy",
+            "/_matrix/client/v1/spaces/{space_id}/summary",
+        ];
+
+        for route in routes {
+            assert!(route.starts_with("/_matrix/client/v1/spaces"));
+        }
+    }
+
+    #[test]
+    fn test_create_space_body() {
+        let body = CreateSpaceBody {
+            room_id: "!room:example.com".to_string(),
+            name: Some("My Space".to_string()),
+            topic: Some("A test space".to_string()),
+            avatar_url: Some("mxc://example.com/avatar".to_string()),
+            join_rule: Some("invite".to_string()),
+            visibility: Some("private".to_string()),
+            is_public: Some(false),
+            parent_space_id: None,
+        };
+
+        assert_eq!(body.room_id, "!room:example.com");
+        assert!(body.name.is_some());
+    }
+
+    #[test]
+    fn test_add_child_body() {
+        let body = AddChildBody {
+            room_id: "!child:example.com".to_string(),
+            via_servers: vec!["example.com".to_string()],
+            order: Some("1".to_string()),
+            suggested: Some(true),
+        };
+
+        assert_eq!(body.room_id, "!child:example.com");
+        assert!(!body.via_servers.is_empty());
+    }
+
+    #[test]
+    fn test_update_space_body() {
+        let body = UpdateSpaceBody {
+            name: Some("Updated Name".to_string()),
+            topic: Some("Updated topic".to_string()),
+            avatar_url: None,
+            join_rule: Some("public".to_string()),
+            visibility: Some("public".to_string()),
+            is_public: Some(true),
+        };
+
+        assert!(body.name.is_some());
+        assert!(body.avatar_url.is_none());
+    }
+
+    #[test]
+    fn test_pagination_query() {
+        let query = PaginationQuery {
+            limit: Some(100),
+            offset: Some(0),
+        };
+
+        assert_eq!(query.limit, Some(100));
+        assert_eq!(query.offset, Some(0));
+    }
+
+    #[test]
+    fn test_search_query() {
+        let query = SearchQuery {
+            query: "test space".to_string(),
+            limit: Some(10),
+        };
+
+        assert_eq!(query.query, "test space");
+        assert_eq!(query.limit, Some(10));
+    }
+
+    #[test]
+    fn test_hierarchy_query() {
+        let query = HierarchyQuery {
+            max_depth: Some(3),
+        };
+
+        assert_eq!(query.max_depth, Some(3));
+    }
+
+    #[test]
+    fn test_space_response_structure() {
+        let response = SpaceResponse {
+            space_id: "space_123".to_string(),
+            room_id: "!room:example.com".to_string(),
+            name: Some("Test Space".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@admin:example.com".to_string(),
+            join_rule: "invite".to_string(),
+            visibility: "private".to_string(),
+            is_public: false,
+            creation_ts: 1234567890,
+            updated_ts: None,
+            parent_space_id: None,
+        };
+
+        assert_eq!(response.space_id, "space_123");
+        assert!(!response.is_public);
+    }
+
+    #[test]
+    fn test_invite_user_body() {
+        let body = InviteUserBody {
+            user_id: "@alice:example.com".to_string(),
+        };
+
+        assert!(body.user_id.starts_with('@'));
+    }
+}

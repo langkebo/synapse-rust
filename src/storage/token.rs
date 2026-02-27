@@ -122,3 +122,128 @@ impl AccessTokenStorage {
         Ok(result.is_some())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_access_token_struct() {
+        let token = AccessToken {
+            id: 1,
+            token: "access_token_abc123".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            device_id: Some("DEVICE123".to_string()),
+            created_ts: 1234567890,
+            expires_ts: 1234567890 + 3600,
+            is_valid: true,
+            revoked_ts: None,
+        };
+
+        assert_eq!(token.id, 1);
+        assert_eq!(token.token, "access_token_abc123");
+        assert_eq!(token.user_id, "@alice:example.com");
+        assert!(token.device_id.is_some());
+        assert!(token.is_valid);
+        assert!(token.revoked_ts.is_none());
+    }
+
+    #[test]
+    fn test_access_token_without_device() {
+        let token = AccessToken {
+            id: 2,
+            token: "token_xyz789".to_string(),
+            user_id: "@bob:example.com".to_string(),
+            device_id: None,
+            created_ts: 1234567890,
+            expires_ts: 1234567890 + 7200,
+            is_valid: true,
+            revoked_ts: None,
+        };
+
+        assert!(token.device_id.is_none());
+        assert_eq!(token.expires_ts - token.created_ts, 7200);
+    }
+
+    #[test]
+    fn test_access_token_revoked() {
+        let token = AccessToken {
+            id: 3,
+            token: "revoked_token".to_string(),
+            user_id: "@charlie:example.com".to_string(),
+            device_id: Some("DEVICE456".to_string()),
+            created_ts: 1234567890,
+            expires_ts: 1234567890 + 3600,
+            is_valid: false,
+            revoked_ts: Some(1234567900),
+        };
+
+        assert!(!token.is_valid);
+        assert!(token.revoked_ts.is_some());
+    }
+
+    #[test]
+    fn test_access_token_expiration() {
+        let now = chrono::Utc::now().timestamp();
+        let token = AccessToken {
+            id: 4,
+            token: "expiring_token".to_string(),
+            user_id: "@user:example.com".to_string(),
+            device_id: None,
+            created_ts: now,
+            expires_ts: now + 86400,
+            is_valid: true,
+            revoked_ts: None,
+        };
+
+        assert!(token.expires_ts > token.created_ts);
+        assert_eq!(token.expires_ts - token.created_ts, 86400);
+    }
+
+    #[test]
+    fn test_access_token_storage_creation() {
+        let token = AccessToken {
+            id: 6,
+            token: "test_token".to_string(),
+            user_id: "@test:example.com".to_string(),
+            device_id: None,
+            created_ts: 1234567890,
+            expires_ts: 1234567890 + 3600,
+            is_valid: true,
+            revoked_ts: None,
+        };
+        assert_eq!(token.token, "test_token");
+    }
+
+    #[test]
+    fn test_token_format_validation() {
+        let valid_tokens = vec![
+            "syt_abc123_def456",
+            "MDAxYWxvY2F0aW9uIGV4YW1wbGUuY29tCjAwMWlkZW50aWZpZXIga2V5CjAwMmNpZCB0b2tlbiA9IDEyMzQ1",
+            "simple_token_123",
+        ];
+
+        for token in valid_tokens {
+            assert!(!token.is_empty());
+            assert!(token.len() > 5);
+        }
+    }
+
+    #[test]
+    fn test_token_user_id_association() {
+        let token = AccessToken {
+            id: 5,
+            token: "user_associated_token".to_string(),
+            user_id: "@test:matrix.org".to_string(),
+            device_id: Some("WEBCLIENT".to_string()),
+            created_ts: 1234567890,
+            expires_ts: 1234567890 + 3600,
+            is_valid: true,
+            revoked_ts: None,
+        };
+
+        assert!(token.user_id.starts_with('@'));
+        assert!(token.user_id.contains(':'));
+        assert!(token.device_id.as_ref().unwrap().contains("CLIENT"));
+    }
+}

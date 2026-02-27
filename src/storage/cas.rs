@@ -128,6 +128,127 @@ pub struct CasStorage {
     pool: PgPool,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cas_ticket_creation() {
+        let ticket = CasTicket {
+            id: 1,
+            ticket_id: "ST-12345678".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            service_url: "https://app.example.com".to_string(),
+            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
+            expires_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            consumed_at: None,
+            consumed_by: None,
+            is_valid: true,
+        };
+        assert_eq!(ticket.ticket_id, "ST-12345678");
+        assert!(ticket.is_valid);
+    }
+
+    #[test]
+    fn test_cas_proxy_ticket_creation() {
+        let ticket = CasProxyTicket {
+            id: 1,
+            proxy_ticket_id: "PT-12345678".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            service_url: "https://backend.example.com".to_string(),
+            pgt_url: Some("https://proxy.example.com".to_string()),
+            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
+            expires_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            consumed_at: None,
+            is_valid: true,
+        };
+        assert_eq!(ticket.proxy_ticket_id, "PT-12345678");
+        assert!(ticket.is_valid);
+    }
+
+    #[test]
+    fn test_cas_proxy_granting_ticket_creation() {
+        let ticket = CasProxyGrantingTicket {
+            id: 1,
+            pgt_id: "PGT-12345678".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            service_url: "https://proxy.example.com".to_string(),
+            iou: Some("iou123".to_string()),
+            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
+            expires_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            is_valid: true,
+        };
+        assert_eq!(ticket.pgt_id, "PGT-12345678");
+    }
+
+    #[test]
+    fn test_cas_service_creation() {
+        let service = CasService {
+            id: 1,
+            service_id: "app1".to_string(),
+            name: "Example App".to_string(),
+            description: Some("Test app".to_string()),
+            service_url_pattern: "https://app.example.com/*".to_string(),
+            allowed_attributes: serde_json::json!(["email"]),
+            allowed_proxy_callbacks: serde_json::json!([]),
+            is_enabled: true,
+            require_secure: true,
+            single_logout: false,
+            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
+            updated_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+        };
+        assert!(service.is_enabled);
+    }
+
+    #[test]
+    fn test_cas_user_attribute_creation() {
+        let attr = CasUserAttribute {
+            id: 1,
+            user_id: "@alice:example.com".to_string(),
+            attribute_name: "email".to_string(),
+            attribute_value: "alice@example.com".to_string(),
+            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
+            updated_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+        };
+        assert_eq!(attr.attribute_name, "email");
+    }
+
+    #[test]
+    fn test_create_ticket_request() {
+        let request = CreateTicketRequest {
+            ticket_id: "ST-12345678".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            service_url: "https://app.example.com".to_string(),
+            expires_in_seconds: 300,
+        };
+        assert_eq!(request.user_id, "@alice:example.com");
+    }
+
+    #[test]
+    fn test_validate_ticket_request() {
+        let request = ValidateTicketRequest {
+            ticket_id: "ST-12345678".to_string(),
+            service_url: "https://app.example.com".to_string(),
+        };
+        assert_eq!(request.ticket_id, "ST-12345678");
+    }
+
+    #[test]
+    fn test_register_service_request() {
+        let request = RegisterServiceRequest {
+            service_id: "new-app".to_string(),
+            name: "New App".to_string(),
+            description: Some("New App".to_string()),
+            service_url_pattern: "https://new-app.example.com/*".to_string(),
+            allowed_attributes: Some(vec![]),
+            allowed_proxy_callbacks: Some(vec![]),
+            require_secure: Some(true),
+            single_logout: Some(false),
+        };
+        assert_eq!(request.service_id, "new-app");
+    }
+}
+
 impl CasStorage {
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self {

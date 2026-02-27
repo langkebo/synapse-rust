@@ -593,3 +593,200 @@ impl KeyBackupService {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backup_key_upload_params_creation() {
+        let params = BackupKeyUploadParams {
+            user_id: "@alice:example.com".to_string(),
+            version: "1".to_string(),
+            room_id: "!room:example.com".to_string(),
+            session_id: "session_123".to_string(),
+            first_message_index: 0,
+            forwarded_count: 0,
+            is_verified: true,
+            session_data: "encrypted_data_base64".to_string(),
+        };
+
+        assert_eq!(params.user_id, "@alice:example.com");
+        assert_eq!(params.version, "1");
+        assert_eq!(params.first_message_index, 0);
+        assert!(params.is_verified);
+    }
+
+    #[test]
+    fn test_backup_key_upload_params_clone() {
+        let params = BackupKeyUploadParams {
+            user_id: "@bob:example.com".to_string(),
+            version: "2".to_string(),
+            room_id: "!room2:example.com".to_string(),
+            session_id: "session_456".to_string(),
+            first_message_index: 10,
+            forwarded_count: 2,
+            is_verified: false,
+            session_data: "data".to_string(),
+        };
+
+        let cloned = params.clone();
+        assert_eq!(params.user_id, cloned.user_id);
+        assert_eq!(params.version, cloned.version);
+        assert_eq!(params.first_message_index, cloned.first_message_index);
+    }
+
+    #[test]
+    fn test_backup_key_upload_params_debug() {
+        let params = BackupKeyUploadParams {
+            user_id: "@test:example.com".to_string(),
+            version: "1".to_string(),
+            room_id: "!room:example.com".to_string(),
+            session_id: "session".to_string(),
+            first_message_index: 0,
+            forwarded_count: 0,
+            is_verified: true,
+            session_data: "data".to_string(),
+        };
+
+        let debug_str = format!("{:?}", params);
+        assert!(debug_str.contains("BackupKeyUploadParams"));
+        assert!(debug_str.contains("@test:example.com"));
+    }
+
+    #[test]
+    fn test_backup_key_upload_params_boundary_first_message_index() {
+        let params_max = BackupKeyUploadParams {
+            user_id: "@user:example.com".to_string(),
+            version: "1".to_string(),
+            room_id: "!room:example.com".to_string(),
+            session_id: "session".to_string(),
+            first_message_index: i64::MAX,
+            forwarded_count: 0,
+            is_verified: true,
+            session_data: "data".to_string(),
+        };
+
+        let params_min = BackupKeyUploadParams {
+            user_id: "@user:example.com".to_string(),
+            version: "1".to_string(),
+            room_id: "!room:example.com".to_string(),
+            session_id: "session".to_string(),
+            first_message_index: 0,
+            forwarded_count: 0,
+            is_verified: true,
+            session_data: "data".to_string(),
+        };
+
+        assert_eq!(params_max.first_message_index, i64::MAX);
+        assert_eq!(params_min.first_message_index, 0);
+    }
+
+    #[test]
+    fn test_backup_key_upload_params_forwarded_count() {
+        let params = BackupKeyUploadParams {
+            user_id: "@user:example.com".to_string(),
+            version: "1".to_string(),
+            room_id: "!room:example.com".to_string(),
+            session_id: "session".to_string(),
+            first_message_index: 0,
+            forwarded_count: 5,
+            is_verified: false,
+            session_data: "data".to_string(),
+        };
+
+        assert_eq!(params.forwarded_count, 5);
+    }
+
+    #[test]
+    fn test_backup_key_upload_params_verified_flag() {
+        let verified = BackupKeyUploadParams {
+            user_id: "@user:example.com".to_string(),
+            version: "1".to_string(),
+            room_id: "!room:example.com".to_string(),
+            session_id: "session".to_string(),
+            first_message_index: 0,
+            forwarded_count: 0,
+            is_verified: true,
+            session_data: "data".to_string(),
+        };
+
+        let unverified = BackupKeyUploadParams {
+            user_id: "@user:example.com".to_string(),
+            version: "1".to_string(),
+            room_id: "!room:example.com".to_string(),
+            session_id: "session".to_string(),
+            first_message_index: 0,
+            forwarded_count: 0,
+            is_verified: false,
+            session_data: "data".to_string(),
+        };
+
+        assert!(verified.is_verified);
+        assert!(!unverified.is_verified);
+    }
+
+    #[test]
+    fn test_backup_key_upload_params_user_id_format() {
+        let params = BackupKeyUploadParams {
+            user_id: "@alice:matrix.org".to_string(),
+            version: "1".to_string(),
+            room_id: "!room:matrix.org".to_string(),
+            session_id: "session".to_string(),
+            first_message_index: 0,
+            forwarded_count: 0,
+            is_verified: true,
+            session_data: "data".to_string(),
+        };
+
+        assert!(params.user_id.starts_with('@'));
+        assert!(params.user_id.contains(':'));
+        assert!(params.room_id.starts_with('!'));
+    }
+
+    #[test]
+    fn test_backup_key_upload_params_session_data() {
+        let session_data = "eyJhbGciOiJBMjU2R0NNIiwiZW5jIjoiQTI1NkdDTSIsImtpZCI6ImtleV9pZCJ9";
+        let params = BackupKeyUploadParams {
+            user_id: "@user:example.com".to_string(),
+            version: "1".to_string(),
+            room_id: "!room:example.com".to_string(),
+            session_id: "session".to_string(),
+            first_message_index: 0,
+            forwarded_count: 0,
+            is_verified: true,
+            session_data: session_data.to_string(),
+        };
+
+        assert!(!params.session_data.is_empty());
+        assert!(params.session_data.len() > 20);
+    }
+
+    #[test]
+    fn test_backup_key_upload_params_version_format() {
+        let params_numeric = BackupKeyUploadParams {
+            user_id: "@user:example.com".to_string(),
+            version: "1".to_string(),
+            room_id: "!room:example.com".to_string(),
+            session_id: "session".to_string(),
+            first_message_index: 0,
+            forwarded_count: 0,
+            is_verified: true,
+            session_data: "data".to_string(),
+        };
+
+        let params_uuid = BackupKeyUploadParams {
+            user_id: "@user:example.com".to_string(),
+            version: uuid::Uuid::new_v4().to_string(),
+            room_id: "!room:example.com".to_string(),
+            session_id: "session".to_string(),
+            first_message_index: 0,
+            forwarded_count: 0,
+            is_verified: true,
+            session_data: "data".to_string(),
+        };
+
+        assert_eq!(params_numeric.version, "1");
+        assert!(params_uuid.version.contains('-'));
+    }
+}

@@ -441,3 +441,107 @@ impl FederationBlacklistStorage {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_federation_blacklist_creation() {
+        let blacklist = FederationBlacklist {
+            id: 1,
+            server_name: "evil-server.com".to_string(),
+            block_type: "server".to_string(),
+            reason: Some("Malicious activity".to_string()),
+            blocked_by: "@admin:example.com".to_string(),
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+            expires_at: None,
+            is_enabled: true,
+            metadata: serde_json::json!({}),
+        };
+        assert_eq!(blacklist.server_name, "evil-server.com");
+        assert!(blacklist.is_enabled);
+    }
+
+    #[test]
+    fn test_federation_blacklist_expired() {
+        let blacklist = FederationBlacklist {
+            id: 2,
+            server_name: "expired-server.com".to_string(),
+            block_type: "server".to_string(),
+            reason: Some("Temporary block".to_string()),
+            blocked_by: "@admin:example.com".to_string(),
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+            expires_at: Some(1234567990),
+            is_enabled: false,
+            metadata: serde_json::json!({}),
+        };
+        assert!(!blacklist.is_enabled);
+    }
+
+    #[test]
+    fn test_federation_blacklist_log_creation() {
+        let log = FederationBlacklistLog {
+            id: 1,
+            server_name: "evil-server.com".to_string(),
+            action: "add".to_string(),
+            old_status: None,
+            new_status: Some("blocked".to_string()),
+            reason: Some("Spam".to_string()),
+            performed_by: "@admin:example.com".to_string(),
+            performed_ts: 1234567890,
+            ip_address: Some("192.168.1.1".to_string()),
+            user_agent: None,
+            metadata: serde_json::json!({}),
+        };
+        assert_eq!(log.action, "add");
+    }
+
+    #[test]
+    fn test_federation_access_stats_creation() {
+        let stats = FederationAccessStats {
+            id: 1,
+            server_name: "example.com".to_string(),
+            total_requests: 1000,
+            successful_requests: 950,
+            failed_requests: 50,
+            last_request_ts: Some(1234567890),
+            last_success_ts: Some(1234567890),
+            last_failure_ts: None,
+            average_response_time_ms: 50.0,
+            error_rate: 0.05,
+            created_ts: 1234567800,
+            updated_ts: 1234567890,
+        };
+        assert_eq!(stats.total_requests, 1000);
+    }
+
+    #[test]
+    fn test_add_blacklist_request() {
+        let request = AddBlacklistRequest {
+            server_name: "new-evil.com".to_string(),
+            block_type: "server".to_string(),
+            reason: Some("Test block".to_string()),
+            blocked_by: "@admin:example.com".to_string(),
+            expires_at: Some(1234567990),
+            metadata: None,
+        };
+        assert_eq!(request.server_name, "new-evil.com");
+    }
+
+    #[test]
+    fn test_create_rule_request() {
+        let request = CreateRuleRequest {
+            rule_name: "block-malware".to_string(),
+            rule_type: "domain".to_string(),
+            pattern: "*.evil.com".to_string(),
+            action: "block".to_string(),
+            priority: 100,
+            description: Some("Block malware domains".to_string()),
+            created_by: "@admin:example.com".to_string(),
+        };
+        assert_eq!(request.rule_type, "domain");
+    }
+}

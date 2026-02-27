@@ -487,6 +487,9 @@ impl ServiceContainer {
 
     // #[cfg(test)] - Removed to make it available for integration tests
     pub fn new_test() -> Self {
+        let _ = crate::common::argon2_config::Argon2Config::initialize_global_owasp(
+            crate::common::argon2_config::Argon2Config::default()
+        );
         let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
             "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()
         });
@@ -585,8 +588,8 @@ impl ServiceContainer {
                 secret: "test_secret".to_string(),
                 expiry_time: 3600,
                 refresh_token_expiry: 604800,
-                argon2_m_cost: 2048,
-                argon2_t_cost: 1,
+                argon2_m_cost: 65536,
+                argon2_t_cost: 3,
                 argon2_p_cost: 1,
                 allow_legacy_hashes: false,
                 login_failure_lockout_threshold: 5,

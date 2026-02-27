@@ -323,8 +323,87 @@ pub struct SchemaValidationResult {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_schema_validator() {
-        let _ = SchemaConsistencyReport::default();
+    #[test]
+    fn test_column_info_creation() {
+        let column = ColumnInfo {
+            column_name: "id".to_string(),
+            data_type: "bigint".to_string(),
+            is_nullable: "NO".to_string(),
+        };
+        assert_eq!(column.column_name, "id");
+        assert_eq!(column.data_type, "bigint");
+    }
+
+    #[test]
+    fn test_table_schema_creation() {
+        let schema = TableSchema {
+            table_name: "users".to_string(),
+            columns: vec![
+                ColumnInfo {
+                    column_name: "id".to_string(),
+                    data_type: "bigint".to_string(),
+                    is_nullable: "NO".to_string(),
+                },
+                ColumnInfo {
+                    column_name: "name".to_string(),
+                    data_type: "varchar".to_string(),
+                    is_nullable: "YES".to_string(),
+                },
+            ],
+        };
+        assert_eq!(schema.table_name, "users");
+        assert_eq!(schema.columns.len(), 2);
+    }
+
+    #[test]
+    fn test_table_schema_info_creation() {
+        let info = TableSchemaInfo {
+            table_name: "events".to_string(),
+            missing_columns: vec!["email".to_string()],
+        };
+        assert_eq!(info.table_name, "events");
+    }
+
+    #[test]
+    fn test_schema_consistency_report_default() {
+        let report = SchemaConsistencyReport::default();
+        assert!(report.missing_tables.is_empty());
+        assert!(report.missing_columns.is_empty());
+    }
+
+    #[test]
+    fn test_schema_consistency_report_with_issues() {
+        let report = SchemaConsistencyReport {
+            is_valid: false,
+            missing_tables: vec!["missing_table".to_string()],
+            missing_columns: vec!["users:email".to_string()],
+        };
+        assert!(!report.is_valid);
+    }
+
+    #[test]
+    fn test_schema_validation_result_success() {
+        let result = SchemaValidationResult {
+            is_valid: true,
+            is_healthy: true,
+            missing_tables: vec![],
+            missing_columns: vec![],
+            missing_indexes: vec![],
+            schema_info: vec![],
+        };
+        assert!(result.is_valid);
+    }
+
+    #[test]
+    fn test_schema_validation_result_with_errors() {
+        let result = SchemaValidationResult {
+            is_valid: false,
+            is_healthy: false,
+            missing_tables: vec!["missing_table".to_string()],
+            missing_columns: vec!["users:email".to_string()],
+            missing_indexes: vec!["events:event_id".to_string()],
+            schema_info: vec![],
+        };
+        assert!(!result.is_valid);
     }
 }
