@@ -25,3 +25,9 @@ docker/data/media/test/
 docker/data/media/*.jpg
 docker/data/media/*.mp3
 docker/data/media/*.ogg
+docker/data/media/*.bin
+docker/data/media/*.png
+docker/data/media/*.txt
+
+# 日志文件
+docker/logs/

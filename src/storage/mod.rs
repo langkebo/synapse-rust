@@ -254,7 +254,7 @@ mod tests {
             topic: Some("A test room".to_string()),
             canonical_alias: Some("#test:example.com".to_string()),
             join_rule: "invite".to_string(),
-            creator: "@test:example.com".to_string(),
+            creator: Some("@test:example.com".to_string()),
             version: "1".to_string(),
             encryption: None,
             is_public: false,

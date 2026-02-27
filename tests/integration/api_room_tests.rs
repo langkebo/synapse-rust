@@ -405,9 +405,9 @@ async fn test_room_directory_and_public_rooms() {
         .iter()
         .any(|r| r["room_id"] == room_id));
 
-    // 3. Get Room Info (Directory)
+    // 3. Get Room Aliases
     let request = Request::builder()
-        .uri(format!("/_matrix/client/r0/directory/room/{}", room_id))
+        .uri(format!("/_matrix/client/r0/directory/room/{}/alias", room_id))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
@@ -415,7 +415,14 @@ async fn test_room_directory_and_public_rooms() {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let status = response.status();
+    if status != StatusCode::OK {
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        println!("Room aliases failed: {:?}", String::from_utf8_lossy(&body));
+        panic!("Room aliases failed with status {:?}", status);
+    }
 }
 
 #[tokio::test]

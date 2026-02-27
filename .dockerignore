@@ -67,6 +67,9 @@ docker/.dockerignore
 docker/monitoring/
 docker/*.md
 
+# Allow migrations directory
+!migrations/
+
 # SSL certificates (should be mounted, not baked in)
 docker/ssl/
 

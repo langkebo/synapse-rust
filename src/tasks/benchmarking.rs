@@ -1,4 +1,4 @@
-use crate::storage::{DatabaseHealthStatus, PerformanceMetrics};
+use crate::storage::PerformanceMetrics;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -30,10 +30,13 @@ pub enum TrendType {
     Stable,
 }
 
+#[allow(dead_code)]
 pub struct PerformanceAnalyzer {
+    #[allow(dead_code)]
     baselines: Vec<PerformanceBaseline>,
     recent_metrics: VecDeque<PerformanceMetrics>,
     max_samples: usize,
+    #[allow(dead_code)]
     window_size: Duration,
 }
 
@@ -182,7 +185,7 @@ impl PerformanceAnalyzer {
             return 0.0;
         }
 
-        let mut sorted = values.clone();
+        let mut sorted: Vec<f64> = values.iter().copied().collect();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
         let index = (p / 100.0) * (sorted.len() - 1) as f64;
@@ -281,5 +284,125 @@ impl PerformanceReport {
                 "change_percentage": t.change_percentage,
             })).collect::<Vec<_>>(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_performance_baseline_creation() {
+        let baseline = PerformanceBaseline {
+            average_query_time_ms: 10.5,
+            p95_query_time_ms: 25.0,
+            p99_query_time_ms: 50.0,
+            average_tps: 1000.0,
+            average_cache_hit_ratio: 0.95,
+            max_slow_queries: 5,
+            samples_count: 100,
+        };
+
+        assert_eq!(baseline.average_query_time_ms, 10.5);
+        assert_eq!(baseline.p95_query_time_ms, 25.0);
+        assert_eq!(baseline.samples_count, 100);
+    }
+
+    #[test]
+    fn test_performance_trend_creation() {
+        let trend = PerformanceTrend {
+            trend_type: TrendType::Improving,
+            metric_name: "query_time".to_string(),
+            current_value: 10.0,
+            baseline_value: 15.0,
+            change_percentage: -33.33,
+        };
+
+        assert_eq!(trend.metric_name, "query_time");
+        assert!(matches!(trend.trend_type, TrendType::Improving));
+    }
+
+    #[test]
+    fn test_trend_type_variants() {
+        let improving = TrendType::Improving;
+        let degrading = TrendType::Degrading;
+        let stable = TrendType::Stable;
+
+        assert!(matches!(improving, TrendType::Improving));
+        assert!(matches!(degrading, TrendType::Degrading));
+        assert!(matches!(stable, TrendType::Stable));
+    }
+
+    #[test]
+    fn test_performance_analyzer_creation() {
+        let analyzer = PerformanceAnalyzer::new(Duration::from_secs(60), 100);
+        
+        assert_eq!(analyzer.max_samples, 100);
+        assert!(analyzer.baselines.is_empty());
+        assert!(analyzer.recent_metrics.is_empty());
+    }
+
+    #[test]
+    fn test_performance_baseline_serialization() {
+        let baseline = PerformanceBaseline {
+            average_query_time_ms: 10.0,
+            p95_query_time_ms: 20.0,
+            p99_query_time_ms: 30.0,
+            average_tps: 500.0,
+            average_cache_hit_ratio: 0.9,
+            max_slow_queries: 3,
+            samples_count: 50,
+        };
+
+        let json = serde_json::to_string(&baseline).unwrap();
+        assert!(json.contains("average_query_time_ms"));
+        assert!(json.contains("10.0"));
+    }
+
+    #[test]
+    fn test_performance_trend_serialization() {
+        let trend = PerformanceTrend {
+            trend_type: TrendType::Degrading,
+            metric_name: "cache_hit_ratio".to_string(),
+            current_value: 0.8,
+            baseline_value: 0.95,
+            change_percentage: -15.79,
+        };
+
+        let json = serde_json::to_string(&trend).unwrap();
+        assert!(json.contains("Degrading"));
+        assert!(json.contains("cache_hit_ratio"));
+    }
+
+    #[test]
+    fn test_performance_baseline_clone() {
+        let baseline = PerformanceBaseline {
+            average_query_time_ms: 5.0,
+            p95_query_time_ms: 10.0,
+            p99_query_time_ms: 15.0,
+            average_tps: 2000.0,
+            average_cache_hit_ratio: 0.99,
+            max_slow_queries: 1,
+            samples_count: 200,
+        };
+
+        let cloned = baseline.clone();
+        assert_eq!(baseline.average_query_time_ms, cloned.average_query_time_ms);
+        assert_eq!(baseline.samples_count, cloned.samples_count);
+    }
+
+    #[test]
+    fn test_performance_trend_clone() {
+        let trend = PerformanceTrend {
+            trend_type: TrendType::Stable,
+            metric_name: "tps".to_string(),
+            current_value: 1000.0,
+            baseline_value: 1000.0,
+            change_percentage: 0.0,
+        };
+
+        let cloned = trend.clone();
+        assert_eq!(trend.metric_name, cloned.metric_name);
+        assert_eq!(trend.change_percentage, cloned.change_percentage);
     }
 }

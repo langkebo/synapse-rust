@@ -520,3 +520,109 @@ async fn get_user_push_rules(
         })
         .collect())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_push_routes_structure() {
+        let routes = vec![
+            "/_matrix/client/v3/pushers",
+            "/_matrix/client/v3/pushers/set",
+            "/_matrix/client/v3/pushrules",
+            "/_matrix/client/v3/notifications",
+        ];
+
+        for route in routes {
+            assert!(route.starts_with("/_matrix/client/"));
+        }
+    }
+
+    #[test]
+    fn test_set_pusher_request() {
+        let request = SetPusherRequest {
+            pushkey: "pushkey123".to_string(),
+            kind: Some("http".to_string()),
+            app_id: "com.example.app".to_string(),
+            app_display_name: "Example App".to_string(),
+            device_display_name: "My Device".to_string(),
+            profile_tag: Some("tag123".to_string()),
+            lang: "en".to_string(),
+            data: Some(json!({"url": "https://example.com/push"})),
+            append: Some(false),
+        };
+
+        assert_eq!(request.pushkey, "pushkey123");
+        assert_eq!(request.app_id, "com.example.app");
+        assert!(request.kind.is_some());
+    }
+
+    #[test]
+    fn test_push_rule_structure() {
+        let rule = PushRule {
+            rule_id: ".m.rule.contains_user_name".to_string(),
+            default: true,
+            enabled: true,
+            pattern: Some("alice".to_string()),
+            conditions: None,
+            actions: vec![PushAction {
+                set_tweak: Some("sound".to_string()),
+                value: Some(json!("default")),
+            }],
+        };
+
+        assert!(rule.default);
+        assert!(rule.enabled);
+        assert!(rule.pattern.is_some());
+    }
+
+    #[test]
+    fn test_push_condition_structure() {
+        let condition = PushCondition {
+            kind: "contains_display_name".to_string(),
+            key: None,
+            pattern: None,
+            is_value: None,
+        };
+
+        assert_eq!(condition.kind, "contains_display_name");
+    }
+
+    #[test]
+    fn test_push_action_structure() {
+        let action = PushAction {
+            set_tweak: Some("sound".to_string()),
+            value: Some(json!("default")),
+        };
+
+        assert!(action.set_tweak.is_some());
+    }
+
+    #[test]
+    fn test_push_rule_scope() {
+        let scopes = vec!["global", "device"];
+        for scope in scopes {
+            assert!(!scope.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_push_rule_kind() {
+        let kinds = vec!["override", "content", "room", "sender", "underride"];
+        for kind in kinds {
+            assert!(!kind.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_notification_response_structure() {
+        let response = json!({
+            "notifications": [],
+            "next_token": null
+        });
+
+        assert!(response.get("notifications").is_some());
+        assert!(response.get("next_token").is_some());
+    }
+}

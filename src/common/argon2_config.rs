@@ -65,6 +65,12 @@ impl Argon2Config {
         Self::new_with_output_len(m_cost, t_cost, p_cost, Some(32))
     }
 
+    pub fn new_owasp_compliant(m_cost: u32, t_cost: u32, p_cost: u32) -> Result<Self, Argon2ConfigError> {
+        let config = Self::new(m_cost, t_cost, p_cost)?;
+        config.validate_owasp()?;
+        Ok(config)
+    }
+
     pub fn new_with_output_len(
         m_cost: u32,
         t_cost: u32,
@@ -78,6 +84,16 @@ impl Argon2Config {
             output_len,
         };
         config.validate()?;
+        Ok(config)
+    }
+
+    pub fn new_with_output_len_owasp(
+        m_cost: u32,
+        t_cost: u32,
+        p_cost: u32,
+        output_len: Option<usize>,
+    ) -> Result<Self, Argon2ConfigError> {
+        let config = Self::new_with_output_len(m_cost, t_cost, p_cost, output_len)?;
         config.validate_owasp()?;
         Ok(config)
     }
@@ -158,6 +174,13 @@ impl Argon2Config {
     }
 
     pub fn initialize_global(config: Argon2Config) -> Result<(), Argon2ConfigError> {
+        config.validate()?;
+
+        let _ = GLOBAL_ARGON2_CONFIG.set(config);
+        Ok(())
+    }
+
+    pub fn initialize_global_owasp(config: Argon2Config) -> Result<(), Argon2ConfigError> {
         config.validate()?;
         config.validate_owasp()?;
 
@@ -341,7 +364,7 @@ mod tests {
         assert!(!Argon2Config::is_global_initialized());
 
         let config = Argon2Config::new(65536, 3, 1).unwrap();
-        Argon2Config::initialize_global(config).unwrap();
+        Argon2Config::initialize_global_owasp(config).unwrap();
 
         assert!(Argon2Config::is_global_initialized());
 

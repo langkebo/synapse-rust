@@ -344,4 +344,99 @@ mod tests {
         let key = device.device_key.unwrap();
         assert!(key.get("algorithms").is_some());
     }
+
+    #[test]
+    fn test_device_with_display_name() {
+        let device = Device {
+            device_id: "TESTDEVICE".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            display_name: Some("My Phone".to_string()),
+            device_key: None,
+            last_seen_ts: Some(1234567890),
+            last_seen_ip: Some("192.168.1.1".to_string()),
+            created_ts: 1234567800,
+            first_seen_ts: 1234567800,
+            appservice_id: None,
+            ignored_user_list: None,
+        };
+
+        assert!(device.display_name.is_some());
+        assert_eq!(device.display_name.unwrap(), "My Phone");
+        assert!(device.last_seen_ts.is_some());
+    }
+
+    #[test]
+    fn test_device_without_keys() {
+        let device = Device {
+            device_id: "NOKEYS".to_string(),
+            user_id: "@bob:example.com".to_string(),
+            display_name: None,
+            device_key: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
+            created_ts: 0,
+            first_seen_ts: 0,
+            appservice_id: None,
+            ignored_user_list: None,
+        };
+
+        assert!(device.device_key.is_none());
+        assert!(device.last_seen_ts.is_none());
+    }
+
+    #[test]
+    fn test_device_appservice_id() {
+        let device = Device {
+            device_id: "BRIDGE_DEVICE".to_string(),
+            user_id: "@_irc_alice:example.com".to_string(),
+            display_name: Some("IRC Bridge".to_string()),
+            device_key: None,
+            last_seen_ts: Some(1234567890),
+            last_seen_ip: Some("10.0.0.1".to_string()),
+            created_ts: 1234567800,
+            first_seen_ts: 1234567800,
+            appservice_id: Some("irc-bridge".to_string()),
+            ignored_user_list: None,
+        };
+
+        assert!(device.appservice_id.is_some());
+        assert_eq!(device.appservice_id.unwrap(), "irc-bridge");
+    }
+
+    #[test]
+    fn test_device_ignored_user_list() {
+        let device = Device {
+            device_id: "IGNORED".to_string(),
+            user_id: "@user:example.com".to_string(),
+            display_name: None,
+            device_key: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
+            created_ts: 0,
+            first_seen_ts: 0,
+            appservice_id: None,
+            ignored_user_list: Some("[\"@baduser:example.com\"]".to_string()),
+        };
+
+        assert!(device.ignored_user_list.is_some());
+    }
+
+    #[test]
+    fn test_device_ip_tracking() {
+        let device = Device {
+            device_id: "IPTRACK".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            display_name: None,
+            device_key: None,
+            last_seen_ts: Some(1234567890),
+            last_seen_ip: Some("203.0.113.1".to_string()),
+            created_ts: 1234567800,
+            first_seen_ts: 1234567800,
+            appservice_id: None,
+            ignored_user_list: None,
+        };
+
+        assert!(device.last_seen_ip.is_some());
+        assert!(device.last_seen_ts.is_some());
+    }
 }

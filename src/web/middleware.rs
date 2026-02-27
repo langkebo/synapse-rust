@@ -1656,20 +1656,21 @@ mod tests {
 
     #[test]
     fn test_cors_security_report_production_with_wildcard() {
-        std::env::set_var("RUST_ENV", "production");
-        std::env::set_var("ALLOWED_ORIGINS", "*");
+        let _result = std::thread::spawn(|| {
+            std::env::set_var("RUST_ENV", "production");
+            std::env::set_var("ALLOWED_ORIGINS", "*");
 
-        let report = check_cors_security();
+            let report = check_cors_security();
 
-        assert!(!report.is_development_mode);
-        assert!(report.allows_any_origin);
-        assert!(!report.errors.is_empty());
+            assert!(!report.is_development_mode);
+            assert!(report.allows_any_origin);
+            assert!(!report.errors.is_empty());
 
-        let validation = validate_cors_config_for_production();
-        assert!(validation.is_err());
-
-        std::env::remove_var("RUST_ENV");
-        std::env::remove_var("ALLOWED_ORIGINS");
+            let validation = validate_cors_config_for_production();
+            assert!(validation.is_err());
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]

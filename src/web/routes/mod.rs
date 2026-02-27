@@ -3043,7 +3043,7 @@ async fn kick_user(
         .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?;
 
     if let Some(room) = room {
-        if room.creator == target && !auth_user.is_admin {
+        if room.creator.as_deref() == Some(target) && !auth_user.is_admin {
             return Err(ApiError::forbidden(
                 "Cannot kick the room creator".to_string(),
             ));

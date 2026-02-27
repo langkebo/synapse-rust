@@ -170,4 +170,50 @@ mod tests {
         assert_eq!(token.email, "test@example.com");
         assert!(!token.used);
     }
+
+    #[test]
+    fn test_email_verification_token_with_session_data() {
+        let token = EmailVerificationToken {
+            id: 2,
+            user_id: Some("@user:example.com".to_string()),
+            email: "user@example.com".to_string(),
+            token: "token456".to_string(),
+            expires_ts: 1234567890,
+            created_ts: 1234560000,
+            used: false,
+            session_data: Some(serde_json::json!({"key": "value"})),
+        };
+        assert!(token.session_data.is_some());
+    }
+
+    #[test]
+    fn test_email_verification_token_expired() {
+        let current_ts = chrono::Utc::now().timestamp();
+        let token = EmailVerificationToken {
+            id: 3,
+            user_id: Some("@expired:example.com".to_string()),
+            email: "expired@example.com".to_string(),
+            token: "expired_token".to_string(),
+            expires_ts: current_ts - 3600,
+            created_ts: current_ts - 7200,
+            used: false,
+            session_data: None,
+        };
+        assert!(token.expires_ts < current_ts);
+    }
+
+    #[test]
+    fn test_email_verification_token_already_used() {
+        let token = EmailVerificationToken {
+            id: 4,
+            user_id: Some("@used:example.com".to_string()),
+            email: "used@example.com".to_string(),
+            token: "used_token".to_string(),
+            expires_ts: 1234567890,
+            created_ts: 1234560000,
+            used: true,
+            session_data: None,
+        };
+        assert!(token.used);
+    }
 }

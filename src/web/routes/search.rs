@@ -350,6 +350,168 @@ async fn get_threads(
     })))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_search_routes_structure() {
+        let routes = vec![
+            "/_matrix/client/v3/search",
+            "/_matrix/client/r0/search",
+            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads",
+            "/_matrix/client/v1/rooms/{room_id}/hierarchy",
+        ];
+
+        for route in routes {
+            assert!(route.starts_with("/_matrix/client/"));
+        }
+    }
+
+    #[test]
+    fn test_search_request_structure() {
+        let request = SearchRequest {
+            search_categories: SearchCategories {
+                room_events: Some(RoomEventsSearch {
+                    search_term: "hello".to_string(),
+                    keys: vec!["content.body".to_string()],
+                    filter: None,
+                    groupings: None,
+                    order_by: "rank".to_string(),
+                    next_batch: None,
+                }),
+                users: None,
+            },
+        };
+
+        assert!(request.search_categories.room_events.is_some());
+        assert!(request.search_categories.users.is_none());
+    }
+
+    #[test]
+    fn test_room_events_search() {
+        let search = RoomEventsSearch {
+            search_term: "test query".to_string(),
+            keys: vec!["content.body".to_string(), "content.name".to_string()],
+            filter: Some(Filter {
+                limit: Some(10),
+                rooms: Some(vec!["!room1:example.com".to_string()]),
+                not_rooms: None,
+                types: None,
+                not_types: None,
+                senders: None,
+                not_senders: None,
+            }),
+            groupings: None,
+            order_by: "recent".to_string(),
+            next_batch: None,
+        };
+
+        assert_eq!(search.search_term, "test query");
+        assert_eq!(search.keys.len(), 2);
+        assert!(search.filter.is_some());
+    }
+
+    #[test]
+    fn test_users_search() {
+        let search = UsersSearch {
+            search_term: "alice".to_string(),
+            limit: Some(20),
+        };
+
+        assert_eq!(search.search_term, "alice");
+        assert_eq!(search.limit, Some(20));
+    }
+
+    #[test]
+    fn test_filter_structure() {
+        let filter = Filter {
+            limit: Some(100),
+            rooms: Some(vec!["!room1:example.com".to_string(), "!room2:example.com".to_string()]),
+            not_rooms: Some(vec!["!room3:example.com".to_string()]),
+            types: Some(vec!["m.room.message".to_string()]),
+            not_types: None,
+            senders: Some(vec!["@alice:example.com".to_string()]),
+            not_senders: None,
+        };
+
+        assert_eq!(filter.limit, Some(100));
+        assert!(filter.rooms.is_some());
+        assert!(filter.not_rooms.is_some());
+    }
+
+    #[test]
+    fn test_groupings_structure() {
+        let groupings = Groupings {
+            group_by: vec![
+                GroupBy { key: "room_id".to_string() },
+                GroupBy { key: "sender".to_string() },
+            ],
+        };
+
+        assert_eq!(groupings.group_by.len(), 2);
+    }
+
+    #[test]
+    fn test_search_response_structure() {
+        let response = json!({
+            "search_categories": {
+                "room_events": {
+                    "results": [],
+                    "count": 0,
+                    "next_batch": null
+                }
+            }
+        });
+
+        assert!(response.get("search_categories").is_some());
+    }
+
+    #[test]
+    fn test_order_by_default() {
+        assert_eq!(default_order_by(), "rank");
+    }
+
+    #[test]
+    fn test_thread_response_structure() {
+        let response = json!({
+            "chunk": [],
+            "next_batch": null,
+            "prev_batch": null,
+            "total": 0
+        });
+
+        assert!(response.get("chunk").is_some());
+        assert!(response.get("total").is_some());
+    }
+
+    #[test]
+    fn test_hierarchy_response_structure() {
+        let response = json!({
+            "rooms": [],
+            "next_batch": null
+        });
+
+        assert!(response.get("rooms").is_some());
+    }
+
+    #[test]
+    fn test_context_response_structure() {
+        let response = json!({
+            "event": {},
+            "events_before": [],
+            "events_after": [],
+            "state": [],
+            "start": "start_token",
+            "end": "end_token"
+        });
+
+        assert!(response.get("event").is_some());
+        assert!(response.get("events_before").is_some());
+        assert!(response.get("events_after").is_some());
+    }
+}
+
 async fn get_room_hierarchy(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,

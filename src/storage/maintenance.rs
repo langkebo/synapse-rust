@@ -205,3 +205,60 @@ pub struct TableStats {
     pub dead_tuples: i64,
     pub modifications: i64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_maintenance_report_creation() {
+        let vacuum_result = VacuumResult {
+            tables_processed: vec!["events".to_string(), "users".to_string()],
+            execution_time_ms: 5000,
+        };
+        
+        let report = MaintenanceReport {
+            started_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
+            completed_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            duration_ms: 90000,
+            vacuum_results: vacuum_result,
+            reindexed_tables: vec!["users".to_string()],
+            table_stats: vec![],
+            errors: vec![],
+        };
+        assert_eq!(report.duration_ms, 90000);
+    }
+
+    #[test]
+    fn test_vacuum_result_creation() {
+        let result = VacuumResult {
+            tables_processed: vec!["events".to_string()],
+            execution_time_ms: 5000,
+        };
+        assert_eq!(result.tables_processed.len(), 1);
+        assert_eq!(result.execution_time_ms, 5000);
+    }
+
+    #[test]
+    fn test_table_stats_creation() {
+        let stats = TableStats {
+            table_name: "users".to_string(),
+            live_tuples: 5000,
+            dead_tuples: 100,
+            modifications: 1000,
+        };
+        assert_eq!(stats.table_name, "users");
+        assert_eq!(stats.live_tuples, 5000);
+    }
+
+    #[test]
+    fn test_table_stats_with_high_dead_tuples() {
+        let stats = TableStats {
+            table_name: "events".to_string(),
+            live_tuples: 10000,
+            dead_tuples: 5000,
+            modifications: 10000,
+        };
+        assert!(stats.dead_tuples > 1000);
+    }
+}

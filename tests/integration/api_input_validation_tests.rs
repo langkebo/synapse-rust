@@ -159,7 +159,7 @@ async fn test_client_input_validation() {
         .body(Body::from(
             json!({
                 "username": long_username,
-                "password": "password123",
+                "password": "Password123!",
                 "auth": { "type": "m.login.dummy" }
             })
             .to_string(),

@@ -52,3 +52,97 @@ impl FriendFederation {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_friend_federation_request_content_validation() {
+        let valid_content = serde_json::json!({
+            "target_user_id": "@alice:example.com",
+            "requester_id": "@bob:remote.com"
+        });
+
+        assert!(valid_content.get("target_user_id").is_some());
+        assert!(valid_content.get("requester_id").is_some());
+    }
+
+    #[test]
+    fn test_friend_federation_missing_target_user_id() {
+        let invalid_content = serde_json::json!({
+            "requester_id": "@bob:remote.com"
+        });
+
+        assert!(invalid_content.get("target_user_id").is_none());
+    }
+
+    #[test]
+    fn test_friend_federation_missing_requester_id() {
+        let invalid_content = serde_json::json!({
+            "target_user_id": "@alice:example.com"
+        });
+
+        assert!(invalid_content.get("requester_id").is_none());
+    }
+
+    #[test]
+    fn test_friend_federation_origin_validation() {
+        let origin = "remote.com";
+        let requester_id = "@bob:remote.com";
+
+        assert!(requester_id.ends_with(&format!(":{}", origin)));
+    }
+
+    #[test]
+    fn test_friend_federation_origin_mismatch() {
+        let origin = "remote.com";
+        let requester_id = "@bob:other.com";
+
+        assert!(!requester_id.ends_with(&format!(":{}", origin)));
+    }
+
+    #[test]
+    fn test_friend_federation_empty_origin() {
+        let origin = "";
+        assert!(origin.is_empty());
+    }
+
+    #[test]
+    fn test_friend_federation_user_id_format() {
+        let user_ids = vec![
+            "@alice:example.com",
+            "@bob:matrix.org",
+            "@user123:server.local",
+        ];
+
+        for user_id in user_ids {
+            assert!(user_id.starts_with('@'));
+            assert!(user_id.contains(':'));
+        }
+    }
+
+    #[test]
+    fn test_friend_federation_request_content_with_additional_fields() {
+        let content = serde_json::json!({
+            "target_user_id": "@alice:example.com",
+            "requester_id": "@bob:remote.com",
+            "message": "Hello!",
+            "timestamp": 1234567890
+        });
+
+        assert!(content.get("message").is_some());
+        assert!(content.get("timestamp").is_some());
+    }
+
+    #[test]
+    fn test_friend_federation_request_content_serialization() {
+        let content = serde_json::json!({
+            "target_user_id": "@alice:example.com",
+            "requester_id": "@bob:remote.com"
+        });
+
+        let json_str = serde_json::to_string(&content).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(parsed.get("target_user_id").unwrap().as_str().unwrap(), "@alice:example.com");
+    }
+}

@@ -298,3 +298,158 @@ impl CrossSigningStorage {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn create_test_cross_signing_key() -> CrossSigningKey {
+        CrossSigningKey {
+            id: uuid::Uuid::new_v4(),
+            user_id: "@alice:example.com".to_string(),
+            key_type: "master".to_string(),
+            public_key: "base64_encoded_public_key".to_string(),
+            usage: vec!["master".to_string()],
+            signatures: serde_json::json!({}),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_cross_signing_key_creation() {
+        let key = create_test_cross_signing_key();
+        
+        assert!(!key.user_id.is_empty());
+        assert!(!key.key_type.is_empty());
+        assert!(!key.public_key.is_empty());
+        assert!(!key.usage.is_empty());
+    }
+
+    #[test]
+    fn test_cross_signing_key_user_id_format() {
+        let key = create_test_cross_signing_key();
+        
+        assert!(key.user_id.starts_with('@'));
+        assert!(key.user_id.contains(':'));
+    }
+
+    #[test]
+    fn test_cross_signing_key_types() {
+        let key_types = vec!["master", "self_signing", "user_signing"];
+        
+        for key_type in key_types {
+            let key = CrossSigningKey {
+                id: uuid::Uuid::new_v4(),
+                user_id: "@user:example.com".to_string(),
+                key_type: key_type.to_string(),
+                public_key: "key_data".to_string(),
+                usage: vec![key_type.to_string()],
+                signatures: serde_json::json!({}),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            };
+            
+            assert_eq!(key.key_type, key_type);
+        }
+    }
+
+    #[test]
+    fn test_cross_signing_key_timestamps() {
+        let key = create_test_cross_signing_key();
+        
+        assert!(key.created_at <= key.updated_at);
+    }
+
+    #[test]
+    fn test_cross_signing_key_signatures_empty() {
+        let key = create_test_cross_signing_key();
+        
+        assert!(key.signatures.is_object());
+    }
+
+    #[test]
+    fn test_cross_signing_key_signatures_with_data() {
+        let signatures = serde_json::json!({
+            "@alice:example.com": {
+                "ed25519:device_id": "signature_base64"
+            }
+        });
+        
+        let key = CrossSigningKey {
+            id: uuid::Uuid::new_v4(),
+            user_id: "@alice:example.com".to_string(),
+            key_type: "master".to_string(),
+            public_key: "key_data".to_string(),
+            usage: vec!["master".to_string()],
+            signatures,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        
+        assert!(key.signatures.get("@alice:example.com").is_some());
+    }
+
+    #[test]
+    fn test_cross_signing_key_clone() {
+        let key = create_test_cross_signing_key();
+        let cloned = key.clone();
+        
+        assert_eq!(key.id, cloned.id);
+        assert_eq!(key.user_id, cloned.user_id);
+        assert_eq!(key.key_type, cloned.key_type);
+    }
+
+    #[test]
+    fn test_cross_signing_key_serialization() {
+        let key = create_test_cross_signing_key();
+        let json = serde_json::to_string(&key).unwrap();
+        
+        assert!(json.contains("@alice:example.com"));
+        assert!(json.contains("master"));
+    }
+
+    #[test]
+    fn test_cross_signing_key_deserialization() {
+        let json = r#"{
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "user_id": "@test:example.com",
+            "key_type": "self_signing",
+            "public_key": "test_key",
+            "usage": ["self_signing"],
+            "signatures": {},
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z"
+        }"#;
+        
+        let key: CrossSigningKey = serde_json::from_str(json).unwrap();
+        assert_eq!(key.user_id, "@test:example.com");
+        assert_eq!(key.key_type, "self_signing");
+    }
+
+    #[test]
+    fn test_cross_signing_key_usage_values() {
+        let usages = vec![
+            vec!["master"],
+            vec!["self_signing"],
+            vec!["user_signing"],
+            vec!["master", "self_signing"],
+        ];
+        
+        for usage in usages {
+            let key = CrossSigningKey {
+                id: uuid::Uuid::new_v4(),
+                user_id: "@user:example.com".to_string(),
+                key_type: usage[0].to_string(),
+                public_key: "key".to_string(),
+                usage: usage.iter().map(|s| s.to_string()).collect(),
+                signatures: serde_json::json!({}),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            };
+            
+            assert_eq!(key.usage.len(), usage.len());
+        }
+    }
+}

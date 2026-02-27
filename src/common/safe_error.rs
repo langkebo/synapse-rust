@@ -303,4 +303,197 @@ mod tests {
         let result = safe_lock(&lock, "test", |v| *v * 2);
         assert_eq!(result.ok(), Some(84));
     }
+
+    #[test]
+    fn test_safe_error_display() {
+        let err = SafeError::PoisonedLock("test_location".to_string());
+        assert_eq!(err.to_string(), "Poisoned lock at test_location");
+
+        let err = SafeError::ParseError("invalid input".to_string());
+        assert_eq!(err.to_string(), "Parse error: invalid input");
+
+        let err = SafeError::ValidationError("field required".to_string());
+        assert_eq!(err.to_string(), "Validation error: field required");
+
+        let err = SafeError::ConversionError("type mismatch".to_string());
+        assert_eq!(err.to_string(), "Conversion error: type mismatch");
+
+        let err = SafeError::OperationFailed("network error".to_string());
+        assert_eq!(err.to_string(), "Operation failed: network error");
+    }
+
+    #[test]
+    fn test_safe_result_map_err() {
+        let result = SafeResult::new(Err::<i32, _>(SafeError::ParseError("original".to_string())));
+        let mapped = result.map_err(|e| SafeError::ValidationError(format!("validated: {}", e)));
+        assert!(mapped.is_err());
+        let err = mapped.err().unwrap();
+        match err {
+            SafeError::ValidationError(msg) => assert!(msg.contains("validated:")),
+            _ => panic!("Expected ValidationError"),
+        }
+    }
+
+    #[test]
+    fn test_safe_result_or_else() {
+        let result: SafeResult<i32> = SafeResult::new(Ok(42));
+        let handled = result.or_else(|_| SafeResult::new(Ok(0)));
+        assert_eq!(handled.ok(), Some(42));
+
+        let result: SafeResult<i32> = SafeResult::new(Err(SafeError::ParseError("error".to_string())));
+        let handled = result.or_else(|_| SafeResult::new(Ok(100)));
+        assert_eq!(handled.ok(), Some(100));
+    }
+
+    #[test]
+    fn test_safe_result_unwrap_or_else() {
+        let result: SafeResult<i32> = SafeResult::new(Ok(42));
+        let value = result.unwrap_or_else(|e| panic!("Should not be called: {}", e));
+        assert_eq!(value, 42);
+
+        let result: SafeResult<i32> = SafeResult::new(Err(SafeError::ParseError("error".to_string())));
+        let value = result.unwrap_or_else(|e| e.to_string().len() as i32);
+        assert_eq!(value, 18); // "Parse error: error".len() = 18
+    }
+
+    #[test]
+    fn test_safe_result_as_ref() {
+        let result: SafeResult<i32> = SafeResult::new(Ok(42));
+        let ref_result = result.as_ref();
+        assert_eq!(ref_result.ok(), Some(&42));
+
+        let result: SafeResult<i32> = SafeResult::new(Err(SafeError::ParseError("error".to_string())));
+        let ref_result = result.as_ref();
+        assert!(ref_result.is_err());
+    }
+
+    #[test]
+    fn test_safe_result_as_mut() {
+        let mut result: SafeResult<i32> = SafeResult::new(Ok(42));
+        let mut_ref = result.as_mut();
+        assert_eq!(mut_ref.ok(), Some(&mut 42));
+        *mut_ref.as_mut().ok().unwrap() *= 2;
+        let result2: SafeResult<i32> = result;
+        assert_eq!(result2.ok(), Some(84));
+    }
+
+    #[test]
+    fn test_safe_result_err() {
+        let result: SafeResult<i32> = SafeResult::new(Ok(42));
+        assert!(result.err().is_none());
+
+        let result: SafeResult<i32> = SafeResult::new(Err(SafeError::ParseError("error".to_string())));
+        assert!(result.err().is_some());
+    }
+
+    #[test]
+    fn test_safe_result_from_result() {
+        let r: Result<i32, SafeError> = Ok(42);
+        let safe: SafeResult<i32> = r.into();
+        assert!(safe.is_ok());
+
+        let r: Result<i32, SafeError> = Err(SafeError::OperationFailed("failed".to_string()));
+        let safe: SafeResult<i32> = r.into();
+        assert!(safe.is_err());
+    }
+
+    #[test]
+    fn test_safe_result_into_result() {
+        let safe = SafeResult::new(Ok(42));
+        let r: Result<i32, SafeError> = safe.into();
+        assert_eq!(r.unwrap(), 42);
+
+        let safe = SafeResult::new(Err(SafeError::ParseError("error".to_string())));
+        let r: Result<i32, SafeError> = safe.into();
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_safe_write_lock() {
+        use parking_lot::RwLock;
+        let lock = RwLock::new(42);
+
+        let result = safe_write_lock(&lock, "test", |v| {
+            *v *= 2;
+            *v
+        });
+        assert_eq!(result.ok(), Some(84));
+    }
+
+    #[test]
+    fn test_safe_mutex_lock() {
+        use std::sync::Mutex;
+        let lock = Mutex::new(42);
+
+        let result = safe_mutex_lock(&lock, "test", |v| *v * 2);
+        assert_eq!(result.ok(), Some(84));
+    }
+
+    #[test]
+    fn test_safe_poison_guard() {
+        use std::sync::PoisonError;
+        let lock = std::sync::Mutex::new(42);
+        let poison = lock.lock().unwrap_err();
+        let err = safe_poison_guard(poison, "mutex_test");
+        match err {
+            SafeError::PoisonedLock(msg) => assert!(msg.contains("mutex_test")),
+            _ => panic!("Expected PoisonedLock"),
+        }
+    }
+
+    #[test]
+    fn test_safe_unwrap_option() {
+        let opt: Option<i32> = Some(42);
+        assert_eq!(opt.safe_unwrap("test"), 42);
+
+        let opt: Option<i32> = None;
+        let result = std::panic::catch_unwind(|| {
+            opt.safe_unwrap("test");
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_safe_expect_option() {
+        let opt: Option<i32> = Some(42);
+        assert_eq!(opt.safe_expect("test"), 42);
+    }
+
+    #[test]
+    fn test_safe_unwrap_result() {
+        let res: Result<i32, &str> = Ok(42);
+        assert_eq!(res.safe_unwrap("test"), 42);
+
+        let res: Result<i32, &str> = Err("error");
+        let result = std::panic::catch_unwind(|| {
+            res.safe_unwrap("test");
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_safe_macro() {
+        let result = safe!(Ok(42));
+        assert!(result.is_ok());
+
+        let result = safe!(Err::<i32, _>("error"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_try_safe_macro() {
+        fn divide(a: i32, b: i32) -> Result<i32, &'static str> {
+            if b == 0 {
+                Err("division by zero")
+            } else {
+                Ok(a / b)
+            }
+        }
+
+        let result = try_safe!(divide(10, 2));
+        assert_eq!(result, 5);
+
+        let result = try_safe!(divide(10, 0));
+        assert!(result.is_err());
+    }
 }

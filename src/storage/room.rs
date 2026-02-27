@@ -14,7 +14,7 @@ pub struct Room {
     pub avatar_url: Option<String>,
     pub canonical_alias: Option<String>,
     pub join_rule: String,
-    pub creator: String,
+    pub creator: Option<String>,
     pub version: String,
     pub encryption: Option<String>,
     pub is_public: bool,
@@ -31,8 +31,8 @@ struct RoomRecord {
     avatar_url: Option<String>,
     canonical_alias: Option<String>,
     join_rules: Option<String>,
-    creator: String,
-    version: Option<String>,
+    creator: Option<String>,
+    room_version: Option<String>,
     encryption: Option<String>,
     is_public: Option<bool>,
     member_count: Option<i64>,
@@ -48,8 +48,8 @@ struct RoomWithMembersRecord {
     avatar_url: Option<String>,
     canonical_alias: Option<String>,
     join_rules: Option<String>,
-    creator: String,
-    version: Option<String>,
+    creator: Option<String>,
+    room_version: Option<String>,
     encryption: Option<String>,
     is_public: Option<bool>,
     member_count: Option<i64>,
@@ -120,7 +120,7 @@ impl RoomStorage {
             avatar_url: None,
             canonical_alias: None,
             join_rule: join_rule.to_string(),
-            creator: creator.to_string(),
+            creator: Some(creator.to_string()),
             version: version.to_string(),
             encryption: None,
             is_public,
@@ -152,7 +152,7 @@ impl RoomStorage {
                     .join_rules
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator: row.creator,
-                version: row.version.unwrap_or_else(|| "1".to_string()),
+                version: row.room_version.unwrap_or_else(|| "1".to_string()),
                 encryption: row.encryption,
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
@@ -196,7 +196,7 @@ impl RoomStorage {
                     .clone()
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator: row.creator.clone(),
-                version: row.version.clone().unwrap_or_else(|| "1".to_string()),
+                version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
                 encryption: row.encryption.clone(),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
@@ -247,7 +247,7 @@ impl RoomStorage {
                     .clone()
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator: row.creator.clone(),
-                version: row.version.clone().unwrap_or_else(|| "1".to_string()),
+                version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
                 encryption: row.encryption.clone(),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
@@ -296,7 +296,7 @@ impl RoomStorage {
                             .clone()
                             .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                         creator: row.creator.clone(),
-                        version: row.version.clone().unwrap_or_else(|| "1".to_string()),
+                        version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
                         encryption: row.encryption.clone(),
                         is_public: row.is_public.unwrap_or(false),
                         member_count: row.member_count.unwrap_or(0),
@@ -445,24 +445,22 @@ impl RoomStorage {
         &self,
         room_id: &str,
         alias: &str,
-        created_by: &str,
+        _created_by: &str,
     ) -> Result<(), sqlx::Error> {
         let creation_ts = chrono::Utc::now().timestamp_millis();
+        let server_name = "localhost";
         sqlx::query(
             r#"
-            INSERT INTO room_aliases (room_alias, alias, room_id, created_by, creation_ts)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO room_aliases (room_alias, room_id, server_name, created_ts)
+            VALUES ($1, $2, $3, $4)
             ON CONFLICT (room_alias) DO UPDATE SET
-                alias = EXCLUDED.alias,
                 room_id = EXCLUDED.room_id,
-                created_by = EXCLUDED.created_by,
-                creation_ts = EXCLUDED.creation_ts
+                created_ts = EXCLUDED.created_ts
             "#,
         )
         .bind(alias)
-        .bind(alias)
         .bind(room_id)
-        .bind(created_by)
+        .bind(server_name)
         .bind(creation_ts)
         .execute(&*self.pool)
         .await?;
@@ -484,7 +482,7 @@ impl RoomStorage {
     pub async fn remove_room_alias_by_name(&self, alias: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            DELETE FROM room_aliases WHERE alias = $1
+            DELETE FROM room_aliases WHERE room_alias = $1
             "#,
         )
         .bind(alias)
@@ -518,7 +516,7 @@ impl RoomStorage {
     }
 
     pub async fn set_room_version(&self, room_id: &str, version: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE rooms SET version = $1 WHERE room_id = $2")
+        sqlx::query("UPDATE rooms SET room_version = $1 WHERE room_id = $2")
             .bind(version)
             .bind(room_id)
             .execute(&*self.pool)
@@ -550,7 +548,7 @@ impl RoomStorage {
     pub async fn get_room_alias(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
         let result: Option<(String,)> = sqlx::query_as(
             r#"
-            SELECT alias FROM room_aliases WHERE room_id = $1
+            SELECT room_alias FROM room_aliases WHERE room_id = $1 LIMIT 1
             "#,
         )
         .bind(room_id)
@@ -562,7 +560,7 @@ impl RoomStorage {
     pub async fn get_room_aliases(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let results: Vec<(String,)> = sqlx::query_as(
             r#"
-            SELECT alias FROM room_aliases WHERE room_id = $1
+            SELECT room_alias FROM room_aliases WHERE room_id = $1
             "#,
         )
         .bind(room_id)
@@ -574,7 +572,7 @@ impl RoomStorage {
     pub async fn get_room_by_alias(&self, alias: &str) -> Result<Option<String>, sqlx::Error> {
         let result: Option<(String,)> = sqlx::query_as(
             r#"
-            SELECT room_id FROM room_aliases WHERE alias = $1
+            SELECT room_id FROM room_aliases WHERE room_alias = $1
             "#,
         )
         .bind(alias)
@@ -654,12 +652,12 @@ impl RoomStorage {
         user_id: &str,
         event_id: &str,
     ) -> Result<(), sqlx::Error> {
-        let now: i64 = chrono::Utc::now().timestamp();
+        let now: i64 = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            INSERT INTO read_markers (room_id, user_id, event_id, created_ts)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (room_id, user_id) DO UPDATE SET event_id = EXCLUDED.event_id, created_ts = EXCLUDED.created_ts
+            INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts)
+            VALUES ($1, $2, $3, 'm.fully_read', $4, $4)
+            ON CONFLICT (room_id, user_id, marker_type) DO UPDATE SET event_id = EXCLUDED.event_id, updated_ts = EXCLUDED.updated_ts
             "#,
         )
         .bind(room_id)
@@ -683,18 +681,18 @@ impl RoomStorage {
         let receipt_data = json!({});
         sqlx::query(
             r#"
-            INSERT INTO event_receipts (room_id, receipt_type, event_id, user_id, receipt_data, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (room_id, receipt_type, event_id, user_id) DO UPDATE
-            SET receipt_data = EXCLUDED.receipt_data, created_at = EXCLUDED.created_at
+            INSERT INTO event_receipts (event_id, room_id, user_id, receipt_type, ts, data, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $5, $5)
+            ON CONFLICT (event_id, room_id, user_id, receipt_type) DO UPDATE
+            SET ts = EXCLUDED.ts, data = EXCLUDED.data, updated_ts = EXCLUDED.updated_ts
             "#,
         )
-        .bind(room_id)
-        .bind(receipt_type)
         .bind(event_id)
+        .bind(room_id)
         .bind(sent_to)
-        .bind(receipt_data)
+        .bind(receipt_type)
         .bind(now)
+        .bind(receipt_data)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -750,7 +748,7 @@ impl RoomStorage {
                         .clone()
                         .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                     creator: row.creator.clone(),
-                    version: row.version.clone().unwrap_or_else(|| "1".to_string()),
+                    version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
                     encryption: row.encryption.clone(),
                     is_public: row.is_public.unwrap_or(false),
                     member_count: row.member_count.unwrap_or(0),
@@ -821,7 +819,7 @@ impl RoomStorage {
                         .clone()
                         .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                     creator: row.creator.clone(),
-                    version: row.version.clone().unwrap_or_else(|| "1".to_string()),
+                    version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
                     encryption: row.encryption.clone(),
                     is_public: row.is_public.unwrap_or(false),
                     member_count: row.member_count.unwrap_or(0),
@@ -847,7 +845,7 @@ impl RoomStorage {
 
         let rows: Vec<(String, String)> = sqlx::query_as(
             r#"
-            SELECT room_id, alias FROM room_aliases WHERE room_id = ANY($1)
+            SELECT room_id, room_alias FROM room_aliases WHERE room_id = ANY($1)
             "#,
         )
         .bind(room_ids)
@@ -857,9 +855,9 @@ impl RoomStorage {
         let mut result: std::collections::HashMap<String, Vec<String>> =
             room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
 
-        for (room_id, alias) in rows {
+        for (room_id, room_alias) in rows {
             if let Some(aliases) = result.get_mut(&room_id) {
-                aliases.push(alias);
+                aliases.push(room_alias);
             }
         }
 
@@ -876,7 +874,7 @@ impl RoomStorage {
 
         let rows: Vec<(String, String)> = sqlx::query_as(
             r#"
-            SELECT alias, room_id FROM room_aliases WHERE alias = ANY($1)
+            SELECT room_alias, room_id FROM room_aliases WHERE room_alias = ANY($1)
             "#,
         )
         .bind(aliases)
@@ -940,7 +938,7 @@ mod tests {
             avatar_url: Some("mxc://example.com/avatar".to_string()),
             canonical_alias: Some("#test:example.com".to_string()),
             join_rule: "invite".to_string(),
-            creator: "@alice:example.com".to_string(),
+            creator: Some("@alice:example.com".to_string()),
             version: "6".to_string(),
             encryption: Some("m.megolm.v1.aes-sha2".to_string()),
             is_public: false,
@@ -963,7 +961,7 @@ mod tests {
             avatar_url: None,
             canonical_alias: None,
             join_rule: DEFAULT_JOIN_RULE.to_string(),
-            creator: "@bob:example.com".to_string(),
+            creator: Some("@bob:example.com".to_string()),
             version: "1".to_string(),
             encryption: None,
             is_public: true,
@@ -986,7 +984,7 @@ mod tests {
             avatar_url: None,
             canonical_alias: None,
             join_rule: "public".to_string(),
-            creator: "@test:example.com".to_string(),
+            creator: Some("@test:example.com".to_string()),
             version: "9".to_string(),
             encryption: None,
             is_public: true,
@@ -1009,7 +1007,7 @@ mod tests {
             avatar_url: None,
             canonical_alias: None,
             join_rule: "invite".to_string(),
-            creator: "@admin:example.com".to_string(),
+            creator: Some("@admin:example.com".to_string()),
             version: "6".to_string(),
             encryption: Some("m.megolm.v1.aes-sha2".to_string()),
             is_public: false,

@@ -894,3 +894,127 @@ impl ModuleStorage {
         Ok(rows)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_module_creation() {
+        let module = Module {
+            id: 1,
+            module_name: "test_module".to_string(),
+            module_type: "spam_checker".to_string(),
+            version: "1.0.0".to_string(),
+            description: Some("Test module".to_string()),
+            enabled: true,
+            priority: 0,
+            config: Some(serde_json::json!({"key": "value"})),
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+            error_count: 0,
+            execution_count: 1,
+            last_error: None,
+            last_executed_ts: Some(1234567890),
+        };
+        assert_eq!(module.module_name, "test_module");
+        assert!(module.enabled);
+    }
+
+    #[test]
+    fn test_create_module_request() {
+        let request = CreateModuleRequest {
+            module_name: "new_module".to_string(),
+            module_type: "spam_checker".to_string(),
+            version: "1.0.0".to_string(),
+            description: Some("New module".to_string()),
+            enabled: Some(true),
+            priority: Some(0),
+            config: Some(serde_json::json!({"setting": true})),
+        };
+        assert_eq!(request.module_name, "new_module");
+    }
+
+    #[test]
+    fn test_spam_check_result_creation() {
+        let result = SpamCheckResult {
+            id: 1,
+            event_id: "$event:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: None,
+            result: "allow".to_string(),
+            score: 0,
+            reason: None,
+            checker_module: "test_module".to_string(),
+            checked_ts: 1234567890,
+            action_taken: None,
+        };
+        assert_eq!(result.result, "allow");
+    }
+
+    #[test]
+    fn test_spam_check_result_ban() {
+        let result = SpamCheckResult {
+            id: 2,
+            event_id: "$event2:example.com".to_string(),
+            room_id: "!room2:example.com".to_string(),
+            sender: "@bob:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: None,
+            result: "ban".to_string(),
+            score: -100,
+            reason: Some("Spam detected".to_string()),
+            checker_module: "test_module".to_string(),
+            checked_ts: 1234567890,
+            action_taken: Some("ban".to_string()),
+        };
+        assert_eq!(result.result, "ban");
+    }
+
+    #[test]
+    fn test_account_validity() {
+        let validity = AccountValidity {
+            user_id: "@alice:example.com".to_string(),
+            expiration_ts: 1234567890,
+            email_sent_ts: Some(1234567890),
+            renewal_token: Some("token123".to_string()),
+            renewal_token_ts: Some(1234567890),
+            is_valid: true,
+            created_ts: 1234567800,
+            updated_ts: 1234567890,
+        };
+        assert!(validity.is_valid);
+    }
+
+    #[test]
+    fn test_password_auth_provider() {
+        let provider = PasswordAuthProvider {
+            id: 1,
+            provider_name: "default".to_string(),
+            provider_type: "password".to_string(),
+            config: None,
+            enabled: true,
+            priority: 0,
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+        };
+        assert!(provider.enabled);
+    }
+
+    #[test]
+    fn test_create_execution_log_request() {
+        let request = CreateExecutionLogRequest {
+            module_name: "test_module".to_string(),
+            module_type: "spam_checker".to_string(),
+            event_id: Some("$event:example.com".to_string()),
+            room_id: Some("!room:example.com".to_string()),
+            execution_time_ms: 50,
+            success: true,
+            error_message: None,
+            metadata: None,
+        };
+        assert!(request.success);
+    }
+}

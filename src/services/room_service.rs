@@ -847,7 +847,7 @@ impl RoomService {
             .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?;
 
         match room {
-            Some(r) => Ok(r.creator == user_id),
+            Some(r) => Ok(r.creator.as_deref() == Some(user_id)),
             None => Ok(false),
         }
     }
@@ -1000,7 +1000,7 @@ impl RoomService {
             .map_err(|e| ApiError::internal(format!("Failed to get target room: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Target room not found".to_string()))?;
 
-        if target_room.creator != user_id {
+        if target_room.creator.as_deref() != Some(user_id) {
             return Err(ApiError::forbidden(
                 "Only room creator can migrate content".to_string(),
             ));
@@ -1040,7 +1040,7 @@ impl RoomService {
             return Ok(false);
         }
 
-        Ok(room.creator == user_id)
+        Ok(room.creator.as_deref() == Some(user_id))
     }
 
     pub async fn process_read_receipt(

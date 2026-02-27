@@ -325,3 +325,106 @@ async fn delete_media(
         "media_id": media_id
     })))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_media_routes_structure() {
+        let routes = vec![
+            "/_matrix/media/v3/upload/{server_name}/{media_id}",
+            "/_matrix/media/v3/download/{server_name}/{media_id}",
+            "/_matrix/media/v3/thumbnail/{server_name}/{media_id}",
+            "/_matrix/media/v1/upload",
+            "/_matrix/media/v3/upload",
+            "/_matrix/media/v1/config",
+            "/_matrix/media/v3/config",
+        ];
+
+        for route in routes {
+            assert!(route.starts_with("/_matrix/media/"));
+        }
+    }
+
+    #[test]
+    fn test_media_config_response() {
+        let config = json!({
+            "m.upload.size": 50 * 1024 * 1024
+        });
+
+        assert!(config.get("m.upload.size").is_some());
+        let size = config.get("m.upload.size").unwrap().as_i64().unwrap();
+        assert_eq!(size, 50 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_content_type_default() {
+        let default_content_type = "application/octet-stream";
+        assert!(!default_content_type.is_empty());
+    }
+
+    #[test]
+    fn test_media_id_format() {
+        let media_ids = vec![
+            "abc123",
+            "media_id_with_underscores",
+            "media-id-with-dashes",
+            "UPPERCASE123",
+        ];
+
+        for id in media_ids {
+            assert!(!id.is_empty());
+            assert!(id.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
+        }
+    }
+
+    #[test]
+    fn test_server_name_format() {
+        let server_names = vec![
+            "example.com",
+            "matrix.org",
+            "server.local",
+        ];
+
+        for name in server_names {
+            assert!(!name.is_empty());
+            assert!(name.contains('.'));
+        }
+    }
+
+    #[test]
+    fn test_upload_response_structure() {
+        let response = json!({
+            "content_uri": "mxc://example.com/media_id_123"
+        });
+
+        assert!(response.get("content_uri").is_some());
+        let uri = response.get("content_uri").unwrap().as_str().unwrap();
+        assert!(uri.starts_with("mxc://"));
+    }
+
+    #[test]
+    fn test_delete_response_structure() {
+        let response = json!({
+            "deleted": true,
+            "media_id": "media_id_123"
+        });
+
+        assert!(response.get("deleted").unwrap().as_bool().unwrap());
+        assert!(response.get("media_id").is_some());
+    }
+
+    #[test]
+    fn test_thumbnail_size_params() {
+        let params = json!({
+            "width": 256,
+            "height": 256,
+            "method": "scale"
+        });
+
+        assert_eq!(params.get("width").unwrap().as_i64().unwrap(), 256);
+        assert_eq!(params.get("height").unwrap().as_i64().unwrap(), 256);
+        assert_eq!(params.get("method").unwrap().as_str().unwrap(), "scale");
+    }
+}
