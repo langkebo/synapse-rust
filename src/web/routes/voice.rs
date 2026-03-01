@@ -45,7 +45,7 @@ fn validate_message_id(id: &str) -> Result<(), String> {
     }
     if !id
         .chars()
-        .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == ':' || c == '.')
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == ':' || c == '.' || c == '$')
     {
         return Err("Message ID contains invalid characters".to_string());
     }
@@ -375,6 +375,7 @@ async fn voice_transcription(
 #[axum::debug_handler]
 async fn get_voice_message(
     State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
     Path(message_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let voice_service = &state.services.voice_service;
@@ -419,6 +420,7 @@ async fn delete_voice_message(
 #[axum::debug_handler]
 async fn get_user_voice_messages(
     State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let voice_service = &state.services.voice_service;
@@ -432,6 +434,7 @@ async fn get_user_voice_messages(
 #[axum::debug_handler]
 async fn get_room_voice_messages(
     State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let voice_service = &state.services.voice_service;

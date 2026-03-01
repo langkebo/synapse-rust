@@ -24,7 +24,6 @@ pub struct SpaceChild {
     pub id: i64,
     pub space_id: String,
     pub room_id: String,
-    #[sqlx(json)]
     pub via_servers: Vec<String>,
     pub order: Option<String>,
     pub suggested: bool,

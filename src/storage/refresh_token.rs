@@ -486,7 +486,7 @@ impl RefreshTokenStorage {
 
         sqlx::query(
             r#"
-            INSERT INTO token_blacklist (token_hash, token_type, user_id, revoked_ts, expires_at, reason)
+            INSERT INTO token_blacklist (token_hash, token_type, user_id, revoked_at, expires_ts, reason)
             VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (token_hash) DO NOTHING
             "#,
@@ -507,7 +507,7 @@ impl RefreshTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM token_blacklist WHERE token_hash = $1 AND expires_at > $2",
+            "SELECT COUNT(*) FROM token_blacklist WHERE token_hash = $1 AND expires_ts > $2",
         )
         .bind(token_hash)
         .bind(now)
@@ -532,7 +532,7 @@ impl RefreshTokenStorage {
     pub async fn cleanup_blacklist(&self) -> Result<i64, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let result = sqlx::query("DELETE FROM token_blacklist WHERE expires_at < $1")
+        let result = sqlx::query("DELETE FROM token_blacklist WHERE expires_ts < $1")
             .bind(now)
             .execute(&*self.pool)
             .await?;

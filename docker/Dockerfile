@@ -81,14 +81,19 @@ COPY --chown=synapse:synapse migrations /app/migrations
 # Copy Entrypoint and Migration Scripts
 COPY --chown=synapse:synapse docker/docker-entrypoint.sh /app/scripts/docker-entrypoint.sh
 COPY --chown=synapse:synapse docker/run-migrations.sh /app/scripts/run-migrations.sh
+COPY --chown=synapse:synapse docker/init-database.sh /app/scripts/init-database.sh
+COPY --chown=synapse:synapse docker/verify-schema.sh /app/scripts/verify-schema.sh
 
 # Make binaries and scripts executable with restricted permissions
 RUN chmod +x /usr/local/bin/synapse-rust /usr/local/bin/generate_test_keypair && \
     chmod 500 /usr/local/bin/synapse-rust && \
     chmod 500 /usr/local/bin/generate_test_keypair && \
-    chmod +x /app/scripts/docker-entrypoint.sh /app/scripts/run-migrations.sh && \
+    chmod +x /app/scripts/docker-entrypoint.sh /app/scripts/run-migrations.sh \
+              /app/scripts/init-database.sh /app/scripts/verify-schema.sh && \
     chmod 550 /app/scripts/docker-entrypoint.sh && \
-    chmod 550 /app/scripts/run-migrations.sh
+    chmod 550 /app/scripts/run-migrations.sh && \
+    chmod 550 /app/scripts/init-database.sh && \
+    chmod 550 /app/scripts/verify-schema.sh
 
 # ============================================================================
 # Environment Variables
@@ -103,6 +108,7 @@ ENV TZ=Asia/Shanghai
 ENV PATH=/usr/local/bin:/usr/bin:/bin
 
 ENV RUN_MIGRATIONS=true
+ENV VERIFY_SCHEMA=true
 ENV MIGRATION_TIMEOUT=300
 ENV DB_WAIT_ATTEMPTS=30
 ENV DB_WAIT_INTERVAL=2

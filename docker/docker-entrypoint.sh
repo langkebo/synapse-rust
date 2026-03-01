@@ -118,6 +118,29 @@ run_migrations() {
     fi
 }
 
+# 验证数据库架构
+verify_schema() {
+    if [ "${VERIFY_SCHEMA:-true}" != "true" ]; then
+        log_info "Skipping schema verification (VERIFY_SCHEMA=false)"
+        return 0
+    fi
+
+    log_info "Verifying database schema..."
+
+    if [ ! -f "/app/scripts/verify-schema.sh" ]; then
+        log_warning "Schema verification script not found"
+        return 0
+    fi
+
+    chmod +x /app/scripts/verify-schema.sh
+
+    if /app/scripts/verify-schema.sh; then
+        log_success "Database schema verification passed"
+    else
+        log_warning "Database schema verification reported issues (non-fatal)"
+    fi
+}
+
 # 生成密钥（如果需要）
 generate_keys_if_needed() {
     local keys_dir="/app/data/keys"
@@ -179,6 +202,8 @@ main() {
     wait_for_database
 
     run_migrations
+
+    verify_schema
 
     generate_keys_if_needed
 

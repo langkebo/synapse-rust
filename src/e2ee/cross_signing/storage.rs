@@ -125,19 +125,25 @@ impl CrossSigningStorage {
 
     pub async fn save_device_key(&self, key: &DeviceKeyInfo) -> Result<(), ApiError> {
         let added_ts = chrono::Utc::now().timestamp_millis();
+        let key_id = format!("{}:{}", key.algorithm, key.public_key.split(':').next().unwrap_or(&key.public_key));
+        
         sqlx::query(
             r#"
-            INSERT INTO device_keys (user_id, device_id, algorithm, key_data, added_ts)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (user_id, device_id, algorithm) DO UPDATE SET
+            INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, key_data, added_ts, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (user_id, device_id, key_id) DO UPDATE SET
+                public_key = EXCLUDED.public_key,
                 key_data = EXCLUDED.key_data,
-                ts_updated_ms = $6
+                updated_ts = EXCLUDED.updated_ts
             "#,
         )
         .bind(&key.user_id)
         .bind(&key.device_id)
         .bind(&key.algorithm)
+        .bind(&key_id)
         .bind(&key.public_key)
+        .bind(&key.public_key)
+        .bind(added_ts)
         .bind(added_ts)
         .bind(added_ts)
         .execute(&*self.pool)

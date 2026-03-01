@@ -6,7 +6,7 @@ use axum::{
     extract::{Json, Path, Query, State},
     http::{header, StatusCode},
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 use serde_json::{json, Value};
@@ -15,11 +15,15 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route(
             "/_matrix/media/v3/upload/{server_name}/{media_id}",
-            post(upload_media),
+            put(upload_media_with_id),
         )
         .route(
             "/_matrix/media/v3/download/{server_name}/{media_id}",
             get(download_media),
+        )
+        .route(
+            "/_matrix/media/v3/download/{server_name}/{media_id}/{filename}",
+            get(download_media_with_filename),
         )
         .route(
             "/_matrix/media/v3/thumbnail/{server_name}/{media_id}",
@@ -33,8 +37,16 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
             get(download_media_v1),
         )
         .route(
+            "/_matrix/media/v1/download/{server_name}/{media_id}/{filename}",
+            get(download_media_v1_with_filename),
+        )
+        .route(
             "/_matrix/media/r1/download/{server_name}/{media_id}",
             get(download_media_v1),
+        )
+        .route(
+            "/_matrix/media/r1/download/{server_name}/{media_id}/{filename}",
+            get(download_media_v1_with_filename),
         )
         .route("/_matrix/media/v3/preview_url", get(preview_url))
         .route("/_matrix/media/v1/preview_url", get(preview_url))
@@ -85,9 +97,10 @@ async fn media_config(State(_state): State<AppState>) -> Json<Value> {
     }))
 }
 
-async fn upload_media(
+async fn upload_media_with_id(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
+    Path((_server_name, _media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
     headers: axum::http::HeaderMap,
     body: Bytes,
@@ -119,6 +132,28 @@ async fn upload_media(
 async fn download_media(
     State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    match state
+        .services
+        .media_service
+        .download_media(&server_name, &media_id)
+        .await
+    {
+        Ok(content) => {
+            let content_type = guess_content_type(&media_id);
+            let headers = [
+                ("Content-Type".to_string(), content_type.to_string()),
+                ("Content-Length".to_string(), content.len().to_string()),
+            ];
+            Ok((StatusCode::OK, headers, content))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+async fn download_media_with_filename(
+    State(state): State<AppState>,
+    Path((server_name, media_id, _filename)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
     match state
         .services
@@ -218,6 +253,39 @@ async fn upload_media_v1(
 async fn download_media_v1(
     State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    match state
+        .services
+        .media_service
+        .download_media(&server_name, &media_id)
+        .await
+    {
+        Ok(content) => {
+            let content_type = guess_content_type(&media_id);
+            let headers = [
+                ("Content-Type", content_type.to_string()),
+                ("Content-Length", content.len().to_string()),
+            ];
+            (headers, content)
+        }
+        Err(e) => {
+            let error_body = serde_json::to_vec(&json!({
+                "errcode": e.code(),
+                "error": e.message()
+            }))
+            .unwrap_or_else(|_| br#"{"errcode":"M_UNKNOWN","error":"Internal error"}"#.to_vec());
+            let headers = [
+                ("Content-Type", "application/json".to_string()),
+                ("Content-Length", error_body.len().to_string()),
+            ];
+            (headers, error_body)
+        }
+    }
+}
+
+async fn download_media_v1_with_filename(
+    State(state): State<AppState>,
+    Path((server_name, media_id, _filename)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
     match state
         .services

@@ -13,6 +13,15 @@ pub struct AccessToken {
     pub revoked_ts: Option<i64>,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TokenBlacklistEntry {
+    pub id: i64,
+    pub token_hash: String,
+    pub user_id: String,
+    pub revoked_at: i64,
+    pub reason: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct AccessTokenStorage {
     pub pool: Arc<Pool<Postgres>>,
@@ -52,7 +61,7 @@ impl AccessTokenStorage {
         let row = sqlx::query_as::<_, AccessToken>(
             r#"
             SELECT id, token, user_id, device_id, created_ts, expires_ts, is_valid, revoked_ts
-            FROM access_tokens WHERE token = $1
+            FROM access_tokens WHERE token = $1 AND is_valid = TRUE
             "#,
         )
         .bind(token)
@@ -75,36 +84,42 @@ impl AccessTokenStorage {
     }
 
     pub async fn delete_token(&self, token: &str) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
         sqlx::query(
             r#"
-            DELETE FROM access_tokens WHERE token = $1
+            UPDATE access_tokens SET is_valid = FALSE, revoked_ts = $2 WHERE token = $1
             "#,
         )
         .bind(token)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn delete_user_tokens(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
         sqlx::query(
             r#"
-            DELETE FROM access_tokens WHERE user_id = $1
+            UPDATE access_tokens SET is_valid = FALSE, revoked_ts = $2 WHERE user_id = $1 AND is_valid = TRUE
             "#,
         )
         .bind(user_id)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn delete_device_tokens(&self, device_id: &str) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
         sqlx::query(
             r#"
-            DELETE FROM access_tokens WHERE device_id = $1
+            UPDATE access_tokens SET is_valid = FALSE, revoked_ts = $2 WHERE device_id = $1 AND is_valid = TRUE
             "#,
         )
         .bind(device_id)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -113,13 +128,81 @@ impl AccessTokenStorage {
     pub async fn token_exists(&self, token: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r#"
-            SELECT 1 AS "exists" FROM access_tokens WHERE token = $1 LIMIT 1
+            SELECT 1 AS "exists" FROM access_tokens WHERE token = $1 AND is_valid = TRUE LIMIT 1
             "#,
         )
         .bind(token)
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.is_some())
+    }
+
+    pub async fn is_token_revoked(&self, token: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query_scalar::<_, i32>(
+            r#"
+            SELECT 1 FROM access_tokens WHERE token = $1 AND is_valid = FALSE LIMIT 1
+            "#,
+        )
+        .bind(token)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.is_some())
+    }
+
+    pub async fn add_to_blacklist(&self, token: &str, user_id: &str, reason: Option<&str>) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
+        let token_hash = Self::hash_token(token);
+        
+        sqlx::query(
+            r#"
+            INSERT INTO token_blacklist (token_hash, token, token_type, user_id, revoked_at, reason)
+            VALUES ($1, $2, 'access', $3, $4, $5)
+            ON CONFLICT (token_hash) DO NOTHING
+            "#,
+        )
+        .bind(&token_hash)
+        .bind(token)
+        .bind(user_id)
+        .bind(now)
+        .bind(reason)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn is_in_blacklist(&self, token: &str) -> Result<bool, sqlx::Error> {
+        let token_hash = Self::hash_token(token);
+        let result = sqlx::query_scalar::<_, i32>(
+            r#"
+            SELECT 1 FROM token_blacklist WHERE token_hash = $1 LIMIT 1
+            "#,
+        )
+        .bind(&token_hash)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.is_some())
+    }
+
+    pub async fn cleanup_expired_blacklist_entries(&self, max_age_seconds: i64) -> Result<u64, sqlx::Error> {
+        let cutoff = chrono::Utc::now().timestamp() - max_age_seconds;
+        let result = sqlx::query(
+            r#"
+            DELETE FROM token_blacklist WHERE revoked_at < $1
+            "#,
+        )
+        .bind(cutoff)
+        .execute(&*self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    fn hash_token(token: &str) -> String {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(token.as_bytes());
+        let result = hasher.finalize();
+        URL_SAFE_NO_PAD.encode(result)
     }
 }
 

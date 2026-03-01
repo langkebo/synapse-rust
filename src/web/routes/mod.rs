@@ -307,6 +307,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/versions", get(get_client_versions))
         .route("/_matrix/client/r0/version", get(get_server_version))
         .route("/_matrix/client/r0/capabilities", get(get_capabilities))
+        .route("/_matrix/client/v3/capabilities", get(get_capabilities))
         .route("/.well-known/matrix/server", get(get_well_known_server))
         .route("/.well-known/matrix/client", get(get_well_known_client))
         .route("/.well-known/matrix/support", get(get_well_known_support))
@@ -400,7 +401,15 @@ fn create_auth_router() -> Router<AppState> {
             get(get_register_flows).post(register),
         )
         .route(
+            "/_matrix/client/v3/register",
+            get(get_register_flows).post(register),
+        )
+        .route(
             "/_matrix/client/r0/register/available",
+            get(check_username_availability),
+        )
+        .route(
+            "/_matrix/client/v3/register/available",
             get(check_username_availability),
         )
         .route(
@@ -408,7 +417,15 @@ fn create_auth_router() -> Router<AppState> {
             post(request_email_verification),
         )
         .route(
+            "/_matrix/client/v3/register/email/requestToken",
+            post(request_email_verification),
+        )
+        .route(
             "/_matrix/client/r0/register/email/submitToken",
+            post(submit_email_token),
+        )
+        .route(
+            "/_matrix/client/v3/register/email/submitToken",
             post(submit_email_token),
         )
         .route("/_matrix/client/r0/login", get(get_login_flows).post(login))
@@ -578,30 +595,19 @@ fn create_room_router() -> Router<AppState> {
         )
         .route(
             "/_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}",
-            put(put_state_event),
+            put(put_state_event).get(get_state_event),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/state/{event_type}",
+            put(put_state_event_no_key).get(get_state_by_type).post(send_state_event),
         )
         .route(
             "/_matrix/client/r0/rooms/{room_id}/state",
             get(get_room_state),
         )
+        .route("/_matrix/client/r0/rooms/{room_id}/get_membership_events", post(get_membership_events))
         .route(
-            "/_matrix/client/r0/rooms/{room_id}/state/{event_type}",
-            get(get_state_by_type),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}",
-            get(get_state_event),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/state/{event_type}",
-            post(send_state_event),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/get_membership_events",
-            post(get_membership_events),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/redact/{event_id}",
+            "/_matrix/client/r0/rooms/{room_id}/redact/{event_id}/{txn_id}",
             put(redact_event),
         )
         .route("/_matrix/client/r0/rooms/{room_id}/kick", post(kick_user))
@@ -841,11 +847,21 @@ async fn request_email_verification(
         ));
     }
 
+    let client_secret = body.get("client_secret").and_then(|v| v.as_str());
+    if client_secret.is_none() {
+        return Err(ApiError::bad_request("client_secret is required".to_string()));
+    }
+
+    let _send_attempt = body.get("send_attempt").and_then(|v| v.as_u64()).unwrap_or(1);
+
     let token = state
         .services
         .auth_service
         .generate_email_verification_token()
-        .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))?;
+        .map_err(|e| {
+            ::tracing::error!("Failed to generate email verification token: {}", e);
+            ApiError::internal("Failed to generate verification token. Please try again later.".to_string())
+        })?;
 
     let session_data = body.get("client_secret").cloned();
 
@@ -854,7 +870,10 @@ async fn request_email_verification(
         .email_verification_storage
         .create_verification_token(email, &token, 3600, None, session_data)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to store token: {}", e)))?;
+        .map_err(|e| {
+            ::tracing::error!("Failed to store email verification token: {}", e);
+            ApiError::internal("Failed to store verification token. Please try again later.".to_string())
+        })?;
 
     let sid = format!("{}", token_id);
 
@@ -862,6 +881,8 @@ async fn request_email_verification(
         "https://{}:{}/_matrix/client/r0/register/email/submitToken",
         state.services.config.server.host, state.services.config.server.port
     );
+
+    ::tracing::info!("Email verification token created for {}: sid={}", email, sid);
 
     Ok(Json(json!({
         "sid": sid,
@@ -1207,7 +1228,6 @@ fn validate_receipt_type(receipt_type: &str) -> Result<(), ApiError> {
 
 async fn get_profile(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
@@ -1223,7 +1243,6 @@ async fn get_profile(
 
 async fn get_displayname(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
@@ -1244,7 +1263,6 @@ async fn get_displayname(
 
 async fn get_avatar_url(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
@@ -2840,6 +2858,48 @@ async fn put_state_event(
     })))
 }
 
+async fn put_state_event_no_key(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, event_type)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
+    let now = chrono::Utc::now().timestamp_millis();
+
+    let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
+        event_type.clone()
+    } else {
+        format!("m.room.{}", event_type)
+    };
+
+    let event = state
+        .services
+        .event_storage
+        .create_event(
+            CreateEventParams {
+                event_id: new_event_id.clone(),
+                room_id: room_id.clone(),
+                user_id: auth_user.user_id.clone(),
+                event_type: final_event_type,
+                content: body,
+                state_key: Some("".to_string()),
+                origin_server_ts: now,
+            },
+            None,
+        )
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to put state event: {}", e)))?;
+
+    Ok(Json(json!({
+        "event_id": new_event_id,
+        "type": event.event_type,
+        "state_key": event.state_key
+    })))
+}
+
 async fn send_receipt(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -2881,6 +2941,27 @@ async fn set_read_markers(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
+
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member {
+        return Err(ApiError::forbidden("You are not a member of this room".to_string()));
+    }
 
     let event_id = body
         .get("event_id")
@@ -2941,7 +3022,7 @@ async fn get_membership_events(
 async fn redact_event(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id, _txn_id)): Path<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;

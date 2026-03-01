@@ -34,6 +34,22 @@ pub fn create_e2ee_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/keys/signatures/upload",
             post(upload_signatures),
         )
+        .route(
+            "/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}",
+            put(send_to_device),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/keys/distribution",
+            get(room_key_distribution),
+        )
+        .route(
+            "/_matrix/client/r0/keys/device_signing/upload",
+            post(upload_device_signing),
+        )
+        .route(
+            "/_matrix/client/v3/keys/device_signing/upload",
+            post(upload_device_signing),
+        )
 }
 
 #[axum::debug_handler]
@@ -212,4 +228,44 @@ async fn upload_signatures(
         .await?;
 
     Ok(Json(response))
+}
+
+#[axum::debug_handler]
+async fn upload_device_signing(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    MatrixJson(body): MatrixJson<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let device_id = auth_user
+        .device_id
+        .as_ref()
+        .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
+
+    if let Some(master_key) = body.get("master_key") {
+        if let Some(key_obj) = master_key.as_object() {
+            if !key_obj.is_empty() {
+                state
+                    .services
+                    .cross_signing_service
+                    .upload_device_signing_key(&auth_user.user_id, device_id, master_key)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Failed to upload master key: {}", e)))?;
+            }
+        }
+    }
+
+    if let Some(self_signing_key) = body.get("self_signing_key") {
+        if let Some(key_obj) = self_signing_key.as_object() {
+            if !key_obj.is_empty() {
+                state
+                    .services
+                    .cross_signing_service
+                    .upload_device_signing_key(&auth_user.user_id, device_id, self_signing_key)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Failed to upload self-signing key: {}", e)))?;
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({})))
 }

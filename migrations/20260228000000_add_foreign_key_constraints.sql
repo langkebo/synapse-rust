@@ -193,53 +193,115 @@ DELETE FROM media_repository WHERE user_id IS NOT NULL AND user_id != ''
 -- =============================================================================
 
 -- room_members 表外键
-ALTER TABLE room_members 
-    ADD CONSTRAINT fk_room_members_room_id 
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_room_members_room_id'
+    ) THEN
+        ALTER TABLE room_members 
+            ADD CONSTRAINT fk_room_members_room_id 
+            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
-ALTER TABLE room_members 
-    ADD CONSTRAINT fk_room_members_user_id 
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_room_members_user_id'
+    ) THEN
+        ALTER TABLE room_members 
+            ADD CONSTRAINT fk_room_members_user_id 
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
-ALTER TABLE room_members 
-    ADD CONSTRAINT fk_room_members_inviter_id 
-    FOREIGN KEY (inviter_id) REFERENCES users(user_id) ON DELETE SET NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_room_members_inviter_id'
+    ) THEN
+        ALTER TABLE room_members 
+            ADD CONSTRAINT fk_room_members_inviter_id 
+            FOREIGN KEY (inviter_id) REFERENCES users(user_id) ON DELETE SET NULL;
+    END IF;
+END $$;
 
 -- events 表外键
-ALTER TABLE events 
-    ADD CONSTRAINT fk_events_room_id 
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_events_room_id'
+    ) THEN
+        ALTER TABLE events 
+            ADD CONSTRAINT fk_events_room_id 
+            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
-ALTER TABLE events 
-    ADD CONSTRAINT fk_events_sender 
-    FOREIGN KEY (sender) REFERENCES users(user_id) ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_events_sender'
+    ) THEN
+        ALTER TABLE events 
+            ADD CONSTRAINT fk_events_sender 
+            FOREIGN KEY (sender) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
 -- =============================================================================
 -- 第三部分: 添加外键约束 - E2EE 相关表
 -- =============================================================================
 
 -- device_keys 表外键
-ALTER TABLE device_keys 
-    ADD CONSTRAINT fk_device_keys_user_id 
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_device_keys_user_id'
+    ) THEN
+        ALTER TABLE device_keys 
+            ADD CONSTRAINT fk_device_keys_user_id 
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
 -- cross_signing_keys 表外键
-ALTER TABLE cross_signing_keys 
-    ADD CONSTRAINT fk_cross_signing_keys_user_id 
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_cross_signing_keys_user_id'
+    ) THEN
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'cross_signing_keys') THEN
+            ALTER TABLE cross_signing_keys 
+                ADD CONSTRAINT fk_cross_signing_keys_user_id 
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+        END IF;
+    END IF;
+END $$;
 
 -- device_signatures 表外键
-ALTER TABLE device_signatures 
-    ADD CONSTRAINT fk_device_signatures_user_id 
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_device_signatures_user_id'
+    ) THEN
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'device_signatures') THEN
+            ALTER TABLE device_signatures 
+                ADD CONSTRAINT fk_device_signatures_user_id 
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+        END IF;
+    END IF;
+END $$;
 
 -- megolm_sessions 表外键 (表可能不存在)
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'megolm_sessions') THEN
-        ALTER TABLE megolm_sessions 
-            ADD CONSTRAINT fk_megolm_sessions_room_id 
-            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_megolm_sessions_room_id') THEN
+            ALTER TABLE megolm_sessions 
+                ADD CONSTRAINT fk_megolm_sessions_room_id 
+                FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+        END IF;
     END IF;
 END $$;
 
@@ -247,9 +309,11 @@ END $$;
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'inbound_megolm_sessions') THEN
-        ALTER TABLE inbound_megolm_sessions 
-            ADD CONSTRAINT fk_inbound_megolm_sessions_room_id 
-            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_inbound_megolm_sessions_room_id') THEN
+            ALTER TABLE inbound_megolm_sessions 
+                ADD CONSTRAINT fk_inbound_megolm_sessions_room_id 
+                FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+        END IF;
     END IF;
 END $$;
 
@@ -257,9 +321,11 @@ END $$;
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'key_backups') THEN
-        ALTER TABLE key_backups 
-            ADD CONSTRAINT fk_key_backups_user_id 
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_key_backups_user_id') THEN
+            ALTER TABLE key_backups 
+                ADD CONSTRAINT fk_key_backups_user_id 
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+        END IF;
     END IF;
 END $$;
 
@@ -267,14 +333,18 @@ END $$;
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'backup_keys') THEN
-        ALTER TABLE backup_keys 
-            ADD CONSTRAINT fk_backup_keys_user_id 
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_backup_keys_user_id') THEN
+            ALTER TABLE backup_keys 
+                ADD CONSTRAINT fk_backup_keys_user_id 
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+        END IF;
         
         IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'backup_keys' AND column_name = 'backup_id') THEN
-            ALTER TABLE backup_keys 
-                ADD CONSTRAINT fk_backup_keys_backup_id 
-                FOREIGN KEY (backup_id) REFERENCES key_backups(backup_id) ON DELETE CASCADE;
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_backup_keys_backup_id') THEN
+                ALTER TABLE backup_keys 
+                    ADD CONSTRAINT fk_backup_keys_backup_id 
+                    FOREIGN KEY (backup_id) REFERENCES key_backups(backup_id) ON DELETE CASCADE;
+            END IF;
         END IF;
     END IF;
 END $$;
