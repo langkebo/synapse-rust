@@ -28,6 +28,12 @@ docker/data/media/*.ogg
 docker/data/media/*.bin
 docker/data/media/*.png
 docker/data/media/*.txt
+docker/data/media/thumbnails/
+docker/data/media/voice/
 
 # 日志文件
 docker/logs/
+
+# 备份文件
+backups/
+*.backup

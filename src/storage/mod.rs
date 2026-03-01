@@ -19,6 +19,7 @@ pub mod membership;
 pub mod module;
 pub mod monitoring;
 pub mod performance;
+pub mod pool_monitor;
 pub mod push_notification;
 pub mod refresh_token;
 pub mod registration_token;
@@ -50,6 +51,10 @@ pub use self::monitoring::{
     PerformanceMetrics, VacuumStats,
 };
 pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
+pub use self::pool_monitor::{
+    create_pool_with_monitoring, DatabasePoolConfig, DatabasePoolMonitor, PoolHealthStatus,
+    PoolStats, QueryTimeoutConfig, set_query_timeout, set_transaction_timeout,
+};
 pub use self::push_notification::*;
 pub use self::room::*;
 pub use self::saml::*;

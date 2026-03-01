@@ -390,6 +390,14 @@ impl AuthService {
     }
 
     pub async fn logout(&self, access_token: &str, device_id: Option<&str>) -> ApiResult<()> {
+        let claims = self.decode_token(access_token).ok();
+        let user_id = claims.as_ref().map(|c| c.sub.as_str()).unwrap_or("unknown");
+
+        self.token_storage
+            .add_to_blacklist(access_token, user_id, Some("User logout"))
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to add token to blacklist: {}", e)))?;
+
         self.token_storage
             .delete_token(access_token)
             .await
@@ -403,6 +411,14 @@ impl AuthService {
                     ApiError::internal(format!("Failed to delete device tokens: {}", e))
                 })?;
         }
+
+        ::tracing::info!(
+            target: "security_audit",
+            event = "user_logout",
+            user_id = user_id,
+            device_id = device_id,
+            "User logged out, token blacklisted"
+        );
 
         Ok(())
     }
@@ -484,6 +500,20 @@ impl AuthService {
 
     pub async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool)> {
         ::tracing::debug!(target: "token_validation", "Validating token");
+
+        if self.token_storage.is_in_blacklist(token).await.map_err(|e| {
+            ApiError::internal(format!("Failed to check token blacklist: {}", e))
+        })? {
+            ::tracing::debug!(target: "token_validation", "Token found in blacklist");
+            return Err(ApiError::unauthorized("Token has been revoked".to_string()));
+        }
+
+        if self.token_storage.is_token_revoked(token).await.map_err(|e| {
+            ApiError::internal(format!("Failed to check token status: {}", e))
+        })? {
+            ::tracing::debug!(target: "token_validation", "Token has been revoked in database");
+            return Err(ApiError::unauthorized("Token has been revoked".to_string()));
+        }
 
         let cached_token = self.cache.get_token(token).await;
         if let Some(claims) = cached_token {
@@ -1363,3 +1393,6 @@ mod tests {
         assert_ne!(token1, token2, "Each token should be unique");
     }
 }
+
+pub mod authorization;
+pub use authorization::{Action, AuthorizationContext, AuthorizationService, ResourceType};

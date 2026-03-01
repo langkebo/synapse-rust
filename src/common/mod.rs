@@ -17,6 +17,7 @@ pub mod password_hash_pool;
 pub mod rate_limit;
 pub mod rate_limit_config;
 pub mod regex_cache;
+pub mod security;
 pub mod task_queue;
 pub mod telemetry_config;
 pub mod tracing;
@@ -51,11 +52,13 @@ pub use logging::*;
 #[allow(ambiguous_glob_reexports)]
 pub use metrics::*;
 #[allow(ambiguous_glob_reexports)]
-pub use password_hash_pool::*;
-#[allow(ambiguous_glob_reexports)]
 pub use rate_limit::*;
 #[allow(ambiguous_glob_reexports)]
+pub use rate_limit_config::*;
+#[allow(ambiguous_glob_reexports)]
 pub use regex_cache::*;
+#[allow(ambiguous_glob_reexports)]
+pub use security::*;
 #[allow(ambiguous_glob_reexports)]
 pub use task_queue::*;
 #[allow(ambiguous_glob_reexports)]

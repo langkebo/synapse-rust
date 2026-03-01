@@ -167,13 +167,15 @@ impl CrossSigningService {
             .as_str()
             .ok_or_else(|| ApiError::bad_request("Missing public key".to_string()))?;
 
+        let signatures = key.get("signatures").cloned().unwrap_or(serde_json::json!({}));
+
         let device_key = DeviceKeyInfo {
             user_id: user_id.to_string(),
             device_id: device_id.to_string(),
             key_type: key_type.to_string(),
             algorithm: algorithm.to_string(),
             public_key: public_key.to_string(),
-            signatures: key["signatures"].clone(),
+            signatures,
             created_at: Utc::now(),
         };
         self.storage.save_device_key(&device_key).await?;
