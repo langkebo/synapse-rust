@@ -1,441 +1,212 @@
-# ============================================================================
-# Synapse Rust Homeserver Configuration
-# ============================================================================
-# 服务器名称: cjystx.top
-# 服务器地址: matrix.cjystx.top:8008
-# 用户格式: @user:cjystx.top
-# 
-# 配置版本: v4.1
-# 更新日期: 2026-03-03
-# 参考: https://element-hq.github.io/synapse/latest/usage/configuration/config_documentation.html
-# ============================================================================
+#官方文档
+# vim:ft=yaml
 
-# ============================================================================
-# 服务器配置
-# ============================================================================
-server:
-  name: "cjystx.top"
-  host: "0.0.0.0"
-  port: 8008
-  
-  # 公开访问URL (生产环境使用 HTTPS)
-  public_baseurl: "https://matrix.cjystx.top"
-  
-  # 签名密钥路径
-  signing_key_path: "/app/data/cjystx.top.signing.key"
-  
-  # 安全密钥
-  macaroon_secret_key: ""
-  form_secret: ""
-  server_name: "cjystx.top"
-  
-  # 注册密钥
-  registration_shared_secret: ""
-  admin_contact: "admin@cjystx.top"
-  
-  # 上传限制
-  max_upload_size: 104857600
-  max_image_resolution: 67108864
-  
-  # 注册配置
-  enable_registration: true
-  enable_registration_captcha: false
-  
-  # 后台任务间隔
-  background_tasks_interval: 120
-  
-  # Token 过期配置
-  expire_access_token: true
-  expire_access_token_lifetime: 7200
-  refresh_token_lifetime: 1209600
-  refresh_token_sliding_window_size: 2000
-  session_duration: 172800
-  
-  # 连接池预热
-  warmup_pool: true
-  suppress_key_server_warning: false
-  
-  # .well-known 服务
-  serve_server_wellknown: true
-  
-  # 文件描述符限制
-  soft_file_limit: 0
-  
-  # 用户代理后缀
-  user_agent_suffix: " (Synapse-Rust)"
-  
-  # Web 客户端位置
-  web_client_location: "https://element.cjystx.top"
+## TLS ##
 
-# ============================================================================
-# 数据库配置
-# ============================================================================
-database:
-  host: "db"
-  port: 5432
-  username: "synapse"
-  password: "synapse"
-  name: "synapse_test"
-  
-  # 连接池配置
-  pool_size: 20
-  max_size: 50
-  min_idle: 10
-  connection_timeout: 60
+{% if not SYNAPSE_NO_TLS %}
 
-# ============================================================================
-# Redis 配置
-# ============================================================================
-redis:
-  host: "redis"
-  port: 6379
-  key_prefix: "synapse:cjystx.top:"
-  pool_size: 20
-  enabled: false
+tls_certificate_path: "/data/{{ SYNAPSE_SERVER_NAME }}.tls.crt"
+tls_private_key_path: "/data/{{ SYNAPSE_SERVER_NAME }}.tls.key"
 
-# ============================================================================
-# 日志配置
-# ============================================================================
-logging:
-  level: "info"
-  format: "json"
-  log_file: "/app/logs/synapse.log"
-  log_dir: "/app/logs"
+{% endif %}
 
-# ============================================================================
-# 联邦配置
-# ============================================================================
-federation:
-  enabled: true
-  allow_ingress: true
-  server_name: "cjystx.top"
-  federation_port: 8448
-  
-  connection_pool_size: 10
-  max_transaction_payload: 100000
-  
-  # 联邦签名密钥
-  signing_key: "prcw3cBRjXQZSlQMSDVN5Yap3ezCNe//z5rvg6kYyF4="
-  key_id: "ed25519:a_RRNg"
-  ca_file: null
-  client_ca_file: null
-  
-  # 信任的密钥服务器
-  trusted_key_servers:
-    - server_name: "matrix.org"
-    - server_name: "vector.im"
-  
-  # 密钥刷新间隔
-  key_refresh_interval: 86400
-  suppress_key_server_warning: false
+## Server ##
 
-# ============================================================================
-# 安全配置
-# ============================================================================
-security:
-  secret: "synapse-rust-security-secret-key-for-testing"
-  expiry_time: 7200
-  refresh_token_expiry: 1209600
-  
-  # Argon2 密码哈希参数
-  argon2_m_cost: 65536
-  argon2_t_cost: 3
-  argon2_p_cost: 1
+server_name: "{{ SYNAPSE_SERVER_NAME }}"
+pid_file: /homeserver.pid
+web_client: False
+soft_file_limit: 0
+log_config: "{{ SYNAPSE_LOG_CONFIG }}"
 
-# ============================================================================
-# 搜索配置
-# ============================================================================
-search:
-  elasticsearch_url: "http://elasticsearch:9200"
-  enabled: false
+## Ports ##
 
-# ============================================================================
-# 限流配置
-# ============================================================================
-rate_limit:
-  enabled: true
-  default:
-    per_second: 20
-    burst_size: 40
-  endpoints: []
-  ip_header_priority:
-    - "x-forwarded-for"
-    - "x-real-ip"
-    - "forwarded"
-  include_headers: true
-  exempt_paths:
-    - "/health"
-    - "/_matrix/federation/v1/version"
-  exempt_path_prefixes:
-    - "/.well-known"
-  endpoint_aliases: {}
-  fail_open_on_error: false
-
-# ============================================================================
-# 管理员注册配置
-# ============================================================================
-admin_registration:
-  enabled: false
-  shared_secret: "admin-secret-key-for-testing"
-  nonce_timeout_seconds: 120
-
-# ============================================================================
-# Worker 配置
-# ============================================================================
-worker:
-  enabled: false
-  instance_name: "master"
-  worker_app: null
-  instance_map: {}
-  stream_writers:
-    events: ["master"]
-    typing: ["master"]
-    to_device: ["master"]
-    account_data: ["master"]
-    receipts: ["master"]
-    presence: ["master"]
-    push_rules: ["master"]
-    device_lists: ["master"]
-  replication:
-    enabled: false
-    server_name: "master"
-    http:
-      enabled: false
-      host: "localhost"
-      port: 9092
-      secret: null
-      secret_path: null
-
-# ============================================================================
-# CORS 配置
-# ============================================================================
-cors:
-  allowed_origins:
-    - "*"
-    - "https://cjystx.top"
-    - "https://matrix.cjystx.top"
-    - "https://element.cjystx.top"
-  allow_credentials: true
-  allowed_methods:
-    - "GET"
-    - "POST"
-    - "PUT"
-    - "DELETE"
-    - "OPTIONS"
-  allowed_headers:
-    - "Authorization"
-    - "Content-Type"
-    - "X-Requested-With"
-    - "X-Matrix-Device-Id"
-    - "Accept"
-  max_age_seconds: 172800
-
-# ============================================================================
-# SMTP 邮件配置
-# ============================================================================
-smtp:
-  enabled: false
-  host: "smtp.example.com"
-  port: 587
-  username: ""
-  password: ""
-  from: "Matrix <noreply@cjystx.top>"
-  tls: true
-  verification_token_expire: 1800
-  rate_limit:
-    per_minute: 5
-    per_hour: 20
-
-# ============================================================================
-# VoIP/TURN 配置
-# ============================================================================
-voip:
-  turn_uris:
-    - "turn:turn.cjystx.top:3478?transport=udp"
-    - "turn:turn.cjystx.top:3478?transport=tcp"
-  turn_shared_secret: ""
-  turn_username: null
-  turn_password: null
-  turn_user_lifetime: "1h"
-  turn_allow_guests: true
-  stun_uris: []
-
-# ============================================================================
-# 推送通知配置
-# ============================================================================
-push:
-  enabled: false
-  group_unread_count_by_room: true
-  include_content: false
-  app_id: null
-  apns: null
-  fcm: null
-  web_push: null
-  push_gateway_url: null
-  retry_count: 3
-  timeout: 10
-
-# ============================================================================
-# URL 预览配置
-# ============================================================================
-url_preview:
-  enabled: true
-  ip_range_blacklist:
-    - "127.0.0.0/8"
-    - "10.0.0.0/8"
-    - "172.16.0.0/12"
-    - "192.168.0.0/16"
-    - "100.64.0.0/10"
-    - "169.254.0.0/16"
-    - "::1/128"
-    - "fe80::/10"
-    - "fc00::/7"
-  ip_range_whitelist: []
-  url_blacklist:
-    - domain: "127.0.0.1"
-    - domain: "localhost"
-  spider_enabled: true
-  oembed_enabled: false
-  max_spider_size: "10M"
-  cache_duration: 86400
-  user_agent: "Synapse-Rust/0.1.0 (Matrix Homeserver)"
-  timeout: 10
-  max_redirects: 5
-
-# ============================================================================
-# OIDC 单点登录配置
-# ============================================================================
-oidc:
-  enabled: false
-  issuer: "https://auth.cjystx.top"
-  client_id: ""
-  client_secret: ""
-  scopes:
-    - "openid"
-    - "profile"
-    - "email"
-  attribute_mapping:
-    localpart: "preferred_username"
-    displayname: "name"
-    email: "email"
-  callback_url: null
-  allow_existing_users: true
-  block_unknown_users: false
-  authorization_endpoint: null
-  token_endpoint: null
-  userinfo_endpoint: null
-  jwks_uri: null
-  timeout: 10
-
-# ============================================================================
-# SAML 单点登录配置
-# ============================================================================
-saml:
-  enabled: false
-  metadata_url: null
-  metadata_xml: |
-    <?xml version="1.0" encoding="UTF-8"?>
-    <md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://mock-saml.example.com">
-      <md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
-        <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://mock-saml.example.com/sso"/>
-        <md:SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://mock-saml.example.com/slo"/>
-      </md:IDPSSODescriptor>
-    </md:EntityDescriptor>
-  sp_entity_id: "https://matrix.cjystx.top"
-  sp_acs_url: null
-  sp_sls_url: null
-  sp_private_key: null
-  sp_private_key_path: null
-  sp_certificate: null
-  sp_certificate_path: null
-  attribute_mapping:
-    uid: "uid"
-    displayname: "cn"
-    email: "mail"
-  nameid_format: "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"
-  allow_existing_users: true
-  block_unknown_users: false
-  user_id_template: "{uid}"
-  use_name_id_for_user_id: false
-  sign_requests: false
-  want_response_signed: true
-  want_assertions_signed: true
-  want_assertions_encrypted: false
-  authn_context_class_ref: null
-  session_lifetime: 28800
-  metadata_refresh_interval: 3600
-  allowed_idp_entity_ids: []
-  timeout: 10
-
-# ============================================================================
-# OpenTelemetry 配置
-# ============================================================================
-telemetry:
-  enabled: false
-  service_name: "synapse-rust"
-  service_version: "0.1.0"
-  service_namespace: "matrix"
-  otlp_endpoint: "http://otel-collector:4317"
-  otlp_headers: null
-  trace_enabled: true
-  metrics_enabled: true
-  logs_enabled: false
-  sampling_ratio: 0.1
-  batch_export: true
-  export_timeout_seconds: 30
-  max_queue_size: 2048
-  max_export_batch_size: 512
-  scheduled_delay_millis: 5000
-  resource_attributes: null
-
-# ============================================================================
-# Jaeger 配置
-# ============================================================================
-jaeger:
-  enabled: false
-  agent_endpoint: "jaeger-agent:6831"
-  collector_endpoint: "http://jaeger-collector:14268/api/traces"
-  service_name: "synapse-rust"
-  sampling_rate: 0.1
-
-# ============================================================================
-# Prometheus 配置
-# ============================================================================
-prometheus:
-  enabled: true
-  port: 9090
-  path: "/metrics"
-  include_namespace: true
-
-# ============================================================================
-# 消息保留策略配置
-# ============================================================================
-retention:
-  enabled: false
-  
-  default_policy:
-    min_lifetime: 86400
-    max_lifetime: 31536000
-  
-  allowed_lifetime_min: 86400
-  allowed_lifetime_max: 157680000
-  
-  purge_jobs:
-    - interval: 86400
-      batch_size: 100
-
-# ============================================================================
-# 监听器配置
-# ============================================================================
 listeners:
-  - port: 8008
-    bind_addresses:
-      - "0.0.0.0"
+  {% if not SYNAPSE_NO_TLS %}
+  -
+    port: 8448
+    bind_addresses: ['::']
     type: http
-    tls: false
+    tls: true
+    x_forwarded: false
     resources:
-      - names:
-          - "client"
-          - "federation"
-          - "admin"
+      - names: [client]
+        compress: true
+      - names: [federation]  # Federation APIs
         compress: false
+  {% endif %}
+
+  # Allow configuring in case we want to reverse proxy 8008
+  # using another process in the same container
+{% if SYNAPSE_USE_UNIX_SOCKET %}
+  # Unix sockets don't care about TLS or IP addresses or ports
+  - path: '/run/main_public.sock'
+    type: http
+{% else %}
+  - port: {{ SYNAPSE_HTTP_PORT or 8008 }}
+    tls: false
+    bind_addresses: ['::']
+    type: http
+    x_forwarded: false
+{% endif %}
+    resources:
+      - names: [client]
+        compress: true
+      - names: [federation]
+        compress: false
+
+{% if SYNAPSE_ENABLE_METRICS %}
+  - type: metrics
+    # The main process always uses the same port 19090
+    #
+    # Prometheus does not support Unix sockets so we don't bother with
+    # `SYNAPSE_USE_UNIX_SOCKET`, https://github.com/prometheus/prometheus/issues/12024
+    port: 19090
+{% endif %}
+
+## Database ##
+
+{% if POSTGRES_PASSWORD %}
+database:
+  name: "psycopg2"
+  args:
+    user: "{{ POSTGRES_USER or "synapse" }}"
+    password: "{{ POSTGRES_PASSWORD }}"
+    database: "{{ POSTGRES_DB or "synapse" }}"
+{% if not SYNAPSE_USE_UNIX_SOCKET %}
+{# Synapse will use a default unix socket for Postgres when host/port is not specified (behavior from `psycopg2`). #}
+    host: "{{ POSTGRES_HOST or "db" }}"
+    port: "{{ POSTGRES_PORT or "5432" }}"
+{% endif %}
+    cp_min: {{ POSTGRES_CP_MIN or 5 }}
+    cp_max: {{ POSTGRES_CP_MAX or 10 }}
+{% else %}
+database:
+  name: "sqlite3"
+  args:
+    database: "/data/homeserver.db"
+{% endif %}
+
+## Performance ##
+
+event_cache_size: "{{ SYNAPSE_EVENT_CACHE_SIZE or "10K" }}"
+
+## Ratelimiting ##
+
+rc_messages_per_second: 0.2
+rc_message_burst_count: 10.0
+federation_rc_window_size: 1000
+federation_rc_sleep_limit: 10
+federation_rc_sleep_delay: 500
+federation_rc_reject_limit: 50
+federation_rc_concurrent: 3
+
+## Files ##
+
+media_store_path: "/home/hula/synapse_rust/docker/media"
+max_upload_size: "{{ SYNAPSE_MAX_UPLOAD_SIZE or "50M" }}"
+max_image_pixels: "32M"
+dynamic_thumbnails: false
+
+# List of thumbnail to precalculate when an image is uploaded.
+thumbnail_sizes:
+- width: 32
+  height: 32
+  method: crop
+- width: 96
+  height: 96
+  method: crop
+- width: 320
+  height: 240
+  method: scale
+- width: 640
+  height: 480
+  method: scale
+- width: 800
+  height: 600
+  method: scale
+
+url_preview_enabled: False
+max_spider_size: "10M"
+
+## Captcha ##
+
+{% if SYNAPSE_RECAPTCHA_PUBLIC_KEY %}
+recaptcha_public_key: "{{ SYNAPSE_RECAPTCHA_PUBLIC_KEY }}"
+recaptcha_private_key: "{{ SYNAPSE_RECAPTCHA_PRIVATE_KEY }}"
+enable_registration_captcha: True
+recaptcha_siteverify_api: "https://www.google.com/recaptcha/api/siteverify"
+{% else %}
+recaptcha_public_key: "YOUR_PUBLIC_KEY"
+recaptcha_private_key: "YOUR_PRIVATE_KEY"
+enable_registration_captcha: False
+recaptcha_siteverify_api: "https://www.google.com/recaptcha/api/siteverify"
+{% endif %}
+
+## Turn ##
+
+{% if SYNAPSE_TURN_URIS %}
+turn_uris:
+{% for uri in SYNAPSE_TURN_URIS.split(',') %}    - "{{ uri }}"
+{% endfor %}
+turn_shared_secret: "{{ SYNAPSE_TURN_SECRET }}"
+turn_user_lifetime: "1h"
+turn_allow_guests: True
+{% else %}
+turn_uris: []
+turn_shared_secret: "YOUR_SHARED_SECRET"
+turn_user_lifetime: "1h"
+turn_allow_guests: True
+{% endif %}
+
+## Registration ##
+
+enable_registration: {{ "True" if SYNAPSE_ENABLE_REGISTRATION else "False" }}
+registration_shared_secret: "{{ SYNAPSE_REGISTRATION_SHARED_SECRET }}"
+bcrypt_rounds: 12
+allow_guest_access: {{ "True" if SYNAPSE_ALLOW_GUEST else "False" }}
+enable_group_creation: true
+
+
+## Metrics ###
+
+{% if SYNAPSE_REPORT_STATS.lower() == "yes" %}
+enable_metrics: True
+report_stats: True
+{% else %}
+enable_metrics: False
+report_stats: False
+{% endif %}
+
+## API Configuration ##
+
+{% if SYNAPSE_APPSERVICES %}
+app_service_config_files:
+{% for appservice in SYNAPSE_APPSERVICES %}    - "{{ appservice }}"
+{% endfor %}
+{% endif %}
+
+macaroon_secret_key: "{{ SYNAPSE_MACAROON_SECRET_KEY }}"
+
+## Signing Keys ##
+
+signing_key_path: "/data/{{ SYNAPSE_SERVER_NAME }}.signing.key"
+old_signing_keys: {}
+key_refresh_interval: "1d" # 1 Day.
+
+# The trusted servers to download signing keys from.
+trusted_key_servers:
+  - server_name: matrix.org
+    verify_keys:
+      "ed25519:auto": "Noi6WqcDj0QmPxCNQqgezwTlBKrfqehY1u2FyWP9uYw"
+
+password_config:
+   enabled: true
+
+## Argon2 Password Hashing Configuration ##
+## OWASP Recommended Minimum: m_cost=65536, t_cost=3, p_cost=1
+## See: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
+
+security:
+  argon2_m_cost: {{ SYNAPSE_ARGON2_M_COST or 65536 }}
+  argon2_t_cost: {{ SYNAPSE_ARGON2_T_COST or 3 }}
+  argon2_p_cost: {{ SYNAPSE_ARGON2_P_COST or 1 }}

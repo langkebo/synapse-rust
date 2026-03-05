@@ -210,7 +210,7 @@ mod tests {
             is_deactivated: false,
             is_guest: false,
             is_shadow_banned: false,
-            created_ts: 1234567890,
+            creation_ts: 1234567890,
             updated_ts: None,
             generation: 1,
             consent_version: None,
@@ -274,7 +274,7 @@ mod tests {
             is_public: false,
             member_count: 0,
             history_visibility: "shared".to_string(),
-            created_ts: 1234567890,
+            creation_ts: 1234567890,
             avatar_url: None,
         };
         assert_eq!(room.room_id, "!test:example.com");
