@@ -75,7 +75,7 @@ pub struct SpaceResponse {
     pub join_rule: String,
     pub visibility: String,
     pub is_public: bool,
-    pub created_ts: i64,
+    pub creation_ts: i64,
     pub updated_ts: Option<i64>,
     pub parent_space_id: Option<String>,
 }
@@ -92,7 +92,7 @@ impl From<crate::storage::space::Space> for SpaceResponse {
             join_rule: space.join_rule,
             visibility: space.visibility,
             is_public: space.is_public,
-            created_ts: space.created_ts,
+            creation_ts: space.creation_ts,
             updated_ts: space.updated_ts,
             parent_space_id: space.parent_space_id,
         }
@@ -799,7 +799,7 @@ mod tests {
             join_rule: "invite".to_string(),
             visibility: "private".to_string(),
             is_public: false,
-            created_ts: 1234567890,
+            creation_ts: 1234567890,
             updated_ts: None,
             parent_space_id: None,
         };

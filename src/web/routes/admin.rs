@@ -882,7 +882,7 @@ pub async fn get_users(
                 "deactivated": u.is_deactivated,
                 "displayname": u.displayname,
                 "avatar_url": u.avatar_url,
-                "created_ts": u.created_ts,
+                "creation_ts": u.creation_ts,
                 "user_type": u.user_type
             })
         })
@@ -920,7 +920,7 @@ async fn get_user(
             "deactivated": u.is_deactivated,
             "displayname": u.displayname,
             "avatar_url": u.avatar_url,
-            "created_ts": u.created_ts,
+            "creation_ts": u.creation_ts,
             "user_type": u.user_type
         }))),
         None => Err(ApiError::not_found("User not found".to_string())),
@@ -1525,7 +1525,7 @@ pub async fn get_users_v2(
         .unwrap_or(true);
 
     let mut query = sqlx::QueryBuilder::new(
-        "SELECT user_id, username, created_ts, is_admin, updated_ts, is_guest, user_type, is_deactivated, displayname, avatar_url FROM users WHERE 1=1"
+        "SELECT user_id, username, creation_ts, is_admin, updated_ts, is_guest, user_type, is_deactivated, displayname, avatar_url FROM users WHERE 1=1"
     );
 
     if !guests {
@@ -1537,7 +1537,7 @@ pub async fn get_users_v2(
         query.push_bind(format!("%{}%", name));
     }
 
-    query.push(" ORDER BY created_ts DESC LIMIT ");
+    query.push(" ORDER BY creation_ts DESC LIMIT ");
     query.push_bind(limit);
     query.push(" OFFSET ");
     query.push_bind(offset);
@@ -1554,7 +1554,7 @@ pub async fn get_users_v2(
             json!({
                 "name": row.get::<Option<String>, _>("username"),
                 "user_id": row.get::<Option<String>, _>("user_id"),
-                "created_ts": row.get::<Option<i64>, _>("created_ts"),
+                "creation_ts": row.get::<Option<i64>, _>("creation_ts"),
                 "admin": row.get::<Option<bool>, _>("is_admin").unwrap_or(false),
                 "is_guest": row.get::<Option<bool>, _>("is_guest").unwrap_or(false),
                 "user_type": row.get::<Option<String>, _>("user_type"),
@@ -1625,7 +1625,7 @@ pub async fn get_user_v2(
                 "deactivated": u.is_deactivated,
                 "displayname": u.displayname,
                 "avatar_url": u.avatar_url,
-                "created_ts": u.created_ts,
+                "creation_ts": u.creation_ts,
                 "user_type": u.user_type,
                 "devices": device_list,
                 "threepids": [],
@@ -1717,7 +1717,7 @@ pub async fn create_or_update_user_v2(
 
         sqlx::query(
             r#"
-            INSERT INTO users (user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated, user_type, created_ts, updated_ts, generation)
+            INSERT INTO users (user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated, user_type, creation_ts, updated_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)
             "#,
         )
@@ -1858,7 +1858,7 @@ pub async fn get_spaces(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
     let spaces = sqlx::query(
-        "SELECT room_id, name, topic, creator, created_ts FROM rooms WHERE room_type = 'm.space' ORDER BY created_ts DESC"
+        "SELECT room_id, name, topic, creator, creation_ts FROM rooms WHERE room_type = 'm.space' ORDER BY creation_ts DESC"
     )
     .fetch_all(&*state.services.room_storage.pool)
     .await
@@ -1872,7 +1872,7 @@ pub async fn get_spaces(
                 "name": row.get::<Option<String>, _>("name"),
                 "topic": row.get::<Option<String>, _>("topic"),
                 "creator": row.get::<String, _>("creator"),
-                "created_ts": row.get::<i64, _>("created_ts")
+                "created_ts": row.get::<i64, _>("creation_ts")
             })
         })
         .collect();
@@ -1889,7 +1889,7 @@ pub async fn get_space(
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let space = sqlx::query(
-        "SELECT room_id, name, topic, creator, created_ts FROM rooms WHERE room_id = $1 AND room_type = 'm.space'"
+        "SELECT room_id, name, topic, creator, creation_ts FROM rooms WHERE room_id = $1 AND room_type = 'm.space'"
     )
     .bind(&space_id)
     .fetch_optional(&*state.services.room_storage.pool)
@@ -1902,7 +1902,7 @@ pub async fn get_space(
             "name": row.get::<Option<String>, _>("name"),
             "topic": row.get::<Option<String>, _>("topic"),
             "creator": row.get::<String, _>("creator"),
-            "created_ts": row.get::<i64, _>("created_ts")
+            "created_ts": row.get::<i64, _>("creation_ts")
         }))),
         None => Err(ApiError::not_found("Space not found".to_string())),
     }

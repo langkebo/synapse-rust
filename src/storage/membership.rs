@@ -363,7 +363,7 @@ impl RoomMemberStorage {
             FROM room_memberships rm
             JOIN rooms r ON rm.room_id = r.room_id
             WHERE rm.user_id = $1 AND rm.membership = 'join'
-            ORDER BY r.created_ts DESC
+            ORDER BY r.creation_ts DESC
             "#,
         )
         .bind(user_id)

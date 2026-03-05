@@ -26,7 +26,7 @@ pub struct User {
     /// Whether the user is shadow banned
     pub is_shadow_banned: bool,
     /// The timestamp when the user was created (milliseconds)
-    pub created_ts: i64,
+    pub creation_ts: i64,
     /// The timestamp when the user was last updated (milliseconds)
     pub updated_ts: Option<i64>,
     /// The generation number for this user
@@ -91,10 +91,10 @@ impl UserStorage {
         let generation = now * 1000;
         sqlx::query_as::<_, User>(
             r#"
-            INSERT INTO users (user_id, username, password_hash, is_admin, created_ts, generation)
+            INSERT INTO users (user_id, username, password_hash, is_admin, creation_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
-                      is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
+                      is_guest, is_shadow_banned, creation_ts, updated_ts, generation, consent_version,
                       appservice_id, user_type, invalid_update_ts, migration_state
             "#,
         )
@@ -112,7 +112,7 @@ impl UserStorage {
         sqlx::query_as::<_, User>(
             r#"
             SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
-                   is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
+                   is_guest, is_shadow_banned, creation_ts, updated_ts, generation, consent_version,
                    appservice_id, user_type, invalid_update_ts, migration_state
             FROM users
             WHERE user_id = $1
@@ -127,7 +127,7 @@ impl UserStorage {
         sqlx::query_as::<_, User>(
             r#"
             SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
-                   is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
+                   is_guest, is_shadow_banned, creation_ts, updated_ts, generation, consent_version,
                    appservice_id, user_type, invalid_update_ts, migration_state
             FROM users
             WHERE username = $1
@@ -153,10 +153,10 @@ impl UserStorage {
         sqlx::query_as::<_, User>(
             r#"
             SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
-                   is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
+                   is_guest, is_shadow_banned, creation_ts, updated_ts, generation, consent_version,
                    appservice_id, user_type, invalid_update_ts, migration_state
             FROM users
-            ORDER BY created_ts DESC
+            ORDER BY creation_ts DESC
             LIMIT $1
             "#,
         )
@@ -173,10 +173,10 @@ impl UserStorage {
         sqlx::query_as::<_, User>(
             r#"
             SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
-                   is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
+                   is_guest, is_shadow_banned, creation_ts, updated_ts, generation, consent_version,
                    appservice_id, user_type, invalid_update_ts, migration_state
             FROM users
-            ORDER BY created_ts DESC
+            ORDER BY creation_ts DESC
             LIMIT $1 OFFSET $2
             "#,
         )
@@ -331,7 +331,7 @@ impl UserStorage {
         let search_pattern = format!("%{}%", query);
         let rows = sqlx::query_as::<_, UserSearchResult>(
             r#"
-            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts
+            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
             FROM users
             WHERE (username ILIKE $1 OR user_id ILIKE $1 OR displayname ILIKE $1)
             AND COALESCE(is_deactivated, FALSE) = FALSE
@@ -341,7 +341,7 @@ impl UserStorage {
                     WHEN username ILIKE $2 THEN 1
                     ELSE 2
                 END,
-                created_ts DESC
+                creation_ts DESC
             LIMIT $3
             "#,
         )
@@ -366,7 +366,7 @@ impl UserStorage {
 
         let result = sqlx::query_as::<_, UserProfile>(
             r#"
-            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts
+            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
             FROM users
             WHERE user_id = $1 AND COALESCE(is_deactivated, FALSE) = FALSE
             "#,
@@ -393,7 +393,7 @@ impl UserStorage {
 
         sqlx::query_as::<_, UserProfile>(
             r#"
-            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts
+            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
             FROM users
             WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE
             "#,
@@ -427,7 +427,7 @@ impl UserStorage {
         sqlx::query_as::<_, User>(
             r#"
             SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
-                   is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
+                   is_guest, is_shadow_banned, creation_ts, updated_ts, generation, consent_version,
                    appservice_id, user_type, invalid_update_ts, migration_state
             FROM users
             WHERE user_id = ANY($1)
@@ -481,7 +481,7 @@ impl UserStorage {
         sqlx::query_as::<_, UserSearchResultWithPresence>(
             r#"
             SELECT u.user_id, u.username, COALESCE(u.displayname, u.username) as displayname, 
-                   u.avatar_url, u.created_ts,
+                   u.avatar_url, u.creation_ts,
                    p.presence, p.last_active_ts
             FROM users u
             LEFT JOIN presence p ON u.user_id = p.user_id
@@ -493,7 +493,7 @@ impl UserStorage {
                     WHEN u.username ILIKE $2 THEN 1
                     ELSE 2
                 END,
-                u.created_ts DESC
+                u.creation_ts DESC
             LIMIT $3
             "#,
         )
@@ -519,7 +519,7 @@ pub struct UserSearchResult {
     pub username: String,
     pub displayname: Option<String>,
     pub avatar_url: Option<String>,
-    pub created_ts: i64,
+    pub creation_ts: i64,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -528,7 +528,7 @@ pub struct UserProfile {
     pub username: String,
     pub displayname: Option<String>,
     pub avatar_url: Option<String>,
-    pub created_ts: i64,
+    pub creation_ts: i64,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -537,7 +537,7 @@ pub struct UserSearchResultWithPresence {
     pub username: String,
     pub displayname: Option<String>,
     pub avatar_url: Option<String>,
-    pub created_ts: i64,
+    pub creation_ts: i64,
     pub presence: Option<String>,
     pub last_active_ts: Option<i64>,
 }
@@ -558,7 +558,7 @@ mod tests {
             is_deactivated: false,
             is_guest: false,
             is_shadow_banned: false,
-            created_ts: 1234567890,
+            creation_ts: 1234567890,
             updated_ts: None,
             generation: 1234567890,
             consent_version: None,
@@ -580,7 +580,7 @@ mod tests {
             username: "bob".to_string(),
             displayname: Some("Bob".to_string()),
             avatar_url: None,
-            created_ts: 1234567890,
+            creation_ts: 1234567890,
         };
 
         assert_eq!(result.user_id, "@bob:example.com");
@@ -594,7 +594,7 @@ mod tests {
             username: "charlie".to_string(),
             displayname: Some("Charlie".to_string()),
             avatar_url: Some("mxc://example.com/charlie".to_string()),
-            created_ts: 1234567890,
+            creation_ts: 1234567890,
         };
 
         assert_eq!(profile.user_id, "@charlie:example.com");
@@ -613,7 +613,7 @@ mod tests {
             is_deactivated: false,
             is_guest: false,
             is_shadow_banned: false,
-            created_ts: 0,
+            creation_ts: 0,
             updated_ts: None,
             generation: 0,
             consent_version: None,
