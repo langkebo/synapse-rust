@@ -1,0 +1,629 @@
+use crate::cache::CacheManager;
+use crate::common::constants::USER_PROFILE_CACHE_TTL;
+use serde::{Deserialize, Serialize};
+use sqlx::{Pool, Postgres, Row};
+use std::sync::Arc;
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+/// Represents a user entity in the database.
+pub struct User {
+    /// The unique Matrix user ID (e.g., @user:example.com)
+    pub user_id: String,
+    /// The local username part
+    pub username: String,
+    /// The hashed password
+    pub password_hash: Option<String>,
+    /// The display name of the user
+    pub displayname: Option<String>,
+    /// The URL of the user's avatar
+    pub avatar_url: Option<String>,
+    /// Whether the user is an admin
+    pub is_admin: bool,
+    /// Whether the user account is deactivated
+    pub is_deactivated: bool,
+    /// Whether the user is a guest
+    pub is_guest: bool,
+    /// Whether the user is shadow banned
+    pub is_shadow_banned: bool,
+    /// The timestamp when the user was created (milliseconds)
+    pub creation_ts: i64,
+    /// The timestamp when the user was last updated (milliseconds)
+    pub updated_ts: Option<i64>,
+    /// The generation number for this user
+    pub generation: i64,
+    /// The consent version the user has agreed to
+    pub consent_version: Option<String>,
+    /// The application service ID that manages this user
+    pub appservice_id: Option<String>,
+    /// The type of user (e.g., "bot", "support")
+    pub user_type: Option<String>,
+    /// The timestamp of the last invalid update
+    pub invalid_update_ts: Option<i64>,
+    /// The migration state of this user
+    pub migration_state: Option<String>,
+}
+
+impl User {
+    /// Returns the user ID.
+    pub fn user_id(&self) -> String {
+        self.user_id.clone()
+    }
+}
+
+#[derive(Clone)]
+/// Handles database operations for user management.
+pub struct UserStorage {
+    /// The database connection pool
+    pub pool: Arc<Pool<Postgres>>,
+    /// The cache manager
+    pub cache: Arc<CacheManager>,
+}
+
+impl UserStorage {
+    /// Creates a new `UserStorage` instance.
+    pub fn new(pool: &Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> Self {
+        Self {
+            pool: pool.clone(),
+            cache,
+        }
+    }
+
+    /// Creates a new user in the database.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The full Matrix user ID
+    /// * `username` - The local username part
+    /// * `password_hash` - The hashed password (optional)
+    /// * `is_admin` - Whether the user should be an admin
+    ///
+    /// # Returns
+    ///
+    /// The created `User` object.
+    pub async fn create_user(
+        &self,
+        user_id: &str,
+        username: &str,
+        password_hash: Option<&str>,
+        is_admin: bool,
+    ) -> Result<User, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
+        let generation = now * 1000;
+        sqlx::query_as::<_, User>(
+            r#"
+            INSERT INTO users (user_id, username, password_hash, is_admin, creation_ts, generation)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
+                      is_guest, is_shadow_banned, creation_ts, updated_ts, generation, consent_version,
+                      appservice_id, user_type, invalid_update_ts, migration_state
+            "#,
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(password_hash)
+        .bind(is_admin)
+        .bind(now)
+        .bind(generation)
+        .fetch_one(&*self.pool)
+        .await
+    }
+
+    pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>(
+            r#"
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
+                   is_guest, is_shadow_banned, creation_ts, updated_ts, generation, consent_version,
+                   appservice_id, user_type, invalid_update_ts, migration_state
+            FROM users
+            WHERE user_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
+    pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>(
+            r#"
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
+                   is_guest, is_shadow_banned, creation_ts, updated_ts, generation, consent_version,
+                   appservice_id, user_type, invalid_update_ts, migration_state
+            FROM users
+            WHERE username = $1
+            "#,
+        )
+        .bind(username)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
+    pub async fn get_user_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> Result<Option<User>, sqlx::Error> {
+        if identifier.starts_with('@') && identifier.contains(':') {
+            self.get_user_by_id(identifier).await
+        } else {
+            self.get_user_by_username(identifier).await
+        }
+    }
+
+    pub async fn get_all_users(&self, limit: i64) -> Result<Vec<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>(
+            r#"
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
+                   is_guest, is_shadow_banned, creation_ts, updated_ts, generation, consent_version,
+                   appservice_id, user_type, invalid_update_ts, migration_state
+            FROM users
+            ORDER BY creation_ts DESC
+            LIMIT $1
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_users_paginated(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>(
+            r#"
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
+                   is_guest, is_shadow_banned, creation_ts, updated_ts, generation, consent_version,
+                   appservice_id, user_type, invalid_update_ts, migration_state
+            FROM users
+            ORDER BY creation_ts DESC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT COALESCE(COUNT(*), 0) as count FROM users
+            "#,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+        row.try_get::<i64, _>("count")
+    }
+
+    pub async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            SELECT 1 FROM users WHERE user_id = $1 AND is_deactivated = FALSE LIMIT 1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.is_some())
+    }
+
+    pub async fn filter_existing_users(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<String>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query_scalar::<_, String>(
+            "SELECT user_id FROM users WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE"
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn update_password(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(r#"UPDATE users SET password_hash = $1 WHERE user_id = $2"#)
+            .bind(password_hash)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn update_displayname(
+        &self,
+        user_id: &str,
+        displayname: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        // CRITICAL FIX: Update database first, then refresh cache to prevent cache stampede
+        sqlx::query(r#"UPDATE users SET displayname = $1 WHERE user_id = $2"#)
+            .bind(displayname)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
+
+        // Refresh cache with new data instead of just deleting
+        if let Ok(Some(profile)) = self.get_user_profile(user_id).await {
+            let key = format!("user:profile:{}", user_id);
+            // Cache for 1 hour
+            let _ = self.cache.set(&key, &profile, USER_PROFILE_CACHE_TTL).await;
+        }
+
+        Ok(())
+    }
+
+    pub async fn update_avatar_url(
+        &self,
+        user_id: &str,
+        avatar_url: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        // CRITICAL FIX: Update database first, then refresh cache to prevent cache stampede
+        sqlx::query(r#"UPDATE users SET avatar_url = $1 WHERE user_id = $2"#)
+            .bind(avatar_url)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
+
+        // Refresh cache with new data instead of just deleting
+        if let Ok(Some(profile)) = self.get_user_profile(user_id).await {
+            let key = format!("user:profile:{}", user_id);
+            // Cache for 1 hour
+            let _ = self.cache.set(&key, &profile, USER_PROFILE_CACHE_TTL).await;
+        }
+
+        Ok(())
+    }
+
+    pub async fn deactivate_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(r#"UPDATE users SET is_deactivated = TRUE WHERE user_id = $1"#)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), sqlx::Error> {
+        sqlx::query(r#"UPDATE users SET is_admin = $1 WHERE user_id = $2"#)
+            .bind(is_admin)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_account_data(
+        &self,
+        user_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        let content_str = serde_json::to_string(content).unwrap_or_default();
+        let now: i64 = chrono::Utc::now().timestamp();
+        sqlx::query(
+            r#"
+            INSERT INTO user_account_data (user_id, event_type, content, created_ts)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (user_id, event_type) DO UPDATE SET content = EXCLUDED.content, created_ts = EXCLUDED.created_ts
+            "#,
+        )
+        .bind(user_id)
+        .bind(event_type)
+        .bind(content_str)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn search_users(
+        &self,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<UserSearchResult>, sqlx::Error> {
+        let search_pattern = format!("%{}%", query);
+        let rows = sqlx::query_as::<_, UserSearchResult>(
+            r#"
+            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
+            FROM users
+            WHERE (username ILIKE $1 OR user_id ILIKE $1 OR displayname ILIKE $1)
+            AND COALESCE(is_deactivated, FALSE) = FALSE
+            ORDER BY
+                CASE
+                    WHEN username = $2 THEN 0
+                    WHEN username ILIKE $2 THEN 1
+                    ELSE 2
+                END,
+                creation_ts DESC
+            LIMIT $3
+            "#,
+        )
+        .bind(search_pattern)
+        .bind(query)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn get_user_profile(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<UserProfile>, sqlx::Error> {
+        let key = format!("user:profile:{}", user_id);
+
+        // Try to get from cache
+        if let Ok(Some(profile)) = self.cache.get::<UserProfile>(&key).await {
+            return Ok(Some(profile));
+        }
+
+        let result = sqlx::query_as::<_, UserProfile>(
+            r#"
+            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
+            FROM users
+            WHERE user_id = $1 AND COALESCE(is_deactivated, FALSE) = FALSE
+            "#,
+        )
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        // Set cache if found
+        if let Some(profile) = &result {
+            let _ = self.cache.set(&key, profile, USER_PROFILE_CACHE_TTL).await;
+        }
+
+        Ok(result)
+    }
+
+    pub async fn get_user_profiles_batch(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<UserProfile>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        sqlx::query_as::<_, UserProfile>(
+            r#"
+            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, creation_ts
+            FROM users
+            WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE
+            "#,
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_user_profiles_map(
+        &self,
+        user_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, UserProfile>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let profiles = self.get_user_profiles_batch(user_ids).await?;
+
+        Ok(profiles
+            .into_iter()
+            .map(|p| (p.user_id.clone(), p))
+            .collect())
+    }
+
+    pub async fn get_users_batch(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        sqlx::query_as::<_, User>(
+            r#"
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
+                   is_guest, is_shadow_banned, creation_ts, updated_ts, generation, consent_version,
+                   appservice_id, user_type, invalid_update_ts, migration_state
+            FROM users
+            WHERE user_id = ANY($1)
+            "#,
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_users_map(
+        &self,
+        user_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, User>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let users = self.get_users_batch(user_ids).await?;
+
+        Ok(users.into_iter().map(|u| (u.user_id.clone(), u)).collect())
+    }
+
+    pub async fn update_displayname_batch(
+        &self,
+        updates: &[(String, Option<String>)],
+    ) -> Result<u64, sqlx::Error> {
+        if updates.is_empty() {
+            return Ok(0);
+        }
+
+        let mut count = 0u64;
+        for (user_id, displayname) in updates {
+            sqlx::query(r#"UPDATE users SET displayname = $1 WHERE user_id = $2"#)
+                .bind(displayname)
+                .bind(user_id)
+                .execute(&*self.pool)
+                .await?;
+            count += 1;
+        }
+
+        Ok(count)
+    }
+
+    pub async fn search_users_with_presence(
+        &self,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<UserSearchResultWithPresence>, sqlx::Error> {
+        let search_pattern = format!("%{}%", query);
+        sqlx::query_as::<_, UserSearchResultWithPresence>(
+            r#"
+            SELECT u.user_id, u.username, COALESCE(u.displayname, u.username) as displayname, 
+                   u.avatar_url, u.creation_ts,
+                   p.presence, p.last_active_ts
+            FROM users u
+            LEFT JOIN presence p ON u.user_id = p.user_id
+            WHERE (u.username ILIKE $1 OR u.user_id ILIKE $1 OR u.displayname ILIKE $1)
+            AND COALESCE(u.is_deactivated, FALSE) = FALSE
+            ORDER BY
+                CASE
+                    WHEN u.username = $2 THEN 0
+                    WHEN u.username ILIKE $2 THEN 1
+                    ELSE 2
+                END,
+                u.creation_ts DESC
+            LIMIT $3
+            "#,
+        )
+        .bind(search_pattern)
+        .bind(query)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(r#"DELETE FROM users WHERE user_id = $1"#)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct UserSearchResult {
+    pub user_id: String,
+    pub username: String,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub creation_ts: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct UserProfile {
+    pub user_id: String,
+    pub username: String,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub creation_ts: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct UserSearchResultWithPresence {
+    pub user_id: String,
+    pub username: String,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub creation_ts: i64,
+    pub presence: Option<String>,
+    pub last_active_ts: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_user_struct() {
+        let user = User {
+            user_id: "@alice:example.com".to_string(),
+            username: "alice".to_string(),
+            password_hash: Some("hashed".to_string()),
+            displayname: Some("Alice".to_string()),
+            avatar_url: Some("mxc://example.com/avatar".to_string()),
+            is_admin: false,
+            is_deactivated: false,
+            is_guest: false,
+            is_shadow_banned: false,
+            creation_ts: 1234567890,
+            updated_ts: None,
+            generation: 1234567890,
+            consent_version: None,
+            appservice_id: None,
+            user_type: None,
+            invalid_update_ts: None,
+            migration_state: None,
+        };
+
+        assert_eq!(user.user_id(), "@alice:example.com");
+        assert_eq!(user.username, "alice");
+        assert!(user.password_hash.is_some());
+    }
+
+    #[test]
+    fn test_user_search_result() {
+        let result = UserSearchResult {
+            user_id: "@bob:example.com".to_string(),
+            username: "bob".to_string(),
+            displayname: Some("Bob".to_string()),
+            avatar_url: None,
+            creation_ts: 1234567890,
+        };
+
+        assert_eq!(result.user_id, "@bob:example.com");
+        assert_eq!(result.username, "bob");
+    }
+
+    #[test]
+    fn test_user_profile() {
+        let profile = UserProfile {
+            user_id: "@charlie:example.com".to_string(),
+            username: "charlie".to_string(),
+            displayname: Some("Charlie".to_string()),
+            avatar_url: Some("mxc://example.com/charlie".to_string()),
+            creation_ts: 1234567890,
+        };
+
+        assert_eq!(profile.user_id, "@charlie:example.com");
+        assert!(profile.displayname.is_some());
+    }
+
+    #[test]
+    fn test_user_serialization() {
+        let user = User {
+            user_id: "@test:example.com".to_string(),
+            username: "test".to_string(),
+            password_hash: None,
+            displayname: None,
+            avatar_url: None,
+            is_admin: false,
+            is_deactivated: false,
+            is_guest: false,
+            is_shadow_banned: false,
+            creation_ts: 0,
+            updated_ts: None,
+            generation: 0,
+            consent_version: None,
+            appservice_id: None,
+            user_type: None,
+            invalid_update_ts: None,
+            migration_state: None,
+        };
+
+        let json = serde_json::to_string(&user).unwrap();
+        assert!(json.contains("@test:example.com"));
+    }
+}

@@ -1,0 +1,50 @@
+# ============================================================================
+# Synapse Rust Homeserver Configuration - Local Development
+# ============================================================================
+# 
+# 此文件保留用于本地开发参考
+# 实际配置请使用 homeserver.yaml + 环境变量
+# 
+# 使用方法:
+# 1. 复制环境变量模板:
+#    cp .env.example .env.development
+# 
+# 2. 修改 .env.development 中的配置
+# 
+# 3. 启动服务时指定环境变量文件:
+#    source .env.development && ./synapse-rust
+# 
+# 或者使用 Docker Compose:
+#    docker-compose --env-file .env.development up
+# 
+# ============================================================================
+
+# 本地开发与生产环境的主要差异:
+# ┌─────────────────────┬────────────────────┬────────────────────┐
+# │ 配置项              │ 开发环境           │ 生产环境           │
+# ├─────────────────────┼────────────────────┼────────────────────┤
+# │ PUBLIC_BASEURL      │ http://localhost   │ https://matrix...  │
+# │ DB_HOST             │ localhost          │ synapse-postgres   │
+# │ DB_POOL_SIZE        │ 10                 │ 20                 │
+# │ LOG_FORMAT          │ text               │ json               │
+# │ RATE_LIMIT_ENABLED  │ false              │ true               │
+# │ URL_PREVIEW_ENABLED │ false              │ true               │
+# │ REDIS_ENABLED       │ false              │ true (可选)        │
+# │ TELEMETRY_ENABLED   │ false              │ true (可选)        │
+# └─────────────────────┴────────────────────┴────────────────────┘
+
+# 敏感信息处理:
+# - 所有密钥、密码等敏感信息必须通过环境变量配置
+# - 禁止在配置文件中硬编码敏感信息
+# - 生产环境必须设置强密码和密钥
+
+# 环境变量优先级:
+# 1. 系统环境变量
+# 2. .env 文件
+# 3. 配置文件中的默认值
+
+# 相关文件:
+# - homeserver.yaml      主配置文件 (使用环境变量)
+# - .env.example         环境变量模板
+# - .env.development     开发环境配置
+# - .env.production      生产环境配置 (需自行创建)

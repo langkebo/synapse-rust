@@ -1,0 +1,92 @@
+table_name,column_name,current_type,recommended_name,recommended_type,note
+access_tokens,appservice_id,varchar,as_id,varchar(255),应用服务主关联键统一
+account_validity,allow_renewal,bool,is_renewal,bool,布尔命名标准化
+active_tokens,appservice_id,varchar,as_id,varchar(255),应用服务主关联键统一
+application_service_events,appservice_id,varchar,as_id,varchar(255),应用服务主关联键统一
+application_service_events,processed,bool,is_processed,bool,布尔命名标准化
+application_service_events,as_id,text,as_id,varchar(255),应用服务主关联键统一
+application_service_room_alias_namespaces,as_id,varchar,as_id,varchar(255),应用服务主关联键统一
+application_service_room_alias_namespaces,exclusive,bool,is_exclusive,bool,布尔命名标准化
+application_service_room_namespaces,as_id,varchar,as_id,varchar(255),应用服务主关联键统一
+application_service_room_namespaces,exclusive,bool,is_exclusive,bool,布尔命名标准化
+application_service_state,appservice_id,varchar,as_id,varchar(255),应用服务主关联键统一
+application_service_state,as_id,varchar,as_id,varchar(255),应用服务主关联键统一
+application_service_statistics,as_id,varchar,as_id,varchar(255),应用服务主关联键统一
+application_service_statistics,rate_limited,bool,is_rate_limited,bool,布尔命名标准化
+application_service_transactions,as_id,text,as_id,varchar(255),应用服务主关联键统一
+application_service_user_namespaces,appservice_id,varchar,as_id,varchar(255),应用服务主关联键统一
+application_service_user_namespaces,as_id,varchar,as_id,varchar(255),应用服务主关联键统一
+application_service_user_namespaces,exclusive,bool,is_exclusive,bool,布尔命名标准化
+application_service_users,appservice_id,varchar,as_id,varchar(255),应用服务主关联键统一
+application_service_users,as_id,text,as_id,varchar(255),应用服务主关联键统一
+application_services,as_id,varchar,as_id,varchar(255),应用服务主关联键统一
+application_services,rate_limited,bool,is_rate_limited,bool,布尔命名标准化
+blocked_rooms,blocked_at,int8,blocked_ts,int8,时间字段统一为 _ts
+captcha_rate_limit,first_request_at,timestamptz,first_request_ts,timestamptz,时间字段统一为 _ts
+captcha_rate_limit,last_request_at,timestamptz,last_request_ts,timestamptz,时间字段统一为 _ts
+captcha_send_log,sent_at,timestamptz,sent_ts,timestamptz,时间字段统一为 _ts
+captcha_send_log,success,bool,is_success,bool,布尔命名标准化
+cas_tickets,expires_at,timestamptz,expires_ts,timestamptz,时间字段统一为 _ts
+cas_tickets,used_at,timestamptz,used_ts,timestamptz,时间字段统一为 _ts
+device_keys,verified,bool,is_verified,bool,布尔命名标准化
+device_keys,blocked,bool,is_blocked,bool,布尔命名标准化
+devices,appservice_id,varchar,as_id,varchar(255),应用服务主关联键统一
+e2ee_key_requests,fulfilled,bool,is_fulfilled,bool,布尔命名标准化
+email_verification_tokens,expires_at,timestamptz,expires_ts,timestamptz,时间字段统一为 _ts
+email_verification_tokens,verified_at,timestamptz,verified_ts,timestamptz,时间字段统一为 _ts
+email_verification_tokens,used,bool,is_used,bool,布尔命名标准化
+events,contains_url,bool,is_contains_url,bool,布尔命名标准化
+events,redacted,bool,is_redacted,bool,布尔命名标准化
+federation_blacklist,blocked_at,timestamptz,blocked_ts,timestamptz,时间字段统一为 _ts
+federation_blacklist,expires_at,timestamptz,expires_ts,timestamptz,时间字段统一为 _ts
+federation_signing_keys,expires_at,int8,expires_ts,int8,时间字段统一为 _ts
+inbound_megolm_sessions,imported_at,int8,imported_ts,int8,时间字段统一为 _ts
+media_quota_alerts_backup_20260301,acknowledged,bool,is_acknowledged,bool,布尔命名标准化
+media_quota_alerts_backup_20260301,acknowledged_at,timestamptz,acknowledged_ts,timestamptz,时间字段统一为 _ts
+migrations,applied_at,timestamp,applied_ts,timestamp,时间字段统一为 _ts
+module_execution_logs,success,bool,is_success,bool,布尔命名标准化
+notifications,read,bool,is_read,bool,布尔命名标准化
+olm_accounts,one_time_keys_published,bool,is_one_time_keys_published,bool,布尔命名标准化
+olm_accounts,fallback_key_published,bool,is_fallback_key_published,bool,布尔命名标准化
+openid_tokens,expires_at,int8,expires_ts,int8,时间字段统一为 _ts
+optimization_log,executed_at,timestamp,executed_ts,timestamp,时间字段统一为 _ts
+password_auth_providers,enabled,bool,is_enabled,bool,布尔命名标准化
+private_messages,read_by_receiver,bool,is_read_by_receiver,bool,布尔命名标准化
+push_device,last_used_at,timestamptz,last_used_ts,timestamptz,时间字段统一为 _ts
+push_notification_log,sent_at,timestamptz,sent_ts,timestamptz,时间字段统一为 _ts
+push_notification_log,success,bool,is_success,bool,布尔命名标准化
+push_notification_queue,next_attempt_at,timestamptz,next_attempt_ts,timestamptz,时间字段统一为 _ts
+push_notification_queue,sent_at,timestamptz,sent_ts,timestamptz,时间字段统一为 _ts
+push_provider_configs,enabled,bool,is_enabled,bool,布尔命名标准化
+refresh_token_usage,success,bool,is_success,bool,布尔命名标准化
+refresh_tokens,expires_at,int8,expires_ts,int8,时间字段统一为 _ts
+registration_token_batches,expires_at,int8,expires_ts,int8,时间字段统一为 _ts
+registration_tokens,expires_at,int8,expires_ts,int8,时间字段统一为 _ts
+retention_cleanup_logs,started_at,timestamptz,started_ts,timestamptz,时间字段统一为 _ts
+retention_cleanup_logs,completed_at,timestamptz,completed_ts,timestamptz,时间字段统一为 _ts
+room_directory,searchable,bool,is_searchable,bool,布尔命名标准化
+room_invites,expires_at,int8,expires_ts,int8,时间字段统一为 _ts
+room_retention_policies,expires_at,timestamptz,expires_ts,timestamptz,时间字段统一为 _ts
+room_retention_policies,expire_on_clients,bool,is_expire_on_clients,bool,布尔命名标准化
+room_summaries,world_readable,bool,is_world_readable,bool,布尔命名标准化
+room_summaries,guest_can_join,bool,is_guest_can_join,bool,布尔命名标准化
+room_summaries,federation_allowed,bool,is_federation_allowed,bool,布尔命名标准化
+saml_sessions,expires_at,timestamptz,expires_ts,timestamptz,时间字段统一为 _ts
+saml_user_mapping,first_auth_at,timestamptz,first_auth_ts,timestamptz,时间字段统一为 _ts
+saml_user_mapping,last_auth_at,timestamptz,last_auth_ts,timestamptz,时间字段统一为 _ts
+schema_migrations,success,bool,is_success,bool,布尔命名标准化
+schema_migrations,executed_at,timestamptz,executed_ts,timestamptz,时间字段统一为 _ts
+server_notifications_backup_20260301,starts_at,timestamptz,starts_ts,timestamptz,时间字段统一为 _ts
+server_notifications_backup_20260301,expires_at,timestamptz,expires_ts,timestamptz,时间字段统一为 _ts
+server_retention_policy,allow_default,bool,is_default,bool,布尔命名标准化
+server_retention_policy,expire_on_clients,bool,is_expire_on_clients,bool,布尔命名标准化
+space_children,suggested,bool,is_suggested,bool,布尔命名标准化
+to_device_messages,delivered,bool,is_delivered,bool,布尔命名标准化
+token_blacklist,expires_at,int8,expires_ts,int8,时间字段统一为 _ts
+token_blacklist,revoked_at,int8,revoked_ts,int8,时间字段统一为 _ts
+typing,typing,bool,is_typing,bool,布尔命名标准化
+user_threepids,validated_at,int8,validated_ts,int8,时间字段统一为 _ts
+user_threepids,added_at,int8,added_ts,int8,时间字段统一为 _ts
+users,appservice_id,varchar,as_id,varchar(255),应用服务主关联键统一
+users,must_change_password,bool,is_must_change_password,bool,布尔命名标准化
+worker_health_checks,checked_at,timestamptz,checked_ts,timestamptz,时间字段统一为 _ts

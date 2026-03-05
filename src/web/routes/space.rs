@@ -75,7 +75,7 @@ pub struct SpaceResponse {
     pub join_rule: String,
     pub visibility: String,
     pub is_public: bool,
-    pub creation_ts: i64,
+    pub created_ts: i64,
     pub updated_ts: Option<i64>,
     pub parent_space_id: Option<String>,
 }
@@ -92,7 +92,7 @@ impl From<crate::storage::space::Space> for SpaceResponse {
             join_rule: space.join_rule,
             visibility: space.visibility,
             is_public: space.is_public,
-            creation_ts: space.creation_ts,
+            created_ts: space.created_ts,
             updated_ts: space.updated_ts,
             parent_space_id: space.parent_space_id,
         }
@@ -316,6 +316,38 @@ pub async fn get_space_members(
         members.into_iter().map(SpaceMemberResponse::from).collect();
 
     Ok(Json(response))
+}
+
+pub async fn get_space_rooms(
+    State(state): State<AppState>,
+    Path(space_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let children = state
+        .services
+        .space_service
+        .get_space_children(&space_id)
+        .await?;
+
+    let rooms: Vec<String> = children.into_iter().map(|c| c.room_id).collect();
+
+    Ok(Json(serde_json::json!({
+        "space_id": space_id,
+        "rooms": rooms,
+    })))
+}
+
+pub async fn get_space_state(
+    State(state): State<AppState>,
+    Path(space_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let space = state
+        .services
+        .space_service
+        .get_space(&space_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Space not found"))?;
+
+    Ok(Json(SpaceResponse::from(space)))
 }
 
 pub async fn invite_user(
@@ -613,6 +645,14 @@ pub fn create_space_router(state: AppState) -> Router<AppState> {
             get(get_space_members),
         )
         .route(
+            "/_matrix/client/v1/spaces/{space_id}/rooms",
+            get(get_space_rooms),
+        )
+        .route(
+            "/_matrix/client/v1/spaces/{space_id}/state",
+            get(get_space_state),
+        )
+        .route(
             "/_matrix/client/v1/spaces/{space_id}/invite",
             post(invite_user),
         )
@@ -742,9 +782,7 @@ mod tests {
 
     #[test]
     fn test_hierarchy_query() {
-        let query = HierarchyQuery {
-            max_depth: Some(3),
-        };
+        let query = HierarchyQuery { max_depth: Some(3) };
 
         assert_eq!(query.max_depth, Some(3));
     }
@@ -761,7 +799,7 @@ mod tests {
             join_rule: "invite".to_string(),
             visibility: "private".to_string(),
             is_public: false,
-            creation_ts: 1234567890,
+            created_ts: 1234567890,
             updated_ts: None,
             parent_space_id: None,
         };

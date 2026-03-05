@@ -407,7 +407,10 @@ async fn test_room_directory_and_public_rooms() {
 
     // 3. Get Room Aliases
     let request = Request::builder()
-        .uri(format!("/_matrix/client/r0/directory/room/{}/alias", room_id))
+        .uri(format!(
+            "/_matrix/client/r0/directory/room/{}/alias",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();

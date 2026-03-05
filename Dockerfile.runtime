@@ -1,0 +1,92 @@
+# ============================================================================
+# synapse-rust Dockerfile - Runtime Only (使用预编译二进制)
+# 版本: 2.0.3
+# 优化: 直接使用已编译的二进制文件，无需在Docker内编译
+# ============================================================================
+
+FROM debian:bookworm-slim AS runtime
+
+LABEL maintainer="Synapse Rust Team"
+LABEL version="2.0.3"
+LABEL description="Synapse Rust Matrix Homeserver with Auto Migration"
+
+# 安装运行时依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libssl3 \
+    ca-certificates \
+    curl \
+    tzdata \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# 创建用户和目录
+RUN groupadd --system synapse && \
+    useradd --system --gid synapse --home-dir /app --shell /usr/sbin/nologin synapse
+
+RUN mkdir -p /app/bin \
+    /app/data \
+    /app/data/media \
+    /app/data/media/thumbnails \
+    /app/data/media/quarantine \
+    /app/data/media/tmp \
+    /app/data/keys \
+    /app/logs \
+    /app/config \
+    /app/migrations \
+    /app/scripts && \
+    chown -R synapse:synapse /app && \
+    chmod -R 755 /app && \
+    chmod 777 /app/data/media/tmp
+
+# 复制预编译的二进制文件
+COPY --chown=synapse:synapse target/release/synapse-rust /usr/local/bin/synapse-rust
+
+# 复制配置文件
+COPY --chown=synapse:synapse docker/config/homeserver.yaml /app/config/homeserver.yaml
+
+# 复制迁移文件
+COPY --chown=synapse:synapse migrations /app/migrations
+
+# 复制脚本
+COPY --chown=synapse:synapse docker/docker-entrypoint.sh /app/scripts/docker-entrypoint.sh
+COPY --chown=synapse:synapse docker/run-migrations.sh /app/scripts/run-migrations.sh
+COPY --chown=synapse:synapse docker/init-database.sh /app/scripts/init-database.sh
+COPY --chown=synapse:synapse docker/verify-schema.sh /app/scripts/verify-schema.sh
+
+# 设置权限
+RUN chmod +x /usr/local/bin/synapse-rust && \
+    chmod 500 /usr/local/bin/synapse-rust && \
+    chmod +x /app/scripts/docker-entrypoint.sh /app/scripts/run-migrations.sh \
+              /app/scripts/init-database.sh /app/scripts/verify-schema.sh && \
+    chmod 550 /app/scripts/docker-entrypoint.sh && \
+    chmod 550 /app/scripts/run-migrations.sh && \
+    chmod 550 /app/scripts/init-database.sh && \
+    chmod 550 /app/scripts/verify-schema.sh
+
+# 环境变量
+ENV DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
+ENV REDIS_URL=redis://redis:6379
+ENV RUST_LOG=info
+ENV RUST_BACKTRACE=1
+ENV SERVER_NAME=cjystx.top
+ENV SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
+ENV TZ=Asia/Shanghai
+ENV PATH=/usr/local/bin:/usr/bin:/bin
+ENV RUN_MIGRATIONS=true
+ENV VERIFY_SCHEMA=true
+ENV MIGRATION_TIMEOUT=300
+ENV DB_WAIT_ATTEMPTS=30
+ENV DB_WAIT_INTERVAL=2
+ENV STOP_ON_MIGRATION_FAILURE=true
+
+WORKDIR /app
+
+EXPOSE 8008 8448 9090
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+    CMD curl -sf http://localhost:8008/_matrix/federation/v1/version || exit 1
+
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
+CMD ["synapse-rust"]
