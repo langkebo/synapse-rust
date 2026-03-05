@@ -1,12 +1,13 @@
-[source.crates-io]
-replace-with = "ustc"
+[build]
+# 优化编译配置，减少内存使用
+jobs = 1
+incremental = true
 
-[source.ustc]
-registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
+[profile.release]
+# 优化编译速度和内存使用
+opt-level = 2
+lto = "thin"
+codegen-units = 4
 
-[source.tuna]
-registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
-
-[net]
-retry = 3
-git-fetch-with-cli = true
+[profile.dev]
+incremental = true

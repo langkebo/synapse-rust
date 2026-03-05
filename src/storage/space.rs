@@ -13,10 +13,11 @@ pub struct Space {
     pub creator: String,
     pub join_rule: String,
     pub visibility: String,
-    pub creation_ts: i64,
+    pub created_ts: i64,
     pub updated_ts: Option<i64>,
     pub is_public: bool,
     pub parent_space_id: Option<String>,
+    pub room_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -213,10 +214,10 @@ impl SpaceStorage {
             r#"
             INSERT INTO spaces (
                 space_id, room_id, name, topic, avatar_url, creator,
-                join_rule, visibility, creation_ts, is_public, parent_space_id
+                join_rule, visibility, created_ts, is_public, parent_space_id
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id
+            RETURNING space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id
             "#,
         )
         .bind(&space_id)
@@ -240,14 +241,14 @@ impl SpaceStorage {
     }
 
     pub async fn get_space(&self, space_id: &str) -> Result<Option<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id FROM spaces WHERE space_id = $1"#)
+        sqlx::query_as::<_, Space>(r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE space_id = $1"#)
             .bind(space_id)
             .fetch_optional(&*self.pool)
             .await
     }
 
     pub async fn get_space_by_room(&self, room_id: &str) -> Result<Option<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id FROM spaces WHERE room_id = $1"#)
+        sqlx::query_as::<_, Space>(r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE room_id = $1"#)
             .bind(room_id)
             .fetch_optional(&*self.pool)
             .await
@@ -271,7 +272,7 @@ impl SpaceStorage {
                 is_public = COALESCE($7, is_public),
                 updated_ts = $8
             WHERE space_id = $1
-            RETURNING space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id
+            RETURNING space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id
             "#,
         )
         .bind(space_id)
@@ -419,10 +420,10 @@ impl SpaceStorage {
     pub async fn get_user_spaces(&self, user_id: &str) -> Result<Vec<Space>, sqlx::Error> {
         sqlx::query_as::<_, Space>(
             r#"
-            SELECT s.* FROM spaces s
+            SELECT s.space_id, s.room_id, s.name, s.topic, s.avatar_url, s.creator, s.join_rule, s.visibility, s.created_ts, s.updated_ts, s.is_public, s.parent_space_id, s.room_type FROM spaces s
             JOIN space_members sm ON s.space_id = sm.space_id
             WHERE sm.user_id = $1 AND sm.membership = 'join'
-            ORDER BY s.creation_ts DESC
+            ORDER BY s.created_ts DESC
             "#,
         )
         .bind(user_id)
@@ -436,7 +437,7 @@ impl SpaceStorage {
         offset: i64,
     ) -> Result<Vec<Space>, sqlx::Error> {
         sqlx::query_as::<_, Space>(
-            r#"SELECT * FROM spaces WHERE is_public = TRUE ORDER BY creation_ts DESC LIMIT $1 OFFSET $2"#
+            r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE is_public = TRUE ORDER BY created_ts DESC LIMIT $1 OFFSET $2"#
         )
         .bind(limit)
         .bind(offset)
@@ -581,10 +582,10 @@ impl SpaceStorage {
 
         sqlx::query_as::<_, Space>(
             r#"
-            SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id
+            SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id
             FROM spaces 
             WHERE is_public = TRUE AND (name ILIKE $1 OR topic ILIKE $1)
-            ORDER BY creation_ts DESC 
+            ORDER BY created_ts DESC 
             LIMIT $2
             "#,
         )
@@ -623,7 +624,7 @@ impl SpaceStorage {
                             "is_public": row.get::<bool, _>("is_public"),
                             "child_room_count": row.get::<i64, _>("child_room_count"),
                             "member_count": row.get::<i64, _>("member_count"),
-                            "creation_ts": row.get::<i64, _>("creation_ts"),
+                            "created_ts": row.get::<i64, _>("created_ts"),
                             "updated_ts": row.get::<Option<i64>, _>("updated_ts"),
                         })
                     })
@@ -889,10 +890,11 @@ mod tests {
             creator: "@test:localhost".to_string(),
             join_rule: "invite".to_string(),
             visibility: "private".to_string(),
-            creation_ts: 1234567890,
+            created_ts: 1234567890,
             updated_ts: None,
             is_public: false,
             parent_space_id: None,
+            room_type: None,
         }
     }
 

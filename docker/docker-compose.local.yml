@@ -1,0 +1,7 @@
+services:
+  db:
+    ports:
+      - "55432:5432"
+  synapse-rust:
+    environment:
+      - DATABASE_URL=postgres://synapse:${DB_PASSWORD:-synapse}@db:5432/synapse_test

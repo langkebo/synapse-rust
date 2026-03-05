@@ -30,7 +30,10 @@ impl SchemaValidator {
         Self { pool }
     }
 
-    pub async fn get_table_columns(&self, table_name: &str) -> Result<Vec<ColumnInfo>, sqlx::Error> {
+    pub async fn get_table_columns(
+        &self,
+        table_name: &str,
+    ) -> Result<Vec<ColumnInfo>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String, String, String)>(
             r#"
             SELECT column_name, data_type, is_nullable
@@ -69,7 +72,11 @@ impl SchemaValidator {
         Ok(rows)
     }
 
-    pub async fn validate_column_exists(&self, table_name: &str, column_name: &str) -> Result<bool, sqlx::Error> {
+    pub async fn validate_column_exists(
+        &self,
+        table_name: &str,
+        column_name: &str,
+    ) -> Result<bool, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*)
@@ -113,7 +120,10 @@ impl SchemaValidator {
         Ok(schema_map)
     }
 
-    pub async fn validate_required_columns(&self, requirements: &[(&str, &str)]) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn validate_required_columns(
+        &self,
+        requirements: &[(&str, &str)],
+    ) -> Result<Vec<String>, sqlx::Error> {
         let mut missing = Vec::new();
 
         for (table, column) in requirements {
@@ -125,7 +135,10 @@ impl SchemaValidator {
         Ok(missing)
     }
 
-    pub async fn validate_required_tables(&self, tables: &[&str]) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn validate_required_tables(
+        &self,
+        tables: &[&str],
+    ) -> Result<Vec<String>, sqlx::Error> {
         let mut missing = Vec::new();
 
         for table in tables {
@@ -141,9 +154,17 @@ impl SchemaValidator {
         let mut report = SchemaConsistencyReport::default();
 
         let required_tables = vec![
-            "users", "rooms", "events", "devices", "access_tokens",
-            "presence", "federation_signing_keys", "notifications",
-            "room_memberships", "account_data", "push_rules",
+            "users",
+            "rooms",
+            "events",
+            "devices",
+            "access_tokens",
+            "presence",
+            "federation_signing_keys",
+            "notifications",
+            "room_memberships",
+            "account_data",
+            "push_rules",
         ];
 
         report.missing_tables = self.validate_required_tables(&required_tables).await?;
@@ -156,10 +177,10 @@ impl SchemaValidator {
             ("rooms", "room_version"),
             ("rooms", "is_public"),
             ("rooms", "member_count"),
-            ("rooms", "creation_ts"),
+            ("rooms", "created_ts"),
             ("users", "user_id"),
             ("users", "password_hash"),
-            ("users", "creation_ts"),
+            ("users", "created_ts"),
             ("presence", "user_id"),
             ("presence", "presence"),
             ("presence", "updated_ts"),
@@ -179,14 +200,24 @@ impl SchemaValidator {
 
     pub async fn validate_all(&self) -> Result<SchemaValidationResult, sqlx::Error> {
         let report = self.check_schema_consistency().await?;
-        
+
         let mut schema_info = Vec::new();
-        let tables_to_check = vec!["rooms", "users", "presence", "federation_signing_keys", "notifications"];
-        
+        let tables_to_check = vec![
+            "rooms",
+            "users",
+            "presence",
+            "federation_signing_keys",
+            "notifications",
+        ];
+
         for table in tables_to_check {
             let columns = self.get_table_columns(table).await?;
             let column_names: Vec<String> = columns.iter().map(|c| c.column_name.clone()).collect();
-            let missing: Vec<String> = column_names.iter().filter(|c| !column_names.contains(c)).cloned().collect();
+            let missing: Vec<String> = column_names
+                .iter()
+                .filter(|c| !column_names.contains(c))
+                .cloned()
+                .collect();
             schema_info.push(TableSchemaInfo {
                 table_name: table.to_string(),
                 missing_columns: missing,
@@ -212,17 +243,22 @@ impl SchemaValidator {
             ("rooms", "avatar_url", "TEXT"),
             ("rooms", "canonical_alias", "VARCHAR(255)"),
             ("rooms", "member_count", "BIGINT DEFAULT 0"),
-            ("rooms", "history_visibility", "VARCHAR(50) DEFAULT 'joined'"),
+            (
+                "rooms",
+                "history_visibility",
+                "VARCHAR(50) DEFAULT 'joined'",
+            ),
             ("rooms", "encryption", "VARCHAR(50)"),
             ("rooms", "last_activity_ts", "BIGINT"),
         ];
 
         for (table, column, col_type) in columns_to_add {
             if !self.validate_column_exists(table, column).await? {
-                let sql = format!("ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {}", table, column, col_type);
-                sqlx::query(&sql)
-                    .execute(&*self.pool)
-                    .await?;
+                let sql = format!(
+                    "ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {}",
+                    table, column, col_type
+                );
+                sqlx::query(&sql).execute(&*self.pool).await?;
                 repaired.push(format!("{}.{}", table, column));
             }
         }
@@ -259,9 +295,7 @@ impl SchemaValidator {
             let exists: bool = self.index_exists(index_name).await?;
             if !exists {
                 let sql = format!("CREATE INDEX IF NOT EXISTS {} ON {}", index_name, index_def);
-                sqlx::query(&sql)
-                    .execute(&*self.pool)
-                    .await?;
+                sqlx::query(&sql).execute(&*self.pool).await?;
                 created.push(index_name.to_string());
             }
         }
@@ -299,10 +333,16 @@ impl SchemaConsistencyReport {
         } else {
             let mut msg = String::new();
             if !self.missing_tables.is_empty() {
-                msg.push_str(&format!("Missing tables: {}\n", self.missing_tables.join(", ")));
+                msg.push_str(&format!(
+                    "Missing tables: {}\n",
+                    self.missing_tables.join(", ")
+                ));
             }
             if !self.missing_columns.is_empty() {
-                msg.push_str(&format!("Missing columns: {}\n", self.missing_columns.join(", ")));
+                msg.push_str(&format!(
+                    "Missing columns: {}\n",
+                    self.missing_columns.join(", ")
+                ));
             }
             msg
         }

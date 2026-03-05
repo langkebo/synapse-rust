@@ -45,7 +45,7 @@ CREATE TABLE users (
     is_guest BOOLEAN DEFAULT FALSE,          -- 是否访客
     user_type VARCHAR(50),                   -- 用户类型
     deactivated BOOLEAN DEFAULT FALSE,       -- 是否停用
-    creation_ts BIGINT NOT NULL,             -- 创建时间戳
+    created_ts BIGINT NOT NULL,             -- 创建时间戳
     updated_ts BIGINT,                       -- 更新时间戳
     generation BIGINT DEFAULT 1              -- 代数
 );

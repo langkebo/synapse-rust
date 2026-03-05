@@ -3,11 +3,10 @@ mod password_hash_pool_tests {
     use std::sync::Arc;
     use std::time::Instant;
 
-    use synapse_rust::password_hash_pool::{
-        PasswordHashPool, PasswordHashPoolConfig,
-        PasswordHashError,
-    };
     use synapse_rust::argon2_config::Argon2Config;
+    use synapse_rust::password_hash_pool::{
+        PasswordHashError, PasswordHashPool, PasswordHashPoolConfig,
+    };
     use tokio::sync::Barrier;
 
     fn create_test_pool_config() -> PasswordHashPoolConfig {
@@ -62,16 +61,26 @@ mod password_hash_pool_tests {
 
         let results: Vec<_> = futures::future::join_all(handles).await;
 
-        let successful: Vec<_> = results.iter().filter(|r| {
-            r.is_ok() && r.as_ref().unwrap().is_ok()
-        }).collect();
+        let successful: Vec<_> = results
+            .iter()
+            .filter(|r| r.is_ok() && r.as_ref().unwrap().is_ok())
+            .collect();
 
-        let rejected: Vec<_> = results.iter().filter(|r| {
-            r.is_ok() && matches!(r.as_ref().unwrap(), Err(PasswordHashError::PoolExhausted))
-        }).collect();
+        let rejected: Vec<_> = results
+            .iter()
+            .filter(|r| {
+                r.is_ok() && matches!(r.as_ref().unwrap(), Err(PasswordHashError::PoolExhausted))
+            })
+            .collect();
 
-        assert!(successful.len() >= 2, "At least 2 operations should succeed");
-        assert!(successful.len() + rejected.len() == 6, "All operations should either succeed or be rejected");
+        assert!(
+            successful.len() >= 2,
+            "At least 2 operations should succeed"
+        );
+        assert!(
+            successful.len() + rejected.len() == 6,
+            "All operations should either succeed or be rejected"
+        );
     }
 
     #[tokio::test]
@@ -96,7 +105,10 @@ mod password_hash_pool_tests {
         assert_eq!(pool.available_permits(), 0);
 
         let permit4 = pool.semaphore().clone().try_acquire_owned();
-        assert!(permit4.is_err(), "Should not be able to acquire when pool is exhausted");
+        assert!(
+            permit4.is_err(),
+            "Should not be able to acquire when pool is exhausted"
+        );
 
         drop(permit1);
         assert_eq!(pool.available_permits(), 1);
@@ -112,8 +124,14 @@ mod password_hash_pool_tests {
         let hash = pool.hash_password("test").await.unwrap();
         pool.verify_password("test", &hash).await.unwrap();
 
-        assert_eq!(pool.metrics().total_hash_operations.get(), initial_hash_count + 1);
-        assert_eq!(pool.metrics().total_verify_operations.get(), initial_verify_count + 1);
+        assert_eq!(
+            pool.metrics().total_hash_operations.get(),
+            initial_hash_count + 1
+        );
+        assert_eq!(
+            pool.metrics().total_verify_operations.get(),
+            initial_verify_count + 1
+        );
 
         let hash_count = pool.metrics().hash_duration_ms.get_count();
         let verify_count = pool.metrics().verify_duration_ms.get_count();
@@ -145,7 +163,10 @@ mod password_hash_pool_tests {
         let _results: Vec<_> = futures::future::join_all(handles).await;
 
         let final_rejected = pool.metrics().rejected_operations.get();
-        assert!(final_rejected > initial_rejected, "Some operations should be rejected");
+        assert!(
+            final_rejected > initial_rejected,
+            "Some operations should be rejected"
+        );
     }
 
     #[tokio::test]
@@ -180,9 +201,16 @@ mod password_hash_pool_tests {
         }
 
         let results: Vec<_> = futures::future::join_all(handles).await;
-        let successful: Vec<_> = results.into_iter().filter_map(|r| r.ok()).filter_map(|r| r.ok()).collect();
-        
-        assert!(successful.len() >= 4, "At least 4 verify operations should succeed");
+        let successful: Vec<_> = results
+            .into_iter()
+            .filter_map(|r| r.ok())
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert!(
+            successful.len() >= 4,
+            "At least 4 verify operations should succeed"
+        );
         for result in successful {
             assert!(result, "All successful verifications should return true");
         }
@@ -205,12 +233,19 @@ mod password_hash_pool_tests {
         let results: Vec<_> = futures::future::join_all(handles).await;
         let duration = start.elapsed();
 
-        let successful_count = results.iter().filter(|r| {
-            r.is_ok() && r.as_ref().unwrap().is_ok()
-        }).count();
+        let successful_count = results
+            .iter()
+            .filter(|r| r.is_ok() && r.as_ref().unwrap().is_ok())
+            .count();
 
-        assert!(successful_count >= 4, "At least 4 operations should succeed");
-        println!("Completed {} hash operations in {:?}", successful_count, duration);
+        assert!(
+            successful_count >= 4,
+            "At least 4 operations should succeed"
+        );
+        println!(
+            "Completed {} hash operations in {:?}",
+            successful_count, duration
+        );
     }
 
     #[tokio::test]
@@ -224,18 +259,17 @@ mod password_hash_pool_tests {
         let pool1 = Arc::new(PasswordHashPool::new(config, create_test_argon2_config()));
         let pool2 = Arc::clone(&pool1);
 
-        let handle1 = tokio::spawn(async move {
-            pool1.hash_password("password1").await
-        });
+        let handle1 = tokio::spawn(async move { pool1.hash_password("password1").await });
 
-        let handle2 = tokio::spawn(async move {
-            pool2.hash_password("password2").await
-        });
+        let handle2 = tokio::spawn(async move { pool2.hash_password("password2").await });
 
         let result1 = handle1.await.unwrap();
         let result2 = handle2.await.unwrap();
 
-        assert!(result1.is_ok() || result2.is_ok(), "At least one should succeed");
+        assert!(
+            result1.is_ok() || result2.is_ok(),
+            "At least one should succeed"
+        );
     }
 
     #[tokio::test]
@@ -243,7 +277,10 @@ mod password_hash_pool_tests {
         let pool = PasswordHashPool::new(create_test_pool_config(), create_test_argon2_config());
 
         let result = pool.verify_password("password", "not_a_valid_hash").await;
-        assert!(matches!(result, Err(PasswordHashError::InvalidHashFormat(_))));
+        assert!(matches!(
+            result,
+            Err(PasswordHashError::InvalidHashFormat(_))
+        ));
     }
 
     #[tokio::test]
@@ -316,7 +353,10 @@ mod password_hash_pool_tests {
         let _hash = pool.hash_password("test").await.unwrap();
 
         let final_active = pool.metrics().active_operations.get();
-        assert_eq!(initial_active, final_active, "Active operations should return to initial after completion");
+        assert_eq!(
+            initial_active, final_active,
+            "Active operations should return to initial after completion"
+        );
     }
 
     #[tokio::test]
@@ -336,17 +376,25 @@ mod password_hash_pool_tests {
             let pool_clone = pool.clone();
             handles.push(tokio::spawn(async move {
                 let hash = pool_clone.hash_password(&format!("password_{}", i)).await?;
-                pool_clone.verify_password(&format!("password_{}", i), &hash).await
+                pool_clone
+                    .verify_password(&format!("password_{}", i), &hash)
+                    .await
             }));
         }
 
         let results: Vec<_> = futures::future::join_all(handles).await;
 
-        let successful: Vec<_> = results.iter().filter(|r| {
-            r.is_ok() && r.as_ref().unwrap().is_ok() && *r.as_ref().unwrap().as_ref().unwrap()
-        }).collect();
+        let successful: Vec<_> = results
+            .iter()
+            .filter(|r| {
+                r.is_ok() && r.as_ref().unwrap().is_ok() && *r.as_ref().unwrap().as_ref().unwrap()
+            })
+            .collect();
 
-        assert!(successful.len() >= 8, "At least 8 operations should complete successfully");
+        assert!(
+            successful.len() >= 8,
+            "At least 8 operations should complete successfully"
+        );
     }
 
     #[tokio::test]
@@ -374,12 +422,18 @@ mod password_hash_pool_tests {
             let _ = pool.hash_password(&format!("password_{}", i)).await;
         }
 
-        let p50 = pool.metrics().hash_duration_ms.get_percentile(50.0).unwrap();
-        let p95 = pool.metrics().hash_duration_ms.get_percentile(95.0).unwrap();
+        let p50 = pool
+            .metrics()
+            .hash_duration_ms
+            .get_percentile(50.0)
+            .unwrap();
+        let p95 = pool
+            .metrics()
+            .hash_duration_ms
+            .get_percentile(95.0)
+            .unwrap();
 
         assert!(p50 > 0.0, "P50 should be positive");
         assert!(p95 >= p50, "P95 should be >= P50");
     }
 }
-
-

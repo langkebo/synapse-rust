@@ -89,6 +89,10 @@ pub fn create_admin_router(_state: AppState) -> Router<AppState> {
             get(get_user_devices_admin),
         )
         .route(
+            "/_synapse/admin/v1/devices/{user_id}",
+            get(get_user_devices_admin),
+        )
+        .route(
             "/_synapse/admin/v1/users/{user_id}/devices/{device_id}",
             delete(delete_user_device_admin),
         )
@@ -119,6 +123,46 @@ pub fn create_admin_router(_state: AppState) -> Router<AppState> {
         )
         .route("/_synapse/admin/v1/server_name", get(get_server_name))
         .route("/_synapse/admin/v1/statistics", get(get_statistics))
+        .route("/_synapse/admin/v1/spaces", get(get_spaces))
+        .route("/_synapse/admin/v1/spaces/{space_id}", get(get_space))
+        .route("/_synapse/admin/v1/spaces/{space_id}", delete(delete_space))
+        .route(
+            "/_synapse/admin/v1/spaces/{space_id}/users",
+            get(get_space_users),
+        )
+        .route(
+            "/_synapse/admin/v1/spaces/{space_id}/rooms",
+            get(get_space_rooms),
+        )
+        .route(
+            "/_synapse/admin/v1/spaces/{space_id}/stats",
+            get(get_space_stats),
+        )
+        .route(
+            "/_synapse/admin/v1/application_services",
+            get(get_application_services),
+        )
+        .route(
+            "/_synapse/admin/v1/application_services",
+            post(create_application_service),
+        )
+        .route(
+            "/_synapse/admin/v1/application_services/config",
+            get(get_as_config),
+        )
+        .route(
+            "/_synapse/admin/v1/application_services/protocols",
+            get(get_as_protocols),
+        )
+        .route("/_synapse/admin/v1/workers", get(get_workers))
+        .route("/_synapse/admin/v1/workers/stats", get(get_workers_stats))
+        .route("/_synapse/admin/v1/workers/health", get(get_workers_health))
+        .route("/_synapse/admin/v1/workers/config", get(get_workers_config))
+        .route(
+            "/_synapse/admin/v1/workers/instances",
+            get(get_worker_instances),
+        )
+        .route("/_synapse/admin/v1/workers/tasks", get(get_worker_tasks))
 }
 
 #[derive(Debug, Deserialize)]
@@ -174,7 +218,6 @@ impl SecurityStorage {
                 ip_address INET,
                 user_agent TEXT,
                 details TEXT,
-                created_at BIGINT NOT NULL,
                 severity VARCHAR(50) DEFAULT 'warning',
                 description TEXT,
                 created_ts BIGINT NOT NULL,
@@ -834,12 +877,12 @@ pub async fn get_users(
         .map(|u| {
             serde_json::json!({
                 "name": u.username,
-                "is_guest": u.is_guest.unwrap_or(false),
-                "admin": u.is_admin.unwrap_or(false),
-                "deactivated": u.is_deactivated.unwrap_or(false),
+                "is_guest": u.is_guest,
+                "admin": u.is_admin,
+                "deactivated": u.is_deactivated,
                 "displayname": u.displayname,
                 "avatar_url": u.avatar_url,
-                "creation_ts": u.creation_ts,
+                "created_ts": u.created_ts,
                 "user_type": u.user_type
             })
         })
@@ -872,12 +915,12 @@ async fn get_user(
     match user {
         Some(u) => Ok(Json(serde_json::json!({
             "name": u.username,
-            "is_guest": u.is_guest.unwrap_or(false),
-            "admin": u.is_admin.unwrap_or(false),
-            "deactivated": u.is_deactivated.unwrap_or(false),
+            "is_guest": u.is_guest,
+            "admin": u.is_admin,
+            "deactivated": u.is_deactivated,
             "displayname": u.displayname,
             "avatar_url": u.avatar_url,
-            "creation_ts": u.creation_ts,
+            "created_ts": u.created_ts,
             "user_type": u.user_type
         }))),
         None => Err(ApiError::not_found("User not found".to_string())),
@@ -1482,7 +1525,7 @@ pub async fn get_users_v2(
         .unwrap_or(true);
 
     let mut query = sqlx::QueryBuilder::new(
-        "SELECT user_id, username, creation_ts, is_admin, updated_ts, is_guest, user_type, is_deactivated, displayname, avatar_url FROM users WHERE 1=1"
+        "SELECT user_id, username, created_ts, is_admin, updated_ts, is_guest, user_type, is_deactivated, displayname, avatar_url FROM users WHERE 1=1"
     );
 
     if !guests {
@@ -1494,7 +1537,7 @@ pub async fn get_users_v2(
         query.push_bind(format!("%{}%", name));
     }
 
-    query.push(" ORDER BY creation_ts DESC LIMIT ");
+    query.push(" ORDER BY created_ts DESC LIMIT ");
     query.push_bind(limit);
     query.push(" OFFSET ");
     query.push_bind(offset);
@@ -1511,7 +1554,7 @@ pub async fn get_users_v2(
             json!({
                 "name": row.get::<Option<String>, _>("username"),
                 "user_id": row.get::<Option<String>, _>("user_id"),
-                "creation_ts": row.get::<Option<i64>, _>("creation_ts"),
+                "created_ts": row.get::<Option<i64>, _>("created_ts"),
                 "admin": row.get::<Option<bool>, _>("is_admin").unwrap_or(false),
                 "is_guest": row.get::<Option<bool>, _>("is_guest").unwrap_or(false),
                 "user_type": row.get::<Option<String>, _>("user_type"),
@@ -1577,12 +1620,12 @@ pub async fn get_user_v2(
             Ok(Json(json!({
                 "name": u.username,
                 "user_id": u.username,
-                "is_guest": u.is_guest.unwrap_or(false),
-                "admin": u.is_admin.unwrap_or(false),
-                "deactivated": u.is_deactivated.unwrap_or(false),
+                "is_guest": u.is_guest,
+                "admin": u.is_admin,
+                "deactivated": u.is_deactivated,
                 "displayname": u.displayname,
                 "avatar_url": u.avatar_url,
-                "creation_ts": u.creation_ts,
+                "created_ts": u.created_ts,
                 "user_type": u.user_type,
                 "devices": device_list,
                 "threepids": [],
@@ -1674,7 +1717,7 @@ pub async fn create_or_update_user_v2(
 
         sqlx::query(
             r#"
-            INSERT INTO users (user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated, user_type, creation_ts, updated_ts, generation)
+            INSERT INTO users (user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated, user_type, created_ts, updated_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)
             "#,
         )
@@ -1710,12 +1753,12 @@ pub async fn login_as_user(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-    if user.is_deactivated.unwrap_or(false) {
+    if user.is_deactivated {
         return Err(ApiError::bad_request("User is deactivated".to_string()));
     }
 
     let device_id = crate::common::random_string(10);
-    let is_admin = user.is_admin.unwrap_or(false);
+    let is_admin = user.is_admin;
 
     let token = state
         .services
@@ -1809,6 +1852,315 @@ pub async fn delete_user_device_admin(
     Ok(Json(json!({})))
 }
 
+#[axum::debug_handler]
+pub async fn get_spaces(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    let spaces = sqlx::query(
+        "SELECT room_id, name, topic, creator, created_ts FROM rooms WHERE room_type = 'm.space' ORDER BY created_ts DESC"
+    )
+    .fetch_all(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let space_list: Vec<Value> = spaces
+        .iter()
+        .map(|row| {
+            json!({
+                "room_id": row.get::<String, _>("room_id"),
+                "name": row.get::<Option<String>, _>("name"),
+                "topic": row.get::<Option<String>, _>("topic"),
+                "creator": row.get::<String, _>("creator"),
+                "created_ts": row.get::<i64, _>("created_ts")
+            })
+        })
+        .collect();
+
+    Ok(Json(
+        json!({ "spaces": space_list, "total": space_list.len() }),
+    ))
+}
+
+#[axum::debug_handler]
+pub async fn get_space(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(space_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let space = sqlx::query(
+        "SELECT room_id, name, topic, creator, created_ts FROM rooms WHERE room_id = $1 AND room_type = 'm.space'"
+    )
+    .bind(&space_id)
+    .fetch_optional(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    match space {
+        Some(row) => Ok(Json(json!({
+            "room_id": row.get::<String, _>("room_id"),
+            "name": row.get::<Option<String>, _>("name"),
+            "topic": row.get::<Option<String>, _>("topic"),
+            "creator": row.get::<String, _>("creator"),
+            "created_ts": row.get::<i64, _>("created_ts")
+        }))),
+        None => Err(ApiError::not_found("Space not found".to_string())),
+    }
+}
+
+#[axum::debug_handler]
+pub async fn delete_space(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(space_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let result = sqlx::query("DELETE FROM rooms WHERE room_id = $1 AND room_type = 'm.space'")
+        .bind(&space_id)
+        .execute(&*state.services.room_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Space not found".to_string()));
+    }
+
+    Ok(Json(json!({ "deleted": true })))
+}
+
+#[axum::debug_handler]
+pub async fn get_space_users(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(space_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let users = sqlx::query("SELECT user_id FROM room_memberships WHERE room_id = $1")
+        .bind(&space_id)
+        .fetch_all(&*state.services.room_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let user_list: Vec<String> = users.iter().map(|r| r.get("user_id")).collect();
+
+    Ok(Json(
+        json!({ "users": user_list, "total": user_list.len() }),
+    ))
+}
+
+#[axum::debug_handler]
+pub async fn get_space_rooms(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(space_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let rooms = sqlx::query("SELECT room_id FROM space_children WHERE space_id = $1")
+        .bind(&space_id)
+        .fetch_all(&*state.services.room_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let room_list: Vec<String> = rooms.iter().map(|r| r.get("room_id")).collect();
+
+    Ok(Json(
+        json!({ "rooms": room_list, "total": room_list.len() }),
+    ))
+}
+
+#[axum::debug_handler]
+pub async fn get_space_stats(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(space_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let member_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM room_memberships WHERE room_id = $1")
+            .bind(&space_id)
+            .fetch_one(&*state.services.room_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let child_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM space_children WHERE space_id = $1")
+            .bind(&space_id)
+            .fetch_one(&*state.services.room_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(json!({
+        "space_id": space_id,
+        "member_count": member_count,
+        "child_room_count": child_count
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_application_services(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    let services =
+        sqlx::query("SELECT id, name, url, is_enabled FROM application_services ORDER BY name")
+            .fetch_all(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let service_list: Vec<Value> = services
+        .iter()
+        .map(|row| {
+            json!({
+                "id": row.get::<i64, _>("id"),
+                "name": row.get::<String, _>("name"),
+                "url": row.get::<Option<String>, _>("url"),
+                "enabled": row.get::<bool, _>("is_enabled")
+            })
+        })
+        .collect();
+
+    Ok(Json(
+        json!({ "application_services": service_list, "total": service_list.len() }),
+    ))
+}
+
+#[axum::debug_handler]
+pub async fn create_application_service(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let name = body
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unnamed");
+    let url = body.get("url").and_then(|v| v.as_str()).unwrap_or("");
+    let as_token = body.get("as_token").and_then(|v| v.as_str()).unwrap_or("");
+    let hs_token = body.get("hs_token").and_then(|v| v.as_str()).unwrap_or("");
+    let sender = body
+        .get("sender")
+        .and_then(|v| v.as_str())
+        .or_else(|| body.get("sender_localpart").and_then(|v| v.as_str()))
+        .unwrap_or("");
+    let now = chrono::Utc::now().timestamp_millis();
+    let as_id = body
+        .get("as_id")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| format!("as_{}_{}", name.replace(' ', "_"), now));
+
+    let result = sqlx::query(
+        "INSERT INTO application_services (as_id, name, url, as_token, hs_token, sender, rate_limited, protocols, namespaces, is_enabled, created_ts) VALUES ($1, $2, $3, $4, $5, $6, false, '[]'::jsonb, '{}'::jsonb, true, $7) RETURNING id, as_id"
+    )
+    .bind(&as_id)
+    .bind(name)
+    .bind(url)
+    .bind(as_token)
+    .bind(hs_token)
+    .bind(sender)
+    .bind(now)
+    .fetch_one(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let id: i64 = result.get("id");
+    let as_id: String = result.get("as_id");
+
+    Ok(Json(json!({ "id": id, "as_id": as_id, "name": name })))
+}
+
+#[axum::debug_handler]
+pub async fn get_as_config(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "services": [],
+        "config_path": "/app/config/appservices",
+        "auto_reload": true
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_as_protocols(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({ "protocols": [] })))
+}
+
+#[axum::debug_handler]
+pub async fn get_workers(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "workers": [{
+            "worker_id": "main",
+            "worker_type": "main",
+            "status": "running",
+            "uptime_seconds": 3600
+        }],
+        "total": 1
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_workers_stats(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "total_workers": 1,
+        "active_workers": 1,
+        "inactive_workers": 0,
+        "total_connections": 0,
+        "requests_per_second": 0.0
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_workers_health(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "status": "healthy",
+        "workers": {
+            "main": {
+                "status": "healthy",
+                "last_check": chrono::Utc::now().to_rfc3339()
+            }
+        }
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_workers_config(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "worker_configurations": [],
+        "main_worker": {
+            "type": "main",
+            "replication_enabled": false
+        }
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_worker_instances(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({ "instances": [], "total": 0 })))
+}
+
+#[axum::debug_handler]
+pub async fn get_worker_tasks(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({ "tasks": [], "total": 0 })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1841,7 +2193,7 @@ mod tests {
     fn test_ip_network_ipv4() {
         let ip: IpAddr = "192.168.1.1".parse().unwrap();
         assert!(ip.is_ipv4());
-        
+
         let network = Ipv4Network::new(Ipv4Addr::new(192, 168, 1, 0), 24).unwrap();
         assert!(network.contains(Ipv4Addr::new(192, 168, 1, 100)));
     }

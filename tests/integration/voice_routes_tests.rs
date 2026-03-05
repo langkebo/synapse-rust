@@ -46,11 +46,15 @@ async fn create_test_user(app: &axum::Router) -> String {
     let body = axum::body::to_bytes(response.into_body(), 10240)
         .await
         .unwrap();
-    
+
     if status != StatusCode::OK {
-        panic!("Registration failed with status {}: {:?}", status, String::from_utf8_lossy(&body));
+        panic!(
+            "Registration failed with status {}: {:?}",
+            status,
+            String::from_utf8_lossy(&body)
+        );
     }
-    
+
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["access_token"].as_str().unwrap().to_string()
 }

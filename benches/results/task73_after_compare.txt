@@ -1,0 +1,30 @@
+test validation/username/valid_short ... bench:          26 ns/iter (+/- 0)
+test validation/username/valid_long ... bench:          67 ns/iter (+/- 0)
+test validation/username/invalid ... bench:          21 ns/iter (+/- 0)
+
+test validation/matrix_id/valid ... bench:          52 ns/iter (+/- 0)
+test validation/matrix_id/valid_complex ... bench:          90 ns/iter (+/- 0)
+test validation/matrix_id/invalid ... bench:          21 ns/iter (+/- 0)
+
+test validation/password/valid ... bench:          64 ns/iter (+/- 0)
+test validation/password/invalid_no_upper ... bench:          12 ns/iter (+/- 0)
+
+test strings/to_lowercase_contains ... bench:          72 ns/iter (+/- 0)
+test strings/regex_match_multiple ... bench:         122 ns/iter (+/- 1)
+
+test data_structures/vec_search_1000 ... bench:        1446 ns/iter (+/- 15)
+test data_structures/hashmap_lookup_1000 ... bench:          21 ns/iter (+/- 0)
+test data_structures/hashset_contains_1000 ... bench:          20 ns/iter (+/- 0)
+
+test serialization/serialize_user ... bench:         244 ns/iter (+/- 2)
+test serialization/deserialize_user ... bench:         719 ns/iter (+/- 6)
+
+test collections/filter_with_hashset_100 ... bench:        2097 ns/iter (+/- 14)
+test collections/map_collect_100 ... bench:        4588 ns/iter (+/- 33)
+
+test timestamps/chrono_now ... bench:          47 ns/iter (+/- 0)
+test timestamps/chrono_now_millis ... bench:          48 ns/iter (+/- 0)
+
+test format/format_user_id ... bench:          40 ns/iter (+/- 0)
+test format/format_with_insert ... bench:          11 ns/iter (+/- 0)
+
