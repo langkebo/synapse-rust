@@ -5,8 +5,8 @@
 # 服务器地址: matrix.cjystx.top:8008
 # 用户格式: @user:cjystx.top
 # 
-# 配置版本: v3.0
-# 更新日期: 2026-02-19
+# 配置版本: v4.1
+# 更新日期: 2026-03-03
 # 参考: https://element-hq.github.io/synapse/latest/usage/configuration/config_documentation.html
 # ============================================================================
 
@@ -18,66 +18,76 @@ server:
   host: "0.0.0.0"
   port: 8008
   
+  # 公开访问URL (生产环境使用 HTTPS)
   public_baseurl: "https://matrix.cjystx.top"
   
+  # 签名密钥路径
   signing_key_path: "/app/data/cjystx.top.signing.key"
-  macaroon_secret_key: "${MACAROON_SECRET:-qTu&dL+9UNowy&LLFY6QoRvHdE,ORDly,j;NG+OAEQZS-eLMR;}"
-  form_secret: "${FORM_SECRET:-rI9#v915N1XHfT#ljskY4#hIBHk,P3cJ*0NivG~xHBg2Kkcq.R}"
+  
+  # 安全密钥
+  macaroon_secret_key: ""
+  form_secret: ""
   server_name: "cjystx.top"
   
-  registration_shared_secret: "${REGISTRATION_SECRET:-crDndDkz7OzM+8Xh=G#OIbFElJUfd-Cdu79BiDQ#tKe0K#p2:x}"
+  # 注册密钥
+  registration_shared_secret: ""
   admin_contact: "admin@cjystx.top"
   
+  # 上传限制
   max_upload_size: 104857600
   max_image_resolution: 67108864
   
+  # 注册配置
   enable_registration: true
   enable_registration_captcha: false
   
+  # 后台任务间隔
   background_tasks_interval: 120
   
+  # Token 过期配置
   expire_access_token: true
   expire_access_token_lifetime: 7200
   refresh_token_lifetime: 1209600
   refresh_token_sliding_window_size: 2000
   session_duration: 172800
   
+  # 连接池预热
   warmup_pool: true
   suppress_key_server_warning: false
   
-  # 是否提供 .well-known 服务
-  # 启用后，服务器将在 https://<server_name>/.well-known/matrix/server 提供服务
+  # .well-known 服务
   serve_server_wellknown: true
   
-  # 文件描述符软限制（0表示使用硬限制）
+  # 文件描述符限制
   soft_file_limit: 0
   
   # 用户代理后缀
   user_agent_suffix: " (Synapse-Rust)"
   
-  # Web 客户端位置（访问根路径时重定向）
+  # Web 客户端位置
   web_client_location: "https://element.cjystx.top"
 
 # ============================================================================
 # 数据库配置
 # ============================================================================
 database:
-  host: "synapse-postgres"
+  host: "db"
   port: 5432
   username: "synapse"
-  password: "${DB_PASSWORD:-synapse}"
+  password: "synapse"
   name: "synapse_test"
   
+  # 连接池配置
   pool_size: 20
   max_size: 50
   min_idle: 10
   connection_timeout: 60
 
 # ============================================================================
-# Redis配置
+# Redis 配置
 # ============================================================================
 redis:
-  host: "synapse-redis"
+  host: "redis"
   port: 6379
   key_prefix: "synapse:cjystx.top:"
   pool_size: 20
@@ -104,31 +114,30 @@ federation:
   connection_pool_size: 10
   max_transaction_payload: 100000
   
-  signing_key: "${FEDERATION_SIGNING_KEY:-5XVPWT8O/DyaXT17qJpUnEO5aRl1Cmevojx0+8uPYV8=}"
-  key_id: "ed25519:testkb1OUw"
+  # 联邦签名密钥
+  signing_key: "prcw3cBRjXQZSlQMSDVN5Yap3ezCNe//z5rvg6kYyF4="
+  key_id: "ed25519:a_RRNg"
   ca_file: null
   client_ca_file: null
   
-  # 信任的密钥服务器列表
-  # 用于获取其他服务器的签名密钥
+  # 信任的密钥服务器
   trusted_key_servers:
     - server_name: "matrix.org"
     - server_name: "vector.im"
   
-  # 密钥刷新间隔（秒）
+  # 密钥刷新间隔
   key_refresh_interval: 86400
-  
-  # 是否抑制密钥服务器警告
   suppress_key_server_warning: false
 
 # ============================================================================
 # 安全配置
 # ============================================================================
 security:
-  secret: "${SECRET_KEY:-e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d}"
+  secret: "synapse-rust-security-secret-key-for-testing"
   expiry_time: 7200
   refresh_token_expiry: 1209600
   
+  # Argon2 密码哈希参数
   argon2_m_cost: 65536
   argon2_t_cost: 3
   argon2_p_cost: 1
@@ -166,12 +175,12 @@ rate_limit:
 # 管理员注册配置
 # ============================================================================
 admin_registration:
-  enabled: true
-  shared_secret: "${ADMIN_SECRET:-test_shared_secret}"
+  enabled: false
+  shared_secret: "admin-secret-key-for-testing"
   nonce_timeout_seconds: 120
 
 # ============================================================================
-# Worker配置
+# Worker 配置
 # ============================================================================
 worker:
   enabled: false
@@ -198,7 +207,7 @@ worker:
       secret_path: null
 
 # ============================================================================
-# CORS配置
+# CORS 配置
 # ============================================================================
 cors:
   allowed_origins:
@@ -222,14 +231,14 @@ cors:
   max_age_seconds: 172800
 
 # ============================================================================
-# SMTP邮件配置
+# SMTP 邮件配置
 # ============================================================================
 smtp:
   enabled: false
   host: "smtp.example.com"
   port: 587
-  username: "${SMTP_USER:-}"
-  password: "${SMTP_PASSWORD:-}"
+  username: ""
+  password: ""
   from: "Matrix <noreply@cjystx.top>"
   tls: true
   verification_token_expire: 1800
@@ -238,13 +247,13 @@ smtp:
     per_hour: 20
 
 # ============================================================================
-# VoIP/TURN配置
+# VoIP/TURN 配置
 # ============================================================================
 voip:
   turn_uris:
     - "turn:turn.cjystx.top:3478?transport=udp"
     - "turn:turn.cjystx.top:3478?transport=tcp"
-  turn_shared_secret: "${TURN_SECRET:-}"
+  turn_shared_secret: ""
   turn_username: null
   turn_password: null
   turn_user_lifetime: "1h"
@@ -267,7 +276,7 @@ push:
   timeout: 10
 
 # ============================================================================
-# URL预览配置
+# URL 预览配置
 # ============================================================================
 url_preview:
   enabled: true
@@ -294,13 +303,13 @@ url_preview:
   max_redirects: 5
 
 # ============================================================================
-# OIDC单点登录配置
+# OIDC 单点登录配置
 # ============================================================================
 oidc:
   enabled: false
   issuer: "https://auth.cjystx.top"
-  client_id: "${OIDC_CLIENT_ID:-}"
-  client_secret: "${OIDC_CLIENT_SECRET:-}"
+  client_id: ""
+  client_secret: ""
   scopes:
     - "openid"
     - "profile"
@@ -319,10 +328,10 @@ oidc:
   timeout: 10
 
 # ============================================================================
-# SAML单点登录配置
+# SAML 单点登录配置
 # ============================================================================
 saml:
-  enabled: true
+  enabled: false
   metadata_url: null
   metadata_xml: |
     <?xml version="1.0" encoding="UTF-8"?>
@@ -330,13 +339,6 @@ saml:
       <md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
         <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://mock-saml.example.com/sso"/>
         <md:SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://mock-saml.example.com/slo"/>
-        <md:KeyDescriptor use="signing">
-          <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
-            <ds:X509Data>
-              <ds:X509Certificate>MIIC9jCCAd4CCQDvOJmMnJHkFDANBgkqhkiG9w0BAQsFADA9MQswCQYDVQQGEwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UECgwNTW9jayBTQU1MIFRlc3QwHhcNMjQwMTAxMDAwMDAwWhcNMjUwMTAxMDAwMDAwWjA9MQswCQYDVQQGEwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UECgwNTW9jayBTQU1MIFRlc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC7x7r8hJHnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFAgMBAAEwDQYJKoZIhvcNAQELBQADggEBAH8x7r8hJHnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkFDvOJmMnJHkF</ds:X509Certificate>
-            </ds:X509Data>
-          </ds:KeyInfo>
-        </md:KeyDescriptor>
       </md:IDPSSODescriptor>
     </md:EntityDescriptor>
   sp_entity_id: "https://matrix.cjystx.top"
@@ -366,7 +368,7 @@ saml:
   timeout: 10
 
 # ============================================================================
-# OpenTelemetry配置
+# OpenTelemetry 配置
 # ============================================================================
 telemetry:
   enabled: false
@@ -387,7 +389,7 @@ telemetry:
   resource_attributes: null
 
 # ============================================================================
-# Jaeger配置
+# Jaeger 配置
 # ============================================================================
 jaeger:
   enabled: false
@@ -397,7 +399,7 @@ jaeger:
   sampling_rate: 0.1
 
 # ============================================================================
-# Prometheus配置
+# Prometheus 配置
 # ============================================================================
 prometheus:
   enabled: true
@@ -411,16 +413,29 @@ prometheus:
 retention:
   enabled: false
   
-  # 默认保留策略
   default_policy:
-    min_lifetime: 86400      # 最小保留1天
-    max_lifetime: 31536000   # 最大保留1年
+    min_lifetime: 86400
+    max_lifetime: 31536000
   
-  # 允许的保留期范围（秒）
-  allowed_lifetime_min: 86400      # 最小1天
-  allowed_lifetime_max: 157680000  # 最大5年
+  allowed_lifetime_min: 86400
+  allowed_lifetime_max: 157680000
   
-  # 清理任务配置
   purge_jobs:
-    - interval: 86400    # 每天执行一次
-      batch_size: 100    # 每次清理100个房间
+    - interval: 86400
+      batch_size: 100
+
+# ============================================================================
+# 监听器配置
+# ============================================================================
+listeners:
+  - port: 8008
+    bind_addresses:
+      - "0.0.0.0"
+    type: http
+    tls: false
+    resources:
+      - names:
+          - "client"
+          - "federation"
+          - "admin"
+        compress: false

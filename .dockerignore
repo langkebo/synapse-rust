@@ -42,11 +42,13 @@ test_data.json
 .gitlab-ci.yml
 .travis.yml
 
-# Debug builds (only release needed)
-target/debug/
-target/*/debug/
-target/**/*.d
-target/**/*.rlib
+# Rust build output
+target/
+!target/
+target/*
+!target/release/
+target/release/*
+!target/release/synapse-rust
 
 # Build artifacts
 *.o

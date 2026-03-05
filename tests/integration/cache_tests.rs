@@ -12,6 +12,7 @@ mod cache_integration_tests {
         Claims {
             sub: "test_subject".to_string(),
             user_id: "@test:example.com".to_string(),
+            jti: "test-jti-cache-integration".to_string(),
             admin: false,
             device_id: Some("DEVICE123".to_string()),
             exp: 1234567890,
@@ -166,7 +167,10 @@ mod cache_integration_tests {
             let manager = CacheManager::new(config);
 
             let ttl = manager.local_cache_ttl();
-            assert_eq!(ttl, std::time::Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS));
+            assert_eq!(
+                ttl,
+                std::time::Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS)
+            );
         });
     }
 
@@ -193,19 +197,52 @@ mod cache_integration_tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            manager.set("user:1:profile", &"data1".to_string(), 60).await.unwrap();
-            manager.set("user:2:profile", &"data2".to_string(), 60).await.unwrap();
-            manager.set("room:1:info", &"data3".to_string(), 60).await.unwrap();
+            manager
+                .set("user:1:profile", &"data1".to_string(), 60)
+                .await
+                .unwrap();
+            manager
+                .set("user:2:profile", &"data2".to_string(), 60)
+                .await
+                .unwrap();
+            manager
+                .set("room:1:info", &"data3".to_string(), 60)
+                .await
+                .unwrap();
 
-            assert!(manager.get::<String>("user:1:profile").await.unwrap().is_some());
-            assert!(manager.get::<String>("user:2:profile").await.unwrap().is_some());
-            assert!(manager.get::<String>("room:1:info").await.unwrap().is_some());
+            assert!(manager
+                .get::<String>("user:1:profile")
+                .await
+                .unwrap()
+                .is_some());
+            assert!(manager
+                .get::<String>("user:2:profile")
+                .await
+                .unwrap()
+                .is_some());
+            assert!(manager
+                .get::<String>("room:1:info")
+                .await
+                .unwrap()
+                .is_some());
 
             manager.invalidate_local_pattern("user:*");
 
-            assert!(manager.get::<String>("user:1:profile").await.unwrap().is_none());
-            assert!(manager.get::<String>("user:2:profile").await.unwrap().is_none());
-            assert!(manager.get::<String>("room:1:info").await.unwrap().is_some());
+            assert!(manager
+                .get::<String>("user:1:profile")
+                .await
+                .unwrap()
+                .is_none());
+            assert!(manager
+                .get::<String>("user:2:profile")
+                .await
+                .unwrap()
+                .is_none());
+            assert!(manager
+                .get::<String>("room:1:info")
+                .await
+                .unwrap()
+                .is_some());
         });
     }
 
@@ -216,9 +253,18 @@ mod cache_integration_tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            manager.set("key1", &"value1".to_string(), 60).await.unwrap();
-            manager.set("key2", &"value2".to_string(), 60).await.unwrap();
-            manager.set("key3", &"value3".to_string(), 60).await.unwrap();
+            manager
+                .set("key1", &"value1".to_string(), 60)
+                .await
+                .unwrap();
+            manager
+                .set("key2", &"value2".to_string(), 60)
+                .await
+                .unwrap();
+            manager
+                .set("key3", &"value3".to_string(), 60)
+                .await
+                .unwrap();
 
             assert!(manager.get::<String>("key1").await.unwrap().is_some());
             assert!(manager.get::<String>("key2").await.unwrap().is_some());
@@ -239,7 +285,10 @@ mod cache_integration_tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            manager.set("test_key", &"value".to_string(), 60).await.unwrap();
+            manager
+                .set("test_key", &"value".to_string(), 60)
+                .await
+                .unwrap();
             assert!(manager.get::<String>("test_key").await.unwrap().is_some());
 
             let msg = CacheInvalidationMessage::new(
@@ -260,9 +309,18 @@ mod cache_integration_tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            manager.set("user:1:data", &"value1".to_string(), 60).await.unwrap();
-            manager.set("user:2:data", &"value2".to_string(), 60).await.unwrap();
-            manager.set("room:1:data", &"value3".to_string(), 60).await.unwrap();
+            manager
+                .set("user:1:data", &"value1".to_string(), 60)
+                .await
+                .unwrap();
+            manager
+                .set("user:2:data", &"value2".to_string(), 60)
+                .await
+                .unwrap();
+            manager
+                .set("room:1:data", &"value3".to_string(), 60)
+                .await
+                .unwrap();
 
             let msg = CacheInvalidationMessage::new(
                 "user:*".to_string(),
@@ -272,9 +330,21 @@ mod cache_integration_tests {
 
             manager.handle_invalidation_message(&msg).await;
 
-            assert!(manager.get::<String>("user:1:data").await.unwrap().is_none());
-            assert!(manager.get::<String>("user:2:data").await.unwrap().is_none());
-            assert!(manager.get::<String>("room:1:data").await.unwrap().is_some());
+            assert!(manager
+                .get::<String>("user:1:data")
+                .await
+                .unwrap()
+                .is_none());
+            assert!(manager
+                .get::<String>("user:2:data")
+                .await
+                .unwrap()
+                .is_none());
+            assert!(manager
+                .get::<String>("room:1:data")
+                .await
+                .unwrap()
+                .is_some());
         });
     }
 
@@ -285,8 +355,14 @@ mod cache_integration_tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            manager.set("key1", &"value1".to_string(), 60).await.unwrap();
-            manager.set("key2", &"value2".to_string(), 60).await.unwrap();
+            manager
+                .set("key1", &"value1".to_string(), 60)
+                .await
+                .unwrap();
+            manager
+                .set("key2", &"value2".to_string(), 60)
+                .await
+                .unwrap();
 
             let msg = CacheInvalidationMessage::new(
                 "*".to_string(),
@@ -308,12 +384,17 @@ mod cache_integration_tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            manager.set("user:profile:123", &"John Doe".to_string(), 60).await.unwrap();
+            manager
+                .set("user:profile:123", &"John Doe".to_string(), 60)
+                .await
+                .unwrap();
 
             let result: Option<String> = manager.get("user:profile:123").await.unwrap();
             assert_eq!(result, Some("John Doe".to_string()));
 
-            manager.delete_with_invalidation("user:profile:123", InvalidationType::Key).await;
+            manager
+                .delete_with_invalidation("user:profile:123", InvalidationType::Key)
+                .await;
 
             let result: Option<String> = manager.get("user:profile:123").await.unwrap();
             assert!(result.is_none());
@@ -327,15 +408,38 @@ mod cache_integration_tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            manager.set("session:abc", &"data1".to_string(), 60).await.unwrap();
-            manager.set("session:def", &"data2".to_string(), 60).await.unwrap();
-            manager.set("session:ghi", &"data3".to_string(), 60).await.unwrap();
+            manager
+                .set("session:abc", &"data1".to_string(), 60)
+                .await
+                .unwrap();
+            manager
+                .set("session:def", &"data2".to_string(), 60)
+                .await
+                .unwrap();
+            manager
+                .set("session:ghi", &"data3".to_string(), 60)
+                .await
+                .unwrap();
 
-            manager.delete_with_invalidation("session:*", InvalidationType::Pattern).await;
+            manager
+                .delete_with_invalidation("session:*", InvalidationType::Pattern)
+                .await;
 
-            assert!(manager.get::<String>("session:abc").await.unwrap().is_none());
-            assert!(manager.get::<String>("session:def").await.unwrap().is_none());
-            assert!(manager.get::<String>("session:ghi").await.unwrap().is_none());
+            assert!(manager
+                .get::<String>("session:abc")
+                .await
+                .unwrap()
+                .is_none());
+            assert!(manager
+                .get::<String>("session:def")
+                .await
+                .unwrap()
+                .is_none());
+            assert!(manager
+                .get::<String>("session:ghi")
+                .await
+                .unwrap()
+                .is_none());
         });
     }
 
@@ -362,7 +466,10 @@ mod cache_integration_tests {
 
             assert!(manager.invalidation_manager().is_none());
 
-            manager.set("test_key", &"test_value".to_string(), 60).await.unwrap();
+            manager
+                .set("test_key", &"test_value".to_string(), 60)
+                .await
+                .unwrap();
             let result: Option<String> = manager.get("test_key").await.unwrap();
             assert_eq!(result, Some("test_value".to_string()));
         });
@@ -383,7 +490,10 @@ mod cache_consistency_tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            manager.set("key1", &"value1".to_string(), 60).await.unwrap();
+            manager
+                .set("key1", &"value1".to_string(), 60)
+                .await
+                .unwrap();
 
             let result1: Option<String> = manager.get("key1").await.unwrap();
             assert_eq!(result1, Some("value1".to_string()));
@@ -402,7 +512,10 @@ mod cache_consistency_tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            manager.set("shared_key", &"shared_value".to_string(), 60).await.unwrap();
+            manager
+                .set("shared_key", &"shared_value".to_string(), 60)
+                .await
+                .unwrap();
 
             let msg = CacheInvalidationMessage::new(
                 "shared_key".to_string(),
@@ -431,7 +544,10 @@ mod cache_consistency_tests {
                     .unwrap();
             }
 
-            manager.set("room:1:info", &"room_data".to_string(), 60).await.unwrap();
+            manager
+                .set("room:1:info", &"room_data".to_string(), 60)
+                .await
+                .unwrap();
 
             let msg = CacheInvalidationMessage::new(
                 "user:*".to_string(),
@@ -441,7 +557,8 @@ mod cache_consistency_tests {
             manager.handle_invalidation_message(&msg).await;
 
             for i in 0..5 {
-                let result: Option<String> = manager.get(&format!("user:{}:profile", i)).await.unwrap();
+                let result: Option<String> =
+                    manager.get(&format!("user:{}:profile", i)).await.unwrap();
                 assert!(result.is_none(), "User {} profile should be invalidated", i);
             }
 
@@ -460,7 +577,10 @@ mod cache_consistency_tests {
             };
             let manager = CacheManager::new(config);
 
-            manager.set("short_lived", &"value".to_string(), 1).await.unwrap();
+            manager
+                .set("short_lived", &"value".to_string(), 1)
+                .await
+                .unwrap();
 
             let result1: Option<String> = manager.get("short_lived").await.unwrap();
             assert_eq!(result1, Some("value".to_string()));
@@ -510,7 +630,10 @@ mod cache_consistency_tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            manager.set("user_session", &"session_data".to_string(), 60).await.unwrap();
+            manager
+                .set("user_session", &"session_data".to_string(), 60)
+                .await
+                .unwrap();
 
             let msg = CacheInvalidationMessage::new(
                 "user_session".to_string(),
@@ -533,10 +656,22 @@ mod cache_consistency_tests {
             let config = CacheConfig::default();
             let manager = CacheManager::new(config);
 
-            manager.set("cache:user:1", &"data1".to_string(), 60).await.unwrap();
-            manager.set("cache:user:2", &"data2".to_string(), 60).await.unwrap();
-            manager.set("cache:room:1", &"data3".to_string(), 60).await.unwrap();
-            manager.set("other:user:1", &"data4".to_string(), 60).await.unwrap();
+            manager
+                .set("cache:user:1", &"data1".to_string(), 60)
+                .await
+                .unwrap();
+            manager
+                .set("cache:user:2", &"data2".to_string(), 60)
+                .await
+                .unwrap();
+            manager
+                .set("cache:room:1", &"data3".to_string(), 60)
+                .await
+                .unwrap();
+            manager
+                .set("other:user:1", &"data4".to_string(), 60)
+                .await
+                .unwrap();
 
             let msg = CacheInvalidationMessage::new(
                 "cache:user:".to_string(),
@@ -545,10 +680,26 @@ mod cache_consistency_tests {
             );
             manager.handle_invalidation_message(&msg).await;
 
-            assert!(manager.get::<String>("cache:user:1").await.unwrap().is_none());
-            assert!(manager.get::<String>("cache:user:2").await.unwrap().is_none());
-            assert!(manager.get::<String>("cache:room:1").await.unwrap().is_some());
-            assert!(manager.get::<String>("other:user:1").await.unwrap().is_some());
+            assert!(manager
+                .get::<String>("cache:user:1")
+                .await
+                .unwrap()
+                .is_none());
+            assert!(manager
+                .get::<String>("cache:user:2")
+                .await
+                .unwrap()
+                .is_none());
+            assert!(manager
+                .get::<String>("cache:room:1")
+                .await
+                .unwrap()
+                .is_some());
+            assert!(manager
+                .get::<String>("other:user:1")
+                .await
+                .unwrap()
+                .is_some());
         });
     }
 }

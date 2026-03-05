@@ -172,6 +172,15 @@ curl -X GET "http://localhost:8008/_synapse/admin/v1/rooms?limit=10&offset=0" \
 
 **解决**：在 `homeserver.yaml` 中设置 `admin_registration.shared_secret`
 
+### 5. Unable to determine client IP address
+
+**原因**：请求链路未正确透传客户端 IP，服务端无法从请求中识别来源地址
+
+**解决**：
+- 确认反向代理已透传 `X-Forwarded-For`、`X-Real-IP`
+- 确认网关与服务端的受信代理配置一致
+- 在直连本地调试时，优先绕过代理直接访问服务端端口验证
+
 ## 当前测试账号
 
 | 账号类型 | 用户ID | 密码 | 设备ID | Access Token |

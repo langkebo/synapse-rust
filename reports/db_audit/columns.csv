@@ -1,0 +1,1659 @@
+table_schema,table_name,column_name,data_type,udt_name,is_nullable,column_default
+public,access_tokens,id,bigint,int8,NO,nextval('access_tokens_id_seq'::regclass)
+public,access_tokens,token,text,text,NO,
+public,access_tokens,user_id,character varying,varchar,NO,
+public,access_tokens,device_id,character varying,varchar,YES,
+public,access_tokens,appservice_id,character varying,varchar,YES,
+public,access_tokens,expires_ts,bigint,int8,NO,
+public,access_tokens,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,access_tokens,last_used_ts,bigint,int8,YES,
+public,access_tokens,user_agent,text,text,YES,
+public,access_tokens,ip_address,character varying,varchar,YES,
+public,access_tokens,is_valid,boolean,bool,YES,true
+public,access_tokens,revoked_ts,bigint,int8,YES,
+public,account_data,id,bigint,int8,NO,nextval('account_data_id_seq'::regclass)
+public,account_data,user_id,character varying,varchar,NO,
+public,account_data,data_type,character varying,varchar,NO,
+public,account_data,content,jsonb,jsonb,NO,'{}'::jsonb
+public,account_data,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,account_data,updated_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,account_data_callbacks,id,integer,int4,NO,nextval('account_data_callbacks_id_seq'::regclass)
+public,account_data_callbacks,callback_type,character varying,varchar,NO,
+public,account_data_callbacks,user_id,character varying,varchar,NO,
+public,account_data_callbacks,data_type,character varying,varchar,YES,
+public,account_data_callbacks,result,jsonb,jsonb,YES,
+public,account_data_callbacks,created_ts,bigint,int8,YES,
+public,account_data_callbacks,is_enabled,boolean,bool,YES,true
+public,account_validity,user_id,character varying,varchar,NO,
+public,account_validity,expiration_ts,bigint,int8,YES,
+public,account_validity,renewed_ts,bigint,int8,YES,
+public,account_validity,allow_renewal,boolean,bool,YES,true
+public,active_tokens,id,bigint,int8,YES,
+public,active_tokens,token,text,text,YES,
+public,active_tokens,user_id,character varying,varchar,YES,
+public,active_tokens,device_id,character varying,varchar,YES,
+public,active_tokens,appservice_id,character varying,varchar,YES,
+public,active_tokens,expires_ts,bigint,int8,YES,
+public,active_tokens,created_ts,bigint,int8,YES,
+public,active_tokens,last_used_ts,bigint,int8,YES,
+public,active_tokens,user_agent,text,text,YES,
+public,active_tokens,ip_address,character varying,varchar,YES,
+public,active_tokens,is_valid,boolean,bool,YES,
+public,active_tokens,revoked_ts,bigint,int8,YES,
+public,active_workers,worker_id,character varying,varchar,NO,
+public,active_workers,worker_type,character varying,varchar,NO,
+public,active_workers,instance_name,character varying,varchar,YES,
+public,active_workers,status,character varying,varchar,YES,'running'::character varying
+public,active_workers,started_ts,bigint,int8,NO,
+public,active_workers,last_heartbeat,bigint,int8,YES,
+public,active_workers,pid,integer,int4,YES,
+public,active_workers,cpu_usage,double precision,float8,YES,
+public,active_workers,memory_usage,bigint,int8,YES,
+public,active_workers,updated_ts,bigint,int8,YES,
+public,application_service_events,id,integer,int4,NO,nextval('application_service_events_id_seq'::regclass)
+public,application_service_events,appservice_id,character varying,varchar,YES,
+public,application_service_events,event_id,character varying,varchar,NO,
+public,application_service_events,room_id,character varying,varchar,YES,
+public,application_service_events,event_type,character varying,varchar,YES,
+public,application_service_events,processed,boolean,bool,NO,false
+public,application_service_events,created_ts,bigint,int8,YES,
+public,application_service_events,processed_ts,bigint,int8,YES,
+public,application_service_events,as_id,text,text,NO,
+public,application_service_events,sender,text,text,YES,
+public,application_service_events,content,jsonb,jsonb,YES,
+public,application_service_events,state_key,text,text,YES,
+public,application_service_events,origin_server_ts,bigint,int8,YES,
+public,application_service_events,transaction_id,text,text,YES,
+public,application_service_room_alias_namespaces,id,bigint,int8,NO,nextval('application_service_room_alias_namespaces_id_seq'::regclass)
+public,application_service_room_alias_namespaces,as_id,character varying,varchar,NO,
+public,application_service_room_alias_namespaces,namespace_pattern,text,text,NO,
+public,application_service_room_alias_namespaces,exclusive,boolean,bool,NO,false
+public,application_service_room_alias_namespaces,regex,text,text,NO,
+public,application_service_room_alias_namespaces,created_ts,bigint,int8,NO,
+public,application_service_room_namespaces,id,bigint,int8,NO,nextval('application_service_room_namespaces_id_seq'::regclass)
+public,application_service_room_namespaces,as_id,character varying,varchar,NO,
+public,application_service_room_namespaces,namespace_pattern,text,text,NO,
+public,application_service_room_namespaces,exclusive,boolean,bool,NO,false
+public,application_service_room_namespaces,regex,text,text,NO,
+public,application_service_room_namespaces,created_ts,bigint,int8,NO,
+public,application_service_state,id,integer,int4,NO,nextval('application_service_state_id_seq'::regclass)
+public,application_service_state,appservice_id,character varying,varchar,YES,
+public,application_service_state,state,character varying,varchar,NO,''::character varying
+public,application_service_state,last_check_ts,bigint,int8,YES,
+public,application_service_state,error_message,text,text,YES,
+public,application_service_state,as_id,character varying,varchar,NO,
+public,application_service_state,state_key,text,text,NO,
+public,application_service_state,state_value,text,text,NO,
+public,application_service_state,updated_ts,bigint,int8,NO,
+public,application_service_statistics,id,bigint,int8,YES,
+public,application_service_statistics,as_id,character varying,varchar,YES,
+public,application_service_statistics,name,character varying,varchar,YES,
+public,application_service_statistics,is_enabled,boolean,bool,YES,
+public,application_service_statistics,rate_limited,boolean,bool,YES,
+public,application_service_statistics,virtual_user_count,bigint,int8,YES,
+public,application_service_statistics,pending_event_count,bigint,int8,YES,
+public,application_service_statistics,pending_transaction_count,bigint,int8,YES,
+public,application_service_statistics,last_seen_ts,bigint,int8,YES,
+public,application_service_statistics,created_ts,bigint,int8,YES,
+public,application_service_transactions,id,bigint,int8,NO,nextval('application_service_transactions_id_seq'::regclass)
+public,application_service_transactions,as_id,text,text,NO,
+public,application_service_transactions,transaction_id,text,text,NO,
+public,application_service_transactions,events,jsonb,jsonb,YES,'[]'::jsonb
+public,application_service_transactions,sent_ts,bigint,int8,NO,
+public,application_service_transactions,completed_ts,bigint,int8,YES,
+public,application_service_transactions,retry_count,integer,int4,YES,0
+public,application_service_transactions,last_error,text,text,YES,
+public,application_service_user_namespaces,id,integer,int4,NO,nextval('application_service_user_namespaces_id_seq'::regclass)
+public,application_service_user_namespaces,appservice_id,character varying,varchar,NO,
+public,application_service_user_namespaces,namespace_type,character varying,varchar,NO,
+public,application_service_user_namespaces,pattern,character varying,varchar,NO,
+public,application_service_user_namespaces,created_ts,bigint,int8,YES,
+public,application_service_user_namespaces,as_id,character varying,varchar,NO,
+public,application_service_user_namespaces,namespace_pattern,text,text,YES,
+public,application_service_user_namespaces,exclusive,boolean,bool,YES,false
+public,application_service_user_namespaces,regex,text,text,YES,
+public,application_service_users,id,integer,int4,NO,nextval('application_service_users_id_seq'::regclass)
+public,application_service_users,appservice_id,character varying,varchar,YES,
+public,application_service_users,user_id,character varying,varchar,NO,
+public,application_service_users,created_ts,bigint,int8,NO,
+public,application_service_users,as_id,text,text,NO,
+public,application_service_users,displayname,text,text,YES,
+public,application_service_users,avatar_url,text,text,YES,
+public,application_services,id,bigint,int8,NO,nextval('application_services_id_seq'::regclass)
+public,application_services,as_id,character varying,varchar,NO,"('as_'::text || ""substring""(md5(((random())::text || (clock_timestamp())::text)), 1, 16))"
+public,application_services,url,character varying,varchar,NO,
+public,application_services,as_token,character varying,varchar,NO,
+public,application_services,hs_token,character varying,varchar,NO,
+public,application_services,sender,character varying,varchar,NO,''::character varying
+public,application_services,name,character varying,varchar,YES,
+public,application_services,description,text,text,YES,
+public,application_services,rate_limited,boolean,bool,NO,false
+public,application_services,protocols,jsonb,jsonb,NO,'[]'::jsonb
+public,application_services,namespaces,jsonb,jsonb,NO,'{}'::jsonb
+public,application_services,created_ts,bigint,int8,NO,
+public,application_services,updated_ts,bigint,int8,YES,
+public,application_services,last_seen_ts,bigint,int8,YES,
+public,application_services,is_enabled,boolean,bool,NO,true
+public,application_services,sender_localpart,character varying,varchar,YES,''::character varying
+public,background_update_history,id,bigint,int8,NO,nextval('background_update_history_id_seq'::regclass)
+public,background_update_history,job_name,text,text,NO,
+public,background_update_history,execution_start_ts,bigint,int8,NO,
+public,background_update_history,execution_end_ts,bigint,int8,YES,
+public,background_update_history,status,text,text,NO,
+public,background_update_history,items_processed,integer,int4,NO,0
+public,background_update_history,error_message,text,text,YES,
+public,background_update_history,metadata,jsonb,jsonb,YES,
+public,background_update_locks,job_name,character varying,varchar,NO,
+public,background_update_locks,locked_by,character varying,varchar,YES,
+public,background_update_locks,locked_ts,bigint,int8,NO,
+public,background_update_locks,expires_ts,bigint,int8,NO,
+public,background_update_stats,id,bigint,int8,NO,nextval('background_update_stats_id_seq'::regclass)
+public,background_update_stats,job_name,text,text,NO,
+public,background_update_stats,total_updates,integer,int4,YES,0
+public,background_update_stats,completed_updates,integer,int4,YES,0
+public,background_update_stats,failed_updates,integer,int4,YES,0
+public,background_update_stats,last_run_ts,bigint,int8,YES,
+public,background_update_stats,next_run_ts,bigint,int8,YES,
+public,background_update_stats,average_duration_ms,bigint,int8,YES,0
+public,background_update_stats,created_ts,bigint,int8,NO,
+public,background_update_stats,updated_ts,bigint,int8,NO,
+public,background_updates,update_name,character varying,varchar,NO,
+public,background_updates,depends_on,character varying,varchar,YES,
+public,background_updates,updated_ts,bigint,int8,YES,
+public,background_updates,total_duration_ms,bigint,int8,YES,
+public,background_updates,job_type,character varying,varchar,YES,'custom'::character varying
+public,background_updates,description,text,text,YES,
+public,background_updates,table_name,character varying,varchar,YES,
+public,background_updates,column_name,character varying,varchar,YES,
+public,background_updates,status,character varying,varchar,YES,'pending'::character varying
+public,background_updates,progress,integer,int4,YES,0
+public,background_updates,total_items,integer,int4,YES,0
+public,background_updates,processed_items,integer,int4,YES,0
+public,background_updates,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,background_updates,started_ts,bigint,int8,YES,
+public,background_updates,completed_ts,bigint,int8,YES,
+public,background_updates,last_updated_ts,bigint,int8,YES,
+public,background_updates,error_message,text,text,YES,
+public,background_updates,retry_count,integer,int4,YES,0
+public,background_updates,max_retries,integer,int4,YES,3
+public,background_updates,batch_size,integer,int4,YES,100
+public,background_updates,sleep_ms,integer,int4,YES,100
+public,background_updates,metadata,jsonb,jsonb,YES,
+public,background_updates,job_name,text,text,YES,
+public,backup_keys,id,uuid,uuid,NO,gen_random_uuid()
+public,backup_keys,user_id,character varying,varchar,NO,
+public,backup_keys,backup_id,character varying,varchar,NO,
+public,backup_keys,room_id,character varying,varchar,NO,
+public,backup_keys,session_id,character varying,varchar,NO,
+public,backup_keys,first_message_index,bigint,int8,NO,0
+public,backup_keys,forwarded_count,bigint,int8,NO,0
+public,backup_keys,is_verified,boolean,bool,NO,false
+public,backup_keys,backup_data,jsonb,jsonb,YES,'{}'::jsonb
+public,backup_keys,created_ts,timestamp with time zone,timestamptz,NO,now()
+public,blocked_rooms,id,bigint,int8,NO,nextval('blocked_rooms_id_seq'::regclass)
+public,blocked_rooms,room_id,character varying,varchar,NO,
+public,blocked_rooms,blocked_at,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,blocked_rooms,blocked_by,character varying,varchar,YES,
+public,blocked_rooms,reason,text,text,YES,
+public,blocked_users,id,bigint,int8,NO,nextval('blocked_users_id_seq'::regclass)
+public,blocked_users,user_id,text,text,NO,
+public,blocked_users,blocked_id,text,text,NO,
+public,blocked_users,reason,text,text,YES,
+public,blocked_users,created_ts,bigint,int8,NO,
+public,captcha_config,id,integer,int4,NO,nextval('captcha_config_id_seq'::regclass)
+public,captcha_config,config_key,character varying,varchar,NO,
+public,captcha_config,config_value,text,text,NO,
+public,captcha_config,description,text,text,YES,
+public,captcha_config,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,captcha_config,updated_ts,timestamp with time zone,timestamptz,YES,now()
+public,captcha_rate_limit,id,integer,int4,NO,nextval('captcha_rate_limit_id_seq'::regclass)
+public,captcha_rate_limit,target,character varying,varchar,NO,
+public,captcha_rate_limit,ip_address,character varying,varchar,YES,
+public,captcha_rate_limit,captcha_type,character varying,varchar,NO,
+public,captcha_rate_limit,request_count,integer,int4,YES,1
+public,captcha_rate_limit,first_request_at,timestamp with time zone,timestamptz,YES,now()
+public,captcha_rate_limit,last_request_at,timestamp with time zone,timestamptz,YES,now()
+public,captcha_rate_limit,blocked_until,timestamp with time zone,timestamptz,YES,
+public,captcha_send_log,id,integer,int4,NO,nextval('captcha_send_log_id_seq'::regclass)
+public,captcha_send_log,captcha_id,character varying,varchar,YES,
+public,captcha_send_log,captcha_type,character varying,varchar,NO,
+public,captcha_send_log,target,character varying,varchar,NO,
+public,captcha_send_log,sent_at,timestamp with time zone,timestamptz,YES,now()
+public,captcha_send_log,ip_address,character varying,varchar,YES,
+public,captcha_send_log,user_agent,text,text,YES,
+public,captcha_send_log,success,boolean,bool,YES,true
+public,captcha_send_log,error_message,text,text,YES,
+public,captcha_send_log,provider,character varying,varchar,YES,
+public,captcha_send_log,provider_response,text,text,YES,
+public,captcha_template,id,integer,int4,NO,nextval('captcha_template_id_seq'::regclass)
+public,captcha_template,template_name,character varying,varchar,NO,
+public,captcha_template,captcha_type,character varying,varchar,NO,
+public,captcha_template,subject,character varying,varchar,YES,
+public,captcha_template,content,text,text,NO,
+public,captcha_template,variables,jsonb,jsonb,YES,'[]'::jsonb
+public,captcha_template,is_default,boolean,bool,YES,false
+public,captcha_template,is_enabled,boolean,bool,YES,true
+public,captcha_template,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,captcha_template,updated_ts,timestamp with time zone,timestamptz,YES,now()
+public,cas_proxy_granting_tickets,id,bigint,int8,NO,nextval('cas_proxy_granting_tickets_id_seq'::regclass)
+public,cas_proxy_granting_tickets,pgt_id,text,text,NO,
+public,cas_proxy_granting_tickets,user_id,text,text,NO,
+public,cas_proxy_granting_tickets,service_url,text,text,NO,
+public,cas_proxy_granting_tickets,iou,text,text,YES,
+public,cas_proxy_granting_tickets,created_ts,bigint,int8,NO,
+public,cas_proxy_granting_tickets,expires_ts,bigint,int8,NO,
+public,cas_proxy_granting_tickets,is_valid,boolean,bool,YES,true
+public,cas_proxy_tickets,id,bigint,int8,NO,nextval('cas_proxy_tickets_id_seq'::regclass)
+public,cas_proxy_tickets,ticket_id,text,text,NO,
+public,cas_proxy_tickets,proxy_ticket,text,text,NO,
+public,cas_proxy_tickets,target_service,text,text,NO,
+public,cas_proxy_tickets,created_ts,bigint,int8,NO,
+public,cas_proxy_tickets,expires_ts,bigint,int8,YES,
+public,cas_services,id,integer,int4,NO,nextval('cas_services_id_seq'::regclass)
+public,cas_services,service_id,character varying,varchar,NO,
+public,cas_services,name,character varying,varchar,NO,
+public,cas_services,service_url,character varying,varchar,NO,
+public,cas_services,description,text,text,YES,
+public,cas_services,is_enabled,boolean,bool,YES,true
+public,cas_services,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,cas_services,updated_ts,timestamp with time zone,timestamptz,YES,now()
+public,cas_slo_sessions,id,bigint,int8,NO,nextval('cas_slo_sessions_id_seq'::regclass)
+public,cas_slo_sessions,session_id,text,text,NO,
+public,cas_slo_sessions,user_id,text,text,NO,
+public,cas_slo_sessions,service_url,text,text,NO,
+public,cas_slo_sessions,ticket_id,text,text,YES,
+public,cas_slo_sessions,created_ts,bigint,int8,NO,
+public,cas_slo_sessions,logout_sent_ts,bigint,int8,YES,
+public,cas_tickets,id,integer,int4,NO,nextval('cas_tickets_id_seq'::regclass)
+public,cas_tickets,ticket,character varying,varchar,NO,
+public,cas_tickets,service,character varying,varchar,NO,
+public,cas_tickets,user_id,character varying,varchar,NO,
+public,cas_tickets,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,cas_tickets,expires_at,timestamp with time zone,timestamptz,NO,
+public,cas_tickets,used_at,timestamp with time zone,timestamptz,YES,
+public,cas_tickets,status,character varying,varchar,YES,'pending'::character varying
+public,cas_tickets,ticket_id,text,text,YES,
+public,cas_user_attributes,id,integer,int4,NO,nextval('cas_user_attributes_id_seq'::regclass)
+public,cas_user_attributes,user_id,character varying,varchar,NO,
+public,cas_user_attributes,attribute_name,character varying,varchar,NO,
+public,cas_user_attributes,attribute_value,text,text,YES,
+public,cas_user_attributes,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,cross_signing_keys,id,uuid,uuid,NO,gen_random_uuid()
+public,cross_signing_keys,user_id,character varying,varchar,NO,
+public,cross_signing_keys,key_type,character varying,varchar,NO,
+public,cross_signing_keys,public_key,text,text,NO,
+public,cross_signing_keys,usage,ARRAY,_text,NO,'{}'::text[]
+public,cross_signing_keys,signatures,jsonb,jsonb,YES,'{}'::jsonb
+public,cross_signing_keys,created_ts,timestamp with time zone,timestamptz,NO,now()
+public,cross_signing_keys,updated_ts,timestamp with time zone,timestamptz,NO,now()
+public,cross_signing_keys,key_data,text,text,YES,
+public,cross_signing_keys,added_ts,bigint,int8,NO,
+public,db_metadata,key,character varying,varchar,NO,
+public,db_metadata,value,text,text,NO,
+public,db_metadata,created_ts,bigint,int8,YES,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,db_metadata,updated_ts,bigint,int8,YES,
+public,deleted_events_index,id,integer,int4,NO,nextval('deleted_events_index_id_seq'::regclass)
+public,deleted_events_index,room_id,character varying,varchar,NO,
+public,deleted_events_index,event_id,character varying,varchar,NO,
+public,deleted_events_index,original_ts,bigint,int8,YES,
+public,deleted_events_index,deleted_ts,bigint,int8,NO,
+public,deleted_events_index,reason,text,text,YES,
+public,deleted_events_index,deletion_ts,bigint,int8,YES,
+public,device_keys,id,uuid,uuid,NO,gen_random_uuid()
+public,device_keys,user_id,character varying,varchar,NO,
+public,device_keys,device_id,character varying,varchar,NO,
+public,device_keys,display_name,text,text,YES,
+public,device_keys,algorithm,character varying,varchar,NO,
+public,device_keys,key_id,character varying,varchar,NO,
+public,device_keys,public_key,text,text,NO,
+public,device_keys,signatures,jsonb,jsonb,YES,'{}'::jsonb
+public,device_keys,created_ts,bigint,int8,NO,
+public,device_keys,updated_ts,bigint,int8,NO,
+public,device_keys,ts_updated_ms,bigint,int8,NO,(EXTRACT(epoch FROM now()) * (1000)::numeric)
+public,device_keys,key_json,jsonb,jsonb,YES,'{}'::jsonb
+public,device_keys,ts_added_ms,bigint,int8,NO,(EXTRACT(epoch FROM now()) * (1000)::numeric)
+public,device_keys,ts_last_accessed,bigint,int8,YES,
+public,device_keys,verified,boolean,bool,YES,false
+public,device_keys,blocked,boolean,bool,YES,false
+public,device_keys,added_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,device_keys,key_data,text,text,YES,
+public,device_signatures,id,bigint,int8,NO,nextval('device_signatures_id_seq'::regclass)
+public,device_signatures,user_id,character varying,varchar,NO,
+public,device_signatures,device_id,character varying,varchar,NO,
+public,device_signatures,target_user_id,character varying,varchar,NO,
+public,device_signatures,target_device_id,character varying,varchar,NO,
+public,device_signatures,algorithm,character varying,varchar,NO,
+public,device_signatures,signature,text,text,NO,
+public,device_signatures,created_ts,bigint,int8,NO,
+public,device_signing_keys,id,integer,int4,NO,nextval('device_signing_keys_id_seq'::regclass)
+public,device_signing_keys,user_id,character varying,varchar,NO,
+public,device_signing_keys,device_id,character varying,varchar,NO,
+public,device_signing_keys,master_key,text,text,YES,
+public,device_signing_keys,self_signing_key,text,text,YES,
+public,device_signing_keys,user_signing_key,text,text,YES,
+public,device_signing_keys,created_ts,bigint,int8,NO,
+public,device_signing_keys,updated_ts,bigint,int8,NO,
+public,devices,device_id,character varying,varchar,NO,
+public,devices,user_id,character varying,varchar,NO,
+public,devices,display_name,character varying,varchar,YES,
+public,devices,device_key,jsonb,jsonb,YES,
+public,devices,last_seen_ts,bigint,int8,YES,
+public,devices,last_seen_ip,character varying,varchar,YES,
+public,devices,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,devices,first_seen_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,devices,appservice_id,character varying,varchar,YES,
+public,devices,ignored_user_list,text,text,YES,
+public,e2ee_key_requests,id,bigint,int8,NO,nextval('e2ee_key_requests_id_seq'::regclass)
+public,e2ee_key_requests,request_id,character varying,varchar,NO,
+public,e2ee_key_requests,user_id,character varying,varchar,NO,
+public,e2ee_key_requests,device_id,character varying,varchar,NO,
+public,e2ee_key_requests,room_id,character varying,varchar,NO,
+public,e2ee_key_requests,session_id,character varying,varchar,NO,
+public,e2ee_key_requests,algorithm,character varying,varchar,NO,
+public,e2ee_key_requests,action,character varying,varchar,NO,'request'::character varying
+public,e2ee_key_requests,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,e2ee_key_requests,fulfilled,boolean,bool,YES,false
+public,e2ee_key_requests,fulfilled_by_device,character varying,varchar,YES,
+public,e2ee_key_requests,fulfilled_ts,bigint,int8,YES,
+public,e2ee_secret_storage_keys,id,bigint,int8,NO,nextval('e2ee_secret_storage_keys_id_seq'::regclass)
+public,e2ee_secret_storage_keys,key_id,character varying,varchar,NO,
+public,e2ee_secret_storage_keys,user_id,character varying,varchar,NO,
+public,e2ee_secret_storage_keys,algorithm,character varying,varchar,NO,
+public,e2ee_secret_storage_keys,encrypted_key,text,text,NO,
+public,e2ee_secret_storage_keys,public_key,character varying,varchar,YES,
+public,e2ee_secret_storage_keys,signatures,jsonb,jsonb,YES,'{}'::jsonb
+public,e2ee_secret_storage_keys,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,e2ee_secret_storage_keys,updated_ts,bigint,int8,YES,
+public,e2ee_ssss,user_id,text,text,NO,
+public,e2ee_ssss,key_data,jsonb,jsonb,NO,
+public,e2ee_ssss,created_ts,bigint,int8,NO,
+public,e2ee_ssss,updated_ts,bigint,int8,YES,
+public,e2ee_stored_secrets,id,bigint,int8,NO,nextval('e2ee_stored_secrets_id_seq'::regclass)
+public,e2ee_stored_secrets,user_id,character varying,varchar,NO,
+public,e2ee_stored_secrets,secret_name,character varying,varchar,NO,
+public,e2ee_stored_secrets,encrypted_secret,text,text,NO,
+public,e2ee_stored_secrets,key_id,character varying,varchar,NO,
+public,e2ee_stored_secrets,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,e2ee_stored_secrets,updated_ts,bigint,int8,YES,
+public,email_verification_tokens,id,bigint,int8,NO,nextval('email_verification_tokens_id_seq'::regclass)
+public,email_verification_tokens,user_id,character varying,varchar,YES,
+public,email_verification_tokens,email,character varying,varchar,NO,
+public,email_verification_tokens,token,character varying,varchar,NO,
+public,email_verification_tokens,expires_at,timestamp with time zone,timestamptz,YES,
+public,email_verification_tokens,verified_at,timestamp with time zone,timestamptz,YES,
+public,email_verification_tokens,status,character varying,varchar,YES,'pending'::character varying
+public,email_verification_tokens,ip_address,character varying,varchar,YES,
+public,email_verification_tokens,user_agent,text,text,YES,
+public,email_verification_tokens,used,boolean,bool,YES,false
+public,email_verification_tokens,session_data,jsonb,jsonb,YES,
+public,email_verification_tokens,expires_ts,bigint,int8,YES,
+public,email_verification_tokens,created_ts,bigint,int8,YES,0
+public,event_receipts,id,bigint,int8,NO,nextval('event_receipts_id_seq'::regclass)
+public,event_receipts,event_id,character varying,varchar,NO,
+public,event_receipts,room_id,character varying,varchar,NO,
+public,event_receipts,user_id,character varying,varchar,NO,
+public,event_receipts,receipt_type,character varying,varchar,NO,'m.read'::character varying
+public,event_receipts,ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,event_receipts,data,jsonb,jsonb,YES,'{}'::jsonb
+public,event_receipts,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,event_receipts,updated_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,event_report_history,id,bigint,int8,NO,nextval('event_report_history_id_seq'::regclass)
+public,event_report_history,report_id,bigint,int8,NO,
+public,event_report_history,action,character varying,varchar,NO,
+public,event_report_history,actor_user_id,character varying,varchar,YES,
+public,event_report_history,actor_role,character varying,varchar,YES,
+public,event_report_history,old_status,character varying,varchar,YES,
+public,event_report_history,new_status,character varying,varchar,YES,
+public,event_report_history,reason,text,text,YES,
+public,event_report_history,created_ts,bigint,int8,YES,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,event_report_history,metadata,jsonb,jsonb,YES,
+public,event_report_stats,id,bigint,int8,NO,nextval('event_report_stats_id_seq'::regclass)
+public,event_report_stats,date,date,date,NO,
+public,event_report_stats,total_reports,integer,int4,YES,0
+public,event_report_stats,open_reports,integer,int4,YES,0
+public,event_report_stats,resolved_reports,integer,int4,YES,0
+public,event_report_stats,dismissed_reports,integer,int4,YES,0
+public,event_report_stats,avg_resolution_time_hours,integer,int4,YES,0
+public,event_report_stats,created_ts,bigint,int8,YES,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,event_report_stats,updated_ts,bigint,int8,YES,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,event_reports,id,bigint,int8,NO,nextval('event_reports_id_seq'::regclass)
+public,event_reports,event_id,character varying,varchar,NO,
+public,event_reports,room_id,character varying,varchar,NO,
+public,event_reports,reporter_user_id,character varying,varchar,NO,
+public,event_reports,reported_user_id,character varying,varchar,YES,
+public,event_reports,event_json,jsonb,jsonb,YES,
+public,event_reports,reason,text,text,YES,
+public,event_reports,description,text,text,YES,
+public,event_reports,status,character varying,varchar,YES,'open'::character varying
+public,event_reports,score,integer,int4,YES,0
+public,event_reports,received_ts,bigint,int8,YES,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,event_reports,resolved_ts,bigint,int8,YES,
+public,event_reports,resolved_by,character varying,varchar,YES,
+public,event_reports,resolution_reason,text,text,YES,
+public,event_signatures,id,uuid,uuid,NO,gen_random_uuid()
+public,event_signatures,event_id,text,text,NO,
+public,event_signatures,user_id,text,text,NO,
+public,event_signatures,device_id,text,text,NO,
+public,event_signatures,signature,text,text,NO,
+public,event_signatures,key_id,text,text,NO,
+public,event_signatures,algorithm,text,text,NO,
+public,event_signatures,created_ts,bigint,int8,NO,
+public,events,event_id,character varying,varchar,NO,
+public,events,room_id,character varying,varchar,NO,
+public,events,sender,character varying,varchar,NO,
+public,events,type,character varying,varchar,YES,
+public,events,event_type,character varying,varchar,YES,
+public,events,content,jsonb,jsonb,YES,
+public,events,state_key,character varying,varchar,YES,
+public,events,depth,bigint,int8,YES,
+public,events,origin_server_ts,bigint,int8,YES,
+public,events,received_ts,bigint,int8,YES,
+public,events,sender_device,character varying,varchar,YES,
+public,events,contains_url,boolean,bool,YES,false
+public,events,instance_name,character varying,varchar,YES,
+public,events,is_processed,boolean,bool,YES,false
+public,events,is_outlier,boolean,bool,YES,false
+public,events,constraint_instance,character varying,varchar,YES,
+public,events,topological_ordering,bigint,int8,YES,
+public,events,stream_ordering,bigint,int8,YES,
+public,events,user_id,character varying,varchar,YES,
+public,events,processed_ts,bigint,int8,YES,
+public,events,unsigned,jsonb,jsonb,YES,'{}'::jsonb
+public,events,not_before,bigint,int8,YES,0
+public,events,status,character varying,varchar,YES,
+public,events,reference_image,character varying,varchar,YES,
+public,events,origin,character varying,varchar,YES,'self'::character varying
+public,events,redacted,boolean,bool,YES,false
+public,events,is_redacted,boolean,bool,NO,false
+public,federation_access_stats,id,integer,int4,NO,nextval('federation_access_stats_id_seq'::regclass)
+public,federation_access_stats,server_name,character varying,varchar,NO,
+public,federation_access_stats,direction,character varying,varchar,NO,
+public,federation_access_stats,requests_count,bigint,int8,YES,0
+public,federation_access_stats,bytes_sent,bigint,int8,YES,0
+public,federation_access_stats,bytes_received,bigint,int8,YES,0
+public,federation_access_stats,error_count,integer,int4,YES,0
+public,federation_access_stats,recorded_ts,bigint,int8,NO,
+public,federation_blacklist,id,integer,int4,NO,nextval('federation_blacklist_id_seq'::regclass)
+public,federation_blacklist,server_name,character varying,varchar,NO,
+public,federation_blacklist,reason,text,text,YES,
+public,federation_blacklist,blocked_by,character varying,varchar,YES,
+public,federation_blacklist,blocked_at,timestamp with time zone,timestamptz,YES,now()
+public,federation_blacklist,expires_at,timestamp with time zone,timestamptz,YES,
+public,federation_blacklist,is_enabled,boolean,bool,YES,true
+public,federation_blacklist,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,federation_blacklist,block_type,text,text,YES,'server'::text
+public,federation_blacklist_config,id,integer,int4,NO,nextval('federation_blacklist_config_id_seq'::regclass)
+public,federation_blacklist_config,config_key,character varying,varchar,NO,
+public,federation_blacklist_config,config_value,text,text,NO,
+public,federation_blacklist_config,description,text,text,YES,
+public,federation_blacklist_config,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,federation_blacklist_config,updated_ts,timestamp with time zone,timestamptz,YES,now()
+public,federation_blacklist_log,id,integer,int4,NO,nextval('federation_blacklist_log_id_seq'::regclass)
+public,federation_blacklist_log,server_name,character varying,varchar,NO,
+public,federation_blacklist_log,action,character varying,varchar,NO,
+public,federation_blacklist_log,rule_id,integer,int4,YES,
+public,federation_blacklist_log,actor,character varying,varchar,YES,
+public,federation_blacklist_log,reason,text,text,YES,
+public,federation_blacklist_log,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,federation_blacklist_rule,id,integer,int4,NO,nextval('federation_blacklist_rule_id_seq'::regclass)
+public,federation_blacklist_rule,rule_name,character varying,varchar,NO,
+public,federation_blacklist_rule,rule_type,character varying,varchar,NO,
+public,federation_blacklist_rule,pattern,character varying,varchar,NO,
+public,federation_blacklist_rule,action,character varying,varchar,NO,'block'::character varying
+public,federation_blacklist_rule,priority,integer,int4,YES,0
+public,federation_blacklist_rule,description,text,text,YES,
+public,federation_blacklist_rule,is_enabled,boolean,bool,YES,true
+public,federation_blacklist_rule,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,federation_blacklist_rule,updated_ts,timestamp with time zone,timestamptz,YES,now()
+public,federation_blacklist_rule,created_by,character varying,varchar,YES,'system'::character varying
+public,federation_queue,id,bigint,int8,NO,nextval('federation_queue_id_seq'::regclass)
+public,federation_queue,destination,text,text,NO,
+public,federation_queue,event_id,text,text,NO,
+public,federation_queue,event_type,text,text,NO,
+public,federation_queue,room_id,text,text,YES,
+public,federation_queue,content,jsonb,jsonb,NO,
+public,federation_queue,created_ts,bigint,int8,NO,
+public,federation_queue,sent_ts,bigint,int8,YES,
+public,federation_queue,retry_count,integer,int4,YES,0
+public,federation_queue,status,text,text,YES,'pending'::text
+public,federation_servers,id,bigint,int8,NO,nextval('federation_servers_id_seq'::regclass)
+public,federation_servers,server_name,text,text,NO,
+public,federation_servers,is_blocked,boolean,bool,YES,false
+public,federation_servers,blocked_ts,bigint,int8,YES,
+public,federation_servers,blocked_reason,text,text,YES,
+public,federation_servers,last_successful_connect_ts,bigint,int8,YES,
+public,federation_servers,last_failed_connect_ts,bigint,int8,YES,
+public,federation_servers,failure_count,integer,int4,YES,0
+public,federation_signing_keys,id,bigint,int8,NO,nextval('federation_signing_keys_id_seq'::regclass)
+public,federation_signing_keys,server_name,character varying,varchar,NO,
+public,federation_signing_keys,key_id,character varying,varchar,NO,
+public,federation_signing_keys,secret_key,text,text,NO,
+public,federation_signing_keys,public_key,text,text,NO,
+public,federation_signing_keys,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,federation_signing_keys,expires_at,bigint,int8,NO,
+public,federation_signing_keys,key_json,jsonb,jsonb,YES,
+public,federation_signing_keys,ts_added_ms,bigint,int8,YES,
+public,federation_signing_keys,ts_valid_until_ms,bigint,int8,YES,
+public,filters,id,bigint,int8,NO,nextval('filters_id_seq'::regclass)
+public,filters,filter_id,character varying,varchar,NO,
+public,filters,user_id,character varying,varchar,NO,
+public,filters,content,jsonb,jsonb,NO,'{}'::jsonb
+public,filters,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,friend_categories,id,bigint,int8,NO,nextval('friend_categories_id_seq'::regclass)
+public,friend_categories,user_id,text,text,NO,
+public,friend_categories,name,text,text,NO,
+public,friend_categories,color,text,text,NO,'#000000'::text
+public,friend_categories,created_ts,bigint,int8,NO,
+public,friend_requests,id,bigint,int8,NO,nextval('friend_requests_id_seq'::regclass)
+public,friend_requests,sender_id,text,text,NO,
+public,friend_requests,receiver_id,text,text,NO,
+public,friend_requests,message,text,text,YES,
+public,friend_requests,status,text,text,NO,'pending'::text
+public,friend_requests,created_ts,bigint,int8,NO,
+public,friend_requests,updated_ts,bigint,int8,YES,
+public,friends,id,bigint,int8,NO,nextval('friends_id_seq'::regclass)
+public,friends,user_id,text,text,NO,
+public,friends,friend_id,text,text,NO,
+public,friends,created_ts,bigint,int8,NO,
+public,inbound_megolm_sessions,id,integer,int4,NO,nextval('inbound_megolm_sessions_id_seq'::regclass)
+public,inbound_megolm_sessions,session_id,character varying,varchar,NO,
+public,inbound_megolm_sessions,sender_key,character varying,varchar,NO,
+public,inbound_megolm_sessions,room_id,character varying,varchar,NO,
+public,inbound_megolm_sessions,session_data,text,text,NO,
+public,inbound_megolm_sessions,forwarding_chains,ARRAY,_text,YES,
+public,inbound_megolm_sessions,imported_at,bigint,int8,NO,
+public,ip_blocks,id,integer,int4,NO,nextval('ip_blocks_id_seq'::regclass)
+public,ip_blocks,ip_address,character varying,varchar,NO,
+public,ip_blocks,cidr_range,character varying,varchar,YES,
+public,ip_blocks,ip_range,character varying,varchar,YES,
+public,ip_blocks,reason,text,text,YES,
+public,ip_blocks,blocked_by,character varying,varchar,YES,
+public,ip_blocks,blocked_ts,bigint,int8,YES,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,ip_blocks,expires_ts,bigint,int8,YES,
+public,ip_blocks,is_enabled,boolean,bool,YES,true
+public,ip_reputation,id,integer,int4,NO,nextval('ip_reputation_id_seq'::regclass)
+public,ip_reputation,ip_address,character varying,varchar,NO,
+public,ip_reputation,reputation_score,integer,int4,YES,100
+public,ip_reputation,failed_attempts,integer,int4,YES,0
+public,ip_reputation,successful_attempts,integer,int4,YES,0
+public,ip_reputation,last_failed_ts,bigint,int8,YES,
+public,ip_reputation,last_success_ts,bigint,int8,YES,
+public,ip_reputation,is_blocked,boolean,bool,YES,false
+public,ip_reputation,blocked_ts,bigint,int8,YES,
+public,ip_reputation,blocked_until_ts,bigint,int8,YES,
+public,ip_reputation,block_reason,text,text,YES,
+public,ip_reputation,risk_level,character varying,varchar,YES,'none'::character varying
+public,ip_reputation,created_ts,bigint,int8,YES,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,ip_reputation,updated_ts,bigint,int8,YES,
+public,key_backups,id,uuid,uuid,NO,gen_random_uuid()
+public,key_backups,user_id,character varying,varchar,NO,
+public,key_backups,backup_id,character varying,varchar,NO,
+public,key_backups,version,bigint,int8,NO,
+public,key_backups,algorithm,character varying,varchar,NO,'m.megolm_backup.v1'::character varying
+public,key_backups,auth_key,text,text,YES,''::text
+public,key_backups,mgmt_key,text,text,YES,''::text
+public,key_backups,backup_data,jsonb,jsonb,YES,'{}'::jsonb
+public,key_backups,etag,text,text,YES,
+public,key_backups,created_ts,timestamp with time zone,timestamptz,NO,now()
+public,key_backups,updated_ts,timestamp with time zone,timestamptz,NO,now()
+public,media_callbacks,id,integer,int4,NO,nextval('media_callbacks_id_seq'::regclass)
+public,media_callbacks,callback_type,character varying,varchar,NO,
+public,media_callbacks,media_id,character varying,varchar,YES,
+public,media_callbacks,user_id,character varying,varchar,YES,
+public,media_callbacks,status,character varying,varchar,YES,
+public,media_callbacks,result,jsonb,jsonb,YES,
+public,media_callbacks,created_ts,bigint,int8,YES,
+public,media_callbacks,completed_ts,bigint,int8,YES,
+public,media_callbacks,is_enabled,boolean,bool,YES,true
+public,media_metadata,media_id,text,text,NO,
+public,media_metadata,server_name,text,text,NO,
+public,media_metadata,content_type,text,text,NO,
+public,media_metadata,file_name,text,text,YES,
+public,media_metadata,size,bigint,int8,NO,
+public,media_metadata,uploader_user_id,text,text,YES,
+public,media_metadata,created_ts,bigint,int8,NO,
+public,media_metadata,last_accessed_ts,bigint,int8,YES,
+public,media_metadata,quarantine_status,text,text,YES,
+public,media_quota,id,bigint,int8,NO,nextval('media_quota_id_seq'::regclass)
+public,media_quota,user_id,text,text,NO,
+public,media_quota,max_bytes,bigint,int8,YES,1073741824
+public,media_quota,used_bytes,bigint,int8,YES,0
+public,media_quota,created_ts,bigint,int8,NO,
+public,media_quota,updated_ts,bigint,int8,YES,
+public,media_quota_alerts_backup_20260301,id,integer,int4,YES,
+public,media_quota_alerts_backup_20260301,user_id,character varying,varchar,YES,
+public,media_quota_alerts_backup_20260301,server_name,character varying,varchar,YES,
+public,media_quota_alerts_backup_20260301,alert_type,character varying,varchar,YES,
+public,media_quota_alerts_backup_20260301,threshold_percent,integer,int4,YES,
+public,media_quota_alerts_backup_20260301,current_usage,bigint,int8,YES,
+public,media_quota_alerts_backup_20260301,message,text,text,YES,
+public,media_quota_alerts_backup_20260301,created_ts,timestamp with time zone,timestamptz,YES,
+public,media_quota_alerts_backup_20260301,acknowledged,boolean,bool,YES,
+public,media_quota_alerts_backup_20260301,acknowledged_at,timestamp with time zone,timestamptz,YES,
+public,media_quota_alerts_backup_20260301,acknowledged_by,character varying,varchar,YES,
+public,media_repository,media_id,character varying,varchar,NO,
+public,media_repository,media_origin,character varying,varchar,NO,
+public,media_repository,media_type,character varying,varchar,YES,
+public,media_repository,media_length,bigint,int8,YES,
+public,media_repository,upload_name,text,text,YES,
+public,media_repository,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,media_repository,last_access_ts,bigint,int8,YES,
+public,media_repository,is_quarantined,boolean,bool,YES,false
+public,media_repository,is_safe_from_quarantine,boolean,bool,YES,false
+public,media_repository,user_id,character varying,varchar,YES,
+public,media_repository,server_name,character varying,varchar,YES,
+public,megolm_sessions,id,integer,int4,NO,nextval('megolm_sessions_id_seq'::regclass)
+public,megolm_sessions,session_id,character varying,varchar,NO,
+public,megolm_sessions,room_id,character varying,varchar,NO,
+public,megolm_sessions,sender_key,character varying,varchar,NO,
+public,megolm_sessions,session_key,text,text,NO,
+public,megolm_sessions,algorithm,character varying,varchar,YES,'m.megolm.v1.aes-sha2'::character varying
+public,megolm_sessions,message_index,integer,int4,YES,0
+public,megolm_sessions,created_ts,bigint,int8,NO,
+public,megolm_sessions,last_used_ts,bigint,int8,YES,
+public,megolm_sessions,expires_ts,bigint,int8,YES,
+public,megolm_sessions,is_outbound,boolean,bool,YES,false
+public,migrations,id,integer,int4,NO,nextval('migrations_id_seq'::regclass)
+public,migrations,name,character varying,varchar,NO,
+public,migrations,applied_at,timestamp without time zone,timestamp,YES,now()
+public,module_execution_logs,id,integer,int4,NO,nextval('module_execution_logs_id_seq'::regclass)
+public,module_execution_logs,module_name,character varying,varchar,NO,
+public,module_execution_logs,event_type,character varying,varchar,YES,
+public,module_execution_logs,input_data,jsonb,jsonb,YES,
+public,module_execution_logs,output_data,jsonb,jsonb,YES,
+public,module_execution_logs,success,boolean,bool,YES,true
+public,module_execution_logs,error_message,text,text,YES,
+public,module_execution_logs,execution_time_ms,integer,int4,YES,
+public,module_execution_logs,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,modules,id,integer,int4,NO,nextval('modules_id_seq'::regclass)
+public,modules,module_name,character varying,varchar,NO,
+public,modules,module_type,character varying,varchar,NO,
+public,modules,is_enabled,boolean,bool,YES,true
+public,modules,config,jsonb,jsonb,YES,'{}'::jsonb
+public,modules,priority,integer,int4,YES,0
+public,modules,description,text,text,YES,
+public,modules,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,modules,updated_ts,timestamp with time zone,timestamptz,YES,now()
+public,notifications,id,bigint,int8,NO,nextval('notifications_id_seq'::regclass)
+public,notifications,user_id,character varying,varchar,NO,
+public,notifications,event_id,character varying,varchar,YES,
+public,notifications,room_id,character varying,varchar,YES,
+public,notifications,notification_type,character varying,varchar,NO,
+public,notifications,content,jsonb,jsonb,YES,'{}'::jsonb
+public,notifications,read,boolean,bool,YES,false
+public,notifications,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,notifications,updated_ts,bigint,int8,YES,
+public,notifications,ts,bigint,int8,YES,
+public,olm_accounts,id,bigint,int8,NO,nextval('olm_accounts_id_seq'::regclass)
+public,olm_accounts,user_id,character varying,varchar,NO,
+public,olm_accounts,device_id,character varying,varchar,NO,
+public,olm_accounts,identity_key,character varying,varchar,NO,
+public,olm_accounts,serialized_account,text,text,NO,
+public,olm_accounts,one_time_keys_published,boolean,bool,YES,false
+public,olm_accounts,fallback_key_published,boolean,bool,YES,false
+public,olm_accounts,created_ts,bigint,int8,NO,(EXTRACT(epoch FROM now()) * (1000)::numeric)
+public,olm_accounts,updated_ts,bigint,int8,NO,(EXTRACT(epoch FROM now()) * (1000)::numeric)
+public,olm_sessions,id,bigint,int8,NO,nextval('olm_sessions_id_seq'::regclass)
+public,olm_sessions,user_id,character varying,varchar,NO,
+public,olm_sessions,device_id,character varying,varchar,NO,
+public,olm_sessions,session_id,character varying,varchar,NO,
+public,olm_sessions,sender_key,character varying,varchar,NO,
+public,olm_sessions,receiver_key,character varying,varchar,NO,
+public,olm_sessions,serialized_state,text,text,NO,
+public,olm_sessions,message_index,integer,int4,YES,0
+public,olm_sessions,created_ts,bigint,int8,NO,(EXTRACT(epoch FROM now()) * (1000)::numeric)
+public,olm_sessions,last_used_ts,bigint,int8,NO,(EXTRACT(epoch FROM now()) * (1000)::numeric)
+public,olm_sessions,expires_ts,bigint,int8,YES,
+public,openid_tokens,id,bigint,int8,NO,nextval('openid_tokens_id_seq'::regclass)
+public,openid_tokens,token,character varying,varchar,NO,
+public,openid_tokens,user_id,character varying,varchar,NO,
+public,openid_tokens,created_ts,bigint,int8,NO,
+public,openid_tokens,expires_at,bigint,int8,NO,
+public,openid_tokens,device_id,text,text,YES,
+public,openid_tokens,expires_ts,bigint,int8,NO,
+public,openid_tokens,is_valid,boolean,bool,NO,true
+public,optimization_log,id,integer,int4,NO,nextval('optimization_log_id_seq'::regclass)
+public,optimization_log,operation,text,text,NO,
+public,optimization_log,table_name,text,text,YES,
+public,optimization_log,details,text,text,YES,
+public,optimization_log,executed_at,timestamp without time zone,timestamp,YES,now()
+public,password_auth_providers,id,integer,int4,NO,nextval('password_auth_providers_id_seq'::regclass)
+public,password_auth_providers,provider_id,character varying,varchar,NO,
+public,password_auth_providers,enabled,boolean,bool,YES,true
+public,password_auth_providers,config,jsonb,jsonb,YES,
+public,password_auth_providers,created_ts,bigint,int8,YES,
+public,password_auth_providers,updated_ts,bigint,int8,YES,
+public,password_auth_providers,is_enabled,boolean,bool,YES,true
+public,password_auth_providers,priority,integer,int4,YES,0
+public,presence,user_id,character varying,varchar,NO,
+public,presence,presence,character varying,varchar,NO,'offline'::character varying
+public,presence,status_msg,text,text,YES,
+public,presence,last_active_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,presence,updated_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,presence,created_ts,bigint,int8,YES,
+public,presence_routes,id,integer,int4,NO,nextval('presence_routes_id_seq'::regclass)
+public,presence_routes,user_id,character varying,varchar,NO,
+public,presence_routes,presence_server,character varying,varchar,YES,
+public,presence_routes,updated_ts,bigint,int8,YES,
+public,presence_routes,is_enabled,boolean,bool,YES,true
+public,private_messages,id,bigint,int8,NO,nextval('private_messages_id_seq'::regclass)
+public,private_messages,session_id,character varying,varchar,NO,
+public,private_messages,sender_id,character varying,varchar,NO,
+public,private_messages,content,text,text,NO,
+public,private_messages,encrypted_content,text,text,YES,
+public,private_messages,created_ts,bigint,int8,NO,
+public,private_messages,message_type,character varying,varchar,YES,'m.text'::character varying
+public,private_messages,is_read,boolean,bool,YES,false
+public,private_messages,read_by_receiver,boolean,bool,YES,false
+public,private_messages,read_ts,bigint,int8,YES,
+public,private_messages,edit_history,jsonb,jsonb,YES,
+public,private_messages,is_deleted,boolean,bool,YES,false
+public,private_messages,deleted_ts,bigint,int8,YES,
+public,private_messages,is_edited,boolean,bool,YES,false
+public,private_messages,unread_count,integer,int4,YES,0
+public,private_sessions,id,character varying,varchar,NO,
+public,private_sessions,user_id_1,character varying,varchar,NO,
+public,private_sessions,user_id_2,character varying,varchar,NO,
+public,private_sessions,session_type,character varying,varchar,YES,'direct'::character varying
+public,private_sessions,encryption_key,character varying,varchar,YES,
+public,private_sessions,created_ts,bigint,int8,NO,
+public,private_sessions,last_activity_ts,bigint,int8,NO,
+public,private_sessions,updated_ts,bigint,int8,YES,
+public,private_sessions,unread_count,integer,int4,YES,0
+public,private_sessions,encrypted_content,text,text,YES,
+public,push_config,id,integer,int4,NO,nextval('push_config_id_seq'::regclass)
+public,push_config,config_key,character varying,varchar,NO,
+public,push_config,config_value,text,text,NO,
+public,push_config,description,text,text,YES,
+public,push_config,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,push_config,updated_ts,timestamp with time zone,timestamptz,YES,now()
+public,push_device,id,integer,int4,NO,nextval('push_device_id_seq'::regclass)
+public,push_device,user_id,character varying,varchar,NO,
+public,push_device,device_id,character varying,varchar,NO,
+public,push_device,push_token,text,text,NO,
+public,push_device,push_type,character varying,varchar,NO,
+public,push_device,app_id,character varying,varchar,YES,
+public,push_device,platform,character varying,varchar,YES,
+public,push_device,platform_version,character varying,varchar,YES,
+public,push_device,app_version,character varying,varchar,YES,
+public,push_device,locale,character varying,varchar,YES,
+public,push_device,timezone,character varying,varchar,YES,
+public,push_device,is_enabled,boolean,bool,YES,true
+public,push_device,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,push_device,updated_ts,timestamp with time zone,timestamptz,YES,now()
+public,push_device,last_used_at,timestamp with time zone,timestamptz,YES,
+public,push_device,last_error,text,text,YES,
+public,push_device,error_count,integer,int4,YES,0
+public,push_device,metadata,jsonb,jsonb,YES,'{}'::jsonb
+public,push_devices,id,bigint,int8,NO,nextval('push_devices_id_seq'::regclass)
+public,push_devices,user_id,text,text,NO,
+public,push_devices,device_id,text,text,NO,
+public,push_devices,push_kind,text,text,NO,
+public,push_devices,app_id,text,text,NO,
+public,push_devices,app_display_name,text,text,YES,
+public,push_devices,device_display_name,text,text,YES,
+public,push_devices,profile_tag,text,text,YES,
+public,push_devices,pushkey,text,text,NO,
+public,push_devices,lang,text,text,YES,'en'::text
+public,push_devices,data,jsonb,jsonb,YES,'{}'::jsonb
+public,push_devices,created_ts,bigint,int8,NO,
+public,push_devices,updated_ts,bigint,int8,YES,
+public,push_devices,is_enabled,boolean,bool,YES,true
+public,push_notification_log,id,integer,int4,NO,nextval('push_notification_log_id_seq'::regclass)
+public,push_notification_log,user_id,character varying,varchar,NO,
+public,push_notification_log,device_id,character varying,varchar,NO,
+public,push_notification_log,event_id,character varying,varchar,YES,
+public,push_notification_log,room_id,character varying,varchar,YES,
+public,push_notification_log,notification_type,character varying,varchar,YES,
+public,push_notification_log,push_type,character varying,varchar,YES,
+public,push_notification_log,sent_at,timestamp with time zone,timestamptz,YES,now()
+public,push_notification_log,success,boolean,bool,YES,true
+public,push_notification_log,error_message,text,text,YES,
+public,push_notification_log,provider_response,text,text,YES,
+public,push_notification_log,response_time_ms,integer,int4,YES,
+public,push_notification_log,metadata,jsonb,jsonb,YES,'{}'::jsonb
+public,push_notification_queue,id,integer,int4,NO,nextval('push_notification_queue_id_seq'::regclass)
+public,push_notification_queue,user_id,character varying,varchar,NO,
+public,push_notification_queue,device_id,character varying,varchar,NO,
+public,push_notification_queue,event_id,character varying,varchar,YES,
+public,push_notification_queue,room_id,character varying,varchar,YES,
+public,push_notification_queue,notification_type,character varying,varchar,YES,
+public,push_notification_queue,content,jsonb,jsonb,NO,
+public,push_notification_queue,priority,integer,int4,YES,5
+public,push_notification_queue,status,character varying,varchar,YES,'pending'::character varying
+public,push_notification_queue,attempts,integer,int4,YES,0
+public,push_notification_queue,max_attempts,integer,int4,YES,5
+public,push_notification_queue,next_attempt_at,timestamp with time zone,timestamptz,YES,now()
+public,push_notification_queue,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,push_notification_queue,sent_at,timestamp with time zone,timestamptz,YES,
+public,push_notification_queue,error_message,text,text,YES,
+public,push_provider_configs,id,bigint,int8,NO,nextval('push_provider_configs_id_seq'::regclass)
+public,push_provider_configs,provider_type,character varying,varchar,NO,
+public,push_provider_configs,provider_name,character varying,varchar,NO,
+public,push_provider_configs,config,jsonb,jsonb,NO,
+public,push_provider_configs,enabled,boolean,bool,YES,true
+public,push_provider_configs,created_ts,bigint,int8,NO,(EXTRACT(epoch FROM now()) * (1000)::numeric)
+public,push_provider_configs,updated_ts,bigint,int8,NO,(EXTRACT(epoch FROM now()) * (1000)::numeric)
+public,push_rules,id,bigint,int8,NO,nextval('push_rules_id_seq'::regclass)
+public,push_rules,user_id,character varying,varchar,NO,
+public,push_rules,rule_id,character varying,varchar,NO,
+public,push_rules,scope,character varying,varchar,NO,'global'::character varying
+public,push_rules,kind,character varying,varchar,NO,
+public,push_rules,priority,integer,int4,YES,0
+public,push_rules,conditions,jsonb,jsonb,YES,'[]'::jsonb
+public,push_rules,actions,jsonb,jsonb,YES,'[]'::jsonb
+public,push_rules,is_enabled,boolean,bool,YES,true
+public,push_rules,is_default,boolean,bool,YES,false
+public,push_rules,created_ts,bigint,int8,NO,(EXTRACT(epoch FROM now()) * (1000)::numeric)
+public,push_rules,updated_ts,bigint,int8,YES,
+public,push_rules,pattern,character varying,varchar,YES,
+public,push_stats,id,integer,int4,NO,nextval('push_stats_id_seq'::regclass)
+public,push_stats,user_id,character varying,varchar,NO,
+public,push_stats,date,date,date,NO,
+public,push_stats,total_sent,integer,int4,YES,0
+public,push_stats,total_failed,integer,int4,YES,0
+public,push_stats,fcm_sent,integer,int4,YES,0
+public,push_stats,fcm_failed,integer,int4,YES,0
+public,push_stats,apns_sent,integer,int4,YES,0
+public,push_stats,apns_failed,integer,int4,YES,0
+public,push_stats,webpush_sent,integer,int4,YES,0
+public,push_stats,webpush_failed,integer,int4,YES,0
+public,push_stats,avg_response_time_ms,integer,int4,YES,0
+public,push_stats,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,push_stats,updated_ts,timestamp with time zone,timestamptz,YES,now()
+public,pushers,id,bigint,int8,NO,nextval('pushers_id_seq'::regclass)
+public,pushers,user_id,character varying,varchar,NO,
+public,pushers,pushkey,text,text,NO,
+public,pushers,kind,character varying,varchar,NO,'http'::character varying
+public,pushers,app_id,character varying,varchar,NO,
+public,pushers,app_display_name,character varying,varchar,YES,
+public,pushers,device_display_name,character varying,varchar,YES,
+public,pushers,profile_tag,character varying,varchar,YES,
+public,pushers,lang,character varying,varchar,YES,'en'::character varying
+public,pushers,data,jsonb,jsonb,YES,'{}'::jsonb
+public,pushers,is_enabled,boolean,bool,YES,true
+public,pushers,created_ts,bigint,int8,NO,(EXTRACT(epoch FROM now()) * (1000)::numeric)
+public,pushers,last_updated_ts,bigint,int8,YES,
+public,pushers,last_success_ts,bigint,int8,YES,
+public,pushers,last_failure_ts,bigint,int8,YES,
+public,pushers,failure_count,integer,int4,YES,0
+public,pushers,device_id,character varying,varchar,YES,
+public,rate_limit_callbacks,id,integer,int4,NO,nextval('rate_limit_callbacks_id_seq'::regclass)
+public,rate_limit_callbacks,callback_type,character varying,varchar,NO,
+public,rate_limit_callbacks,user_id,character varying,varchar,YES,
+public,rate_limit_callbacks,ip_address,character varying,varchar,YES,
+public,rate_limit_callbacks,rate_limit_type,character varying,varchar,YES,
+public,rate_limit_callbacks,result,jsonb,jsonb,YES,
+public,rate_limit_callbacks,created_ts,bigint,int8,YES,
+public,rate_limit_callbacks,is_enabled,boolean,bool,YES,true
+public,read_markers,id,bigint,int8,NO,nextval('read_markers_id_seq'::regclass)
+public,read_markers,room_id,character varying,varchar,NO,
+public,read_markers,user_id,character varying,varchar,NO,
+public,read_markers,event_id,character varying,varchar,NO,
+public,read_markers,marker_type,character varying,varchar,NO,'m.read'::character varying
+public,read_markers,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,read_markers,updated_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,receipts,id,bigint,int8,NO,nextval('receipts_id_seq'::regclass)
+public,receipts,room_id,character varying,varchar,NO,
+public,receipts,event_id,character varying,varchar,NO,
+public,receipts,user_id,character varying,varchar,NO,
+public,receipts,receipt_type,character varying,varchar,NO,'m.read'::character varying
+public,receipts,ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,receipts,data,jsonb,jsonb,YES,'{}'::jsonb
+public,receipts,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,refresh_token_families,id,bigint,int8,NO,nextval('refresh_token_families_id_seq'::regclass)
+public,refresh_token_families,family_id,character varying,varchar,NO,
+public,refresh_token_families,user_id,character varying,varchar,NO,
+public,refresh_token_families,device_id,character varying,varchar,YES,
+public,refresh_token_families,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,refresh_token_families,last_refresh_ts,bigint,int8,YES,
+public,refresh_token_families,refresh_count,integer,int4,YES,0
+public,refresh_token_families,is_compromised,boolean,bool,YES,false
+public,refresh_token_families,compromised_ts,bigint,int8,YES,
+public,refresh_token_rotations,id,bigint,int8,NO,nextval('refresh_token_rotations_id_seq'::regclass)
+public,refresh_token_rotations,family_id,character varying,varchar,NO,
+public,refresh_token_rotations,old_token_hash,character varying,varchar,YES,
+public,refresh_token_rotations,new_token_hash,character varying,varchar,NO,
+public,refresh_token_rotations,rotated_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,refresh_token_rotations,rotation_reason,character varying,varchar,YES,
+public,refresh_token_usage,id,bigint,int8,NO,nextval('refresh_token_usage_id_seq'::regclass)
+public,refresh_token_usage,refresh_token_id,bigint,int8,NO,
+public,refresh_token_usage,user_id,character varying,varchar,NO,
+public,refresh_token_usage,old_access_token_id,character varying,varchar,YES,
+public,refresh_token_usage,new_access_token_id,character varying,varchar,NO,
+public,refresh_token_usage,used_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,refresh_token_usage,ip_address,character varying,varchar,YES,
+public,refresh_token_usage,user_agent,text,text,YES,
+public,refresh_token_usage,success,boolean,bool,YES,true
+public,refresh_token_usage,error_message,text,text,YES,
+public,refresh_tokens,id,bigint,int8,NO,nextval('refresh_tokens_id_seq'::regclass)
+public,refresh_tokens,token_hash,character varying,varchar,NO,
+public,refresh_tokens,user_id,character varying,varchar,NO,
+public,refresh_tokens,device_id,character varying,varchar,YES,
+public,refresh_tokens,access_token_id,character varying,varchar,YES,
+public,refresh_tokens,scope,character varying,varchar,YES,
+public,refresh_tokens,expires_at,bigint,int8,YES,
+public,refresh_tokens,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,refresh_tokens,last_used_ts,bigint,int8,YES,
+public,refresh_tokens,use_count,integer,int4,YES,0
+public,refresh_tokens,is_revoked,boolean,bool,YES,false
+public,refresh_tokens,revoked_ts,bigint,int8,YES,
+public,refresh_tokens,revoked_reason,character varying,varchar,YES,
+public,refresh_tokens,client_info,jsonb,jsonb,YES,
+public,refresh_tokens,ip_address,character varying,varchar,YES,
+public,refresh_tokens,user_agent,text,text,YES,
+public,registration_captcha,id,integer,int4,NO,nextval('registration_captcha_id_seq'::regclass)
+public,registration_captcha,captcha_id,character varying,varchar,NO,
+public,registration_captcha,captcha_type,character varying,varchar,NO,
+public,registration_captcha,target,character varying,varchar,NO,
+public,registration_captcha,code,character varying,varchar,NO,
+public,registration_captcha,ip_address,character varying,varchar,YES,
+public,registration_captcha,user_agent,text,text,YES,
+public,registration_captcha,attempt_count,integer,int4,YES,0
+public,registration_captcha,max_attempts,integer,int4,YES,5
+public,registration_captcha,status,character varying,varchar,YES,'pending'::character varying
+public,registration_captcha,metadata,jsonb,jsonb,YES,'{}'::jsonb
+public,registration_captcha,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()))::bigint * 1000)
+public,registration_captcha,expires_ts,bigint,int8,NO,(((EXTRACT(epoch FROM now()))::bigint * 1000) + 600000)
+public,registration_captcha,used_ts,bigint,int8,YES,
+public,registration_captcha,verified_ts,bigint,int8,YES,
+public,registration_token_batches,id,bigint,int8,NO,nextval('registration_token_batches_id_seq'::regclass)
+public,registration_token_batches,batch_id,character varying,varchar,NO,
+public,registration_token_batches,description,text,text,YES,
+public,registration_token_batches,token_count,integer,int4,NO,
+public,registration_token_batches,tokens_used,integer,int4,YES,0
+public,registration_token_batches,created_by,character varying,varchar,YES,
+public,registration_token_batches,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,registration_token_batches,expires_at,bigint,int8,YES,
+public,registration_token_batches,is_enabled,boolean,bool,YES,true
+public,registration_token_batches,allowed_email_domains,ARRAY,_text,YES,
+public,registration_token_batches,auto_join_rooms,ARRAY,_text,YES,
+public,registration_token_usage,id,bigint,int8,NO,nextval('registration_token_usage_id_seq'::regclass)
+public,registration_token_usage,token_id,bigint,int8,NO,
+public,registration_token_usage,user_id,character varying,varchar,NO,
+public,registration_token_usage,used_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,registration_token_usage,ip_address,character varying,varchar,YES,
+public,registration_token_usage,user_agent,text,text,YES,
+public,registration_tokens,id,bigint,int8,NO,nextval('registration_tokens_id_seq'::regclass)
+public,registration_tokens,token,character varying,varchar,NO,
+public,registration_tokens,description,text,text,YES,
+public,registration_tokens,max_uses,integer,int4,YES,0
+public,registration_tokens,current_uses,integer,int4,YES,0
+public,registration_tokens,expires_at,bigint,int8,YES,
+public,registration_tokens,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,registration_tokens,created_by,character varying,varchar,YES,
+public,registration_tokens,is_enabled,boolean,bool,YES,true
+public,registration_tokens,allowed_email_domains,ARRAY,_text,YES,
+public,registration_tokens,auto_join_rooms,ARRAY,_text,YES,
+public,registration_tokens,token_type,character varying,varchar,NO,'single_use'::character varying
+public,registration_tokens,updated_ts,bigint,int8,YES,
+public,registration_tokens,display_name,text,text,YES,
+public,registration_tokens,email,text,text,YES,
+public,registration_tokens,is_used,boolean,bool,YES,false
+public,registration_tokens,last_used_ts,bigint,int8,YES,
+public,registration_tokens,allowed_user_ids,ARRAY,_text,YES,'{}'::text[]
+public,report_rate_limits,id,bigint,int8,NO,nextval('report_rate_limits_id_seq'::regclass)
+public,report_rate_limits,user_id,character varying,varchar,NO,
+public,report_rate_limits,report_count,integer,int4,YES,0
+public,report_rate_limits,last_report_ts,bigint,int8,YES,
+public,report_rate_limits,blocked_until_ts,bigint,int8,YES,
+public,report_rate_limits,is_blocked,boolean,bool,YES,false
+public,report_rate_limits,block_reason,text,text,YES,
+public,report_rate_limits,created_ts,bigint,int8,YES,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,report_rate_limits,updated_ts,bigint,int8,YES,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,retention_cleanup_logs,id,integer,int4,NO,nextval('retention_cleanup_logs_id_seq'::regclass)
+public,retention_cleanup_logs,room_id,character varying,varchar,YES,
+public,retention_cleanup_logs,events_removed,integer,int4,YES,0
+public,retention_cleanup_logs,media_removed,integer,int4,YES,0
+public,retention_cleanup_logs,started_at,timestamp with time zone,timestamptz,YES,
+public,retention_cleanup_logs,completed_at,timestamp with time zone,timestamptz,YES,
+public,retention_cleanup_logs,status,character varying,varchar,YES,'pending'::character varying
+public,retention_cleanup_logs,events_deleted,bigint,int8,YES,0
+public,retention_cleanup_logs,state_events_deleted,bigint,int8,YES,0
+public,retention_cleanup_logs,media_deleted,bigint,int8,YES,0
+public,retention_cleanup_logs,bytes_freed,bigint,int8,YES,0
+public,retention_cleanup_logs,started_ts,bigint,int8,YES,
+public,retention_cleanup_logs,completed_ts,bigint,int8,YES,
+public,retention_cleanup_logs,error_message,text,text,YES,
+public,retention_cleanup_queue,id,integer,int4,NO,nextval('retention_cleanup_queue_id_seq'::regclass)
+public,retention_cleanup_queue,room_id,character varying,varchar,NO,
+public,retention_cleanup_queue,min_ts,bigint,int8,YES,
+public,retention_cleanup_queue,max_ts,bigint,int8,YES,
+public,retention_cleanup_queue,status,character varying,varchar,YES,'pending'::character varying
+public,retention_cleanup_queue,scheduled_ts,bigint,int8,YES,
+public,retention_cleanup_queue,started_ts,bigint,int8,YES,
+public,retention_cleanup_queue,completed_ts,bigint,int8,YES,
+public,retention_cleanup_queue,events_processed,integer,int4,YES,0
+public,retention_stats,room_id,character varying,varchar,NO,
+public,retention_stats,events_deleted,bigint,int8,YES,0
+public,retention_stats,bytes_deleted,bigint,int8,YES,0
+public,retention_stats,last_cleanup_ts,bigint,int8,YES,
+public,retention_stats,updated_ts,bigint,int8,YES,
+public,retention_stats,id,bigint,int8,YES,
+public,retention_stats,total_events,bigint,int8,YES,0
+public,retention_stats,events_in_retention,bigint,int8,YES,0
+public,retention_stats,events_expired,bigint,int8,YES,0
+public,retention_stats,next_cleanup_ts,bigint,int8,YES,
+public,room_account_data,id,bigint,int8,NO,nextval('room_account_data_id_seq'::regclass)
+public,room_account_data,user_id,character varying,varchar,NO,
+public,room_account_data,room_id,character varying,varchar,NO,
+public,room_account_data,data_type,character varying,varchar,NO,
+public,room_account_data,content,jsonb,jsonb,NO,'{}'::jsonb
+public,room_account_data,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,room_account_data,updated_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,room_aliases,room_alias,character varying,varchar,NO,
+public,room_aliases,room_id,character varying,varchar,NO,
+public,room_aliases,server_name,character varying,varchar,NO,
+public,room_aliases,created_ts,bigint,int8,YES,
+public,room_aliases,updated_ts,bigint,int8,YES,
+public,room_aliases,created_by,character varying,varchar,YES,
+public,room_aliases,alias,character varying,varchar,YES,
+public,room_directory,room_id,character varying,varchar,NO,
+public,room_directory,is_public,boolean,bool,YES,true
+public,room_directory,name,character varying,varchar,YES,
+public,room_directory,topic,character varying,varchar,YES,
+public,room_directory,avatar_url,character varying,varchar,YES,
+public,room_directory,canonical_alias,character varying,varchar,YES,
+public,room_directory,member_count,bigint,int8,YES,0
+public,room_directory,primary_category,character varying,varchar,YES,
+public,room_directory,searchable,boolean,bool,YES,true
+public,room_invites,id,bigint,int8,NO,nextval('room_invites_id_seq'::regclass)
+public,room_invites,invite_code,character varying,varchar,NO,
+public,room_invites,room_id,character varying,varchar,NO,
+public,room_invites,inviter_user_id,character varying,varchar,NO,
+public,room_invites,invitee_email,character varying,varchar,YES,
+public,room_invites,invitee_user_id,character varying,varchar,YES,
+public,room_invites,is_used,boolean,bool,YES,false
+public,room_invites,is_revoked,boolean,bool,YES,false
+public,room_invites,expires_at,bigint,int8,YES,
+public,room_invites,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,room_invites,used_ts,bigint,int8,YES,
+public,room_invites,revoked_ts,bigint,int8,YES,
+public,room_invites,revoked_reason,text,text,YES,
+public,room_memberships,room_id,character varying,varchar,NO,
+public,room_memberships,user_id,character varying,varchar,NO,
+public,room_memberships,sender,character varying,varchar,YES,
+public,room_memberships,membership,character varying,varchar,NO,'join'::character varying
+public,room_memberships,event_id,character varying,varchar,YES,
+public,room_memberships,event_type,character varying,varchar,YES,'m.room.member'::character varying
+public,room_memberships,display_name,character varying,varchar,YES,
+public,room_memberships,avatar_url,character varying,varchar,YES,
+public,room_memberships,is_banned,boolean,bool,YES,false
+public,room_memberships,invite_token,character varying,varchar,YES,
+public,room_memberships,updated_ts,bigint,int8,YES,
+public,room_memberships,joined_ts,bigint,int8,YES,
+public,room_memberships,left_ts,bigint,int8,YES,
+public,room_memberships,reason,text,text,YES,
+public,room_memberships,banned_by,character varying,varchar,YES,
+public,room_memberships,ban_reason,text,text,YES,
+public,room_memberships,ban_ts,bigint,int8,YES,
+public,room_memberships,join_reason,text,text,YES,
+public,room_parents,id,bigint,int8,NO,nextval('room_parents_id_seq'::regclass)
+public,room_parents,room_id,character varying,varchar,NO,
+public,room_parents,parent_id,character varying,varchar,NO,
+public,room_parents,created_ts,bigint,int8,NO,
+public,room_retention_policies,room_id,character varying,varchar,NO,
+public,room_retention_policies,min_lifetime,bigint,int8,YES,
+public,room_retention_policies,max_lifetime,bigint,int8,YES,
+public,room_retention_policies,expires_at,timestamp with time zone,timestamptz,YES,
+public,room_retention_policies,created_ts,bigint,int8,YES,
+public,room_retention_policies,updated_ts,bigint,int8,YES,
+public,room_retention_policies,id,bigint,int8,YES,nextval('room_retention_policies_id_seq'::regclass)
+public,room_retention_policies,expire_on_clients,boolean,bool,YES,false
+public,room_retention_policies,is_server_default,boolean,bool,YES,false
+public,room_state_events,id,bigint,int8,NO,nextval('room_state_events_id_seq'::regclass)
+public,room_state_events,room_id,text,text,NO,
+public,room_state_events,type,text,text,NO,
+public,room_state_events,state_key,text,text,NO,
+public,room_state_events,content,jsonb,jsonb,NO,
+public,room_state_events,sender,text,text,NO,
+public,room_state_events,origin_server_ts,bigint,int8,NO,
+public,room_summaries,id,integer,int4,NO,nextval('room_summaries_id_seq'::regclass)
+public,room_summaries,room_id,character varying,varchar,NO,
+public,room_summaries,creator,character varying,varchar,YES,
+public,room_summaries,name,character varying,varchar,YES,
+public,room_summaries,topic,text,text,YES,
+public,room_summaries,avatar_url,character varying,varchar,YES,
+public,room_summaries,canonical_alias,character varying,varchar,YES,
+public,room_summaries,room_type,character varying,varchar,YES,
+public,room_summaries,is_public,boolean,bool,YES,false
+public,room_summaries,is_direct,boolean,bool,YES,false
+public,room_summaries,is_space,boolean,bool,YES,false
+public,room_summaries,is_encrypted,boolean,bool,YES,false
+public,room_summaries,encryption_algorithm,character varying,varchar,YES,
+public,room_summaries,join_rules,character varying,varchar,YES,
+public,room_summaries,world_readable,boolean,bool,YES,false
+public,room_summaries,guest_can_join,boolean,bool,YES,false
+public,room_summaries,guest_access,character varying,varchar,YES,
+public,room_summaries,history_visibility,character varying,varchar,YES,
+public,room_summaries,federation_allowed,boolean,bool,YES,true
+public,room_summaries,member_count,integer,int4,YES,0
+public,room_summaries,joined_member_count,integer,int4,YES,0
+public,room_summaries,invited_member_count,integer,int4,YES,0
+public,room_summaries,joined_local_members,integer,int4,YES,0
+public,room_summaries,invited_local_members,integer,int4,YES,0
+public,room_summaries,active_member_count,integer,int4,YES,0
+public,room_summaries,user_online_count,integer,int4,YES,0
+public,room_summaries,user_active_count,integer,int4,YES,0
+public,room_summaries,hero_users,jsonb,jsonb,YES,
+public,room_summaries,stripped_state,jsonb,jsonb,YES,
+public,room_summaries,pinned_events,jsonb,jsonb,YES,
+public,room_summaries,room_id_version,character varying,varchar,YES,'1'::character varying
+public,room_summaries,reference_timestamp,bigint,int8,YES,
+public,room_summaries,is_partial_state_room,boolean,bool,YES,false
+public,room_summaries,last_event_id,character varying,varchar,YES,
+public,room_summaries,last_event_timestamp,bigint,int8,YES,
+public,room_summaries,total_events,bigint,int8,YES,0
+public,room_summaries,state_events,integer,int4,YES,0
+public,room_summaries,membership_events,integer,int4,YES,0
+public,room_summaries,message_events,integer,int4,YES,0
+public,room_summaries,created_ts,bigint,int8,YES,
+public,room_summaries,updated_ts,bigint,int8,YES,
+public,room_summaries,last_event_ts,bigint,int8,YES,
+public,room_summaries,last_message_ts,bigint,int8,YES,
+public,room_summaries,unread_notifications,bigint,int8,YES,0
+public,room_summaries,unread_highlight,bigint,int8,YES,0
+public,room_summary_members,id,integer,int4,NO,nextval('room_summary_members_id_seq'::regclass)
+public,room_summary_members,room_id,character varying,varchar,NO,
+public,room_summary_members,user_id,character varying,varchar,NO,
+public,room_summary_members,display_name,character varying,varchar,YES,
+public,room_summary_members,avatar_url,character varying,varchar,YES,
+public,room_summary_members,membership,character varying,varchar,YES,
+public,room_summary_members,updated_ts,bigint,int8,YES,
+public,room_summary_members,is_hero,boolean,bool,YES,false
+public,room_summary_members,last_active_ts,bigint,int8,YES,
+public,room_summary_members,created_ts,bigint,int8,YES,
+public,room_summary_state,id,integer,int4,NO,nextval('room_summary_state_id_seq'::regclass)
+public,room_summary_state,room_id,character varying,varchar,NO,
+public,room_summary_state,state_json,jsonb,jsonb,YES,
+public,room_summary_state,updated_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()))::bigint * 1000)
+public,room_summary_state,event_type,text,text,YES,
+public,room_summary_state,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()))::bigint * 1000)
+public,room_summary_stats,id,integer,int4,NO,nextval('room_summary_stats_id_seq'::regclass)
+public,room_summary_stats,room_id,character varying,varchar,NO,
+public,room_summary_stats,total_messages,bigint,int8,YES,0
+public,room_summary_stats,total_events,bigint,int8,YES,0
+public,room_summary_stats,size_bytes,bigint,int8,YES,0
+public,room_summary_stats,last_activity_ts,bigint,int8,YES,
+public,room_summary_stats,updated_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()))::bigint * 1000)
+public,room_summary_stats,total_state_events,bigint,int8,YES,0
+public,room_summary_stats,total_media,bigint,int8,NO,0
+public,room_summary_stats,storage_size,bigint,int8,NO,0
+public,room_summary_stats,last_updated_ts,bigint,int8,YES,
+public,room_summary_stats,created_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()))::bigint * 1000)
+public,room_summary_update_queue,id,bigint,int8,NO,nextval('room_summary_update_queue_id_seq'::regclass)
+public,room_summary_update_queue,room_id,text,text,NO,
+public,room_summary_update_queue,event_id,text,text,NO,
+public,room_summary_update_queue,event_type,text,text,NO,
+public,room_summary_update_queue,state_key,text,text,YES,
+public,room_summary_update_queue,priority,integer,int4,YES,0
+public,room_summary_update_queue,status,text,text,YES,'pending'::text
+public,room_summary_update_queue,created_ts,bigint,int8,NO,
+public,room_summary_update_queue,processed_ts,bigint,int8,YES,
+public,room_summary_update_queue,error_message,text,text,YES,
+public,room_summary_update_queue,retry_count,integer,int4,YES,0
+public,room_summary_update_queue,updated_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()))::bigint * 1000)
+public,rooms,room_id,character varying,varchar,NO,
+public,rooms,creator,character varying,varchar,YES,
+public,rooms,is_public,boolean,bool,YES,false
+public,rooms,room_version,character varying,varchar,YES,'6'::character varying
+public,rooms,has_auth_chain_index,boolean,bool,YES,false
+public,rooms,create_event_id,character varying,varchar,YES,
+public,rooms,join_rules,character varying,varchar,YES,'invite'::character varying
+public,rooms,join_rules_event_id,character varying,varchar,YES,
+public,rooms,updated_ts,bigint,int8,YES,
+public,rooms,join_rule,character varying,varchar,YES,'invite'::character varying
+public,rooms,name,character varying,varchar,YES,
+public,rooms,topic,text,text,YES,
+public,rooms,avatar_url,character varying,varchar,YES,
+public,rooms,canonical_alias,character varying,varchar,YES,
+public,rooms,member_count,bigint,int8,YES,0
+public,rooms,history_visibility,character varying,varchar,YES,'joined'::character varying
+public,rooms,encryption,character varying,varchar,YES,
+public,rooms,last_activity_ts,bigint,int8,YES,
+public,rooms,guest_access,character varying,varchar,YES,'forbidden'::character varying
+public,rooms,version,character varying,varchar,YES,'6'::character varying
+public,rooms,creation_ts,bigint,int8,YES,
+public,rooms,room_type,character varying,varchar,YES,'m.room'::character varying
+public,rooms,created_ts,bigint,int8,YES,
+public,saml_auth_events,id,bigint,int8,NO,nextval('saml_auth_events_id_seq'::regclass)
+public,saml_auth_events,session_id,text,text,YES,
+public,saml_auth_events,user_id,text,text,YES,
+public,saml_auth_events,name_id,text,text,YES,
+public,saml_auth_events,issuer,text,text,YES,
+public,saml_auth_events,event_type,text,text,NO,
+public,saml_auth_events,status,text,text,NO,
+public,saml_auth_events,error_message,text,text,YES,
+public,saml_auth_events,ip_address,text,text,YES,
+public,saml_auth_events,user_agent,text,text,YES,
+public,saml_auth_events,request_id,text,text,YES,
+public,saml_auth_events,attributes,jsonb,jsonb,YES,'{}'::jsonb
+public,saml_auth_events,created_ts,bigint,int8,NO,
+public,saml_identity_providers,id,integer,int4,NO,nextval('saml_identity_providers_id_seq'::regclass)
+public,saml_identity_providers,entity_id,character varying,varchar,NO,
+public,saml_identity_providers,name,character varying,varchar,NO,
+public,saml_identity_providers,metadata_url,text,text,YES,
+public,saml_identity_providers,metadata_xml,text,text,YES,
+public,saml_identity_providers,sso_url,text,text,YES,
+public,saml_identity_providers,slo_url,text,text,YES,
+public,saml_identity_providers,x509cert,text,text,YES,
+public,saml_identity_providers,is_enabled,boolean,bool,YES,true
+public,saml_identity_providers,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,saml_identity_providers,updated_ts,timestamp with time zone,timestamptz,YES,now()
+public,saml_logout_requests,id,bigint,int8,NO,nextval('saml_logout_requests_id_seq'::regclass)
+public,saml_logout_requests,request_id,text,text,NO,
+public,saml_logout_requests,session_id,text,text,YES,
+public,saml_logout_requests,user_id,text,text,YES,
+public,saml_logout_requests,name_id,text,text,YES,
+public,saml_logout_requests,issuer,text,text,YES,
+public,saml_logout_requests,reason,text,text,YES,
+public,saml_logout_requests,status,text,text,YES,'pending'::text
+public,saml_logout_requests,created_ts,bigint,int8,NO,
+public,saml_logout_requests,processed_ts,bigint,int8,YES,
+public,saml_sessions,id,integer,int4,NO,nextval('saml_sessions_id_seq'::regclass)
+public,saml_sessions,session_id,character varying,varchar,NO,
+public,saml_sessions,user_id,character varying,varchar,YES,
+public,saml_sessions,name_id,character varying,varchar,YES,
+public,saml_sessions,issuer,character varying,varchar,YES,
+public,saml_sessions,created_ts,timestamp with time zone,timestamptz,YES,now()
+public,saml_sessions,expires_at,timestamp with time zone,timestamptz,NO,
+public,saml_sessions,attributes,jsonb,jsonb,YES,'{}'::jsonb
+public,saml_sessions,status,character varying,varchar,YES,'active'::character varying
+public,saml_user_mapping,id,integer,int4,NO,nextval('saml_user_mapping_id_seq'::regclass)
+public,saml_user_mapping,user_id,character varying,varchar,NO,
+public,saml_user_mapping,name_id,character varying,varchar,NO,
+public,saml_user_mapping,issuer,character varying,varchar,NO,
+public,saml_user_mapping,attributes,jsonb,jsonb,YES,'{}'::jsonb
+public,saml_user_mapping,first_auth_at,timestamp with time zone,timestamptz,YES,now()
+public,saml_user_mapping,last_auth_at,timestamp with time zone,timestamptz,YES,now()
+public,schema_migrations,version,character varying,varchar,NO,
+public,schema_migrations,checksum,character varying,varchar,YES,
+public,schema_migrations,execution_time_ms,bigint,int8,YES,
+public,schema_migrations,success,boolean,bool,NO,true
+public,schema_migrations,executed_at,timestamp with time zone,timestamptz,YES,now()
+public,schema_migrations,error_message,text,text,YES,
+public,schema_migrations,description,text,text,YES,
+public,security_events,id,integer,int4,NO,nextval('security_events_id_seq'::regclass)
+public,security_events,event_type,character varying,varchar,NO,
+public,security_events,user_id,character varying,varchar,YES,
+public,security_events,ip_address,character varying,varchar,YES,
+public,security_events,user_agent,text,text,YES,
+public,security_events,details,jsonb,jsonb,YES,'{}'::jsonb
+public,security_events,description,text,text,YES,
+public,security_events,severity,character varying,varchar,YES,'info'::character varying
+public,security_events,created_ts,bigint,int8,YES,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,server_media_quota_backup_20260301,id,integer,int4,YES,
+public,server_media_quota_backup_20260301,server_name,character varying,varchar,YES,
+public,server_media_quota_backup_20260301,quota_bytes,bigint,int8,YES,
+public,server_media_quota_backup_20260301,used_bytes,bigint,int8,YES,
+public,server_media_quota_backup_20260301,created_ts,timestamp with time zone,timestamptz,YES,
+public,server_media_quota_backup_20260301,updated_ts,timestamp with time zone,timestamptz,YES,
+public,server_notifications_backup_20260301,id,integer,int4,YES,
+public,server_notifications_backup_20260301,title,character varying,varchar,YES,
+public,server_notifications_backup_20260301,content,text,text,YES,
+public,server_notifications_backup_20260301,notification_type,character varying,varchar,YES,
+public,server_notifications_backup_20260301,priority,integer,int4,YES,
+public,server_notifications_backup_20260301,target_audience,character varying,varchar,YES,
+public,server_notifications_backup_20260301,target_user_ids,jsonb,jsonb,YES,
+public,server_notifications_backup_20260301,starts_at,timestamp with time zone,timestamptz,YES,
+public,server_notifications_backup_20260301,expires_at,timestamp with time zone,timestamptz,YES,
+public,server_notifications_backup_20260301,is_enabled,boolean,bool,YES,
+public,server_notifications_backup_20260301,is_dismissable,boolean,bool,YES,
+public,server_notifications_backup_20260301,action_url,character varying,varchar,YES,
+public,server_notifications_backup_20260301,action_text,character varying,varchar,YES,
+public,server_notifications_backup_20260301,created_by,character varying,varchar,YES,
+public,server_notifications_backup_20260301,created_ts,timestamp with time zone,timestamptz,YES,
+public,server_notifications_backup_20260301,updated_ts,timestamp with time zone,timestamptz,YES,
+public,server_retention_policy,id,bigint,int8,NO,nextval('server_retention_policy_id_seq'::regclass)
+public,server_retention_policy,min_lifetime,bigint,int8,YES,
+public,server_retention_policy,max_lifetime,bigint,int8,YES,
+public,server_retention_policy,allow_default,boolean,bool,YES,true
+public,server_retention_policy,is_default,boolean,bool,YES,false
+public,server_retention_policy,updated_ts,bigint,int8,YES,
+public,server_retention_policy,expire_on_clients,boolean,bool,YES,false
+public,server_retention_policy,created_ts,bigint,int8,YES,
+public,space_children,id,bigint,int8,NO,nextval('space_children_id_seq'::regclass)
+public,space_children,space_id,character varying,varchar,NO,
+public,space_children,room_id,character varying,varchar,NO,
+public,space_children,order,character varying,varchar,YES,
+public,space_children,is_suggested,boolean,bool,YES,false
+public,space_children,added_by,character varying,varchar,NO,
+public,space_children,added_ts,bigint,int8,NO,
+public,space_children,removed_ts,bigint,int8,YES,
+public,space_children,suggested,boolean,bool,YES,false
+public,space_children,order_str,character varying,varchar,YES,
+public,space_children,via_servers,ARRAY,_text,YES,
+public,space_events,id,bigint,int8,NO,nextval('space_events_id_seq'::regclass)
+public,space_events,event_id,character varying,varchar,NO,
+public,space_events,space_id,character varying,varchar,NO,
+public,space_events,event_type,character varying,varchar,NO,
+public,space_events,sender,character varying,varchar,NO,
+public,space_events,content,jsonb,jsonb,YES,
+public,space_events,state_key,character varying,varchar,YES,
+public,space_events,origin_server_ts,bigint,int8,NO,
+public,space_events,processed_ts,bigint,int8,YES,
+public,space_members,id,bigint,int8,NO,nextval('space_members_id_seq'::regclass)
+public,space_members,space_id,character varying,varchar,NO,
+public,space_members,user_id,character varying,varchar,NO,
+public,space_members,membership,character varying,varchar,YES,'join'::character varying
+public,space_members,joined_ts,bigint,int8,NO,
+public,space_members,inviter,character varying,varchar,YES,
+public,space_members,left_ts,bigint,int8,YES,
+public,space_members,updated_ts,bigint,int8,YES,
+public,space_statistics,space_id,character varying,varchar,NO,
+public,space_statistics,child_count,integer,int4,YES,0
+public,space_statistics,member_count,integer,int4,YES,0
+public,space_statistics,updated_ts,bigint,int8,YES,
+public,space_summaries,id,bigint,int8,NO,nextval('space_summaries_id_seq'::regclass)
+public,space_summaries,space_id,character varying,varchar,NO,
+public,space_summaries,total_members,integer,int4,YES,0
+public,space_summaries,total_rooms,integer,int4,YES,0
+public,space_summaries,total_children,integer,int4,YES,0
+public,space_summaries,updated_ts,bigint,int8,NO,
+public,space_summaries,summary,jsonb,jsonb,YES,
+public,space_summaries,children_count,bigint,int8,YES,0
+public,space_summaries,member_count,bigint,int8,YES,0
+public,spaces,space_id,character varying,varchar,NO,
+public,spaces,room_id,character varying,varchar,NO,
+public,spaces,name,character varying,varchar,YES,
+public,spaces,topic,text,text,YES,
+public,spaces,avatar_url,character varying,varchar,YES,
+public,spaces,creator,character varying,varchar,NO,
+public,spaces,join_rule,character varying,varchar,YES,'invite'::character varying
+public,spaces,visibility,character varying,varchar,YES,'private'::character varying
+public,spaces,creation_ts,bigint,int8,NO,
+public,spaces,updated_ts,bigint,int8,YES,
+public,spaces,is_public,boolean,bool,YES,false
+public,spaces,parent_space_id,character varying,varchar,YES,
+public,spaces,room_type,character varying,varchar,YES,'m.space'::character varying
+public,spam_check_results,id,integer,int4,NO,nextval('spam_check_results_id_seq'::regclass)
+public,spam_check_results,event_id,character varying,varchar,NO,
+public,spam_check_results,sender,character varying,varchar,NO,
+public,spam_check_results,room_id,character varying,varchar,YES,
+public,spam_check_results,result,character varying,varchar,NO,
+public,spam_check_results,reason,text,text,YES,
+public,spam_check_results,checked_ts,bigint,int8,NO,
+public,third_party_rule_results,id,integer,int4,NO,nextval('third_party_rule_results_id_seq'::regclass)
+public,third_party_rule_results,event_id,character varying,varchar,NO,
+public,third_party_rule_results,rule_type,character varying,varchar,NO,
+public,third_party_rule_results,rule_action,character varying,varchar,NO,
+public,third_party_rule_results,result,character varying,varchar,NO,
+public,third_party_rule_results,reason,text,text,YES,
+public,third_party_rule_results,evaluated_ts,bigint,int8,NO,
+public,thread_read_receipts,id,bigint,int8,NO,nextval('thread_read_receipts_id_seq'::regclass)
+public,thread_read_receipts,room_id,character varying,varchar,NO,
+public,thread_read_receipts,thread_id,character varying,varchar,NO,
+public,thread_read_receipts,user_id,character varying,varchar,NO,
+public,thread_read_receipts,last_read_event_id,character varying,varchar,YES,
+public,thread_read_receipts,last_read_ts,bigint,int8,NO,
+public,thread_read_receipts,unread_count,integer,int4,YES,0
+public,thread_read_receipts,updated_ts,bigint,int8,NO,
+public,thread_replies,id,bigint,int8,NO,nextval('thread_replies_id_seq'::regclass)
+public,thread_replies,room_id,character varying,varchar,NO,
+public,thread_replies,thread_id,character varying,varchar,NO,
+public,thread_replies,event_id,character varying,varchar,NO,
+public,thread_replies,root_event_id,character varying,varchar,NO,
+public,thread_replies,sender,character varying,varchar,NO,
+public,thread_replies,in_reply_to_event_id,character varying,varchar,YES,
+public,thread_replies,content,jsonb,jsonb,YES,'{}'::jsonb
+public,thread_replies,origin_server_ts,bigint,int8,NO,
+public,thread_replies,is_edited,boolean,bool,YES,false
+public,thread_replies,is_redacted,boolean,bool,YES,false
+public,thread_replies,created_ts,bigint,int8,NO,
+public,thread_roots,id,bigint,int8,NO,nextval('thread_roots_id_seq'::regclass)
+public,thread_roots,room_id,character varying,varchar,NO,
+public,thread_roots,event_id,character varying,varchar,NO,
+public,thread_roots,thread_id,character varying,varchar,NO,
+public,thread_roots,creator,character varying,varchar,NO,
+public,thread_roots,created_ts,bigint,int8,NO,
+public,thread_roots,last_reply_ts,bigint,int8,YES,
+public,thread_roots,reply_count,integer,int4,YES,0
+public,thread_roots,is_enabled,boolean,bool,YES,true
+public,thread_roots,root_event_id,character varying,varchar,NO,
+public,thread_roots,sender,character varying,varchar,NO,
+public,thread_roots,content,jsonb,jsonb,YES,'{}'::jsonb
+public,thread_roots,origin_server_ts,bigint,int8,NO,
+public,thread_roots,last_reply_event_id,character varying,varchar,YES,
+public,thread_roots,last_reply_sender,character varying,varchar,YES,
+public,thread_roots,is_frozen,boolean,bool,YES,false
+public,thread_roots,updated_ts,bigint,int8,YES,
+public,thread_statistics,id,bigint,int8,NO,nextval('thread_statistics_id_seq'::regclass)
+public,thread_statistics,room_id,text,text,NO,
+public,thread_statistics,thread_root_event_id,text,text,NO,
+public,thread_statistics,reply_count,bigint,int8,YES,0
+public,thread_statistics,last_reply_event_id,text,text,YES,
+public,thread_statistics,last_reply_sender,text,text,YES,
+public,thread_statistics,last_reply_ts,bigint,int8,YES,
+public,thread_statistics,participants,jsonb,jsonb,YES,'[]'::jsonb
+public,thread_statistics,created_ts,bigint,int8,NO,
+public,thread_statistics,updated_ts,bigint,int8,YES,
+public,thread_subscriptions,id,bigint,int8,NO,nextval('thread_subscriptions_id_seq'::regclass)
+public,thread_subscriptions,room_id,character varying,varchar,NO,
+public,thread_subscriptions,thread_id,character varying,varchar,NO,
+public,thread_subscriptions,user_id,character varying,varchar,NO,
+public,thread_subscriptions,notification_level,character varying,varchar,NO,'all'::character varying
+public,thread_subscriptions,is_muted,boolean,bool,YES,false
+public,thread_subscriptions,subscribed_ts,bigint,int8,NO,
+public,thread_subscriptions,updated_ts,bigint,int8,NO,
+public,thumbnails,id,bigint,int8,NO,nextval('thumbnails_id_seq'::regclass)
+public,thumbnails,media_id,text,text,NO,
+public,thumbnails,width,integer,int4,NO,
+public,thumbnails,height,integer,int4,NO,
+public,thumbnails,method,text,text,NO,
+public,thumbnails,content_type,text,text,NO,
+public,thumbnails,size,bigint,int8,NO,
+public,thumbnails,created_ts,bigint,int8,NO,
+public,to_device_messages,id,integer,int4,NO,nextval('to_device_messages_id_seq'::regclass)
+public,to_device_messages,sender_user_id,character varying,varchar,NO,
+public,to_device_messages,sender_device_id,character varying,varchar,YES,
+public,to_device_messages,recipient_user_id,character varying,varchar,NO,
+public,to_device_messages,recipient_device_id,character varying,varchar,NO,
+public,to_device_messages,message_type,character varying,varchar,NO,
+public,to_device_messages,content,jsonb,jsonb,NO,
+public,to_device_messages,created_ts,bigint,int8,NO,
+public,to_device_messages,delivered,boolean,bool,YES,false
+public,to_device_messages,delivered_ts,bigint,int8,YES,
+public,token_blacklist,id,bigint,int8,NO,nextval('token_blacklist_id_seq'::regclass)
+public,token_blacklist,token_hash,character varying,varchar,NO,
+public,token_blacklist,token_type,character varying,varchar,NO,
+public,token_blacklist,user_id,character varying,varchar,NO,
+public,token_blacklist,revoked_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,token_blacklist,expires_at,bigint,int8,YES,
+public,token_blacklist,reason,character varying,varchar,YES,
+public,token_blacklist,revoked_at,bigint,int8,YES,
+public,token_blacklist,token,text,text,YES,
+public,token_blacklist,expires_ts,bigint,int8,YES,
+public,typing,user_id,text,text,NO,
+public,typing,room_id,text,text,NO,
+public,typing,typing,boolean,bool,YES,false
+public,typing,last_active_ts,bigint,int8,NO,
+public,user_account_data,id,bigint,int8,NO,nextval('user_account_data_id_seq'::regclass)
+public,user_account_data,user_id,text,text,NO,
+public,user_account_data,event_type,text,text,NO,
+public,user_account_data,content,text,text,NO,
+public,user_account_data,created_ts,bigint,int8,NO,
+public,user_directory,user_id,text,text,NO,
+public,user_directory,room_id,text,text,NO,
+public,user_directory,visibility,text,text,NO,'private'::text
+public,user_directory,added_by,text,text,YES,
+public,user_directory,created_ts,bigint,int8,NO,
+public,user_media_quota_backup_20260301,id,integer,int4,YES,
+public,user_media_quota_backup_20260301,user_id,character varying,varchar,YES,
+public,user_media_quota_backup_20260301,quota_bytes,bigint,int8,YES,
+public,user_media_quota_backup_20260301,used_bytes,bigint,int8,YES,
+public,user_media_quota_backup_20260301,media_count,integer,int4,YES,
+public,user_media_quota_backup_20260301,created_ts,timestamp with time zone,timestamptz,YES,
+public,user_media_quota_backup_20260301,updated_ts,timestamp with time zone,timestamptz,YES,
+public,user_profiles,user_id,character varying,varchar,NO,
+public,user_profiles,displayname,character varying,varchar,YES,
+public,user_profiles,avatar_url,character varying,varchar,YES,
+public,user_profiles,updated_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,user_sessions,id,bigint,int8,YES,
+public,user_sessions,user_id,character varying,varchar,YES,
+public,user_sessions,device_id,character varying,varchar,YES,
+public,user_sessions,created_ts,bigint,int8,YES,
+public,user_sessions,expires_ts,bigint,int8,YES,
+public,user_sessions,device_name,character varying,varchar,YES,
+public,user_sessions,status,text,text,YES,
+public,user_threepids,id,uuid,uuid,NO,gen_random_uuid()
+public,user_threepids,user_id,character varying,varchar,NO,
+public,user_threepids,medium,character varying,varchar,NO,
+public,user_threepids,address,character varying,varchar,NO,
+public,user_threepids,validated_at,bigint,int8,YES,
+public,user_threepids,added_at,bigint,int8,NO,(EXTRACT(epoch FROM now()) * (1000)::numeric)
+public,user_threepids,session_id,character varying,varchar,YES,
+public,user_threepids,client_secret,character varying,varchar,YES,
+public,users,user_id,character varying,varchar,NO,
+public,users,username,character varying,varchar,NO,
+public,users,password_hash,text,text,YES,
+public,users,displayname,character varying,varchar,YES,
+public,users,avatar_url,character varying,varchar,YES,
+public,users,is_admin,boolean,bool,YES,false
+public,users,is_guest,boolean,bool,YES,false
+public,users,user_type,character varying,varchar,YES,
+public,users,is_deactivated,boolean,bool,NO,false
+public,users,is_shadow_banned,boolean,bool,YES,false
+public,users,consent_version,character varying,varchar,YES,
+public,users,appservice_id,character varying,varchar,YES,
+public,users,creation_ts,bigint,int8,NO,((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint
+public,users,updated_ts,bigint,int8,YES,
+public,users,generation,bigint,int8,NO,0
+public,users,invalid_update_ts,bigint,int8,YES,
+public,users,migration_state,character varying,varchar,YES,
+public,users,last_seen_ts,bigint,int8,YES,
+public,users,last_seen_ip,character varying,varchar,YES,
+public,users,failed_login_attempts,integer,int4,YES,0
+public,users,locked_until_ts,bigint,int8,YES,
+public,users,password_changed_ts,bigint,int8,YES,
+public,users,must_change_password,boolean,bool,YES,false
+public,users,email,character varying,varchar,YES,
+public,users,phone,character varying,varchar,YES,
+public,users,threepids,jsonb,jsonb,YES,'[]'::jsonb
+public,users,user_threepids,jsonb,jsonb,YES,'[]'::jsonb
+public,users,consent_ts,bigint,int8,YES,
+public,users,name,character varying,varchar,YES,
+public,v_active_users,user_id,character varying,varchar,YES,
+public,v_active_users,username,character varying,varchar,YES,
+public,v_active_users,displayname,character varying,varchar,YES,
+public,v_active_users,email,character varying,varchar,YES,
+public,v_active_users,creation_ts,bigint,int8,YES,
+public,v_active_users,device_count,bigint,int8,YES,
+public,v_active_users,last_active_ts,bigint,int8,YES,
+public,v_room_statistics,room_id,character varying,varchar,YES,
+public,v_room_statistics,name,character varying,varchar,YES,
+public,v_room_statistics,is_public,boolean,bool,YES,
+public,v_room_statistics,creation_ts,bigint,int8,YES,
+public,v_room_statistics,joined_members,bigint,int8,YES,
+public,v_room_statistics,invited_members,bigint,int8,YES,
+public,v_room_statistics,left_members,bigint,int8,YES,
+public,v_room_statistics,total_events,bigint,int8,YES,
+public,voice_messages,id,bigint,int8,NO,nextval('voice_messages_id_seq'::regclass)
+public,voice_messages,event_id,character varying,varchar,NO,
+public,voice_messages,room_id,character varying,varchar,NO,
+public,voice_messages,user_id,character varying,varchar,NO,
+public,voice_messages,media_id,character varying,varchar,YES,
+public,voice_messages,duration_ms,integer,int4,NO,
+public,voice_messages,waveform,text,text,YES,
+public,voice_messages,mime_type,character varying,varchar,YES,
+public,voice_messages,file_size,bigint,int8,YES,
+public,voice_messages,transcription,text,text,YES,
+public,voice_messages,encryption,jsonb,jsonb,YES,
+public,voice_messages,is_processed,boolean,bool,YES,false
+public,voice_messages,processed_ts,bigint,int8,YES,
+public,voice_messages,created_ts,bigint,int8,NO,
+public,voice_usage_stats,id,bigint,int8,NO,nextval('voice_usage_stats_id_seq'::regclass)
+public,voice_usage_stats,user_id,character varying,varchar,NO,
+public,voice_usage_stats,room_id,character varying,varchar,YES,
+public,voice_usage_stats,date,date,date,NO,
+public,voice_usage_stats,period_start,timestamp without time zone,timestamp,YES,
+public,voice_usage_stats,period_end,timestamp without time zone,timestamp,YES,
+public,voice_usage_stats,total_duration_ms,bigint,int8,YES,0
+public,voice_usage_stats,total_file_size,bigint,int8,YES,0
+public,voice_usage_stats,message_count,bigint,int8,YES,0
+public,voice_usage_stats,last_activity_ts,bigint,int8,YES,
+public,voice_usage_stats,last_active_ts,bigint,int8,YES,
+public,voice_usage_stats,created_ts,bigint,int8,YES,
+public,voice_usage_stats,updated_ts,bigint,int8,YES,
+public,worker_commands,id,integer,int4,NO,nextval('worker_commands_id_seq'::regclass)
+public,worker_commands,worker_id,character varying,varchar,NO,
+public,worker_commands,command,character varying,varchar,NO,
+public,worker_commands,params,jsonb,jsonb,YES,
+public,worker_commands,result,jsonb,jsonb,YES,
+public,worker_commands,status,character varying,varchar,YES,'pending'::character varying
+public,worker_commands,created_ts,bigint,int8,NO,
+public,worker_commands,completed_ts,bigint,int8,YES,
+public,worker_commands,target_worker_id,text,text,YES,
+public,worker_commands,command_id,text,text,YES,
+public,worker_connections,id,bigint,int8,NO,nextval('worker_connections_id_seq'::regclass)
+public,worker_connections,source_worker_id,character varying,varchar,NO,
+public,worker_connections,target_worker_id,character varying,varchar,NO,
+public,worker_connections,connection_type,character varying,varchar,NO,
+public,worker_connections,established_ts,bigint,int8,NO,
+public,worker_connections,last_activity_ts,bigint,int8,YES,
+public,worker_connections,bytes_sent,bigint,int8,YES,0
+public,worker_connections,bytes_received,bigint,int8,YES,0
+public,worker_connections,messages_sent,bigint,int8,YES,0
+public,worker_connections,messages_received,bigint,int8,YES,0
+public,worker_events,id,integer,int4,NO,nextval('worker_events_id_seq'::regclass)
+public,worker_events,worker_id,character varying,varchar,NO,
+public,worker_events,event_type,character varying,varchar,NO,
+public,worker_events,event_data,jsonb,jsonb,YES,
+public,worker_events,created_ts,bigint,int8,NO,
+public,worker_events,stream_id,bigint,int8,YES,
+public,worker_health_checks,id,integer,int4,NO,nextval('worker_health_checks_id_seq'::regclass)
+public,worker_health_checks,worker_id,character varying,varchar,NO,
+public,worker_health_checks,check_type,character varying,varchar,NO,
+public,worker_health_checks,status,character varying,varchar,NO,
+public,worker_health_checks,details,jsonb,jsonb,YES,'{}'::jsonb
+public,worker_health_checks,checked_at,timestamp with time zone,timestamptz,YES,now()
+public,worker_statistics,id,integer,int4,NO,nextval('worker_statistics_id_seq'::regclass)
+public,worker_statistics,worker_id,character varying,varchar,NO,
+public,worker_statistics,stat_type,character varying,varchar,NO,
+public,worker_statistics,stat_value,jsonb,jsonb,NO,
+public,worker_statistics,recorded_ts,bigint,int8,NO,
+public,worker_stream_positions,id,bigint,int8,NO,nextval('worker_stream_positions_id_seq'::regclass)
+public,worker_stream_positions,stream_name,character varying,varchar,NO,
+public,worker_stream_positions,instance_name,character varying,varchar,NO,
+public,worker_stream_positions,position,bigint,int8,NO,0
+public,worker_stream_positions,updated_ts,bigint,int8,NO,(EXTRACT(epoch FROM now()) * (1000)::numeric)
+public,worker_task_assignments,id,integer,int4,NO,nextval('worker_task_assignments_id_seq'::regclass)
+public,worker_task_assignments,task_id,character varying,varchar,NO,
+public,worker_task_assignments,worker_id,character varying,varchar,YES,
+public,worker_task_assignments,task_type,character varying,varchar,YES,
+public,worker_task_assignments,status,character varying,varchar,YES,'pending'::character varying
+public,worker_task_assignments,task_data,jsonb,jsonb,YES,
+public,worker_task_assignments,assigned_ts,bigint,int8,YES,
+public,worker_task_assignments,started_ts,bigint,int8,YES,
+public,worker_task_assignments,completed_ts,bigint,int8,YES,
+public,worker_tasks,id,bigint,int8,NO,nextval('worker_tasks_id_seq'::regclass)
+public,worker_tasks,task_type,text,text,NO,
+public,worker_tasks,task_data,jsonb,jsonb,YES,'{}'::jsonb
+public,worker_tasks,priority,integer,int4,YES,0
+public,worker_tasks,status,text,text,YES,'pending'::text
+public,worker_tasks,assigned_worker_id,text,text,YES,
+public,worker_tasks,result,jsonb,jsonb,YES,
+public,worker_tasks,error_message,text,text,YES,
+public,worker_tasks,created_ts,bigint,int8,NO,
+public,worker_tasks,started_ts,bigint,int8,YES,
+public,worker_tasks,completed_ts,bigint,int8,YES,
+public,worker_tasks,retry_count,integer,int4,YES,0
+public,worker_type_statistics,id,integer,int4,NO,nextval('worker_type_statistics_id_seq'::regclass)
+public,worker_type_statistics,worker_type,character varying,varchar,NO,
+public,worker_type_statistics,instance_count,integer,int4,YES,0
+public,worker_type_statistics,total_tasks,integer,int4,YES,0
+public,worker_type_statistics,active_tasks,integer,int4,YES,0
+public,worker_type_statistics,avg_response_time,double precision,float8,YES,
+public,worker_type_statistics,recorded_ts,bigint,int8,NO,
+public,workers,id,bigint,int8,NO,nextval('workers_id_seq'::regclass)
+public,workers,worker_id,character varying,varchar,NO,
+public,workers,worker_name,character varying,varchar,NO,
+public,workers,worker_type,character varying,varchar,NO,
+public,workers,host,character varying,varchar,NO,
+public,workers,port,integer,int4,NO,
+public,workers,status,character varying,varchar,YES,'starting'::character varying
+public,workers,last_heartbeat_ts,bigint,int8,YES,
+public,workers,started_ts,bigint,int8,NO,
+public,workers,stopped_ts,bigint,int8,YES,
+public,workers,config,jsonb,jsonb,YES,'{}'::jsonb
+public,workers,metadata,jsonb,jsonb,YES,'{}'::jsonb
+public,workers,version,character varying,varchar,YES,

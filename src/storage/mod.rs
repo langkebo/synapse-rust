@@ -11,6 +11,7 @@ pub mod email_verification;
 pub mod event;
 pub mod event_report;
 pub mod federation_blacklist;
+pub mod filter;
 pub mod friend_room;
 pub mod maintenance;
 pub mod media;
@@ -18,6 +19,7 @@ pub mod media_quota;
 pub mod membership;
 pub mod module;
 pub mod monitoring;
+pub mod openid_token;
 pub mod performance;
 pub mod pool_monitor;
 pub mod push_notification;
@@ -31,6 +33,7 @@ pub mod schema_validator;
 pub mod server_notification;
 pub mod space;
 pub mod thread;
+pub mod threepid;
 pub mod token;
 pub mod user;
 pub mod voice;
@@ -41,6 +44,7 @@ pub use self::cas::*;
 pub use self::device::*;
 pub use self::event::*;
 pub use self::federation_blacklist::*;
+pub use self::filter::*;
 pub use self::friend_room::*;
 pub use self::maintenance::*;
 pub use self::media_quota::*;
@@ -50,10 +54,11 @@ pub use self::monitoring::{
     DuplicateEntry, ForeignKeyViolation, NullConstraintViolation, OrphanedRecord,
     PerformanceMetrics, VacuumStats,
 };
+pub use self::openid_token::*;
 pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
 pub use self::pool_monitor::{
-    create_pool_with_monitoring, DatabasePoolConfig, DatabasePoolMonitor, PoolHealthStatus,
-    PoolStats, QueryTimeoutConfig, set_query_timeout, set_transaction_timeout,
+    create_pool_with_monitoring, set_query_timeout, set_transaction_timeout, DatabasePoolConfig,
+    DatabasePoolMonitor, PoolHealthStatus, PoolStats, QueryTimeoutConfig,
 };
 pub use self::push_notification::*;
 pub use self::room::*;
@@ -62,6 +67,7 @@ pub use self::schema_validator::*;
 pub use self::server_notification::*;
 pub use self::space::*;
 pub use self::thread::*;
+pub use self::threepid::*;
 pub use self::token::*;
 pub use self::user::*;
 pub use self::voice::*;
@@ -200,18 +206,18 @@ mod tests {
             password_hash: Some("hash123".to_string()),
             displayname: Some("Test User".to_string()),
             avatar_url: Some("mxc://example.com/avatar".to_string()),
-            is_admin: Some(false),
-            is_deactivated: Some(false),
-            is_guest: Some(false),
+            is_admin: false,
+            is_deactivated: false,
+            is_guest: false,
+            is_shadow_banned: false,
+            created_ts: 1234567890,
+            updated_ts: None,
+            generation: 1,
             consent_version: None,
             appservice_id: None,
             user_type: None,
-            is_shadow_banned: Some(false),
-            generation: 1,
             invalid_update_ts: None,
             migration_state: None,
-            creation_ts: 1234567890,
-            updated_ts: None,
         };
         assert_eq!(user.user_id, "@test:example.com");
         assert_eq!(user.username, "testuser");
@@ -242,8 +248,11 @@ mod tests {
             token: "test_token_123".to_string(),
             user_id: "@test:example.com".to_string(),
             device_id: Some("DEVICE123".to_string()),
-            created_ts: 1234567890,
-            expires_ts: 1234571490,
+            created_ts: 1234567890000,
+            expires_ts: Some(1234571490000),
+            last_used_ts: None,
+            user_agent: None,
+            ip_address: None,
             is_valid: true,
             revoked_ts: None,
         };
@@ -265,7 +274,7 @@ mod tests {
             is_public: false,
             member_count: 0,
             history_visibility: "shared".to_string(),
-            creation_ts: 1234567890,
+            created_ts: 1234567890,
             avatar_url: None,
         };
         assert_eq!(room.room_id, "!test:example.com");

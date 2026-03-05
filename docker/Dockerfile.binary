@@ -1,0 +1,39 @@
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+RUN useradd -r -s /bin/false synapse && \
+    mkdir -p /app/logs/migrations /app/data /app/scripts /app/migrations && \
+    chown -R synapse:synapse /app
+
+COPY target/release/synapse-rust /app/synapse-rust
+COPY migrations/ /app/migrations/
+COPY scripts/db_migrate.sh /app/scripts/
+COPY scripts/verify_migration.sh /app/scripts/
+COPY scripts/docker-entrypoint.sh /app/scripts/
+COPY docker/run-migrations.sh /app/scripts/
+
+RUN chmod +x /app/scripts/*.sh /app/synapse-rust
+
+ENV DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
+ENV RUN_MIGRATIONS=true
+ENV VERIFY_MIGRATIONS=true
+ENV DB_WAIT_ATTEMPTS=30
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8008/health || exit 1
+
+EXPOSE 8008 8448
+
+USER synapse
+
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
+CMD ["/app/synapse-rust"]
