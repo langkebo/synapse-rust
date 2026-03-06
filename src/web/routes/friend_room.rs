@@ -67,6 +67,15 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             "/_matrix/client/v1/friends/{user_id}/info",
             get(get_friend_info),
         )
+        // 好友分组相关路由
+        .route("/_matrix/client/v1/friends/groups", get(get_friend_groups))
+        .route("/_matrix/client/v1/friends/groups", post(create_friend_group))
+        .route("/_matrix/client/v1/friends/groups/{group_id}", delete(delete_friend_group))
+        .route("/_matrix/client/v1/friends/groups/{group_id}/name", put(rename_friend_group))
+        .route("/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}", post(add_friend_to_group))
+        .route("/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}", delete(remove_friend_from_group))
+        .route("/_matrix/client/v1/friends/groups/{group_id}/friends", get(get_friends_in_group))
+        .route("/_matrix/client/v1/friends/{user_id}/groups", get(get_groups_for_user))
         .with_state(state)
 }
 
@@ -365,6 +374,154 @@ async fn get_friend_suggestions(
 
     Ok(Json(json!({
         "suggestions": suggestions
+    })))
+}
+
+// 好友分组相关处理函数
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateGroupRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RenameGroupRequest {
+    pub name: String,
+}
+
+async fn get_friend_groups(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let groups = state
+        .services
+        .friend_room_service
+        .get_friend_groups(&auth_user.user_id)
+        .await?;
+
+    Ok(Json(json!({
+        "groups": groups
+    })))
+}
+
+async fn create_friend_group(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<CreateGroupRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if body.name.is_empty() || body.name.len() > 50 {
+        return Err(ApiError::bad_request(
+            "Group name must be between 1 and 50 characters".to_string(),
+        ));
+    }
+
+    let group = state
+        .services
+        .friend_room_service
+        .create_friend_group(&auth_user.user_id, &body.name)
+        .await?;
+
+    Ok(Json(group))
+}
+
+async fn delete_friend_group(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(group_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    state
+        .services
+        .friend_room_service
+        .delete_friend_group(&auth_user.user_id, &group_id)
+        .await?;
+
+    Ok(Json(json!({})))
+}
+
+async fn rename_friend_group(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(group_id): Path<String>,
+    Json(body): Json<RenameGroupRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if body.name.is_empty() || body.name.len() > 50 {
+        return Err(ApiError::bad_request(
+            "Group name must be between 1 and 50 characters".to_string(),
+        ));
+    }
+
+    state
+        .services
+        .friend_room_service
+        .rename_friend_group(&auth_user.user_id, &group_id, &body.name)
+        .await?;
+
+    Ok(Json(json!({})))
+}
+
+async fn add_friend_to_group(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((group_id, user_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+
+    state
+        .services
+        .friend_room_service
+        .add_friend_to_group(&auth_user.user_id, &group_id, &user_id)
+        .await?;
+
+    Ok(Json(json!({})))
+}
+
+async fn remove_friend_from_group(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((group_id, user_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+
+    state
+        .services
+        .friend_room_service
+        .remove_friend_from_group(&auth_user.user_id, &group_id, &user_id)
+        .await?;
+
+    Ok(Json(json!({})))
+}
+
+async fn get_friends_in_group(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(group_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let friends = state
+        .services
+        .friend_room_service
+        .get_friends_in_group(&auth_user.user_id, &group_id)
+        .await?;
+
+    Ok(Json(json!({
+        "friends": friends
+    })))
+}
+
+async fn get_groups_for_user(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+
+    let groups = state
+        .services
+        .friend_room_service
+        .get_groups_for_user(&auth_user.user_id, &user_id)
+        .await?;
+
+    Ok(Json(json!({
+        "groups": groups
     })))
 }
 
