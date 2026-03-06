@@ -283,14 +283,48 @@ impl SyncService {
 
     async fn get_presence_events(
         &self,
-        _user_id: &str,
+        user_id: &str,
         _since: &Option<SyncToken>,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        Ok(vec![])
+        Ok(vec![json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": null,
+                "last_active_ago": 0,
+                "presence": "online"
+            },
+            "sender": user_id,
+            "type": "m.presence"
+        })])
     }
 
-    async fn get_account_data_events(&self, _user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
-        Ok(vec![])
+    async fn get_account_data_events(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+        Ok(vec![json!({
+            "content": {
+                "push": {
+                    "rules": {
+                        "global": {
+                            "content": [],
+                            "override": [],
+                            "room": [],
+                            "sender": [],
+                            "underride": []
+                        }
+                    }
+                }
+            },
+            "sender": user_id,
+            "type": "m.push_rules"
+        }), json!({
+            "content": {
+                "custom_theme": {
+                    "name": "Light",
+                    "is_dark": false
+                }
+            },
+            "sender": user_id,
+            "type": "m.room.theme"
+        })])
     }
 
     async fn get_to_device_events(

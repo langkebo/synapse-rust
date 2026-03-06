@@ -301,10 +301,14 @@ fn extract_token_from_headers(headers: &HeaderMap) -> Result<String, ApiError> {
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .without_v07_checks()
+        // v3 routes first to avoid being overridden
         .route(
             "/",
             get(|| async {
-                Json(json!({"msg": "Synapse Rust Matrix Server", "version": "0.1.0"}))
+                Json(json!({
+                    "msg": "Synapse Rust Matrix Server", 
+                    "version": "0.1.0"
+                }))
             }),
         )
         .route("/health", get(health_check))
@@ -316,8 +320,25 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/v3/pushrules/", get(|| async {
             Json(json!({
                 "global": {
-                    "content": [],
-                    "override": [],
+                    "content": [
+                        {"rule_id": ".m.rule.contains_user_name", "default": true, "enabled": true,
+                         "conditions": [{"kind": "contains_display_name", "key": "content.body"}],
+                         "actions": ["notify", {"set_tweak": "highlight", "value": true}, {"set_tweak": "sound", "value": "default"}]},
+                        {"rule_id": ".m.rule.contains_room_name", "default": true, "enabled": true,
+                         "conditions": [{"kind": "contains_room_name", "key": "content.body"}],
+                         "actions": ["notify", {"set_tweak": "highlight", "value": true}, {"set_tweak": "sound", "value": "default"}]}
+                    ],
+                    "override": [
+                        {"rule_id": ".m.rule.master", "default": true, "enabled": true,
+                         "conditions": [],
+                         "actions": []},
+                        {"rule_id": ".m.rule.suppress_notices", "default": true, "enabled": true,
+                         "conditions": [{"kind": "event_match", "key": "content.msgtype", "pattern": "m.notice"}],
+                         "actions": ["dont_notify"]},
+                        {"rule_id": ".m.rule.invite_for_me", "default": true, "enabled": true,
+                         "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.member"}, {"kind": "event_match", "key": "content.membership", "pattern": "invite"}, {"kind": "event_match", "key": "content.state_key", "pattern": "@user:example.com"}],
+                         "actions": ["notify", {"set_tweak": "highlight", "value": true}, {"set_tweak": "sound", "value": "default"}]}
+                    ],
                     "room": [],
                     "sender": [],
                     "underride": [
@@ -326,7 +347,13 @@ pub fn create_router(state: AppState) -> Router {
                          "actions": ["notify", {"set_tweak": "sound", "value": "default"}]},
                         {"rule_id": ".m.rule.encrypted", "default": true, "enabled": true,
                          "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}],
-                         "actions": ["notify", {"set_tweak": "sound", "value": "default"}]}
+                         "actions": ["notify", {"set_tweak": "sound", "value": "default"}]},
+                        {"rule_id": ".m.rule.roomnotif", "default": true, "enabled": true,
+                         "conditions": [{"kind": "event_match", "key": "content.body", "pattern": "@room"}],
+                         "actions": ["notify", {"set_tweak": "highlight", "value": true}, {"set_tweak": "sound", "value": "default"}]},
+                        {"rule_id": ".m.rule.at-room", "default": true, "enabled": true,
+                         "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}, {"kind": "contains_room_name", "key": "content.body"}],
+                         "actions": ["notify", {"set_tweak": "highlight", "value": true}, {"set_tweak": "sound", "value": "default"}]}
                     ]
                 }
             }))
