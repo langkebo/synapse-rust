@@ -1649,7 +1649,7 @@ pub struct ReplicationHttpConfig {
 impl Config {
     pub async fn load() -> Result<Self, Box<dyn std::error::Error>> {
         let config_path = std::env::var("SYNAPSE_CONFIG_PATH")
-            .unwrap_or_else(|_| "/app/config/homeserver.yaml".to_string());
+            .unwrap_or_else(|_| "./homeserver.yaml".to_string());
 
         tracing::info!("Loading configuration from: {}", config_path);
 
