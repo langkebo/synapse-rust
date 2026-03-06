@@ -130,6 +130,29 @@ impl FriendRoomStorage {
                     .cloned()
             }))
     }
+
+    /// 获取好友分组信息
+    pub async fn get_friend_groups(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT e.content
+            FROM events e
+            WHERE e.room_id = $1
+            AND e.event_type = 'm.friends.groups'
+            AND e.state_key = ''
+            ORDER BY e.origin_server_ts DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row.map(|r| r.get("content")))
+    }
 }
 
 #[cfg(test)]

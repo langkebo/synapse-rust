@@ -338,6 +338,248 @@ impl FriendRoomService {
         ])
     }
 
+    /// 创建好友分组
+    pub async fn create_friend_group(&self, user_id: &str, name: &str) -> ApiResult<serde_json::Value> {
+        let friend_room = self.create_friend_list_room(user_id).await?;
+        let group_id = format!("group_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4());
+
+        let group = json!({
+            "id": group_id,
+            "name": name,
+            "members": [],
+            "created_at": chrono::Utc::now().timestamp_millis()
+        });
+
+        let mut groups = self
+            .friend_storage
+            .get_friend_groups(&friend_room)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?
+            .unwrap_or_else(|| json!({ "groups": [] }));
+
+        if let Some(groups_array) = groups.get_mut("groups").and_then(|g| g.as_array_mut()) {
+            groups_array.push(group.clone());
+        } else {
+            groups = json!({ "groups": [group.clone()] });
+        }
+
+        self.send_state_event(&friend_room, user_id, "m.friends.groups", "", groups)
+            .await?;
+
+        Ok(group)
+    }
+
+    /// 删除好友分组
+    pub async fn delete_friend_group(&self, user_id: &str, group_id: &str) -> ApiResult<()> {
+        let friend_room = self.create_friend_list_room(user_id).await?;
+        let mut groups = self
+            .friend_storage
+            .get_friend_groups(&friend_room)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?
+            .unwrap_or_else(|| json!({ "groups": [] }));
+
+        if let Some(groups_array) = groups.get_mut("groups").and_then(|g| g.as_array_mut()) {
+            let original_len = groups_array.len();
+            groups_array.retain(|g| g.get("id").and_then(|id| id.as_str()) != Some(group_id));
+
+            if groups_array.len() == original_len {
+                return Err(ApiError::not_found(format!("Group {} not found", group_id)));
+            }
+
+            self.send_state_event(&friend_room, user_id, "m.friends.groups", "", groups)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// 重命名好友分组
+    pub async fn rename_friend_group(&self, user_id: &str, group_id: &str, new_name: &str) -> ApiResult<()> {
+        let friend_room = self.create_friend_list_room(user_id).await?;
+        let mut groups = self
+            .friend_storage
+            .get_friend_groups(&friend_room)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?
+            .unwrap_or_else(|| json!({ "groups": [] }));
+
+        if let Some(groups_array) = groups.get_mut("groups").and_then(|g| g.as_array_mut()) {
+            let mut found = false;
+            for group in groups_array.iter_mut() {
+                if group.get("id").and_then(|id| id.as_str()) == Some(group_id) {
+                    group["name"] = json!(new_name);
+                    found = true;
+                    break;
+                }
+            }
+
+            if !found {
+                return Err(ApiError::not_found(format!("Group {} not found", group_id)));
+            }
+
+            self.send_state_event(&friend_room, user_id, "m.friends.groups", "", groups)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// 添加好友到分组
+    pub async fn add_friend_to_group(&self, user_id: &str, group_id: &str, friend_id: &str) -> ApiResult<()> {
+        let friend_room = self.create_friend_list_room(user_id).await?;
+
+        // 检查好友关系
+        if !self
+            .friend_storage
+            .is_friend(&friend_room, friend_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to check friendship: {}", e)))?
+        {
+            return Err(ApiError::not_found(format!("User {} is not your friend", friend_id)));
+        }
+
+        let mut groups = self
+            .friend_storage
+            .get_friend_groups(&friend_room)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?
+            .unwrap_or_else(|| json!({ "groups": [] }));
+
+        if let Some(groups_array) = groups.get_mut("groups").and_then(|g| g.as_array_mut()) {
+            let mut found = false;
+            for group in groups_array.iter_mut() {
+                if group.get("id").and_then(|id| id.as_str()) == Some(group_id) {
+                    if let Some(members) = group.get_mut("members").and_then(|m| m.as_array_mut()) {
+                        if !members.iter().any(|m| m.as_str() == Some(friend_id)) {
+                            members.push(json!(friend_id));
+                        }
+                    } else {
+                        group["members"] = json!([friend_id]);
+                    }
+                    found = true;
+                    break;
+                }
+            }
+
+            if !found {
+                return Err(ApiError::not_found(format!("Group {} not found", group_id)));
+            }
+
+            self.send_state_event(&friend_room, user_id, "m.friends.groups", "", groups)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// 从分组中移除好友
+    pub async fn remove_friend_from_group(&self, user_id: &str, group_id: &str, friend_id: &str) -> ApiResult<()> {
+        let friend_room = self.create_friend_list_room(user_id).await?;
+        let mut groups = self
+            .friend_storage
+            .get_friend_groups(&friend_room)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?
+            .unwrap_or_else(|| json!({ "groups": [] }));
+
+        if let Some(groups_array) = groups.get_mut("groups").and_then(|g| g.as_array_mut()) {
+            let mut found = false;
+            for group in groups_array.iter_mut() {
+                if group.get("id").and_then(|id| id.as_str()) == Some(group_id) {
+                    if let Some(members) = group.get_mut("members").and_then(|m| m.as_array_mut()) {
+                        members.retain(|m| m.as_str() != Some(friend_id));
+                    }
+                    found = true;
+                    break;
+                }
+            }
+
+            if !found {
+                return Err(ApiError::not_found(format!("Group {} not found", group_id)));
+            }
+
+            self.send_state_event(&friend_room, user_id, "m.friends.groups", "", groups)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// 获取所有好友分组
+    pub async fn get_friend_groups(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+        let friend_room = self.create_friend_list_room(user_id).await?;
+        let groups = self
+            .friend_storage
+            .get_friend_groups(&friend_room)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?;
+
+        if let Some(g) = groups {
+            if let Some(groups_array) = g.get("groups").and_then(|g| g.as_array()) {
+                return Ok(groups_array.clone());
+            }
+        }
+
+        Ok(Vec::new())
+    }
+
+    /// 获取用户所在的分组
+    pub async fn get_groups_for_user(&self, user_id: &str, friend_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+        let friend_room = self.create_friend_list_room(user_id).await?;
+        let groups = self
+            .friend_storage
+            .get_friend_groups(&friend_room)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?;
+
+        if let Some(g) = groups {
+            if let Some(groups_array) = g.get("groups").and_then(|g| g.as_array()) {
+                return Ok(groups_array
+                    .iter()
+                    .filter(|group| {
+                        group
+                            .get("members")
+                            .and_then(|m| m.as_array())
+                            .map(|members| members.iter().any(|m| m.as_str() == Some(friend_id)))
+                            .unwrap_or(false)
+                    })
+                    .cloned()
+                    .collect());
+            }
+        }
+
+        Ok(Vec::new())
+    }
+
+    /// 获取分组中的好友
+    pub async fn get_friends_in_group(
+        &self,
+        user_id: &str,
+        group_id: &str,
+    ) -> ApiResult<Vec<serde_json::Value>> {
+        let friend_room = self.create_friend_list_room(user_id).await?;
+        let groups = self
+            .friend_storage
+            .get_friend_groups(&friend_room)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?;
+
+        if let Some(group) = groups.iter().find(|g| g.get("id").and_then(|id| id.as_str()) == Some(group_id)) {
+            if let Some(members) = group.get("members").and_then(|m| m.as_array()) {
+                let friends = self.get_friends(user_id).await?;
+                return Ok(friends
+                    .into_iter()
+                    .filter(|f| {
+                        members.iter().any(|m| m.as_str() == f.get("user_id").and_then(|u| u.as_str()))
+                    })
+                    .collect());
+            }
+        }
+
+        Ok(Vec::new())
+    }
+
     /// 拒绝好友请求
     pub async fn reject_friend_request(&self, user_id: &str, requester_id: &str) -> ApiResult<()> {
         let friend_room = self.create_friend_list_room(user_id).await?;
