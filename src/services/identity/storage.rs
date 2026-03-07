@@ -1,5 +1,5 @@
 use super::models::ThirdPartyId;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 
 #[derive(sqlx::FromRow)]
 struct ThreePidRow {
@@ -51,19 +51,19 @@ impl IdentityStorage {
     }
 
     pub async fn add_three_pid(&self, three_pid: &ThirdPartyId) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO user_threepids (address, medium, user_id, validated_at, added_at)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (address, medium, user_id) DO UPDATE SET
                 validated_at = EXCLUDED.validated_at
-            "#,
-            three_pid.address,
-            three_pid.medium,
-            three_pid.user_id,
-            three_pid.validated_at,
-            three_pid.added_at
+            "#
         )
+        .bind(&three_pid.address)
+        .bind(&three_pid.medium)
+        .bind(&three_pid.user_id)
+        .bind(three_pid.validated_at)
+        .bind(three_pid.added_at)
         .execute(&self.pool)
         .await?;
 
@@ -76,15 +76,15 @@ impl IdentityStorage {
         medium: &str,
         user_id: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             DELETE FROM user_threepids
             WHERE address = $1 AND medium = $2 AND user_id = $3
-            "#,
-            address,
-            medium,
-            user_id
+            "#
         )
+        .bind(address)
+        .bind(medium)
+        .bind(user_id)
         .execute(&self.pool)
         .await?;
 
@@ -96,18 +96,18 @@ impl IdentityStorage {
         address: &str,
         medium: &str,
     ) -> Result<Option<String>, sqlx::Error> {
-        let row = sqlx::query!(
+        let row: Option<sqlx::postgres::PgRow> = sqlx::query(
             r#"
             SELECT user_id FROM user_threepids
             WHERE address = $1 AND medium = $2
-            "#,
-            address,
-            medium
+            "#
         )
+        .bind(address)
+        .bind(medium)
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|r| r.user_id))
+        Ok(row.map(|r| r.get("user_id")))
     }
 
     pub async fn validate_three_pid(
@@ -118,17 +118,17 @@ impl IdentityStorage {
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE user_threepids
             SET validated_at = $4
             WHERE address = $1 AND medium = $2 AND user_id = $3
-            "#,
-            address,
-            medium,
-            user_id,
-            now
+            "#
         )
+        .bind(address)
+        .bind(medium)
+        .bind(user_id)
+        .bind(now)
         .execute(&self.pool)
         .await?;
 
@@ -138,7 +138,7 @@ impl IdentityStorage {
     pub async fn get_pending_three_pid_validations(
         &self,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query!(
+        let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
             r#"
             SELECT address, medium, user_id, validated_at, added_at
             FROM user_threepids
@@ -154,11 +154,11 @@ impl IdentityStorage {
             .into_iter()
             .map(|r| {
                 serde_json::json!({
-                    "address": r.address,
-                    "medium": r.medium,
-                    "user_id": r.user_id,
-                    "validated_at": r.validated_at,
-                    "added_at": r.added_at
+                    "address": r.get::<Option<String>, _>("address"),
+                    "medium": r.get::<String, _>("medium"),
+                    "user_id": r.get::<String, _>("user_id"),
+                    "validated_at": r.get::<Option<i64>, _>("validated_at"),
+                    "added_at": r.get::<i64, _>("added_at")
                 })
             })
             .collect())

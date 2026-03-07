@@ -2,7 +2,7 @@ use base64::Engine;
 use chrono::{Duration, Utc};
 use ed25519_dalek::Verifier;
 use serde_json::json;
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -239,18 +239,18 @@ impl KeyRotationManager {
         signature: &str,
         content: &[u8],
     ) -> Result<bool, anyhow::Error> {
-        let key_record = sqlx::query!(
+        let key_record: Option<sqlx::postgres::PgRow> = sqlx::query(
             r#"
             SELECT public_key, expires_at FROM federation_signing_keys WHERE key_id = $1
-            "#,
-            key_id
+            "#
         )
+        .bind(key_id)
         .fetch_optional(&*self.pool)
         .await?;
 
         match key_record {
             Some(record) => {
-                let expires_at = record.expires_at;
+                let expires_at: i64 = record.get("expires_at");
                 let now = Utc::now().timestamp_millis();
 
                 if expires_at > 0
@@ -261,7 +261,7 @@ impl KeyRotationManager {
                     return Ok(false);
                 }
 
-                let public_key = record.public_key;
+                let public_key: String = record.get("public_key");
                 return self
                     .verify_signature(&public_key, signature, content)
                     .await
