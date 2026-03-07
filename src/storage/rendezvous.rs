@@ -96,7 +96,7 @@ pub struct RendezvousLoginFinish {
 
 #[derive(Clone)]
 pub struct RendezvousStorage {
-    pool: Arc<Pool<Postgres>>,
+    pub pool: Arc<Pool<Postgres>>,
 }
 
 impl RendezvousStorage {
