@@ -27,16 +27,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 复制 Cargo 文件 (利用缓存层)
 COPY Cargo.toml Cargo.lock ./
 
+# 复制 benches 目录 (benchmarks 需要)
+COPY benches ./benches
+
 # 创建虚拟 src 目录以缓存依赖
-RUN mkdir -p src benches && \
+RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
-    echo "" > benches/database_bench.rs && \
-    echo "" > benches/cache_benchmarks.rs && \
-    echo "" > benches/concurrency_benchmarks.rs && \
-    echo "" > benches/metrics_benchmarks.rs && \
-    echo "" > benches/collections_benchmarks.rs && \
     cargo build --release && \
-    rm -rf src benches
+    rm -rf src
 
 # 复制实际源代码
 COPY src ./src
@@ -75,7 +73,9 @@ COPY scripts/verify_migration.sh /app/scripts/
 COPY scripts/docker-entrypoint.sh /app/scripts/
 
 # 设置权限
-RUN chmod +x /app/scripts/*.sh /app/synapse-rust
+RUN chmod +x /app/scripts/*.sh /app/synapse-rust && \
+    chmod -R 755 /app/migrations && \
+    chown -R synapse:synapse /app
 
 # 环境变量
 ENV DATABASE_URL=postgres://synapse:synapse@postgres:5432/synapse

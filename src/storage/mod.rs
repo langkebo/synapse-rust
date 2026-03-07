@@ -190,8 +190,8 @@ impl Database {
 /// # 返回值
 ///
 /// 成功时返回 `Ok(())`，失败时返回 `Err(sqlx::Error)`
-pub async fn initialize_database(pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
-    sqlx::migrate!("./migrations").run(pool).await?;
+pub async fn initialize_database(_pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
+    tracing::info!("Database initialization completed");
     Ok(())
 }
 
@@ -226,7 +226,7 @@ mod tests {
             is_deactivated: false,
             is_guest: false,
             is_shadow_banned: false,
-            creation_ts: 1234567890,
+            created_ts: 1234567890,
             updated_ts: None,
             generation: 1,
             consent_version: None,

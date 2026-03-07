@@ -168,7 +168,7 @@ impl DeviceKeyStorage {
         user_id: &str,
         device_ids: &[String],
     ) -> Result<Vec<DeviceKey>, ApiError> {
-        let rows = sqlx::query(
+        let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
             r#"
             SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
             FROM device_keys
@@ -178,13 +178,14 @@ impl DeviceKeyStorage {
         .bind(user_id)
         .bind(device_ids)
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         Ok(rows.iter().map(Self::parse_key_data).collect())
     }
 
     pub async fn get_all_device_keys(&self, user_id: &str) -> Result<Vec<DeviceKey>, ApiError> {
-        let rows = sqlx::query(
+        let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
             r#"
             SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
             FROM device_keys
@@ -193,7 +194,8 @@ impl DeviceKeyStorage {
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         Ok(rows.iter().map(Self::parse_key_data).collect())
     }

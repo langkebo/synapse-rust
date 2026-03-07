@@ -139,6 +139,15 @@ verify_migrations() {
 start_application() {
     log_info "启动应用..."
     
+    # 设置配置文件路径
+    export SYNAPSE_CONFIG_PATH="${SYNAPSE_CONFIG_PATH:-/app/config/homeserver.yaml}"
+    
+    # 如果配置文件存在，复制到工作目录
+    if [ -f "$SYNAPSE_CONFIG_PATH" ]; then
+        log_info "使用配置文件: $SYNAPSE_CONFIG_PATH"
+        cp "$SYNAPSE_CONFIG_PATH" /app/homeserver.yaml
+    fi
+    
     # 执行传入的命令或默认启动命令
     if [ $# -gt 0 ]; then
         exec "$@"

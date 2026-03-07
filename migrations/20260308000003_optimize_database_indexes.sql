@@ -10,7 +10,7 @@
 
 -- users 表索引
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-CREATE INDEX IF NOT EXISTS idx_users_creation_ts ON users(creation_ts);
+CREATE INDEX IF NOT EXISTS idx_users_created_ts ON users(created_ts);
 CREATE INDEX IF NOT EXISTS idx_users_is_deactivated ON users(is_deactivated) WHERE is_deactivated = false;
 CREATE INDEX IF NOT EXISTS idx_users_appservice_id ON users(appservice_id) WHERE appservice_id IS NOT NULL;
 

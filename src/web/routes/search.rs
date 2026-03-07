@@ -350,7 +350,7 @@ async fn search_users(
     let limit = search.limit.unwrap_or(10) as i64;
     let search_pattern = format!("%{}%", search.search_term.to_lowercase());
 
-    let rows = sqlx::query(
+    let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
         r#"
         SELECT user_id, displayname, avatar_url
         FROM users

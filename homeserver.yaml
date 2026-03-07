@@ -1,4 +1,13 @@
 server_name: "localhost"
+
+server:
+  name: "localhost"
+  host: "0.0.0.0"
+  port: 8008
+  enable_registration: true
+  max_upload_size: 100000000
+  max_image_resolution: 1000000
+
 pid_file: /tmp/synapse.pid
 web_client: false
 soft_file_limit: 0
