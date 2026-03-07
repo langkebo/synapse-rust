@@ -218,6 +218,10 @@ fn default_server_port() -> u16 {
     8008
 }
 
+fn default_max_upload_size_value() -> u64 {
+    100_000_000 // 100MB
+}
+
 fn default_apns_production() -> bool {
     true
 }
@@ -1136,6 +1140,7 @@ pub struct ServerConfig {
     pub admin_contact: Option<String>,
 
     /// 最大上传大小（字节）
+    #[serde(default = "default_max_upload_size_value")]
     pub max_upload_size: u64,
 
     /// 最大图片分辨率
@@ -2879,7 +2884,6 @@ pub struct FederationLimitsConfig {
 fn default_max_upload_size() -> String {
     "100M".to_string()
 }
-
 fn default_room_join_complexity() -> u64 {
     10000
 }

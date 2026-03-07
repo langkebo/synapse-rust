@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::web::routes::{get_capabilities, AppState, AuthenticatedUser};
+use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Json, Path, State},
     routing::{delete, get, post, put},
@@ -11,16 +11,12 @@ use sqlx::Row;
 
 pub fn create_push_router(state: AppState) -> Router<AppState> {
     Router::new()
-        // Add v3/capabilities here to avoid merge issues
-        .route("/_matrix/client/v3/capabilities", get(get_capabilities))
         .route("/_matrix/client/v3/pushers", get(get_pushers))
         .route("/_matrix/client/v3/pushers/set", post(set_pusher))
         .route("/_matrix/client/r0/pushers", get(get_pushers))
         .route("/_matrix/client/r0/pushers/set", post(set_pusher))
         .route("/_matrix/client/v3/pushrules", get(get_push_rules))
-        .route("/_matrix/client/v3/pushrules/", get(get_push_rules))
         .route("/_matrix/client/r0/pushrules", get(get_push_rules))
-        .route("/_matrix/client/r0/pushrules/", get(get_push_rules))
         .route(
             "/_matrix/client/v3/pushrules/{scope}",
             get(get_push_rules_scope),

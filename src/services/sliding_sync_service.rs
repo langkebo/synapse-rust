@@ -302,6 +302,7 @@ impl SlidingSyncService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::sliding_sync::SlidingSyncFilters;
 
     #[test]
     fn test_room_to_json() {
@@ -368,17 +369,16 @@ mod tests {
     #[test]
     fn test_sliding_sync_filters_serialization() {
         let filters = SlidingSyncFilters {
-            is_dm: Some(true),
-            is_encrypted: None,
             is_invite: Some(false),
+            is_tombstoned: None,
             room_name_like: Some("test".to_string()),
             ..Default::default()
         };
 
         let json = serde_json::to_value(&filters).unwrap();
 
-        assert!(json.get("is_dm").is_some());
-        assert!(json.get("is_encrypted").is_none());
+        assert!(json.get("is_invite").is_some());
+        assert!(json.get("is_tombstoned").is_none());
         assert_eq!(json.get("room_name_like").unwrap().as_str().unwrap(), "test");
     }
 }

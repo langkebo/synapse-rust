@@ -5,8 +5,6 @@ use tracing::{debug, error, info, warn};
 
 const DEFAULT_CACHE_TTL_SECONDS: i64 = 3600;
 
-static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Environment {
     Development,
@@ -272,17 +270,8 @@ impl DatabaseInitService {
         } else if std::path::Path::new("./migrations").exists() {
             std::path::Path::new("./migrations")
         } else {
-            info!("使用内置迁移...");
-            match MIGRATOR.run(&*self.pool).await {
-                Ok(_) => {
-                    info!("内置迁移执行成功");
-                    return Ok("数据库迁移执行完成 (内置模式)".to_string());
-                }
-                Err(e) => {
-                    error!("内置迁移执行失败: {}", e);
-                    return Err(sqlx::Error::Configuration(e.to_string().into()));
-                }
-            }
+            info!("未找到迁移目录，跳过迁移");
+            return Ok("数据库迁移跳过 (无迁移文件)".to_string());
         };
 
         info!("使用运行时迁移文件: {:?}", migrations_dir);
