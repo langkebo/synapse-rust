@@ -20,12 +20,17 @@ impl DeviceKeyStorage {
                 user_id VARCHAR(255) NOT NULL,
                 device_id VARCHAR(255) NOT NULL,
                 algorithm VARCHAR(255) NOT NULL,
+                key_id VARCHAR(255) NOT NULL,
+                public_key TEXT NOT NULL,
+                signatures TEXT,
+                display_name VARCHAR(255),
                 key_data TEXT NOT NULL,
                 added_ts BIGINT NOT NULL,
+                ts_added_ms BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000,
+                ts_updated_ms BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000,
                 last_seen_ts BIGINT,
                 is_verified BOOLEAN DEFAULT FALSE,
-                ts_updated_ms BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000,
-                PRIMARY KEY (user_id, device_id, algorithm)
+                PRIMARY KEY (user_id, device_id, key_id)
             )
             "#,
         )
@@ -48,6 +53,14 @@ impl DeviceKeyStorage {
         .execute(&*self.pool)
         .await?;
 
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_device_keys_algorithm ON device_keys(algorithm)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
         Ok(())
     }
 
@@ -64,13 +77,12 @@ impl DeviceKeyStorage {
 
         let result = sqlx::query(
             r#"
-            INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, ts_updated_ms, ts_added_ms, key_data)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_added_ms, ts_updated_ms, key_data)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (user_id, device_id, key_id) DO UPDATE
             SET public_key = EXCLUDED.public_key,
                 signatures = EXCLUDED.signatures,
                 display_name = EXCLUDED.display_name,
-                ts_updated_ms = EXCLUDED.ts_updated_ms,
                 ts_updated_ms = EXCLUDED.ts_updated_ms,
                 key_data = EXCLUDED.key_data
             "#
@@ -82,7 +94,6 @@ impl DeviceKeyStorage {
         .bind(&key.public_key)
         .bind(&key.signatures)
         .bind(&key.display_name)
-        .bind(now_ms)
         .bind(now_ms)
         .bind(now_ms)
         .bind(now_ms)
