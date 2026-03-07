@@ -174,6 +174,8 @@ pub struct ServiceContainer {
     /// 服务器通知服务
     pub server_notification_service:
         Arc<crate::services::server_notification_service::ServerNotificationService>,
+    /// 隐私设置存储
+    pub privacy_storage: crate::storage::privacy::PrivacyStorage,
 }
 
 impl ServiceContainer {
@@ -418,6 +420,8 @@ impl ServiceContainer {
             )),
         );
 
+        let privacy_storage = crate::storage::privacy::PrivacyStorage::new(pool.clone());
+
         Self {
             user_storage,
             device_storage: DeviceStorage::new(pool),
@@ -490,6 +494,7 @@ impl ServiceContainer {
             media_quota_service,
             server_notification_storage,
             server_notification_service,
+            privacy_storage,
         }
     }
 

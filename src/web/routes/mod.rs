@@ -316,6 +316,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(health_check))
         .route("/_matrix/client/versions", get(get_client_versions))
         .route("/_matrix/client/r0/version", get(get_server_version))
+        .route("/_matrix/server_version", get(get_server_version))
         .route("/_matrix/client/r0/capabilities", get(get_capabilities))
         .route("/_matrix/client/v3/capabilities", get(get_capabilities))
         // Push rules - return default rules (SDK requires this endpoint)
@@ -735,7 +736,8 @@ async fn get_client_versions() -> Json<Value> {
 
 async fn get_server_version() -> Json<Value> {
     Json(json!({
-        "version": "0.1.0"
+        "server_version": "0.1.0",
+        "python_version": "3.11"
     }))
 }
 
@@ -1320,9 +1322,45 @@ fn validate_receipt_type(receipt_type: &str) -> Result<(), ApiError> {
 
 async fn get_profile(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
+
+    let token = extract_token_from_headers(&headers).ok();
+    let requester_id = if let Some(t) = token {
+        state.services.auth_service.validate_token(&t).await.ok().map(|(id, _, _)| id)
+    } else {
+        None
+    };
+
+    let privacy_settings = state
+        .services
+        .privacy_storage
+        .get_settings(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if let Some(settings) = privacy_settings {
+        let visibility = settings.profile_visibility.as_str();
+        match visibility {
+            "private" => {
+                if requester_id.as_deref() != Some(user_id.as_str()) {
+                    return Err(ApiError::forbidden(
+                        "Profile is private".to_string(),
+                    ));
+                }
+            }
+            "contacts" => {
+                if requester_id.as_deref() != Some(user_id.as_str()) {
+                    return Err(ApiError::forbidden(
+                        "Profile is only visible to contacts".to_string(),
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
 
     Ok(Json(
         state
@@ -2069,6 +2107,36 @@ async fn get_room_members(
 
     let token = extract_token_from_headers(&headers)?;
     let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let room = room.ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+
+    let is_member = state
+        .services
+        .member_storage
+        .get_member(&room_id, &user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .is_some();
+
+    if !room.is_public && !is_member {
+        ::tracing::warn!(
+            target: "security_audit",
+            event = "unauthorized_room_members_access",
+            user_id = user_id,
+            room_id = room_id,
+            "User attempted to access members of private room without being a member"
+        );
+        return Err(ApiError::forbidden(
+            "You must be a member to view the member list of this private room".to_string(),
+        ));
+    }
 
     let members = state
         .services
@@ -3136,6 +3204,12 @@ async fn redact_event(
         ));
     }
 
+    state
+        .services
+        .auth_service
+        .can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id, auth_user.is_admin)
+        .await?;
+
     let reason = body.get("reason").and_then(|v| v.as_str());
 
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
@@ -3210,20 +3284,11 @@ async fn kick_user(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    let room = state
+    state
         .services
-        .room_storage
-        .get_room(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?;
-
-    if let Some(room) = room {
-        if room.creator.as_deref() == Some(target) && !auth_user.is_admin {
-            return Err(ApiError::forbidden(
-                "Cannot kick the room creator".to_string(),
-            ));
-        }
-    }
+        .auth_service
+        .can_kick_user(&room_id, &auth_user.user_id, target, auth_user.is_admin)
+        .await?;
 
     let event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let content = json!({
@@ -3308,6 +3373,12 @@ async fn ban_user(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
+    state
+        .services
+        .auth_service
+        .can_ban_user(&room_id, &auth_user.user_id, target, auth_user.is_admin)
+        .await?;
+
     let event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let content = json!({
         "membership": "ban",
@@ -3363,6 +3434,12 @@ async fn unban_user(
         .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
 
     validate_user_id(target)?;
+
+    state
+        .services
+        .auth_service
+        .verify_room_moderator(&room_id, &auth_user.user_id, auth_user.is_admin)
+        .await?;
 
     state
         .services

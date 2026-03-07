@@ -46,6 +46,7 @@ impl Default for UserPrivacySettings {
     }
 }
 
+#[derive(Clone)]
 pub struct PrivacyStorage {
     pool: Arc<Pool<Postgres>>,
 }

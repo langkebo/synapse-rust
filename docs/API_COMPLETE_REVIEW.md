@@ -1,6 +1,6 @@
 # synapse-rust 完整 API 实现状态报告
 
-**报告日期**: 2026-03-05  
+**报告日期**: 2026-03-08  
 **API 总数**: 576 个端点  
 **代码行数**: ~15万行
 
@@ -100,7 +100,7 @@
 | `/_matrix/client/v3/profile/{userId}/avatar_url` | GET/PUT | 头像 | 认证 | ✅ | ✅ |
 | 自定义 | - | - | - | - | - |
 
-**评估**: ⚠️ profile 读取需要添加隐私检查
+**评估**: ✅ profile 读取已添加隐私检查
 
 ---
 
@@ -156,7 +156,7 @@
 | `/_matrix/client/v3/rooms/{roomId}/members` | GET | 获取成员列表 | 认证 | ⚠️ | ✅ |
 | `/_matrix/client/v3/rooms/{roomId}/members/{userId}` | GET | 获取特定成员 | 认证 | ⚠️ | ✅ |
 
-**评估**: ⚠️ 成员列表需要隐私检查
+**评估**: ✅ 成员列表已添加隐私检查
 
 ---
 
@@ -193,7 +193,7 @@
 | `/_matrix/client/v3/rooms/{roomId}/join_rules` | GET/PUT | 加入规则 | 认证 | ✅ | ✅ |
 | `/_matrix/client/v3/rooms/{roomId}/visibility` | PUT | 房间可见性 | 认证 | ✅ | ✅ |
 
-**评估**: ⚠️ kick/ban/unban/redact 需要更严格的权限检查
+**评估**: ✅ kick/ban/unban/redact 权限检查已优化
 
 ---
 
@@ -349,10 +349,10 @@
 
 | ID | 模块 | 问题 | 状态 |
 |----|------|------|------|
-| M-1 | 房间管理 | kick/ban/unban 权限检查 | ⚠️ 待优化 |
-| M-2 | 消息删除 | redact 权限验证 | ⚠️ 待优化 |
-| M-3 | 成员列表 | 隐私检查 | ⚠️ 待优化 |
-| M-4 | profile | 隐私设置 | ⚠️ 待优化 |
+| M-1 | 房间管理 | kick/ban/unban 权限检查 | ✅ 已优化 |
+| M-2 | 消息删除 | redact 权限验证 | ✅ 已优化 |
+| M-3 | 成员列表 | 隐私检查 | ✅ 已优化 |
+| M-4 | profile | 隐私设置 | ✅ 已优化 |
 
 ---
 

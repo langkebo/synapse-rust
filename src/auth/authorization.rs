@@ -340,6 +340,210 @@ impl AuthorizationService {
 
         Ok(())
     }
+
+    pub async fn verify_room_moderator(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        is_server_admin: bool,
+    ) -> ApiResult<()> {
+        if is_server_admin {
+            return Ok(());
+        }
+
+        let power_level = self.get_user_power_level(room_id, user_id).await?;
+
+        if power_level < 50 {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "unauthorized_room_moderator_action",
+                user_id = user_id,
+                room_id = room_id,
+                power_level = power_level,
+                "User attempted moderator action without sufficient permission"
+            );
+            return Err(ApiError::forbidden(
+                "Room moderator permission required".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub async fn can_kick_user(
+        &self,
+        room_id: &str,
+        actor_user_id: &str,
+        target_user_id: &str,
+        is_server_admin: bool,
+    ) -> ApiResult<()> {
+        if is_server_admin {
+            return Ok(());
+        }
+
+        let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
+        let target_power = self.get_user_power_level(room_id, target_user_id).await?;
+
+        if actor_power < 50 {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "unauthorized_kick_action",
+                actor_user_id = actor_user_id,
+                target_user_id = target_user_id,
+                room_id = room_id,
+                actor_power = actor_power,
+                "User attempted to kick without moderator permission"
+            );
+            return Err(ApiError::forbidden(
+                "Moderator permission required to kick users".to_string(),
+            ));
+        }
+
+        if actor_power <= target_power {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "insufficient_power_to_kick",
+                actor_user_id = actor_user_id,
+                target_user_id = target_user_id,
+                room_id = room_id,
+                actor_power = actor_power,
+                target_power = target_power,
+                "User attempted to kick user with equal or higher power level"
+            );
+            return Err(ApiError::forbidden(
+                "Cannot kick users with equal or higher power level".to_string(),
+            ));
+        }
+
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        if let Some(r) = room {
+            if r.creator.as_deref() == Some(target_user_id) {
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "attempted_kick_room_creator",
+                    actor_user_id = actor_user_id,
+                    target_user_id = target_user_id,
+                    room_id = room_id,
+                    "User attempted to kick room creator"
+                );
+                return Err(ApiError::forbidden(
+                    "Cannot kick the room creator".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn can_ban_user(
+        &self,
+        room_id: &str,
+        actor_user_id: &str,
+        target_user_id: &str,
+        is_server_admin: bool,
+    ) -> ApiResult<()> {
+        if is_server_admin {
+            return Ok(());
+        }
+
+        let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
+        let target_power = self.get_user_power_level(room_id, target_user_id).await?;
+
+        if actor_power < 50 {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "unauthorized_ban_action",
+                actor_user_id = actor_user_id,
+                target_user_id = target_user_id,
+                room_id = room_id,
+                actor_power = actor_power,
+                "User attempted to ban without moderator permission"
+            );
+            return Err(ApiError::forbidden(
+                "Moderator permission required to ban users".to_string(),
+            ));
+        }
+
+        if actor_power <= target_power {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "insufficient_power_to_ban",
+                actor_user_id = actor_user_id,
+                target_user_id = target_user_id,
+                room_id = room_id,
+                actor_power = actor_power,
+                target_power = target_power,
+                "User attempted to ban user with equal or higher power level"
+            );
+            return Err(ApiError::forbidden(
+                "Cannot ban users with equal or higher power level".to_string(),
+            ));
+        }
+
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        if let Some(r) = room {
+            if r.creator.as_deref() == Some(target_user_id) {
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "attempted_ban_room_creator",
+                    actor_user_id = actor_user_id,
+                    target_user_id = target_user_id,
+                    room_id = room_id,
+                    "User attempted to ban room creator"
+                );
+                return Err(ApiError::forbidden(
+                    "Cannot ban the room creator".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn can_redact_event(
+        &self,
+        room_id: &str,
+        actor_user_id: &str,
+        event_sender_id: &str,
+        is_server_admin: bool,
+    ) -> ApiResult<()> {
+        if is_server_admin {
+            return Ok(());
+        }
+
+        let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
+
+        if actor_user_id == event_sender_id {
+            return Ok(());
+        }
+
+        if actor_power < 50 {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "unauthorized_redact_action",
+                actor_user_id = actor_user_id,
+                event_sender_id = event_sender_id,
+                room_id = room_id,
+                actor_power = actor_power,
+                "User attempted to redact another user's event without moderator permission"
+            );
+            return Err(ApiError::forbidden(
+                "Moderator permission required to redact other users' messages".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
