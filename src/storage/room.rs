@@ -20,7 +20,7 @@ pub struct Room {
     pub is_public: bool,
     pub member_count: i64,
     pub history_visibility: String,
-    pub creation_ts: i64,
+    pub created_ts: i64,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -37,7 +37,7 @@ struct RoomRecord {
     is_public: Option<bool>,
     member_count: Option<i64>,
     history_visibility: Option<String>,
-    creation_ts: i64,
+    created_ts: i64,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -54,7 +54,7 @@ struct RoomWithMembersRecord {
     is_public: Option<bool>,
     member_count: Option<i64>,
     history_visibility: Option<String>,
-    creation_ts: i64,
+    created_ts: i64,
     joined_members: Option<i64>,
 }
 
@@ -80,7 +80,7 @@ impl RoomStorage {
         let now = chrono::Utc::now().timestamp();
 
         let query = r#"
-            INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, member_count, history_visibility, creation_ts, last_activity_ts)
+            INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, member_count, history_visibility, created_ts, last_activity_ts)
             VALUES ($1, $2, $3, $4, $5, 1, 'joined', $6, $7)
             "#;
 
@@ -126,7 +126,7 @@ impl RoomStorage {
             is_public,
             member_count: 1,
             history_visibility: DEFAULT_HISTORY_VISIBILITY.to_string(),
-            creation_ts: now,
+            created_ts: now,
         })
     }
 
@@ -134,7 +134,7 @@ impl RoomStorage {
         let row = sqlx::query_as::<_, RoomRecord>(
             r#"
             SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules, creator, room_version,
-                  encryption, is_public, member_count, history_visibility, creation_ts
+                  encryption, is_public, member_count, history_visibility, created_ts
             FROM rooms WHERE room_id = $1
             "#,
         )
@@ -159,7 +159,7 @@ impl RoomStorage {
                 history_visibility: row
                     .history_visibility
                     .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
-                creation_ts: row.creation_ts,
+                created_ts: row.created_ts,
             }))
         } else {
             Ok(None)
@@ -174,7 +174,7 @@ impl RoomStorage {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
             SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules, creator, room_version,
-                  encryption, is_public, member_count, history_visibility, creation_ts
+                  encryption, is_public, member_count, history_visibility, created_ts
             FROM rooms
             WHERE room_id = ANY($1)
             "#,
@@ -204,7 +204,7 @@ impl RoomStorage {
                     .history_visibility
                     .clone()
                     .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
-                creation_ts: row.creation_ts,
+                created_ts: row.created_ts,
             })
             .collect())
     }
@@ -225,9 +225,9 @@ impl RoomStorage {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
             SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules, creator, room_version,
-                  encryption, is_public, member_count, history_visibility, creation_ts
+                  encryption, is_public, member_count, history_visibility, created_ts
             FROM rooms WHERE is_public = TRUE
-            ORDER BY creation_ts DESC
+            ORDER BY created_ts DESC
             LIMIT $1
             "#,
         )
@@ -255,7 +255,7 @@ impl RoomStorage {
                     .history_visibility
                     .clone()
                     .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
-                creation_ts: row.creation_ts,
+                created_ts: row.created_ts,
             })
             .collect())
     }
@@ -269,11 +269,11 @@ impl RoomStorage {
             r#"
             SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator,
                    r.room_version, r.encryption, r.is_public, r.member_count, r.history_visibility,
-                   r.creation_ts, COUNT(rm.user_id) as joined_members
+                   r.created_ts, COUNT(rm.user_id) as joined_members
             FROM rooms r
             LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
             GROUP BY r.room_id
-            ORDER BY r.creation_ts DESC
+            ORDER BY r.created_ts DESC
             LIMIT $1 OFFSET $2
             "#,
         )
@@ -304,7 +304,7 @@ impl RoomStorage {
                             .history_visibility
                             .clone()
                             .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
-                        creation_ts: row.creation_ts,
+                        created_ts: row.created_ts,
                     },
                     row.joined_members.unwrap_or(0),
                 )
@@ -723,7 +723,7 @@ impl RoomStorage {
             r#"
             SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator,
                    r.room_version, r.encryption, r.is_public, r.member_count, r.history_visibility,
-                   r.creation_ts, COUNT(rm.user_id) as joined_members
+                   r.created_ts, COUNT(rm.user_id) as joined_members
             FROM rooms r
             LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
             WHERE r.room_id = ANY($1)
@@ -756,7 +756,7 @@ impl RoomStorage {
                         .history_visibility
                         .clone()
                         .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
-                    creation_ts: row.creation_ts,
+                    created_ts: row.created_ts,
                 };
                 (row.room_id.clone(), (room, row.joined_members.unwrap_or(0)))
             })
@@ -791,9 +791,9 @@ impl RoomStorage {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
             SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules, creator, room_version,
-                  encryption, is_public, member_count, history_visibility, creation_ts
+                  encryption, is_public, member_count, history_visibility, created_ts
             FROM rooms WHERE is_public = TRUE
-            ORDER BY creation_ts DESC
+            ORDER BY created_ts DESC
             LIMIT $1 OFFSET $2
             "#,
         )
@@ -827,7 +827,7 @@ impl RoomStorage {
                         .history_visibility
                         .clone()
                         .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
-                    creation_ts: row.creation_ts,
+                    created_ts: row.created_ts,
                 };
                 let room_aliases = aliases.get(&row.room_id).cloned().unwrap_or_default();
                 (room, room_aliases)
@@ -944,7 +944,7 @@ mod tests {
             is_public: false,
             member_count: 5,
             history_visibility: "joined".to_string(),
-            creation_ts: 1234567890,
+            created_ts: 1234567890,
         };
 
         assert_eq!(room.room_id, "!room:example.com");
@@ -967,7 +967,7 @@ mod tests {
             is_public: true,
             member_count: 1,
             history_visibility: DEFAULT_HISTORY_VISIBILITY.to_string(),
-            creation_ts: 0,
+            created_ts: 0,
         };
 
         assert!(room.name.is_none());
@@ -990,7 +990,7 @@ mod tests {
             is_public: true,
             member_count: 10,
             history_visibility: "shared".to_string(),
-            creation_ts: 1234567890,
+            created_ts: 1234567890,
         };
 
         let json = serde_json::to_string(&room).unwrap();
@@ -1013,7 +1013,7 @@ mod tests {
             is_public: false,
             member_count: 3,
             history_visibility: "invited".to_string(),
-            creation_ts: 1234567890,
+            created_ts: 1234567890,
         };
 
         assert!(room.encryption.is_some());
