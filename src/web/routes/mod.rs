@@ -19,6 +19,7 @@ pub mod push_notification;
 pub mod rate_limit_admin;
 pub mod refresh_token;
 pub mod registration_token;
+pub mod rendezvous;
 pub mod retention;
 pub mod room_summary;
 pub mod saml;
@@ -53,6 +54,7 @@ pub use push_notification::create_push_notification_router;
 pub use rate_limit_admin::create_rate_limit_admin_router;
 pub use refresh_token::create_refresh_token_router;
 pub use registration_token::create_registration_token_router;
+pub use rendezvous::create_rendezvous_router;
 pub use retention::create_retention_router;
 pub use room_summary::create_room_summary_router;
 pub use saml::create_saml_router;
@@ -402,6 +404,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_telemetry_router())
         .merge(create_thread_routes(state.clone()))
         .merge(create_rate_limit_admin_router())
+        .merge(create_rendezvous_router(state.clone()))
         .route("/_matrix/client/r0/voip/turnServer", get(get_turn_server))
         .route("/_matrix/client/r0/voip/turnServer", post(get_turn_server))
         .route("/_matrix/client/v3/voip/turnServer", get(get_turn_server))
@@ -627,6 +630,11 @@ fn create_room_router() -> Router<AppState> {
             "/_matrix/client/r0/rooms/{room_id}/messages",
             get(get_messages),
         )
+        // v3 版本
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/messages",
+            get(get_messages),
+        )
         .route(
             "/_matrix/client/r0/rooms/{room_id}/typing/{user_id}",
             put(set_typing),
@@ -644,17 +652,25 @@ fn create_room_router() -> Router<AppState> {
             get(get_room_aliases),
         )
         .route("/_matrix/client/r0/rooms/{room_id}/join", post(join_room))
+        // v3 版本房间 API
+        .route("/_matrix/client/v3/rooms/{room_id}/join", post(join_room))
         .route(
-            "/_matrix/client/r0/join/{room_id_or_alias}",
+            "/_matrix/client/v3/join/{room_id_or_alias}",
             post(join_room_by_id_or_alias),
         )
         .route("/_matrix/client/r0/rooms/{room_id}/leave", post(leave_room))
+        .route("/_matrix/client/v3/rooms/{room_id}/leave", post(leave_room))
         .route(
             "/_matrix/client/r0/rooms/{room_id}/forget",
             post(forget_room),
         )
         .route(
             "/_matrix/client/r0/rooms/{room_id}/members",
+            get(get_room_members),
+        )
+        // v3 版本
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/members",
             get(get_room_members),
         )
         .route(
@@ -678,6 +694,11 @@ fn create_room_router() -> Router<AppState> {
         )
         .route(
             "/_matrix/client/r0/rooms/{room_id}/state",
+            get(get_room_state),
+        )
+        // v3 版本
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/state",
             get(get_room_state),
         )
         .route(
