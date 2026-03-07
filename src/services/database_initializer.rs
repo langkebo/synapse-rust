@@ -689,6 +689,72 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
+        // Ensure search tables exist
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS search_index (
+                id SERIAL PRIMARY KEY,
+                event_id VARCHAR(255) NOT NULL,
+                room_id VARCHAR(255) NOT NULL,
+                user_id VARCHAR(255) NOT NULL,
+                event_type VARCHAR(255) NOT NULL,
+                content TEXT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT,
+                UNIQUE (event_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_search_index_room ON search_index(room_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_search_index_user ON search_index(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_search_index_type ON search_index(event_type)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure user_directory table exists
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS user_directory (
+                user_id VARCHAR(255) PRIMARY KEY,
+                displayname VARCHAR(255),
+                avatar_url TEXT,
+                server_name VARCHAR(255),
+                updated_ts BIGINT
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_user_directory_displayname ON user_directory(displayname)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
         // Ensure is_guest column exists in users table
         sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN DEFAULT FALSE")
             .execute(&*self.pool)
