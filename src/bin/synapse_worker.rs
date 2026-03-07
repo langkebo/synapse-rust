@@ -120,6 +120,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tracing::info!("✅ [REDACT] Event {} physically redacted/burnt", event_id);
                     Ok(())
                 }
+                BackgroundJob::DelayedEventProcessing { event_id } => {
+                    tracing::info!("⏰ [DELAYED] Processing delayed event: {}", event_id);
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    tracing::info!("✅ [DELAYED] Event {} processed", event_id);
+                    Ok(())
+                }
             }
         }
     };

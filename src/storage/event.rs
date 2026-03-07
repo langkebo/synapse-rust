@@ -27,7 +27,7 @@ pub struct StateEvent {
     pub content: serde_json::Value,
     pub state_key: Option<String>,
     pub unsigned: Option<serde_json::Value>,
-    pub redacted: Option<bool>,
+    pub is_redacted: Option<bool>,
     pub origin_server_ts: i64,
     pub depth: Option<i64>,
     pub processed_ts: Option<i64>,
@@ -238,7 +238,7 @@ impl EventStorage {
             r#"
             SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key, 
                    COALESCE(unsigned, '{}'::jsonb) as unsigned,
-                   COALESCE(is_redacted, false) as redacted,
+                   COALESCE(is_redacted, false) as is_redacted,
                    COALESCE(origin_server_ts, 0) as origin_server_ts,
                    depth, processed_ts, not_before, status, reference_image, origin, user_id
             FROM events WHERE room_id = $1 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
@@ -258,7 +258,7 @@ impl EventStorage {
             r#"
             SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key, 
                    COALESCE(unsigned, '{}'::jsonb) as unsigned,
-                   COALESCE(is_redacted, false) as redacted,
+                   COALESCE(is_redacted, false) as is_redacted,
                    COALESCE(origin_server_ts, 0) as origin_server_ts,
                    depth, processed_ts, not_before, status, reference_image, origin, user_id
             FROM events WHERE room_id = $1 AND event_type = $2 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
@@ -346,7 +346,7 @@ impl EventStorage {
 
     pub async fn redact_event_content(&self, event_id: &str) -> Result<(), sqlx::Error> {
         let redacted_content = serde_json::json!({});
-        sqlx::query("UPDATE events SET content = $1, redacted = true WHERE event_id = $2")
+        sqlx::query("UPDATE events SET content = $1, is_redacted = true WHERE event_id = $2")
             .bind(redacted_content)
             .bind(event_id)
             .execute(&*self.pool)
@@ -526,7 +526,7 @@ impl EventStorage {
             r#"
             SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key, 
                    COALESCE(unsigned, '{}'::jsonb) as unsigned,
-                   COALESCE(is_redacted, false) as redacted,
+                   COALESCE(is_redacted, false) as is_redacted,
                    COALESCE(origin_server_ts, 0) as origin_server_ts,
                    depth, processed_ts, not_before, status, reference_image, origin, user_id
             FROM events 
@@ -666,7 +666,7 @@ mod tests {
             content: json!({"membership": "join"}),
             state_key: Some("@bob:example.com".to_string()),
             unsigned: None,
-            redacted: Some(false),
+            is_redacted: Some(false),
             origin_server_ts: 1234567890,
             depth: Some(1),
             processed_ts: Some(1234567891),
@@ -783,7 +783,7 @@ mod tests {
     }
 
     #[test]
-    fn test_state_event_with_redacted() {
+    fn test_state_event_with_is_redacted() {
         let event = StateEvent {
             event_id: "$redacted:example.com".to_string(),
             room_id: "!room:example.com".to_string(),
@@ -792,7 +792,7 @@ mod tests {
             content: json!({}),
             state_key: None,
             unsigned: Some(json!({"redacted_because": {}})),
-            redacted: Some(true),
+            is_redacted: Some(true),
             origin_server_ts: 1234567890,
             depth: None,
             processed_ts: None,
@@ -803,7 +803,7 @@ mod tests {
             user_id: None,
         };
 
-        assert!(event.redacted.unwrap_or(false));
+        assert!(event.is_redacted.unwrap_or(false));
         assert!(event.unsigned.is_some());
     }
 }

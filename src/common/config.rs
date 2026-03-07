@@ -210,6 +210,14 @@ fn default_push_timeout() -> u64 {
     10
 }
 
+fn default_server_host() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_server_port() -> u16 {
+    8008
+}
+
 fn default_apns_production() -> bool {
     true
 }
@@ -1018,10 +1026,12 @@ pub struct ServerConfig {
 
     /// 监听主机地址
     /// 默认 "0.0.0.0" 表示监听所有接口
+    #[serde(default = "default_server_host")]
     pub host: String,
 
     /// 监听端口
     /// 默认 8008 (HTTP) 或 8448 (HTTPS)
+    #[serde(default = "default_server_port")]
     pub port: u16,
 
     // ===== 新增关键字段 =====

@@ -44,7 +44,7 @@ pub struct UserReputation {
 }
 
 #[derive(Debug, Clone)]
-pub struct ModerationAction {
+pub struct ModerationActionRecord {
     pub action_type: String,
     pub reason: String,
     pub expires_at: Option<i64>,
@@ -194,7 +194,7 @@ impl ModerationService {
         &self,
         user_id: &str,
         report_id: i64,
-    ) -> Result<ModerationAction, ApiError> {
+    ) -> Result<ModerationActionRecord, ApiError> {
         let mut reputation = self.get_or_create_reputation(user_id).await?;
         let now = chrono::Utc::now().timestamp();
 
@@ -247,7 +247,7 @@ impl ModerationService {
                 )
                 .await?;
 
-            action = Some(ModerationAction {
+            action = Some(ModerationActionRecord {
                 action_type: "warning".to_string(),
                 reason: format!(
                     "Automatic warning: reputation score dropped to {}",
@@ -280,7 +280,7 @@ impl ModerationService {
                 )
                 .await?;
 
-            action = Some(ModerationAction {
+            action = Some(ModerationActionRecord {
                 action_type: "ban".to_string(),
                 reason: format!(
                     "Automatic ban: reputation score dropped to {}",

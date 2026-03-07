@@ -4,8 +4,11 @@ use tokio::sync::RwLock;
 
 pub mod application_service;
 pub mod background_update;
+pub mod beacon;
 pub mod captcha;
 pub mod cas;
+pub mod dehydrated_device;
+pub mod delayed_event;
 pub mod device;
 pub mod email_verification;
 pub mod event;
@@ -14,23 +17,28 @@ pub mod federation_blacklist;
 pub mod filter;
 pub mod friend_room;
 pub mod maintenance;
+pub mod matrixrtc;
 pub mod media;
 pub mod media_quota;
 pub mod membership;
+pub mod moderation;
 pub mod module;
 pub mod monitoring;
 pub mod openid_token;
 pub mod performance;
 pub mod pool_monitor;
+pub mod privacy;
 pub mod push_notification;
 pub mod refresh_token;
 pub mod registration_token;
+pub mod rendezvous;
 pub mod retention;
 pub mod room;
 pub mod room_summary;
 pub mod saml;
 pub mod schema_validator;
 pub mod server_notification;
+pub mod sliding_sync;
 pub mod space;
 pub mod thread;
 pub mod threepid;
@@ -39,16 +47,21 @@ pub mod user;
 pub mod voice;
 
 pub use self::application_service::*;
+pub use self::beacon::*;
 pub use self::captcha::*;
 pub use self::cas::*;
+pub use self::dehydrated_device::*;
+pub use self::delayed_event::*;
 pub use self::device::*;
 pub use self::event::*;
 pub use self::federation_blacklist::*;
 pub use self::filter::*;
 pub use self::friend_room::*;
 pub use self::maintenance::*;
+pub use self::matrixrtc::*;
 pub use self::media_quota::*;
 pub use self::membership::*;
+pub use self::moderation::*;
 pub use self::monitoring::{
     ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor,
     DuplicateEntry, ForeignKeyViolation, NullConstraintViolation, OrphanedRecord,
@@ -60,11 +73,14 @@ pub use self::pool_monitor::{
     create_pool_with_monitoring, set_query_timeout, set_transaction_timeout, DatabasePoolConfig,
     DatabasePoolMonitor, PoolHealthStatus, PoolStats, QueryTimeoutConfig,
 };
+pub use self::privacy::*;
 pub use self::push_notification::*;
+pub use self::rendezvous::*;
 pub use self::room::*;
 pub use self::saml::*;
 pub use self::schema_validator::*;
 pub use self::server_notification::*;
+pub use self::sliding_sync::*;
 pub use self::space::*;
 pub use self::thread::*;
 pub use self::threepid::*;
@@ -274,7 +290,7 @@ mod tests {
             is_public: false,
             member_count: 0,
             history_visibility: "shared".to_string(),
-            creation_ts: 1234567890,
+            created_ts: 1234567890,
             avatar_url: None,
         };
         assert_eq!(room.room_id, "!test:example.com");

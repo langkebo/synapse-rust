@@ -62,6 +62,8 @@ pub struct ServiceContainer {
     pub room_service: Arc<RoomService>,
     /// 同步服务
     pub sync_service: Arc<SyncService>,
+    /// Sliding Sync 服务
+    pub sliding_sync_service: Arc<crate::services::sliding_sync_service::SlidingSyncService>,
     /// 搜索服务
     pub search_service: Arc<crate::services::search_service::SearchService>,
     /// 媒体服务
@@ -256,6 +258,11 @@ impl ServiceContainer {
             room_storage.clone(),
             DeviceStorage::new(pool),
         ));
+        let sliding_sync_storage = crate::storage::sliding_sync::SlidingSyncStorage::new(pool.clone());
+        let sliding_sync_service = Arc::new(crate::services::sliding_sync_service::SlidingSyncService::new(
+            sliding_sync_storage.clone(),
+            cache.clone(),
+        ));
         let media_service = MediaService::new("/app/data/media", task_queue.clone());
         let admin_registration_service = AdminRegistrationService::new(
             auth_service.clone(),
@@ -430,6 +437,7 @@ impl ServiceContainer {
             registration_service,
             room_service,
             sync_service,
+            sliding_sync_service,
             search_service,
             media_service,
             cache,
@@ -726,16 +734,20 @@ impl PresenceStorage {
 pub mod admin_registration_service;
 pub mod application_service;
 pub mod background_update_service;
+pub mod beacon_service;
 pub mod cache;
 pub mod captcha_service;
 pub mod cas_service;
 pub mod content_scanner;
 pub mod database_initializer;
+pub mod dehydrated_device_service;
 pub mod event_report_service;
 pub mod federation_blacklist_service;
 pub mod friend_room_service;
 pub mod geo_ip;
 pub mod identity;
+pub mod livekit_client;
+pub mod matrixrtc_service;
 pub mod media_quota_service;
 pub mod media_service;
 pub mod message_queue;
@@ -755,6 +767,7 @@ pub mod room_summary_service;
 pub mod saml_service;
 pub mod search_service;
 pub mod server_notification_service;
+pub mod sliding_sync_service;
 pub mod space_service;
 pub mod sync_service;
 pub mod telemetry_service;
@@ -766,8 +779,12 @@ pub mod webhook_notification;
 
 pub use admin_registration_service::*;
 pub use application_service::*;
+pub use beacon_service::*;
 pub use database_initializer::*;
+pub use dehydrated_device_service::*;
 pub use friend_room_service::*;
+pub use livekit_client::*;
+pub use matrixrtc_service::*;
 pub use media_service::*;
 pub use moderation_service::*;
 pub use oidc_service::*;
@@ -776,6 +793,7 @@ pub use read_receipt_service::*;
 pub use registration_service::*;
 pub use room_service::*;
 pub use search_service::*;
+pub use sliding_sync_service::*;
 pub use space_service::*;
 pub use sync_service::*;
 pub use url_preview_service::*;

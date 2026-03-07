@@ -64,13 +64,13 @@ impl DeviceKeyStorage {
 
         let result = sqlx::query(
             r#"
-            INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, created_ts, updated_ts, ts_updated_ms, ts_added_ms, key_data)
+            INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, ts_updated_ms, ts_added_ms, key_data)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (user_id, device_id, key_id) DO UPDATE
             SET public_key = EXCLUDED.public_key,
                 signatures = EXCLUDED.signatures,
                 display_name = EXCLUDED.display_name,
-                updated_ts = EXCLUDED.updated_ts,
+                ts_updated_ms = EXCLUDED.ts_updated_ms,
                 ts_updated_ms = EXCLUDED.ts_updated_ms,
                 key_data = EXCLUDED.key_data
             "#
@@ -130,7 +130,7 @@ impl DeviceKeyStorage {
                         .unwrap_or(serde_json::json!({}))
                 }),
             created_at: chrono::DateTime::from_timestamp_millis(
-                row.get::<i64, _>("created_ts") / 1000,
+                row.get::<i64, _>("added_ts") / 1000,
             )
             .unwrap_or_default(),
             updated_at: chrono::DateTime::from_timestamp_millis(
@@ -148,7 +148,7 @@ impl DeviceKeyStorage {
     ) -> Result<Option<DeviceKey>, ApiError> {
         let row = sqlx::query(
             r#"
-            SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, created_ts, ts_updated_ms, key_data
+            SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
             FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND algorithm = $3
             LIMIT 1
@@ -170,7 +170,7 @@ impl DeviceKeyStorage {
     ) -> Result<Vec<DeviceKey>, ApiError> {
         let rows = sqlx::query(
             r#"
-            SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, created_ts, ts_updated_ms, key_data
+            SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
             FROM device_keys
             WHERE user_id = $1 AND device_id = ANY($2)
             "#
@@ -186,7 +186,7 @@ impl DeviceKeyStorage {
     pub async fn get_all_device_keys(&self, user_id: &str) -> Result<Vec<DeviceKey>, ApiError> {
         let rows = sqlx::query(
             r#"
-            SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, created_ts, ts_updated_ms, key_data
+            SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
             FROM device_keys
             WHERE user_id = $1
             "#
@@ -264,7 +264,7 @@ impl DeviceKeyStorage {
             r#"
             DELETE FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND algorithm = $3
-            RETURNING user_id, device_id, algorithm, key_id, public_key, signatures, display_name, created_ts, ts_updated_ms, key_data
+            RETURNING user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
             "#
         )
         .bind(user_id)
@@ -305,11 +305,11 @@ impl DeviceKeyStorage {
         sqlx::query(
             r#"
             INSERT INTO key_signatures (
-                target_user_id, target_key_id, signing_user_id, signing_key_id, signature, created_ts
+                target_user_id, target_key_id, signing_user_id, signing_key_id, signature, added_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (target_user_id, target_key_id, signing_user_id, signing_key_id) 
-            DO UPDATE SET signature = EXCLUDED.signature, created_ts = EXCLUDED.created_ts
+            DO UPDATE SET signature = EXCLUDED.signature, added_ts = EXCLUDED.added_ts
             "#,
         )
         .bind(target_user_id)

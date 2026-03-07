@@ -9,6 +9,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::Row;
 use std::collections::HashMap;
+use std::time::Duration;
+use tokio::time::timeout;
+
+const MAX_SEARCH_TERM_LENGTH: usize = 256;
+const MAX_FILTER_ROOMS: usize = 50;
+const MAX_FILTER_TYPES: usize = 20;
+const MAX_FILTER_SENDERS: usize = 50;
+const MAX_SEARCH_LIMIT: u32 = 100;
+const SEARCH_TIMEOUT_SECS: u64 = 30;
 
 pub fn create_search_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -31,6 +40,79 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
             get(get_event_context),
         )
         .with_state(state)
+}
+
+fn validate_search_request(body: &SearchRequest) -> Result<(), ApiError> {
+    if let Some(room_events) = &body.search_categories.room_events {
+        if room_events.search_term.len() > MAX_SEARCH_TERM_LENGTH {
+            return Err(ApiError::bad_request(format!(
+                "Search term too long (max {} characters)",
+                MAX_SEARCH_TERM_LENGTH
+            )));
+        }
+
+        if room_events.search_term.trim().is_empty() {
+            return Err(ApiError::bad_request("Search term cannot be empty"));
+        }
+
+        if let Some(filter) = &room_events.filter {
+            if let Some(limit) = filter.limit {
+                if limit > MAX_SEARCH_LIMIT {
+                    return Err(ApiError::bad_request(format!(
+                        "Limit too high (max {})",
+                        MAX_SEARCH_LIMIT
+                    )));
+                }
+            }
+
+            if let Some(rooms) = &filter.rooms {
+                if rooms.len() > MAX_FILTER_ROOMS {
+                    return Err(ApiError::bad_request(format!(
+                        "Too many rooms in filter (max {})",
+                        MAX_FILTER_ROOMS
+                    )));
+                }
+            }
+
+            if let Some(types) = &filter.types {
+                if types.len() > MAX_FILTER_TYPES {
+                    return Err(ApiError::bad_request(format!(
+                        "Too many types in filter (max {})",
+                        MAX_FILTER_TYPES
+                    )));
+                }
+            }
+
+            if let Some(senders) = &filter.senders {
+                if senders.len() > MAX_FILTER_SENDERS {
+                    return Err(ApiError::bad_request(format!(
+                        "Too many senders in filter (max {})",
+                        MAX_FILTER_SENDERS
+                    )));
+                }
+            }
+        }
+    }
+
+    if let Some(users_search) = &body.search_categories.users {
+        if users_search.search_term.len() > MAX_SEARCH_TERM_LENGTH {
+            return Err(ApiError::bad_request(format!(
+                "Search term too long (max {} characters)",
+                MAX_SEARCH_TERM_LENGTH
+            )));
+        }
+
+        if let Some(limit) = users_search.limit {
+            if limit > MAX_SEARCH_LIMIT {
+                return Err(ApiError::bad_request(format!(
+                    "Limit too high (max {})",
+                    MAX_SEARCH_LIMIT
+                )));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -108,6 +190,8 @@ async fn search(
     Query(params): Query<HashMap<String, String>>,
     Json(body): Json<SearchRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_search_request(&body)?;
+
     let next_batch = params.get("next_batch").cloned();
 
     let mut results = json!({
@@ -115,18 +199,27 @@ async fn search(
     });
 
     if let Some(room_events) = &body.search_categories.room_events {
-        let room_results = search_room_events(
+        let search_future = search_room_events(
             &state,
             &auth_user.user_id,
             room_events,
             next_batch.as_deref(),
-        )
-        .await?;
+        );
+
+        let room_results = timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), search_future)
+            .await
+            .map_err(|_| ApiError::internal("Search request timed out"))??;
+
         results["search_categories"]["room_events"] = room_results;
     }
 
     if let Some(users_search) = &body.search_categories.users {
-        let user_results = search_users(&state, &auth_user.user_id, users_search).await?;
+        let search_future = search_users(&state, &auth_user.user_id, users_search);
+
+        let user_results = timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), search_future)
+            .await
+            .map_err(|_| ApiError::internal("User search request timed out"))??;
+
         results["search_categories"]["users"] = user_results;
     }
 

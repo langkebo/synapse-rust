@@ -24,6 +24,7 @@ pub mod room_summary;
 pub mod saml;
 pub mod search;
 pub mod server_notification;
+pub mod sliding_sync;
 pub mod space;
 pub mod telemetry;
 pub mod thread;
@@ -57,6 +58,7 @@ pub use room_summary::create_room_summary_router;
 pub use saml::create_saml_router;
 pub use search::create_search_router;
 pub use server_notification::create_server_notification_router;
+pub use sliding_sync::create_sliding_sync_router;
 pub use space::create_space_router;
 pub use telemetry::create_telemetry_router;
 pub use thread::create_thread_routes;
@@ -378,6 +380,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_friend_router(state.clone()))
         .merge(create_push_router(state.clone()))
         .merge(create_search_router(state.clone()))
+        .merge(create_sliding_sync_router(state.clone()))
         .merge(create_space_router(state.clone()))
         .merge(create_app_service_router(state.clone()))
         .merge(create_worker_router(state.clone()))
