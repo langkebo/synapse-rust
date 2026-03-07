@@ -1,6 +1,6 @@
 # 多阶段构建：在 Docker 内编译 Rust 项目
 # 阶段 1：编译
-FROM rust:1.75-bookworm AS builder
+FROM rust:1.93-bookworm AS builder
 
 WORKDIR /build
 
@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY migrations ./migrations
+COPY benches ./benches
 
 # 编译项目
 RUN echo '[profile.dev]' > /tmp/cargo.toml && \
