@@ -958,6 +958,16 @@ pub async fn set_admin(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
+    let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
+    let _ = security_storage
+        .log_admin_action(
+            &_admin.user_id,
+            "set_admin",
+            Some(&user_id),
+            Some(json!({"admin_status": admin_status})),
+        )
+        .await;
+
     Ok(Json(serde_json::json!({
         "success": true
     })))
@@ -967,7 +977,7 @@ pub async fn set_admin(
 /// Deactivate a user account.
 /// Removes the user from the server and optionally erases their account data.
 pub async fn deactivate_user(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
@@ -987,6 +997,16 @@ pub async fn deactivate_user(
         .deactivate_user(&user_id)
         .await?;
 
+    let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
+    let _ = security_storage
+        .log_admin_action(
+            &admin.user_id,
+            "deactivate_user",
+            Some(&user_id),
+            None,
+        )
+        .await;
+
     Ok(Json(serde_json::json!({
         "id_server_unbind_result": "success"
     })))
@@ -1001,7 +1021,7 @@ pub struct ResetPasswordBody {
 
 #[axum::debug_handler]
 pub async fn reset_user_password(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
     Json(body): Json<ResetPasswordBody>,
@@ -1027,6 +1047,16 @@ pub async fn reset_user_password(
         .registration_service
         .change_password(&user_id, &body.new_password)
         .await?;
+
+    let security_storage = SecurityStorage::new(&state.services.user_storage.pool);
+    let _ = security_storage
+        .log_admin_action(
+            &admin.user_id,
+            "reset_user_password",
+            Some(&user_id),
+            None,
+        )
+        .await;
 
     Ok(Json(serde_json::json!({})))
 }

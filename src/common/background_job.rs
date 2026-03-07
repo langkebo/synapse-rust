@@ -23,6 +23,9 @@ pub enum BackgroundJob {
         event_id: String,
         reason: Option<String>,
     },
+    DelayedEventProcessing {
+        event_id: String,
+    },
 }
 
 #[cfg(test)]
