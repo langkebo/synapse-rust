@@ -176,6 +176,8 @@ pub struct ServiceContainer {
         Arc<crate::services::server_notification_service::ServerNotificationService>,
     /// 隐私设置存储
     pub privacy_storage: crate::storage::privacy::PrivacyStorage,
+    /// Rendezvous 存储
+    pub rendezvous_storage: crate::storage::rendezvous::RendezvousStorage,
 }
 
 impl ServiceContainer {
@@ -421,6 +423,7 @@ impl ServiceContainer {
         );
 
         let privacy_storage = crate::storage::privacy::PrivacyStorage::new(pool.clone());
+        let rendezvous_storage = crate::storage::rendezvous::RendezvousStorage::new(pool.clone());
 
         Self {
             user_storage,
@@ -495,6 +498,7 @@ impl ServiceContainer {
             server_notification_storage,
             server_notification_service,
             privacy_storage,
+            rendezvous_storage,
         }
     }
 
