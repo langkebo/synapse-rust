@@ -304,8 +304,8 @@ mod tests {
     use super::*;
     use crate::storage::sliding_sync::SlidingSyncFilters;
 
-    #[test]
-    fn test_room_to_json() {
+    #[tokio::test]
+    async fn test_room_to_json() {
         let service = create_test_service();
         let room = SlidingSyncRoom {
             id: 1,
@@ -336,15 +336,15 @@ mod tests {
         assert!(json["is_dm"].as_bool().unwrap());
     }
 
-    #[test]
-    fn test_build_ops_empty() {
+    #[tokio::test]
+    async fn test_build_ops_empty() {
         let service = create_test_service();
         let ops = service.build_ops(&[]);
         assert!(ops.is_empty());
     }
 
-    #[test]
-    fn test_build_ops_with_rooms() {
+    #[tokio::test]
+    async fn test_build_ops_with_rooms() {
         let service = create_test_service();
         let rooms = vec![
             serde_json::json!({"room_id": "!room1:example.com"}),
@@ -366,8 +366,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_sliding_sync_filters_serialization() {
+    #[tokio::test]
+    async fn test_sliding_sync_filters_serialization() {
         let filters = SlidingSyncFilters {
             is_invite: Some(false),
             is_tombstoned: None,
