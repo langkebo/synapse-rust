@@ -363,6 +363,21 @@ pub fn create_router(state: AppState) -> Router {
                 }
             }))
         }))
+        .route("/_matrix/client/v3/pushrules/global/", get(|| async {
+            Json(json!({
+                "content": [],
+                "override": [
+                    {"rule_id": ".m.rule.master", "default": true, "enabled": true, "conditions": [], "actions": []}
+                ],
+                "room": [],
+                "sender": [],
+                "underride": [
+                    {"rule_id": ".m.rule.message", "default": true, "enabled": true, 
+                     "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}],
+                     "actions": ["notify", {"set_tweak": "sound", "value": "default"}]}
+                ]
+            }))
+        }))
         .route("/.well-known/matrix/server", get(get_well_known_server))
         .route("/.well-known/matrix/client", get(get_well_known_client))
         .route("/.well-known/matrix/support", get(get_well_known_support))

@@ -11,12 +11,20 @@ use sqlx::Row;
 pub fn create_account_data_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route(
+            "/_matrix/client/v3/user/{user_id}/account_data/",
+            get(list_account_data),
+        )
+        .route(
             "/_matrix/client/v3/user/{user_id}/account_data/{type}",
             put(set_account_data),
         )
         .route(
             "/_matrix/client/v3/user/{user_id}/account_data/{type}",
             get(get_account_data),
+        )
+        .route(
+            "/_matrix/client/r0/user/{user_id}/account_data/",
+            get(list_account_data),
         )
         .route(
             "/_matrix/client/r0/user/{user_id}/account_data/{type}",
@@ -67,6 +75,37 @@ pub fn create_account_data_router(state: AppState) -> Router<AppState> {
             get(get_openid_token),
         )
         .with_state(state)
+}
+
+async fn list_account_data(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden(
+            "Cannot get account data for other users".to_string(),
+        ));
+    }
+
+    let result = sqlx::query("SELECT data_type, content FROM account_data WHERE user_id = $1")
+        .bind(&user_id)
+        .fetch_all(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let account_data: serde_json::Map<String, Value> = result
+        .iter()
+        .filter_map(|row| {
+            let data_type: String = row.get("data_type");
+            let content: Value = row.get("content");
+            Some((data_type, content))
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "account_data": account_data
+    })))
 }
 
 async fn set_account_data(
