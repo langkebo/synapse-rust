@@ -695,6 +695,10 @@ fn create_room_router() -> Router<AppState> {
             "/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}",
             put(send_message),
         )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}",
+            put(send_message),
+        )
 }
 
 fn create_presence_router() -> Router<AppState> {
