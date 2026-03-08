@@ -213,13 +213,51 @@ async fn set_pusher(
 }
 
 async fn get_push_rules(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
+    // Try to load user-specific push rules from DB
+    let row = sqlx::query(
+        "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'",
+    )
+    .bind(&auth_user.user_id)
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get push rules: {}", e)))?;
+
+    if let Some(row) = row {
+        let content: Value = row.get("content");
+        return Ok(Json(content));
+    }
+
+    // Return default push rules per Matrix spec
     Ok(Json(json!({
         "global": {
-            "content": [],
-            "override": [],
+            "content": [
+                {
+                    "rule_id": ".m.rule.contains_display_name",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [{"kind": "contains_display_name"}],
+                    "actions": ["notify", {"set_tweak": "highlight"}, {"set_tweak": "sound", "value": "default"}]
+                }
+            ],
+            "override": [
+                {
+                    "rule_id": ".m.rule.master",
+                    "default": true,
+                    "enabled": false,
+                    "conditions": [],
+                    "actions": []
+                },
+                {
+                    "rule_id": ".m.rule.suppress_notices",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [{"kind": "event_match", "key": "content.msgtype", "pattern": "m.notice"}],
+                    "actions": ["dont_notify"]
+                }
+            ],
             "room": [],
             "sender": [],
             "underride": [
@@ -227,39 +265,15 @@ async fn get_push_rules(
                     "rule_id": ".m.rule.message",
                     "default": true,
                     "enabled": true,
-                    "conditions": [
-                        {
-                            "kind": "event_match",
-                            "key": "type",
-                            "pattern": "m.room.message"
-                        }
-                    ],
-                    "actions": [
-                        "notify",
-                        {
-                            "set_tweak": "sound",
-                            "value": "default"
-                        }
-                    ]
+                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}],
+                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
                 },
                 {
                     "rule_id": ".m.rule.encrypted",
                     "default": true,
                     "enabled": true,
-                    "conditions": [
-                        {
-                            "kind": "event_match",
-                            "key": "type",
-                            "pattern": "m.room.encrypted"
-                        }
-                    ],
-                    "actions": [
-                        "notify",
-                        {
-                            "set_tweak": "sound",
-                            "value": "default"
-                        }
-                    ]
+                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}],
+                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
                 }
             ]
         },
