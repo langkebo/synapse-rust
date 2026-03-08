@@ -39,6 +39,9 @@ services:
       - synapse_local_network
 
   synapse-rust:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.multi
     image: synapse-rust:latest
     container_name: synapse-rust-local
     restart: unless-stopped
