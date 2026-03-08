@@ -21,7 +21,7 @@ pub struct RoomMember {
     pub reason: Option<String>,
     pub banned_by: Option<String>,
     pub ban_reason: Option<String>,
-    pub ban_ts: Option<i64>,
+    pub banned_ts: Option<i64>,
     pub join_reason: Option<String>,
 }
 
@@ -61,7 +61,7 @@ impl RoomMemberStorage {
                 membership = EXCLUDED.membership,
                 join_reason = EXCLUDED.join_reason,
                 updated_ts = EXCLUDED.updated_ts
-            RETURNING room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            RETURNING room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             "#;
 
         if let Some(tx) = tx {
@@ -102,7 +102,7 @@ impl RoomMemberStorage {
     ) -> Result<Option<RoomMember>, sqlx::Error> {
         sqlx::query_as::<_, RoomMember>(
             r#"
-            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships WHERE room_id = $1 AND user_id = $2
             "#,
         )
@@ -119,7 +119,7 @@ impl RoomMemberStorage {
     ) -> Result<Vec<RoomMember>, sqlx::Error> {
         sqlx::query_as::<_, RoomMember>(
             r#"
-            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships WHERE room_id = $1 AND membership = $2
             "#,
         )
@@ -269,7 +269,7 @@ impl RoomMemberStorage {
     ) -> Result<Option<RoomMember>, sqlx::Error> {
         let result = sqlx::query_as::<_, RoomMember>(
             r#"
-            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships WHERE room_id = $1 AND user_id = $2
             "#,
         )
@@ -283,7 +283,7 @@ impl RoomMemberStorage {
     pub async fn get_joined_members(&self, room_id: &str) -> Result<Vec<RoomMember>, sqlx::Error> {
         let members = sqlx::query_as::<_, RoomMember>(
             r#"
-            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships WHERE room_id = $1 AND membership = 'join'
             "#,
         )
@@ -300,7 +300,7 @@ impl RoomMemberStorage {
     ) -> Result<Option<RoomMember>, sqlx::Error> {
         let result = sqlx::query_as::<_, RoomMember>(
             r#"
-            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships WHERE room_id = $1 AND user_id = $2 AND membership = 'join'
             "#,
         )
@@ -340,7 +340,7 @@ impl RoomMemberStorage {
     ) -> Result<Vec<RoomMember>, sqlx::Error> {
         let memberships = sqlx::query_as::<_, RoomMember>(
             r#"
-            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships WHERE room_id = $1
             ORDER BY updated_ts DESC
             LIMIT $2
@@ -381,7 +381,7 @@ impl RoomMemberStorage {
             r#"
             SELECT rm.room_id, rm.user_id, rm.sender, rm.membership, rm.event_id, rm.event_type, 
                    rm.display_name, rm.avatar_url, rm.is_banned, rm.invite_token, rm.updated_ts, 
-                   rm.joined_ts, rm.left_ts, rm.reason, rm.banned_by, rm.ban_reason, rm.ban_ts, rm.join_reason,
+                   rm.joined_ts, rm.left_ts, rm.reason, rm.banned_by, rm.ban_reason, rm.banned_ts, rm.join_reason,
                    u.displayname as user_displayname, u.avatar_url as user_avatar_url
             FROM room_memberships rm
             LEFT JOIN users u ON rm.user_id = u.user_id
@@ -414,7 +414,7 @@ impl RoomMemberStorage {
                     reason: row.get("reason"),
                     banned_by: row.get("banned_by"),
                     ban_reason: row.get("ban_reason"),
-                    ban_ts: row.get("ban_ts"),
+                    banned_ts: row.get("banned_ts"),
                     join_reason: row.get("join_reason"),
                 };
                 let user_displayname: Option<String> = row.get("user_displayname");
@@ -435,7 +435,7 @@ impl RoomMemberStorage {
 
         let rows: Vec<RoomMember> = sqlx::query_as(
             r#"
-            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, ban_ts, join_reason
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships 
             WHERE room_id = ANY($1) AND membership = $2
             "#,
@@ -513,7 +513,7 @@ mod tests {
             reason: None,
             banned_by: None,
             ban_reason: None,
-            ban_ts: None,
+            banned_ts: None,
             join_reason: None,
         };
 
@@ -558,7 +558,7 @@ mod tests {
             reason: Some("Spam".to_string()),
             banned_by: Some("@admin:example.com".to_string()),
             ban_reason: Some("Spam behavior".to_string()),
-            ban_ts: Some(1234567890),
+            banned_ts: Some(1234567890),
             join_reason: None,
         };
 
@@ -587,7 +587,7 @@ mod tests {
             reason: None,
             banned_by: None,
             ban_reason: None,
-            ban_ts: None,
+            banned_ts: None,
             join_reason: None,
         };
 
@@ -615,7 +615,7 @@ mod tests {
             reason: Some("Leaving room".to_string()),
             banned_by: None,
             ban_reason: None,
-            ban_ts: None,
+            banned_ts: None,
             join_reason: None,
         };
 
@@ -643,7 +643,7 @@ mod tests {
             reason: None,
             banned_by: None,
             ban_reason: None,
-            ban_ts: None,
+            banned_ts: None,
             join_reason: None,
         };
 
@@ -672,7 +672,7 @@ mod tests {
             reason: None,
             banned_by: None,
             ban_reason: None,
-            ban_ts: None,
+            banned_ts: None,
             join_reason: None,
         };
 

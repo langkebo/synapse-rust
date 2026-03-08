@@ -760,6 +760,403 @@ impl DatabaseInitService {
             .execute(&*self.pool)
             .await?;
 
+        // Ensure user_privacy_settings table exists
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS user_privacy_settings (
+                user_id VARCHAR(255) PRIMARY KEY,
+                allow_presence_lookup BOOLEAN DEFAULT TRUE,
+                allow_profile_lookup BOOLEAN DEFAULT TRUE,
+                allow_room_invites BOOLEAN DEFAULT TRUE,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure pushers table exists
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS pushers (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                pushkey TEXT NOT NULL,
+                kind VARCHAR(50),
+                app_id VARCHAR(255) NOT NULL,
+                app_display_name VARCHAR(255),
+                device_display_name VARCHAR(255),
+                profile_tag VARCHAR(255),
+                lang VARCHAR(50),
+                data JSONB,
+                last_success_ts BIGINT,
+                last_failure_ts BIGINT,
+                last_failure_reason TEXT,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT,
+                UNIQUE (user_id, pushkey)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_pushers_user ON pushers(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure threepids table exists with validated_at column
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS threepids (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                medium VARCHAR(50) NOT NULL,
+                address VARCHAR(255) NOT NULL,
+                validated_at BIGINT,
+                added_at BIGINT NOT NULL,
+                UNIQUE (medium, address)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query("ALTER TABLE threepids ADD COLUMN IF NOT EXISTS validated_at BIGINT")
+            .execute(&*self.pool)
+            .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_threepids_user ON threepids(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure account_data table exists with content column
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS account_data (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                room_id VARCHAR(255),
+                data_type VARCHAR(255) NOT NULL,
+                content JSONB NOT NULL DEFAULT '{}',
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT,
+                UNIQUE (user_id, room_id, data_type)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query("ALTER TABLE account_data ADD COLUMN IF NOT EXISTS content JSONB NOT NULL DEFAULT '{}'")
+            .execute(&*self.pool)
+            .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_account_data_user ON account_data(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure key_backups table exists with backup_id column
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS key_backups (
+                id SERIAL PRIMARY KEY,
+                backup_id VARCHAR(255) UNIQUE NOT NULL,
+                user_id VARCHAR(255) NOT NULL,
+                version VARCHAR(255),
+                algorithm VARCHAR(255) NOT NULL,
+                auth_data JSONB,
+                etag VARCHAR(255),
+                count INTEGER DEFAULT 0,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query("ALTER TABLE key_backups ADD COLUMN IF NOT EXISTS backup_id VARCHAR(255) UNIQUE")
+            .execute(&*self.pool)
+            .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_key_backups_user ON key_backups(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure rooms table has guest_access column
+        sqlx::query("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS guest_access VARCHAR(50) DEFAULT 'forbidden'")
+            .execute(&*self.pool)
+            .await?;
+
+        // Ensure refresh_tokens table has expires_at column
+        sqlx::query("ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS expires_at BIGINT")
+            .execute(&*self.pool)
+            .await?;
+
+        // Ensure room_tags table exists
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS room_tags (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                room_id VARCHAR(255) NOT NULL,
+                tag VARCHAR(255) NOT NULL,
+                order_value DOUBLE PRECISION,
+                created_ts BIGINT NOT NULL,
+                UNIQUE (user_id, room_id, tag)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_room_tags_user ON room_tags(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure room_events table for event retrieval
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS room_events (
+                id SERIAL PRIMARY KEY,
+                event_id VARCHAR(255) UNIQUE NOT NULL,
+                room_id VARCHAR(255) NOT NULL,
+                sender VARCHAR(255) NOT NULL,
+                event_type VARCHAR(255) NOT NULL,
+                state_key VARCHAR(255),
+                content JSONB NOT NULL DEFAULT '{}',
+                prev_event_id VARCHAR(255),
+                origin_server_ts BIGINT NOT NULL,
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_room_events_room ON room_events(room_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_room_events_event ON room_events(event_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure reports table for event reporting
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS reports (
+                id SERIAL PRIMARY KEY,
+                room_id VARCHAR(255) NOT NULL,
+                event_id VARCHAR(255) NOT NULL,
+                reporter_user_id VARCHAR(255) NOT NULL,
+                reason TEXT,
+                score INTEGER DEFAULT 0,
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_reports_room ON reports(room_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure to_device_messages table for E2EE to-device messaging
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS to_device_messages (
+                id SERIAL PRIMARY KEY,
+                sender_user_id VARCHAR(255) NOT NULL,
+                sender_device_id VARCHAR(255) NOT NULL,
+                recipient_user_id VARCHAR(255) NOT NULL,
+                recipient_device_id VARCHAR(255) NOT NULL,
+                event_type VARCHAR(255) NOT NULL,
+                content JSONB NOT NULL DEFAULT '{}',
+                message_id VARCHAR(255),
+                stream_id BIGINT NOT NULL,
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_to_device_recipient ON to_device_messages(recipient_user_id, recipient_device_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_to_device_stream ON to_device_messages(recipient_user_id, stream_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure device_lists_changes table for tracking device list updates
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS device_lists_changes (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                device_id VARCHAR(255),
+                change_type VARCHAR(50) NOT NULL,
+                stream_id BIGINT NOT NULL,
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_device_lists_user ON device_lists_changes(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_device_lists_stream ON device_lists_changes(stream_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure room_ephemeral table for typing, receipts, etc.
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS room_ephemeral (
+                id SERIAL PRIMARY KEY,
+                room_id VARCHAR(255) NOT NULL,
+                event_type VARCHAR(255) NOT NULL,
+                user_id VARCHAR(255) NOT NULL,
+                content JSONB NOT NULL DEFAULT '{}',
+                stream_id BIGINT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                expires_ts BIGINT
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_room_ephemeral_room ON room_ephemeral(room_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure device_lists_stream table for tracking device list stream position
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS device_lists_stream (
+                stream_id BIGSERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                device_id VARCHAR(255),
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_device_lists_stream_user ON device_lists_stream(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure user_filters table for filter persistence
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS user_filters (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                filter_id VARCHAR(255) NOT NULL,
+                filter_json JSONB NOT NULL DEFAULT '{}',
+                created_ts BIGINT NOT NULL,
+                UNIQUE (user_id, filter_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_user_filters_user ON user_filters(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure sync_stream_id sequence table for generating stream IDs
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS sync_stream_id (
+                id SERIAL PRIMARY KEY
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure a row exists for generating stream IDs
+        sqlx::query(
+            r#"
+            INSERT INTO sync_stream_id (id) VALUES (1) ON CONFLICT DO NOTHING
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
         Ok("附加表和列检查完成".to_string())
     }
 }

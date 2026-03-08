@@ -21,7 +21,8 @@ COPY scripts/verify_migration.sh /app/scripts/
 COPY scripts/docker-entrypoint.sh /app/scripts/
 COPY docker/run-migrations.sh /app/scripts/
 
-RUN chmod +x /app/scripts/*.sh /app/synapse-rust
+RUN chmod +x /app/scripts/*.sh /app/synapse-rust && \
+    chmod -R 755 /app/migrations
 
 ENV DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
 ENV RUN_MIGRATIONS=true

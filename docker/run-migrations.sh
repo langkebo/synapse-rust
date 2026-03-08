@@ -158,7 +158,19 @@ EOF
 
 # 执行统一初始化脚本
 execute_unified_schema() {
-    local unified_file="${MIGRATION_DIR}/00000000_unified_schema_v2.sql"
+    local unified_file="${MIGRATION_DIR}/00000000_unified_schema_v5.sql"
+
+    if [ ! -f "$unified_file" ]; then
+        unified_file="${MIGRATION_DIR}/00000000_unified_schema_v4.sql"
+    fi
+
+    if [ ! -f "$unified_file" ]; then
+        unified_file="${MIGRATION_DIR}/00000000_unified_schema_v3.sql"
+    fi
+
+    if [ ! -f "$unified_file" ]; then
+        unified_file="${MIGRATION_DIR}/00000000_unified_schema_v2.sql"
+    fi
 
     if [ ! -f "$unified_file" ]; then
         unified_file="${MIGRATION_DIR}/00000000_unified_schema.sql"

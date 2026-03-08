@@ -340,7 +340,7 @@ mod tests {
             left_ts: None,
             reason: None,
             ban_reason: None,
-            ban_ts: None,
+            banned_ts: None,
         };
         assert_eq!(member.room_id, "!test:example.com");
         assert_eq!(member.user_id, "@test:example.com");

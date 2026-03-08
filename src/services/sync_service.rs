@@ -123,17 +123,14 @@ impl SyncService {
     pub async fn sync(
         &self,
         user_id: &str,
-        _timeout: u64,
+        timeout: u64,
         full_state: bool,
         set_presence: &str,
         since: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        if let Some(presence) = set_presence
-            .strip_prefix("online")
-            .or_else(|| set_presence.strip_prefix("unavailable"))
-        {
+        if set_presence != "offline" {
             self.presence_storage
-                .set_presence(user_id, presence, None)
+                .set_presence(user_id, set_presence, None)
                 .await
                 .ok();
         }
@@ -150,11 +147,40 @@ impl SyncService {
         let limit = 50i64;
         let since_ts = since_token.as_ref().map(|t| t.stream_id).unwrap_or(0);
 
+        // Long Polling: wait for new events if none available
         let room_events = if is_incremental {
-            self.event_storage
+            let events = self
+                .event_storage
                 .get_room_events_since_batch(&room_ids, since_ts, limit)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get batch events: {}", e)))?
+                .map_err(|e| ApiError::internal(format!("Failed to get batch events: {}", e)))?;
+            
+            // If no new events, wait for new events up to timeout
+            if events.values().all(|v| v.is_empty()) && timeout > 0 {
+                let timeout_duration = std::time::Duration::from_millis(timeout);
+                let start = std::time::Instant::now();
+                let poll_interval = std::time::Duration::from_millis(500);
+                
+                loop {
+                    let events = self
+                        .event_storage
+                        .get_room_events_since_batch(&room_ids, since_ts, limit)
+                        .await
+                        .map_err(|e| ApiError::internal(format!("Failed to poll events: {}", e)))?;
+                    
+                    if !events.values().all(|v| v.is_empty()) {
+                        break events;
+                    }
+                    
+                    if start.elapsed() >= timeout_duration {
+                        break events;
+                    }
+                    
+                    tokio::time::sleep(poll_interval).await;
+                }
+            } else {
+                events
+            }
         } else {
             self.event_storage
                 .get_room_events_batch(&room_ids, limit)
@@ -185,8 +211,11 @@ impl SyncService {
 
         let device_lists = self.get_device_lists(user_id, &since_token).await?;
 
+        // Generate stream ID from database sequence
+        let stream_id = self.get_next_stream_id().await?;
+
         let next_batch = SyncToken {
-            stream_id: chrono::Utc::now().timestamp_millis(),
+            stream_id,
             room_id: None,
             event_type: None,
         };
@@ -219,7 +248,8 @@ impl SyncService {
         events: Vec<RoomEvent>,
         is_incremental: bool,
     ) -> ApiResult<serde_json::Value> {
-        let state_events = if is_incremental {
+        // state_events are already serialized to JSON by get_room_state_events
+        let state_list = if is_incremental {
             vec![]
         } else {
             self.get_room_state_events(room_id).await?
@@ -227,9 +257,6 @@ impl SyncService {
 
         let event_list: Vec<serde_json::Value> =
             events.iter().map(|e| self.event_to_json(e)).collect();
-
-        let state_list: Vec<serde_json::Value> =
-            state_events.iter().map(|e| self.event_to_json(e)).collect();
 
         let ephemeral_events = self.get_room_ephemeral_events(room_id, user_id).await?;
 
@@ -268,17 +295,59 @@ impl SyncService {
     }
 
     fn event_to_json(&self, event: &RoomEvent) -> serde_json::Value {
-        json!({
+        let now = chrono::Utc::now().timestamp_millis();
+        let age = now.saturating_sub(event.origin_server_ts);
+
+        let mut obj = json!({
             "type": event.event_type,
             "content": event.content,
             "sender": event.user_id,
             "origin_server_ts": event.origin_server_ts,
-            "event_id": event.event_id
-        })
+            "event_id": event.event_id,
+            "room_id": event.room_id,
+            "unsigned": {
+                "age": age
+            }
+        });
+
+        // Include state_key for state events
+        if let Some(ref state_key) = event.state_key {
+            obj["state_key"] = json!(state_key);
+        }
+
+        obj
     }
 
-    async fn get_room_state_events(&self, _room_id: &str) -> ApiResult<Vec<RoomEvent>> {
-        Ok(vec![])
+    async fn get_room_state_events(&self, room_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+        let state_events = self
+            .event_storage
+            .get_state_events(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get room state events: {}", e)))?;
+
+        let now = chrono::Utc::now().timestamp_millis();
+        Ok(state_events
+            .iter()
+            .map(|e| {
+                let sender = e.user_id.as_deref().unwrap_or(&e.sender);
+                let age = now.saturating_sub(e.origin_server_ts);
+                let mut obj = json!({
+                    "type": e.event_type,
+                    "content": e.content,
+                    "sender": sender,
+                    "origin_server_ts": e.origin_server_ts,
+                    "event_id": e.event_id,
+                    "room_id": e.room_id,
+                    "unsigned": {
+                        "age": age
+                    }
+                });
+                if let Some(ref sk) = e.state_key {
+                    obj["state_key"] = json!(sk);
+                }
+                obj
+            })
+            .collect())
     }
 
     async fn get_presence_events(
@@ -299,71 +368,333 @@ impl SyncService {
     }
 
     async fn get_account_data_events(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
-        Ok(vec![json!({
-            "content": {
-                "push": {
-                    "rules": {
-                        "global": {
-                            "content": [],
-                            "override": [],
-                            "room": [],
-                            "sender": [],
-                            "underride": []
-                        }
+        // Load user account_data from DB
+        let rows = sqlx::query(
+            "SELECT data_type, content FROM account_data WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_all(&*self.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get account data: {}", e)))?;
+
+        let mut events: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                use sqlx::Row;
+                let data_type: String = row.get("data_type");
+                let content: serde_json::Value = row.get("content");
+                json!({
+                    "type": data_type,
+                    "content": content
+                })
+            })
+            .collect();
+
+        // If no push rules exist yet, inject the Matrix spec default push rules
+        let has_push_rules = events.iter().any(|e| e["type"] == "m.push_rules");
+        if !has_push_rules {
+            events.push(json!({
+                "type": "m.push_rules",
+                "content": {
+                    "global": {
+                        "content": [
+                            {
+                                "actions": ["notify", {"set_tweak": "highlight", "value": false}],
+                                "conditions": [{"kind": "contains_display_name"}],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.contains_display_name"
+                            }
+                        ],
+                        "override": [
+                            {
+                                "actions": ["dont_notify"],
+                                "conditions": [{"kind": "event_match", "key": "content.msgtype", "pattern": "m.notice"}],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.suppress_notices"
+                            }
+                        ],
+                        "room": [],
+                        "sender": [],
+                        "underride": [
+                            {
+                                "actions": ["notify", {"set_tweak": "sound", "value": "default"}],
+                                "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.message"
+                            }
+                        ]
                     }
                 }
-            },
-            "sender": user_id,
-            "type": "m.push_rules"
-        }), json!({
-            "content": {
-                "custom_theme": {
-                    "name": "Light",
-                    "is_dark": false
-                }
-            },
-            "sender": user_id,
-            "type": "m.room.theme"
-        })])
+            }));
+        }
+
+        Ok(events)
     }
 
     async fn get_to_device_events(
         &self,
-        _user_id: &str,
-        _since: &Option<SyncToken>,
+        user_id: &str,
+        since: &Option<SyncToken>,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        Ok(vec![])
+        let since_stream_id = since.as_ref().map(|t| t.stream_id).unwrap_or(0);
+        
+        let rows = sqlx::query(
+            r#"
+            SELECT sender_user_id, sender_device_id, event_type, content, message_id
+            FROM to_device_messages
+            WHERE recipient_user_id = $1 AND stream_id > $2
+            ORDER BY stream_id ASC
+            LIMIT 100
+            "#,
+        )
+        .bind(user_id)
+        .bind(since_stream_id)
+        .fetch_all(&*self.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get to-device events: {}", e)))?;
+
+        let events: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                use sqlx::Row;
+                let sender: String = row.get("sender_user_id");
+                let _sender_device: String = row.get("sender_device_id");
+                let event_type: String = row.get("event_type");
+                let content: serde_json::Value = row.get("content");
+                let message_id: Option<String> = row.get("message_id");
+                
+                let mut obj = json!({
+                    "type": event_type,
+                    "sender": sender,
+                    "content": content,
+                });
+                
+                if let Some(mid) = message_id {
+                    obj["message_id"] = json!(mid);
+                }
+                
+                obj
+            })
+            .collect();
+
+        Ok(events)
     }
 
     async fn get_device_lists(
         &self,
-        _user_id: &str,
-        _since: &Option<SyncToken>,
+        user_id: &str,
+        since: &Option<SyncToken>,
     ) -> ApiResult<serde_json::Value> {
+        let since_stream_id = since.as_ref().map(|t| t.stream_id).unwrap_or(0);
+        
+        // Get users whose devices have changed
+        let changed_rows = sqlx::query(
+            r#"
+            SELECT DISTINCT user_id
+            FROM device_lists_stream
+            WHERE stream_id > $1
+            AND user_id != $2
+            ORDER BY user_id
+            LIMIT 100
+            "#,
+        )
+        .bind(since_stream_id)
+        .bind(user_id)
+        .fetch_all(&*self.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get device lists: {}", e)))?;
+
+        let changed: Vec<String> = changed_rows
+            .iter()
+            .map(|row| {
+                use sqlx::Row;
+                row.get("user_id")
+            })
+            .collect();
+
+        // Get users who left (no longer share rooms)
+        let left_rows = sqlx::query(
+            r#"
+            SELECT DISTINCT dl.user_id
+            FROM device_lists_stream dl
+            LEFT JOIN room_memberships rm ON rm.user_id = dl.user_id
+            WHERE dl.stream_id > $1
+            AND dl.user_id != $2
+            AND rm.user_id IS NULL
+            ORDER BY dl.user_id
+            LIMIT 100
+            "#,
+        )
+        .bind(since_stream_id)
+        .bind(user_id)
+        .fetch_all(&*self.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get left device lists: {}", e)))?;
+
+        let left: Vec<String> = left_rows
+            .iter()
+            .map(|row| {
+                use sqlx::Row;
+                row.get("user_id")
+            })
+            .collect();
+
         Ok(json!({
-            "changed": [],
-            "left": []
+            "changed": changed,
+            "left": left
         }))
+    }
+
+    async fn get_next_stream_id(&self) -> ApiResult<i64> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO sync_stream_id DEFAULT VALUES RETURNING id
+            "#,
+        )
+        .fetch_one(&*self.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to generate stream ID: {}", e)))?;
+
+        use sqlx::Row;
+        let stream_id: i64 = row.get("id");
+        Ok(stream_id)
     }
 
     async fn get_room_ephemeral_events(
         &self,
-        _room_id: &str,
+        room_id: &str,
         _user_id: &str,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        Ok(vec![])
+        let now = chrono::Utc::now().timestamp_millis();
+        
+        let rows = sqlx::query(
+            r#"
+            SELECT event_type, user_id, content
+            FROM room_ephemeral
+            WHERE room_id = $1
+            AND (expires_ts IS NULL OR expires_ts > $2)
+            ORDER BY stream_id DESC
+            LIMIT 50
+            "#,
+        )
+        .bind(room_id)
+        .bind(now)
+        .fetch_all(&*self.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get ephemeral events: {}", e)))?;
+
+        let events: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                use sqlx::Row;
+                let event_type: String = row.get("event_type");
+                let user_id: String = row.get("user_id");
+                let content: serde_json::Value = row.get("content");
+                
+                json!({
+                    "type": event_type,
+                    "sender": user_id,
+                    "content": content
+                })
+            })
+            .collect();
+
+        Ok(events)
     }
 
     async fn get_room_account_data_events(
         &self,
-        _room_id: &str,
-        _user_id: &str,
+        room_id: &str,
+        user_id: &str,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        Ok(vec![])
+        let rows = sqlx::query(
+            "SELECT data_type, content FROM room_account_data WHERE user_id = $1 AND room_id = $2",
+        )
+        .bind(user_id)
+        .bind(room_id)
+        .fetch_all(&*self.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room account data: {}", e)))?;
+
+        Ok(rows
+            .iter()
+            .map(|row| {
+                use sqlx::Row;
+                let data_type: String = row.get("data_type");
+                let content: serde_json::Value = row.get("content");
+                json!({
+                    "type": data_type,
+                    "content": content
+                })
+            })
+            .collect())
     }
 
-    async fn get_unread_counts(&self, _room_id: &str, _user_id: &str) -> ApiResult<(i64, i64)> {
-        Ok((0, 0))
+    async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
+        // Get the user's last read event timestamp from read_markers
+        let last_read_ts: Option<i64> = sqlx::query_scalar(
+            r#"
+            SELECT e.origin_server_ts
+            FROM read_markers rm
+            JOIN events e ON e.event_id = rm.event_id
+            WHERE rm.room_id = $1 AND rm.user_id = $2
+            LIMIT 1
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .fetch_optional(&*self.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get read marker: {}", e)))?
+        .flatten();
+
+        let since_ts = last_read_ts.unwrap_or(0);
+
+        // Count total unread events (notifications)
+        let notification_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM events
+            WHERE room_id = $1
+              AND user_id != $2
+              AND origin_server_ts > $3
+              AND state_key IS NULL
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(since_ts)
+        .fetch_one(&*self.event_storage.pool)
+        .await
+        .unwrap_or(0);
+
+        // Count highlight events (mentions of the user)
+        let highlight_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM events
+            WHERE room_id = $1
+              AND user_id != $2
+              AND origin_server_ts > $3
+              AND state_key IS NULL
+              AND (
+                content::text LIKE $4
+                OR content::text LIKE '%@room%'
+              )
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(since_ts)
+        .bind(format!("%{}%", user_id))
+        .fetch_one(&*self.event_storage.pool)
+        .await
+        .unwrap_or(0);
+
+        Ok((highlight_count, notification_count))
     }
 
     pub async fn get_room_messages(

@@ -79,7 +79,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::{
     extract::{FromRequestParts, Json, Path, Query, State},
     http::{request::Parts, HeaderMap},
-    routing::{delete, get, post, put},
+    routing::{get, post, put},
     Router,
 };
 use serde_json::{json, Value};
@@ -322,62 +322,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/r0/capabilities", get(get_capabilities))
         .route("/_matrix/client/v3/capabilities", get(get_capabilities))
         // Push rules - return default rules (SDK requires this endpoint)
-        .route("/_matrix/client/v3/pushrules/", get(|| async {
-            Json(json!({
-                "global": {
-                    "content": [
-                        {"rule_id": ".m.rule.contains_user_name", "default": true, "enabled": true,
-                         "conditions": [{"kind": "contains_display_name", "key": "content.body"}],
-                         "actions": ["notify", {"set_tweak": "highlight", "value": true}, {"set_tweak": "sound", "value": "default"}]},
-                        {"rule_id": ".m.rule.contains_room_name", "default": true, "enabled": true,
-                         "conditions": [{"kind": "contains_room_name", "key": "content.body"}],
-                         "actions": ["notify", {"set_tweak": "highlight", "value": true}, {"set_tweak": "sound", "value": "default"}]}
-                    ],
-                    "override": [
-                        {"rule_id": ".m.rule.master", "default": true, "enabled": true,
-                         "conditions": [],
-                         "actions": []},
-                        {"rule_id": ".m.rule.suppress_notices", "default": true, "enabled": true,
-                         "conditions": [{"kind": "event_match", "key": "content.msgtype", "pattern": "m.notice"}],
-                         "actions": ["dont_notify"]},
-                        {"rule_id": ".m.rule.invite_for_me", "default": true, "enabled": true,
-                         "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.member"}, {"kind": "event_match", "key": "content.membership", "pattern": "invite"}, {"kind": "event_match", "key": "content.state_key", "pattern": "@user:example.com"}],
-                         "actions": ["notify", {"set_tweak": "highlight", "value": true}, {"set_tweak": "sound", "value": "default"}]}
-                    ],
-                    "room": [],
-                    "sender": [],
-                    "underride": [
-                        {"rule_id": ".m.rule.message", "default": true, "enabled": true, 
-                         "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}],
-                         "actions": ["notify", {"set_tweak": "sound", "value": "default"}]},
-                        {"rule_id": ".m.rule.encrypted", "default": true, "enabled": true,
-                         "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}],
-                         "actions": ["notify", {"set_tweak": "sound", "value": "default"}]},
-                        {"rule_id": ".m.rule.roomnotif", "default": true, "enabled": true,
-                         "conditions": [{"kind": "event_match", "key": "content.body", "pattern": "@room"}],
-                         "actions": ["notify", {"set_tweak": "highlight", "value": true}, {"set_tweak": "sound", "value": "default"}]},
-                        {"rule_id": ".m.rule.at-room", "default": true, "enabled": true,
-                         "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}, {"kind": "contains_room_name", "key": "content.body"}],
-                         "actions": ["notify", {"set_tweak": "highlight", "value": true}, {"set_tweak": "sound", "value": "default"}]}
-                    ]
-                }
-            }))
-        }))
-        .route("/_matrix/client/v3/pushrules/global/", get(|| async {
-            Json(json!({
-                "content": [],
-                "override": [
-                    {"rule_id": ".m.rule.master", "default": true, "enabled": true, "conditions": [], "actions": []}
-                ],
-                "room": [],
-                "sender": [],
-                "underride": [
-                    {"rule_id": ".m.rule.message", "default": true, "enabled": true, 
-                     "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}],
-                     "actions": ["notify", {"set_tweak": "sound", "value": "default"}]}
-                ]
-            }))
-        }))
+        // Push rules - handled by push router; add trailing-slash aliases
+        .route("/_matrix/client/v3/pushrules/", get(get_push_rules_default))
+        .route("/_matrix/client/v3/pushrules/global/", get(get_push_rules_global_default))
         .route("/.well-known/matrix/server", get(get_well_known_server))
         .route("/.well-known/matrix/client", get(get_well_known_client))
         .route("/.well-known/matrix/support", get(get_well_known_support))
@@ -520,6 +467,7 @@ fn create_auth_router() -> Router<AppState> {
         .route("/_matrix/client/v3/logout", post(logout))
         .route("/_matrix/client/v3/logout/all", post(logout_all))
         .route("/_matrix/client/r0/refresh", post(refresh_token))
+        .route("/_matrix/client/v3/refresh", post(refresh_token))
 }
 
 fn create_account_router() -> Router<AppState> {
@@ -588,7 +536,15 @@ fn create_directory_router(state: AppState) -> Router<AppState> {
             post(search_user_directory),
         )
         .route(
+            "/_matrix/client/v3/user_directory/search",
+            post(search_user_directory),
+        )
+        .route(
             "/_matrix/client/r0/user_directory/list",
+            post(list_user_directory),
+        )
+        .route(
+            "/_matrix/client/v3/user_directory/list",
             post(list_user_directory),
         )
         .route(
@@ -611,94 +567,143 @@ fn create_directory_router(state: AppState) -> Router<AppState> {
                 .put(set_room_alias_direct)
                 .delete(delete_room_alias_direct),
         )
-        .route("/_matrix/client/r0/publicRooms", get(get_public_rooms))
-        .route("/_matrix/client/r0/publicRooms", post(query_public_rooms))
+        .route("/_matrix/client/r0/publicRooms", get(get_public_rooms).post(query_public_rooms))
+        .route("/_matrix/client/v3/publicRooms", get(get_public_rooms).post(query_public_rooms))
         .route(
             "/_matrix/client/r0/directory/room/{room_id}/alias",
             get(get_room_aliases),
         )
         .route(
             "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
-            put(set_room_alias),
-        )
-        .route(
-            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
-            delete(delete_room_alias),
+            put(set_room_alias).delete(delete_room_alias),
         )
         .with_state(state)
 }
 
 fn create_room_router() -> Router<AppState> {
     Router::new()
+        // Report events
         .route(
             "/_matrix/client/r0/rooms/{room_id}/report/{event_id}",
+            post(report_event),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/report/{event_id}",
             post(report_event),
         )
         .route(
             "/_matrix/client/r0/rooms/{room_id}/report/{event_id}/score",
             put(update_report_score),
         )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/report/{event_id}/score",
+            put(update_report_score),
+        )
+        // Sync & Events
         .route("/_matrix/client/r0/sync", get(sync))
         .route("/_matrix/client/r0/events", get(get_events))
+        .route("/_matrix/client/v3/events", get(get_events))
         .route("/_matrix/client/r0/joined_rooms", get(get_joined_rooms))
+        // Messages
         .route(
             "/_matrix/client/r0/rooms/{room_id}/messages",
             get(get_messages),
         )
-        // v3 版本
         .route(
             "/_matrix/client/v3/rooms/{room_id}/messages",
             get(get_messages),
         )
+        // Typing
         .route(
             "/_matrix/client/r0/rooms/{room_id}/typing/{user_id}",
             put(set_typing),
         )
         .route(
+            "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
+            put(set_typing),
+        )
+        // Receipts
+        .route(
             "/_matrix/client/r0/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
             post(send_receipt),
         )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
+            post(send_receipt),
+        )
+        // Read markers
         .route(
             "/_matrix/client/r0/rooms/{room_id}/read_markers",
             post(set_read_markers).put(set_read_markers),
         )
         .route(
+            "/_matrix/client/v3/rooms/{room_id}/read_markers",
+            post(set_read_markers).put(set_read_markers),
+        )
+        // Aliases
+        .route(
             "/_matrix/client/r0/rooms/{room_id}/aliases",
             get(get_room_aliases),
         )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/aliases",
+            get(get_room_aliases),
+        )
+        // Join
         .route("/_matrix/client/r0/rooms/{room_id}/join", post(join_room))
-        // v3 版本房间 API
         .route("/_matrix/client/v3/rooms/{room_id}/join", post(join_room))
         .route(
             "/_matrix/client/v3/join/{room_id_or_alias}",
             post(join_room_by_id_or_alias),
         )
+        // Leave
         .route("/_matrix/client/r0/rooms/{room_id}/leave", post(leave_room))
         .route("/_matrix/client/v3/rooms/{room_id}/leave", post(leave_room))
+        // Forget
         .route(
             "/_matrix/client/r0/rooms/{room_id}/forget",
             post(forget_room),
         )
         .route(
+            "/_matrix/client/v3/rooms/{room_id}/forget",
+            post(forget_room),
+        )
+        // Members
+        .route(
             "/_matrix/client/r0/rooms/{room_id}/members",
             get(get_room_members),
         )
-        // v3 版本
         .route(
             "/_matrix/client/v3/rooms/{room_id}/members",
             get(get_room_members),
         )
+        // Invite
         .route(
             "/_matrix/client/r0/rooms/{room_id}/invite",
             post(invite_user),
         )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/invite",
+            post(invite_user),
+        )
+        // Create room
         .route("/_matrix/client/r0/createRoom", post(create_room))
+        // User rooms
         .route(
             "/_matrix/client/r0/user/{user_id}/rooms",
             get(get_user_rooms),
         )
         .route(
+            "/_matrix/client/v3/user/{user_id}/rooms",
+            get(get_user_rooms),
+        )
+        // State events
+        .route(
             "/_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}",
+            put(put_state_event).get(get_state_event),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}",
             put(put_state_event).get(get_state_event),
         )
         .route(
@@ -708,25 +713,41 @@ fn create_room_router() -> Router<AppState> {
                 .post(send_state_event),
         )
         .route(
+            "/_matrix/client/v3/rooms/{room_id}/state/{event_type}",
+            put(put_state_event_no_key)
+                .get(get_state_by_type)
+                .post(send_state_event),
+        )
+        .route(
             "/_matrix/client/r0/rooms/{room_id}/state",
             get(get_room_state),
         )
-        // v3 版本
         .route(
             "/_matrix/client/v3/rooms/{room_id}/state",
             get(get_room_state),
         )
+        // Membership events
         .route(
             "/_matrix/client/r0/rooms/{room_id}/get_membership_events",
             post(get_membership_events),
         )
+        // Redact
         .route(
             "/_matrix/client/r0/rooms/{room_id}/redact/{event_id}/{txn_id}",
             put(redact_event),
         )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}",
+            put(redact_event),
+        )
+        // Kick / Ban / Unban
         .route("/_matrix/client/r0/rooms/{room_id}/kick", post(kick_user))
+        .route("/_matrix/client/v3/rooms/{room_id}/kick", post(kick_user))
         .route("/_matrix/client/r0/rooms/{room_id}/ban", post(ban_user))
+        .route("/_matrix/client/v3/rooms/{room_id}/ban", post(ban_user))
         .route("/_matrix/client/r0/rooms/{room_id}/unban", post(unban_user))
+        .route("/_matrix/client/v3/rooms/{room_id}/unban", post(unban_user))
+        // Send message
         .route(
             "/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}",
             put(send_message),
@@ -741,11 +762,11 @@ fn create_presence_router() -> Router<AppState> {
     Router::new()
         .route(
             "/_matrix/client/r0/presence/{user_id}/status",
-            get(get_presence),
+            get(get_presence).put(set_presence),
         )
         .route(
-            "/_matrix/client/r0/presence/{user_id}/status",
-            put(set_presence),
+            "/_matrix/client/v3/presence/{user_id}/status",
+            get(get_presence).put(set_presence),
         )
 }
 
@@ -753,17 +774,14 @@ fn create_device_router() -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/r0/devices", get(get_devices))
         .route("/_matrix/client/r0/delete_devices", post(delete_devices))
-        .route("/_matrix/client/r0/devices/{device_id}", get(get_device))
-        .route("/_matrix/client/r0/devices/{device_id}", put(update_device))
-        .route(
-            "/_matrix/client/r0/devices/{device_id}",
-            delete(delete_device),
-        )
+        .route("/_matrix/client/v3/delete_devices", post(delete_devices))
+        .route("/_matrix/client/r0/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
+        .route("/_matrix/client/v3/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
 }
 
 async fn get_client_versions() -> Json<Value> {
     Json(json!({
-        "versions": ["r0.0.1", "r0.1.0", "r0.2.0", "r0.3.0", "r0.4.0", "r0.5.0", "r0.6.0", "v1.0", "v1.1", "v1.2", "v1.3", "v1.4", "v1.5", "v1.6", "v1.7", "v1.8", "v1.9", "v1.10", "v1.11", "v3.0"],
+        "versions": ["r0.5.0", "r0.6.0", "v1.1", "v1.2", "v1.3", "v1.4", "v1.5", "v1.6"],
         "unstable_features": {
             "m.lazy_load_members": true,
             "m.require_identity_server": false,
@@ -779,6 +797,130 @@ async fn get_server_version() -> Json<Value> {
         "server_version": "0.1.0",
         "python_version": "3.11"
     }))
+}
+
+/// Default push rules response for /_matrix/client/v3/pushrules/
+/// Returns the Matrix spec-compliant default rules
+async fn get_push_rules_default(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    // Try to load user-specific push rules from DB
+    let rows = sqlx::query(
+        "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'",
+    )
+    .bind(&auth_user.user_id)
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get push rules: {}", e)))?;
+
+    if let Some(row) = rows {
+        use sqlx::Row;
+        let content: Value = row.get("content");
+        return Ok(Json(content));
+    }
+
+    // Return Matrix spec default push rules
+    Ok(Json(get_default_push_rules()))
+}
+
+/// Default push rules for /_matrix/client/v3/pushrules/global/
+async fn get_push_rules_global_default(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let rules = get_push_rules_default(State(state), auth_user).await?;
+    if let Some(global) = rules.0.get("global") {
+        Ok(Json(global.clone()))
+    } else {
+        Ok(Json(get_default_push_rules()["global"].clone()))
+    }
+}
+
+/// Matrix spec-compliant default push rules
+fn get_default_push_rules() -> Value {
+    json!({
+        "global": {
+            "content": [
+                {
+                    "rule_id": ".m.rule.contains_display_name",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [{"kind": "contains_display_name"}],
+                    "actions": ["notify", {"set_tweak": "highlight"}, {"set_tweak": "sound", "value": "default"}]
+                }
+            ],
+            "override": [
+                {
+                    "rule_id": ".m.rule.master",
+                    "default": true,
+                    "enabled": false,
+                    "conditions": [],
+                    "actions": []
+                },
+                {
+                    "rule_id": ".m.rule.suppress_notices",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [{"kind": "event_match", "key": "content.msgtype", "pattern": "m.notice"}],
+                    "actions": ["dont_notify"]
+                },
+                {
+                    "rule_id": ".m.rule.invite_for_me",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [
+                        {"kind": "event_match", "key": "type", "pattern": "m.room.member"},
+                        {"kind": "event_match", "key": "content.membership", "pattern": "invite"},
+                        {"kind": "event_state_key_is_me"}
+                    ],
+                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
+                },
+                {
+                    "rule_id": ".m.rule.member_event",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.member"}],
+                    "actions": ["dont_notify"]
+                },
+                {
+                    "rule_id": ".m.rule.call",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.call.invite"}],
+                    "actions": ["notify", {"set_tweak": "sound", "value": "ring"}]
+                }
+            ],
+            "room": [],
+            "sender": [],
+            "underride": [
+                {
+                    "rule_id": ".m.rule.message",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}],
+                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
+                },
+                {
+                    "rule_id": ".m.rule.encrypted",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}],
+                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
+                },
+                {
+                    "rule_id": ".m.rule.room_one_to_one",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [
+                        {"kind": "room_member_count", "is": "2"},
+                        {"kind": "event_match", "key": "type", "pattern": "m.room.message"}
+                    ],
+                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
+                }
+            ]
+        }
+    })
 }
 
 async fn get_capabilities() -> Json<Value> {
@@ -1228,21 +1370,15 @@ async fn refresh_token(
 }
 
 async fn whoami(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let profile = state
-        .services
-        .user_storage
-        .get_user_profile(&auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
+    // Matrix spec: https://spec.matrix.org/v1.11/client-server-api/#get_matrixclientv3accountwhoami
+    // Only user_id, device_id, and optionally is_guest
     Ok(Json(json!({
         "user_id": auth_user.user_id,
-        "displayname": profile.as_ref().and_then(|p| p.displayname.clone()),
-        "avatar_url": profile.as_ref().and_then(|p| p.avatar_url.clone()),
-        "admin": auth_user.is_admin
+        "device_id": auth_user.device_id,
+        "is_guest": false
     })))
 }
 

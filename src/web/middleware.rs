@@ -3,7 +3,7 @@ use crate::common::ApiError;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
 use axum::response::IntoResponse;
-use axum::{body::Body, middleware::Next, response::Response};
+use axum::{body::Body, middleware::Next, response::Response, Json};
 use base64::Engine;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -1463,6 +1463,100 @@ fn parse_forwarded_for(value: &str) -> Option<String> {
         }
     }
     None
+}
+
+pub async fn panic_catcher_middleware(
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let method = request.method().to_string();
+    let path = request.uri().path().to_string();
+    
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            next.run(request).await
+        })
+    }));
+    
+    match result {
+        Ok(response) => response,
+        Err(panic_info) => {
+            let message = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Unknown panic".to_string()
+            };
+            
+            tracing::error!(
+                "Panic caught in request handler: {} {} - {}",
+                method,
+                path,
+                message
+            );
+            
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "errcode": "M_UNKNOWN",
+                    "error": "Internal server error"
+                }))
+            ).into_response()
+        }
+    }
+}
+
+pub async fn request_timeout_middleware(
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let timeout_secs: u64 = std::env::var("REQUEST_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+    
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs),
+        next.run(request)
+    ).await;
+    
+    match result {
+        Ok(response) => response,
+        Err(_) => {
+            tracing::warn!("Request timeout after {}s", timeout_secs);
+            (
+                StatusCode::REQUEST_TIMEOUT,
+                Json(json!({
+                    "errcode": "M_LIMIT_EXCEEDED",
+                    "error": "Request timeout",
+                    "retry_after_ms": timeout_secs * 1000
+                }))
+            ).into_response()
+        }
+    }
+}
+
+pub async fn request_id_middleware(
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let request_id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            format!("req-{}", uuid::Uuid::new_v4())
+        });
+    
+    let mut response = next.run(request).await;
+    
+    if let Ok(v) = HeaderValue::from_str(&request_id) {
+        response.headers_mut().insert("x-request-id", v);
+    }
+    
+    response
 }
 
 #[cfg(test)]

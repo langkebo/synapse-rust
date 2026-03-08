@@ -683,7 +683,7 @@ impl IntoResponse for ApiError {
                 status_code,
                 Json(
                     serde_json::from_str::<serde_json::Value>(&self.message())
-                        .unwrap_or_else(|_| json!({"error": "Gone", "message": self.message()})),
+                        .unwrap_or_else(|_| json!({"errcode": "M_UNKNOWN", "error": self.message()})),
                 ),
             )
                 .into_response();
@@ -694,15 +694,19 @@ impl IntoResponse for ApiError {
         let error_msg = self.message();
         let status_code = matrix_code.http_status();
 
-        let response: ApiResponse<()> = ApiResponse {
-            status: "error".to_string(),
-            data: None,
-            error: Some(error_msg),
-            errcode: Some(errcode),
-            retry_after_ms: None,
-        };
+        // Matrix spec standard error format: only "errcode" and "error"
+        // See: https://spec.matrix.org/v1.11/client-server-api/#standard-error-response
+        let mut body = json!({
+            "errcode": errcode,
+            "error": error_msg
+        });
 
-        (status_code, Json(response)).into_response()
+        // Add retry_after_ms for rate limiting per spec
+        if matches!(self, ApiError::RateLimited) {
+            body["retry_after_ms"] = json!(5000);
+        }
+
+        (status_code, Json(body)).into_response()
     }
 }
 
@@ -738,6 +742,107 @@ impl ErrorContext for ApiError {
 macro_rules! dbg_context {
     ($result:expr, $module:expr, $operation:expr) => {
         $result.map_err(|e| e.with_context($module, $operation))
+    };
+}
+
+/// Safe unwrap macro that returns an ApiError instead of panicking
+/// Usage: safe_unwrap!(option_expr, "error message") -> Result<T, ApiError>
+#[macro_export]
+macro_rules! safe_unwrap {
+    ($option:expr, $msg:expr) => {
+        match $option {
+            Some(v) => Ok(v),
+            None => Err(ApiError::Internal($msg.to_string())),
+        }
+    };
+    ($option:expr, $msg:expr, $($arg:tt)*) => {
+        match $option {
+            Some(v) => Ok(v),
+            None => Err(ApiError::Internal(format!($msg, $($arg)*))),
+        }
+    };
+}
+
+/// Safe unwrap with context macro
+/// Usage: safe_unwrap_ctx!(option_expr, module, operation) -> Result<T, ApiError>
+#[macro_export]
+macro_rules! safe_unwrap_ctx {
+    ($option:expr, $module:expr, $operation:expr) => {
+        match $option {
+            Some(v) => Ok(v),
+            None => Err(ApiError::Internal(format!(
+                "[{}::{}] Unexpected None value",
+                $module, $operation
+            ))),
+        }
+    };
+}
+
+/// Convert Result to ApiResult with context
+/// Usage: wrap_result!(result_expr, module, operation) -> ApiResult<T>
+#[macro_export]
+macro_rules! wrap_result {
+    ($result:expr, $module:expr, $operation:expr) => {
+        $result.map_err(|e| {
+            ApiError::Internal(format!("[{}::{}] {}", $module, $operation, e))
+        })
+    };
+}
+
+/// Bail macro for early return with error
+/// Usage: bail!("error message") or bail!("error: {}", value)
+#[macro_export]
+macro_rules! bail {
+    ($msg:expr) => {
+        return Err(ApiError::Internal($msg.to_string()))
+    };
+    ($msg:expr, $($arg:tt)*) => {
+        return Err(ApiError::Internal(format!($msg, $($arg)*)))
+    };
+}
+
+/// Ensure macro that returns error if condition is false
+/// Usage: ensure!(condition, "error message")
+#[macro_export]
+macro_rules! ensure {
+    ($cond:expr, $msg:expr) => {
+        if !($cond) {
+            return Err(ApiError::BadRequest($msg.to_string()));
+        }
+    };
+    ($cond:expr, $msg:expr, $($arg:tt)*) => {
+        if !($cond) {
+            return Err(ApiError::BadRequest(format!($msg, $($arg)*)));
+        }
+    };
+}
+
+/// Ensure with specific error type
+/// Usage: ensure_forbidden!(condition, "error message")
+#[macro_export]
+macro_rules! ensure_forbidden {
+    ($cond:expr, $msg:expr) => {
+        if !($cond) {
+            return Err(ApiError::Forbidden($msg.to_string()));
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! ensure_not_found {
+    ($cond:expr, $msg:expr) => {
+        if !($cond) {
+            return Err(ApiError::NotFound($msg.to_string()));
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! ensure_unauthorized {
+    ($cond:expr, $msg:expr) => {
+        if !($cond) {
+            return Err(ApiError::Unauthorized($msg.to_string()));
+        }
     };
 }
 
