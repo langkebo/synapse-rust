@@ -1472,39 +1472,13 @@ pub async fn panic_catcher_middleware(
     let method = request.method().to_string();
     let path = request.uri().path().to_string();
     
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            next.run(request).await
-        })
-    }));
+    tracing::debug!("Processing request: {} {}", method, path);
     
-    match result {
-        Ok(response) => response,
-        Err(panic_info) => {
-            let message = if let Some(s) = panic_info.downcast_ref::<&str>() {
-                s.to_string()
-            } else if let Some(s) = panic_info.downcast_ref::<String>() {
-                s.clone()
-            } else {
-                "Unknown panic".to_string()
-            };
-            
-            tracing::error!(
-                "Panic caught in request handler: {} {} - {}",
-                method,
-                path,
-                message
-            );
-            
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "errcode": "M_UNKNOWN",
-                    "error": "Internal server error"
-                }))
-            ).into_response()
-        }
-    }
+    let response = next.run(request).await;
+    
+    tracing::debug!("Completed request: {} {} - {}", method, path, response.status());
+    
+    response
 }
 
 pub async fn request_timeout_middleware(

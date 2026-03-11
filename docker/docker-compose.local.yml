@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: synapse-postgres-local
     restart: unless-stopped
     environment:
@@ -41,7 +41,7 @@ services:
   synapse-rust:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.multi
+      dockerfile: docker/Dockerfile
     image: synapse-rust:latest
     container_name: synapse-rust-local
     restart: unless-stopped
@@ -52,7 +52,7 @@ services:
       - RUST_LOG=debug
       - RUST_BACKTRACE=1
       - RUST_ENV=development
-      - SERVER_NAME=localhost
+      - SERVER_NAME=cjystx.top
       - TZ=Asia/Shanghai
       - DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
       - REDIS_URL=redis://redis:6379
@@ -73,6 +73,23 @@ services:
       timeout: 10s
       retries: 10
       start_period: 60s
+    networks:
+      - synapse_local_network
+
+  nginx:
+    image: nginx:alpine
+    container_name: synapse-nginx-local
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8448:8448"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./nginx/.well-known:/var/www/.well-known:ro
+    depends_on:
+      - synapse-rust
     networks:
       - synapse_local_network
 

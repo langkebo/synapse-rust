@@ -264,10 +264,10 @@ impl RoomService {
         user_id: &str,
         join_rule: &str,
         is_public: bool,
-        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+        _tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<()> {
         self.room_storage
-            .create_room(room_id, user_id, join_rule, "1", is_public, tx)
+            .create_room(room_id, user_id, join_rule, "1", is_public)
             .await
             .map(|_| ())
             .map_err(|e| ApiError::internal(format!("Failed to create room: {}", e)))
@@ -609,8 +609,8 @@ impl RoomService {
                 "topic": r.topic,
                 "canonical_alias": r.canonical_alias,
                 "is_public": r.is_public,
-                "creator": r.creator,
-                "join_rule": r.join_rule
+                "creator": r.creator_user_id,
+                "join_rule": r.join_rules
             })),
             None => Err(ApiError::not_found("Room not found".to_string())),
         }
@@ -645,8 +645,8 @@ impl RoomService {
                 "topic": r.topic,
                 "canonical_alias": r.canonical_alias,
                 "is_public": r.is_public,
-                "creator": r.creator,
-                "join_rule": r.join_rule
+                "creator": r.creator_user_id,
+                "join_rule": r.join_rules
             })),
             None => Err(ApiError::not_found("Room not found".to_string())),
         }
@@ -673,7 +673,7 @@ impl RoomService {
                     "name": room.name,
                     "topic": room.topic,
                     "is_public": room.is_public,
-                    "join_rule": room.join_rule
+                    "join_rule": room.join_rules
                 })
             })
             .collect();
@@ -742,6 +742,28 @@ impl RoomService {
             .add_member(room_id, invitee_id, "invite", None, Some(inviter_id), None)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to create invite event: {}", e)))?;
+        Ok(())
+    }
+
+    pub async fn knock_room(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        reason: Option<&str>,
+    ) -> ApiResult<()> {
+        if !self
+            .room_storage
+            .room_exists(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check room: {}", e)))?
+        {
+            return Err(ApiError::not_found("Room not found".to_string()));
+        }
+
+        self.member_storage
+            .add_member(room_id, user_id, "knock", None, reason, None)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to create knock event: {}", e)))?;
         Ok(())
     }
 
@@ -816,7 +838,7 @@ impl RoomService {
                     "topic": r.topic,
                     "canonical_alias": r.canonical_alias,
                     "is_public": r.is_public,
-                    "join_rule": r.join_rule
+                    "join_rule": r.join_rules
                 })
             })
             .collect();
@@ -857,7 +879,7 @@ impl RoomService {
             .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?;
 
         match room {
-            Some(r) => Ok(r.creator.as_deref() == Some(user_id)),
+            Some(r) => Ok(r.creator_user_id.as_deref() == Some(user_id)),
             None => Ok(false),
         }
     }
@@ -984,9 +1006,9 @@ impl RoomService {
             .map_err(|e| ApiError::internal(format!("Failed to get state events: {}", e)))?;
 
         for event in state_events {
-            if event.event_type == "m.room.tombstone" {
+            if event.event_type.as_deref() == Some("m.room.tombstone") {
                 return Ok(Some(serde_json::json!({
-                    "type": event.event_type,
+                    "type": event.event_type.clone().unwrap_or_default(),
                     "state_key": event.state_key,
                     "content": event.content,
                     "sender": event.sender,
@@ -1010,7 +1032,7 @@ impl RoomService {
             .map_err(|e| ApiError::internal(format!("Failed to get target room: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Target room not found".to_string()))?;
 
-        if target_room.creator.as_deref() != Some(user_id) {
+        if target_room.creator_user_id.as_deref() != Some(user_id) {
             return Err(ApiError::forbidden(
                 "Only room creator can migrate content".to_string(),
             ));
@@ -1050,7 +1072,7 @@ impl RoomService {
             return Ok(false);
         }
 
-        Ok(room.creator.as_deref() == Some(user_id))
+        Ok(room.creator_user_id.as_deref() == Some(user_id))
     }
 
     pub async fn process_read_receipt(

@@ -2,6 +2,8 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+pub mod models;
+
 pub mod application_service;
 pub mod background_update;
 pub mod beacon;
@@ -45,6 +47,8 @@ pub mod threepid;
 pub mod token;
 pub mod user;
 pub mod voice;
+
+pub use self::models::user::*;
 
 pub use self::application_service::*;
 pub use self::beacon::*;
@@ -222,6 +226,8 @@ mod tests {
             password_hash: Some("hash123".to_string()),
             displayname: Some("Test User".to_string()),
             avatar_url: Some("mxc://example.com/avatar".to_string()),
+            email: None,
+            phone: None,
             is_admin: false,
             is_deactivated: false,
             is_guest: false,
@@ -234,6 +240,11 @@ mod tests {
             user_type: None,
             invalid_update_ts: None,
             migration_state: None,
+            password_changed_ts: None,
+            must_change_password: false,
+            password_expires_ts: None,
+            failed_login_attempts: 0,
+            locked_until: None,
         };
         assert_eq!(user.user_id, "@test:example.com");
         assert_eq!(user.username, "testuser");
@@ -269,7 +280,7 @@ mod tests {
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
-            is_valid: true,
+            is_revoked: false,
             revoked_ts: None,
         };
         assert_eq!(token.id, 1);
@@ -283,18 +294,21 @@ mod tests {
             name: Some("Test Room".to_string()),
             topic: Some("A test room".to_string()),
             canonical_alias: Some("#test:example.com".to_string()),
-            join_rule: "invite".to_string(),
-            creator: Some("@test:example.com".to_string()),
-            version: "1".to_string(),
+            join_rules: "invite".to_string(),
+            creator_user_id: Some("@test:example.com".to_string()),
+            room_version: "1".to_string(),
             encryption: None,
             is_public: false,
             member_count: 0,
             history_visibility: "shared".to_string(),
             created_ts: 1234567890,
             avatar_url: None,
+            is_federatable: true,
+            is_spotlight: false,
+            is_flagged: false,
         };
         assert_eq!(room.room_id, "!test:example.com");
-        assert_eq!(room.join_rule, "invite");
+        assert_eq!(room.join_rules, "invite");
         assert!(!room.is_public);
     }
 
@@ -345,5 +359,28 @@ mod tests {
         assert_eq!(member.room_id, "!test:example.com");
         assert_eq!(member.user_id, "@test:example.com");
         assert_eq!(member.membership, "join");
+    }
+
+    #[test]
+    fn test_room_minimal_fields() {
+        let room = Room {
+            room_id: "!minimal:example.com".to_string(),
+            name: None,
+            topic: None,
+            canonical_alias: None,
+            join_rules: "public".to_string(),
+            creator_user_id: None,
+            room_version: "1".to_string(),
+            encryption: None,
+            is_public: true,
+            member_count: 0,
+            history_visibility: "joined".to_string(),
+            created_ts: 0,
+            is_federatable: true,
+            is_spotlight: false,
+            is_flagged: false,
+            avatar_url: None,
+        };
+        assert!(room.is_public);
     }
 }

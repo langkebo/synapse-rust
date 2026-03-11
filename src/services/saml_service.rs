@@ -23,7 +23,7 @@ pub struct SamlAuthResponse {
     pub name_id: String,
     pub issuer: String,
     pub attributes: HashMap<String, Vec<String>>,
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -251,7 +251,7 @@ impl SamlService {
         let session = self.storage.get_session(session_id).await?;
 
         if let Some(ref session) = session {
-            if session.expires_at < Utc::now() {
+            if session.expires_at < Utc::now().timestamp_millis() {
                 self.storage.invalidate_session(session_id).await?;
                 return Ok(None);
             }

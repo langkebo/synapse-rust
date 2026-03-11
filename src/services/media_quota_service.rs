@@ -24,31 +24,36 @@ impl MediaQuotaService {
         );
 
         let server_quota = self.storage.get_server_quota().await?;
-        if server_quota.max_file_size_bytes > 0 && file_size > server_quota.max_file_size_bytes {
-            return Ok(QuotaCheckResult {
-                allowed: false,
-                reason: Some(format!(
-                    "File size {} exceeds maximum allowed size {}",
-                    file_size, server_quota.max_file_size_bytes
-                )),
-                current_usage: 0,
-                quota_limit: server_quota.max_file_size_bytes,
-                usage_percent: 0.0,
-            });
-        }
-
-        if server_quota.max_storage_bytes > 0 {
-            let new_total = server_quota.current_storage_bytes + file_size;
-            if new_total > server_quota.max_storage_bytes {
+        
+        if let Some(max_file_size) = server_quota.max_file_size_bytes {
+            if file_size > max_file_size {
                 return Ok(QuotaCheckResult {
                     allowed: false,
-                    reason: Some("Server storage quota exceeded".to_string()),
-                    current_usage: server_quota.current_storage_bytes,
-                    quota_limit: server_quota.max_storage_bytes,
-                    usage_percent: (server_quota.current_storage_bytes as f64
-                        / server_quota.max_storage_bytes as f64)
-                        * 100.0,
+                    reason: Some(format!(
+                        "File size {} exceeds maximum allowed size {}",
+                        file_size, max_file_size
+                    )),
+                    current_usage: 0,
+                    quota_limit: max_file_size,
+                    usage_percent: 0.0,
                 });
+            }
+        }
+
+        if let Some(max_storage) = server_quota.max_storage_bytes {
+            if max_storage > 0 {
+                let new_total = server_quota.current_storage_bytes + file_size;
+                if new_total > max_storage {
+                    return Ok(QuotaCheckResult {
+                        allowed: false,
+                        reason: Some("Server storage quota exceeded".to_string()),
+                        current_usage: server_quota.current_storage_bytes,
+                        quota_limit: max_storage,
+                        usage_percent: (server_quota.current_storage_bytes as f64
+                            / max_storage as f64)
+                            * 100.0,
+                    });
+                }
             }
         }
 

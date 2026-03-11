@@ -208,10 +208,10 @@ impl GeoIpService {
         let geo = self.lookup(ip).await?;
 
         if let Some(ref country) = geo.country {
-            if !self.config.allowed_countries.is_empty() {
-                if !self.config.allowed_countries.contains(country) {
-                    return Ok(false);
-                }
+            if !self.config.allowed_countries.is_empty()
+                && !self.config.allowed_countries.contains(country)
+            {
+                return Ok(false);
             }
 
             if self.config.blocked_countries.contains(country) {

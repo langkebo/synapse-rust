@@ -1,5 +1,6 @@
 pub mod account_data;
 pub mod admin;
+pub mod admin_extra;
 pub mod app_service;
 pub mod background_update;
 pub mod captcha;
@@ -35,6 +36,7 @@ pub mod worker;
 
 pub use account_data::create_account_data_router;
 pub use admin::create_admin_router;
+pub use admin_extra::create_admin_extra_router;
 pub use app_service::create_app_service_router;
 pub use background_update::create_background_update_router;
 pub use captcha::create_captcha_router;
@@ -317,6 +319,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/health", get(health_check))
         .route("/_matrix/client/versions", get(get_client_versions))
+        .route("/_matrix/client/v3/versions", get(get_client_versions))
         .route("/_matrix/client/r0/version", get(get_server_version))
         .route("/_matrix/server_version", get(get_server_version))
         .route("/_matrix/client/r0/capabilities", get(get_capabilities))
@@ -341,6 +344,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_e2ee_router(state.clone()))
         .merge(create_key_backup_router(state.clone()))
         .merge(create_admin_router(state.clone()))
+        .merge(create_admin_extra_router())
         .merge(create_federation_router(state.clone()))
         .merge(create_friend_router(state.clone()))
         .merge(create_push_router(state.clone()))
@@ -362,6 +366,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_server_notification_router())
         .merge(create_captcha_router())
         .merge(create_federation_blacklist_router())
+        .merge(create_federation_cache_router())
         .merge(create_push_notification_router())
         .merge(create_telemetry_router())
         .merge(create_thread_routes(state.clone()))
@@ -395,23 +400,6 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/_matrix/client/v3/account/3pid/unbind",
             post(unbind_threepid),
-        )
-        .route(
-            "/_matrix/client/v3/user_directory/search",
-            post(search_user_directory),
-        )
-        .route(
-            "/_matrix/client/v3/publicRooms",
-            get(get_public_rooms).post(query_public_rooms),
-        )
-        .route("/_matrix/client/v3/devices", get(get_devices))
-        .route(
-            "/_matrix/client/v3/devices/{device_id}",
-            get(get_device).put(update_device).delete(delete_device),
-        )
-        .route(
-            "/_matrix/client/v3/presence/{user_id}/status",
-            get(get_presence).put(set_presence),
         )
         .route("/_matrix/client/v3/sync", get(sync))
         .route("/_matrix/client/v3/createRoom", post(create_room))
@@ -467,7 +455,6 @@ fn create_auth_router() -> Router<AppState> {
         .route("/_matrix/client/v3/logout", post(logout))
         .route("/_matrix/client/v3/logout/all", post(logout_all))
         .route("/_matrix/client/r0/refresh", post(refresh_token))
-        .route("/_matrix/client/v3/refresh", post(refresh_token))
 }
 
 fn create_account_router() -> Router<AppState> {
@@ -656,6 +643,16 @@ fn create_room_router() -> Router<AppState> {
             "/_matrix/client/v3/join/{room_id_or_alias}",
             post(join_room_by_id_or_alias),
         )
+        // Knock
+        .route(
+            "/_matrix/client/v3/knock/{room_id_or_alias}",
+            post(knock_room),
+        )
+        // Invite by room ID (standalone endpoint)
+        .route(
+            "/_matrix/client/v3/invite/{room_id}",
+            post(invite_user_by_room),
+        )
         // Leave
         .route("/_matrix/client/r0/rooms/{room_id}/leave", post(leave_room))
         .route("/_matrix/client/v3/rooms/{room_id}/leave", post(leave_room))
@@ -756,6 +753,15 @@ fn create_room_router() -> Router<AppState> {
             "/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}",
             put(send_message),
         )
+        // Get single event
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/event/{event_id}",
+            get(get_single_event),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/event/{event_id}",
+            get(get_single_event),
+        )
 }
 
 fn create_presence_router() -> Router<AppState> {
@@ -773,6 +779,7 @@ fn create_presence_router() -> Router<AppState> {
 fn create_device_router() -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/r0/devices", get(get_devices))
+        .route("/_matrix/client/v3/devices", get(get_devices))
         .route("/_matrix/client/r0/delete_devices", post(delete_devices))
         .route("/_matrix/client/v3/delete_devices", post(delete_devices))
         .route("/_matrix/client/r0/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
@@ -1333,6 +1340,50 @@ async fn logout(
     Ok(Json(json!({})))
 }
 
+async fn get_single_event(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, event_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+    validate_event_id(&event_id)?;
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to view events".to_string(),
+        ));
+    }
+
+    let event = state
+        .services
+        .event_storage
+        .get_event(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+    if event.room_id != room_id {
+        return Err(ApiError::not_found("Event not found in this room".to_string()));
+    }
+
+    Ok(Json(json!({
+        "event_id": event.event_id,
+        "room_id": event.room_id,
+        "sender": event.user_id,
+        "type": event.event_type,
+        "content": event.content,
+        "origin_server_ts": event.origin_server_ts,
+        "state_key": event.state_key
+    })))
+}
+
 async fn logout_all(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -1733,7 +1784,7 @@ async fn get_threepids(
 
     let threepids = sqlx::query(
         r#"
-        SELECT medium, address, validated_at, added_at
+        SELECT medium, address, validated_at, added_ts
         FROM user_threepids
         WHERE user_id = $1
         "#,
@@ -1750,7 +1801,7 @@ async fn get_threepids(
                 "medium": row.get::<String, _>("medium"),
                 "address": row.get::<String, _>("address"),
                 "validated_at": row.get::<Option<i64>, _>("validated_at").unwrap_or(0),
-                "added_at": row.get::<Option<i64>, _>("added_at").unwrap_or(0)
+                "added_at": row.get::<Option<i64>, _>("added_ts").unwrap_or(0)
             })
         })
         .collect();
@@ -1795,9 +1846,9 @@ async fn add_threepid(
 
     sqlx::query(
         r#"
-        INSERT INTO user_threepids (user_id, medium, address, validated_at, added_at)
+        INSERT INTO user_threepids (user_id, medium, address, validated_at, added_ts)
         VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (user_id, medium, address) DO UPDATE
+        ON CONFLICT (medium, address) DO UPDATE
         SET validated_at = EXCLUDED.validated_at
         "#,
     )
@@ -2029,13 +2080,22 @@ async fn sync(
         .unwrap_or("online");
     let since = params.get("since").and_then(|v| v.as_str());
 
-    Ok(Json(
-        state
-            .services
-            .sync_service
-            .sync(&user_id, timeout, full_state, set_presence, since)
-            .await?,
-    ))
+    let sync_result = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        state.services.sync_service.sync(&user_id, timeout, full_state, set_presence, since)
+    ).await;
+
+    match sync_result {
+        Ok(Ok(result)) => Ok(Json(result)),
+        Ok(Err(e)) => {
+            ::tracing::error!("Sync error for user {}: {}", user_id, e);
+            Err(e)
+        }
+        Err(_) => {
+            ::tracing::error!("Sync timeout for user {}", user_id);
+            Err(ApiError::internal("Sync operation timed out".to_string()))
+        }
+    }
 }
 
 async fn get_events(
@@ -2341,6 +2401,88 @@ async fn invite_user(
         .services
         .room_service
         .invite_user(&room_id, &auth_user.user_id, invitee)
+        .await?;
+    Ok(Json(json!({})))
+}
+
+async fn knock_room(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(room_id_or_alias): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let token = extract_token_from_headers(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let room_id = if room_id_or_alias.starts_with('!') {
+        room_id_or_alias.clone()
+    } else if room_id_or_alias.starts_with('#') {
+        state
+            .services
+            .room_service
+            .get_room_by_alias(&room_id_or_alias)
+            .await
+            .map_err(|e| ApiError::not_found(format!("Room alias not found: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
+    } else {
+        let alias = format!(
+            "#{}:{}",
+            room_id_or_alias, state.services.config.server.name
+        );
+        state
+            .services
+            .room_service
+            .get_room_by_alias(&alias)
+            .await
+            .map_err(|e| ApiError::not_found(format!("Room alias not found: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
+    };
+
+    let reason = body.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    ::tracing::info!(
+        "User {} knocking on room {}",
+        user_id, room_id
+    );
+
+    state
+        .services
+        .room_service
+        .knock_room(&room_id, &user_id, reason.as_deref())
+        .await?;
+
+    Ok(Json(json!({
+        "room_id": room_id
+    })))
+}
+
+async fn invite_user_by_room(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(room_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let token = extract_token_from_headers(&headers)?;
+    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    validate_room_id(&room_id)?;
+
+    let invitee = body
+        .get("user_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+
+    validate_user_id(invitee)?;
+
+    ::tracing::info!(
+        "User {} inviting {} to room {}",
+        user_id, invitee, room_id
+    );
+
+    state
+        .services
+        .room_service
+        .invite_user(&room_id, &user_id, invitee)
         .await?;
     Ok(Json(json!({})))
 }

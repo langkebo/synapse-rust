@@ -189,7 +189,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16
         env:
           POSTGRES_USER: synapse
           POSTGRES_PASSWORD: synapse
@@ -342,7 +342,7 @@ docker run -d --name synapse_postgres \
   -e POSTGRES_PASSWORD=synapse \
   -e POSTGRES_DB=synapse_test \
   -p 5432:5432 \
-  postgres:15
+  postgres:16
 
 # 设置环境变量
 export DATABASE_URL="postgres://synapse:synapse@localhost:5432/synapse_test"
@@ -355,7 +355,7 @@ cargo test --test integration
 
 - **操作系统**: Ubuntu 22.04 LTS
 - **Rust版本**: 1.75+
-- **PostgreSQL**: 15
+- **PostgreSQL**: 16
 - **Redis**: 7.0+
 
 ---

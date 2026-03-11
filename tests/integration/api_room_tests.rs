@@ -485,7 +485,7 @@ async fn test_room_state_and_redaction() {
     let request = Request::builder()
         .method("PUT")
         .uri(format!(
-            "/_matrix/client/r0/rooms/{}/redact/{}",
+            "/_matrix/client/r0/rooms/{}/redact/{}/txn_redact_1",
             room_id, event_id
         ))
         .header("Authorization", format!("Bearer {}", alice_token))

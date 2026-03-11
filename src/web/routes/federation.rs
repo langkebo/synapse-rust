@@ -375,16 +375,16 @@ async fn get_room_auth(
     let auth_chain: Vec<Value> = auth_events
         .into_iter()
         .filter(|e| {
-            e.event_type == "m.room.create"
-                || e.event_type == "m.room.member"
-                || e.event_type == "m.room.power_levels"
-                || e.event_type == "m.room.join_rules"
-                || e.event_type == "m.room.history_visibility"
+            e.event_type.as_deref() == Some("m.room.create")
+                || e.event_type.as_deref() == Some("m.room.member")
+                || e.event_type.as_deref() == Some("m.room.power_levels")
+                || e.event_type.as_deref() == Some("m.room.join_rules")
+                || e.event_type.as_deref() == Some("m.room.history_visibility")
         })
         .map(|e| {
             json!({
                 "event_id": e.event_id,
-                "type": e.event_type,
+                "type": e.event_type.clone().unwrap_or_default(),
                 "sender": e.user_id,
                 "content": e.content,
                 "state_key": e.state_key,

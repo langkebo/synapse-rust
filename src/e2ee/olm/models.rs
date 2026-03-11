@@ -25,8 +25,8 @@ pub struct OlmAccountData {
     pub device_id: String,
     pub identity_key: String,
     pub serialized_account: String,
-    pub one_time_keys_published: bool,
-    pub fallback_key_published: bool,
+    pub is_one_time_keys_published: bool,
+    pub is_fallback_key_published: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,8 +122,8 @@ impl OlmAccountData {
             device_id,
             identity_key,
             serialized_account,
-            one_time_keys_published: false,
-            fallback_key_published: false,
+            is_one_time_keys_published: false,
+            is_fallback_key_published: false,
         }
     }
 }

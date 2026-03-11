@@ -77,7 +77,7 @@ impl DelayedEventStorage {
         .bind(&params.event_type)
         .bind(&params.state_key)
         .bind(&params.content)
-        .bind(&params.delay_ms)
+        .bind(params.delay_ms)
         .bind(scheduled_ts)
         .bind(now)
         .fetch_one(&*self.pool)

@@ -713,14 +713,14 @@ impl PresenceStorage {
             let now = chrono::Utc::now().timestamp_millis();
             sqlx::query(
                 r#"
-                INSERT INTO typing (room_id, user_id, typing, last_active_ts)
+                INSERT INTO typing (user_id, room_id, is_typing, last_active_ts)
                 VALUES ($1, $2, $3, $4)
-                ON CONFLICT (room_id, user_id)
-                DO UPDATE SET typing = EXCLUDED.typing, last_active_ts = EXCLUDED.last_active_ts
+                ON CONFLICT (user_id, room_id)
+                DO UPDATE SET is_typing = EXCLUDED.is_typing, last_active_ts = EXCLUDED.last_active_ts
                 "#,
             )
-            .bind(room_id)
             .bind(user_id)
+            .bind(room_id)
             .bind(typing)
             .bind(now)
             .execute(&*self.pool)
@@ -728,11 +728,11 @@ impl PresenceStorage {
         } else {
             sqlx::query(
                 r#"
-                DELETE FROM typing WHERE room_id = $1 AND user_id = $2
+                DELETE FROM typing WHERE user_id = $1 AND room_id = $2
                 "#,
             )
-            .bind(room_id)
             .bind(user_id)
+            .bind(room_id)
             .execute(&*self.pool)
             .await?;
         }
@@ -742,6 +742,7 @@ impl PresenceStorage {
 
 pub mod admin_registration_service;
 pub mod application_service;
+pub mod auth;
 pub mod background_update_service;
 pub mod beacon_service;
 pub mod cache;

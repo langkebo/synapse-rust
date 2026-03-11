@@ -37,16 +37,20 @@ impl ContentType {
             ContentType::FileAttachment => "file_attachment",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for ContentType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "media_image" => Some(ContentType::MediaImage),
-            "media_video" => Some(ContentType::MediaVideo),
-            "media_audio" => Some(ContentType::MediaAudio),
-            "media_file" => Some(ContentType::MediaFile),
-            "message_text" => Some(ContentType::MessageText),
-            "file_attachment" => Some(ContentType::FileAttachment),
-            _ => None,
+            "media_image" => Ok(ContentType::MediaImage),
+            "media_video" => Ok(ContentType::MediaVideo),
+            "media_audio" => Ok(ContentType::MediaAudio),
+            "media_file" => Ok(ContentType::MediaFile),
+            "message_text" => Ok(ContentType::MessageText),
+            "file_attachment" => Ok(ContentType::FileAttachment),
+            _ => Err(()),
         }
     }
 }

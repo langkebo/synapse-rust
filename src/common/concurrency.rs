@@ -15,7 +15,8 @@ impl ConcurrencyController {
     }
 
     pub async fn acquire(&self) -> ConcurrencyPermit {
-        let permit = self.semaphore.clone().acquire_owned().await.unwrap();
+        let permit = self.semaphore.clone().acquire_owned().await
+            .expect("Semaphore should not be closed");
         ConcurrencyPermit {
             _permit: permit,
             name: self.name.clone(),

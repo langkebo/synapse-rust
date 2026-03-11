@@ -175,7 +175,7 @@ impl SecretStorage {
             "#
         )
         .bind(user_id)
-        .bind(&secret_names)
+        .bind(secret_names)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -222,7 +222,7 @@ impl SecretStorage {
             "#
         )
         .bind(user_id)
-        .bind(&secret_names)
+        .bind(secret_names)
         .execute(&self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;

@@ -11,7 +11,7 @@ pub struct CrossSigningKey {
     pub usage: Vec<String>,
     pub signatures: serde_json::Value,
     pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub updated_ts: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,7 +123,7 @@ mod tests {
             usage: vec!["master_key".to_string()],
             signatures: serde_json::json!({}),
             created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
         };
 
         assert_eq!(key.user_id, "@test:example.com");
@@ -182,7 +182,7 @@ mod tests {
             usage: vec!["master_key".to_string()],
             signatures: serde_json::json!({}),
             created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
         };
 
         let self_signing = CrossSigningKey {
@@ -193,7 +193,7 @@ mod tests {
             usage: vec!["self_signing_key".to_string()],
             signatures: serde_json::json!({}),
             created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
         };
 
         let user_signing = CrossSigningKey {
@@ -204,7 +204,7 @@ mod tests {
             usage: vec!["user_signing_key".to_string()],
             signatures: serde_json::json!({}),
             created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
         };
 
         assert_eq!(master.key_type, "master");
@@ -224,7 +224,7 @@ mod tests {
                 "@test:example.com": {"ed25519:DEVICE": "signature"}
             }),
             created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
         };
 
         let json = serde_json::to_string(&key).unwrap();

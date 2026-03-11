@@ -1,5 +1,5 @@
 use crate::common::error::ApiError;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -31,10 +31,10 @@ pub struct CaptchaSendLog {
     pub captcha_id: Option<String>,
     pub captcha_type: String,
     pub target: String,
-    pub sent_at: DateTime<Utc>,
+    pub sent_ts: i64,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
-    pub success: bool,
+    pub is_success: Option<bool>,
     pub error_message: Option<String>,
     pub provider: Option<String>,
     pub provider_response: Option<String>,
@@ -47,9 +47,9 @@ pub struct CaptchaRateLimit {
     pub ip_address: Option<String>,
     pub captcha_type: String,
     pub request_count: i32,
-    pub first_request_at: DateTime<Utc>,
-    pub last_request_at: DateTime<Utc>,
-    pub blocked_until: Option<DateTime<Utc>>,
+    pub first_request_at: i64,
+    pub last_request_at: i64,
+    pub blocked_until: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -61,9 +61,9 @@ pub struct CaptchaTemplate {
     pub content: String,
     pub variables: serde_json::Value,
     pub is_default: bool,
-    pub enabled: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub is_enabled: bool,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -72,8 +72,8 @@ pub struct CaptchaConfig {
     pub config_key: String,
     pub config_value: String,
     pub description: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -273,19 +273,21 @@ impl CaptchaStorage {
         &self,
         request: CreateSendLogRequest,
     ) -> Result<CaptchaSendLog, ApiError> {
+        let sent_ts = chrono::Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, CaptchaSendLog>(
             r#"
             INSERT INTO captcha_send_log (
-                captcha_id, captcha_type, target, ip_address, user_agent,
-                success, error_message, provider, provider_response
+                captcha_id, captcha_type, target, sent_ts, ip_address, user_agent,
+                is_success, error_message, provider, provider_response
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
             "#,
         )
         .bind(&request.captcha_id)
         .bind(&request.captcha_type)
         .bind(&request.target)
+        .bind(sent_ts)
         .bind(&request.ip_address)
         .bind(&request.user_agent)
         .bind(request.success)
@@ -305,17 +307,17 @@ impl CaptchaStorage {
         captcha_type: &str,
         max_per_hour: i32,
     ) -> Result<bool, ApiError> {
-        let one_hour_ago = Utc::now() - chrono::Duration::hours(1);
+        let one_hour_ago_ts = (Utc::now() - chrono::Duration::hours(1)).timestamp_millis();
 
         let count: (i64,) = sqlx::query_as(
             r#"
             SELECT COUNT(*) FROM captcha_send_log 
-            WHERE target = $1 AND captcha_type = $2 AND sent_at > $3
+            WHERE target = $1 AND captcha_type = $2 AND sent_ts > $3
             "#,
         )
         .bind(target)
         .bind(captcha_type)
-        .bind(one_hour_ago)
+        .bind(one_hour_ago_ts)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to check rate limit: {}", e)))?;
@@ -328,16 +330,16 @@ impl CaptchaStorage {
         ip_address: &str,
         max_per_hour: i32,
     ) -> Result<bool, ApiError> {
-        let one_hour_ago = Utc::now() - chrono::Duration::hours(1);
+        let one_hour_ago_ts = (Utc::now() - chrono::Duration::hours(1)).timestamp_millis();
 
         let count: (i64,) = sqlx::query_as(
             r#"
             SELECT COUNT(*) FROM captcha_send_log 
-            WHERE ip_address = $1 AND sent_at > $2
+            WHERE ip_address = $1 AND sent_ts > $2
             "#,
         )
         .bind(ip_address)
-        .bind(one_hour_ago)
+        .bind(one_hour_ago_ts)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to check IP rate limit: {}", e)))?;
@@ -365,7 +367,7 @@ impl CaptchaStorage {
         captcha_type: &str,
     ) -> Result<Option<CaptchaTemplate>, ApiError> {
         let row = sqlx::query_as::<_, CaptchaTemplate>(
-            "SELECT * FROM captcha_template WHERE captcha_type = $1 AND is_default = true AND enabled = true"
+            "SELECT * FROM captcha_template WHERE captcha_type = $1 AND is_default = true AND is_enabled = true"
         )
         .bind(captcha_type)
         .fetch_optional(&*self.pool)

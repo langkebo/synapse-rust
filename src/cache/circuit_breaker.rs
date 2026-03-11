@@ -10,7 +10,7 @@ pub enum CircuitState {
     HalfOpen,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CircuitBreakerMetrics {
     pub total_requests: u64,
     pub successful_requests: u64,
@@ -18,23 +18,8 @@ pub struct CircuitBreakerMetrics {
     pub rejected_requests: u64,
     pub timeout_requests: u64,
     pub state_transitions: u64,
-    pub last_failure_time: Option<Instant>,
+    pub last_failure: Option<Instant>,
     pub last_state_change: Option<Instant>,
-}
-
-impl Default for CircuitBreakerMetrics {
-    fn default() -> Self {
-        Self {
-            total_requests: 0,
-            successful_requests: 0,
-            failed_requests: 0,
-            rejected_requests: 0,
-            timeout_requests: 0,
-            state_transitions: 0,
-            last_failure_time: None,
-            last_state_change: None,
-        }
-    }
 }
 
 struct SlidingWindow {
@@ -209,7 +194,7 @@ impl CircuitBreaker {
         let mut metrics = self.metrics.write();
         metrics.failed_requests = self.failed_requests.load(Ordering::Relaxed);
         metrics.total_requests = self.total_requests.load(Ordering::Relaxed);
-        metrics.last_failure_time = Some(Instant::now());
+        metrics.last_failure = Some(Instant::now());
     }
 
     pub fn record_timeout(&self) {
@@ -451,7 +436,7 @@ mod tests {
         assert_eq!(metrics.total_requests, 5);
         assert_eq!(metrics.successful_requests, 2);
         assert_eq!(metrics.failed_requests, 3);
-        assert!(metrics.last_failure_time.is_some());
+        assert!(metrics.last_failure.is_some());
     }
 
     #[test]

@@ -13,14 +13,17 @@ pub struct Room {
     pub topic: Option<String>,
     pub avatar_url: Option<String>,
     pub canonical_alias: Option<String>,
-    pub join_rule: String,
-    pub creator: Option<String>,
-    pub version: String,
+    pub join_rules: String,
+    pub creator_user_id: Option<String>,
+    pub room_version: String,
     pub encryption: Option<String>,
     pub is_public: bool,
     pub member_count: i64,
     pub history_visibility: String,
     pub created_ts: i64,
+    pub is_federatable: bool,
+    pub is_spotlight: bool,
+    pub is_flagged: bool,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -75,58 +78,39 @@ impl RoomStorage {
         join_rule: &str,
         version: &str,
         is_public: bool,
-        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<Room, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-
-        let query = r#"
+        sqlx::query(
+            r#"
             INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, member_count, history_visibility, created_ts, last_activity_ts)
-            VALUES ($1, $2, $3, $4, $5, 1, 'joined', $6, $7)
-            "#;
-
-        if let Some(tx) = tx {
-            sqlx::query(query)
-                .bind(room_id)
-                .bind(creator)
-                .bind(join_rule)
-                .bind(version)
-                .bind(is_public)
-                .bind(now)
-                .bind(now)
-                .execute(&mut **tx)
-                .await?;
-        } else {
-            sqlx::query(query)
-                .bind(room_id)
-                .bind(creator)
-                .bind(join_rule)
-                .bind(version)
-                .bind(is_public)
-                .bind(now)
-                .bind(now)
-                .execute(&*self.pool)
-                .await?;
-        }
-
-        // Fetch back the room record. Note: if inside a transaction, we must use the transaction to read it back
-        // to see the uncommitted changes, unless read isolation allows otherwise.
-        // But sqlx transaction reuse is tricky for select if we want to return the object.
-        // For simplicity, we construct the Room object manually since we know what we inserted.
-
+            VALUES ($1, $2, $3, $4, $5, 1, 'joined', $6, $6)
+            "#,
+        )
+        .bind(room_id)
+        .bind(creator)
+        .bind(join_rule)
+        .bind(version)
+        .bind(is_public)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
         Ok(Room {
             room_id: room_id.to_string(),
             name: None,
             topic: None,
             avatar_url: None,
             canonical_alias: None,
-            join_rule: join_rule.to_string(),
-            creator: Some(creator.to_string()),
-            version: version.to_string(),
+            join_rules: join_rule.to_string(),
+            creator_user_id: Some(creator.to_string()),
+            room_version: version.to_string(),
             encryption: None,
             is_public,
             member_count: 1,
             history_visibility: DEFAULT_HISTORY_VISIBILITY.to_string(),
             created_ts: now,
+            is_federatable: true,
+            is_spotlight: false,
+            is_flagged: false,
         })
     }
 
@@ -148,18 +132,17 @@ impl RoomStorage {
                 topic: row.topic,
                 avatar_url: row.avatar_url,
                 canonical_alias: row.canonical_alias,
-                join_rule: row
-                    .join_rules
-                    .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
-                creator: row.creator,
-                version: row.room_version.unwrap_or_else(|| "1".to_string()),
+                join_rules: row.join_rules.unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                creator_user_id: row.creator,
+                room_version: row.room_version.unwrap_or_else(|| "1".to_string()),
                 encryption: row.encryption,
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
-                history_visibility: row
-                    .history_visibility
-                    .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
+                history_visibility: row.history_visibility.unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                 created_ts: row.created_ts,
+                is_federatable: true,
+                is_spotlight: false,
+                is_flagged: false,
             }))
         } else {
             Ok(None)
@@ -191,20 +174,17 @@ impl RoomStorage {
                 topic: row.topic.clone(),
                 avatar_url: row.avatar_url.clone(),
                 canonical_alias: row.canonical_alias.clone(),
-                join_rule: row
-                    .join_rules
-                    .clone()
-                    .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
-                creator: row.creator.clone(),
-                version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
+                join_rules: row.join_rules.clone().unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                creator_user_id: row.creator.clone(),
+                room_version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
                 encryption: row.encryption.clone(),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
-                history_visibility: row
-                    .history_visibility
-                    .clone()
-                    .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
+                history_visibility: row.history_visibility.clone().unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                 created_ts: row.created_ts,
+                is_federatable: true,
+                is_spotlight: false,
+                is_flagged: false,
             })
             .collect())
     }
@@ -242,12 +222,12 @@ impl RoomStorage {
                 topic: row.topic.clone(),
                 avatar_url: row.avatar_url.clone(),
                 canonical_alias: row.canonical_alias.clone(),
-                join_rule: row
+                join_rules: row
                     .join_rules
                     .clone()
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
-                creator: row.creator.clone(),
-                version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
+                creator_user_id: row.creator.clone(),
+                room_version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
                 encryption: row.encryption.clone(),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
@@ -256,6 +236,9 @@ impl RoomStorage {
                     .clone()
                     .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                 created_ts: row.created_ts,
+                is_federatable: true,
+                is_spotlight: false,
+                is_flagged: false,
             })
             .collect())
     }
@@ -291,12 +274,12 @@ impl RoomStorage {
                         topic: row.topic.clone(),
                         avatar_url: row.avatar_url.clone(),
                         canonical_alias: row.canonical_alias.clone(),
-                        join_rule: row
+                        join_rules: row
                             .join_rules
                             .clone()
                             .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
-                        creator: row.creator.clone(),
-                        version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
+                        creator_user_id: row.creator.clone(),
+                        room_version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
                         encryption: row.encryption.clone(),
                         is_public: row.is_public.unwrap_or(false),
                         member_count: row.member_count.unwrap_or(0),
@@ -305,6 +288,9 @@ impl RoomStorage {
                             .clone()
                             .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                         created_ts: row.created_ts,
+                        is_federatable: true,
+                        is_spotlight: false,
+                        is_flagged: false,
                     },
                     row.joined_members.unwrap_or(0),
                 )
@@ -743,12 +729,12 @@ impl RoomStorage {
                     topic: row.topic.clone(),
                     avatar_url: row.avatar_url.clone(),
                     canonical_alias: row.canonical_alias.clone(),
-                    join_rule: row
+                    join_rules: row
                         .join_rules
                         .clone()
                         .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
-                    creator: row.creator.clone(),
-                    version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
+                    creator_user_id: row.creator.clone(),
+                    room_version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
                     encryption: row.encryption.clone(),
                     is_public: row.is_public.unwrap_or(false),
                     member_count: row.member_count.unwrap_or(0),
@@ -757,6 +743,9 @@ impl RoomStorage {
                         .clone()
                         .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                     created_ts: row.created_ts,
+                    is_federatable: true,
+                    is_spotlight: false,
+                    is_flagged: false,
                 };
                 (row.room_id.clone(), (room, row.joined_members.unwrap_or(0)))
             })
@@ -814,12 +803,12 @@ impl RoomStorage {
                     topic: row.topic.clone(),
                     avatar_url: row.avatar_url.clone(),
                     canonical_alias: row.canonical_alias.clone(),
-                    join_rule: row
+                    join_rules: row
                         .join_rules
                         .clone()
                         .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
-                    creator: row.creator.clone(),
-                    version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
+                    creator_user_id: row.creator.clone(),
+                    room_version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
                     encryption: row.encryption.clone(),
                     is_public: row.is_public.unwrap_or(false),
                     member_count: row.member_count.unwrap_or(0),
@@ -828,6 +817,9 @@ impl RoomStorage {
                         .clone()
                         .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                     created_ts: row.created_ts,
+                    is_federatable: true,
+                    is_spotlight: false,
+                    is_flagged: false,
                 };
                 let room_aliases = aliases.get(&row.room_id).cloned().unwrap_or_default();
                 (room, room_aliases)
@@ -937,14 +929,17 @@ mod tests {
             topic: Some("A test room".to_string()),
             avatar_url: Some("mxc://example.com/avatar".to_string()),
             canonical_alias: Some("#test:example.com".to_string()),
-            join_rule: "invite".to_string(),
-            creator: Some("@alice:example.com".to_string()),
-            version: "6".to_string(),
+            join_rules: "invite".to_string(),
+            creator_user_id: Some("@alice:example.com".to_string()),
+            room_version: "6".to_string(),
             encryption: Some("m.megolm.v1.aes-sha2".to_string()),
             is_public: false,
             member_count: 5,
             history_visibility: "joined".to_string(),
             created_ts: 1234567890,
+            is_federatable: true,
+            is_spotlight: false,
+            is_flagged: false,
         };
 
         assert_eq!(room.room_id, "!room:example.com");
@@ -960,14 +955,17 @@ mod tests {
             topic: None,
             avatar_url: None,
             canonical_alias: None,
-            join_rule: DEFAULT_JOIN_RULE.to_string(),
-            creator: Some("@bob:example.com".to_string()),
-            version: "1".to_string(),
+            join_rules: DEFAULT_JOIN_RULE.to_string(),
+            creator_user_id: Some("@bob:example.com".to_string()),
+            room_version: "1".to_string(),
             encryption: None,
             is_public: true,
             member_count: 1,
             history_visibility: DEFAULT_HISTORY_VISIBILITY.to_string(),
             created_ts: 0,
+            is_federatable: true,
+            is_spotlight: false,
+            is_flagged: false,
         };
 
         assert!(room.name.is_none());
@@ -983,14 +981,17 @@ mod tests {
             topic: None,
             avatar_url: None,
             canonical_alias: None,
-            join_rule: "public".to_string(),
-            creator: Some("@test:example.com".to_string()),
-            version: "9".to_string(),
+            join_rules: "public".to_string(),
+            creator_user_id: Some("@test:example.com".to_string()),
+            room_version: "9".to_string(),
             encryption: None,
             is_public: true,
             member_count: 10,
             history_visibility: "shared".to_string(),
             created_ts: 1234567890,
+            is_federatable: true,
+            is_spotlight: false,
+            is_flagged: false,
         };
 
         let json = serde_json::to_string(&room).unwrap();
@@ -1006,14 +1007,17 @@ mod tests {
             topic: None,
             avatar_url: None,
             canonical_alias: None,
-            join_rule: "invite".to_string(),
-            creator: Some("@admin:example.com".to_string()),
-            version: "6".to_string(),
+            join_rules: "invite".to_string(),
+            creator_user_id: Some("@admin:example.com".to_string()),
+            room_version: "6".to_string(),
             encryption: Some("m.megolm.v1.aes-sha2".to_string()),
             is_public: false,
             member_count: 3,
             history_visibility: "invited".to_string(),
             created_ts: 1234567890,
+            is_federatable: true,
+            is_spotlight: false,
+            is_flagged: false,
         };
 
         assert!(room.encryption.is_some());
