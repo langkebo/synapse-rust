@@ -40,7 +40,7 @@ impl CrossSigningService {
             usage: master_usage,
             signatures: upload.master_key["signatures"].clone(),
             created_at: Utc::now(),
-            updated_at: Utc::now(),
+            updated_ts: Utc::now(),
         };
         self.storage.create_cross_signing_key(&master_key).await?;
 
@@ -63,7 +63,7 @@ impl CrossSigningService {
             usage: self_signing_usage,
             signatures: upload.self_signing_key["signatures"].clone(),
             created_at: Utc::now(),
-            updated_at: Utc::now(),
+            updated_ts: Utc::now(),
         };
         self.storage
             .create_cross_signing_key(&self_signing_key)
@@ -88,7 +88,7 @@ impl CrossSigningService {
             usage: user_signing_usage,
             signatures: upload.user_signing_key["signatures"].clone(),
             created_at: Utc::now(),
-            updated_at: Utc::now(),
+            updated_ts: Utc::now(),
         };
         self.storage
             .create_cross_signing_key(&user_signing_key)
@@ -145,7 +145,7 @@ impl CrossSigningService {
             let mut sig_map = signatures;
             sig_map.insert(user_id.to_string(), signature.clone());
             k.signatures = serde_json::Value::Object(sig_map);
-            k.updated_at = Utc::now();
+            k.updated_ts = Utc::now();
             self.storage.update_cross_signing_key(&k).await?;
         }
         Ok(())

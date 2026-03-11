@@ -144,7 +144,7 @@ impl DeviceKeyStorage {
                 row.get::<i64, _>("added_ts") / 1000,
             )
             .unwrap_or_default(),
-            updated_at: chrono::DateTime::from_timestamp_millis(
+            updated_ts: chrono::DateTime::from_timestamp_millis(
                 row.get::<i64, _>("ts_updated_ms") / 1000,
             )
             .unwrap_or_default(),
@@ -358,7 +358,7 @@ mod tests {
                 }
             }),
             created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
         }
     }
 
@@ -387,7 +387,7 @@ mod tests {
             public_key: "public_key".to_string(),
             signatures: json!({}),
             created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
         };
 
         assert!(key.display_name.is_none());
@@ -422,7 +422,7 @@ mod tests {
             public_key: "public_key".to_string(),
             signatures: json!({}),
             created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
         };
 
         assert!(key.signatures.is_object());
@@ -455,7 +455,7 @@ mod tests {
                 }
             },
             "created_at": "2026-01-01T00:00:00Z",
-            "updated_at": "2026-01-01T00:00:00Z"
+            "updated_ts": "2026-01-01T00:00:00Z"
         });
 
         let key: DeviceKey = serde_json::from_value(json_data).unwrap();
@@ -504,7 +504,7 @@ mod tests {
                 }
             }),
             created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
         };
 
         let sig_obj = multi_sig_key.signatures.as_object().unwrap();
@@ -528,11 +528,11 @@ mod tests {
             public_key: "frank_key".to_string(),
             signatures: json!({}),
             created_at: earlier,
-            updated_at: now,
+            updated_ts: now,
         };
 
-        assert!(key.created_at < key.updated_at);
-        assert_eq!(key.updated_at, now);
+        assert!(key.created_at < key.updated_ts);
+        assert_eq!(key.updated_ts, now);
     }
 
     #[test]
@@ -551,7 +551,7 @@ mod tests {
                 }
             }),
             created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
         };
 
         assert!(key.user_id.contains('-'));
@@ -580,7 +580,7 @@ mod tests {
                 public_key: "test_key".to_string(),
                 signatures: json!({}),
                 created_at: chrono::Utc::now(),
-                updated_at: chrono::Utc::now(),
+                updated_ts: chrono::Utc::now(),
             };
 
             assert_eq!(key.algorithm, *algo);

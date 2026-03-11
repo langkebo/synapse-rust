@@ -555,7 +555,7 @@ impl VoiceService {
         }
 
         let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
-        let event_id = format!("${}", uuid::Uuid::new_v4().to_string());
+        let event_id = format!("${}", uuid::Uuid::new_v4());
         let extension = self.get_extension_from_content_type(&params.content_type);
 
         // Ensure event_id contains only safe characters

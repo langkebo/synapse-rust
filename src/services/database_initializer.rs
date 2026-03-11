@@ -615,7 +615,7 @@ impl DatabaseInitService {
                 public_key TEXT NOT NULL,
                 signatures JSONB,
                 created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                updated_ts TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                 ts_updated_ms BIGINT NOT NULL,
                 key_json JSONB NOT NULL DEFAULT '{}',
                 ts_added_ms BIGINT NOT NULL,
@@ -1141,7 +1141,7 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS sync_stream_id (
-                id SERIAL PRIMARY KEY
+                id BIGSERIAL PRIMARY KEY
             )
             "#,
         )
@@ -1152,6 +1152,142 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             INSERT INTO sync_stream_id (id) VALUES (1) ON CONFLICT DO NOTHING
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure sliding_sync_rooms table for caching room sync state
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS sliding_sync_rooms (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                conn_id TEXT,
+                list_key TEXT,
+                bump_stamp BIGINT DEFAULT 0,
+                highlight_count INTEGER DEFAULT 0,
+                notification_count INTEGER DEFAULT 0,
+                is_dm BOOLEAN DEFAULT FALSE,
+                is_encrypted BOOLEAN DEFAULT FALSE,
+                is_tombstoned BOOLEAN DEFAULT FALSE,
+                invited BOOLEAN DEFAULT FALSE,
+                name TEXT,
+                avatar TEXT,
+                timestamp BIGINT DEFAULT 0,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Create unique index for sliding_sync_rooms (using COALESCE in index)
+        sqlx::query(
+            r#"
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_rooms_unique ON sliding_sync_rooms (user_id, device_id, room_id, COALESCE(conn_id, ''))
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_user_device ON sliding_sync_rooms(user_id, device_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_bump_stamp ON sliding_sync_rooms(bump_stamp DESC)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Create thread_subscriptions table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS thread_subscriptions (
+                id BIGSERIAL PRIMARY KEY,
+                room_id TEXT NOT NULL,
+                thread_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                notification_level TEXT DEFAULT 'all',
+                is_muted BOOLEAN DEFAULT FALSE,
+                is_pinned BOOLEAN DEFAULT FALSE,
+                subscribed_ts BIGINT NOT NULL,
+                updated_ts BIGINT NOT NULL,
+                UNIQUE (room_id, thread_id, user_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_thread_subscriptions_room_thread ON thread_subscriptions(room_id, thread_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Create space_children table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS space_children (
+                id BIGSERIAL PRIMARY KEY,
+                space_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                "order" INTEGER DEFAULT 0,
+                suggested BOOLEAN DEFAULT FALSE,
+                via_servers TEXT[],
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT NOT NULL,
+                UNIQUE (space_id, room_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_space_children_space ON space_children(space_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Create space_hierarchy table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS space_hierarchy (
+                id BIGSERIAL PRIMARY KEY,
+                space_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                parent_space_id TEXT,
+                depth INTEGER DEFAULT 0,
+                children TEXT[],
+                via_servers TEXT[],
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT NOT NULL,
+                UNIQUE (space_id, room_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_space_hierarchy_space ON space_hierarchy(space_id)
             "#,
         )
         .execute(&*self.pool)

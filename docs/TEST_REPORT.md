@@ -21,7 +21,7 @@
 ```
 操作系统: Linux
 Rust 版本: 1.75+
-数据库: PostgreSQL 15+
+数据库: PostgreSQL 16+
 缓存: Redis 7+
 ```
 

@@ -225,6 +225,30 @@ if let Some(expires_at) = token.expires_at {
 | 1.1.0 | 2026-02-20 | 新增 devices 表规范，明确禁止使用 created_at 字段 |
 | 1.2.0 | 2026-02-22 | 新增 pushers, cross_signing_keys, device_keys, device_signatures, push_rule, push_device, push_notification_queue 表规范 |
 | 1.3.0 | 2026-02-28 | 完成字段命名统一：users 表 deactivated->is_deactivated, shadow_banned->is_shadow_banned；统一时间字段类型为 BIGINT |
+| 1.4.0 | 2026-03-08 | 完成字段命名统一：rooms 表 join_rule->join_rules, creator->creator_user_id, version->room_version；新增 is_federatable, is_spotlight, is_flagged 字段 |
+| 2.0.0 | 2026-03-09 | **重大更新**：创建统一 Schema 基线文件 (00000000_unified_schema_v6.sql)，归档37个旧迁移文件，重构数据模型层，统一所有字段命名规范 |
+
+### 2.0.0 版本详细变更
+
+#### 数据库层面
+- 创建统一 Schema 基线文件，包含99个表定义
+- 归档37个分散的迁移文件到 `migrations/archive/` 目录
+- 添加缺失的表：`thread_roots`, `room_parents`
+- 添加缺失的字段：`push_rules.kind`, `pushers.last_updated_ts`, `account_data.created_ts`, `account_data.content`, `key_backups.auth_key`, `application_services.is_enabled`
+
+#### 代码层面
+- 重构数据模型层，创建 `src/storage/models/` 目录
+- 统一所有结构体字段命名：
+  - 布尔字段：`is_admin`, `is_guest`, `is_shadow_banned`, `is_deactivated`, `is_revoked`, `is_enabled`
+  - NOT NULL 时间戳：`created_ts`, `updated_ts`, `applied_ts`, `first_seen_ts`
+  - 可空时间戳：`expires_at`, `revoked_at`, `last_used_at`, `updated_at`
+- 重构数据访问层，所有 SQL 查询使用明确的字段列表，禁止 `SELECT *`
+- 修复 `sync_stream_id.id` 类型从 SERIAL (INT4) 改为 BIGSERIAL (BIGINT)
+
+#### 测试验证
+- 1216个单元测试全部通过
+- clippy 检查通过（22个警告，无错误）
+- 数据库验证：99个表正确创建，迁移历史正确
 
 ## 7. 常见问题修复
 

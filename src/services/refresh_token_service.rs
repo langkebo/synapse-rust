@@ -80,7 +80,7 @@ impl RefreshTokenService {
         }
 
         let now = chrono::Utc::now().timestamp_millis();
-        if let Some(expires_at) = token_record.expires_at {
+        if let Some(expires_at) = token_record.expires_ts {
             if expires_at < now {
                 return Err(ApiError::unauthorized("Token has expired"));
             }
@@ -167,7 +167,7 @@ impl RefreshTokenService {
                 device_id: old_token.device_id.clone(),
                 access_token_id: Some(new_access_token_id.to_string()),
                 scope: old_token.scope.clone(),
-                expires_at: chrono::Utc::now().timestamp_millis() + self.default_expiry_ms,
+                expires_ts: chrono::Utc::now().timestamp_millis() + self.default_expiry_ms,
                 client_info: old_token.client_info.clone(),
                 ip_address: ip_address.map(|s| s.to_string()),
                 user_agent: user_agent.map(|s| s.to_string()),
@@ -311,13 +311,13 @@ impl RefreshTokenService {
         token: &str,
         token_type: &str,
         user_id: &str,
-        expires_at: i64,
+        expires_ts: i64,
         reason: Option<&str>,
     ) -> Result<(), ApiError> {
         let token_hash = Self::hash_token(token);
 
         self.storage
-            .add_to_blacklist(&token_hash, token_type, user_id, expires_at, reason)
+            .add_to_blacklist(&token_hash, token_type, user_id, expires_ts, reason)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to add to blacklist: {}", e)))?;
 

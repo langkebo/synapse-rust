@@ -16,11 +16,11 @@ impl KeyRequestStorage {
         sqlx::query(
             r#"
             INSERT INTO e2ee_key_requests 
-                (request_id, user_id, device_id, room_id, session_id, algorithm, action, created_ts, fulfilled)
+                (request_id, user_id, device_id, room_id, session_id, algorithm, action, created_ts, is_fulfilled)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (request_id) DO UPDATE SET
                 action = EXCLUDED.action,
-                fulfilled = EXCLUDED.fulfilled
+                is_fulfilled = EXCLUDED.is_fulfilled
             "#
         )
         .bind(&request.request_id)
@@ -31,7 +31,7 @@ impl KeyRequestStorage {
         .bind(&request.algorithm)
         .bind(&request.action)
         .bind(request.created_ts)
-        .bind(request.fulfilled)
+        .bind(request.is_fulfilled)
         .execute(&self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -43,7 +43,7 @@ impl KeyRequestStorage {
         let row: Option<sqlx::postgres::PgRow> = sqlx::query(
             r#"
             SELECT request_id, user_id, device_id, room_id, session_id, algorithm, 
-                   action, created_ts, fulfilled, fulfilled_by_device, fulfilled_ts
+                   action, created_ts, is_fulfilled, fulfilled_by_device, fulfilled_ts
             FROM e2ee_key_requests
             WHERE request_id = $1
             "#
@@ -62,7 +62,7 @@ impl KeyRequestStorage {
             algorithm: r.get("algorithm"),
             action: r.get("action"),
             created_ts: r.get("created_ts"),
-            fulfilled: r.get::<Option<bool>, _>("fulfilled").unwrap_or(false),
+            is_fulfilled: r.get::<Option<bool>, _>("is_fulfilled").unwrap_or(false),
             fulfilled_by_device: r.get("fulfilled_by_device"),
             fulfilled_ts: r.get("fulfilled_ts"),
         }))
@@ -75,9 +75,9 @@ impl KeyRequestStorage {
         let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
             r#"
             SELECT request_id, user_id, device_id, room_id, session_id, algorithm, 
-                   action, created_ts, fulfilled, fulfilled_by_device, fulfilled_ts
+                   action, created_ts, is_fulfilled, fulfilled_by_device, fulfilled_ts
             FROM e2ee_key_requests
-            WHERE user_id = $1 AND fulfilled = FALSE
+            WHERE user_id = $1 AND is_fulfilled = FALSE
             ORDER BY created_ts DESC
             LIMIT 100
             "#
@@ -98,7 +98,7 @@ impl KeyRequestStorage {
                 algorithm: r.get("algorithm"),
                 action: r.get("action"),
                 created_ts: r.get("created_ts"),
-                fulfilled: r.get::<Option<bool>, _>("fulfilled").unwrap_or(false),
+                is_fulfilled: r.get::<Option<bool>, _>("is_fulfilled").unwrap_or(false),
                 fulfilled_by_device: r.get("fulfilled_by_device"),
                 fulfilled_ts: r.get("fulfilled_ts"),
             })
@@ -109,9 +109,9 @@ impl KeyRequestStorage {
         let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
             r#"
             SELECT request_id, user_id, device_id, room_id, session_id, algorithm, 
-                   action, created_ts, fulfilled, fulfilled_by_device, fulfilled_ts
+                   action, created_ts, is_fulfilled, fulfilled_by_device, fulfilled_ts
             FROM e2ee_key_requests
-            WHERE fulfilled = FALSE
+            WHERE is_fulfilled = FALSE
             ORDER BY created_ts DESC
             LIMIT 100
             "#
@@ -131,7 +131,7 @@ impl KeyRequestStorage {
                 algorithm: r.get("algorithm"),
                 action: r.get("action"),
                 created_ts: r.get("created_ts"),
-                fulfilled: r.get::<Option<bool>, _>("fulfilled").unwrap_or(false),
+                is_fulfilled: r.get::<Option<bool>, _>("is_fulfilled").unwrap_or(false),
                 fulfilled_by_device: r.get("fulfilled_by_device"),
                 fulfilled_ts: r.get("fulfilled_ts"),
             })
@@ -144,7 +144,7 @@ impl KeyRequestStorage {
         sqlx::query(
             r#"
             UPDATE e2ee_key_requests 
-            SET fulfilled = TRUE, fulfilled_by_device = $2, fulfilled_ts = $3
+            SET is_fulfilled = TRUE, fulfilled_by_device = $2, fulfilled_ts = $3
             WHERE request_id = $1
             "#
         )
@@ -162,7 +162,7 @@ impl KeyRequestStorage {
         sqlx::query(
             r#"
             UPDATE e2ee_key_requests 
-            SET action = 'cancellation', fulfilled = TRUE
+            SET action = 'cancellation', is_fulfilled = TRUE
             WHERE request_id = $1
             "#
         )
@@ -192,7 +192,7 @@ impl KeyRequestStorage {
         let result = sqlx::query(
             r#"
             DELETE FROM e2ee_key_requests 
-            WHERE fulfilled = TRUE AND fulfilled_ts < $1
+            WHERE is_fulfilled = TRUE AND fulfilled_ts < $1
             "#
         )
         .bind(older_than_ts)

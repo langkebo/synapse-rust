@@ -239,7 +239,7 @@ impl FriendRoomService {
             for friend in friends.iter_mut() {
                 if friend.get("user_id").and_then(|u| u.as_str()) == Some(friend_id) {
                     friend["status"] = json!(status);
-                    friend["status_updated_at"] = json!(chrono::Utc::now().timestamp_millis());
+                    friend["status_updated_ts"] = json!(chrono::Utc::now().timestamp_millis());
                     break;
                 }
             }

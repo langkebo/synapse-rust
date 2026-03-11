@@ -30,7 +30,7 @@
 | 组件 | 版本 | 用途 |
 |------|------|------|
 | Synapse Rust | 0.1.0 | Matrix Homeserver |
-| PostgreSQL | 15 | 主数据库 |
+| PostgreSQL | 16 | 主数据库 |
 | Redis | 7 | 缓存和会话存储 |
 | Nginx | Alpine | 反向代理和负载均衡 |
 
@@ -180,7 +180,7 @@ docker exec synapse-redis redis-cli ping
 ```yaml
 # docker-compose.yml 中的数据库服务配置
 db:
-  image: postgres:15-alpine
+  image: postgres:16-alpine
   environment:
     - POSTGRES_USER=synapse
     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}

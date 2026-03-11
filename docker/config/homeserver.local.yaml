@@ -1,50 +1,134 @@
-# ============================================================================
-# Synapse Rust Homeserver Configuration - Local Development
-# ============================================================================
-# 
-# 此文件保留用于本地开发参考
-# 实际配置请使用 homeserver.yaml + 环境变量
-# 
-# 使用方法:
-# 1. 复制环境变量模板:
-#    cp .env.example .env.development
-# 
-# 2. 修改 .env.development 中的配置
-# 
-# 3. 启动服务时指定环境变量文件:
-#    source .env.development && ./synapse-rust
-# 
-# 或者使用 Docker Compose:
-#    docker-compose --env-file .env.development up
-# 
-# ============================================================================
+server_name: "cjystx.top"
 
-# 本地开发与生产环境的主要差异:
-# ┌─────────────────────┬────────────────────┬────────────────────┐
-# │ 配置项              │ 开发环境           │ 生产环境           │
-# ├─────────────────────┼────────────────────┼────────────────────┤
-# │ PUBLIC_BASEURL      │ http://localhost   │ https://matrix...  │
-# │ DB_HOST             │ localhost          │ synapse-postgres   │
-# │ DB_POOL_SIZE        │ 10                 │ 20                 │
-# │ LOG_FORMAT          │ text               │ json               │
-# │ RATE_LIMIT_ENABLED  │ false              │ true               │
-# │ URL_PREVIEW_ENABLED │ false              │ true               │
-# │ REDIS_ENABLED       │ false              │ true (可选)        │
-# │ TELEMETRY_ENABLED   │ false              │ true (可选)        │
-# └─────────────────────┴────────────────────┴────────────────────┘
+server:
+  name: "cjystx.top"
+  host: "0.0.0.0"
+  port: 8008
+  http_port: 8008
+  https_port: 8448
+  bind_address: "0.0.0.0"
+  public_baseurl: "https://matrix.cjystx.top"
+  signing_key_path: "/app/data/signing.key"
+  macaroon_secret_key: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
+  form_secret: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
+  registration_shared_secret: "test_shared_secret"
+  max_upload_size: 104857600
+  max_image_resolution: 1920
+  enable_registration: true
+  enable_registration_captcha: false
+  background_tasks_interval: 3600
+  expire_access_token: false
+  expire_access_token_lifetime: 86400
+  refresh_token_lifetime: 604800
+  refresh_token_sliding_window_size: 2592000
+  session_duration: 86400
+  warmup_pool: true
 
-# 敏感信息处理:
-# - 所有密钥、密码等敏感信息必须通过环境变量配置
-# - 禁止在配置文件中硬编码敏感信息
-# - 生产环境必须设置强密码和密钥
+database:
+  host: "db"
+  port: 5432
+  username: "synapse"
+  password: "synapse"
+  name: "synapse_test"
+  pool_size: 10
+  max_size: 20
+  min_idle: 2
+  connection_timeout: 30
 
-# 环境变量优先级:
-# 1. 系统环境变量
-# 2. .env 文件
-# 3. 配置文件中的默认值
+redis:
+  host: "redis"
+  port: 6379
+  key_prefix: "synapse:"
+  pool_size: 10
+  enabled: true
+  connection_timeout_ms: 5000
+  command_timeout_ms: 3000
 
-# 相关文件:
-# - homeserver.yaml      主配置文件 (使用环境变量)
-# - .env.example         环境变量模板
-# - .env.development     开发环境配置
-# - .env.production      生产环境配置 (需自行创建)
+logging:
+  level: "debug"
+  format: "text"
+
+federation:
+  enabled: true
+  allow_ingress: true
+  server_name: "cjystx.top"
+  federation_port: 8448
+  connection_pool_size: 100
+  max_transaction_payload: 10485760
+
+security:
+  secret: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
+  expiry_time: 3600
+  refresh_token_expiry: 604800
+
+search:
+  elasticsearch_url: "http://localhost:9200"
+  enabled: false
+
+rate_limit:
+  enabled: false
+
+admin_registration:
+  enabled: true
+  secret: "admin_secret_key"
+  shared_secret: "admin_secret_key"
+
+worker:
+  enabled: false
+
+cors:
+  allowed_origins: ["*"]
+  allow_credentials: true
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  allowed_headers: ["*"]
+  max_age_seconds: 3600
+
+smtp:
+  enabled: false
+
+voip:
+  enabled: false
+
+push:
+  enabled: false
+
+url_preview:
+  enabled: false
+
+oidc:
+  enabled: false
+  issuer: "https://localhost"
+  client_id: "synapse"
+  scopes: ["openid", "profile", "email"]
+
+saml:
+  enabled: false
+
+retention:
+  enabled: false
+
+telemetry:
+  enabled: false
+  service_name: "synapse-rust"
+  service_version: "0.1.0"
+  service_namespace: "matrix"
+  trace_enabled: false
+  metrics_enabled: false
+  logs_enabled: false
+  sampling_ratio: 1.0
+  batch_export: true
+  export_timeout_seconds: 30
+  max_queue_size: 2048
+  max_export_batch_size: 512
+  scheduled_delay_millis: 5000
+
+jaeger:
+  enabled: false
+  service_name: "synapse-rust"
+  sampling_rate: 1.0
+
+prometheus:
+  enabled: true
+  port: 9090
+  path: "/metrics"
+  include_namespace: true

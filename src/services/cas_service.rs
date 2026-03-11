@@ -5,6 +5,7 @@ use crate::storage::cas::{
     CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest, RegisterServiceRequest,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use chrono::Utc;
 use rand::RngCore;
 use std::sync::Arc;
 use tracing::{info, instrument};
@@ -83,8 +84,8 @@ impl CasService {
         let ticket = self.storage.get_ticket(ticket_id).await?;
 
         match ticket {
-            Some(t) if t.is_valid && t.expires_at > chrono::Utc::now() => {
-                if renew && t.consumed_at.is_some() {
+            Some(t) if t.is_valid && t.expires_at > Utc::now().timestamp_millis() => {
+                if renew && t.consumed_ts.is_some() {
                     return Ok(CasValidationResponse::Failure {
                         code: "INVALID_TICKET".to_string(),
                         description: "Ticket was already used".to_string(),
@@ -166,7 +167,7 @@ impl CasService {
             .await?
             .ok_or_else(|| ApiError::bad_request("Invalid proxy granting ticket"))?;
 
-        if pgt.expires_at < chrono::Utc::now() {
+        if pgt.expires_at < Utc::now().timestamp_millis() {
             return Err(ApiError::bad_request("Proxy granting ticket has expired"));
         }
 

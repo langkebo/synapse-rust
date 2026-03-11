@@ -205,7 +205,7 @@ impl FederationSignatureCache {
             entry_count: self.signature_cache.entry_count(),
             invalidated_key_count: self.invalidated_keys.read().len(),
             listener_count: self.key_rotation_listeners.read().len(),
-            config: self.config.clone(),
+            config: self.config,
         }
     }
 
@@ -218,7 +218,7 @@ impl Clone for FederationSignatureCache {
     fn clone(&self) -> Self {
         Self {
             signature_cache: self.signature_cache.clone(),
-            config: self.config.clone(),
+            config: self.config,
             key_rotation_listeners: RwLock::new(self.key_rotation_listeners.read().clone()),
             invalidated_keys: RwLock::new(self.invalidated_keys.read().clone()),
         }

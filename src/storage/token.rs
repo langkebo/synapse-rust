@@ -12,7 +12,7 @@ pub struct AccessToken {
     pub last_used_ts: Option<i64>,
     pub user_agent: Option<String>,
     pub ip_address: Option<String>,
-    pub is_valid: bool,
+    pub is_revoked: bool,
     pub revoked_ts: Option<i64>,
 }
 
@@ -45,9 +45,9 @@ impl AccessTokenStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, AccessToken>(
             r#"
-            INSERT INTO access_tokens (token, user_id, device_id, created_ts, expires_ts, last_used_ts, user_agent, ip_address, is_valid)
-            VALUES ($1, $2, $3, $4, $5, NULL, NULL, NULL, TRUE)
-            RETURNING id, token, user_id, device_id, created_ts, expires_ts, last_used_ts, user_agent, ip_address, is_valid, revoked_ts
+            INSERT INTO access_tokens (token, user_id, device_id, created_ts, expires_ts, last_used_ts, user_agent, ip_address, is_revoked)
+            VALUES ($1, $2, $3, $4, $5, NULL, NULL, NULL, FALSE)
+            RETURNING id, token, user_id, device_id, created_ts, expires_ts, last_used_ts, user_agent, ip_address, is_revoked, revoked_ts
             "#,
         )
         .bind(token)
@@ -63,8 +63,8 @@ impl AccessTokenStorage {
     pub async fn get_token(&self, token: &str) -> Result<Option<AccessToken>, sqlx::Error> {
         let row = sqlx::query_as::<_, AccessToken>(
             r#"
-            SELECT id, token, user_id, device_id, created_ts, expires_ts, last_used_ts, user_agent, ip_address, is_valid, revoked_ts
-            FROM access_tokens WHERE token = $1 AND is_valid = TRUE
+            SELECT id, token, user_id, device_id, created_ts, expires_ts, last_used_ts, user_agent, ip_address, is_revoked, revoked_ts
+            FROM access_tokens WHERE token = $1 AND is_revoked = FALSE
             "#,
         )
         .bind(token)
@@ -76,7 +76,7 @@ impl AccessTokenStorage {
     pub async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<AccessToken>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccessToken>(
             r#"
-            SELECT id, token, user_id, device_id, created_ts, expires_ts, last_used_ts, user_agent, ip_address, is_valid, revoked_ts
+            SELECT id, token, user_id, device_id, created_ts, expires_ts, last_used_ts, user_agent, ip_address, is_revoked, revoked_ts
             FROM access_tokens WHERE user_id = $1
             "#,
         )
@@ -90,7 +90,7 @@ impl AccessTokenStorage {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            UPDATE access_tokens SET is_valid = FALSE, revoked_ts = $2 WHERE token = $1
+            UPDATE access_tokens SET is_revoked = TRUE, revoked_ts = $2 WHERE token = $1
             "#,
         )
         .bind(token)
@@ -104,7 +104,7 @@ impl AccessTokenStorage {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            UPDATE access_tokens SET is_valid = FALSE, revoked_ts = $2 WHERE user_id = $1 AND is_valid = TRUE
+            UPDATE access_tokens SET is_revoked = TRUE, revoked_ts = $2 WHERE user_id = $1 AND is_revoked = FALSE
             "#,
         )
         .bind(user_id)
@@ -118,7 +118,7 @@ impl AccessTokenStorage {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            UPDATE access_tokens SET is_valid = FALSE, revoked_ts = $2 WHERE device_id = $1 AND is_valid = TRUE
+            UPDATE access_tokens SET is_revoked = TRUE, revoked_ts = $2 WHERE device_id = $1 AND is_revoked = FALSE
             "#,
         )
         .bind(device_id)
@@ -131,7 +131,7 @@ impl AccessTokenStorage {
     pub async fn token_exists(&self, token: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r#"
-            SELECT 1 AS "exists" FROM access_tokens WHERE token = $1 AND is_valid = TRUE LIMIT 1
+            SELECT 1 AS "exists" FROM access_tokens WHERE token = $1 AND is_revoked = FALSE LIMIT 1
             "#,
         )
         .bind(token)
@@ -143,7 +143,7 @@ impl AccessTokenStorage {
     pub async fn is_token_revoked(&self, token: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r#"
-            SELECT 1 FROM access_tokens WHERE token = $1 AND is_valid = FALSE LIMIT 1
+            SELECT 1 FROM access_tokens WHERE token = $1 AND is_revoked = TRUE LIMIT 1
             "#,
         )
         .bind(token)
@@ -233,7 +233,7 @@ mod tests {
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
-            is_valid: true,
+            is_revoked: false,
             revoked_ts: None,
         };
 
@@ -241,7 +241,7 @@ mod tests {
         assert_eq!(token.token, "access_token_abc123");
         assert_eq!(token.user_id, "@alice:example.com");
         assert!(token.device_id.is_some());
-        assert!(token.is_valid);
+        assert!(!token.is_revoked);
         assert!(token.revoked_ts.is_none());
     }
 
@@ -257,7 +257,7 @@ mod tests {
             last_used_ts: Some(1234567895000),
             user_agent: Some("Mozilla/5.0".to_string()),
             ip_address: Some("192.168.1.1".to_string()),
-            is_valid: true,
+            is_revoked: false,
             revoked_ts: None,
         };
 
@@ -279,11 +279,11 @@ mod tests {
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
-            is_valid: false,
+            is_revoked: true,
             revoked_ts: Some(1234567900000),
         };
 
-        assert!(!token.is_valid);
+        assert!(token.is_revoked);
         assert!(token.revoked_ts.is_some());
     }
 
@@ -300,7 +300,7 @@ mod tests {
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
-            is_valid: true,
+            is_revoked: false,
             revoked_ts: None,
         };
 
@@ -320,7 +320,7 @@ mod tests {
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
-            is_valid: true,
+            is_revoked: false,
             revoked_ts: None,
         };
         assert_eq!(token.token, "test_token");
@@ -352,7 +352,7 @@ mod tests {
             last_used_ts: Some(1234567895000),
             user_agent: Some("Mozilla/5.0".to_string()),
             ip_address: Some("10.0.0.1".to_string()),
-            is_valid: true,
+            is_revoked: false,
             revoked_ts: None,
         };
 

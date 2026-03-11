@@ -331,8 +331,9 @@ impl SyncService {
             .map(|e| {
                 let sender = e.user_id.as_deref().unwrap_or(&e.sender);
                 let age = now.saturating_sub(e.origin_server_ts);
+                let event_type = e.event_type.as_deref().unwrap_or("m.room.message");
                 let mut obj = json!({
-                    "type": e.event_type,
+                    "type": event_type,
                     "content": e.content,
                     "sender": sender,
                     "origin_server_ts": e.origin_server_ts,
@@ -611,7 +612,7 @@ impl SyncService {
         user_id: &str,
     ) -> ApiResult<Vec<serde_json::Value>> {
         let rows = sqlx::query(
-            "SELECT data_type, content FROM room_account_data WHERE user_id = $1 AND room_id = $2",
+            "SELECT data_type, data as content FROM room_account_data WHERE user_id = $1 AND room_id = $2",
         )
         .bind(user_id)
         .bind(room_id)
@@ -757,7 +758,7 @@ impl SyncService {
                     "topic": r.topic,
                     "canonical_alias": r.canonical_alias,
                     "is_public": r.is_public,
-                    "join_rule": r.join_rule
+                    "join_rule": r.join_rules
                 })
             })
             .collect();

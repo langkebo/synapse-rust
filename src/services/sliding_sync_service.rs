@@ -191,6 +191,7 @@ impl SlidingSyncService {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_room_state(
         &self,
         user_id: &str,

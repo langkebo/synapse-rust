@@ -61,9 +61,9 @@ pub struct MediaQuotaAlert {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ServerMediaQuota {
     pub id: i64,
-    pub max_storage_bytes: i64,
-    pub max_file_size_bytes: i64,
-    pub max_files_count: i32,
+    pub max_storage_bytes: Option<i64>,
+    pub max_file_size_bytes: Option<i64>,
+    pub max_files_count: Option<i32>,
     pub current_storage_bytes: i64,
     pub current_files_count: i32,
     pub alert_threshold_percent: i32,
@@ -687,15 +687,15 @@ mod tests {
     fn test_server_media_quota() {
         let quota = ServerMediaQuota {
             id: 1,
-            max_storage_bytes: 1099511627776,
-            max_file_size_bytes: 1073741824,
-            max_files_count: 100000,
+            max_storage_bytes: Some(1099511627776),
+            max_file_size_bytes: Some(1073741824),
+            max_files_count: Some(100000),
             current_storage_bytes: 549755813888,
             current_files_count: 25000,
             alert_threshold_percent: 90,
             updated_ts: Utc::now().timestamp_millis(),
         };
-        assert_eq!(quota.max_storage_bytes, 1099511627776);
+        assert_eq!(quota.max_storage_bytes, Some(1099511627776));
         assert_eq!(quota.alert_threshold_percent, 90);
     }
 

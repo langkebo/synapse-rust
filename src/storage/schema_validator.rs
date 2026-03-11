@@ -326,25 +326,26 @@ pub struct SchemaConsistencyReport {
     pub missing_columns: Vec<String>,
 }
 
-impl SchemaConsistencyReport {
-    pub fn to_string(&self) -> String {
+impl std::fmt::Display for SchemaConsistencyReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.is_valid {
-            "Schema is consistent".to_string()
+            write!(f, "Schema is consistent")
         } else {
-            let mut msg = String::new();
             if !self.missing_tables.is_empty() {
-                msg.push_str(&format!(
-                    "Missing tables: {}\n",
+                writeln!(
+                    f,
+                    "Missing tables: {}",
                     self.missing_tables.join(", ")
-                ));
+                )?;
             }
             if !self.missing_columns.is_empty() {
-                msg.push_str(&format!(
-                    "Missing columns: {}\n",
+                writeln!(
+                    f,
+                    "Missing columns: {}",
                     self.missing_columns.join(", ")
-                ));
+                )?;
             }
-            msg
+            Ok(())
         }
     }
 }

@@ -115,7 +115,7 @@ impl RendezvousStorage {
 
         sqlx::query_as::<_, RendezvousSession>(
             r#"
-            INSERT INTO rendezvous_sessions 
+            INSERT INTO rendezvous_session 
                 (session_id, intent, transport, transport_data, key, created_ts, expires_ts, status)
             VALUES ($1, $2, $3, $4, $5, $6, $7, 'waiting')
             RETURNING *
@@ -245,7 +245,7 @@ impl RendezvousStorage {
         use rand::RngCore;
         let mut key_bytes = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut key_bytes);
-        URL_SAFE_NO_PAD.encode(&key_bytes)
+        URL_SAFE_NO_PAD.encode(key_bytes)
     }
 }
 

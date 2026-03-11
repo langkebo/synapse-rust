@@ -153,14 +153,12 @@ impl PerformanceAnalyzer {
             } else {
                 TrendType::Stable
             }
+        } else if change_percentage > 10.0 {
+            TrendType::Improving
+        } else if change_percentage < -10.0 {
+            TrendType::Degrading
         } else {
-            if change_percentage > 10.0 {
-                TrendType::Improving
-            } else if change_percentage < -10.0 {
-                TrendType::Degrading
-            } else {
-                TrendType::Stable
-            }
+            TrendType::Stable
         };
 
         PerformanceTrend {
@@ -185,8 +183,9 @@ impl PerformanceAnalyzer {
             return 0.0;
         }
 
-        let mut sorted: Vec<f64> = values.iter().copied().collect();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mut sorted: Vec<f64> = values.to_vec();
+        // f64 比较在非 NaN 值时不会失败
+        sorted.sort_by(|a, b| a.partial_cmp(b).expect("f64 comparison should not fail for non-NaN values"));
 
         let index = (p / 100.0) * (sorted.len() - 1) as f64;
         let lower = index.floor() as usize;

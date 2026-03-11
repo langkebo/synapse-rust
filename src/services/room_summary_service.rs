@@ -183,7 +183,7 @@ impl RoomSummaryService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update state: {}", e)))?;
 
-        self.update_summary_from_state(room_id, event_type, state_key, &state.content)
+        self.update_summary_from_state(room_id, Some(event_type), state_key, &state.content)
             .await?;
 
         Ok(state)
@@ -192,7 +192,7 @@ impl RoomSummaryService {
     async fn update_summary_from_state(
         &self,
         room_id: &str,
-        event_type: &str,
+        event_type: Option<&str>,
         state_key: &str,
         content: &serde_json::Value,
     ) -> Result<(), ApiError> {
@@ -203,49 +203,49 @@ impl RoomSummaryService {
         let mut request = UpdateRoomSummaryRequest::default();
 
         match event_type {
-            "m.room.name" => {
+            Some("m.room.name") => {
                 request.name = content
                     .get("name")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
             }
-            "m.room.topic" => {
+            Some("m.room.topic") => {
                 request.topic = content
                     .get("topic")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
             }
-            "m.room.avatar" => {
+            Some("m.room.avatar") => {
                 request.avatar_url = content
                     .get("url")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
             }
-            "m.room.canonical_alias" => {
+            Some("m.room.canonical_alias") => {
                 request.canonical_alias = content
                     .get("alias")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
             }
-            "m.room.join_rules" => {
+            Some("m.room.join_rules") => {
                 request.join_rules = content
                     .get("join_rule")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
             }
-            "m.room.history_visibility" => {
+            Some("m.room.history_visibility") => {
                 request.history_visibility = content
                     .get("history_visibility")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
             }
-            "m.room.guest_access" => {
+            Some("m.room.guest_access") => {
                 request.guest_access = content
                     .get("guest_access")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
             }
-            "m.room.encryption" => {
+            Some("m.room.encryption") => {
                 request.is_encrypted = Some(true);
             }
             _ => return Ok(()),
@@ -514,9 +514,10 @@ impl RoomSummaryService {
             .map_err(|e| ApiError::internal(format!("Failed to get current state: {}", e)))?;
 
         for state in states {
+            let event_type_str = state.event_type.as_deref().unwrap_or("");
             self.update_state(
                 room_id,
-                &state.event_type,
+                event_type_str,
                 state.state_key.as_deref().unwrap_or(""),
                 Some(&state.event_id),
                 state.content.clone(),

@@ -39,6 +39,10 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
             "/_matrix/client/v1/rooms/{room_id}/context/{event_id}",
             get(get_event_context),
         )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/context/{event_id}",
+            get(get_event_context),
+        )
         .with_state(state)
 }
 
@@ -236,7 +240,7 @@ async fn search_room_events(
     let search_pattern = format!("%{}%", search.search_term.to_lowercase());
 
     let mut query_builder = sqlx::QueryBuilder::new(
-        "SELECT event_id, room_id, sender, type, content, origin_server_ts FROM events WHERE ",
+        "SELECT event_id, room_id, sender, event_type, content, origin_server_ts FROM events WHERE ",
     );
 
     query_builder.push("(LOWER(content::text) LIKE ");
@@ -274,7 +278,7 @@ async fn search_room_events(
 
         if let Some(types) = &filter.types {
             if !types.is_empty() {
-                query_builder.push(" AND type IN (");
+                query_builder.push(" AND event_type IN (");
                 for (i, t) in types.iter().enumerate() {
                     if i > 0 {
                         query_builder.push(", ");
@@ -316,7 +320,7 @@ async fn search_room_events(
                     "event_id": row.get::<Option<String>, _>("event_id"),
                     "room_id": row.get::<Option<String>, _>("room_id"),
                     "sender": row.get::<Option<String>, _>("sender"),
-                    "type": row.get::<Option<String>, _>("type"),
+                    "type": row.get::<Option<String>, _>("event_type"),
                     "content": row.get::<Option<Value>, _>("content").unwrap_or(json!({})),
                     "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts").unwrap_or(0)
                 },

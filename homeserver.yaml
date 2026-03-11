@@ -1,13 +1,13 @@
-server_name: "localhost"
+server_name: "cjystx.top"
 
 server:
-  name: "localhost"
+  name: "cjystx.top"
   host: "0.0.0.0"
   port: 8008
   http_port: 8008
   https_port: 8448
   bind_address: "0.0.0.0"
-  public_baseurl: "http://localhost:8008"
+  public_baseurl: "https://matrix.cjystx.top"
   signing_key_path: "/app/data/signing.key"
   macaroon_secret_key: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
   form_secret: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
@@ -51,7 +51,7 @@ logging:
 federation:
   enabled: true
   allow_ingress: true
-  server_name: "localhost"
+  server_name: "cjystx.top"
   federation_port: 8448
   connection_pool_size: 100
   max_transaction_payload: 10485760

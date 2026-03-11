@@ -18,7 +18,9 @@ struct CreateThreadBody {
     #[allow(dead_code)]
     room_id: Option<String>,
     root_event_id: String,
+    #[allow(dead_code)]
     content: serde_json::Value,
+    #[allow(dead_code)]
     origin_server_ts: Option<i64>,
 }
 
@@ -66,14 +68,17 @@ struct ThreadQuery {
 
 #[derive(Debug, Serialize)]
 struct ThreadResponse {
-    thread_id: String,
+    thread_id: Option<String>,
     root_event_id: String,
     room_id: String,
     sender: String,
-    content: serde_json::Value,
-    origin_server_ts: i64,
-    reply_count: i32,
-    is_frozen: bool,
+    reply_count: i64,
+    last_reply_event_id: Option<String>,
+    last_reply_sender: Option<String>,
+    last_reply_ts: Option<i64>,
+    participants: Option<serde_json::Value>,
+    is_fetched: bool,
+    created_ts: i64,
 }
 
 impl From<crate::storage::thread::ThreadRoot> for ThreadResponse {
@@ -83,10 +88,13 @@ impl From<crate::storage::thread::ThreadRoot> for ThreadResponse {
             root_event_id: root.root_event_id,
             room_id: root.room_id,
             sender: root.sender,
-            content: root.content,
-            origin_server_ts: root.origin_server_ts,
             reply_count: root.reply_count,
-            is_frozen: root.is_frozen,
+            last_reply_event_id: root.last_reply_event_id,
+            last_reply_sender: root.last_reply_sender,
+            last_reply_ts: root.last_reply_ts,
+            participants: root.participants,
+            is_fetched: root.is_fetched,
+            created_ts: root.created_ts,
         }
     }
 }
@@ -196,14 +204,9 @@ async fn create_thread(
     Json(body): Json<CreateThreadBody>,
 ) -> Result<Json<ThreadResponse>, ApiError> {
     let user_id = auth_user.user_id;
-
     let request = CreateThreadRequest {
         room_id,
         root_event_id: body.root_event_id,
-        content: body.content,
-        origin_server_ts: body
-            .origin_server_ts
-            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
     };
 
     let thread = state

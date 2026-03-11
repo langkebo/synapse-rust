@@ -274,6 +274,7 @@ impl ModerationLogStorage {
         Self { pool }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn log_action(
         &self,
         rule_id: &str,

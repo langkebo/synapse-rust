@@ -90,7 +90,7 @@ impl DeviceKeyService {
                         signatures: serde_json::to_value(&device_keys.signatures)
                             .unwrap_or(serde_json::json!({})),
                         created_at: Utc::now(),
-                        updated_at: Utc::now(),
+                        updated_ts: Utc::now(),
                     };
 
                     self.storage.create_device_key(&key).await?;
@@ -132,7 +132,7 @@ impl DeviceKeyService {
                         public_key,
                         signatures,
                         created_at: Utc::now(),
-                        updated_at: Utc::now(),
+                        updated_ts: Utc::now(),
                     };
 
                     self.storage.create_device_key(&key).await?;

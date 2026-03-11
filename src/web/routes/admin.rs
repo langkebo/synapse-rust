@@ -1126,7 +1126,7 @@ pub async fn get_rooms(
                 "room_id": r.room_id.clone(),
                 "name": r.name.clone().unwrap_or_default(),
                 "topic": r.topic.clone().unwrap_or_default(),
-                "creator": r.creator.clone(),
+                "creator": r.creator_user_id.clone().unwrap_or_default(),
                 "joined_members": joined_members,
                 "joined_local_members": joined_members,
                 "is_public": r.is_public
@@ -1165,9 +1165,9 @@ pub async fn get_room(
             "room_id": r.room_id,
             "name": r.name.unwrap_or_default(),
             "topic": r.topic.unwrap_or_default(),
-            "creator": r.creator,
+            "creator": r.creator_user_id.unwrap_or_default(),
             "is_public": r.is_public,
-            "join_rule": r.join_rule
+            "join_rule": r.join_rules
         }))),
         None => Err(ApiError::not_found("Room not found".to_string())),
     }

@@ -121,11 +121,13 @@ impl SlidingSyncStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let expires_ts = now + 7 * 24 * 3600 * 1000;
 
+        let token = uuid::Uuid::new_v4().to_string();
+        
         sqlx::query_as::<_, SlidingSyncToken>(
             r#"
-            INSERT INTO sliding_sync_tokens (user_id, device_id, conn_id, pos, created_ts, expires_ts)
-            VALUES ($1, $2, $3, nextval('sliding_sync_pos_seq'), $4, $5)
-            ON CONFLICT (user_id, device_id, COALESCE(conn_id, '')) DO UPDATE SET
+            INSERT INTO sliding_sync_tokens (user_id, device_id, token, conn_id, pos, created_ts, expires_ts)
+            VALUES ($1, $2, $3, $4, nextval('sliding_sync_pos_seq'), $5, $6)
+            ON CONFLICT (user_id, device_id, COALESCE(conn_id, ''::text)) DO UPDATE SET
                 pos = nextval('sliding_sync_pos_seq'),
                 expires_ts = EXCLUDED.expires_ts
             RETURNING *
@@ -133,6 +135,7 @@ impl SlidingSyncStorage {
         )
         .bind(user_id)
         .bind(device_id)
+        .bind(&token)
         .bind(conn_id)
         .bind(now)
         .bind(expires_ts)
@@ -182,6 +185,7 @@ impl SlidingSyncStorage {
         Ok(result.map(|r| r.0).unwrap_or(false))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn save_list(
         &self,
         user_id: &str,
@@ -268,6 +272,7 @@ impl SlidingSyncStorage {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn upsert_room(
         &self,
         user_id: &str,

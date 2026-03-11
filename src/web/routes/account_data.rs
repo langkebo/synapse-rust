@@ -96,10 +96,10 @@ async fn list_account_data(
 
     let account_data: serde_json::Map<String, Value> = result
         .iter()
-        .filter_map(|row| {
+        .map(|row| {
             let data_type: String = row.get("data_type");
             let content: Value = row.get("content");
-            Some((data_type, content))
+            (data_type, content)
         })
         .collect();
 
@@ -124,8 +124,8 @@ async fn set_account_data(
 
     sqlx::query(
         r#"
-        INSERT INTO account_data (user_id, data_type, content, updated_ts)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
+        VALUES ($1, $2, $3, $4, $4)
         ON CONFLICT (user_id, data_type) DO UPDATE SET content = $3, updated_ts = $4
         "#,
     )
@@ -197,9 +197,9 @@ async fn set_room_account_data(
 
     sqlx::query(
         r#"
-        INSERT INTO room_account_data (user_id, room_id, data_type, content, updated_ts)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (user_id, room_id, data_type) DO UPDATE SET content = $4, updated_ts = $5
+        INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $5)
+        ON CONFLICT (user_id, room_id, data_type) DO UPDATE SET data = $4, updated_at = $5
         "#,
     )
     .bind(&user_id)
@@ -226,7 +226,7 @@ async fn get_room_account_data(
     }
 
     let result = sqlx::query(
-        "SELECT content FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"
+        "SELECT data FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"
     )
     .bind(&user_id)
     .bind(&room_id)
@@ -237,7 +237,7 @@ async fn get_room_account_data(
 
     match result {
         Some(row) => Ok(Json(
-            row.get::<Option<Value>, _>("content").unwrap_or(json!({})),
+            row.get::<Option<Value>, _>("data").unwrap_or(json!({})),
         )),
         None => Err(ApiError::not_found(
             "Room account data not found".to_string(),

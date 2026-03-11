@@ -32,7 +32,10 @@ pub struct ReplayProtectionCache {
 
 impl ReplayProtectionCache {
     pub fn new(config: ReplayProtectionConfig) -> Self {
-        let cache = LruCache::new(std::num::NonZeroUsize::new(config.cache_size).unwrap());
+        let cache = LruCache::new(
+            std::num::NonZeroUsize::new(config.cache_size)
+                .expect("cache_size should be non-zero")
+        );
         Self {
             cache: Arc::new(RwLock::new(cache)),
             config,

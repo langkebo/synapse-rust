@@ -79,6 +79,10 @@ pub fn create_key_backup_router(_state: AppState) -> Router<AppState> {
         )
         .route(
             "/_matrix/client/v3/room_keys/keys",
+            get(get_room_keys_all).put(put_room_keys_all),
+        )
+        .route(
+            "/_matrix/client/v3/room_keys/keys/{version}",
             get(get_room_keys).put(put_room_keys),
         )
 }

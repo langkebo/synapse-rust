@@ -95,7 +95,7 @@ async fn create_test_user(pool: &Pool<Postgres>, user_id: &str) {
 
     // Use the actual schema from master_unified_schema.sql
     sqlx::query(
-        "INSERT INTO users (user_id, username, creation_ts, generation) VALUES ($1, $2, $3, $4)
+        "INSERT INTO users (user_id, username, created_ts, generation) VALUES ($1, $2, $3, $4)
              ON CONFLICT (user_id) DO NOTHING",
     )
     .bind(user_id)

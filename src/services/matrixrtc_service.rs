@@ -103,6 +103,7 @@ impl MatrixRTCService {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_membership(
         &self,
         room_id: String,

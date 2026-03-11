@@ -62,7 +62,7 @@ impl CrossSigningStorage {
                 row.get::<i64, _>("added_ts") / 1000,
             )
             .unwrap_or_default(),
-            updated_at: chrono::DateTime::from_timestamp_millis(
+            updated_ts: chrono::DateTime::from_timestamp_millis(
                 row.get::<i64, _>("added_ts") / 1000,
             )
             .unwrap_or_default(),
@@ -97,7 +97,7 @@ impl CrossSigningStorage {
                     row.get::<i64, _>("added_ts") / 1000,
                 )
                 .unwrap_or_default(),
-                updated_at: chrono::DateTime::from_timestamp_millis(
+                updated_ts: chrono::DateTime::from_timestamp_millis(
                     row.get::<i64, _>("added_ts") / 1000,
                 )
                 .unwrap_or_default(),
@@ -323,7 +323,7 @@ mod tests {
             usage: vec!["master".to_string()],
             signatures: serde_json::json!({}),
             created_at: Utc::now(),
-            updated_at: Utc::now(),
+            updated_ts: Utc::now(),
         }
     }
 
@@ -358,7 +358,7 @@ mod tests {
                 usage: vec![key_type.to_string()],
                 signatures: serde_json::json!({}),
                 created_at: Utc::now(),
-                updated_at: Utc::now(),
+                updated_ts: Utc::now(),
             };
 
             assert_eq!(key.key_type, key_type);
@@ -369,7 +369,7 @@ mod tests {
     fn test_cross_signing_key_timestamps() {
         let key = create_test_cross_signing_key();
 
-        assert!(key.created_at <= key.updated_at);
+        assert!(key.created_at <= key.updated_ts);
     }
 
     #[test]
@@ -395,7 +395,7 @@ mod tests {
             usage: vec!["master".to_string()],
             signatures,
             created_at: Utc::now(),
-            updated_at: Utc::now(),
+            updated_ts: Utc::now(),
         };
 
         assert!(key.signatures.get("@alice:example.com").is_some());
@@ -430,7 +430,7 @@ mod tests {
             "usage": ["self_signing"],
             "signatures": {},
             "created_at": "2024-01-01T00:00:00Z",
-            "updated_at": "2024-01-01T00:00:00Z"
+            "updated_ts": "2024-01-01T00:00:00Z"
         }"#;
 
         let key: CrossSigningKey = serde_json::from_str(json).unwrap();
@@ -456,7 +456,7 @@ mod tests {
                 usage: usage.iter().map(|s| s.to_string()).collect(),
                 signatures: serde_json::json!({}),
                 created_at: Utc::now(),
-                updated_at: Utc::now(),
+                updated_ts: Utc::now(),
             };
 
             assert_eq!(key.usage.len(), usage.len());

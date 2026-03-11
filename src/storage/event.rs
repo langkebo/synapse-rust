@@ -23,7 +23,7 @@ pub struct StateEvent {
     pub event_id: String,
     pub room_id: String,
     pub sender: String,
-    pub event_type: String,
+    pub event_type: Option<String>,
     pub content: serde_json::Value,
     pub state_key: Option<String>,
     pub unsigned: Option<serde_json::Value>,
@@ -662,7 +662,7 @@ mod tests {
             event_id: "$state123:example.com".to_string(),
             room_id: "!room123:example.com".to_string(),
             sender: "@alice:example.com".to_string(),
-            event_type: "m.room.member".to_string(),
+            event_type: Some("m.room.member".to_string()),
             content: json!({"membership": "join"}),
             state_key: Some("@bob:example.com".to_string()),
             unsigned: None,
@@ -677,7 +677,7 @@ mod tests {
             user_id: Some("@alice:example.com".to_string()),
         };
 
-        assert_eq!(event.event_type, "m.room.member");
+        assert_eq!(event.event_type, Some("m.room.member".to_string()));
         assert!(event.state_key.is_some());
         assert_eq!(event.state_key.unwrap(), "@bob:example.com");
     }
@@ -788,7 +788,7 @@ mod tests {
             event_id: "$redacted:example.com".to_string(),
             room_id: "!room:example.com".to_string(),
             sender: "@alice:example.com".to_string(),
-            event_type: "m.room.message".to_string(),
+            event_type: Some("m.room.message".to_string()),
             content: json!({}),
             state_key: None,
             unsigned: Some(json!({"redacted_because": {}})),

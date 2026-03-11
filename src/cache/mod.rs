@@ -48,7 +48,7 @@ pub enum CacheError {
     CircuitBreakerOpen(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DegradationMetrics {
     pub local_cache_hits: u64,
     pub local_cache_misses: u64,
@@ -57,20 +57,6 @@ pub struct DegradationMetrics {
     pub circuit_breaker_rejections: u64,
     pub fallback_operations: u64,
     pub total_degraded_requests: u64,
-}
-
-impl Default for DegradationMetrics {
-    fn default() -> Self {
-        Self {
-            local_cache_hits: 0,
-            local_cache_misses: 0,
-            redis_cache_hits: 0,
-            redis_cache_misses: 0,
-            circuit_breaker_rejections: 0,
-            fallback_operations: 0,
-            total_degraded_requests: 0,
-        }
-    }
 }
 
 impl DegradationMetrics {
