@@ -86,17 +86,7 @@ pub struct KeyRequestInfo {
     pub algorithm: String,
     pub action: String,
     pub created_ts: i64,
-    pub fulfilled: bool,
+    pub is_fulfilled: bool,
     pub fulfilled_by_device: Option<String>,
     pub fulfilled_ts: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct KeyRequestQuery {
-    pub user_id: Option<String>,
-    pub device_id: Option<String>,
-    pub room_id: Option<String>,
-    pub session_id: Option<String>,
-    pub action: Option<String>,
-    pub fulfilled: Option<bool>,
 }

@@ -29,10 +29,12 @@ impl EventAuthChain {
     pub fn new() -> Self {
         Self {
             auth_chain_cache: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(AUTH_CHAIN_CACHE_SIZE).unwrap(),
+                NonZeroUsize::new(AUTH_CHAIN_CACHE_SIZE)
+                    .expect("AUTH_CHAIN_CACHE_SIZE is non-zero"),
             ))),
             depth_cache: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(DEPTH_CACHE_SIZE).unwrap(),
+                NonZeroUsize::new(DEPTH_CACHE_SIZE)
+                    .expect("DEPTH_CACHE_SIZE is non-zero"),
             ))),
         }
     }

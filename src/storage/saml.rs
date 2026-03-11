@@ -15,9 +15,9 @@ pub struct SamlSession {
     pub issuer: Option<String>,
     pub session_index: Option<String>,
     pub attributes: serde_json::Value,
-    pub created_at: DateTime<Utc>,
-    pub expires_at: DateTime<Utc>,
-    pub last_used_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub expires_at: i64,
+    pub last_used_ts: i64,
     pub status: String,
 }
 
@@ -27,8 +27,8 @@ pub struct SamlUserMapping {
     pub name_id: String,
     pub user_id: String,
     pub issuer: String,
-    pub first_seen_at: DateTime<Utc>,
-    pub last_authenticated_at: DateTime<Utc>,
+    pub first_seen_ts: i64,
+    pub last_authenticated_ts: i64,
     pub authentication_count: i32,
     pub attributes: serde_json::Value,
 }
@@ -44,10 +44,10 @@ pub struct SamlIdentityProvider {
     pub enabled: bool,
     pub priority: i32,
     pub attribute_mapping: serde_json::Value,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub last_metadata_refresh_at: Option<DateTime<Utc>>,
-    pub metadata_valid_until: Option<DateTime<Utc>>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
+    pub last_metadata_refresh_ts: Option<i64>,
+    pub metadata_valid_until: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -64,7 +64,7 @@ pub struct SamlAuthEvent {
     pub user_agent: Option<String>,
     pub request_id: Option<String>,
     pub attributes: serde_json::Value,
-    pub created_at: DateTime<Utc>,
+    pub created_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -77,8 +77,8 @@ pub struct SamlLogoutRequest {
     pub issuer: Option<String>,
     pub reason: Option<String>,
     pub status: String,
-    pub created_at: DateTime<Utc>,
-    pub processed_at: Option<DateTime<Utc>>,
+    pub created_ts: i64,
+    pub processed_ts: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,9 +155,9 @@ mod tests {
             issuer: Some("https://idp.example.com".to_string()),
             session_index: Some("index123".to_string()),
             attributes: serde_json::json!(attributes),
-            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
-            expires_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
-            last_used_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            created_ts: 1234567800000,
+            expires_at: 1234567890000,
+            last_used_ts: 1234567890000,
             status: "active".to_string(),
         };
         assert_eq!(session.session_id, "session123");
@@ -174,8 +174,8 @@ mod tests {
             name_id: "alice".to_string(),
             user_id: "@alice:example.com".to_string(),
             issuer: "https://idp.example.com".to_string(),
-            first_seen_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
-            last_authenticated_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            first_seen_ts: 1234567800000,
+            last_authenticated_ts: 1234567890000,
             authentication_count: 1,
             attributes: serde_json::json!(attributes),
         };
@@ -194,9 +194,9 @@ mod tests {
             enabled: true,
             priority: 0,
             attribute_mapping: serde_json::json!({}),
-            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
-            updated_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
-            last_metadata_refresh_at: None,
+            created_ts: 1234567800000,
+            updated_ts: 1234567890000,
+            last_metadata_refresh_ts: None,
             metadata_valid_until: None,
         };
         assert!(idp.enabled);
@@ -218,7 +218,7 @@ mod tests {
             user_agent: None,
             request_id: None,
             attributes: serde_json::json!({}),
-            created_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            created_ts: 1234567890000,
         };
         assert_eq!(event.status, "success");
     }
@@ -467,7 +467,7 @@ impl SamlStorage {
             r#"
             INSERT INTO saml_identity_providers (
                 entity_id, display_name, description, metadata_url, metadata_xml,
-                enabled, priority, attribute_mapping, created_at, updated_at
+                enabled, priority, attribute_mapping, created_at, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
             ON CONFLICT (entity_id) DO UPDATE SET
@@ -478,7 +478,7 @@ impl SamlStorage {
                 enabled = EXCLUDED.enabled,
                 priority = EXCLUDED.priority,
                 attribute_mapping = EXCLUDED.attribute_mapping,
-                updated_at = NOW()
+                updated_ts = NOW()
             RETURNING *
             "#,
         )
@@ -553,7 +553,7 @@ impl SamlStorage {
             SET metadata_xml = $1, 
                 last_metadata_refresh_at = NOW(),
                 metadata_valid_until = $2,
-                updated_at = NOW()
+                updated_ts = NOW()
             WHERE entity_id = $3
             "#,
         )

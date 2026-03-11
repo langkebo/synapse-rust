@@ -12,7 +12,7 @@ pub struct DeviceKey {
     pub public_key: String,
     pub signatures: serde_json::Value,
     pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub updated_ts: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,7 +77,7 @@ mod tests {
             public_key: "public_key_value".to_string(),
             signatures: serde_json::json!({}),
             created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
         };
 
         assert_eq!(key.user_id, "@test:example.com");

@@ -301,6 +301,7 @@ impl LivekitClient {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_access_token(
         &self,
         room_name: &str,
@@ -344,8 +345,14 @@ impl LivekitClient {
             "typ": "JWT"
         });
 
-        let header_b64 = STANDARD.encode(serde_json::to_string(&header).unwrap());
-        let claims_b64 = STANDARD.encode(serde_json::to_string(&claims).unwrap());
+        let header_b64 = STANDARD.encode(
+            serde_json::to_string(&header)
+                .expect("JSON serialization of known JSON value should not fail")
+        );
+        let claims_b64 = STANDARD.encode(
+            serde_json::to_string(&claims)
+                .expect("JSON serialization of known JSON value should not fail")
+        );
 
         let message = format!("{}.{}", header_b64, claims_b64);
 
@@ -376,8 +383,14 @@ impl LivekitClient {
             "typ": "JWT"
         });
 
-        let header_b64 = STANDARD.encode(serde_json::to_string(&header).unwrap());
-        let claims_b64 = STANDARD.encode(serde_json::to_string(&claims).unwrap());
+        let header_b64 = STANDARD.encode(
+            serde_json::to_string(&header)
+                .expect("JSON serialization of known JSON value should not fail")
+        );
+        let claims_b64 = STANDARD.encode(
+            serde_json::to_string(&claims)
+                .expect("JSON serialization of known JSON value should not fail")
+        );
 
         let message = format!("{}.{}", header_b64, claims_b64);
 

@@ -11,7 +11,7 @@ pub struct RefreshToken {
     pub device_id: Option<String>,
     pub access_token_id: Option<String>,
     pub scope: Option<String>,
-    pub expires_at: Option<i64>,
+    pub expires_ts: Option<i64>,
     pub created_ts: i64,
     pub last_used_ts: Option<i64>,
     pub use_count: i32,
@@ -67,7 +67,7 @@ pub struct TokenBlacklistEntry {
     pub token_type: String,
     pub user_id: String,
     pub revoked_ts: i64,
-    pub expires_at: Option<i64>,
+    pub expires_ts: Option<i64>,
     pub reason: Option<String>,
 }
 
@@ -78,7 +78,7 @@ pub struct CreateRefreshTokenRequest {
     pub device_id: Option<String>,
     pub access_token_id: Option<String>,
     pub scope: Option<String>,
-    pub expires_at: i64,
+    pub expires_ts: i64,
     pub client_info: Option<serde_json::Value>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
@@ -91,7 +91,7 @@ pub struct RotateRefreshTokenRequest {
     pub user_id: String,
     pub device_id: Option<String>,
     pub family_id: Option<String>,
-    pub expires_at: i64,
+    pub expires_ts: i64,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
 }
@@ -174,7 +174,7 @@ impl RefreshTokenStorage {
         let row = sqlx::query_as::<_, RefreshToken>(
             r#"
             INSERT INTO refresh_tokens (
-                token_hash, user_id, device_id, access_token_id, scope, expires_at,
+                token_hash, user_id, device_id, access_token_id, scope, expires_ts,
                 created_ts, client_info, ip_address, user_agent
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -186,7 +186,7 @@ impl RefreshTokenStorage {
         .bind(&request.device_id)
         .bind(&request.access_token_id)
         .bind(&request.scope)
-        .bind(request.expires_at)
+        .bind(request.expires_ts)
         .bind(now)
         .bind(&request.client_info)
         .bind(&request.ip_address)
@@ -235,7 +235,7 @@ impl RefreshTokenStorage {
             SELECT * FROM refresh_tokens 
             WHERE user_id = $1 
             AND is_revoked = FALSE 
-            AND expires_at > $2
+            AND expires_ts > $2
             ORDER BY created_ts DESC
             "#,
         )
@@ -479,14 +479,14 @@ impl RefreshTokenStorage {
         token_hash: &str,
         token_type: &str,
         user_id: &str,
-        expires_at: i64,
+        expires_ts: i64,
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
             r#"
-            INSERT INTO token_blacklist (token_hash, token_type, user_id, revoked_ts, expires_at, reason)
+            INSERT INTO token_blacklist (token_hash, token_type, user_id, revoked_ts, expires_ts, reason)
             VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (token_hash) DO NOTHING
             "#,
@@ -495,7 +495,7 @@ impl RefreshTokenStorage {
         .bind(token_type)
         .bind(user_id)
         .bind(now)
-        .bind(expires_at)
+        .bind(expires_ts)
         .bind(reason)
         .execute(&*self.pool)
         .await?;
@@ -507,7 +507,7 @@ impl RefreshTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM token_blacklist WHERE token_hash = $1 AND expires_at > $2",
+            "SELECT COUNT(*) FROM token_blacklist WHERE token_hash = $1 AND expires_ts > $2",
         )
         .bind(token_hash)
         .bind(now)
@@ -521,7 +521,7 @@ impl RefreshTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         let result =
-            sqlx::query("DELETE FROM refresh_tokens WHERE expires_at < $1 AND is_revoked = FALSE")
+            sqlx::query("DELETE FROM refresh_tokens WHERE expires_ts < $1 AND is_revoked = FALSE")
                 .bind(now)
                 .execute(&*self.pool)
                 .await?;
@@ -532,7 +532,7 @@ impl RefreshTokenStorage {
     pub async fn cleanup_blacklist(&self) -> Result<i64, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let result = sqlx::query("DELETE FROM token_blacklist WHERE expires_at < $1")
+        let result = sqlx::query("DELETE FROM token_blacklist WHERE expires_ts < $1")
             .bind(now)
             .execute(&*self.pool)
             .await?;
@@ -549,9 +549,9 @@ impl RefreshTokenStorage {
             SELECT 
                 user_id,
                 COUNT(*) as total_tokens,
-                COUNT(*) FILTER (WHERE is_revoked = FALSE AND expires_at > EXTRACT(EPOCH FROM NOW()) * 1000) as active_tokens,
+                COUNT(*) FILTER (WHERE is_revoked = FALSE AND expires_ts > EXTRACT(EPOCH FROM NOW()) * 1000) as active_tokens,
                 COUNT(*) FILTER (WHERE is_revoked = TRUE) as revoked_tokens,
-                COUNT(*) FILTER (WHERE expires_at <= EXTRACT(EPOCH FROM NOW()) * 1000) as expired_tokens,
+                COUNT(*) FILTER (WHERE expires_ts <= EXTRACT(EPOCH FROM NOW()) * 1000) as expired_tokens,
                 COALESCE(SUM(use_count), 0) as total_uses
             FROM refresh_tokens
             WHERE user_id = $1

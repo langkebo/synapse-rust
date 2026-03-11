@@ -272,7 +272,7 @@ impl SpaceStorage {
                 is_public = COALESCE($7, is_public),
                 updated_ts = $8
             WHERE space_id = $1
-            RETURNING space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id
+            RETURNING space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id, room_type
             "#,
         )
         .bind(space_id)
@@ -582,7 +582,7 @@ impl SpaceStorage {
 
         sqlx::query_as::<_, Space>(
             r#"
-            SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id
+            SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, creation_ts, updated_ts, is_public, parent_space_id, room_type
             FROM spaces 
             WHERE is_public = TRUE AND (name ILIKE $1 OR topic ILIKE $1)
             ORDER BY creation_ts DESC 

@@ -1,54 +1,8 @@
 use crate::cache::CacheManager;
 use crate::common::constants::USER_PROFILE_CACHE_TTL;
-use serde::{Deserialize, Serialize};
+use crate::storage::models::{User, UserProfile, UserSearchResult, UserSearchResultWithPresence};
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
-
-#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
-/// Represents a user entity in the database.
-pub struct User {
-    /// The unique Matrix user ID (e.g., @user:example.com)
-    pub user_id: String,
-    /// The local username part
-    pub username: String,
-    /// The hashed password
-    pub password_hash: Option<String>,
-    /// The display name of the user
-    pub displayname: Option<String>,
-    /// The URL of the user's avatar
-    pub avatar_url: Option<String>,
-    /// Whether the user is an admin
-    pub is_admin: bool,
-    /// Whether the user account is deactivated
-    pub is_deactivated: bool,
-    /// Whether the user is a guest
-    pub is_guest: bool,
-    /// Whether the user is shadow banned
-    pub is_shadow_banned: bool,
-    /// The timestamp when the user was created (milliseconds)
-    pub created_ts: i64,
-    /// The timestamp when the user was last updated (milliseconds)
-    pub updated_ts: Option<i64>,
-    /// The generation number for this user
-    pub generation: i64,
-    /// The consent version the user has agreed to
-    pub consent_version: Option<String>,
-    /// The application service ID that manages this user
-    pub appservice_id: Option<String>,
-    /// The type of user (e.g., "bot", "support")
-    pub user_type: Option<String>,
-    /// The timestamp of the last invalid update
-    pub invalid_update_ts: Option<i64>,
-    /// The migration state of this user
-    pub migration_state: Option<String>,
-}
-
-impl User {
-    /// Returns the user ID.
-    pub fn user_id(&self) -> String {
-        self.user_id.clone()
-    }
-}
 
 #[derive(Clone)]
 /// Handles database operations for user management.
@@ -76,15 +30,16 @@ impl UserStorage {
         password_hash: Option<&str>,
         is_admin: bool,
     ) -> Result<User, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
-        let generation = now * 1000;
+        let now = chrono::Utc::now().timestamp_millis();
+        let generation = now;
         sqlx::query_as::<_, User>(
             r#"
             INSERT INTO users (user_id, username, password_hash, is_admin, created_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
-                      is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
-                      appservice_id, user_type, invalid_update_ts, migration_state
+            RETURNING user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
+                      created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
+                      appservice_id, user_type, invalid_update_ts, migration_state, password_changed_ts,
+                      must_change_password, password_expires_ts, failed_login_attempts, locked_until
             "#,
         )
         .bind(user_id)
@@ -100,9 +55,10 @@ impl UserStorage {
     pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
             r#"
-            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
-                   is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
-                   appservice_id, user_type, invalid_update_ts, migration_state
+            SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
+                   created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
+                   appservice_id, user_type, invalid_update_ts, migration_state, password_changed_ts,
+                   must_change_password, password_expires_ts, failed_login_attempts, locked_until
             FROM users
             WHERE user_id = $1
             "#,
@@ -115,9 +71,10 @@ impl UserStorage {
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
             r#"
-            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
-                   is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
-                   appservice_id, user_type, invalid_update_ts, migration_state
+            SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
+                   created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
+                   appservice_id, user_type, invalid_update_ts, migration_state, password_changed_ts,
+                   must_change_password, password_expires_ts, failed_login_attempts, locked_until
             FROM users
             WHERE username = $1
             "#,
@@ -161,9 +118,11 @@ impl UserStorage {
     ) -> Result<Vec<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
             r#"
-            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
-                   is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
-                   appservice_id, user_type, invalid_update_ts, migration_state
+            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, 
+                   is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts, 
+                   generation, consent_version, appservice_id, user_type, invalid_update_ts, 
+                   migration_state, email, phone, password_changed_ts, must_change_password, 
+                   password_expires_ts, failed_login_attempts, locked_until
             FROM users
             ORDER BY created_ts DESC
             LIMIT $1 OFFSET $2
@@ -491,120 +450,5 @@ impl UserStorage {
             .execute(&*self.pool)
             .await?;
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
-pub struct UserSearchResult {
-    pub user_id: String,
-    pub username: String,
-    pub displayname: Option<String>,
-    pub avatar_url: Option<String>,
-    pub created_ts: i64,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
-pub struct UserProfile {
-    pub user_id: String,
-    pub username: String,
-    pub displayname: Option<String>,
-    pub avatar_url: Option<String>,
-    pub created_ts: i64,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
-pub struct UserSearchResultWithPresence {
-    pub user_id: String,
-    pub username: String,
-    pub displayname: Option<String>,
-    pub avatar_url: Option<String>,
-    pub created_ts: i64,
-    pub presence: Option<String>,
-    pub last_active_ts: Option<i64>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_user_struct() {
-        let user = User {
-            user_id: "@alice:example.com".to_string(),
-            username: "alice".to_string(),
-            password_hash: Some("hashed".to_string()),
-            displayname: Some("Alice".to_string()),
-            avatar_url: Some("mxc://example.com/avatar".to_string()),
-            is_admin: false,
-            is_deactivated: false,
-            is_guest: false,
-            is_shadow_banned: false,
-            created_ts: 1234567890,
-            updated_ts: None,
-            generation: 1234567890,
-            consent_version: None,
-            appservice_id: None,
-            user_type: None,
-            invalid_update_ts: None,
-            migration_state: None,
-        };
-
-        assert_eq!(user.user_id(), "@alice:example.com");
-        assert_eq!(user.username, "alice");
-        assert!(user.password_hash.is_some());
-    }
-
-    #[test]
-    fn test_user_search_result() {
-        let result = UserSearchResult {
-            user_id: "@bob:example.com".to_string(),
-            username: "bob".to_string(),
-            displayname: Some("Bob".to_string()),
-            avatar_url: None,
-            created_ts: 1234567890,
-        };
-
-        assert_eq!(result.user_id, "@bob:example.com");
-        assert_eq!(result.username, "bob");
-    }
-
-    #[test]
-    fn test_user_profile() {
-        let profile = UserProfile {
-            user_id: "@charlie:example.com".to_string(),
-            username: "charlie".to_string(),
-            displayname: Some("Charlie".to_string()),
-            avatar_url: Some("mxc://example.com/charlie".to_string()),
-            created_ts: 1234567890,
-        };
-
-        assert_eq!(profile.user_id, "@charlie:example.com");
-        assert!(profile.displayname.is_some());
-    }
-
-    #[test]
-    fn test_user_serialization() {
-        let user = User {
-            user_id: "@test:example.com".to_string(),
-            username: "test".to_string(),
-            password_hash: None,
-            displayname: None,
-            avatar_url: None,
-            is_admin: false,
-            is_deactivated: false,
-            is_guest: false,
-            is_shadow_banned: false,
-            created_ts: 0,
-            updated_ts: None,
-            generation: 0,
-            consent_version: None,
-            appservice_id: None,
-            user_type: None,
-            invalid_update_ts: None,
-            migration_state: None,
-        };
-
-        let json = serde_json::to_string(&user).unwrap();
-        assert!(json.contains("@test:example.com"));
     }
 }

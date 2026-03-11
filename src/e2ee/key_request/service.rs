@@ -50,7 +50,7 @@ impl KeyRequestService {
             algorithm: algorithm.to_string(),
             action: action.to_string(),
             created_ts: chrono::Utc::now().timestamp_millis(),
-            fulfilled: false,
+            is_fulfilled: false,
             fulfilled_by_device: None,
             fulfilled_ts: None,
         };
@@ -88,7 +88,7 @@ impl KeyRequestService {
         let request = self.storage.get_request(request_id).await?;
 
         if let Some(request) = request {
-            if request.fulfilled {
+            if request.is_fulfilled {
                 return Ok(None);
             }
 
@@ -148,7 +148,7 @@ impl KeyRequestService {
         let pending = self.pending_requests.read().await;
 
         for (request_id, request) in pending.iter() {
-            if !request.fulfilled {
+            if !request.is_fulfilled {
                 tracing::debug!(
                     "Processing key request: {} for room {} session {}",
                     request_id,

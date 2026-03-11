@@ -19,7 +19,7 @@ use crate::storage::*;
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
 use crate::web::middleware::{
     check_cors_security, log_cors_security_report, validate_bind_address_for_dev_mode,
-    validate_cors_config_for_production,
+    validate_cors_config_for_production, panic_catcher_middleware, request_timeout_middleware,
 };
 use crate::web::routes::create_router;
 use crate::web::AppState;
@@ -176,6 +176,8 @@ impl SynapseServer {
         let media_path = std::path::PathBuf::from("/app/data/media");
 
         let router = create_router((*app_state).clone())
+            .layer(axum::middleware::from_fn(panic_catcher_middleware))
+            .layer(axum::middleware::from_fn(request_timeout_middleware))
             .layer({
                 let cors = &config.cors;
                 let mut layer = CorsLayer::new();

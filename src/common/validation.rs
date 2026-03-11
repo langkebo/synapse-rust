@@ -405,16 +405,21 @@ impl Default for Validator {
 
 impl Validator {
     fn create_fallback_validator() -> Self {
+        // 这些正则表达式是硬编码的，语法是正确的，不会失败
+        // 使用 expect 来提供清晰的错误信息
         Self {
             username_regex: Regex::new(r"^[a-zA-Z0-9_.-]+$")
-                .unwrap_or(Regex::new(r"^.*$").unwrap()),
+                .expect("Valid regex pattern should not fail"),
             email_regex: Regex::new(r"^[^@]+@[^@]+\.[^@]+$")
-                .unwrap_or(Regex::new(r"^.*$").unwrap()),
-            matrix_id_regex: Regex::new(r"^@[^:]+:[^:]+$").unwrap_or(Regex::new(r"^.*$").unwrap()),
-            room_id_regex: Regex::new(r"^![^:]+:[^:]+$").unwrap_or(Regex::new(r"^.*$").unwrap()),
+                .expect("Valid regex pattern should not fail"),
+            matrix_id_regex: Regex::new(r"^@[^:]+:[^:]+$")
+                .expect("Valid regex pattern should not fail"),
+            room_id_regex: Regex::new(r"^![^:]+:[^:]+$")
+                .expect("Valid regex pattern should not fail"),
             device_id_regex: Regex::new(r"^[a-zA-Z0-9._\-]+$")
-                .unwrap_or(Regex::new(r"^.*$").unwrap()),
-            url_regex: Regex::new(r"^https?://.+").unwrap_or(Regex::new(r"^.*$").unwrap()),
+                .expect("Valid regex pattern should not fail"),
+            url_regex: Regex::new(r"^https?://.+")
+                .expect("Valid regex pattern should not fail"),
         }
     }
 }

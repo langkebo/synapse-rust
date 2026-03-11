@@ -103,16 +103,9 @@ pub struct CacheKey {
     pub key: String,
 }
 
-impl CacheKey {
-    pub fn new(namespace: &str, key: &str) -> Self {
-        Self {
-            namespace: namespace.to_string(),
-            key: key.to_string(),
-        }
-    }
-
-    pub fn to_string(&self) -> String {
-        format!("{}:{}", self.namespace, self.key)
+impl std::fmt::Display for CacheKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.namespace, self.key)
     }
 }
 

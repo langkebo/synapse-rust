@@ -136,7 +136,7 @@ impl AuthorizationService {
                     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
                 if let Some(r) = room {
-                    if r.join_rule == "public" {
+                    if r.join_rules == "public" {
                         return Ok(());
                     }
                 }
@@ -279,7 +279,7 @@ impl AuthorizationService {
                 .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
             if let Some(r) = room {
-                if r.creator.as_deref() == Some(user_id) {
+                if r.creator_user_id.as_deref() == Some(user_id) {
                     return Ok(100);
                 }
             }
@@ -422,7 +422,7 @@ impl AuthorizationService {
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if let Some(r) = room {
-            if r.creator.as_deref() == Some(target_user_id) {
+            if r.creator_user_id.as_deref() == Some(target_user_id) {
                 ::tracing::warn!(
                     target: "security_audit",
                     event = "attempted_kick_room_creator",
@@ -492,7 +492,7 @@ impl AuthorizationService {
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if let Some(r) = room {
-            if r.creator.as_deref() == Some(target_user_id) {
+            if r.creator_user_id.as_deref() == Some(target_user_id) {
                 ::tracing::warn!(
                     target: "security_audit",
                     event = "attempted_ban_room_creator",

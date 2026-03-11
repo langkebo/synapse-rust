@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -10,9 +10,9 @@ pub struct CasTicket {
     pub ticket_id: String,
     pub user_id: String,
     pub service_url: String,
-    pub created_at: DateTime<Utc>,
-    pub expires_at: DateTime<Utc>,
-    pub consumed_at: Option<DateTime<Utc>>,
+    pub created_ts: i64,
+    pub expires_at: i64,
+    pub consumed_ts: Option<i64>,
     pub consumed_by: Option<String>,
     pub is_valid: bool,
 }
@@ -24,9 +24,9 @@ pub struct CasProxyTicket {
     pub user_id: String,
     pub service_url: String,
     pub pgt_url: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub expires_at: DateTime<Utc>,
-    pub consumed_at: Option<DateTime<Utc>>,
+    pub created_ts: i64,
+    pub expires_at: i64,
+    pub consumed_ts: Option<i64>,
     pub is_valid: bool,
 }
 
@@ -37,8 +37,8 @@ pub struct CasProxyGrantingTicket {
     pub user_id: String,
     pub service_url: String,
     pub iou: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub expires_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub expires_at: i64,
     pub is_valid: bool,
 }
 
@@ -54,8 +54,8 @@ pub struct CasService {
     pub is_enabled: bool,
     pub require_secure: bool,
     pub single_logout: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -65,8 +65,8 @@ pub struct CasSloSession {
     pub user_id: String,
     pub service_url: String,
     pub ticket_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub logout_sent_at: Option<DateTime<Utc>>,
+    pub created_ts: i64,
+    pub logout_sent_ts: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -75,8 +75,8 @@ pub struct CasUserAttribute {
     pub user_id: String,
     pub attribute_name: String,
     pub attribute_value: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,9 +139,9 @@ mod tests {
             ticket_id: "ST-12345678".to_string(),
             user_id: "@alice:example.com".to_string(),
             service_url: "https://app.example.com".to_string(),
-            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
-            expires_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
-            consumed_at: None,
+            created_ts: 1234567800000,
+            expires_at: 1234567890000,
+            consumed_ts: None,
             consumed_by: None,
             is_valid: true,
         };
@@ -157,9 +157,9 @@ mod tests {
             user_id: "@alice:example.com".to_string(),
             service_url: "https://backend.example.com".to_string(),
             pgt_url: Some("https://proxy.example.com".to_string()),
-            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
-            expires_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
-            consumed_at: None,
+            created_ts: 1234567800000,
+            expires_at: 1234567890000,
+            consumed_ts: None,
             is_valid: true,
         };
         assert_eq!(ticket.proxy_ticket_id, "PT-12345678");
@@ -174,8 +174,8 @@ mod tests {
             user_id: "@alice:example.com".to_string(),
             service_url: "https://proxy.example.com".to_string(),
             iou: Some("iou123".to_string()),
-            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
-            expires_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            created_ts: 1234567800000,
+            expires_at: 1234567890000,
             is_valid: true,
         };
         assert_eq!(ticket.pgt_id, "PGT-12345678");
@@ -194,8 +194,8 @@ mod tests {
             is_enabled: true,
             require_secure: true,
             single_logout: false,
-            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
-            updated_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            created_ts: 1234567800000,
+            updated_ts: 1234567890000,
         };
         assert!(service.is_enabled);
     }
@@ -207,8 +207,8 @@ mod tests {
             user_id: "@alice:example.com".to_string(),
             attribute_name: "email".to_string(),
             attribute_value: "alice@example.com".to_string(),
-            created_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
-            updated_at: chrono::DateTime::from_timestamp(1234567890, 0).unwrap(),
+            created_ts: 1234567800000,
+            updated_ts: 1234567890000,
         };
         assert_eq!(attr.attribute_name, "email");
     }
@@ -536,10 +536,10 @@ impl CasStorage {
 
         let attr = sqlx::query_as::<_, CasUserAttribute>(
             r#"
-            INSERT INTO cas_user_attributes (user_id, attribute_name, attribute_value, created_at, updated_at)
+            INSERT INTO cas_user_attributes (user_id, attribute_name, attribute_value, created_at, updated_ts)
             VALUES ($1, $2, $3, $4, $4)
             ON CONFLICT (user_id, attribute_name)
-            DO UPDATE SET attribute_value = $3, updated_at = $4
+            DO UPDATE SET attribute_value = $3, updated_ts = $4
             RETURNING *
             "#,
         )
