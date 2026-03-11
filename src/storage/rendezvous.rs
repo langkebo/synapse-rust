@@ -140,7 +140,7 @@ impl RendezvousStorage {
 
         sqlx::query_as::<_, RendezvousSession>(
             r#"
-            SELECT * FROM rendezvous_sessions 
+            SELECT * FROM rendezvous_session 
             WHERE session_id = $1 AND expires_ts > $2
             "#,
         )
@@ -157,7 +157,7 @@ impl RendezvousStorage {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            UPDATE rendezvous_sessions 
+            UPDATE rendezvous_session 
             SET status = $2
             WHERE session_id = $1
             "#,
@@ -178,7 +178,7 @@ impl RendezvousStorage {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            UPDATE rendezvous_sessions 
+            UPDATE rendezvous_session 
             SET user_id = $2, device_id = $3, status = 'connected'
             WHERE session_id = $1
             "#,
@@ -198,7 +198,7 @@ impl RendezvousStorage {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            UPDATE rendezvous_sessions 
+            UPDATE rendezvous_session 
             SET status = 'completed'
             WHERE session_id = $1
             "#,
@@ -216,7 +216,7 @@ impl RendezvousStorage {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            DELETE FROM rendezvous_sessions WHERE session_id = $1
+            DELETE FROM rendezvous_session WHERE session_id = $1
             "#,
         )
         .bind(session_id)
@@ -231,7 +231,7 @@ impl RendezvousStorage {
 
         let result = sqlx::query(
             r#"
-            DELETE FROM rendezvous_sessions WHERE expires_ts < $1
+            DELETE FROM rendezvous_session WHERE expires_ts < $1
             "#,
         )
         .bind(now)
