@@ -17,7 +17,7 @@ impl MegolmSessionStorage {
     pub async fn create_session(&self, session: &MegolmSession) -> Result<(), ApiError> {
         sqlx::query(
             r#"
-            INSERT INTO megolm_sessions (id, session_id, room_id, sender_key, session_key, algorithm, message_index, created_ts, last_used_ts, expires_ts)
+            INSERT INTO megolm_sessions (id, session_id, room_id, sender_key, session_key, algorithm, message_index, created_ts, last_used_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#
         )
@@ -28,8 +28,8 @@ impl MegolmSessionStorage {
         .bind(&session.session_key)
         .bind(&session.algorithm)
         .bind(session.message_index)
-        .bind(session.created_at.timestamp_millis())
-        .bind(session.last_used_at.timestamp_millis())
+        .bind(session.created_ts.timestamp_millis())
+        .bind(session.last_used_ts.timestamp_millis())
         .bind(session.expires_at.map(|t| t.timestamp_millis()))
         .execute(&*self.pool)
         .await?;
@@ -41,7 +41,7 @@ impl MegolmSessionStorage {
         let row = sqlx::query(
             r#"
             SELECT id, session_id, room_id, sender_key, session_key, algorithm, message_index,
-                   created_ts AS created_at, last_used_ts AS last_used_at, expires_ts AS expires_at
+                   created_ts, last_used_ts, expires_at
             FROM megolm_sessions
             WHERE session_id = $1
             "#
@@ -51,15 +51,15 @@ impl MegolmSessionStorage {
         .await?;
 
         Ok(row.map(|row| {
-            let created_ts: i64 = row.get("created_at");
-            let last_used_ts: Option<i64> = row.get("last_used_at");
-            let expires_ts: Option<i64> = row.get("expires_at");
+            let created_ts: i64 = row.get("created_ts");
+            let last_used_ts: Option<i64> = row.get("last_used_ts");
+            let expires_at: Option<i64> = row.get("expires_at");
 
-            let created_at = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
-            let last_used_at = last_used_ts
+            let created_ts_dt = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
+            let last_used_ts_dt = last_used_ts
                 .and_then(chrono::DateTime::from_timestamp_millis)
-                .unwrap_or(created_at);
-            let expires_at = expires_ts.and_then(chrono::DateTime::from_timestamp_millis);
+                .unwrap_or(created_ts_dt);
+            let expires_at_dt = expires_at.and_then(chrono::DateTime::from_timestamp_millis);
 
             MegolmSession {
                 id: row.get("id"),
@@ -69,9 +69,9 @@ impl MegolmSessionStorage {
                 session_key: row.get("session_key"),
                 algorithm: row.get("algorithm"),
                 message_index: row.get("message_index"),
-                created_at,
-                last_used_at,
-                expires_at,
+                created_ts: created_ts_dt,
+                last_used_ts: last_used_ts_dt,
+                expires_at: expires_at_dt,
             }
         }))
     }
@@ -80,7 +80,7 @@ impl MegolmSessionStorage {
         let rows = sqlx::query(
             r#"
             SELECT id, session_id, room_id, sender_key, session_key, algorithm, message_index,
-                   created_ts AS created_at, last_used_ts AS last_used_at, expires_ts AS expires_at
+                   created_ts, last_used_ts, expires_at
             FROM megolm_sessions
             WHERE room_id = $1
             "#
@@ -92,15 +92,15 @@ impl MegolmSessionStorage {
         Ok(rows
             .into_iter()
             .map(|row| {
-                let created_ts: i64 = row.get("created_at");
-                let last_used_ts: Option<i64> = row.get("last_used_at");
-                let expires_ts: Option<i64> = row.get("expires_at");
+                let created_ts: i64 = row.get("created_ts");
+                let last_used_ts: Option<i64> = row.get("last_used_ts");
+                let expires_at: Option<i64> = row.get("expires_at");
 
-                let created_at = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
-                let last_used_at = last_used_ts
+                let created_ts_dt = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
+                let last_used_ts_dt = last_used_ts
                     .and_then(chrono::DateTime::from_timestamp_millis)
-                    .unwrap_or(created_at);
-                let expires_at = expires_ts.and_then(chrono::DateTime::from_timestamp_millis);
+                    .unwrap_or(created_ts_dt);
+                let expires_at_dt = expires_at.and_then(chrono::DateTime::from_timestamp_millis);
 
                 MegolmSession {
                     id: row.get("id"),
@@ -110,9 +110,9 @@ impl MegolmSessionStorage {
                     session_key: row.get("session_key"),
                     algorithm: row.get("algorithm"),
                     message_index: row.get("message_index"),
-                    created_at,
-                    last_used_at,
-                    expires_at,
+                    created_ts: created_ts_dt,
+                    last_used_ts: last_used_ts_dt,
+                    expires_at: expires_at_dt,
                 }
             })
             .collect())
@@ -122,14 +122,14 @@ impl MegolmSessionStorage {
         sqlx::query(
             r#"
             UPDATE megolm_sessions
-            SET session_key = $2, message_index = $3, last_used_ts = $4, expires_ts = $5
+            SET session_key = $2, message_index = $3, last_used_ts = $4, expires_at = $5
             WHERE session_id = $1
             "#,
         )
         .bind(&session.session_id)
         .bind(&session.session_key)
         .bind(session.message_index)
-        .bind(session.last_used_at.timestamp_millis())
+        .bind(session.last_used_ts.timestamp_millis())
         .bind(session.expires_at.map(|t| t.timestamp_millis()))
         .execute(&*self.pool)
         .await
@@ -166,8 +166,8 @@ mod tests {
             session_key: "test_session_key_base64".to_string(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
-            created_at: Utc::now(),
-            last_used_at: Utc::now(),
+            created_ts: Utc::now(),
+            last_used_ts: Utc::now(),
             expires_at: None,
         }
     }
@@ -211,7 +211,7 @@ mod tests {
         let expires = session.expires_at.unwrap();
         assert!(expires > Utc::now(), "Expiry time should be in the future");
         assert!(
-            expires > session.created_at,
+            expires > session.created_ts,
             "Expiry should be after creation"
         );
     }
@@ -242,13 +242,13 @@ mod tests {
     #[test]
     fn test_megolm_session_last_used_update() {
         let mut session = create_test_session();
-        let original_last_used = session.last_used_at;
+        let original_last_used = session.last_used_ts;
 
         std::thread::sleep(std::time::Duration::from_millis(10));
-        session.last_used_at = Utc::now();
+        session.last_used_ts = Utc::now();
 
         assert!(
-            session.last_used_at > original_last_used,
+            session.last_used_ts > original_last_used,
             "Last used should be updated"
         );
     }
@@ -334,13 +334,13 @@ mod tests {
             session_key: "key".to_string(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
-            created_at: created,
-            last_used_at: last_used,
+            created_ts: created,
+            last_used_ts: last_used,
             expires_at: Some(expires),
         };
 
-        assert!(session.created_at <= session.last_used_at);
-        assert!(session.last_used_at <= session.expires_at.unwrap());
+        assert!(session.created_ts <= session.last_used_ts);
+        assert!(session.last_used_ts <= session.expires_at.unwrap());
     }
 
     #[test]

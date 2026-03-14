@@ -26,7 +26,12 @@ services:
   # Synapse Rust - Matrix Homeserver
   # ==========================================================================
   synapse-rust:
-    image: vmuser232922/synapse-rust:v0.1.0
+    image: synapse-rust:v0.1.0
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        SERVER_NAME: cjystx.top
     container_name: synapse-rust
     restart: unless-stopped
     ports:

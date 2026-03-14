@@ -712,3 +712,142 @@ impl SpaceService {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_create_space_request() {
+        let request = crate::storage::space::CreateSpaceRequest {
+            room_id: "!space:example.com".to_string(),
+            name: Some("My Space".to_string()),
+            topic: Some("A test space".to_string()),
+            avatar_url: Some("mxc://example.com/avatar".to_string()),
+            creator: "@user:example.com".to_string(),
+            join_rule: Some("invite".to_string()),
+            visibility: Some("private".to_string()),
+            is_public: Some(false),
+            parent_space_id: None,
+        };
+        assert_eq!(request.room_id, "!space:example.com");
+        assert_eq!(request.creator, "@user:example.com");
+    }
+
+    #[test]
+    fn test_add_child_request() {
+        let request = crate::storage::space::AddChildRequest {
+            space_id: "space_123".to_string(),
+            room_id: "!room:example.com".to_string(),
+            via_servers: vec!["example.com".to_string()],
+            order: Some("1".to_string()),
+            suggested: Some(true),
+            added_by: "@user:example.com".to_string(),
+        };
+        assert_eq!(request.space_id, "space_123");
+        assert_eq!(request.via_servers.len(), 1);
+    }
+
+    #[test]
+    fn test_update_space_request() {
+        let request = crate::storage::space::UpdateSpaceRequest {
+            name: Some("Updated Name".to_string()),
+            topic: None,
+            avatar_url: None,
+            join_rule: Some("public".to_string()),
+            visibility: None,
+            is_public: Some(true),
+        };
+        assert_eq!(request.name, Some("Updated Name".to_string()));
+        assert!(request.topic.is_none());
+    }
+
+    #[test]
+    fn test_update_space_request_default() {
+        let request = crate::storage::space::UpdateSpaceRequest::default();
+        assert!(request.name.is_none());
+        assert!(request.topic.is_none());
+        assert!(request.join_rule.is_none());
+    }
+
+    #[test]
+    fn test_space_structure() {
+        let space = crate::storage::space::Space {
+            space_id: "space_123".to_string(),
+            room_id: "!space:example.com".to_string(),
+            name: Some("Test Space".to_string()),
+            topic: Some("Test topic".to_string()),
+            avatar_url: None,
+            creator: "@admin:example.com".to_string(),
+            join_rule: "invite".to_string(),
+            visibility: "private".to_string(),
+            creation_ts: 1234567890,
+            updated_ts: None,
+            is_public: false,
+            parent_space_id: None,
+            room_type: Some("m.space".to_string()),
+        };
+        assert_eq!(space.space_id, "space_123");
+        assert_eq!(space.join_rule, "invite");
+        assert!(!space.is_public);
+    }
+
+    #[test]
+    fn test_space_child_structure() {
+        let child = crate::storage::space::SpaceChild {
+            id: 1,
+            space_id: "space_123".to_string(),
+            room_id: "!room:example.com".to_string(),
+            via_servers: vec!["example.com".to_string()],
+            order: Some("1".to_string()),
+            suggested: true,
+            added_by: "@user:example.com".to_string(),
+            added_ts: 1234567890,
+            removed_ts: None,
+        };
+        assert_eq!(child.space_id, "space_123");
+        assert!(child.suggested);
+    }
+
+    #[test]
+    fn test_space_member_structure() {
+        let member = crate::storage::space::SpaceMember {
+            space_id: "space_123".to_string(),
+            user_id: "@user:example.com".to_string(),
+            membership: "join".to_string(),
+            joined_ts: 1234567890,
+            updated_ts: None,
+            left_ts: None,
+            inviter: Some("@admin:example.com".to_string()),
+        };
+        assert_eq!(member.membership, "join");
+        assert!(member.inviter.is_some());
+    }
+
+    #[test]
+    fn test_space_summary_structure() {
+        let summary = crate::storage::space::SpaceSummary {
+            space_id: "space_123".to_string(),
+            summary: serde_json::json!({"key": "value"}),
+            children_count: 5,
+            member_count: 10,
+            updated_ts: 1234567890,
+        };
+        assert_eq!(summary.children_count, 5);
+        assert_eq!(summary.member_count, 10);
+    }
+
+    #[test]
+    fn test_space_event_structure() {
+        let event = crate::storage::space::SpaceEvent {
+            event_id: "$event:example.com".to_string(),
+            space_id: "space_123".to_string(),
+            event_type: "m.space.child".to_string(),
+            sender: "@user:example.com".to_string(),
+            content: serde_json::json!({"room_id": "!room:example.com"}),
+            state_key: Some("!room:example.com".to_string()),
+            origin_server_ts: 1234567890,
+            processed_ts: None,
+        };
+        assert_eq!(event.event_type, "m.space.child");
+        assert!(event.state_key.is_some());
+    }
+}

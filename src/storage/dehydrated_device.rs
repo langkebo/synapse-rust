@@ -12,7 +12,7 @@ pub struct DehydratedDevice {
     pub account: Option<serde_json::Value>,
     pub created_ts: i64,
     pub updated_ts: i64,
-    pub expires_ts: Option<i64>,
+    pub expires_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,19 +76,19 @@ impl DehydratedDeviceStorage {
         params: CreateDehydratedDeviceParams,
     ) -> Result<DehydratedDevice, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let expires_ts = params.expires_in_ms.map(|ms| now + ms);
+        let expires_at = params.expires_in_ms.map(|ms| now + ms);
 
         sqlx::query_as::<_, DehydratedDevice>(
             r#"
             INSERT INTO dehydrated_devices 
-                (user_id, device_id, device_data, algorithm, account, created_ts, updated_ts, expires_ts)
+                (user_id, device_id, device_data, algorithm, account, created_ts, updated_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (user_id, device_id) DO UPDATE SET
                 device_data = EXCLUDED.device_data,
                 algorithm = EXCLUDED.algorithm,
                 account = EXCLUDED.account,
                 updated_ts = EXCLUDED.updated_ts,
-                expires_ts = EXCLUDED.expires_ts
+                expires_at = EXCLUDED.expires_at
             RETURNING *
             "#,
         )
@@ -99,7 +99,7 @@ impl DehydratedDeviceStorage {
         .bind(&params.account)
         .bind(now)
         .bind(now)
-        .bind(expires_ts)
+        .bind(expires_at)
         .fetch_one(&*self.pool)
         .await
     }
@@ -115,7 +115,7 @@ impl DehydratedDeviceStorage {
             r#"
             SELECT * FROM dehydrated_devices 
             WHERE user_id = $1 AND device_id = $2 
-              AND (expires_ts IS NULL OR expires_ts > $3)
+              AND (expires_at IS NULL OR expires_at > $3)
             "#,
         )
         .bind(user_id)
@@ -135,7 +135,7 @@ impl DehydratedDeviceStorage {
             r#"
             SELECT * FROM dehydrated_devices 
             WHERE user_id = $1 
-              AND (expires_ts IS NULL OR expires_ts > $2)
+              AND (expires_at IS NULL OR expires_at > $2)
             ORDER BY created_ts DESC
             "#,
         )
@@ -200,7 +200,7 @@ impl DehydratedDeviceStorage {
         let result = sqlx::query(
             r#"
             DELETE FROM dehydrated_devices 
-            WHERE expires_ts IS NOT NULL AND expires_ts < $1
+            WHERE expires_at IS NOT NULL AND expires_at < $1
             "#,
         )
         .bind(now)
@@ -269,8 +269,8 @@ impl DehydratedDeviceStorage {
         sqlx::query(
             r#"
             UPDATE dehydrated_devices 
-            SET expires_ts = expires_ts + $3
-            WHERE user_id = $1 AND device_id = $2 AND expires_ts IS NOT NULL
+            SET expires_at = expires_at + $3
+            WHERE user_id = $1 AND device_id = $2 AND expires_at IS NOT NULL
             "#,
         )
         .bind(user_id)
@@ -298,7 +298,7 @@ mod tests {
             account: Some(serde_json::json!({"account": "data"})),
             created_ts: 1234567890000,
             updated_ts: 1234567890000,
-            expires_ts: Some(1234654290000),
+            expires_at: Some(1234654290000),
         };
 
         assert_eq!(device.user_id, "@alice:example.com");
@@ -348,10 +348,10 @@ mod tests {
             account: None,
             created_ts: 1234567890000,
             updated_ts: 1234567890000,
-            expires_ts: None,
+            expires_at: None,
         };
 
-        assert!(device.expires_ts.is_none());
+        assert!(device.expires_at.is_none());
     }
 
     #[test]
@@ -368,7 +368,7 @@ mod tests {
             })),
             created_ts: 1234567890000,
             updated_ts: 1234567890000,
-            expires_ts: None,
+            expires_at: None,
         };
 
         assert!(device.account.is_some());

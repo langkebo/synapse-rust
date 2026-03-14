@@ -14,7 +14,7 @@ impl<'a> SignatureStorage<'a> {
     pub async fn create_signature(&self, signature: &EventSignature) -> Result<(), ApiError> {
         sqlx::query(
             r#"
-            INSERT INTO event_signatures (id, event_id, user_id, device_id, signature, key_id, created_at)
+            INSERT INTO event_signatures (id, event_id, user_id, device_id, signature, key_id, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (event_id, user_id, device_id, key_id) DO UPDATE
             SET signature = EXCLUDED.signature
@@ -26,7 +26,7 @@ impl<'a> SignatureStorage<'a> {
         .bind(&signature.device_id)
         .bind(&signature.signature)
         .bind(&signature.key_id)
-        .bind(signature.created_at)
+        .bind(signature.created_ts)
         .execute(self.pool)
         .await?;
 
@@ -42,7 +42,7 @@ impl<'a> SignatureStorage<'a> {
     ) -> Result<Option<EventSignature>, ApiError> {
         let row = sqlx::query(
             r#"
-            SELECT id, event_id, user_id, device_id, signature, key_id, created_at
+            SELECT id, event_id, user_id, device_id, signature, key_id, created_ts
             FROM event_signatures
             WHERE event_id = $1 AND user_id = $2 AND device_id = $3 AND key_id = $4
             "#,
@@ -61,7 +61,7 @@ impl<'a> SignatureStorage<'a> {
             device_id: row.get("device_id"),
             signature: row.get("signature"),
             key_id: row.get("key_id"),
-            created_at: row.get("created_at"),
+            created_ts: row.get("created_ts"),
         }))
     }
 
@@ -71,7 +71,7 @@ impl<'a> SignatureStorage<'a> {
     ) -> Result<Vec<EventSignature>, ApiError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, event_id, user_id, device_id, signature, key_id, created_at
+            SELECT id, event_id, user_id, device_id, signature, key_id, created_ts
             FROM event_signatures
             WHERE event_id = $1
             "#,
@@ -89,7 +89,7 @@ impl<'a> SignatureStorage<'a> {
                 device_id: row.get("device_id"),
                 signature: row.get("signature"),
                 key_id: row.get("key_id"),
-                created_at: row.get("created_at"),
+                created_ts: row.get("created_ts"),
             })
             .collect())
     }

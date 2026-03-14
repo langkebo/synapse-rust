@@ -1,15 +1,6 @@
 -- ============================================================================
 -- synapse-rust 统一数据库架构 v6.0.0
 -- 创建日期: 2026-03-09
--- 说明: BREAKING CHANGE - 全面重构字段命名规范，添加缺失表和字段
--- 主要变更:
---   1. 布尔字段统一使用 is_/has_ 前缀
---   2. NOT NULL 时间戳使用 _ts 后缀 (BIGINT 毫秒级)
---   3. 可空时间戳使用 _at 后缀 (BIGINT)
---   4. 外键统一使用 {table}_id 格式
---   5. 索引命名统一: idx_{table}_{columns}, uq_{table}_{columns}
---   6. 添加缺失的表: thread_roots, room_parents, pushers, application_services
---   7. 添加缺失的字段: push_rules.kind, key_backups.auth_key 等
 --
 -- v6.0.1 优化说明 (2026-03-11):
 --   - 移除重复表: threepids, reports, thread_statistics
@@ -17,6 +8,22 @@
 --   - 移除冗余字段: rooms.member_count, notifications.read, voice_usage_stats.last_activity_at
 --   - 完善外键约束
 --   - 添加条件索引优化
+--
+-- v6.0.2 优化说明 (基于测试发现问题修复):
+--   - 添加缺失表: server_retention_policy, ip_reputation, user_media_quota, media_quota_config
+--   - 添加缺失表: one_time_keys, backup_keys, rendezvous_session
+--   - 添加缺失字段: spaces.room_type, thread_roots.participants
+--   - 添加应用服务相关表
+--   - 统一字段命名: enabled → is_enabled
+--
+-- v6.0.3 优化说明 (2026-03-13):
+--   - 修复字段命名规范: nullable timestamps 统一使用 _at 后缀
+--   - 修复 private_sessions.last_activity_at → last_activity_ts (NOT NULL)
+--   - 修复 pushers/background_updates/spaces 等表的 updated_at → updated_ts
+--   - 修复 access_tokens/refresh_tokens 的 last_used_ts (保持不变，符合规范)
+--   - 修复 megolm_sessions 的 last_used_at (保持不变，符合规范)
+--   - 统一所有 updated_ts 字段的 nullable 状态
+--   - 所有 updated_at 已统一改为 updated_ts (2026-03-13)
 -- ============================================================================
 
 SET TIME ZONE 'UTC';
@@ -36,7 +43,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_shadow_banned BOOLEAN DEFAULT FALSE,
     is_deactivated BOOLEAN DEFAULT FALSE,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     displayname TEXT,
     avatar_url TEXT,
     email TEXT,
@@ -49,7 +56,7 @@ CREATE TABLE IF NOT EXISTS users (
     migration_state TEXT,
     password_changed_ts BIGINT,
     must_change_password BOOLEAN DEFAULT FALSE,
-    password_expires_ts BIGINT,
+    password_expires_at BIGINT,
     failed_login_attempts INTEGER DEFAULT 0,
     locked_until BIGINT,
     CONSTRAINT pk_users PRIMARY KEY (user_id),
@@ -73,7 +80,7 @@ CREATE TABLE IF NOT EXISTS user_threepids (
     added_ts BIGINT NOT NULL,
     is_verified BOOLEAN DEFAULT FALSE,
     verification_token TEXT,
-    verification_expires_ts BIGINT,
+    verification_expires_at BIGINT,
     CONSTRAINT pk_user_threepids PRIMARY KEY (id),
     CONSTRAINT uq_user_threepids_medium_address UNIQUE (medium, address),
     CONSTRAINT fk_user_threepids_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
@@ -110,12 +117,12 @@ CREATE TABLE IF NOT EXISTS access_tokens (
     user_id TEXT NOT NULL,
     device_id TEXT,
     created_ts BIGINT NOT NULL,
-    expires_ts BIGINT,
+    expires_at BIGINT,
     last_used_ts BIGINT,
     user_agent TEXT,
     ip_address TEXT,
     is_revoked BOOLEAN DEFAULT FALSE,
-    revoked_ts BIGINT,
+    revoked_at BIGINT,
     CONSTRAINT pk_access_tokens PRIMARY KEY (id),
     CONSTRAINT uq_access_tokens_token UNIQUE (token),
     CONSTRAINT fk_access_tokens_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
@@ -134,11 +141,11 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     access_token_id TEXT,
     scope TEXT,
     created_ts BIGINT NOT NULL,
-    expires_ts BIGINT,
+    expires_at BIGINT,
     last_used_ts BIGINT,
     use_count INTEGER DEFAULT 0,
     is_revoked BOOLEAN DEFAULT FALSE,
-    revoked_ts BIGINT,
+    revoked_at BIGINT,
     revoked_reason TEXT,
     client_info JSONB,
     ip_address TEXT,
@@ -161,7 +168,7 @@ CREATE TABLE IF NOT EXISTS token_blacklist (
     user_id TEXT,
     revoked_ts BIGINT NOT NULL,
     reason TEXT,
-    expires_ts BIGINT,
+    expires_at BIGINT,
     CONSTRAINT pk_token_blacklist PRIMARY KEY (id),
     CONSTRAINT uq_token_blacklist_token_hash UNIQUE (token_hash)
 );
@@ -218,7 +225,7 @@ CREATE TABLE IF NOT EXISTS room_memberships (
     avatar_url TEXT,
     is_banned BOOLEAN DEFAULT FALSE,
     invite_token TEXT,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     join_reason TEXT,
     banned_by TEXT,
     ban_reason TEXT,
@@ -335,7 +342,7 @@ CREATE TABLE IF NOT EXISTS thread_roots (
     participants JSONB DEFAULT '[]',
     is_fetched BOOLEAN DEFAULT FALSE,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_thread_roots PRIMARY KEY (id),
     CONSTRAINT uq_thread_roots_room_event UNIQUE (room_id, event_id),
     CONSTRAINT fk_thread_roots_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
@@ -470,13 +477,13 @@ CREATE TABLE IF NOT EXISTS key_backups (
     backup_id BIGSERIAL,
     user_id TEXT NOT NULL,
     algorithm TEXT NOT NULL,
-    auth_data JSONB NOT NULL,
+    auth_data JSONB,
     auth_key TEXT,
     version BIGINT DEFAULT 1,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
     CONSTRAINT pk_key_backups PRIMARY KEY (backup_id),
-    CONSTRAINT uq_key_backups_user UNIQUE (user_id)
+    CONSTRAINT uq_key_backups_user_version UNIQUE (user_id, version)
 );
 
 CREATE INDEX IF NOT EXISTS idx_key_backups_user ON key_backups(user_id);
@@ -532,7 +539,7 @@ CREATE TABLE IF NOT EXISTS olm_sessions (
     message_index INTEGER DEFAULT 0,
     created_ts BIGINT NOT NULL,
     last_used_ts BIGINT NOT NULL,
-    expires_ts BIGINT,
+    expires_at BIGINT,
     CONSTRAINT uq_olm_sessions_session UNIQUE (session_id)
 );
 
@@ -611,7 +618,7 @@ CREATE TABLE IF NOT EXISTS media_quota (
     max_bytes BIGINT DEFAULT 1073741824,
     used_bytes BIGINT DEFAULT 0,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_media_quota PRIMARY KEY (id),
     CONSTRAINT uq_media_quota_user UNIQUE (user_id),
     CONSTRAINT fk_media_quota_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
@@ -684,7 +691,7 @@ CREATE TABLE IF NOT EXISTS cas_services (
     require_secure BOOLEAN DEFAULT TRUE,
     single_logout BOOLEAN DEFAULT FALSE,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_cas_services PRIMARY KEY (id),
     CONSTRAINT uq_cas_services_service UNIQUE (service_id)
 );
@@ -697,7 +704,7 @@ CREATE TABLE IF NOT EXISTS cas_user_attributes (
     attribute_name TEXT NOT NULL,
     attribute_value TEXT NOT NULL,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_cas_user_attributes PRIMARY KEY (id),
     CONSTRAINT uq_cas_user_attributes_user_name UNIQUE (user_id, attribute_name)
 );
@@ -763,7 +770,7 @@ CREATE TABLE IF NOT EXISTS saml_identity_providers (
     priority INTEGER DEFAULT 100,
     attribute_mapping JSONB DEFAULT '{}',
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     last_metadata_refresh_at BIGINT,
     metadata_valid_until_at BIGINT,
     CONSTRAINT pk_saml_identity_providers PRIMARY KEY (id),
@@ -866,7 +873,7 @@ CREATE TABLE IF NOT EXISTS captcha_template (
     is_default BOOLEAN DEFAULT FALSE,
     is_enabled BOOLEAN DEFAULT TRUE,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_captcha_template PRIMARY KEY (id),
     CONSTRAINT uq_captcha_template_name UNIQUE (template_name)
 );
@@ -879,7 +886,7 @@ CREATE TABLE IF NOT EXISTS captcha_config (
     config_value TEXT NOT NULL,
     description TEXT,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_captcha_config PRIMARY KEY (id),
     CONSTRAINT uq_captcha_config_key UNIQUE (config_key)
 );
@@ -903,7 +910,7 @@ CREATE TABLE IF NOT EXISTS push_devices (
     lang TEXT DEFAULT 'en',
     data JSONB DEFAULT '{}',
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     is_enabled BOOLEAN DEFAULT TRUE,
     CONSTRAINT pk_push_devices PRIMARY KEY (id),
     CONSTRAINT uq_push_devices_user_device_pushkey UNIQUE (user_id, device_id, pushkey)
@@ -927,7 +934,7 @@ CREATE TABLE IF NOT EXISTS push_rules (
     is_default BOOLEAN DEFAULT FALSE,
     is_enabled BOOLEAN DEFAULT TRUE,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_push_rules PRIMARY KEY (id),
     CONSTRAINT uq_push_rules_user_scope_rule UNIQUE (user_id, scope, rule_id)
 );
@@ -949,7 +956,7 @@ CREATE TABLE IF NOT EXISTS pushers (
     profile_tag TEXT,
     lang TEXT DEFAULT 'en',
     data JSONB DEFAULT '{}',
-    last_updated_ts BIGINT,
+    updated_ts BIGINT,
     created_ts BIGINT NOT NULL,
     is_enabled BOOLEAN DEFAULT TRUE,
     CONSTRAINT pk_pushers PRIMARY KEY (id),
@@ -993,7 +1000,9 @@ CREATE TABLE IF NOT EXISTS spaces (
     avatar_url TEXT,
     canonical_alias TEXT,
     history_visibility TEXT DEFAULT 'shared',
-    join_rules TEXT DEFAULT 'invite'
+    join_rules TEXT DEFAULT 'invite',
+    room_type TEXT DEFAULT 'm.space',
+    updated_ts BIGINT
 );
 
 CREATE INDEX IF NOT EXISTS idx_spaces_creator ON spaces(creator);
@@ -1026,7 +1035,7 @@ CREATE TABLE IF NOT EXISTS federation_blacklist (
     reason TEXT,
     added_ts BIGINT NOT NULL,
     added_by TEXT,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_federation_blacklist PRIMARY KEY (id),
     CONSTRAINT uq_federation_blacklist_name UNIQUE (server_name)
 );
@@ -1096,7 +1105,7 @@ CREATE TABLE IF NOT EXISTS account_data (
     data_type TEXT NOT NULL,
     content JSONB NOT NULL,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL,
     CONSTRAINT pk_account_data PRIMARY KEY (id),
     CONSTRAINT uq_account_data_user_type UNIQUE (user_id, data_type)
 );
@@ -1112,7 +1121,7 @@ CREATE TABLE IF NOT EXISTS room_account_data (
     data_type TEXT NOT NULL,
     data JSONB NOT NULL,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL,
     CONSTRAINT pk_room_account_data PRIMARY KEY (id),
     CONSTRAINT uq_room_account_data_user_room_type UNIQUE (user_id, room_id, data_type)
 );
@@ -1151,7 +1160,7 @@ CREATE TABLE IF NOT EXISTS background_updates (
     created_ts BIGINT,
     started_ts BIGINT,
     completed_ts BIGINT,
-    last_updated_ts BIGINT,
+    updated_ts BIGINT,
     error_message TEXT,
     retry_count INTEGER DEFAULT 0,
     max_retries INTEGER DEFAULT 3,
@@ -1259,9 +1268,9 @@ WHERE status = 'running' OR status = 'starting';
 -- 存储同步流 ID 序列
 CREATE TABLE IF NOT EXISTS sync_stream_id (
     id BIGSERIAL,
-    stream_type TEXT NOT NULL,
+    stream_type TEXT,
     last_id BIGINT DEFAULT 0,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_sync_stream_id PRIMARY KEY (id),
     CONSTRAINT uq_sync_stream_id_type UNIQUE (stream_type)
 );
@@ -1278,7 +1287,7 @@ CREATE TABLE IF NOT EXISTS modules (
     config JSONB DEFAULT '{}',
     priority INTEGER DEFAULT 0,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     description TEXT,
     CONSTRAINT pk_modules PRIMARY KEY (id),
     CONSTRAINT uq_modules_name UNIQUE (module_name)
@@ -1356,7 +1365,7 @@ CREATE TABLE IF NOT EXISTS account_validity (
     expiration_at BIGINT,
     renewal_token TEXT,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_account_validity PRIMARY KEY (id),
     CONSTRAINT uq_account_validity_user UNIQUE (user_id)
 );
@@ -1375,7 +1384,7 @@ CREATE TABLE IF NOT EXISTS password_auth_providers (
     config JSONB DEFAULT '{}',
     priority INTEGER DEFAULT 0,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_password_auth_providers PRIMARY KEY (id),
     CONSTRAINT uq_password_auth_providers_name UNIQUE (provider_name)
 );
@@ -1452,9 +1461,11 @@ CREATE TABLE IF NOT EXISTS registration_tokens (
     max_uses INTEGER DEFAULT 0,
     uses_count INTEGER DEFAULT 0,
     is_used BOOLEAN DEFAULT FALSE,
+    is_enabled BOOLEAN DEFAULT TRUE,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     expires_at BIGINT,
+    last_used_at BIGINT,
     created_by TEXT NOT NULL,
     allowed_email_domains TEXT[],
     allowed_user_ids TEXT[],
@@ -1466,7 +1477,8 @@ CREATE TABLE IF NOT EXISTS registration_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_registration_tokens_type ON registration_tokens(token_type);
-CREATE INDEX IF NOT EXISTS idx_registration_tokens_expires ON registration_tokens(expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_registration_tokens_expires ON registration_tokens(expires_ts) WHERE expires_ts IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_registration_tokens_enabled ON registration_tokens(is_enabled) WHERE is_enabled = TRUE;
 
 -- ============================================================================
 -- 注册令牌使用记录表
@@ -1545,7 +1557,7 @@ CREATE TABLE IF NOT EXISTS report_rate_limits (
     blocked_until BIGINT,
     last_report_at BIGINT,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_report_rate_limits PRIMARY KEY (id),
     CONSTRAINT uq_report_rate_limits_user UNIQUE (user_id)
 );
@@ -1566,7 +1578,7 @@ CREATE TABLE IF NOT EXISTS event_report_stats (
     escalated_reports INTEGER DEFAULT 0,
     avg_resolution_time_ms BIGINT,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_event_report_stats PRIMARY KEY (id),
     CONSTRAINT uq_event_report_stats_date UNIQUE (stat_date)
 );
@@ -1644,7 +1656,7 @@ CREATE TABLE IF NOT EXISTS push_config (
     config_type TEXT NOT NULL,
     config_data JSONB DEFAULT '{}',
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_push_config PRIMARY KEY (id),
     CONSTRAINT uq_push_config_user_device_type UNIQUE (user_id, device_id, config_type)
 );
@@ -1666,7 +1678,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     is_read BOOLEAN DEFAULT FALSE,
     -- 注意: read 字段已移除（与 is_read 冗余）
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_notifications PRIMARY KEY (id)
 );
 
@@ -1720,7 +1732,7 @@ CREATE TABLE IF NOT EXISTS voice_usage_stats (
     last_active_ts BIGINT,
     -- 注意: last_activity_at 已移除（与 last_active_ts 冗余）
     created_ts BIGINT,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_voice_usage_stats PRIMARY KEY (id),
     CONSTRAINT uq_voice_usage_stats_user_room_period UNIQUE (user_id, room_id, period_start)
 );
@@ -1739,7 +1751,7 @@ CREATE TABLE IF NOT EXISTS presence (
     last_active_ts BIGINT NOT NULL DEFAULT 0,
     status_from TEXT,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL,
     CONSTRAINT pk_presence PRIMARY KEY (user_id),
     CONSTRAINT fk_presence_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
@@ -1781,7 +1793,7 @@ CREATE TABLE IF NOT EXISTS friend_requests (
     message TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     CONSTRAINT pk_friend_requests PRIMARY KEY (id),
     CONSTRAINT uq_friend_requests_sender_receiver UNIQUE (sender_id, receiver_id),
     CONSTRAINT fk_friend_requests_sender FOREIGN KEY (sender_id) REFERENCES users(user_id) ON DELETE CASCADE,
@@ -1826,8 +1838,8 @@ CREATE TABLE IF NOT EXISTS private_sessions (
     session_type VARCHAR(50) DEFAULT 'direct',
     encryption_key VARCHAR(255),
     created_ts BIGINT NOT NULL,
-    last_activity_at BIGINT NOT NULL,
-    updated_at BIGINT,
+    last_activity_ts BIGINT NOT NULL,
+    updated_ts BIGINT,
     unread_count INTEGER DEFAULT 0,
     encrypted_content TEXT,
     CONSTRAINT pk_private_sessions PRIMARY KEY (id),
@@ -1890,7 +1902,7 @@ CREATE TABLE IF NOT EXISTS ip_reputation (
     ip_address TEXT NOT NULL,
     score INTEGER DEFAULT 0,
     last_seen_ts BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL,
     details JSONB,
     CONSTRAINT pk_ip_reputation PRIMARY KEY (id),
     CONSTRAINT uq_ip_reputation_ip UNIQUE (ip_address)
@@ -1912,7 +1924,7 @@ CREATE TABLE IF NOT EXISTS read_markers (
     event_id TEXT NOT NULL,
     marker_type TEXT NOT NULL,
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL,
     CONSTRAINT pk_read_markers PRIMARY KEY (id),
     CONSTRAINT uq_read_markers_room_user_type UNIQUE (room_id, user_id, marker_type)
 );
@@ -1932,7 +1944,7 @@ CREATE TABLE IF NOT EXISTS event_receipts (
     ts BIGINT NOT NULL,
     data JSONB DEFAULT '{}',
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL,
     CONSTRAINT pk_event_receipts PRIMARY KEY (id),
     CONSTRAINT uq_event_receipts_event_room_user_type UNIQUE (event_id, room_id, user_id, receipt_type)
 );
@@ -1989,7 +2001,7 @@ CREATE TABLE IF NOT EXISTS refresh_token_families (
     user_id TEXT NOT NULL,
     device_id TEXT,
     created_ts BIGINT NOT NULL,
-    last_refresh_at BIGINT,
+    last_refresh_ts BIGINT,
     refresh_count INTEGER DEFAULT 0,
     is_compromised BOOLEAN DEFAULT FALSE,
     compromised_at BIGINT,
@@ -2031,7 +2043,7 @@ CREATE TABLE IF NOT EXISTS application_services (
     protocols TEXT[] DEFAULT '{}',
     namespaces JSONB DEFAULT '{}',
     created_ts BIGINT NOT NULL,
-    updated_at BIGINT,
+    updated_ts BIGINT,
     description TEXT,
     CONSTRAINT pk_application_services PRIMARY KEY (id),
     CONSTRAINT uq_application_services_id UNIQUE (as_id)
@@ -2308,17 +2320,217 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 CREATE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version);
 
 -- ============================================================================
--- 第十四部分：初始数据
+-- 第十五部分：测试发现修复的表 (v6.0.2)
 -- ============================================================================
 
--- 安全警告：默认管理员账户
--- =====================================
--- 生产环境部署前请务必：
--- 1. 删除此默认账户或通过环境变量配置
--- 2. 使用环境变量 ADMIN_PASSWORD 设置初始密码
--- 3. 首次登录后立即修改密码
--- 4. 考虑禁用默认管理员账户创建
--- =====================================
+-- 保留策略表 (服务器级)
+CREATE TABLE IF NOT EXISTS server_retention_policy (
+    id BIGSERIAL,
+    policy_name TEXT NOT NULL,
+    min_lifetime_days INTEGER DEFAULT 90,
+    max_lifetime_days INTEGER DEFAULT 365,
+    allow_per_room_override BOOLEAN DEFAULT TRUE,
+    is_default BOOLEAN DEFAULT FALSE,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT,
+    CONSTRAINT pk_server_retention_policy PRIMARY KEY (id),
+    CONSTRAINT uq_server_retention_policy_name UNIQUE (policy_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_server_retention_policy_default ON server_retention_policy(is_default) WHERE is_default = TRUE;
+
+-- 用户媒体配额表
+CREATE TABLE IF NOT EXISTS user_media_quota (
+    id BIGSERIAL,
+    user_id TEXT NOT NULL,
+    max_bytes BIGINT DEFAULT 1073741824,
+    used_bytes BIGINT DEFAULT 0,
+    file_count INTEGER DEFAULT 0,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT,
+    CONSTRAINT pk_user_media_quota PRIMARY KEY (id),
+    CONSTRAINT uq_user_media_quota_user UNIQUE (user_id),
+    CONSTRAINT fk_user_media_quota_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_media_quota_used ON user_media_quota(used_bytes DESC) WHERE used_bytes > 0;
+
+-- 媒体配额配置表
+CREATE TABLE IF NOT EXISTS media_quota_config (
+    id BIGSERIAL,
+    config_name TEXT NOT NULL,
+    max_file_size BIGINT DEFAULT 10485760,
+    max_upload_rate BIGINT,
+    allowed_content_types TEXT[] DEFAULT ARRAY['image/jpeg', 'image/png', 'image/gif', 'video/mp4', 'audio/ogg'],
+    retention_days INTEGER DEFAULT 90,
+    is_enabled BOOLEAN DEFAULT TRUE,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT,
+    CONSTRAINT pk_media_quota_config PRIMARY KEY (id),
+    CONSTRAINT uq_media_quota_config_name UNIQUE (config_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_quota_config_enabled ON media_quota_config(is_enabled) WHERE is_enabled = TRUE;
+
+-- 一次性密钥表 (E2EE)
+CREATE TABLE IF NOT EXISTS one_time_keys (
+    id BIGSERIAL,
+    user_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    algorithm TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    key_data TEXT NOT NULL,
+    is_used BOOLEAN DEFAULT FALSE,
+    used_ts BIGINT,
+    created_ts BIGINT NOT NULL,
+    expires_at BIGINT,
+    CONSTRAINT pk_one_time_keys PRIMARY KEY (id),
+    CONSTRAINT uq_one_time_keys_user_device_algorithm UNIQUE (user_id, device_id, algorithm, key_id),
+    CONSTRAINT fk_one_time_keys_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_one_time_keys_user_device ON one_time_keys(user_id, device_id);
+CREATE INDEX IF NOT EXISTS idx_one_time_keys_used ON one_time_keys(is_used) WHERE is_used = FALSE;
+
+-- Rendezvous 会话表
+CREATE TABLE IF NOT EXISTS rendezvous_session (
+    id BIGSERIAL,
+    session_id TEXT NOT NULL,
+    user_id TEXT,
+    device_id TEXT,
+    status TEXT DEFAULT 'pending',
+    content JSONB DEFAULT '{}',
+    expires_ts BIGINT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT,
+    CONSTRAINT pk_rendezvous_session PRIMARY KEY (id),
+    CONSTRAINT uq_rendezvous_session_id UNIQUE (session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rendezvous_session_user ON rendezvous_session(user_id) WHERE user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_rendezvous_session_expires ON rendezvous_session(expires_ts);
+CREATE INDEX IF NOT EXISTS idx_rendezvous_session_status ON rendezvous_session(status);
+
+-- 应用服务状态表
+CREATE TABLE IF NOT EXISTS application_service_state (
+    id BIGSERIAL,
+    as_id TEXT NOT NULL,
+    state_key TEXT NOT NULL,
+    value JSONB NOT NULL,
+    updated_ts BIGINT NOT NULL,
+    CONSTRAINT pk_application_service_state PRIMARY KEY (id),
+    CONSTRAINT uq_application_service_state_as_key UNIQUE (as_id, state_key),
+    CONSTRAINT fk_application_service_state_as FOREIGN KEY (as_id) REFERENCES application_services(as_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_application_service_state_as ON application_service_state(as_id);
+
+-- 应用服务事务表
+CREATE TABLE IF NOT EXISTS application_service_transactions (
+    id BIGSERIAL,
+    as_id TEXT NOT NULL,
+    txn_id TEXT NOT NULL,
+    data JSONB DEFAULT '{}',
+    processed BOOLEAN DEFAULT FALSE,
+    processed_ts BIGINT,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_application_service_transactions PRIMARY KEY (id),
+    CONSTRAINT uq_application_service_transactions_as_txn UNIQUE (as_id, txn_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_application_service_transactions_as ON application_service_transactions(as_id);
+CREATE INDEX IF NOT EXISTS idx_application_service_transactions_processed ON application_service_transactions(processed) WHERE processed = FALSE;
+
+-- 应用服务事件表
+CREATE TABLE IF NOT EXISTS application_service_events (
+    id BIGSERIAL,
+    as_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    room_id TEXT,
+    event_type TEXT,
+    processed BOOLEAN DEFAULT FALSE,
+    processed_ts BIGINT,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_application_service_events PRIMARY KEY (id),
+    CONSTRAINT uq_application_service_events_event UNIQUE (event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_application_service_events_as ON application_service_events(as_id);
+CREATE INDEX IF NOT EXISTS idx_application_service_events_room ON application_service_events(room_id);
+
+-- 应用服务用户命名空间表
+CREATE TABLE IF NOT EXISTS application_service_user_namespaces (
+    id BIGSERIAL,
+    as_id TEXT NOT NULL,
+    namespace TEXT NOT NULL,
+    is_exclusive BOOLEAN DEFAULT TRUE,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_application_service_user_namespaces PRIMARY KEY (id),
+    CONSTRAINT fk_application_service_user_namespaces_as FOREIGN KEY (as_id) REFERENCES application_services(as_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_application_service_user_namespaces_as ON application_service_user_namespaces(as_id);
+
+-- 应用服务房间别名命名空间表
+CREATE TABLE IF NOT EXISTS application_service_room_alias_namespaces (
+    id BIGSERIAL,
+    as_id TEXT NOT NULL,
+    namespace TEXT NOT NULL,
+    is_exclusive BOOLEAN DEFAULT TRUE,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_application_service_room_alias_namespaces PRIMARY KEY (id),
+    CONSTRAINT fk_application_service_room_alias_namespaces_as FOREIGN KEY (as_id) REFERENCES application_services(as_id) ON DELETE CASCADE
+);
+
+-- 应用服务房间命名空间表
+CREATE TABLE IF NOT EXISTS application_service_room_namespaces (
+    id BIGSERIAL,
+    as_id TEXT NOT NULL,
+    namespace TEXT NOT NULL,
+    is_exclusive BOOLEAN DEFAULT TRUE,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_application_service_room_namespaces PRIMARY KEY (id),
+    CONSTRAINT fk_application_service_room_namespaces_as FOREIGN KEY (as_id) REFERENCES application_services(as_id) ON DELETE CASCADE
+);
+
+-- IP 信誉表 (增强版)
+ALTER TABLE ip_reputation ADD COLUMN IF NOT EXISTS score INTEGER DEFAULT 50;
+ALTER TABLE ip_reputation ADD COLUMN IF NOT EXISTS last_checked_ts BIGINT;
+ALTER TABLE ip_reputation ADD COLUMN IF NOT EXISTS is_whitelisted BOOLEAN DEFAULT FALSE;
+ALTER TABLE ip_reputation ADD COLUMN IF NOT EXISTS blocked_until BIGINT;
+
+-- 第三方身份表 (已废弃，保留兼容性)
+-- 注意: 此表已废弃，功能与 user_threepids 重复
+-- CREATE TABLE IF NOT EXISTS threepids (...);
+
+-- 事件举报表 (已废弃，保留兼容性)
+-- 注意: 此表已废弃，功能与 event_reports 重复
+-- CREATE TABLE IF NOT EXISTS reports (...);
+
+-- 线程统计表 (已废弃，保留兼容性)
+-- 注意: 此表已废弃，功能已合并到 thread_roots
+-- CREATE TABLE IF NOT EXISTS thread_statistics (...);
+
+-- ============================================================================
+-- 完成提示
+-- ============================================================================
+
+DO $$
+BEGIN
+    RAISE NOTICE '==========================================';
+    RAISE NOTICE 'synapse-rust 统一数据库架构 v6.0.3 初始化完成';
+    RAISE NOTICE '创建时间: %', NOW();
+    RAISE NOTICE '表数量: 130+';
+    RAISE NOTICE '主要变更 (v6.0.3):';
+    RAISE NOTICE '  - 添加 server_retention_policy 表';
+    RAISE NOTICE '  - 添加 user_media_quota, media_quota_config 表';
+    RAISE NOTICE '  - 添加 one_time_keys 表 (E2EE)';
+    RAISE NOTICE '  - 添加 rendezvous_session 表';
+    RAISE NOTICE '  - 添加应用服务相关表 (5个)';
+    RAISE NOTICE '  - 增强 ip_reputation 表字段';
+    RAISE NOTICE '  - 标记废弃表 (threepids, reports, thread_statistics)';
+    RAISE NOTICE '==========================================';
+END $$;
 --
 -- 插入默认管理员账户
 -- 用户名: admin (可通过环境变量 ADMIN_USERNAME 配置)
@@ -2367,7 +2579,7 @@ VALUES (
 ) ON CONFLICT (version) DO NOTHING;
 
 -- 插入默认同步流类型
-INSERT INTO sync_stream_id (stream_type, last_id, updated_at)
+INSERT INTO sync_stream_id (stream_type, last_id, updated_ts)
 VALUES 
     ('events', 0, EXTRACT(EPOCH FROM NOW()) * 1000),
     ('presence', 0, EXTRACT(EPOCH FROM NOW()) * 1000),

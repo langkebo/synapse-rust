@@ -99,7 +99,7 @@ pub async fn get_captcha_status(
         "status": captcha.status,
         "attempt_count": captcha.attempt_count,
         "max_attempts": captcha.max_attempts,
-        "expires_at": captcha.expires_ts,
+        "expires_at": captcha.expires_at,
         "created_at": captcha.created_ts,
     })))
 }

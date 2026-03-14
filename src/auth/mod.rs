@@ -456,7 +456,7 @@ impl AuthService {
                     ));
                 }
 
-                if let Some(expires_at) = t.expires_ts {
+                if let Some(expires_at) = t.expires_at {
                     if expires_at < Utc::now().timestamp_millis() {
                         return Err(ApiError::unauthorized("Refresh token expired".to_string()));
                     }
@@ -682,7 +682,7 @@ impl AuthService {
             device_id: Some(device_id.to_string()),
             access_token_id: None,
             scope: None,
-            expires_ts: expiry_ts,
+            expires_at: expiry_ts,
             client_info: None,
             ip_address: None,
             user_agent: None,

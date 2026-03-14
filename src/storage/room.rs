@@ -655,6 +655,75 @@ impl RoomStorage {
         Ok(())
     }
 
+    /// Update read marker with specific marker type
+    /// Supports: m.fully_read, m.private_read, m.marked_unread
+    pub async fn update_read_marker_with_type(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        marker_type: &str,
+    ) -> Result<(), sqlx::Error> {
+        let now: i64 = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r#"
+            INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $5)
+            ON CONFLICT (room_id, user_id, marker_type) DO UPDATE SET event_id = EXCLUDED.event_id, updated_ts = EXCLUDED.updated_ts
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(event_id)
+        .bind(marker_type)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Get read marker for a specific type
+    pub async fn get_read_marker(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        marker_type: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let result = sqlx::query_as::<_, (String,)>(
+            r#"
+            SELECT event_id FROM read_markers 
+            WHERE room_id = $1 AND user_id = $2 AND marker_type = $3
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(marker_type)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(result.map(|r| r.0))
+    }
+
+    /// Get all read markers for a user in a room
+    pub async fn get_all_read_markers(
+        &self,
+        room_id: &str,
+        user_id: &str,
+    ) -> Result<std::collections::HashMap<String, String>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String, String)>(
+            r#"
+            SELECT marker_type, event_id FROM read_markers 
+            WHERE room_id = $1 AND user_id = $2
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
+
     pub async fn add_receipt(
         &self,
         _sender: &str,

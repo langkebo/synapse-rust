@@ -58,7 +58,7 @@ impl CrossSigningStorage {
             public_key: row.get("key_data"),
             usage: vec![],
             signatures: serde_json::json!({}),
-            created_at: chrono::DateTime::from_timestamp_millis(
+            created_ts: chrono::DateTime::from_timestamp_millis(
                 row.get::<i64, _>("added_ts") / 1000,
             )
             .unwrap_or_default(),
@@ -93,7 +93,7 @@ impl CrossSigningStorage {
                 public_key: row.get("key_data"),
                 usage: vec![],
                 signatures: serde_json::json!({}),
-                created_at: chrono::DateTime::from_timestamp_millis(
+                created_ts: chrono::DateTime::from_timestamp_millis(
                     row.get::<i64, _>("added_ts") / 1000,
                 )
                 .unwrap_or_default(),
@@ -207,7 +207,7 @@ impl CrossSigningStorage {
                 target_device_id: row.get("target_device_id"),
                 target_key_id: row.get("algorithm"),
                 signature: row.get("signature"),
-                created_at: chrono::DateTime::from_timestamp_millis(
+                created_ts: chrono::DateTime::from_timestamp_millis(
                     row.get::<i64, _>("created_ts") / 1000,
                 )
                 .unwrap_or_default(),
@@ -243,7 +243,7 @@ impl CrossSigningStorage {
                 target_device_id: row.get("target_device_id"),
                 target_key_id: row.get("algorithm"),
                 signature: row.get("signature"),
-                created_at: chrono::DateTime::from_timestamp_millis(
+                created_ts: chrono::DateTime::from_timestamp_millis(
                     row.get::<i64, _>("created_ts") / 1000,
                 )
                 .unwrap_or_default(),
@@ -279,7 +279,7 @@ impl CrossSigningStorage {
             target_device_id: row.get("target_device_id"),
             target_key_id: row.get("algorithm"),
             signature: row.get("signature"),
-            created_at: chrono::DateTime::from_timestamp_millis(
+            created_ts: chrono::DateTime::from_timestamp_millis(
                 row.get::<i64, _>("created_ts") / 1000,
             )
             .unwrap_or_default(),
@@ -322,7 +322,7 @@ mod tests {
             public_key: "base64_encoded_public_key".to_string(),
             usage: vec!["master".to_string()],
             signatures: serde_json::json!({}),
-            created_at: Utc::now(),
+            created_ts: Utc::now(),
             updated_ts: Utc::now(),
         }
     }
@@ -357,7 +357,7 @@ mod tests {
                 public_key: "key_data".to_string(),
                 usage: vec![key_type.to_string()],
                 signatures: serde_json::json!({}),
-                created_at: Utc::now(),
+                created_ts: Utc::now(),
                 updated_ts: Utc::now(),
             };
 
@@ -369,7 +369,7 @@ mod tests {
     fn test_cross_signing_key_timestamps() {
         let key = create_test_cross_signing_key();
 
-        assert!(key.created_at <= key.updated_ts);
+        assert!(key.created_ts <= key.updated_ts);
     }
 
     #[test]
@@ -394,7 +394,7 @@ mod tests {
             public_key: "key_data".to_string(),
             usage: vec!["master".to_string()],
             signatures,
-            created_at: Utc::now(),
+            created_ts: Utc::now(),
             updated_ts: Utc::now(),
         };
 
@@ -429,7 +429,7 @@ mod tests {
             "public_key": "test_key",
             "usage": ["self_signing"],
             "signatures": {},
-            "created_at": "2024-01-01T00:00:00Z",
+            "created_ts": "2024-01-01T00:00:00Z",
             "updated_ts": "2024-01-01T00:00:00Z"
         }"#;
 
@@ -455,7 +455,7 @@ mod tests {
                 public_key: "key".to_string(),
                 usage: usage.iter().map(|s| s.to_string()).collect(),
                 signatures: serde_json::json!({}),
-                created_at: Utc::now(),
+                created_ts: Utc::now(),
                 updated_ts: Utc::now(),
             };
 

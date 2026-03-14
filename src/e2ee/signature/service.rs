@@ -35,7 +35,7 @@ impl SignatureService {
                 signature.to_bytes(),
             ),
             key_id: format!("ed25519:{}", device_id),
-            created_at: Utc::now().timestamp(),
+            created_ts: Utc::now().timestamp(),
         };
 
         self.storage.create_signature(&event_signature).await?;
