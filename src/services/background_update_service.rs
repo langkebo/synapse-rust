@@ -138,7 +138,8 @@ impl BackgroundUpdateService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update progress: {}", e)))?;
 
-        if update.progress >= 100
+        let progress_value = update.progress.as_i64().unwrap_or(0);
+        if progress_value >= 100
             || (update.total_items > 0 && update.processed_items >= update.total_items)
         {
             self.complete_update(job_name).await?;
@@ -322,13 +323,17 @@ impl BackgroundUpdateService {
         for update in pending {
             if let Some(ref depends_on) = update.depends_on {
                 let mut all_completed = true;
-                for dep in depends_on {
-                    if let Some(dep_update) = self.storage.get_update(dep).await.map_err(|e| {
-                        ApiError::internal(format!("Failed to check dependency: {}", e))
-                    })? {
-                        if dep_update.status != "completed" {
-                            all_completed = false;
-                            break;
+                if let Some(deps) = depends_on.as_array() {
+                    for dep_value in deps {
+                        if let Some(dep) = dep_value.as_str() {
+                            if let Some(dep_update) = self.storage.get_update(dep).await.map_err(|e| {
+                                ApiError::internal(format!("Failed to check dependency: {}", e))
+                            })? {
+                                if dep_update.status != "completed" {
+                                    all_completed = false;
+                                    break;
+                                }
+                            }
                         }
                     }
                 }

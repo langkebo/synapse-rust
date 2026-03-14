@@ -14,7 +14,7 @@ pub struct RendezvousSession {
     pub transport_data: Option<serde_json::Value>,
     pub key: String,
     pub created_ts: i64,
-    pub expires_ts: i64,
+    pub expires_at: i64,
     pub status: String,
 }
 
@@ -111,12 +111,12 @@ impl RendezvousStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let session_id = uuid::Uuid::new_v4().simple().to_string();
         let key = Self::generate_key();
-        let expires_ts = now + params.expires_in_ms.unwrap_or(5 * 60 * 1000);
+        let expires_at = now + params.expires_in_ms.unwrap_or(5 * 60 * 1000);
 
         sqlx::query_as::<_, RendezvousSession>(
             r#"
             INSERT INTO rendezvous_session 
-                (session_id, intent, transport, transport_data, key, created_ts, expires_ts, status)
+                (session_id, intent, transport, transport_data, key, created_ts, expires_at, status)
             VALUES ($1, $2, $3, $4, $5, $6, $7, 'waiting')
             RETURNING *
             "#,
@@ -127,7 +127,7 @@ impl RendezvousStorage {
         .bind(&params.transport_data)
         .bind(&key)
         .bind(now)
-        .bind(expires_ts)
+        .bind(expires_at)
         .fetch_one(&*self.pool)
         .await
     }
@@ -141,7 +141,7 @@ impl RendezvousStorage {
         sqlx::query_as::<_, RendezvousSession>(
             r#"
             SELECT * FROM rendezvous_session 
-            WHERE session_id = $1 AND expires_ts > $2
+            WHERE session_id = $1 AND expires_at > $2
             "#,
         )
         .bind(session_id)
@@ -231,7 +231,7 @@ impl RendezvousStorage {
 
         let result = sqlx::query(
             r#"
-            DELETE FROM rendezvous_session WHERE expires_ts < $1
+            DELETE FROM rendezvous_session WHERE expires_at < $1
             "#,
         )
         .bind(now)

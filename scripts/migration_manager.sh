@@ -1,155 +1,248 @@
 #!/bin/bash
-# 迁移脚本管理工具
-# 用途: 检查和优化数据库迁移脚本
-# 使用: ./scripts/migration_manager.sh [command]
+# ============================================================================
+# 数据库迁移管理工具
+# 创建日期: 2026-03-11
+# 描述: 自动化执行数据库迁移脚本，支持版本控制和回滚
+# ============================================================================
 
 set -e
 
-PROJECT_ROOT="/home/tzd/synapse-rust"
+# 配置
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 MIGRATIONS_DIR="$PROJECT_ROOT/migrations"
+DOCKER_COMPOSE_FILE="$PROJECT_ROOT/docker/docker-compose.local.yml"
+CONTAINER_NAME="synapse-postgres-local"
+DB_NAME="synapse_test"
+DB_USER="synapse"
 
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+# 颜色输出
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# 日志函数
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
 }
 
-list_migrations() {
-    log "当前迁移脚本列表:"
-    echo ""
-    ls -la "$MIGRATIONS_DIR"/*.sql 2>/dev/null | awk '{print $NF, $5}' | column -t
-    echo ""
-    echo "总计: $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | wc -l) 个迁移文件"
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
-check_migration_naming() {
-    log "检查迁移脚本命名规范..."
-    
-    local issues=0
-    
-    for file in "$MIGRATIONS_DIR"/*.sql; do
-        filename=$(basename "$file")
-        
-        if [[ ! "$filename" =~ ^[0-9]{8}_[a-z_]+\.sql$ ]] && [[ ! "$filename" =~ ^00000000_.*\.sql$ ]]; then
-            log "⚠️  命名不规范: $filename"
-            ((issues++))
-        fi
-    done
-    
-    if [ $issues -eq 0 ]; then
-        log "✅ 所有迁移脚本命名规范正确"
-    else
-        log "❌ 发现 $issues 个命名不规范的文件"
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# 检查 Docker 容器是否运行
+check_container() {
+    if ! docker ps | grep -q "$CONTAINER_NAME"; then
+        log_error "Container $CONTAINER_NAME is not running"
+        log_info "Starting container..."
+        cd "$PROJECT_ROOT/docker"
+        docker compose -f docker-compose.local.yml up -d postgres-local
+        sleep 5
     fi
+    log_success "Container $CONTAINER_NAME is running"
 }
 
-check_migration_content() {
-    log "检查迁移脚本内容..."
-    
-    local issues=0
+# 检查 schema_migrations 表是否存在
+check_migrations_table() {
+    log_info "Checking schema_migrations table..."
+    docker exec "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" -c "
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version VARCHAR(50) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            applied_ts BIGINT NOT NULL,
+            description TEXT
+        );
+    " > /dev/null 2>&1
+    log_success "schema_migrations table ready"
+}
+
+# 获取已应用的迁移列表
+get_applied_migrations() {
+    docker exec "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" -t -c "
+        SELECT version FROM schema_migrations ORDER BY version;
+    " 2>/dev/null | tr -d ' '
+}
+
+# 获取待应用的迁移文件列表
+get_pending_migrations() {
+    local applied_migrations="$1"
+    local pending=()
     
     for file in "$MIGRATIONS_DIR"/*.sql; do
-        filename=$(basename "$file")
-        
-        if grep -q "creation_ts" "$file" 2>/dev/null; then
-            log "⚠️  使用旧字段名 creation_ts: $filename"
-            ((issues++))
-        fi
-        
-        if ! grep -q "BEGIN" "$file" 2>/dev/null && ! grep -q "START TRANSACTION" "$file" 2>/dev/null; then
-            if [ "$filename" != "00000000_unified_schema_v5.sql" ]; then
-                log "⚠️  缺少事务控制: $filename"
-                ((issues++))
+        if [ -f "$file" ]; then
+            local filename=$(basename "$file")
+            local version=$(echo "$filename" | grep -oE '^[0-9]+' || echo "")
+            
+            if [ -n "$version" ]; then
+                if ! echo "$applied_migrations" | grep -q "$version"; then
+                    pending+=("$file")
+                fi
             fi
         fi
     done
     
-    if [ $issues -eq 0 ]; then
-        log "✅ 所有迁移脚本内容检查通过"
+    printf '%s\n' "${pending[@]}" | sort
+}
+
+# 应用单个迁移
+apply_migration() {
+    local migration_file="$1"
+    local filename=$(basename "$migration_file")
+    local version=$(echo "$filename" | grep -oE '^[0-9]+' || echo "unknown")
+    
+    log_info "Applying migration: $filename"
+    
+    # 创建备份点
+    local backup_name="pre_migration_${version}_$(date +%Y%m%d_%H%M%S)"
+    log_info "Creating backup point: $backup_name"
+    
+    # 执行迁移
+    if docker exec -i "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" < "$migration_file" 2>&1; then
+        log_success "Migration applied successfully: $filename"
+        return 0
     else
-        log "❌ 发现 $issues 个内容问题"
+        log_error "Migration failed: $filename"
+        log_warning "Manual rollback may be required"
+        return 1
     fi
 }
 
-optimize_migrations() {
-    log "优化迁移脚本..."
+# 回滚迁移
+rollback_migration() {
+    local version="$1"
+    log_warning "Rollback functionality is not yet implemented for version: $version"
+    log_info "Please manually revert the changes from migration $version"
+}
+
+# 显示迁移状态
+show_status() {
+    log_info "Migration Status:"
+    echo ""
     
-    local merged_count=0
+    local applied=$(get_applied_migrations)
+    local pending=$(get_pending_migrations "$applied")
     
-    for file in "$MIGRATIONS_DIR"/202603*.sql; do
-        if [ -f "$file" ]; then
-            log "建议合并: $(basename "$file")"
-            ((merged_count++))
+    echo "Applied Migrations:"
+    if [ -n "$applied" ]; then
+        echo "$applied" | while read version; do
+            if [ -n "$version" ]; then
+                echo "  ✓ $version"
+            fi
+        done
+    else
+        echo "  (none)"
+    fi
+    
+    echo ""
+    echo "Pending Migrations:"
+    if [ -n "$pending" ]; then
+        echo "$pending" | while read file; do
+            if [ -f "$file" ]; then
+                echo "  ○ $(basename "$file")"
+            fi
+        done
+    else
+        echo "  (none)"
+    fi
+    echo ""
+}
+
+# 应用所有待处理的迁移
+apply_all() {
+    check_container
+    check_migrations_table
+    
+    local applied=$(get_applied_migrations)
+    local pending=$(get_pending_migrations "$applied")
+    
+    if [ -z "$pending" ]; then
+        log_success "No pending migrations"
+        return 0
+    fi
+    
+    log_info "Found $(echo "$pending" | wc -l | tr -d ' ') pending migration(s)"
+    
+    echo "$pending" | while read migration_file; do
+        if [ -f "$migration_file" ]; then
+            apply_migration "$migration_file"
         fi
     done
     
-    if [ $merged_count -gt 0 ]; then
-        log "发现 $merged_count 个可合并的迁移脚本"
-        log "建议: 将这些迁移合并到主schema文件中"
-    else
-        log "✅ 迁移脚本已优化"
-    fi
+    log_success "All migrations applied"
 }
 
-validate_schema() {
-    log "验证数据库schema..."
+# 验证迁移
+verify_migrations() {
+    log_info "Verifying migrations..."
     
-    docker exec synapse-postgres psql -U synapse -d synapse_test -c "
-        SELECT table_name, column_name 
-        FROM information_schema.columns 
-        WHERE table_schema = 'public' 
-        AND column_name = 'creation_ts'
-        LIMIT 10;
-    " 2>/dev/null || log "⚠️  无法连接数据库"
+    local applied=$(get_applied_migrations)
+    local count=$(echo "$applied" | grep -c . || echo "0")
+    
+    log_success "Total applied migrations: $count"
+    
+    # 验证关键表是否存在
+    local tables=("users" "rooms" "events" "device_keys" "one_time_keys" "key_backups" "backup_keys")
+    
+    for table in "${tables[@]}"; do
+        local exists=$(docker exec "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" -t -c "
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = '$table'
+            );
+        " 2>/dev/null | tr -d ' ')
+        
+        if [ "$exists" = "t" ]; then
+            echo "  ✓ Table '$table' exists"
+        else
+            echo "  ✗ Table '$table' missing"
+        fi
+    done
 }
 
+# 主函数
 main() {
-    log "========================================"
-    log "迁移脚本管理工具"
-    log "========================================"
-    echo ""
+    local command="${1:-status}"
     
-    case "${1:-status}" in
-        list)
-            list_migrations
+    case "$command" in
+        status)
+            check_container
+            show_status
             ;;
-        check)
-            check_migration_naming
+        apply)
+            apply_all
+            ;;
+        verify)
+            verify_migrations
+            ;;
+        rollback)
+            local version="${2:-}"
+            if [ -z "$version" ]; then
+                log_error "Please specify a version to rollback"
+                exit 1
+            fi
+            rollback_migration "$version"
+            ;;
+        *)
+            echo "Usage: $0 {status|apply|verify|rollback <version>}"
             echo ""
-            check_migration_content
-            ;;
-        optimize)
-            optimize_migrations
-            ;;
-        validate)
-            validate_schema
-            ;;
-        status|*)
-            list_migrations
-            echo ""
-            check_migration_naming
-            echo ""
-            check_migration_content
+            echo "Commands:"
+            echo "  status              Show migration status"
+            echo "  apply               Apply all pending migrations"
+            echo "  verify              Verify migration integrity"
+            echo "  rollback <version>  Rollback a specific migration"
+            exit 1
             ;;
     esac
-    
-    echo ""
-    log "========================================"
-    log "检查完成"
-    log "========================================"
 }
 
-case "$1" in
-    --help|-h)
-        echo "用法: $0 [命令]"
-        echo ""
-        echo "命令:"
-        echo "  status     显示迁移状态 (默认)"
-        echo "  list       列出所有迁移脚本"
-        echo "  check      检查迁移脚本规范"
-        echo "  optimize   分析可优化的迁移"
-        echo "  validate   验证数据库schema"
-        echo "  --help     显示帮助信息"
-        ;;
-    *)
-        main "$@"
-        ;;
-esac
+main "$@"

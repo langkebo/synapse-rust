@@ -7,7 +7,7 @@ pub struct EmailVerificationToken {
     pub user_id: Option<String>,
     pub email: String,
     pub token: String,
-    pub expires_ts: i64,
+    pub expires_at: i64,
     pub created_ts: i64,
     pub used: bool,
     pub session_data: Option<serde_json::Value>,
@@ -32,19 +32,19 @@ impl EmailVerificationStorage {
         session_data: Option<serde_json::Value>,
     ) -> Result<i64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        let expires_ts = now + expires_in_seconds;
+        let expires_at = now + expires_in_seconds;
         let created_ts = now;
 
         let row = sqlx::query_as::<_, TokenIdRow>(
             r#"
-            INSERT INTO email_verification_tokens (email, token, expires_ts, created_ts, used, user_id, session_data)
+            INSERT INTO email_verification_tokens (email, token, expires_at, created_ts, used, user_id, session_data)
             VALUES ($1, $2, $3, $4, FALSE, $5, $6)
             RETURNING id
             "#,
         )
         .bind(email)
         .bind(token)
-        .bind(expires_ts)
+        .bind(expires_at)
         .bind(created_ts)
         .bind(user_id)
         .bind(session_data)
@@ -63,9 +63,9 @@ impl EmailVerificationStorage {
 
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
             r#"
-            SELECT id, user_id, email, token, expires_ts, created_ts, used, session_data
+            SELECT id, user_id, email, token, expires_at, created_ts, used, session_data
             FROM email_verification_tokens
-            WHERE email = $1 AND token = $2 AND used = FALSE AND expires_ts > $3
+            WHERE email = $1 AND token = $2 AND used = FALSE AND expires_at > $3
             "#,
         )
         .bind(email)
@@ -95,7 +95,7 @@ impl EmailVerificationStorage {
     ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
             r#"
-            SELECT id, user_id, email, token, expires_ts, created_ts, used, session_data
+            SELECT id, user_id, email, token, expires_at, created_ts, used, session_data
             FROM email_verification_tokens
             WHERE id = $1
             "#,
@@ -111,7 +111,7 @@ impl EmailVerificationStorage {
         let now = chrono::Utc::now().timestamp();
         let result = sqlx::query(
             r#"
-            DELETE FROM email_verification_tokens WHERE expires_ts < $1
+            DELETE FROM email_verification_tokens WHERE expires_at < $1
             "#,
         )
         .bind(now)
@@ -128,9 +128,9 @@ impl EmailVerificationStorage {
 
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
             r#"
-            SELECT id, user_id, email, token, expires_ts, created_ts, used, session_data
+            SELECT id, user_id, email, token, expires_at, created_ts, used, session_data
             FROM email_verification_tokens
-            WHERE email = $1 AND used = FALSE AND expires_ts > $2
+            WHERE email = $1 AND used = FALSE AND expires_at > $2
             ORDER BY created_ts DESC
             LIMIT 1
             "#,
@@ -160,7 +160,7 @@ mod tests {
             user_id: Some("@test:example.com".to_string()),
             email: "test@example.com".to_string(),
             token: "abc123".to_string(),
-            expires_ts: 1234567890,
+            expires_at: 1234567890,
             created_ts: 1234560000,
             used: false,
             session_data: None,
@@ -178,7 +178,7 @@ mod tests {
             user_id: Some("@user:example.com".to_string()),
             email: "user@example.com".to_string(),
             token: "token456".to_string(),
-            expires_ts: 1234567890,
+            expires_at: 1234567890,
             created_ts: 1234560000,
             used: false,
             session_data: Some(serde_json::json!({"key": "value"})),
@@ -194,12 +194,12 @@ mod tests {
             user_id: Some("@expired:example.com".to_string()),
             email: "expired@example.com".to_string(),
             token: "expired_token".to_string(),
-            expires_ts: current_ts - 3600,
+            expires_at: current_ts - 3600,
             created_ts: current_ts - 7200,
             used: false,
             session_data: None,
         };
-        assert!(token.expires_ts < current_ts);
+        assert!(token.expires_at < current_ts);
     }
 
     #[test]
@@ -209,7 +209,7 @@ mod tests {
             user_id: Some("@used:example.com".to_string()),
             email: "used@example.com".to_string(),
             token: "used_token".to_string(),
-            expires_ts: 1234567890,
+            expires_at: 1234567890,
             created_ts: 1234560000,
             used: true,
             session_data: None,

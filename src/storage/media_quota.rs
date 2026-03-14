@@ -233,16 +233,18 @@ impl MediaQuotaStorage {
 
         let default_config = self.get_default_config().await?;
         let quota_config_id = default_config.map(|c| c.id);
+        let now = chrono::Utc::now().timestamp_millis();
 
         let quota = sqlx::query_as::<_, UserMediaQuota>(
             r#"
-            INSERT INTO user_media_quota (user_id, quota_config_id)
-            VALUES ($1, $2)
+            INSERT INTO user_media_quota (user_id, quota_config_id, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $3)
             RETURNING *
             "#,
         )
         .bind(user_id)
         .bind(quota_config_id)
+        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create user quota: {}", e)))?;
@@ -709,8 +711,8 @@ mod tests {
 
     #[test]
     fn test_mime_type_validation() {
-        let allowed = vec!["image/*", "video/*", "application/pdf"];
-        let blocked = vec!["application/exe", "application/bat"];
+        let allowed = ["image/*", "video/*", "application/pdf"];
+        let blocked = ["application/exe", "application/bat"];
 
         assert!(allowed.contains(&"image/*"));
         assert!(blocked.contains(&"application/exe"));

@@ -11,8 +11,8 @@ pub struct MegolmSession {
     pub session_key: String,
     pub algorithm: String,
     pub message_index: i64,
-    pub created_at: DateTime<Utc>,
-    pub last_used_at: DateTime<Utc>,
+    pub created_ts: DateTime<Utc>,
+    pub last_used_ts: DateTime<Utc>,
     pub expires_at: Option<DateTime<Utc>>,
 }
 
@@ -50,8 +50,8 @@ mod tests {
             session_key: "session_key456".to_string(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
-            created_at: chrono::Utc::now(),
-            last_used_at: chrono::Utc::now(),
+            created_ts: chrono::Utc::now(),
+            last_used_ts: chrono::Utc::now(),
             expires_at: None,
         };
 
@@ -71,8 +71,8 @@ mod tests {
             session_key: "session_key456".to_string(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 100,
-            created_at: chrono::Utc::now(),
-            last_used_at: chrono::Utc::now(),
+            created_ts: chrono::Utc::now(),
+            last_used_ts: chrono::Utc::now(),
             expires_at: Some(expires),
         };
 
@@ -111,8 +111,8 @@ mod tests {
             session_key: "session_key".to_string(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
-            created_at: chrono::Utc::now(),
-            last_used_at: chrono::Utc::now(),
+            created_ts: chrono::Utc::now(),
+            last_used_ts: chrono::Utc::now(),
             expires_at: None,
         };
 
@@ -156,8 +156,8 @@ mod tests {
                 session_key: "key".to_string(),
                 algorithm: algo.to_string(),
                 message_index: 0,
-                created_at: chrono::Utc::now(),
-                last_used_at: chrono::Utc::now(),
+                created_ts: chrono::Utc::now(),
+                last_used_ts: chrono::Utc::now(),
                 expires_at: None,
             };
 
@@ -175,8 +175,8 @@ mod tests {
             session_key: "session_key".to_string(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 50,
-            created_at: chrono::Utc::now(),
-            last_used_at: chrono::Utc::now(),
+            created_ts: chrono::Utc::now(),
+            last_used_ts: chrono::Utc::now(),
             expires_at: None,
         };
 

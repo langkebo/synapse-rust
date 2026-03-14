@@ -433,3 +433,161 @@ pub struct NamespacesInfo {
 }
 
 use serde::Serialize;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_namespaces_info_serialization() {
+        let info = NamespacesInfo {
+            users: vec![],
+            aliases: vec![],
+            rooms: vec![],
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("users"));
+        assert!(json.contains("aliases"));
+        assert!(json.contains("rooms"));
+    }
+
+    #[test]
+    fn test_namespaces_info_with_data() {
+        let namespace = crate::storage::application_service::ApplicationServiceNamespace {
+            id: 1,
+            as_id: "test-as".to_string(),
+            namespace_pattern: "@_.*:example.com".to_string(),
+            exclusive: true,
+            regex: "@_.*:example.com".to_string(),
+            created_ts: 1234567890,
+        };
+        let info = NamespacesInfo {
+            users: vec![namespace.clone()],
+            aliases: vec![],
+            rooms: vec![namespace],
+        };
+        assert_eq!(info.users.len(), 1);
+        assert_eq!(info.rooms.len(), 1);
+        assert!(info.aliases.is_empty());
+    }
+
+    #[test]
+    fn test_update_request_builder() {
+        let request = crate::storage::application_service::UpdateApplicationServiceRequest::new()
+            .url("http://new-url:8080")
+            .name("New Name")
+            .description("New Description")
+            .rate_limited(true)
+            .is_enabled(true);
+
+        assert_eq!(request.url, Some("http://new-url:8080".to_string()));
+        assert_eq!(request.name, Some("New Name".to_string()));
+        assert_eq!(request.description, Some("New Description".to_string()));
+        assert_eq!(request.rate_limited, Some(true));
+        assert_eq!(request.is_enabled, Some(true));
+    }
+
+    #[test]
+    fn test_update_request_partial() {
+        let request = crate::storage::application_service::UpdateApplicationServiceRequest::new()
+            .name("Only Name Update");
+
+        assert!(request.url.is_none());
+        assert_eq!(request.name, Some("Only Name Update".to_string()));
+        assert!(request.description.is_none());
+        assert!(request.rate_limited.is_none());
+        assert!(request.is_enabled.is_none());
+    }
+
+    #[test]
+    fn test_update_request_protocols() {
+        let request = crate::storage::application_service::UpdateApplicationServiceRequest::new()
+            .protocols(vec!["irc".to_string(), "matrix".to_string()]);
+
+        assert_eq!(request.protocols.as_ref().unwrap().len(), 2);
+        assert!(request.protocols.unwrap().contains(&"irc".to_string()));
+    }
+
+    #[test]
+    fn test_namespace_rule_creation() {
+        let rule = crate::storage::application_service::NamespaceRule {
+            exclusive: true,
+            regex: "@_irc_.*:example\\.com".to_string(),
+            group_id: Some("group:example.com".to_string()),
+        };
+        assert!(rule.exclusive);
+        assert_eq!(rule.regex, "@_irc_.*:example\\.com");
+        assert_eq!(rule.group_id, Some("group:example.com".to_string()));
+    }
+
+    #[test]
+    fn test_namespace_rule_without_group() {
+        let rule = crate::storage::application_service::NamespaceRule {
+            exclusive: false,
+            regex: "#_.*:example\\.com".to_string(),
+            group_id: None,
+        };
+        assert!(!rule.exclusive);
+        assert!(rule.group_id.is_none());
+    }
+
+    #[test]
+    fn test_namespaces_structure() {
+        let namespaces = crate::storage::application_service::Namespaces {
+            users: vec![
+                crate::storage::application_service::NamespaceRule {
+                    exclusive: true,
+                    regex: "@_.*:example.com".to_string(),
+                    group_id: None,
+                },
+            ],
+            aliases: vec![],
+            rooms: vec![],
+        };
+        assert_eq!(namespaces.users.len(), 1);
+        assert!(namespaces.aliases.is_empty());
+        assert!(namespaces.rooms.is_empty());
+    }
+
+    #[test]
+    fn test_register_request_minimal() {
+        let request = crate::storage::application_service::RegisterApplicationServiceRequest {
+            as_id: "minimal-as".to_string(),
+            url: "http://localhost:8080".to_string(),
+            as_token: "token".to_string(),
+            hs_token: "hs_token".to_string(),
+            sender: "@bot:example.com".to_string(),
+            name: None,
+            description: None,
+            rate_limited: None,
+            protocols: None,
+            namespaces: None,
+        };
+        assert_eq!(request.as_id, "minimal-as");
+        assert!(request.name.is_none());
+        assert!(request.protocols.is_none());
+    }
+
+    #[test]
+    fn test_register_request_full() {
+        let request = crate::storage::application_service::RegisterApplicationServiceRequest {
+            as_id: "full-as".to_string(),
+            url: "http://localhost:9999".to_string(),
+            as_token: "as_token".to_string(),
+            hs_token: "hs_token".to_string(),
+            sender: "@bridge:example.com".to_string(),
+            name: Some("Full Bridge".to_string()),
+            description: Some("A full bridge service".to_string()),
+            rate_limited: Some(true),
+            protocols: Some(vec!["irc".to_string()]),
+            namespaces: Some(serde_json::json!({
+                "users": [{"exclusive": true, "regex": "@_.*:example.com"}],
+                "aliases": [],
+                "rooms": []
+            })),
+        };
+        assert_eq!(request.name, Some("Full Bridge".to_string()));
+        assert_eq!(request.rate_limited, Some(true));
+        assert!(request.namespaces.is_some());
+    }
+}

@@ -577,7 +577,7 @@ mod tests {
 
     #[test]
     fn test_resource_type_variants() {
-        let types = vec![
+        let types = [
             ResourceType::User,
             ResourceType::Room,
             ResourceType::Device,

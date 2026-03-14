@@ -40,11 +40,11 @@ pub struct UserThreepid {
     pub user_id: String,
     pub medium: String,
     pub address: String,
-    pub validated_ts: Option<i64>,
+    pub validated_at: Option<i64>,
     pub added_ts: i64,
     pub is_verified: bool,
     pub verification_token: Option<String>,
-    pub verification_expires_ts: Option<i64>,
+    pub verification_expires_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -182,11 +182,11 @@ mod tests {
             user_id: "@alice:example.com".to_string(),
             medium: "email".to_string(),
             address: "alice@example.com".to_string(),
-            validated_ts: Some(1234567890),
+            validated_at: Some(1234567890),
             added_ts: 1234567800,
             is_verified: true,
             verification_token: None,
-            verification_expires_ts: None,
+            verification_expires_at: None,
         };
 
         assert_eq!(threepid.medium, "email");

@@ -344,11 +344,11 @@ mod tests {
             "state".to_string(),
         );
 
-        let original_last_used = session_data.last_used_at;
+        let original_last_used = session_data.last_used_ts;
         std::thread::sleep(std::time::Duration::from_millis(10));
         session_data.touch();
 
-        assert!(session_data.last_used_at > original_last_used);
+        assert!(session_data.last_used_ts > original_last_used);
     }
 
     #[test]

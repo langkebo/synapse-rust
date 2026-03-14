@@ -12,8 +12,10 @@ use sqlx::Row;
 pub fn create_push_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v3/pushers", get(get_pushers))
+        .route("/_matrix/client/v3/pushers", post(set_pusher))
         .route("/_matrix/client/v3/pushers/set", post(set_pusher))
         .route("/_matrix/client/r0/pushers", get(get_pushers))
+        .route("/_matrix/client/r0/pushers", post(set_pusher))
         .route("/_matrix/client/r0/pushers/set", post(set_pusher))
         .route("/_matrix/client/v3/pushrules", get(get_push_rules))
         .route("/_matrix/client/r0/pushrules", get(get_push_rules))
@@ -523,7 +525,7 @@ async fn get_notifications(
 
     let notifications = sqlx::query(
         r#"
-        SELECT event_id, room_id, ts, notification_type, read
+        SELECT event_id, room_id, ts, notification_type, is_read
         FROM notifications
         WHERE user_id = $1
         ORDER BY ts DESC
@@ -544,7 +546,7 @@ async fn get_notifications(
                 "room_id": row.get::<Option<String>, _>("room_id"),
                 "ts": row.get::<Option<i64>, _>("ts"),
                 "profile_tag": row.get::<Option<String>, _>("notification_type"),
-                "read": row.get::<Option<bool>, _>("read").unwrap_or(false)
+                "read": row.get::<Option<bool>, _>("is_read").unwrap_or(false)
             })
         })
         .collect();

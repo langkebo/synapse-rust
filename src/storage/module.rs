@@ -12,7 +12,7 @@ pub struct Module {
     pub module_type: String,
     pub version: String,
     pub description: Option<String>,
-    pub enabled: bool,
+    pub is_enabled: bool,
     pub priority: i32,
     pub config: Option<serde_json::Value>,
     pub created_ts: i64,
@@ -29,7 +29,7 @@ pub struct CreateModuleRequest {
     pub module_type: String,
     pub version: String,
     pub description: Option<String>,
-    pub enabled: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub priority: Option<i32>,
     pub config: Option<serde_json::Value>,
 }
@@ -141,7 +141,7 @@ pub struct PasswordAuthProvider {
     pub provider_name: String,
     pub provider_type: String,
     pub config: Option<serde_json::Value>,
-    pub enabled: bool,
+    pub is_enabled: bool,
     pub priority: i32,
     pub created_ts: i64,
     pub updated_ts: i64,
@@ -152,7 +152,7 @@ pub struct CreatePasswordAuthProviderRequest {
     pub provider_name: String,
     pub provider_type: String,
     pub config: serde_json::Value,
-    pub enabled: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub priority: Option<i32>,
 }
 
@@ -170,7 +170,7 @@ pub struct CreatePresenceRouteRequest {
     pub route_name: String,
     pub route_type: String,
     pub config: serde_json::Value,
-    pub enabled: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub priority: Option<i32>,
 }
 
@@ -194,7 +194,7 @@ pub struct CreateMediaCallbackRequest {
     pub url: String,
     pub method: Option<String>,
     pub headers: Option<serde_json::Value>,
-    pub enabled: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub timeout_ms: Option<i32>,
     pub retry_count: Option<i32>,
 }
@@ -216,7 +216,7 @@ pub struct CreateRateLimitCallbackRequest {
     pub callback_name: String,
     pub callback_type: String,
     pub config: serde_json::Value,
-    pub enabled: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub priority: Option<i32>,
 }
 
@@ -236,7 +236,7 @@ pub struct CreateAccountDataCallbackRequest {
     pub callback_name: String,
     pub callback_type: String,
     pub config: serde_json::Value,
-    pub enabled: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub priority: Option<i32>,
 }
 
@@ -260,7 +260,7 @@ impl ModuleStorage {
         let row = sqlx::query_as::<_, Module>(
             r#"
             INSERT INTO modules (
-                module_name, module_type, version, description, enabled, priority, config, created_ts, updated_ts
+                module_name, module_type, version, description, is_enabled, priority, config, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
             RETURNING *
@@ -270,7 +270,7 @@ impl ModuleStorage {
         .bind(&request.module_type)
         .bind(&request.version)
         .bind(&request.description)
-        .bind(request.enabled.unwrap_or(true))
+        .bind(request.is_enabled.unwrap_or(true))
         .bind(request.priority.unwrap_or(100))
         .bind(&request.config)
         .bind(now)
@@ -297,7 +297,7 @@ impl ModuleStorage {
     #[instrument(skip(self))]
     pub async fn get_modules_by_type(&self, module_type: &str) -> Result<Vec<Module>, sqlx::Error> {
         let rows = sqlx::query_as::<_, Module>(
-            "SELECT * FROM modules WHERE module_type = $1 AND enabled = true ORDER BY priority ASC",
+            "SELECT * FROM modules WHERE module_type = $1 AND is_enabled = true ORDER BY priority ASC",
         )
         .bind(module_type)
         .fetch_all(&*self.pool)
@@ -348,17 +348,17 @@ impl ModuleStorage {
     pub async fn enable_module(
         &self,
         module_name: &str,
-        enabled: bool,
+        is_enabled: bool,
     ) -> Result<Module, sqlx::Error> {
         let row = sqlx::query_as::<_, Module>(
             r#"
-            UPDATE modules SET enabled = $2
+            UPDATE modules SET is_enabled = $2
             WHERE module_name = $1
             RETURNING *
             "#,
         )
         .bind(module_name)
-        .bind(enabled)
+        .bind(is_enabled)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -686,7 +686,7 @@ impl ModuleStorage {
         let row = sqlx::query_as::<_, PasswordAuthProvider>(
             r#"
             INSERT INTO password_auth_providers (
-                provider_name, provider_type, config, enabled, priority, created_ts, updated_ts
+                provider_name, provider_type, config, is_enabled, priority, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $6)
             RETURNING *
@@ -695,7 +695,7 @@ impl ModuleStorage {
         .bind(&request.provider_name)
         .bind(&request.provider_type)
         .bind(&request.config)
-        .bind(request.enabled.unwrap_or(true))
+        .bind(request.is_enabled.unwrap_or(true))
         .bind(request.priority.unwrap_or(100))
         .bind(now)
         .fetch_one(&*self.pool)
@@ -727,7 +727,7 @@ impl ModuleStorage {
         let row = sqlx::query_as::<_, PresenceRoute>(
             r#"
             INSERT INTO presence_routes (
-                route_name, route_type, config, enabled, priority, created_ts, updated_ts
+                route_name, route_type, config, is_enabled, priority, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $6)
             RETURNING *
@@ -736,7 +736,7 @@ impl ModuleStorage {
         .bind(&request.route_name)
         .bind(&request.route_type)
         .bind(&request.config)
-        .bind(request.enabled.unwrap_or(true))
+        .bind(request.is_enabled.unwrap_or(true))
         .bind(request.priority.unwrap_or(100))
         .bind(now)
         .fetch_one(&*self.pool)
@@ -766,7 +766,7 @@ impl ModuleStorage {
         let row = sqlx::query_as::<_, MediaCallback>(
             r#"
             INSERT INTO media_callbacks (
-                callback_name, callback_type, url, method, headers, enabled, timeout_ms, retry_count, created_ts, updated_ts
+                callback_name, callback_type, url, method, headers, is_enabled, timeout_ms, retry_count, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
             RETURNING *
@@ -777,7 +777,7 @@ impl ModuleStorage {
         .bind(&request.url)
         .bind(request.method.unwrap_or_else(|| "POST".to_string()))
         .bind(&request.headers)
-        .bind(request.enabled.unwrap_or(true))
+        .bind(request.is_enabled.unwrap_or(true))
         .bind(request.timeout_ms.unwrap_or(5000))
         .bind(request.retry_count.unwrap_or(3))
         .bind(now)
@@ -818,7 +818,7 @@ impl ModuleStorage {
         let row = sqlx::query_as::<_, RateLimitCallback>(
             r#"
             INSERT INTO rate_limit_callbacks (
-                callback_name, callback_type, config, enabled, priority, created_ts, updated_ts
+                callback_name, callback_type, config, is_enabled, priority, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $6)
             RETURNING *
@@ -827,7 +827,7 @@ impl ModuleStorage {
         .bind(&request.callback_name)
         .bind(&request.callback_type)
         .bind(&request.config)
-        .bind(request.enabled.unwrap_or(true))
+        .bind(request.is_enabled.unwrap_or(true))
         .bind(request.priority.unwrap_or(100))
         .bind(now)
         .fetch_one(&*self.pool)
@@ -857,7 +857,7 @@ impl ModuleStorage {
         let row = sqlx::query_as::<_, AccountDataCallback>(
             r#"
             INSERT INTO account_data_callbacks (
-                callback_name, callback_type, config, enabled, priority, created_ts, updated_ts
+                callback_name, callback_type, config, is_enabled, priority, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $6)
             RETURNING *
@@ -866,7 +866,7 @@ impl ModuleStorage {
         .bind(&request.callback_name)
         .bind(&request.callback_type)
         .bind(&request.config)
-        .bind(request.enabled.unwrap_or(true))
+        .bind(request.is_enabled.unwrap_or(true))
         .bind(request.priority.unwrap_or(100))
         .bind(now)
         .fetch_one(&*self.pool)
@@ -901,7 +901,7 @@ mod tests {
             module_type: "spam_checker".to_string(),
             version: "1.0.0".to_string(),
             description: Some("Test module".to_string()),
-            enabled: true,
+            is_enabled: true,
             priority: 0,
             config: Some(serde_json::json!({"key": "value"})),
             created_ts: 1234567890,
@@ -912,7 +912,7 @@ mod tests {
             last_executed_ts: Some(1234567890),
         };
         assert_eq!(module.module_name, "test_module");
-        assert!(module.enabled);
+        assert!(module.is_enabled);
     }
 
     #[test]
@@ -922,7 +922,7 @@ mod tests {
             module_type: "spam_checker".to_string(),
             version: "1.0.0".to_string(),
             description: Some("New module".to_string()),
-            enabled: Some(true),
+            is_enabled: Some(true),
             priority: Some(0),
             config: Some(serde_json::json!({"setting": true})),
         };
@@ -989,12 +989,12 @@ mod tests {
             provider_name: "default".to_string(),
             provider_type: "password".to_string(),
             config: None,
-            enabled: true,
+            is_enabled: true,
             priority: 0,
             created_ts: 1234567890,
             updated_ts: 1234567890,
         };
-        assert!(provider.enabled);
+        assert!(provider.is_enabled);
     }
 
     #[test]

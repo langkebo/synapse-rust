@@ -93,7 +93,7 @@ async fn upload_media_v3(
     ))
 }
 
-async fn media_config(State(_state): State<AppState>) -> Json<Value> {
+pub async fn media_config(State(_state): State<AppState>) -> Json<Value> {
     Json(json!({
         "m.upload.size": 50 * 1024 * 1024
     }))

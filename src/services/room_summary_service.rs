@@ -531,3 +531,194 @@ impl RoomSummaryService {
             .unwrap_or_else(|| Err(ApiError::not_found("Room summary not found")))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_create_room_summary_request() {
+        let request = crate::storage::room_summary::CreateRoomSummaryRequest {
+            room_id: "!room:example.com".to_string(),
+            room_type: Some("m.space".to_string()),
+            name: Some("Test Room".to_string()),
+            topic: Some("Test topic".to_string()),
+            avatar_url: Some("mxc://example.com/avatar".to_string()),
+            canonical_alias: Some("#test:example.com".to_string()),
+            join_rules: Some("invite".to_string()),
+            history_visibility: Some("shared".to_string()),
+            guest_access: Some("can_join".to_string()),
+            is_direct: Some(false),
+            is_space: Some(true),
+        };
+        assert_eq!(request.room_id, "!room:example.com");
+        assert!(request.is_space.unwrap());
+    }
+
+    #[test]
+    fn test_update_room_summary_request() {
+        let request = crate::storage::room_summary::UpdateRoomSummaryRequest {
+            name: Some("Updated Name".to_string()),
+            topic: None,
+            avatar_url: None,
+            canonical_alias: None,
+            join_rules: Some("public".to_string()),
+            history_visibility: None,
+            guest_access: None,
+            is_direct: None,
+            is_space: None,
+            is_encrypted: Some(true),
+            last_event_id: Some("$event:example.com".to_string()),
+            last_event_ts: Some(1234567890),
+            last_message_ts: None,
+            hero_users: None,
+        };
+        assert_eq!(request.name, Some("Updated Name".to_string()));
+        assert!(request.is_encrypted.unwrap());
+    }
+
+    #[test]
+    fn test_update_room_summary_request_default() {
+        let request = crate::storage::room_summary::UpdateRoomSummaryRequest::default();
+        assert!(request.name.is_none());
+        assert!(request.topic.is_none());
+        assert!(request.is_encrypted.is_none());
+    }
+
+    #[test]
+    fn test_room_summary_structure() {
+        let summary = crate::storage::room_summary::RoomSummary {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            room_type: Some("m.space".to_string()),
+            name: Some("Test Room".to_string()),
+            topic: Some("Topic".to_string()),
+            avatar_url: None,
+            canonical_alias: None,
+            join_rules: "invite".to_string(),
+            history_visibility: "shared".to_string(),
+            guest_access: "forbidden".to_string(),
+            is_direct: false,
+            is_space: false,
+            is_encrypted: false,
+            member_count: 10,
+            joined_member_count: 8,
+            invited_member_count: 2,
+            hero_users: serde_json::json!([]),
+            last_event_id: None,
+            last_event_ts: None,
+            last_message_ts: None,
+            unread_notifications: 0,
+            unread_highlight: 0,
+            updated_ts: 1234567890,
+            created_ts: 1234567800,
+        };
+        assert_eq!(summary.member_count, 10);
+        assert_eq!(summary.joined_member_count, 8);
+    }
+
+    #[test]
+    fn test_room_summary_member_structure() {
+        let member = crate::storage::room_summary::RoomSummaryMember {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            user_id: "@user:example.com".to_string(),
+            display_name: Some("User".to_string()),
+            avatar_url: Some("mxc://example.com/avatar".to_string()),
+            membership: "join".to_string(),
+            is_hero: true,
+            last_active_ts: Some(1234567890),
+            updated_ts: 1234567890,
+            created_ts: 1234567800,
+        };
+        assert!(member.is_hero);
+        assert_eq!(member.membership, "join");
+    }
+
+    #[test]
+    fn test_room_summary_state_structure() {
+        let state = crate::storage::room_summary::RoomSummaryState {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            event_type: "m.room.name".to_string(),
+            state_key: "".to_string(),
+            event_id: Some("$event:example.com".to_string()),
+            content: serde_json::json!({"name": "Room Name"}),
+            updated_ts: 1234567890,
+        };
+        assert_eq!(state.event_type, "m.room.name");
+        assert!(state.event_id.is_some());
+    }
+
+    #[test]
+    fn test_room_summary_stats_structure() {
+        let stats = crate::storage::room_summary::RoomSummaryStats {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            total_events: 1000,
+            total_state_events: 50,
+            total_messages: 800,
+            total_media: 100,
+            storage_size: 1024000,
+            last_updated_ts: 1234567890,
+        };
+        assert_eq!(stats.total_events, 1000);
+        assert_eq!(stats.total_messages, 800);
+    }
+
+    #[test]
+    fn test_create_summary_member_request() {
+        let request = crate::storage::room_summary::CreateSummaryMemberRequest {
+            room_id: "!room:example.com".to_string(),
+            user_id: "@user:example.com".to_string(),
+            display_name: Some("User".to_string()),
+            avatar_url: None,
+            membership: "join".to_string(),
+            is_hero: Some(false),
+            last_active_ts: None,
+        };
+        assert_eq!(request.user_id, "@user:example.com");
+        assert!(!request.is_hero.unwrap());
+    }
+
+    #[test]
+    fn test_update_summary_member_request() {
+        let request = crate::storage::room_summary::UpdateSummaryMemberRequest {
+            display_name: Some("New Name".to_string()),
+            avatar_url: Some("mxc://example.com/new".to_string()),
+            membership: Some("leave".to_string()),
+            is_hero: Some(true),
+            last_active_ts: Some(1234567890),
+        };
+        assert_eq!(request.membership, Some("leave".to_string()));
+    }
+
+    #[test]
+    fn test_room_summary_update_queue_item() {
+        let item = crate::storage::room_summary::RoomSummaryUpdateQueueItem {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            event_id: "$event:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            state_key: None,
+            priority: 0,
+            status: "pending".to_string(),
+            created_ts: 1234567890,
+            processed_ts: None,
+            error_message: None,
+            retry_count: 0,
+        };
+        assert_eq!(item.status, "pending");
+        assert!(item.state_key.is_none());
+    }
+
+    #[test]
+    fn test_event_priority_calculation() {
+        let state_event_type = "m.room.name";
+        let message_event_type = "m.room.message";
+        
+        let state_priority = if state_event_type.starts_with("m.room.") { 10 } else { 0 };
+        let message_priority = if message_event_type.starts_with("m.room.") { 10 } else { 0 };
+        
+        assert_eq!(state_priority, 10);
+        assert_eq!(message_priority, 10);
+    }
+}

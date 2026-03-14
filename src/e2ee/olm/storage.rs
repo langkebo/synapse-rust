@@ -164,7 +164,7 @@ impl OlmStorage {
                 serialized_state = EXCLUDED.serialized_state,
                 message_index = EXCLUDED.message_index,
                 last_used_ts = EXCLUDED.last_used_ts,
-                expires_ts = EXCLUDED.expires_ts
+                expires_at = EXCLUDED.expires_at
             "#,
         )
         .bind(&session.user_id)
@@ -174,8 +174,8 @@ impl OlmStorage {
         .bind(&session.receiver_key)
         .bind(&session.serialized_state)
         .bind(session.message_index as i32)
-        .bind(session.created_at)
-        .bind(session.last_used_at)
+        .bind(session.created_ts)
+        .bind(session.last_used_ts)
         .bind(session.expires_at)
         .execute(&*self.pool)
         .await
@@ -214,9 +214,9 @@ impl OlmStorage {
                 receiver_key: r.get("receiver_key"),
                 serialized_state: r.get("serialized_state"),
                 message_index: r.get::<i32, _>("message_index") as u32,
-                created_at: r.get("created_ts"),
-                last_used_at: r.get("last_used_ts"),
-                expires_at: r.get("expires_ts"),
+                created_ts: r.get("created_ts"),
+                last_used_ts: r.get("last_used_ts"),
+                expires_at: r.get("expires_at"),
             })
             .collect())
     }
@@ -243,8 +243,8 @@ impl OlmStorage {
             receiver_key: r.get("receiver_key"),
             serialized_state: r.get("serialized_state"),
             message_index: r.get::<i32, _>("message_index") as u32,
-            created_at: r.get("created_ts"),
-            last_used_at: r.get("last_used_ts"),
+            created_ts: r.get("created_ts"),
+            last_used_ts: r.get("last_used_ts"),
             expires_at: r.get("expires_ts"),
         }))
     }
@@ -282,10 +282,10 @@ impl OlmStorage {
             receiver_key: r.get("receiver_key"),
             serialized_state: r.get("serialized_state"),
             message_index: r.get::<i32, _>("message_index") as u32,
-            created_at: r.get("created_ts"),
-            last_used_at: r.get("last_used_ts"),
-            expires_at: r.get("expires_ts"),
-        }))
+            created_ts: r.get("created_ts"),
+                last_used_ts: r.get("last_used_ts"),
+                expires_at: r.get("expires_ts"),
+            }))
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
@@ -407,8 +407,8 @@ mod tests {
             receiver_key: "receiver_key".to_string(),
             serialized_state: "state_data".to_string(),
             message_index: 5,
-            created_at: 1234567890,
-            last_used_at: 1234567900,
+            created_ts: 1234567890,
+            last_used_ts: 1234567900,
             expires_at: Some(1234568000),
         };
 

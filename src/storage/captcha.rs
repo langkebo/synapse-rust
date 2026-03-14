@@ -14,7 +14,7 @@ pub struct RegistrationCaptcha {
     pub target: String,
     pub code: String,
     pub created_ts: i64,
-    pub expires_ts: i64,
+    pub expires_at: i64,
     pub used_ts: Option<i64>,
     pub verified_ts: Option<i64>,
     pub ip_address: Option<String>,
@@ -123,7 +123,7 @@ impl CaptchaStorage {
         let row = sqlx::query_as::<_, RegistrationCaptcha>(
             r#"
             INSERT INTO registration_captcha (
-                captcha_id, captcha_type, target, code, created_ts, expires_ts,
+                captcha_id, captcha_type, target, code, created_ts, expires_at,
                 ip_address, user_agent, max_attempts, metadata
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -175,7 +175,7 @@ impl CaptchaStorage {
         let row = sqlx::query_as::<_, RegistrationCaptcha>(
             r#"
             SELECT * FROM registration_captcha
-            WHERE target = $1 AND captcha_type = $2 AND status = 'pending' AND expires_ts > $3
+            WHERE target = $1 AND captcha_type = $2 AND status = 'pending' AND expires_at > $3
             ORDER BY created_ts DESC
             LIMIT 1
             "#,
@@ -202,7 +202,7 @@ impl CaptchaStorage {
             return Ok(false);
         }
 
-        if captcha.expires_ts < now {
+        if captcha.expires_at < now {
             sqlx::query("UPDATE registration_captcha SET status = 'expired' WHERE captcha_id = $1")
                 .bind(captcha_id)
                 .execute(&*self.pool)
@@ -400,7 +400,7 @@ impl CaptchaStorage {
     pub async fn cleanup_expired_captchas(&self) -> Result<u64, ApiError> {
         let now = Utc::now().timestamp_millis();
         let result = sqlx::query(
-            "DELETE FROM registration_captcha WHERE expires_ts < $1 AND status = 'pending'",
+            "DELETE FROM registration_captcha WHERE expires_at < $1 AND status = 'pending'",
         )
         .bind(now)
         .execute(&*self.pool)
@@ -425,7 +425,7 @@ mod tests {
             target: "registration".to_string(),
             code: "abc123".to_string(),
             created_ts: 1234567800000,
-            expires_ts: 1234567890000,
+            expires_at: 1234567890000,
             used_ts: None,
             verified_ts: None,
             ip_address: Some("192.168.1.1".to_string()),

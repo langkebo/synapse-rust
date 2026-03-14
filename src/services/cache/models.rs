@@ -44,7 +44,7 @@ pub enum CacheStrategy {
 pub struct CacheEntry<T> {
     pub key: String,
     pub value: T,
-    pub created_at: i64,
+    pub created_ts: i64,
     pub expires_at: Option<i64>,
     pub hit_count: u64,
 }

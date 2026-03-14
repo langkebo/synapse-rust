@@ -369,3 +369,182 @@ impl RegistrationTokenService {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    fn create_test_token() -> crate::storage::registration_token::RegistrationToken {
+        crate::storage::registration_token::RegistrationToken {
+            id: 1,
+            token: "test_token_123".to_string(),
+            token_type: "single".to_string(),
+            description: Some("Test token".to_string()),
+            max_uses: 1,
+            uses_count: 0,
+            is_used: false,
+            is_enabled: true,
+            expires_at: None,
+            created_by: Some("@admin:example.com".to_string()),
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+            last_used_ts: None,
+            allowed_email_domains: None,
+            allowed_user_ids: None,
+            auto_join_rooms: None,
+            display_name: None,
+            email: None,
+        }
+    }
+
+    #[test]
+    fn test_registration_token_structure() {
+        let token = create_test_token();
+        assert_eq!(token.id, 1);
+        assert_eq!(token.token, "test_token_123");
+        assert_eq!(token.token_type, "single");
+        assert!(!token.is_used);
+        assert!(token.is_enabled);
+    }
+
+    #[test]
+    fn test_registration_token_max_uses() {
+        let token = create_test_token();
+        assert_eq!(token.max_uses, 1);
+        assert_eq!(token.uses_count, 0);
+        assert!(token.uses_count < token.max_uses);
+    }
+
+    #[test]
+    fn test_create_registration_token_request() {
+        let request = crate::storage::registration_token::CreateRegistrationTokenRequest {
+            token: Some("custom_token".to_string()),
+            token_type: Some("multi".to_string()),
+            description: Some("Multi-use token".to_string()),
+            max_uses: Some(10),
+            expires_at: Some(9999999999),
+            created_by: Some("@admin:example.com".to_string()),
+            allowed_email_domains: Some(vec!["example.com".to_string()]),
+            allowed_user_ids: None,
+            auto_join_rooms: Some(vec!["!room:example.com".to_string()]),
+            display_name: None,
+            email: None,
+        };
+        assert_eq!(request.token, Some("custom_token".to_string()));
+        assert_eq!(request.max_uses, Some(10));
+        assert!(request.allowed_email_domains.is_some());
+    }
+
+    #[test]
+    fn test_update_registration_token_request() {
+        let request = crate::storage::registration_token::UpdateRegistrationTokenRequest {
+            description: Some("Updated description".to_string()),
+            max_uses: Some(5),
+            is_enabled: Some(false),
+            expires_at: Some(8888888888),
+        };
+        assert_eq!(request.description, Some("Updated description".to_string()));
+        assert_eq!(request.is_enabled, Some(false));
+    }
+
+    #[test]
+    fn test_update_registration_token_request_default() {
+        let request = crate::storage::registration_token::UpdateRegistrationTokenRequest::default();
+        assert!(request.description.is_none());
+        assert!(request.max_uses.is_none());
+        assert!(request.is_enabled.is_none());
+    }
+
+    #[test]
+    fn test_room_invite_structure() {
+        let invite = crate::storage::registration_token::RoomInvite {
+            id: 1,
+            invite_code: "INVITE123".to_string(),
+            room_id: "!room:example.com".to_string(),
+            inviter_user_id: "@user:example.com".to_string(),
+            invitee_email: Some("invitee@example.com".to_string()),
+            invitee_user_id: None,
+            is_used: false,
+            is_revoked: false,
+            expires_at: Some(9999999999),
+            created_ts: 1234567890,
+            used_ts: None,
+            revoked_at: None,
+            revoked_reason: None,
+        };
+        assert_eq!(invite.invite_code, "INVITE123");
+        assert!(!invite.is_used);
+        assert!(!invite.is_revoked);
+    }
+
+    #[test]
+    fn test_create_room_invite_request() {
+        let request = crate::storage::registration_token::CreateRoomInviteRequest {
+            room_id: "!room:example.com".to_string(),
+            inviter_user_id: "@user:example.com".to_string(),
+            invitee_email: Some("invitee@example.com".to_string()),
+            expires_at: Some(9999999999),
+        };
+        assert_eq!(request.room_id, "!room:example.com");
+        assert!(request.invitee_email.is_some());
+    }
+
+    #[test]
+    fn test_registration_token_batch() {
+        let batch = crate::storage::registration_token::RegistrationTokenBatch {
+            id: 1,
+            batch_id: "batch-uuid".to_string(),
+            description: Some("Batch of tokens".to_string()),
+            token_count: 10,
+            tokens_used: 3,
+            created_by: Some("@admin:example.com".to_string()),
+            created_ts: 1234567890,
+            expires_at: None,
+            is_enabled: true,
+            allowed_email_domains: None,
+            auto_join_rooms: None,
+        };
+        assert_eq!(batch.token_count, 10);
+        assert_eq!(batch.tokens_used, 3);
+        assert!(batch.is_enabled);
+    }
+
+    #[test]
+    fn test_registration_token_usage() {
+        let usage = crate::storage::registration_token::RegistrationTokenUsage {
+            id: 1,
+            token_id: 1,
+            token: "test_token".to_string(),
+            user_id: "@user:example.com".to_string(),
+            username: Some("user".to_string()),
+            email: Some("user@example.com".to_string()),
+            ip_address: Some("127.0.0.1".to_string()),
+            user_agent: Some("Mozilla/5.0".to_string()),
+            used_ts: 1234567890,
+            success: true,
+            error_message: None,
+        };
+        assert!(usage.success);
+        assert!(usage.error_message.is_none());
+    }
+
+    #[test]
+    fn test_token_with_allowed_domains() {
+        let mut token = create_test_token();
+        token.allowed_email_domains = Some(vec!["example.com".to_string(), "test.com".to_string()]);
+        
+        let domains = token.allowed_email_domains.unwrap();
+        assert_eq!(domains.len(), 2);
+        assert!(domains.contains(&"example.com".to_string()));
+    }
+
+    #[test]
+    fn test_token_with_auto_join_rooms() {
+        let mut token = create_test_token();
+        token.auto_join_rooms = Some(vec![
+            "!room1:example.com".to_string(),
+            "!room2:example.com".to_string(),
+        ]);
+        
+        let rooms = token.auto_join_rooms.unwrap();
+        assert_eq!(rooms.len(), 2);
+    }
+}

@@ -41,7 +41,7 @@ pub struct QueueMessage {
     pub queue: String,
     pub payload: Vec<u8>,
     pub priority: i32,
-    pub created_at: i64,
+    pub created_ts: i64,
     pub expires_at: Option<i64>,
     pub retry_count: u32,
     pub headers: HashMap<String, String>,

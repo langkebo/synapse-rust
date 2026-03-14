@@ -7,6 +7,7 @@ pub mod models;
 pub mod application_service;
 pub mod background_update;
 pub mod beacon;
+pub mod call_session;
 pub mod captcha;
 pub mod cas;
 pub mod dehydrated_device;
@@ -37,6 +38,9 @@ pub mod rendezvous;
 pub mod retention;
 pub mod room;
 pub mod room_summary;
+pub mod qr_login;
+pub mod invite_blocklist;
+pub mod sticky_event;
 pub mod saml;
 pub mod schema_validator;
 pub mod server_notification;
@@ -47,11 +51,13 @@ pub mod threepid;
 pub mod token;
 pub mod user;
 pub mod voice;
+pub mod widget;
 
 pub use self::models::user::*;
 
 pub use self::application_service::*;
 pub use self::beacon::*;
+pub use self::call_session::*;
 pub use self::captcha::*;
 pub use self::cas::*;
 pub use self::dehydrated_device::*;
@@ -81,6 +87,9 @@ pub use self::privacy::*;
 pub use self::push_notification::*;
 pub use self::rendezvous::*;
 pub use self::room::*;
+pub use self::qr_login::*;
+pub use self::invite_blocklist::*;
+pub use self::sticky_event::*;
 pub use self::saml::*;
 pub use self::schema_validator::*;
 pub use self::server_notification::*;
@@ -91,6 +100,7 @@ pub use self::threepid::*;
 pub use self::token::*;
 pub use self::user::*;
 pub use self::voice::*;
+pub use self::widget::*;
 
 /// 数据库结构体。
 ///
@@ -276,12 +286,12 @@ mod tests {
             user_id: "@test:example.com".to_string(),
             device_id: Some("DEVICE123".to_string()),
             created_ts: 1234567890000,
-            expires_ts: Some(1234571490000),
+            expires_at: Some(1234571490000),
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
             is_revoked: false,
-            revoked_ts: None,
+            revoked_at: None,
         };
         assert_eq!(token.id, 1);
         assert_eq!(token.token, "test_token_123");

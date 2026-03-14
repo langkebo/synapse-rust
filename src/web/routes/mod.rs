@@ -1,6 +1,5 @@
 pub mod account_data;
 pub mod admin;
-pub mod admin_extra;
 pub mod app_service;
 pub mod background_update;
 pub mod captcha;
@@ -8,35 +7,33 @@ pub mod cas;
 pub mod e2ee_routes;
 pub mod event_report;
 pub mod federation;
-pub mod federation_blacklist;
-pub mod federation_cache;
 pub mod friend_room;
 pub mod key_backup;
 pub mod media;
-pub mod media_quota;
 pub mod module;
+pub mod oidc;
 pub mod push;
 pub mod push_notification;
-pub mod rate_limit_admin;
-pub mod refresh_token;
-pub mod registration_token;
 pub mod rendezvous;
-pub mod retention;
 pub mod room_summary;
 pub mod saml;
 pub mod search;
-pub mod server_notification;
 pub mod sliding_sync;
 pub mod space;
 pub mod telemetry;
+pub mod thirdparty;
 pub mod thread;
 pub mod voice;
 pub mod voip;
+pub mod widget;
+pub mod qr_login;
+pub mod invite_blocklist;
+pub mod sticky_event;
+pub mod tags;
 pub mod worker;
 
 pub use account_data::create_account_data_router;
-pub use admin::create_admin_router;
-pub use admin_extra::create_admin_extra_router;
+pub use admin::create_admin_module_router;
 pub use app_service::create_app_service_router;
 pub use background_update::create_background_update_router;
 pub use captcha::create_captcha_router;
@@ -44,32 +41,33 @@ pub use cas::cas_routes;
 pub use e2ee_routes::create_e2ee_router;
 pub use event_report::create_event_report_router;
 pub use federation::create_federation_router;
-pub use federation_blacklist::create_federation_blacklist_router;
-pub use federation_cache::create_federation_cache_router;
 pub use friend_room::create_friend_router;
 pub use key_backup::create_key_backup_router;
 pub use media::create_media_router;
-pub use media_quota::create_media_quota_router;
 pub use module::create_module_router;
+pub use oidc::create_oidc_router;
 pub use push::create_push_router;
 pub use push_notification::create_push_notification_router;
-pub use rate_limit_admin::create_rate_limit_admin_router;
-pub use refresh_token::create_refresh_token_router;
-pub use registration_token::create_registration_token_router;
 pub use rendezvous::create_rendezvous_router;
-pub use retention::create_retention_router;
 pub use room_summary::create_room_summary_router;
 pub use saml::create_saml_router;
 pub use search::create_search_router;
-pub use server_notification::create_server_notification_router;
 pub use sliding_sync::create_sliding_sync_router;
 pub use space::create_space_router;
 pub use telemetry::create_telemetry_router;
+pub use tags::create_tags_router;
+pub use thirdparty::create_thirdparty_router;
 pub use thread::create_thread_routes;
 pub use voice::create_voice_router;
 pub use voip::get_turn_credentials_guest;
 pub use voip::get_turn_server;
 pub use voip::get_voip_config;
+pub use voip::call_invite;
+pub use voip::call_candidates;
+pub use widget::create_widget_router;
+pub use voip::call_answer;
+pub use voip::call_hangup;
+pub use voip::get_call_session;
 pub use worker::create_worker_router;
 
 use crate::cache::*;
@@ -85,7 +83,7 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
-use sqlx::Row;
+use sqlx::{Row, types::JsonValue};
 use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
 
@@ -343,8 +341,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_media_router(state.clone()))
         .merge(create_e2ee_router(state.clone()))
         .merge(create_key_backup_router(state.clone()))
-        .merge(create_admin_router(state.clone()))
-        .merge(create_admin_extra_router())
+        .merge(create_admin_module_router(state.clone()))
         .merge(create_federation_router(state.clone()))
         .merge(create_friend_router(state.clone()))
         .merge(create_push_router(state.clone()))
@@ -354,23 +351,19 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_app_service_router(state.clone()))
         .merge(create_worker_router(state.clone()))
         .merge(create_room_summary_router(state.clone()))
-        .merge(create_retention_router(state.clone()))
-        .merge(create_refresh_token_router(state.clone()))
-        .merge(create_registration_token_router(state.clone()))
         .merge(create_event_report_router(state.clone()))
         .merge(create_background_update_router(state.clone()))
         .merge(create_module_router())
         .merge(create_saml_router())
+        .merge(create_oidc_router(state.clone()))
         .merge(cas_routes())
-        .merge(create_media_quota_router())
-        .merge(create_server_notification_router())
         .merge(create_captcha_router())
-        .merge(create_federation_blacklist_router())
-        .merge(create_federation_cache_router())
         .merge(create_push_notification_router())
         .merge(create_telemetry_router())
+        .merge(create_thirdparty_router(state.clone()))
+        .merge(create_tags_router(state.clone()))
         .merge(create_thread_routes(state.clone()))
-        .merge(create_rate_limit_admin_router())
+        .merge(create_widget_router())
         .merge(create_rendezvous_router(state.clone()))
         .route("/_matrix/client/r0/voip/turnServer", get(get_turn_server))
         .route("/_matrix/client/r0/voip/turnServer", post(get_turn_server))
@@ -385,6 +378,48 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/_matrix/client/v3/voip/turnServer/guest",
             get(get_turn_credentials_guest),
+        )
+        // Call event routes (MSC3079)
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/send/m.call.invite/{txn_id}",
+            put(voip::call_invite),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/send/m.call.invite/{txn_id}",
+            put(voip::call_invite),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/send/m.call.candidates/{txn_id}",
+            put(voip::call_candidates),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/send/m.call.candidates/{txn_id}",
+            put(voip::call_candidates),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/send/m.call.answer/{txn_id}",
+            put(voip::call_answer),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/send/m.call.answer/{txn_id}",
+            put(voip::call_answer),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/send/m.call.hangup/{txn_id}",
+            put(voip::call_hangup),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/send/m.call.hangup/{txn_id}",
+            put(voip::call_hangup),
+        )
+        // Get call session
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/call/{call_id}",
+            get(voip::get_call_session),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/call/{call_id}",
+            get(voip::get_call_session),
         )
         .route("/_matrix/client/v3/account/whoami", get(whoami))
         .route(
@@ -404,6 +439,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/v3/sync", get(sync))
         .route("/_matrix/client/v3/createRoom", post(create_room))
         .route("/_matrix/client/v3/joined_rooms", get(get_joined_rooms))
+        // Media config - client API
+        .route("/_matrix/client/v3/media/config", get(media::media_config))
+        .route("/_matrix/client/r0/media/config", get(media::media_config))
         .layer(axum::middleware::from_fn(cors_middleware))
         .layer(axum::middleware::from_fn(security_headers_middleware))
         .layer(CompressionLayer::new())
@@ -454,6 +492,23 @@ fn create_auth_router() -> Router<AppState> {
         .route("/_matrix/client/r0/logout/all", post(logout_all))
         .route("/_matrix/client/v3/logout", post(logout))
         .route("/_matrix/client/v3/logout/all", post(logout_all))
+        // QR Login (MSC4388)
+        .route(
+            "/_matrix/client/v1/login/get_qr_code",
+            get(qr_login::get_qr_code),
+        )
+        .route(
+            "/_matrix/client/v1/login/qr/confirm",
+            post(qr_login::confirm_qr_login),
+        )
+        .route(
+            "/_matrix/client/v1/login/qr/start",
+            post(qr_login::start_qr_login),
+        )
+        .route(
+            "/_matrix/client/v1/login/qr/{transaction_id}/status",
+            get(qr_login::get_qr_status),
+        )
         .route("/_matrix/client/r0/refresh", post(refresh_token))
 }
 
@@ -569,6 +624,15 @@ fn create_directory_router(state: AppState) -> Router<AppState> {
 
 fn create_room_router() -> Router<AppState> {
     Router::new()
+        // Room info endpoint
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}",
+            get(get_room_info),
+        )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}",
+            get(get_room_info),
+        )
         // Report events
         .route(
             "/_matrix/client/r0/rooms/{room_id}/report/{event_id}",
@@ -674,6 +738,15 @@ fn create_room_router() -> Router<AppState> {
             "/_matrix/client/v3/rooms/{room_id}/members",
             get(get_room_members),
         )
+        // Joined Members
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/joined_members",
+            get(get_joined_members),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/joined_members",
+            get(get_joined_members),
+        )
         // Invite
         .route(
             "/_matrix/client/r0/rooms/{room_id}/invite",
@@ -682,6 +755,37 @@ fn create_room_router() -> Router<AppState> {
         .route(
             "/_matrix/client/v3/rooms/{room_id}/invite",
             post(invite_user),
+        )
+        // Invite blocklist (MSC4380)
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/invite_blocklist",
+            get(invite_blocklist::get_invite_blocklist),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/invite_blocklist",
+            post(invite_blocklist::set_invite_blocklist),
+        )
+        // Invite allowlist (MSC4380)
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/invite_allowlist",
+            get(invite_blocklist::get_invite_allowlist),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/invite_allowlist",
+            post(invite_blocklist::set_invite_allowlist),
+        )
+        // Sticky Events (MSC4354)
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/sticky_events",
+            get(sticky_event::get_sticky_events),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/sticky_events",
+            post(sticky_event::set_sticky_events),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type}",
+            axum::routing::delete(sticky_event::clear_sticky_event),
         )
         // Create room
         .route("/_matrix/client/r0/createRoom", post(create_room))
@@ -774,6 +878,11 @@ fn create_presence_router() -> Router<AppState> {
             "/_matrix/client/v3/presence/{user_id}/status",
             get(get_presence).put(set_presence),
         )
+        // Presence list endpoint (MSC2776)
+        .route(
+            "/_matrix/client/v3/presence/list",
+            post(presence_list),
+        )
 }
 
 fn create_device_router() -> Router<AppState> {
@@ -785,6 +894,10 @@ fn create_device_router() -> Router<AppState> {
         .route("/_matrix/client/r0/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
         .route("/_matrix/client/v3/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
 }
+
+// ============================================================================
+// SECTION: Server Info & Discovery
+// ============================================================================
 
 async fn get_client_versions() -> Json<Value> {
     Json(json!({
@@ -1011,6 +1124,10 @@ async fn health_check(State(state): State<AppState>) -> Json<Value> {
     )
 }
 
+// ============================================================================
+// SECTION: Authentication & Registration
+// ============================================================================
+
 async fn register(
     State(state): State<AppState>,
     MatrixJson(body): MatrixJson<Value>,
@@ -1219,7 +1336,7 @@ async fn submit_email_token(
         ));
     }
 
-    if verification_token.expires_ts < chrono::Utc::now().timestamp() {
+    if verification_token.expires_at < chrono::Utc::now().timestamp() {
         return Err(ApiError::bad_request(
             "Verification token has expired".to_string(),
         ));
@@ -2126,6 +2243,63 @@ async fn get_events(
     Ok(Json(result))
 }
 
+// ============================================================================
+// SECTION: Room Management
+// ============================================================================
+
+async fn get_room_info(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let user_id = &auth_user.user_id;
+
+    let membership = sqlx::query(
+        r#"
+        SELECT membership 
+        FROM room_memberships 
+        WHERE room_id = $1 AND user_id = $2
+        "#,
+    )
+    .bind(&room_id)
+    .bind(user_id)
+    .fetch_optional(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to check room membership: {}", e)))?;
+
+    let membership = match membership {
+        Some(row) => row.get::<Option<String>, _>("membership"),
+        None => None,
+    };
+
+    if membership.is_none() {
+        return Err(ApiError::not_found("Room not found or not a member".to_string()));
+    }
+
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+
+    Ok(Json(json!({
+        "room_id": room_id,
+        "name": room.name,
+        "avatar_url": room.avatar_url,
+        "topic": room.topic,
+        "canonical_alias": room.canonical_alias,
+        "joined_members_count": room.member_count,
+        "invited_members_count": 0,
+        "world_readable": room.is_public,
+        "guest_can_join": false,
+        "membership": membership
+    })))
+}
+
 async fn get_joined_rooms(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -2380,6 +2554,62 @@ async fn get_room_members(
         .get_room_members(&room_id, &user_id)
         .await?;
     Ok(Json(members))
+}
+
+async fn get_joined_members(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let room = room.ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+
+    let is_member = state
+        .services
+        .member_storage
+        .get_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .is_some();
+
+    if !room.is_public && !is_member {
+        return Err(ApiError::forbidden(
+            "You must be a member to view the joined members of this private room".to_string(),
+        ));
+    }
+
+    let members = state
+        .services
+        .member_storage
+        .get_joined_members(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get joined members: {}", e)))?;
+
+    let joined: std::collections::HashMap<String, Value> = members
+        .into_iter()
+        .map(|m| {
+            let user_id = m.user_id.clone();
+            (
+                user_id,
+                json!({
+                    "display_name": m.display_name,
+                    "avatar_url": m.avatar_url
+                }),
+            )
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "joined": joined
+    })))
 }
 
 async fn invite_user(
@@ -3102,6 +3332,10 @@ async fn set_presence(
     Ok(Json(json!({})))
 }
 
+// ============================================================================
+// SECTION: Presence & Typing Indicators
+// ============================================================================
+
 async fn set_typing(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -3128,6 +3362,105 @@ async fn set_typing(
         .map_err(|e| ApiError::internal(format!("Failed to set typing: {}", e)))?;
 
     Ok(Json(json!({})))
+}
+
+/// Presence list endpoint (MSC2776)
+/// Subscribe/unsubscribe to presence status updates for a list of users
+async fn presence_list(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = &auth_user.user_id;
+    
+    // Handle subscriptions (subscribe to users' presence)
+    if let Some(subscribe) = body.get("subscribe").and_then(|v| v.as_array()) {
+        for target in subscribe {
+            if let Some(target_id) = target.as_str() {
+                validate_user_id(target_id)?;
+                
+                // Add subscription
+                if let Err(e) = state
+                    .services
+                    .presence_storage
+                    .add_subscription(user_id, target_id)
+                    .await
+                {
+                    ::tracing::warn!("Failed to add presence subscription: {}", e);
+                }
+            }
+        }
+    }
+    
+    // Handle unsubscriptions (unsubscribe from users' presence)
+    if let Some(unsubscribe) = body.get("unsubscribe").and_then(|v| v.as_array()) {
+        for target in unsubscribe {
+            if let Some(target_id) = target.as_str() {
+                validate_user_id(target_id)?;
+                
+                // Remove subscription
+                if let Err(e) = state
+                    .services
+                    .presence_storage
+                    .remove_subscription(user_id, target_id)
+                    .await
+                {
+                    ::tracing::warn!("Failed to remove presence subscription: {}", e);
+                }
+            }
+        }
+    }
+    
+    // Get current subscriptions and their presence
+    let subscriptions = state
+        .services
+        .presence_storage
+        .get_subscriptions(user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {}", e)))?;
+    
+    // Batch fetch presence for all subscribed users
+    let presence_batch = state
+        .services
+        .presence_storage
+        .get_presence_batch(&subscriptions)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get presence batch: {}", e)))?;
+    
+    // Build response - presence_batch already contains all the presence info we need
+    let mut presences = Vec::new();
+    
+    for (target_id, presence, status_msg) in presence_batch {
+        // Calculate last_active_ago - we don't have exact timestamp but use presence update time
+        let last_active_ago = if presence != "offline" {
+            Some(0) // Simplified: indicates user is currently active
+        } else {
+            None
+        };
+        
+        presences.push(json!({
+            "user_id": target_id,
+            "presence": presence,
+            "status_msg": status_msg,
+            "last_active_ago": last_active_ago
+        }));
+    }
+    
+    // Also include any users that were just subscribed but not in the database yet
+    for target_id in &subscriptions {
+        if !presences.iter().any(|p| p["user_id"] == *target_id) {
+            presences.push(json!({
+                "user_id": target_id,
+                "presence": "offline",
+                "status_msg": None::<String>,
+                "last_active_ago": None::<i64>
+            }));
+        }
+    }
+    
+    Ok(Json(json!({
+        "presences": presences
+    })))
 }
 
 async fn get_room_state(
@@ -3166,7 +3499,8 @@ async fn get_room_state(
         })
         .collect();
 
-    Ok(Json(json!({ "state": state_events })))
+    // Return array directly per Matrix spec
+    Ok(Json(JsonValue::Array(state_events)))
 }
 
 async fn get_state_by_type(
@@ -3378,6 +3712,10 @@ async fn put_state_event_no_key(
     })))
 }
 
+// ============================================================================
+// SECTION: Receipts & Read Markers
+// ============================================================================
+
 async fn send_receipt(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -3443,21 +3781,55 @@ async fn set_read_markers(
         ));
     }
 
-    let event_id = body
-        .get("event_id")
-        .and_then(|v| v.as_str())
-        .or_else(|| body.get("m.fully_read").and_then(|v| v.as_str()))
-        .or_else(|| body.get("m.read").and_then(|v| v.as_str()))
-        .ok_or_else(|| ApiError::bad_request("Event ID required".to_string()))?;
+    // Handle m.fully_read (public read marker)
+    if let Some(event_id) = body.get("m.fully_read").and_then(|v| v.as_str()) {
+        validate_event_id(event_id)?;
+        state
+            .services
+            .room_storage
+            .update_read_marker_with_type(&room_id, &auth_user.user_id, event_id, "m.fully_read")
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to set fully_read marker: {}", e)))?;
+    }
 
-    validate_event_id(event_id)?;
+    // Handle m.private_read (private read marker - MSC2654)
+    if let Some(event_id) = body.get("m.private_read").and_then(|v| v.as_str()) {
+        validate_event_id(event_id)?;
+        state
+            .services
+            .room_storage
+            .update_read_marker_with_type(&room_id, &auth_user.user_id, event_id, "m.private_read")
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to set private_read marker: {}", e)))?;
+    }
 
-    state
-        .services
-        .room_storage
-        .update_read_marker(&room_id, &auth_user.user_id, event_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to set read marker: {}", e)))?;
+    // Handle m.marked_unread (mark as unread - MSC2654)
+    if let Some(marked_unread) = body.get("m.marked_unread").and_then(|v| v.as_object()) {
+        if let Some(events) = marked_unread.get("events").and_then(|v| v.as_array()) {
+            for event in events {
+                if let Some(event_id) = event.as_str() {
+                    validate_event_id(event_id)?;
+                    state
+                        .services
+                        .room_storage
+                        .update_read_marker_with_type(&room_id, &auth_user.user_id, event_id, "m.marked_unread")
+                        .await
+                        .map_err(|e| ApiError::internal(format!("Failed to set marked_unread marker: {}", e)))?;
+                }
+            }
+        }
+    }
+
+    // Handle legacy m.read (treated as m.fully_read)
+    if let Some(event_id) = body.get("m.read").and_then(|v| v.as_str()) {
+        validate_event_id(event_id)?;
+        state
+            .services
+            .room_storage
+            .update_read_marker_with_type(&room_id, &auth_user.user_id, event_id, "m.fully_read")
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to set read marker: {}", e)))?;
+    }
 
     Ok(Json(json!({})))
 }

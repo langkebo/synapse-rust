@@ -2,7 +2,7 @@ use crate::common::error::ApiError;
 use crate::services::VoipService;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
-use axum::{extract::State, Json};
+use axum::{extract::Path, extract::State, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -141,4 +141,116 @@ mod tests {
         assert!(json.contains("turn_servers"));
         assert!(json.contains("stun_servers"));
     }
+}
+
+// ============================================================================
+// VOIP Call Event Handlers (MSC3079)
+// ============================================================================
+
+use crate::services::call_service::{
+    CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent,
+};
+
+/// Call invite event
+#[axum::debug_handler]
+pub async fn call_invite(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Json(content): Json<CallInviteEvent>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let session = state
+        .services
+        .call_service
+        .handle_invite(&room_id, &auth_user.user_id, content)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "call_id": session.call_id,
+        "state": session.state
+    })))
+}
+
+/// Call candidates event
+#[axum::debug_handler]
+pub async fn call_candidates(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Json(content): Json<CallCandidatesEvent>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state
+        .services
+        .call_service
+        .handle_candidates(&room_id, &auth_user.user_id, content)
+        .await?;
+
+    Ok(Json(serde_json::json!({})))
+}
+
+/// Call answer event
+#[axum::debug_handler]
+pub async fn call_answer(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Json(content): Json<CallAnswerEvent>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let session = state
+        .services
+        .call_service
+        .handle_answer(&room_id, &auth_user.user_id, content)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "call_id": session.call_id,
+        "state": session.state
+    })))
+}
+
+/// Call hangup event
+#[axum::debug_handler]
+pub async fn call_hangup(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Json(content): Json<CallHangupEvent>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state
+        .services
+        .call_service
+        .handle_hangup(&room_id, &auth_user.user_id, content)
+        .await?;
+
+    Ok(Json(serde_json::json!({})))
+}
+
+/// Get call session
+#[axum::debug_handler]
+pub async fn get_call_session(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path((room_id, call_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let session = state
+        .services
+        .call_service
+        .get_session(&call_id, &room_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Call session not found"))?;
+
+    let candidates = state
+        .services
+        .call_service
+        .get_candidates(&call_id, &room_id)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "call_id": session.call_id,
+        "room_id": session.room_id,
+        "caller_id": session.caller_id,
+        "callee_id": session.callee_id,
+        "state": session.state,
+        "candidates": candidates
+    })))
 }

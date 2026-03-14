@@ -80,7 +80,7 @@ impl RefreshTokenService {
         }
 
         let now = chrono::Utc::now().timestamp_millis();
-        if let Some(expires_at) = token_record.expires_ts {
+        if let Some(expires_at) = token_record.expires_at {
             if expires_at < now {
                 return Err(ApiError::unauthorized("Token has expired"));
             }
@@ -167,7 +167,7 @@ impl RefreshTokenService {
                 device_id: old_token.device_id.clone(),
                 access_token_id: Some(new_access_token_id.to_string()),
                 scope: old_token.scope.clone(),
-                expires_ts: chrono::Utc::now().timestamp_millis() + self.default_expiry_ms,
+                expires_at: chrono::Utc::now().timestamp_millis() + self.default_expiry_ms,
                 client_info: old_token.client_info.clone(),
                 ip_address: ip_address.map(|s| s.to_string()),
                 user_agent: user_agent.map(|s| s.to_string()),

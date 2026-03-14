@@ -562,3 +562,173 @@ impl ModerationService {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_reputation_config_default() {
+        let config = ReputationConfig::default();
+        assert_eq!(config.initial_score, 50);
+        assert_eq!(config.max_score, 100);
+        assert_eq!(config.min_score, 0);
+        assert_eq!(config.report_penalty, 10);
+        assert_eq!(config.positive_feedback_bonus, 5);
+        assert_eq!(config.auto_warn_threshold, 20);
+        assert_eq!(config.auto_ban_threshold, 0);
+    }
+
+    #[test]
+    fn test_reputation_config_custom() {
+        let config = ReputationConfig {
+            initial_score: 75,
+            max_score: 200,
+            min_score: 10,
+            report_penalty: 15,
+            positive_feedback_bonus: 10,
+            auto_warn_threshold: 30,
+            auto_ban_threshold: 5,
+        };
+        assert_eq!(config.initial_score, 75);
+        assert_eq!(config.max_score, 200);
+        assert_eq!(config.min_score, 10);
+    }
+
+    #[test]
+    fn test_reputation_config_bounds() {
+        let config = ReputationConfig::default();
+        assert!(config.min_score <= config.initial_score);
+        assert!(config.initial_score <= config.max_score);
+        assert!(config.auto_ban_threshold <= config.auto_warn_threshold);
+    }
+
+    #[test]
+    fn test_user_reputation_default_values() {
+        let reputation = UserReputation {
+            user_id: "@test:example.com".to_string(),
+            reputation_score: 50,
+            total_reports: 0,
+            accepted_reports: 0,
+            false_reports: 0,
+            last_report_ts: None,
+            last_update_ts: 1234567890,
+            warnings_count: 0,
+            is_banned: false,
+            ban_reason: None,
+            ban_expires_at: None,
+        };
+        assert_eq!(reputation.user_id, "@test:example.com");
+        assert_eq!(reputation.reputation_score, 50);
+        assert!(!reputation.is_banned);
+        assert!(reputation.ban_reason.is_none());
+    }
+
+    #[test]
+    fn test_user_reputation_banned_state() {
+        let reputation = UserReputation {
+            user_id: "@banned:example.com".to_string(),
+            reputation_score: 0,
+            total_reports: 10,
+            accepted_reports: 8,
+            false_reports: 2,
+            last_report_ts: Some(1234567890),
+            last_update_ts: 1234567900,
+            warnings_count: 3,
+            is_banned: true,
+            ban_reason: Some("Spam".to_string()),
+            ban_expires_at: Some(1234567999),
+        };
+        assert!(reputation.is_banned);
+        assert_eq!(reputation.ban_reason, Some("Spam".to_string()));
+        assert!(reputation.ban_expires_at.is_some());
+    }
+
+    #[test]
+    fn test_moderation_action_record() {
+        let action = ModerationActionRecord {
+            action_type: "warning".to_string(),
+            reason: "Test warning".to_string(),
+            expires_at: None,
+            report_id: 123,
+        };
+        assert_eq!(action.action_type, "warning");
+        assert_eq!(action.report_id, 123);
+        assert!(action.expires_at.is_none());
+    }
+
+    #[test]
+    fn test_moderation_action_record_ban() {
+        let action = ModerationActionRecord {
+            action_type: "ban".to_string(),
+            reason: "Severe violation".to_string(),
+            expires_at: Some(9999999999),
+            report_id: 456,
+        };
+        assert_eq!(action.action_type, "ban");
+        assert!(action.expires_at.is_some());
+    }
+
+    #[test]
+    fn test_reputation_score_calculation() {
+        let config = ReputationConfig::default();
+        let initial = config.initial_score;
+        
+        let after_report = (initial - config.report_penalty).max(config.min_score);
+        assert_eq!(after_report, 40);
+        
+        let after_positive = (initial + config.positive_feedback_bonus).min(config.max_score);
+        assert_eq!(after_positive, 55);
+    }
+
+    #[test]
+    fn test_reputation_threshold_trigger() {
+        let config = ReputationConfig::default();
+        
+        let score_triggers_warning = config.auto_warn_threshold;
+        assert_eq!(score_triggers_warning, 20);
+        
+        let score_triggers_ban = config.auto_ban_threshold;
+        assert_eq!(score_triggers_ban, 0);
+    }
+
+    #[test]
+    fn test_user_reputation_clone() {
+        let reputation = UserReputation {
+            user_id: "@test:example.com".to_string(),
+            reputation_score: 50,
+            total_reports: 0,
+            accepted_reports: 0,
+            false_reports: 0,
+            last_report_ts: None,
+            last_update_ts: 1234567890,
+            warnings_count: 0,
+            is_banned: false,
+            ban_reason: None,
+            ban_expires_at: None,
+        };
+        let cloned = reputation.clone();
+        assert_eq!(reputation.user_id, cloned.user_id);
+        assert_eq!(reputation.reputation_score, cloned.reputation_score);
+    }
+
+    #[test]
+    fn test_user_reputation_debug() {
+        let reputation = UserReputation {
+            user_id: "@test:example.com".to_string(),
+            reputation_score: 50,
+            total_reports: 0,
+            accepted_reports: 0,
+            false_reports: 0,
+            last_report_ts: None,
+            last_update_ts: 1234567890,
+            warnings_count: 0,
+            is_banned: false,
+            ban_reason: None,
+            ban_expires_at: None,
+        };
+        let debug_str = format!("{:?}", reputation);
+        assert!(debug_str.contains("UserReputation"));
+        assert!(debug_str.contains("@test:example.com"));
+    }
+}

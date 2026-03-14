@@ -9,7 +9,7 @@ pub struct EventSignature {
     pub device_id: String,
     pub signature: String,
     pub key_id: String,
-    pub created_at: i64,
+    pub created_ts: i64,
 }
 
 #[cfg(test)]
@@ -25,7 +25,7 @@ mod tests {
             device_id: "DEVICE123".to_string(),
             signature: "base64_signature_data".to_string(),
             key_id: "ed25519:DEVICE123".to_string(),
-            created_at: chrono::Utc::now().timestamp(),
+            created_ts: chrono::Utc::now().timestamp(),
         };
 
         assert_eq!(sig.event_id, "$event123");
@@ -42,7 +42,7 @@ mod tests {
             device_id: "DEVICE123".to_string(),
             signature: "sig".to_string(),
             key_id: "ed25519:DEVICE123".to_string(),
-            created_at: chrono::Utc::now().timestamp(),
+            created_ts: chrono::Utc::now().timestamp(),
         };
 
         assert!(sig.key_id.starts_with("ed25519:"));
@@ -57,7 +57,7 @@ mod tests {
             device_id: "DEVICE123".to_string(),
             signature: "signature_data".to_string(),
             key_id: "ed25519:KEY1".to_string(),
-            created_at: chrono::Utc::now().timestamp(),
+            created_ts: chrono::Utc::now().timestamp(),
         };
 
         let json = serde_json::to_string(&sig).unwrap();
@@ -78,11 +78,11 @@ mod tests {
             device_id: "DEVICE123".to_string(),
             signature: "sig".to_string(),
             key_id: "ed25519:DEVICE123".to_string(),
-            created_at: now,
+            created_ts: now,
         };
 
-        assert_eq!(sig.created_at, now);
-        assert!(sig.created_at > 0);
+        assert_eq!(sig.created_ts, now);
+        assert!(sig.created_ts > 0);
     }
 
     #[test]
@@ -97,7 +97,7 @@ mod tests {
                 device_id: "DEVICE123".to_string(),
                 signature: "sig".to_string(),
                 key_id: key_id.to_string(),
-                created_at: chrono::Utc::now().timestamp(),
+                created_ts: chrono::Utc::now().timestamp(),
             };
 
             assert_eq!(sig.key_id, key_id);

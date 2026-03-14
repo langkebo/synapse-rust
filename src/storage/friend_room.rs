@@ -1,6 +1,41 @@
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
 
+/// 创建好友分组的参数
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CreateFriendGroupParams {
+    pub room_id: String,
+    pub user_id: String,
+    pub group_name: String,
+}
+
+/// 添加好友到分组的参数
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AddFriendToGroupParams {
+    pub room_id: String,
+    pub user_id: String,
+    pub group_name: String,
+    pub friend_id: String,
+}
+
+/// 从分组移除好友的参数
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RemoveFriendFromGroupParams {
+    pub room_id: String,
+    pub user_id: String,
+    pub group_name: String,
+    pub friend_id: String,
+}
+
+/// 重命名好友分组的参数
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RenameFriendGroupParams {
+    pub room_id: String,
+    pub user_id: String,
+    pub old_group_name: String,
+    pub new_group_name: String,
+}
+
 #[derive(Clone)]
 pub struct FriendRoomStorage {
     pool: Arc<Pool<Postgres>>,

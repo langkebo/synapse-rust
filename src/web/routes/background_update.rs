@@ -52,7 +52,7 @@ pub struct UpdateResponse {
     pub description: Option<String>,
     pub table_name: Option<String>,
     pub status: String,
-    pub progress: i32,
+    pub progress: serde_json::Value,
     pub total_items: i32,
     pub processed_items: i32,
     pub created_ts: i64,

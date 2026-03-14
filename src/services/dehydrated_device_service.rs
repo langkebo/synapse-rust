@@ -241,7 +241,7 @@ mod tests {
             account: Some(serde_json::json!({"account": "pickle"})),
             created_ts: 1234567890000,
             updated_ts: 1234567890000,
-            expires_ts: None,
+            expires_at: None,
         };
 
         let event = DehydratedDeviceService::to_device_event(&device);

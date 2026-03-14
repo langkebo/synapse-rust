@@ -261,7 +261,7 @@ mod tests {
     fn test_telemetry_config_default() {
         let config = OpenTelemetryConfig::default();
         assert!(!config.is_enabled());
-        assert!(config.is_trace_enabled() == false);
+        assert!(!config.is_trace_enabled());
         assert!(config.service_name == "synapse-rust");
     }
 

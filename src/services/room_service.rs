@@ -1080,6 +1080,7 @@ impl RoomService {
         room_id: &str,
         event_id: &str,
         _user_id: &str,
+        _custom_delay_secs: Option<u64>,
     ) -> ApiResult<()> {
         let event = match self.event_storage.get_event(event_id).await {
             Ok(Some(e)) => e,
@@ -1100,19 +1101,27 @@ impl RoomService {
             None => return Ok(()),
         };
 
+        // 从消息内容中读取自定义延迟时间
+        let delay_secs = content
+            .get("burn_after_read_delay_seconds")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as u64)
+            .unwrap_or(BURN_AFTER_READ_DELAY_SECS);
+        
         let rid = room_id.to_string();
         let eid = event_id.to_string();
-        let task_id = format!("burn_after_read:{}:{}", rid, eid);
+        let task_id = format!("burn_after_read:{}:{}:{}", rid, eid, delay_secs);
 
         ::tracing::info!(
-            "Scheduling burn-after-read for event {} in room {}",
+            "Scheduling burn-after-read for event {} in room {} with delay {}s",
             eid,
-            rid
+            rid,
+            delay_secs
         );
 
         // CRITICAL FIX: Track spawned task to prevent memory leaks
         let handle = tokio::spawn(async move {
-            tokio::time::sleep(secs(BURN_AFTER_READ_DELAY_SECS)).await;
+            tokio::time::sleep(secs(delay_secs)).await;
 
             let job = BackgroundJob::RedactEvent {
                 event_id: eid.clone(),

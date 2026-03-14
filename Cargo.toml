@@ -78,6 +78,7 @@ dashmap = { version = "6", features = ["serde"] }
 parking_lot = "0.12"
 lazy_static = "1"
 regex = "1.10"
+quick-xml = "0.37"
 lazy-regex = "3"
 flate2 = "1.0"
 url = "2.5"
@@ -140,3 +141,7 @@ harness = false
 [[test]]
 name = "integration"
 path = "tests/integration/mod.rs"
+
+[[test]]
+name = "unit"
+path = "tests/unit/mod.rs"

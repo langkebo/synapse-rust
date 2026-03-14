@@ -89,7 +89,7 @@ impl DeviceKeyService {
                         public_key: public_key.as_str().unwrap_or_default().to_string(),
                         signatures: serde_json::to_value(&device_keys.signatures)
                             .unwrap_or(serde_json::json!({})),
-                        created_at: Utc::now(),
+                        created_ts: Utc::now(),
                         updated_ts: Utc::now(),
                     };
 
@@ -131,7 +131,7 @@ impl DeviceKeyService {
                         key_id: key_id.clone(),
                         public_key,
                         signatures,
-                        created_at: Utc::now(),
+                        created_ts: Utc::now(),
                         updated_ts: Utc::now(),
                     };
 

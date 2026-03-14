@@ -185,6 +185,6 @@ curl -X GET "http://localhost:8008/_synapse/admin/v1/rooms?limit=10&offset=0" \
 
 | 账号类型 | 用户ID | 密码 | 设备ID | Access Token |
 |---------|--------|------|--------|-------------|
-| 管理员 | `@admin:matrix.cjystx.top` | `Wzc9890951!` | `q5Gm1PW0Kr_j0rliSTRWSw` | `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAYWRtaW46bWF0cml4LmNqeXN0eC50b3AiLCJ1c2VyX2lkIjoiQGFkbWluOm1hdHJpeC5janlzdHgudG9wIiwiYWRtaW4iOnRydWUsImV4cCI6MTc3MDEzMjMyMSwiaWF0IjoxNzcwMTI4NzIxLCJkZXZpY2VfaWQiOiJxNUdtMVBXMEtyX2owcmxpU1RSV1N3In0.gAHe9KBK5nPA6LQ7V9zt2UdpTQHp-9CuJC47uWj6FGI` |
+| 管理员 | `@admin:cjystx.top` | `Wzc9890951!` | `q5Gm1PW0Kr_j0rliSTRWSw` | `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAYWRtaW46bWF0cml4LmNqeXN0eC50b3AiLCJ1c2VyX2lkIjoiQGFkbWluOm1hdHJpeC5janlzdHgudG9wIiwiYWRtaW4iOnRydWUsImV4cCI6MTc3MDEzMjMyMSwiaWF0IjoxNzcwMTI4NzIxLCJkZXZpY2VfaWQiOiJxNUdtMVBXMEtyX2owcmxpU1RSV1N3In0.gAHe9KBK5nPA6LQ7V9zt2UdpTQHp-9CuJC47uWj6FGI` |
 
 **注意**：Access Token 有效期为 1 小时，过期后需要重新登录或使用 refresh_token 刷新。

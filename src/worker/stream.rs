@@ -351,8 +351,10 @@ mod tests {
 
     #[test]
     fn test_stream_writers_get_writer() {
-        let mut writers = StreamWriters::default();
-        writers.events = Some("worker1".to_string());
+        let writers = StreamWriters {
+            events: Some("worker1".to_string()),
+            ..Default::default()
+        };
 
         assert_eq!(writers.get_writer("events"), Some("worker1"));
         assert_eq!(writers.get_writer("typing"), None);
@@ -360,9 +362,11 @@ mod tests {
 
     #[test]
     fn test_stream_writers_all_writers() {
-        let mut writers = StreamWriters::default();
-        writers.events = Some("worker1".to_string());
-        writers.typing = Some("worker2".to_string());
+        let writers = StreamWriters {
+            events: Some("worker1".to_string()),
+            typing: Some("worker2".to_string()),
+            ..Default::default()
+        };
 
         let all = writers.all_writers();
         assert_eq!(all.len(), 2);
@@ -380,8 +384,10 @@ mod tests {
     #[tokio::test]
     async fn test_stream_writer_manager_with_config() {
         let bus = create_test_bus();
-        let mut config = StreamWriters::default();
-        config.events = Some("worker2".to_string());
+        let config = StreamWriters {
+            events: Some("worker2".to_string()),
+            ..Default::default()
+        };
 
         let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
 
@@ -407,8 +413,10 @@ mod tests {
     #[tokio::test]
     async fn test_stream_writer_manager_local_streams() {
         let bus = create_test_bus();
-        let mut config = StreamWriters::default();
-        config.events = Some("worker2".to_string());
+        let config = StreamWriters {
+            events: Some("worker2".to_string()),
+            ..Default::default()
+        };
 
         let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
 

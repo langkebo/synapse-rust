@@ -386,3 +386,184 @@ impl RetentionService {
         Ok(total_cleaned)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_protected_event_type_create() {
+        assert!(RetentionService::is_protected_event_type("m.room.create"));
+    }
+
+    #[test]
+    fn test_is_protected_event_type_power_levels() {
+        assert!(RetentionService::is_protected_event_type("m.room.power_levels"));
+    }
+
+    #[test]
+    fn test_is_protected_event_type_join_rules() {
+        assert!(RetentionService::is_protected_event_type("m.room.join_rules"));
+    }
+
+    #[test]
+    fn test_is_protected_event_type_history_visibility() {
+        assert!(RetentionService::is_protected_event_type("m.room.history_visibility"));
+    }
+
+    #[test]
+    fn test_is_not_protected_event_type_message() {
+        assert!(!RetentionService::is_protected_event_type("m.room.message"));
+    }
+
+    #[test]
+    fn test_is_not_protected_event_type_member() {
+        assert!(!RetentionService::is_protected_event_type("m.room.member"));
+    }
+
+    #[test]
+    fn test_create_room_retention_policy_request() {
+        let request = crate::storage::retention::CreateRoomRetentionPolicyRequest {
+            room_id: "!room:example.com".to_string(),
+            max_lifetime: Some(86400000),
+            min_lifetime: Some(0),
+            expire_on_clients: Some(true),
+        };
+        assert_eq!(request.room_id, "!room:example.com");
+        assert_eq!(request.max_lifetime, Some(86400000));
+    }
+
+    #[test]
+    fn test_update_room_retention_policy_request() {
+        let request = crate::storage::retention::UpdateRoomRetentionPolicyRequest {
+            max_lifetime: Some(172800000),
+            min_lifetime: None,
+            expire_on_clients: Some(false),
+        };
+        assert_eq!(request.max_lifetime, Some(172800000));
+        assert!(request.min_lifetime.is_none());
+    }
+
+    #[test]
+    fn test_update_room_retention_policy_request_default() {
+        let request = crate::storage::retention::UpdateRoomRetentionPolicyRequest::default();
+        assert!(request.max_lifetime.is_none());
+        assert!(request.min_lifetime.is_none());
+        assert!(request.expire_on_clients.is_none());
+    }
+
+    #[test]
+    fn test_room_retention_policy_structure() {
+        let policy = crate::storage::retention::RoomRetentionPolicy {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            max_lifetime: Some(86400000),
+            min_lifetime: 0,
+            expire_on_clients: true,
+            is_server_default: false,
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+        };
+        assert_eq!(policy.room_id, "!room:example.com");
+        assert!(policy.max_lifetime.is_some());
+        assert!(!policy.is_server_default);
+    }
+
+    #[test]
+    fn test_server_retention_policy_structure() {
+        let policy = crate::storage::retention::ServerRetentionPolicy {
+            id: 1,
+            max_lifetime: Some(604800000),
+            min_lifetime: 0,
+            expire_on_clients: true,
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+        };
+        assert!(policy.max_lifetime.is_some());
+        assert_eq!(policy.min_lifetime, 0);
+    }
+
+    #[test]
+    fn test_retention_cleanup_log_structure() {
+        let log = crate::storage::retention::RetentionCleanupLog {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            events_deleted: 100,
+            state_events_deleted: 5,
+            media_deleted: 10,
+            bytes_freed: 1024000,
+            started_ts: 1234567890,
+            completed_ts: Some(1234567999),
+            status: "completed".to_string(),
+            error_message: None,
+        };
+        assert_eq!(log.events_deleted, 100);
+        assert_eq!(log.status, "completed");
+        assert!(log.error_message.is_none());
+    }
+
+    #[test]
+    fn test_retention_cleanup_log_failed() {
+        let log = crate::storage::retention::RetentionCleanupLog {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            events_deleted: 0,
+            state_events_deleted: 0,
+            media_deleted: 0,
+            bytes_freed: 0,
+            started_ts: 1234567890,
+            completed_ts: Some(1234567999),
+            status: "failed".to_string(),
+            error_message: Some("Database error".to_string()),
+        };
+        assert_eq!(log.status, "failed");
+        assert!(log.error_message.is_some());
+    }
+
+    #[test]
+    fn test_retention_stats_structure() {
+        let stats = crate::storage::retention::RetentionStats {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            total_events: 1000,
+            events_in_retention: 800,
+            events_expired: 200,
+            last_cleanup_ts: Some(1234567890),
+            next_cleanup_ts: Some(1234657890),
+        };
+        assert_eq!(stats.total_events, 1000);
+        assert_eq!(stats.events_expired, 200);
+    }
+
+    #[test]
+    fn test_deleted_event_index() {
+        let deleted = crate::storage::retention::DeletedEventIndex {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            event_id: "$event:example.com".to_string(),
+            deletion_ts: 1234567890,
+            reason: "retention".to_string(),
+        };
+        assert_eq!(deleted.event_id, "$event:example.com");
+        assert_eq!(deleted.reason, "retention");
+    }
+
+    #[test]
+    fn test_retention_cleanup_queue_item() {
+        let item = crate::storage::retention::RetentionCleanupQueueItem {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            event_id: Some("$event:example.com".to_string()),
+            event_type: Some("m.room.message".to_string()),
+            origin_server_ts: 1234567890,
+            scheduled_ts: 1234567890,
+            status: "pending".to_string(),
+            created_ts: 1234567890,
+            processed_ts: None,
+            error_message: None,
+            retry_count: 0,
+        };
+        assert_eq!(item.status, "pending");
+        assert_eq!(item.retry_count, 0);
+    }
+}

@@ -1,7 +1,10 @@
 use synapse_rust::services::module_service::*;
 use synapse_rust::storage::module::*;
 
-mod common;
+#[cfg(test)]
+mod common {
+    pub use synapse_rust::services::ServiceContainer;
+}
 
 #[tokio::test]
 async fn test_module_storage_creation() {

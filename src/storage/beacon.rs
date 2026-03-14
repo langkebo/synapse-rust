@@ -15,7 +15,7 @@ pub struct BeaconInfo {
     pub asset_type: String,
     pub created_ts: i64,
     pub updated_ts: i64,
-    pub expires_ts: Option<i64>,
+    pub expires_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,7 +78,7 @@ impl BeaconStorage {
         params: CreateBeaconInfoParams,
     ) -> Result<BeaconInfo, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let expires_ts = if params.timeout > 0 {
+        let expires_at = if params.timeout > 0 {
             Some(params.created_ts + params.timeout)
         } else {
             None
@@ -88,7 +88,7 @@ impl BeaconStorage {
             r#"
             INSERT INTO beacon_info (
                 room_id, event_id, state_key, sender, description,
-                timeout, is_live, asset_type, created_ts, updated_ts, expires_ts
+                timeout, is_live, asset_type, created_ts, updated_ts, expires_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *
@@ -104,7 +104,7 @@ impl BeaconStorage {
         .bind(&params.asset_type)
         .bind(params.created_ts)
         .bind(now)
-        .bind(expires_ts)
+        .bind(expires_at)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -158,7 +158,7 @@ impl BeaconStorage {
             SELECT * FROM beacon_info
             WHERE room_id = $1 
               AND is_live = true 
-              AND (expires_ts IS NULL OR expires_ts > $2)
+              AND (expires_at IS NULL OR expires_at > $2)
             ORDER BY created_ts DESC
             "#,
         )
@@ -179,13 +179,13 @@ impl BeaconStorage {
     ) -> Result<Option<BeaconInfo>, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let expires_ts = timeout.map(|t| now + t);
+        let expires_at = timeout.map(|t| now + t);
 
         let row = sqlx::query_as::<_, BeaconInfo>(
             r#"
             UPDATE beacon_info
             SET is_live = $3, timeout = COALESCE($4, timeout), 
-                expires_ts = COALESCE($5, expires_ts), updated_ts = $6
+                expires_at = COALESCE($5, expires_at), updated_ts = $6
             WHERE room_id = $1 AND event_id = $2
             RETURNING *
             "#,
@@ -194,7 +194,7 @@ impl BeaconStorage {
         .bind(event_id)
         .bind(is_live)
         .bind(timeout)
-        .bind(expires_ts)
+        .bind(expires_at)
         .bind(now)
         .fetch_optional(&*self.pool)
         .await?;
@@ -273,7 +273,7 @@ impl BeaconStorage {
                 sqlx::query(
                     r#"
                     UPDATE beacon_info
-                    SET expires_ts = $2, updated_ts = $3
+                    SET expires_at = $2, updated_ts = $3
                     WHERE event_id = $1
                     "#,
                 )
@@ -354,7 +354,7 @@ impl BeaconStorage {
         let result = sqlx::query(
             r#"
             DELETE FROM beacon_info
-            WHERE expires_ts IS NOT NULL AND expires_ts < $1
+            WHERE expires_at IS NOT NULL AND expires_at < $1
             "#,
         )
         .bind(now)
@@ -387,7 +387,7 @@ impl BeaconStorage {
                 r#"
                 SELECT * FROM beacon_info
                 WHERE room_id = $1 
-                  AND (expires_ts IS NULL OR expires_ts > $2)
+                  AND (expires_at IS NULL OR expires_at > $2)
                 ORDER BY created_ts DESC
                 "#,
             )
@@ -428,7 +428,7 @@ mod tests {
             asset_type: "m.self".to_string(),
             created_ts: 1234567890000,
             updated_ts: 1234567890000,
-            expires_ts: Some(1234571490000),
+            expires_at: Some(1234571490000),
         };
 
         assert_eq!(beacon.room_id, "!room:example.com");

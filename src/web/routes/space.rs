@@ -617,6 +617,7 @@ pub async fn get_room_hierarchy(
 
 pub fn create_space_router(state: AppState) -> Router<AppState> {
     Router::new()
+        // v1 paths
         .route("/_matrix/client/v1/spaces", post(create_space))
         .route("/_matrix/client/v1/spaces/public", get(get_public_spaces))
         .route("/_matrix/client/v1/spaces/search", get(search_spaces))
@@ -628,6 +629,22 @@ pub fn create_space_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v1/spaces/{space_id}", get(get_space))
         .route("/_matrix/client/v1/spaces/{space_id}", put(update_space))
         .route("/_matrix/client/v1/spaces/{space_id}", delete(delete_space))
+        // r0 paths (for compatibility)
+        .route("/_matrix/client/r0/spaces", post(create_space))
+        .route("/_matrix/client/r0/spaces/public", get(get_public_spaces))
+        .route("/_matrix/client/r0/spaces/search", get(search_spaces))
+        .route("/_matrix/client/r0/spaces/user", get(get_user_spaces))
+        .route("/_matrix/client/r0/spaces/{space_id}", get(get_space))
+        .route("/_matrix/client/r0/spaces/{space_id}", put(update_space))
+        .route("/_matrix/client/r0/spaces/{space_id}", delete(delete_space))
+        // v3 paths (for compatibility)
+        .route("/_matrix/client/v3/spaces", post(create_space))
+        .route("/_matrix/client/v3/spaces/public", get(get_public_spaces))
+        .route("/_matrix/client/v3/spaces/search", get(search_spaces))
+        .route("/_matrix/client/v3/spaces/user", get(get_user_spaces))
+        .route("/_matrix/client/v3/spaces/{space_id}", get(get_space))
+        .route("/_matrix/client/v3/spaces/{space_id}", put(update_space))
+        .route("/_matrix/client/v3/spaces/{space_id}", delete(delete_space))
         .route(
             "/_matrix/client/v1/spaces/{space_id}/children",
             get(get_space_children),

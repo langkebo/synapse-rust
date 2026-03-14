@@ -28,7 +28,7 @@ pub struct RTCMembership {
     pub call_id: Option<String>,
     pub created_ts: i64,
     pub updated_ts: i64,
-    pub expires_ts: Option<i64>,
+    pub expires_at: Option<i64>,
     pub foci_active: Option<String>,
     pub foci_preferred: Option<serde_json::Value>,
     pub application_data: Option<serde_json::Value>,
@@ -43,7 +43,7 @@ pub struct RTCEncryptionKey {
     pub key_index: i32,
     pub key: String,
     pub created_ts: i64,
-    pub expires_ts: Option<i64>,
+    pub expires_at: Option<i64>,
     pub sender_user_id: String,
     pub sender_device_id: String,
 }
@@ -179,18 +179,18 @@ impl MatrixRTCStorage {
         params: CreateMembershipParams,
     ) -> Result<RTCMembership, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let expires_ts = now + 3600 * 1000;
+        let expires_at = now + 3600 * 1000;
 
         sqlx::query_as::<_, RTCMembership>(
             r#"
             INSERT INTO matrixrtc_memberships 
                 (room_id, session_id, user_id, device_id, membership_id, application, call_id,
-                 created_ts, updated_ts, expires_ts, foci_active, foci_preferred, application_data, is_active)
+                 created_ts, updated_ts, expires_at, foci_active, foci_preferred, application_data, is_active)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true)
             ON CONFLICT (room_id, session_id, user_id, device_id) DO UPDATE SET
                 membership_id = EXCLUDED.membership_id,
                 updated_ts = EXCLUDED.updated_ts,
-                expires_ts = EXCLUDED.expires_ts,
+                expires_ts = EXCLUDED.expires_at,
                 foci_active = EXCLUDED.foci_active,
                 foci_preferred = EXCLUDED.foci_preferred,
                 application_data = EXCLUDED.application_data,
@@ -207,7 +207,7 @@ impl MatrixRTCStorage {
         .bind(&params.call_id)
         .bind(now)
         .bind(now)
-        .bind(expires_ts)
+        .bind(expires_at)
         .bind(&params.foci_active)
         .bind(&params.foci_preferred)
         .bind(&params.application_data)
@@ -226,7 +226,7 @@ impl MatrixRTCStorage {
             r#"
             SELECT * FROM matrixrtc_memberships 
             WHERE room_id = $1 AND session_id = $2 AND is_active = true 
-              AND (expires_ts IS NULL OR expires_ts > $3)
+              AND (expires_at IS NULL OR expires_ts > $3)
             ORDER BY created_ts ASC
             "#,
         )
@@ -312,17 +312,17 @@ impl MatrixRTCStorage {
         sender_device_id: &str,
     ) -> Result<RTCEncryptionKey, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let expires_ts = now + 24 * 3600 * 1000;
+        let expires_at = now + 24 * 3600 * 1000;
 
         sqlx::query_as::<_, RTCEncryptionKey>(
             r#"
             INSERT INTO matrixrtc_encryption_keys 
-                (room_id, session_id, key_index, key, created_ts, expires_ts, sender_user_id, sender_device_id)
+                (room_id, session_id, key_index, key, created_ts, expires_at, sender_user_id, sender_device_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (room_id, session_id, key_index) DO UPDATE SET
                 key = EXCLUDED.key,
                 created_ts = EXCLUDED.created_ts,
-                expires_ts = EXCLUDED.expires_ts,
+                expires_ts = EXCLUDED.expires_at,
                 sender_user_id = EXCLUDED.sender_user_id,
                 sender_device_id = EXCLUDED.sender_device_id
             RETURNING *
@@ -333,7 +333,7 @@ impl MatrixRTCStorage {
         .bind(key_index)
         .bind(key)
         .bind(now)
-        .bind(expires_ts)
+        .bind(expires_at)
         .bind(sender_user_id)
         .bind(sender_device_id)
         .fetch_one(&*self.pool)
@@ -351,7 +351,7 @@ impl MatrixRTCStorage {
             r#"
             SELECT * FROM matrixrtc_encryption_keys 
             WHERE room_id = $1 AND session_id = $2 
-              AND (expires_ts IS NULL OR expires_ts > $3)
+              AND (expires_at IS NULL OR expires_ts > $3)
             ORDER BY key_index ASC
             "#,
         )

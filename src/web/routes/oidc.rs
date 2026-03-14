@@ -12,20 +12,52 @@ use serde::{Deserialize, Serialize};
 
 pub fn create_oidc_router(state: AppState) -> Router<AppState> {
     Router::new()
-        // OpenID Connect UserInfo
+        // v3 路径
         .route(
             "/_matrix/client/v3/oidc/userinfo",
             get(oidc_userinfo),
         )
-        // OpenID Connect Token (via login fallback)
         .route(
             "/_matrix/client/v3/oidc/token",
             post(oidc_token),
         )
-        // OIDC Logout
         .route(
             "/_matrix/client/v3/oidc/logout",
             post(oidc_logout),
+        )
+        .route(
+            "/_matrix/client/v3/oidc/authorize",
+            get(oidc_authorize),
+        )
+        .route(
+            "/_matrix/client/v3/oidc/register",
+            post(oidc_register),
+        )
+        // r0 路径兼容
+        .route(
+            "/_matrix/client/r0/oidc/userinfo",
+            get(oidc_userinfo),
+        )
+        .route(
+            "/_matrix/client/r0/oidc/token",
+            post(oidc_token),
+        )
+        .route(
+            "/_matrix/client/r0/oidc/logout",
+            post(oidc_logout),
+        )
+        .route(
+            "/_matrix/client/r0/oidc/authorize",
+            get(oidc_authorize),
+        )
+        .route(
+            "/_matrix/client/r0/oidc/register",
+            post(oidc_register),
+        )
+        // OIDC 发现
+        .route(
+            "/.well-known/openid-configuration",
+            get(openid_discovery),
         )
         .with_state(state)
 }
@@ -116,6 +148,60 @@ async fn oidc_token(
 pub struct OidcLogoutRequest {
     pub refresh_token: Option<String>,
     pub device_id: Option<String>,
+}
+
+/// OIDC Authorize Request
+#[derive(Debug, Deserialize)]
+pub struct OidcAuthorizeRequest {
+    pub response_type: String,
+    pub client_id: String,
+    pub redirect_uri: String,
+    pub scope: Option<String>,
+    pub state: Option<String>,
+    pub nonce: Option<String>,
+}
+
+/// OIDC Authorization handler
+async fn oidc_authorize(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    _query: axum::extract::Query<OidcAuthorizeRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::bad_request(
+        "OIDC authorization endpoint not available. Please use SAML or CAS authentication.".to_string(),
+    ))
+}
+
+/// OIDC Registration Request
+#[derive(Debug, Deserialize)]
+pub struct OidcRegistrationRequest {
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    pub redirect_uris: Option<Vec<String>>,
+    pub client_name: Option<String>,
+    pub token_endpoint_auth_method: Option<String>,
+}
+
+/// OIDC Registration Response
+#[derive(Debug, Serialize)]
+pub struct OidcRegistrationResponse {
+    pub client_id: String,
+    pub client_secret: Option<String>,
+    pub client_id_issued_at: i64,
+    pub client_secret_expires_at: i64,
+    pub redirect_uris: Vec<String>,
+    pub grant_types: Vec<String>,
+    pub token_endpoint_auth_method: String,
+}
+
+/// OIDC Registration handler
+async fn oidc_register(
+    State(_state): State<AppState>,
+    Json(_body): Json<OidcRegistrationRequest>,
+) -> Result<Json<OidcRegistrationResponse>, ApiError> {
+    Err(ApiError::bad_request(
+        "Dynamic client registration not supported. Please configure OIDC in server configuration.".to_string(),
+    ))
 }
 
 /// OIDC 登出

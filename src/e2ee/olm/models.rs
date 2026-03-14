@@ -38,8 +38,8 @@ pub struct OlmSessionData {
     pub receiver_key: String,
     pub serialized_state: String,
     pub message_index: u32,
-    pub created_at: i64,
-    pub last_used_at: i64,
+    pub created_ts: i64,
+    pub last_used_ts: i64,
     pub expires_at: Option<i64>,
 }
 
@@ -87,14 +87,14 @@ impl OlmSessionData {
             receiver_key,
             serialized_state,
             message_index: 0,
-            created_at: now,
-            last_used_at: now,
+            created_ts: now,
+            last_used_ts: now,
             expires_at: None,
         }
     }
 
     pub fn touch(&mut self) {
-        self.last_used_at = chrono::Utc::now().timestamp_millis();
+        self.last_used_ts = chrono::Utc::now().timestamp_millis();
     }
 
     pub fn increment_message_index(&mut self) {

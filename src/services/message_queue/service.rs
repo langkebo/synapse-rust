@@ -64,7 +64,7 @@ impl MessageQueue {
             queue: request.queue.clone(),
             payload: request.payload,
             priority: request.priority.unwrap_or(0),
-            created_at: now,
+            created_ts: now,
             expires_at: request.expires_at,
             retry_count: 0,
             headers: request.headers.unwrap_or_default(),

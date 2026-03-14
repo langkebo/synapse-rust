@@ -47,8 +47,8 @@ impl MegolmService {
             session_key: encrypted_key,
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
-            created_at: Utc::now(),
-            last_used_at: Utc::now(),
+            created_ts: Utc::now(),
+            last_used_ts: Utc::now(),
             expires_at: Some(Utc::now() + chrono::Duration::days(7)),
         };
 
@@ -88,7 +88,7 @@ impl MegolmService {
 
         let mut updated_session = session.clone();
         updated_session.message_index += 1;
-        updated_session.last_used_at = Utc::now();
+        updated_session.last_used_ts = Utc::now();
         self.storage.update_session(&updated_session).await?;
 
         Ok(encrypted)

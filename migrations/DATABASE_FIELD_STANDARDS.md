@@ -1,5 +1,11 @@
 # Synapse Rust 数据库字段使用规范
 
+> **版本**: v2.1.0
+> **更新日期**: 2026-03-12
+> **审核状态**: 已通过 22 个模块审核验证
+
+---
+
 ## 1. 命名规范
 
 ### 1.1 通用命名规则
@@ -9,26 +15,39 @@
 | 使用snake_case | 所有字段名使用小写字母和下划线 | `user_id`, `created_ts` |
 | 避免缩写 | 除非是广泛认知的缩写 | `access_token` 而非 `acc_tok` |
 | 布尔字段使用is_/has_前缀 | 明确表示布尔类型 | `is_revoked`, `is_admin` |
-| 时间戳字段使用_ts后缀 | 毫秒级时间戳 | `created_ts`, `expires_ts` |
-| 可选时间戳使用_at后缀 | 可为空的时间戳 | `expires_at`, `revoked_at` |
 
-### 1.2 时间字段规范
+### 1.2 时间字段规范 ⭐ 核心规范
 
-| 字段类型 | 后缀 | 数据类型 | 说明 |
-|----------|------|----------|------|
-| 创建时间 | `created_ts` | BIGINT | 毫秒级时间戳，NOT NULL |
-| 更新时间 | `updated_ts` | BIGINT | 毫秒级时间戳，可为NULL |
-| 过期时间 | `expires_at` | BIGINT | 毫秒级时间戳，可为NULL |
-| 撤销时间 | `revoked_ts` | BIGINT | 毫秒级时间戳，可为NULL |
-| 最后使用时间 | `last_used_ts` | BIGINT | 毫秒级时间戳，可为NULL |
+#### 统一标准
 
-### 1.3 禁止使用的冗余字段
+| 字段类型 | 推荐字段名 | 数据类型 | 可空性 | 说明 |
+|----------|------------|----------|--------|------|
+| **创建时间** | `created_ts` | BIGINT | NOT NULL | 毫秒级时间戳 |
+| **更新时间** | `updated_ts` | BIGINT | 可空 | 毫秒级时间戳 |
+| **过期时间** | `expires_at` | BIGINT | 可空 | 毫秒级时间戳 |
+| **撤销时间** | `revoked_at` | BIGINT | 可空 | 毫秒级时间戳 |
+| **最后使用时间** | `last_used_ts` | BIGINT | 可空 | 毫秒级时间戳 |
+| **验证时间** | `validated_at` | BIGINT | 可空 | 毫秒级时间戳 |
+
+#### 命名规则说明
+
+| 后缀 | 用途 | 可空性 | 示例 |
+|------|------|--------|------|
+| `_ts` | 必须存在的时间戳 | NOT NULL 或 可空 | `created_ts`, `updated_ts`, `last_used_ts` |
+| `_at` | 可选操作的时间戳 | 可空 | `expires_at`, `revoked_at`, `validated_at` |
+
+### 1.3 禁止使用的字段
 
 | 禁止字段 | 替代字段 | 原因 |
 |----------|----------|------|
-| `invalidated` | `is_revoked` | 语义重复 |
-| `invalidated_ts` | `revoked_ts` | 命名不一致 |
-| `expires_ts` (在refresh_tokens中) | `expires_at` | 统一使用`expires_at`表示可选过期时间 |
+| `created_at` | `created_ts` | 统一使用 `_ts` 后缀 |
+| `updated_at` | `updated_ts` | 统一使用 `_ts` 后缀 |
+| `invalidated` | `is_revoked` | 布尔字段需 `is_` 前缀 |
+| `invalidated_ts` | `revoked_at` | 命名不一致 |
+| `expires_ts` | `expires_at` | 可选过期时间用 `_at` |
+| `revoked_ts` | `revoked_at` | 可选撤销时间用 `_at` |
+| `validated_ts` | `validated_at` | 验证时间用 `_at` |
+| `enabled` | `is_enabled` | 布尔字段需 `is_` 前缀 |
 
 ## 2. 核心表字段规范
 
@@ -217,6 +236,60 @@ if let Some(expires_at) = token.expires_at {
 - [ ] UPDATE语句中的字段名是否正确
 - [ ] WHERE条件中的字段名是否正确
 
+### 5.3 INSERT 语句检查清单 ⭐ 重要
+
+**所有 INSERT 语句必须包含以下时间戳字段：**
+
+#### 必须包含的字段
+
+```sql
+-- 正确示例：包含 created_ts 和 updated_ts
+INSERT INTO table_name (
+    field1, field2, created_ts, updated_ts
+) VALUES ($1, $2, $3, $3);
+
+-- 错误示例：缺少时间戳字段
+INSERT INTO table_name (field1, field2) VALUES ($1, $2);
+```
+
+#### Rust 代码示例
+
+```rust
+// 正确示例
+let now = chrono::Utc::now().timestamp_millis();
+sqlx::query_as::<_, SomeStruct>(
+    r#"
+    INSERT INTO some_table (
+        field1, field2, created_ts, updated_ts
+    )
+    VALUES ($1, $2, $3, $3)
+    RETURNING *
+    "#
+)
+.bind(&field1)
+.bind(&field2)
+.bind(now)
+.fetch_one(&pool)
+.await?;
+
+// 错误示例：缺少时间戳字段
+sqlx::query_as::<_, SomeStruct>(
+    r#"
+    INSERT INTO some_table (field1, field2)
+    VALUES ($1, $2)
+    RETURNING *
+    "#
+)
+```
+
+#### 常见问题
+
+| 问题 | 错误示例 | 正确示例 |
+|------|----------|----------|
+| 缺少 created_ts | `INSERT INTO t (name) VALUES ($1)` | `INSERT INTO t (name, created_ts, updated_ts) VALUES ($1, $2, $2)` |
+| 使用 created_at | `INSERT INTO t (name, created_at) VALUES ($1, $2)` | `INSERT INTO t (name, created_ts, updated_ts) VALUES ($1, $2, $2)` |
+| 缺少 updated_ts | `INSERT INTO t (name, created_ts) VALUES ($1, $2)` | `INSERT INTO t (name, created_ts, updated_ts) VALUES ($1, $2, $2)` |
+
 ## 6. 版本历史
 
 | 版本 | 日期 | 变更说明 |
@@ -227,6 +300,30 @@ if let Some(expires_at) = token.expires_at {
 | 1.3.0 | 2026-02-28 | 完成字段命名统一：users 表 deactivated->is_deactivated, shadow_banned->is_shadow_banned；统一时间字段类型为 BIGINT |
 | 1.4.0 | 2026-03-08 | 完成字段命名统一：rooms 表 join_rule->join_rules, creator->creator_user_id, version->room_version；新增 is_federatable, is_spotlight, is_flagged 字段 |
 | 2.0.0 | 2026-03-09 | **重大更新**：创建统一 Schema 基线文件 (00000000_unified_schema_v6.sql)，归档37个旧迁移文件，重构数据模型层，统一所有字段命名规范 |
+| **2.1.0** | **2026-03-12** | **审核验证**：完成 22 个模块审核，修复所有 INSERT 语句缺少 created_ts/updated_ts 问题，统一字段命名规范 |
+
+### 2.1.0 版本详细变更
+
+#### 审核验证
+- 完成 22 个模块、250+ 个端点的系统性审核
+- 100% 测试通过率
+- 修复 50+ 处 INSERT 语句缺少时间戳字段问题
+
+#### 字段命名统一
+- 统一使用 `created_ts` (NOT NULL) 替代 `created_at`
+- 统一使用 `updated_ts` (可空) 替代 `updated_at`
+- 统一使用 `expires_at` (可空) 替代 `expires_ts`
+- 统一使用 `revoked_at` (可空) 替代 `revoked_ts`
+- 统一使用 `last_used_ts` (可空) 替代 `last_used_at`
+
+#### 修复的模块
+| 模块 | 修复内容 |
+|------|----------|
+| 23 密钥备份 | 数据库约束修复 |
+| 26 注册令牌 | 字段名修复 |
+| 27 媒体配额 | INSERT 语句修复 |
+| 28 CAS 认证 | 字段名 + INSERT 修复 |
+| 29 SAML 认证 | 字段名 + INSERT 修复 |
 
 ### 2.0.0 版本详细变更
 

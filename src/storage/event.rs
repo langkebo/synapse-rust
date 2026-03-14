@@ -152,6 +152,60 @@ impl EventStorage {
         Ok(events)
     }
 
+    /// Find the event closest to a given timestamp
+    /// Used by MSC3030 timestamp_to_event endpoint
+    pub async fn find_event_by_timestamp(
+        &self,
+        room_id: &str,
+        ts: i64,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        // First try to find an event exactly at or before the timestamp
+        let event = sqlx::query_as::<_, (String, i64)>(
+            r#"
+            SELECT event_id, origin_server_ts 
+            FROM events 
+            WHERE room_id = $1 
+              AND origin_server_ts IS NOT NULL
+              AND origin_server_ts <= $2
+            ORDER BY origin_server_ts DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(room_id)
+        .bind(ts)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        if let Some((event_id, origin_server_ts)) = event {
+            // Get the full event content
+            let full_event = sqlx::query_as::<_, (serde_json::Value,)>(
+                r#"
+                SELECT content 
+                FROM events 
+                WHERE event_id = $1
+                "#,
+            )
+            .bind(&event_id)
+            .fetch_optional(&*self.pool)
+            .await?;
+
+            if let Some((content,)) = full_event {
+                let mut result = serde_json::Map::new();
+                result.insert("event_id".to_string(), serde_json::Value::String(event_id));
+                result.insert("origin_server_ts".to_string(), serde_json::Value::Number(origin_server_ts.into()));
+                // Merge content into result
+                if let serde_json::Value::Object(obj) = content {
+                    for (k, v) in obj {
+                        result.insert(k, v);
+                    }
+                }
+                return Ok(Some(serde_json::Value::Object(result)));
+            }
+        }
+
+        Ok(None)
+    }
+
     pub async fn get_room_events_by_type(
         &self,
         room_id: &str,

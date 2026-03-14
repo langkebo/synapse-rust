@@ -11,6 +11,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 #[derive(Debug, Deserialize)]
 struct CreateThreadBody {
@@ -130,6 +131,12 @@ impl From<crate::storage::thread::ThreadReply> for ReplyResponse {
 
 pub fn create_thread_routes(state: AppState) -> Router<AppState> {
     Router::new()
+        // Global threads endpoints (v1)
+        .route("/_matrix/client/v1/threads", get(list_threads_global))
+        .route("/_matrix/client/v1/threads", post(create_thread_global))
+        .route("/_matrix/client/v1/threads/subscribed", get(get_subscribed_threads))
+        .route("/_matrix/client/v1/threads/unread", get(get_unread_threads_global))
+        // Room-level threads (v1)
         .route(
             "/_matrix/client/v1/rooms/{room_id}/threads",
             post(create_thread),
@@ -504,4 +511,39 @@ async fn redact_reply(
         .redact_reply(&room_id, &event_id)
         .await?;
     Ok(StatusCode::OK)
+}
+
+async fn list_threads_global(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    _query: Query<ListQuery>,
+) -> Result<Json<Value>, ApiError> {
+    Err(ApiError::not_found("Global threads not implemented yet. Use room-specific endpoints.".to_string()))
+}
+
+async fn create_thread_global(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Json(_body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    Err(ApiError::not_found("Global thread creation not implemented yet. Use room-specific endpoints.".to_string()))
+}
+
+async fn get_subscribed_threads(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "threads": [],
+        "subscribed": []
+    })))
+}
+
+async fn get_unread_threads_global(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "threads": []
+    })))
 }

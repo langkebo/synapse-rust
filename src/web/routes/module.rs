@@ -17,7 +17,7 @@ pub struct CreateModuleBody {
     pub module_type: String,
     pub version: String,
     pub description: Option<String>,
-    pub enabled: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub priority: Option<i32>,
     pub config: Option<serde_json::Value>,
 }
@@ -29,7 +29,7 @@ pub struct UpdateModuleConfigBody {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EnableModuleBody {
-    pub enabled: bool,
+    pub is_enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,7 +69,7 @@ pub struct CreatePasswordAuthProviderBody {
     pub provider_name: String,
     pub provider_type: String,
     pub config: serde_json::Value,
-    pub enabled: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub priority: Option<i32>,
 }
 
@@ -78,7 +78,7 @@ pub struct CreatePresenceRouteBody {
     pub route_name: String,
     pub route_type: String,
     pub config: serde_json::Value,
-    pub enabled: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub priority: Option<i32>,
 }
 
@@ -89,7 +89,7 @@ pub struct CreateMediaCallbackBody {
     pub url: String,
     pub method: Option<String>,
     pub headers: Option<serde_json::Value>,
-    pub enabled: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub timeout_ms: Option<i32>,
     pub retry_count: Option<i32>,
 }
@@ -99,7 +99,7 @@ pub struct CreateRateLimitCallbackBody {
     pub callback_name: String,
     pub callback_type: String,
     pub config: serde_json::Value,
-    pub enabled: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub priority: Option<i32>,
 }
 
@@ -108,7 +108,7 @@ pub struct CreateAccountDataCallbackBody {
     pub callback_name: String,
     pub callback_type: String,
     pub config: serde_json::Value,
-    pub enabled: Option<bool>,
+    pub is_enabled: Option<bool>,
     pub priority: Option<i32>,
 }
 
@@ -119,7 +119,7 @@ pub struct ModuleResponse {
     pub module_type: String,
     pub version: String,
     pub description: Option<String>,
-    pub enabled: bool,
+    pub is_enabled: bool,
     pub priority: i32,
     pub config: Option<serde_json::Value>,
     pub created_ts: i64,
@@ -138,7 +138,7 @@ impl From<Module> for ModuleResponse {
             module_type: m.module_type,
             version: m.version,
             description: m.description,
-            enabled: m.enabled,
+            is_enabled: m.is_enabled,
             priority: m.priority,
             config: m.config,
             created_ts: m.created_ts,
@@ -250,7 +250,7 @@ pub struct PasswordAuthProviderResponse {
     pub provider_name: String,
     pub provider_type: String,
     pub config: Option<serde_json::Value>,
-    pub enabled: bool,
+    pub is_enabled: bool,
     pub priority: i32,
     pub created_ts: i64,
     pub updated_ts: i64,
@@ -263,7 +263,7 @@ impl From<PasswordAuthProvider> for PasswordAuthProviderResponse {
             provider_name: p.provider_name,
             provider_type: p.provider_type,
             config: p.config,
-            enabled: p.enabled,
+            is_enabled: p.is_enabled,
             priority: p.priority,
             created_ts: p.created_ts,
             updated_ts: p.updated_ts,
@@ -394,7 +394,7 @@ pub async fn create_module(
         module_type: body.module_type,
         version: body.version,
         description: body.description,
-        enabled: body.enabled,
+        is_enabled: body.is_enabled,
         priority: body.priority,
         config: body.config,
     };
@@ -482,7 +482,7 @@ pub async fn enable_module(
     let module = state
         .services
         .module_service
-        .enable_module(&module_name, body.enabled)
+        .enable_module(&module_name, body.is_enabled)
         .await?;
 
     Ok(Json(ModuleResponse::from(module)))
@@ -678,7 +678,7 @@ pub async fn create_password_auth_provider(
         provider_name: body.provider_name,
         provider_type: body.provider_type,
         config: body.config,
-        enabled: body.enabled,
+        is_enabled: body.is_enabled,
         priority: body.priority,
     };
 
@@ -725,7 +725,7 @@ pub async fn create_presence_route(
         route_name: body.route_name,
         route_type: body.route_type,
         config: body.config,
-        enabled: body.enabled,
+        is_enabled: body.is_enabled,
         priority: body.priority,
     };
 
@@ -772,7 +772,7 @@ pub async fn create_media_callback(
         url: body.url,
         method: body.method,
         headers: body.headers,
-        enabled: body.enabled,
+        is_enabled: body.is_enabled,
         timeout_ms: body.timeout_ms,
         retry_count: body.retry_count,
     };
@@ -838,7 +838,7 @@ pub async fn create_rate_limit_callback(
         callback_name: body.callback_name,
         callback_type: body.callback_type,
         config: body.config,
-        enabled: body.enabled,
+        is_enabled: body.is_enabled,
         priority: body.priority,
     };
 
@@ -883,7 +883,7 @@ pub async fn create_account_data_callback(
         callback_name: body.callback_name,
         callback_type: body.callback_type,
         config: body.config,
-        enabled: body.enabled,
+        is_enabled: body.is_enabled,
         priority: body.priority,
     };
 
