@@ -21,9 +21,6 @@ pub fn create_server_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/health", get(get_health))
         .route("/_synapse/admin/v1/config", get(get_config))
         .route("/_synapse/admin/v1/experimental_features", get(get_experimental_features))
-        .route("/_synapse/admin/v1/background_updates/status", get(get_background_updates_status))
-        .route("/_synapse/admin/v1/background_updates/enable", post(enable_background_updates))
-        .route("/_synapse/admin/v1/background_updates/run", post(run_background_updates))
 }
 
 #[derive(Debug, Deserialize)]

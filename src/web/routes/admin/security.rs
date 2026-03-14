@@ -11,9 +11,6 @@ use sqlx::Row;
 
 pub fn create_security_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_synapse/admin/v1/event_reports", get(get_event_reports))
-        .route("/_synapse/admin/v1/event_reports/{report_id}", get(get_event_report))
-        .route("/_synapse/admin/v1/event_reports/{report_id}", delete(delete_event_report))
         .route("/_synapse/admin/v1/users/{user_id}/shadow_ban", post(shadow_ban_user))
         .route("/_synapse/admin/v1/users/{user_id}/shadow_ban", delete(unshadow_ban_user))
         .route("/_synapse/admin/v1/users/{user_id}/rate_limit", get(get_user_rate_limit))
@@ -28,95 +25,6 @@ pub fn create_security_router(_state: AppState) -> Router<AppState> {
 pub struct RateLimitRequest {
     pub messages_per_second: Option<f64>,
     pub burst_count: Option<i32>,
-}
-
-#[axum::debug_handler]
-pub async fn get_event_reports(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> Result<Json<Value>, ApiError> {
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(100);
-    let offset = params
-        .get("offset")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
-
-    let reports = sqlx::query(
-        "SELECT id, room_id, event_id, user_id, reason, content, received_ts FROM event_reports ORDER BY received_ts DESC LIMIT $1 OFFSET $2"
-    )
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&*state.services.event_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-    let report_list: Vec<Value> = reports
-        .iter()
-        .map(|row| {
-            json!({
-                "id": row.get::<i64, _>("id"),
-                "room_id": row.get::<String, _>("room_id"),
-                "event_id": row.get::<String, _>("event_id"),
-                "user_id": row.get::<String, _>("user_id"),
-                "reason": row.get::<Option<String>, _>("reason"),
-                "content": row.get::<Option<String>, _>("content"),
-                "received_ts": row.get::<i64, _>("received_ts")
-            })
-        })
-        .collect();
-
-    Ok(Json(json!({ "event_reports": report_list, "total": report_list.len() })))
-}
-
-#[axum::debug_handler]
-pub async fn get_event_report(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-    Path(report_id): Path<i64>,
-) -> Result<Json<Value>, ApiError> {
-    let report = sqlx::query(
-        "SELECT id, room_id, event_id, user_id, reason, content, received_ts FROM event_reports WHERE id = $1"
-    )
-    .bind(report_id)
-    .fetch_optional(&*state.services.event_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-    match report {
-        Some(row) => Ok(Json(json!({
-            "id": row.get::<i64, _>("id"),
-            "room_id": row.get::<String, _>("room_id"),
-            "event_id": row.get::<String, _>("event_id"),
-            "user_id": row.get::<String, _>("user_id"),
-            "reason": row.get::<Option<String>, _>("reason"),
-            "content": row.get::<Option<String>, _>("content"),
-            "received_ts": row.get::<i64, _>("received_ts")
-        }))),
-        None => Err(ApiError::not_found("Event report not found".to_string())),
-    }
-}
-
-#[axum::debug_handler]
-pub async fn delete_event_report(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-    Path(report_id): Path<i64>,
-) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("DELETE FROM event_reports WHERE id = $1")
-        .bind(report_id)
-        .execute(&*state.services.event_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-    if result.rows_affected() == 0 {
-        return Err(ApiError::not_found("Event report not found".to_string()));
-    }
-
-    Ok(Json(json!({})))
 }
 
 #[axum::debug_handler]
