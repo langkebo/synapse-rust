@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS background_update_locks (
     lock_name TEXT NOT NULL UNIQUE,
     owner TEXT NOT NULL,
     acquired_ts BIGINT NOT NULL,
-    expires_ts BIGINT
+    expires_at BIGINT
 );
 
 CREATE INDEX IF NOT EXISTS idx_background_update_locks_expires ON background_update_locks(expires_ts) WHERE expires_ts IS NOT NULL;
@@ -182,7 +182,7 @@ CREATE TABLE IF NOT EXISTS federation_blacklist_rule (
     reason TEXT,
     is_enabled BOOLEAN DEFAULT TRUE,
     created_ts BIGINT NOT NULL,
-    expires_ts BIGINT
+    expires_at BIGINT
 );
 
 CREATE INDEX IF NOT EXISTS idx_federation_blacklist_rule_enabled ON federation_blacklist_rule(is_enabled) WHERE is_enabled = TRUE;
@@ -326,7 +326,7 @@ CREATE TABLE IF NOT EXISTS registration_token_batches (
     tokens_used BIGINT DEFAULT 0,
     is_active BOOLEAN DEFAULT TRUE,
     created_ts BIGINT NOT NULL,
-    expires_ts BIGINT
+    expires_at BIGINT
 );
 
 CREATE INDEX IF NOT EXISTS idx_registration_token_batches_active ON registration_token_batches(is_active) WHERE is_active = TRUE;
@@ -383,7 +383,7 @@ CREATE TABLE IF NOT EXISTS dehydrated_devices (
     device_id TEXT NOT NULL UNIQUE,
     user_id TEXT NOT NULL,
     device_data JSONB NOT NULL,
-    expires_ts BIGINT,
+    expires_at BIGINT,
     created_ts BIGINT NOT NULL
 );
 
@@ -398,8 +398,8 @@ CREATE TABLE IF NOT EXISTS email_verification (
     code TEXT,
     status TEXT DEFAULT 'pending',
     attempts INTEGER DEFAULT 0,
-    verified_ts BIGINT,
-    expires_ts BIGINT NOT NULL,
+    verified_at BIGINT,
+    expires_at BIGINT NOT NULL,
     created_ts BIGINT NOT NULL
 );
 

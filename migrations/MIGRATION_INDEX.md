@@ -1,7 +1,7 @@
 # synapse-rust 迁移索引
 
-> 版本: v2.0.0
-> 更新日期: 2026-03-13
+> 版本: v2.1.0
+> 更新日期: 2026-03-14
 > 说明: 记录所有迁移文件的执行顺序和内容
 
 ---
@@ -10,12 +10,11 @@
 
 ### 1.1 核心架构文件
 
-| 文件名 | 描述 | 稡块 | 状态 |
+| 文件名 | 描述 | 模块 | 状态 |
 |------|------|------|------|
 | `00000000_unified_schema_v6.sql` | 统一架构 v6 | 核心 | ✅ 已应用 |
 | `DATABASE_FIELD_STANDARDS.md` | 字段标准文档 | 规范 | ✅ 已应用 |
 | `SCHEMA_OPTIMIZATION_REPORT.md` | 优化报告 | 文档 | ✅ 已应用 |
-
 | `README.md` | 迁移说明 | 文档 | ✅ 已应用 |
 
 ### 1.2 增量迁移文件（按时间顺序）
@@ -35,7 +34,23 @@
 | `20260311000006_add_e2ee_tables.sql` | E2EE 表补充 | E2EE | ✅ 已应用 |
 | `20260311000007_fix_application_services_tables.sql` | 应用服务表修复 | 服务 | ✅ 已应用 |
 | `20260311000008_fix_key_backups_constraints.sql` | 密钥备份约束修复 | E2EE | ✅ 已应用 |
-| `20260313000000_unified_migration_optimized.sql` | **统一优化迁移** | 综合 | 🆕 新增 |
+| `20260313000000_create_room_tags_and_password_reset_tokens.sql` | 房间标签和密码重置令牌 | 核心 | ✅ 已修复 |
+| `20260313000000_unified_migration_optimized.sql` | 统一优化迁移 | 综合 | ✅ 已修复 |
+| `20260313000001_qr_login.sql` | QR 登录 | 认证 | ✅ 已应用 |
+| `20260313000002_invite_blocklist.sql` | 邀请黑名单 | 安全 | ✅ 已应用 |
+| `20260313000003_sticky_event.sql` | 粘性事件 | 事件 | ✅ 已应用 |
+| `20260314000001_widget_support.sql` | Widget 支持 | Widget | ✅ 已应用 |
+| `20260314000002_add_performance_indexes.sql` | 性能索引 | 性能 | ✅ 已应用 |
+| `20260314000003_fix_updated_at_to_updated_ts.sql` | updated_at → updated_ts | 规范 | ✅ 已应用 |
+| `20260314000004_fix_refresh_tokens_fields.sql` | 刷新令牌字段修复 | 认证 | ✅ 已应用 |
+| `20260314000005_fix_refresh_token_families.sql` | 刷新令牌家族修复 | 认证 | ✅ 已应用 |
+| `20260315000001_fix_field_names.sql` | 字段名修复 | 规范 | ✅ 已应用 |
+| `20260315000002_create_admin_api_tables.sql` | Admin API 表 | 管理 | ✅ 已修复 |
+| `20260315000003_create_feature_tables.sql` | 功能模块表 | 功能 | ✅ 已修复 |
+| `20260315000004_fix_field_naming_inconsistencies.sql` | 字段命名不一致修复 | 规范 | ✅ 已应用 |
+| `20260315000005_fix_room_guest_access.sql` | 房间访客访问修复 | 房间 | ✅ 已应用 |
+| `20260315000006_fix_room_summaries.sql` | 房间摘要修复 | 房间 | ✅ 已应用 |
+| `20260315000007_add_foreign_key_constraints.sql` | 外键约束补充 | 完整性 | 🆕 新增 |
 
 ---
 
@@ -57,7 +72,7 @@ done
 
 ```bash
 # 只执行新的迁移文件
-psql -U synapse -d synapse -f migrations/20260313000000_unified_migration_optimized.sql
+psql -U synapse -d synapse -f migrations/20260315000007_add_foreign_key_constraints.sql
 ```
 
 ---
@@ -73,33 +88,55 @@ psql -U synapse -d synapse -f migrations/20260313000000_unified_migration_optimi
 - 索引优化: presence_subscriptions 复合索引
 - 字段规范化: created_at → created_ts, updated_at → updated_ts, expires_ts → expires_at, revoked_ts → revoked_at
 
-- 合并的迁移文件:
-  - 20260312000001_add_missing_p1_tables.sql
-  - 20260312000001_presence_subscriptions.sql
-  - 20260312000002_add_missing_p2_tables.sql
-  - 20260312000002_call_sessions.sql
-  - 20260312000003_add_missing_p3_tables.sql
-  - 20260312000004_add_missing_indexes.sql
-  - 20260312000004_fix_timestamp_field_names.sql
-  - 20260312000005_qr_login.sql
-  - 20260312000006_invite_blocklist.sql
-  - 20260312000007_sticky_event.sql
-| `20260313000008_field_name_fix.sql` | 字段名修复 | 核心 | ✅ 已应用 |
-| `20260313000008_unified_schema_field_fix.sql` | 统一字段修复 | 核心 | ✅ 已应用 |
-| `20260314000001_widget_support.sql` | Widget 支持 | Widget | ✅ 已应用 |
-| `20260314000002_add_performance_indexes.sql` | 性能索引 | 性能 | ✅ 已应用 |
-| `20260314000003_fix_updated_at_to_updated_ts.sql` | updated_at → updated_ts | 规范 | ✅ 新增 |
+### 3.2 Admin API 表迁移 (20260315000002)
+
+**包含内容**:
+- shadow_bans: 影子封禁表
+- rate_limits: 速率限制表
+- server_notices: 服务器通知表
+- user_notification_settings: 用户通知设置表
+- blocked_rooms: 封禁房间表
+- federation_destinations: 联邦目标表
+- federation_rooms: 联邦房间表
+- federation_cache: 联邦缓存表
+- federation_blacklist: 联邦黑名单表
+- server_retention_policy: 服务器保留策略表
+- room_retention_policy: 房间保留策略表
+- user_media_quota: 用户媒体配额表
+
+### 3.3 功能模块表迁移 (20260315000003)
+
+**包含内容**:
+- matrixrtc_sessions: MatrixRTC 会话表
+- matrixrtc_memberships: MatrixRTC 成员表
+- matrixrtc_encryption_keys: MatrixRTC 加密密钥表
+- email_verification_tokens: 邮箱验证令牌表
+- delayed_events: 延迟事件表
+- db_metadata: 数据库元数据表
+- server_media_quota: 服务器媒体配额表
+- media_usage_log: 媒体使用日志表
+- media_quota_alerts: 媒体配额警告表
+
+### 3.4 外键约束迁移 (20260315000007)
+
+**包含内容**:
+- Admin API 表的外键约束 (shadow_bans, rate_limits, server_notices 等)
+- 功能模块表的外键约束 (call_sessions, beacon_info, matrixrtc_sessions 等)
+- 统一迁移表的外键约束 (qr_login_transactions, room_sticky_events 等)
 
 ---
 
 ## 四、字段命名规范
+
 ### 4.1 时间戳字段
+
 | 后缀 | 数据类型 | 可空性 | 说明 |
 |------|----------|--------|------|
 | `_ts` | BIGINT | NOT NULL | 创建/更新/活跃时间 |
 | `_at` | BIGINT | NULLABLE | 过期/撤销/验证等可选操作时间 |
 
 ### 4.2 字段映射
+
 | 旧字段名 | 新字段名 | 说明 |
 |----------|----------|------|
 | `created_at` | `created_ts` | 创建时间 |
@@ -107,10 +144,12 @@ psql -U synapse -d synapse -f migrations/20260313000000_unified_migration_optimi
 | `expires_ts` | `expires_at` | 过期时间（可选） |
 | `revoked_ts` | `revoked_at` | 撤销时间（可选） |
 | `validated_ts` | `validated_at` | 验证时间（可选） |
+| `verified_ts` | `verified_at` | 验证时间（可选） |
 
 ---
 
 ## 五、验证清单
+
 ### 5.1 迁移前验证
 - [ ] 备份数据库
 - [ ] 检查磁盘空间
@@ -120,4 +159,22 @@ psql -U synapse -d synapse -f migrations/20260313000000_unified_migration_optimi
 - [ ] 验证表结构
 - [ ] 验证索引创建
 - [ ] 验证字段命名
+- [ ] 验证外键约束
 - [ ] 运行测试套件
+
+---
+
+## 六、变更日志
+
+### 2026-03-14
+- 修复 `20260313000000_create_room_tags_and_password_reset_tokens.sql` SQL 语法错误
+- 修复 `20260315000002_create_admin_api_tables.sql` 字段命名问题 (created_at → created_ts)
+- 修复 `20260315000003_create_feature_tables.sql` 移除重复表定义
+- 修复 `20260313000000_unified_migration_optimized.sql` 字段命名问题 (expires_ts → expires_at)
+- 重命名冲突文件 `20260315000002_fix_room_guest_access.sql` → `20260315000005_fix_room_guest_access.sql`
+- 重命名冲突文件 `20260315000003_fix_room_summaries.sql` → `20260315000006_fix_room_summaries.sql`
+- 新增 `20260315000007_add_foreign_key_constraints.sql` 添加缺失的外键约束
+
+### 2026-03-13
+- 创建统一迁移文件
+- 添加字段命名规范
