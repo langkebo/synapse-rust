@@ -10,7 +10,7 @@ pub struct OpenIdToken {
     pub user_id: String,
     pub device_id: Option<String>,
     pub created_ts: i64,
-    pub expires_ts: i64,
+    pub expires_at: i64,
     pub is_valid: bool,
 }
 
@@ -19,7 +19,7 @@ pub struct CreateOpenIdTokenRequest {
     pub token: String,
     pub user_id: String,
     pub device_id: Option<String>,
-    pub expires_ts: i64,
+    pub expires_at: i64,
 }
 
 #[derive(Clone)]
@@ -40,16 +40,16 @@ impl OpenIdTokenStorage {
 
         let token = sqlx::query_as::<_, OpenIdToken>(
             r#"
-            INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_ts, expires_at, is_valid)
-            VALUES ($1, $2, $3, $4, $5, $5, TRUE)
-            RETURNING id, token, user_id, device_id, created_ts, expires_ts, is_valid
+            INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid)
+            VALUES ($1, $2, $3, $4, $5, TRUE)
+            RETURNING id, token, user_id, device_id, created_ts, expires_at, is_valid
             "#,
         )
         .bind(&request.token)
         .bind(&request.user_id)
         .bind(&request.device_id)
         .bind(now)
-        .bind(request.expires_ts)
+        .bind(request.expires_at)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create OpenID token: {}", e)))?;
@@ -60,7 +60,7 @@ impl OpenIdTokenStorage {
     pub async fn get_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
         let token_data = sqlx::query_as::<_, OpenIdToken>(
             r#"
-            SELECT id, token, user_id, device_id, created_ts, expires_ts, is_valid
+            SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid
             FROM openid_tokens
             WHERE token = $1 AND is_valid = TRUE
             "#,
@@ -78,9 +78,9 @@ impl OpenIdTokenStorage {
 
         let token_data = sqlx::query_as::<_, OpenIdToken>(
             r#"
-            SELECT id, token, user_id, device_id, created_ts, expires_ts, is_valid
+            SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid
             FROM openid_tokens
-            WHERE token = $1 AND is_valid = TRUE AND expires_ts > $2
+            WHERE token = $1 AND is_valid = TRUE AND expires_at > $2
             "#,
         )
         .bind(token)
@@ -130,7 +130,7 @@ impl OpenIdTokenStorage {
         let result = sqlx::query(
             r#"
             DELETE FROM openid_tokens
-            WHERE expires_ts < $1 OR is_valid = FALSE
+            WHERE expires_at < $1 OR is_valid = FALSE
             "#,
         )
         .bind(now)
@@ -146,7 +146,7 @@ impl OpenIdTokenStorage {
     pub async fn get_tokens_by_user(&self, user_id: &str) -> Result<Vec<OpenIdToken>, ApiError> {
         let tokens = sqlx::query_as::<_, OpenIdToken>(
             r#"
-            SELECT id, token, user_id, device_id, created_ts, expires_ts, is_valid
+            SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid
             FROM openid_tokens
             WHERE user_id = $1
             ORDER BY created_ts DESC
@@ -171,7 +171,7 @@ mod tests {
             token: "openid_token_123".to_string(),
             user_id: "@test:example.com".to_string(),
             device_id: Some("DEVICE123".to_string()),
-            expires_ts: 1234567890000,
+            expires_at: 1234567890000,
         };
         assert_eq!(request.token, "openid_token_123");
         assert_eq!(request.user_id, "@test:example.com");
@@ -185,10 +185,10 @@ mod tests {
             user_id: "@test:example.com".to_string(),
             device_id: Some("DEVICE123".to_string()),
             created_ts: 1234567890000,
-            expires_ts: 1234571490000,
+            expires_at: 1234571490000,
             is_valid: true,
         };
-        assert_eq!(token.id, 1);
+        assert_eq!(token.token, "openid_token_123");
         assert!(token.is_valid);
     }
 }

@@ -41,7 +41,7 @@ pub struct SamlIdentityProvider {
     pub description: Option<String>,
     pub metadata_url: Option<String>,
     pub metadata_xml: Option<String>,
-    pub enabled: bool,
+    pub is_enabled: bool,
     pub priority: i32,
     pub attribute_mapping: serde_json::Value,
     pub created_ts: i64,
@@ -191,7 +191,7 @@ mod tests {
             description: Some("Test IDP".to_string()),
             metadata_url: None,
             metadata_xml: Some("<xml>metadata</xml>".to_string()),
-            enabled: true,
+            is_enabled: true,
             priority: 0,
             attribute_mapping: serde_json::json!({}),
             created_ts: 1234567800000,
@@ -199,7 +199,7 @@ mod tests {
             last_metadata_refresh_ts: None,
             metadata_valid_until: None,
         };
-        assert!(idp.enabled);
+        assert!(idp.is_enabled);
         assert_eq!(idp.entity_id, "https://idp.example.com");
     }
 
@@ -277,7 +277,7 @@ impl SamlStorage {
             r#"
             INSERT INTO saml_sessions (
                 session_id, user_id, name_id, issuer, session_index, attributes,
-                created_at, expires_at, last_used_at, status
+                created_ts, expires_at, last_used_at, status
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $7, 'active')
             RETURNING *
@@ -322,7 +322,7 @@ impl SamlStorage {
             r#"
             SELECT * FROM saml_sessions 
             WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
-            ORDER BY created_at DESC 
+            ORDER BY created_ts DESC 
             LIMIT 1
             "#,
         )
@@ -335,7 +335,7 @@ impl SamlStorage {
     }
 
     pub async fn update_session_last_used(&self, session_id: &str) -> Result<(), ApiError> {
-        sqlx::query("UPDATE saml_sessions SET last_used_at = NOW() WHERE session_id = $1")
+        sqlx::query("UPDATE saml_sessions SET last_used_ts = NOW() WHERE session_id = $1")
             .bind(session_id)
             .execute(&*self.pool)
             .await
@@ -467,7 +467,7 @@ impl SamlStorage {
             r#"
             INSERT INTO saml_identity_providers (
                 entity_id, display_name, description, metadata_url, metadata_xml,
-                enabled, priority, attribute_mapping, created_at, updated_ts
+                is_enabled, priority, attribute_mapping, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
             ON CONFLICT (entity_id) DO UPDATE SET
@@ -475,7 +475,7 @@ impl SamlStorage {
                 description = EXCLUDED.description,
                 metadata_url = EXCLUDED.metadata_url,
                 metadata_xml = EXCLUDED.metadata_xml,
-                enabled = EXCLUDED.enabled,
+                is_enabled = EXCLUDED.is_enabled,
                 priority = EXCLUDED.priority,
                 attribute_mapping = EXCLUDED.attribute_mapping,
                 updated_ts = NOW()
@@ -627,7 +627,7 @@ impl SamlStorage {
             r#"
             SELECT * FROM saml_auth_events 
             WHERE user_id = $1 
-            ORDER BY created_at DESC 
+            ORDER BY created_ts DESC 
             LIMIT $2
             "#,
         )
@@ -697,7 +697,7 @@ impl SamlStorage {
 
     pub async fn cleanup_old_auth_events(&self, days: i64) -> Result<u64, ApiError> {
         let result = sqlx::query(
-            "DELETE FROM saml_auth_events WHERE created_at < NOW() - INTERVAL '1 day' * $1",
+            "DELETE FROM saml_auth_events WHERE created_ts < NOW() - INTERVAL '1 day' * $1",
         )
         .bind(days)
         .execute(&*self.pool)

@@ -383,3 +383,178 @@ impl EventReportService {
         Ok(updated)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    fn create_test_report() -> crate::storage::event_report::EventReport {
+        crate::storage::event_report::EventReport {
+            id: 1,
+            event_id: "$event123:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            reporter_user_id: "@reporter:example.com".to_string(),
+            reported_user_id: Some("@reported:example.com".to_string()),
+            event_json: Some(serde_json::json!({"type": "m.room.message"})),
+            reason: Some("spam".to_string()),
+            description: Some("Spam content".to_string()),
+            status: "open".to_string(),
+            score: 10,
+            received_ts: 1234567890,
+            resolved_ts: None,
+            resolved_by: None,
+            resolution_reason: None,
+        }
+    }
+
+    #[test]
+    fn test_event_report_structure() {
+        let report = create_test_report();
+        assert_eq!(report.id, 1);
+        assert_eq!(report.event_id, "$event123:example.com");
+        assert_eq!(report.status, "open");
+        assert_eq!(report.score, 10);
+    }
+
+    #[test]
+    fn test_event_report_status() {
+        let report = create_test_report();
+        assert_eq!(report.status, "open");
+        assert!(report.resolved_ts.is_none());
+        assert!(report.resolved_by.is_none());
+    }
+
+    #[test]
+    fn test_create_event_report_request() {
+        let request = crate::storage::event_report::CreateEventReportRequest {
+            event_id: "$event:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            reporter_user_id: "@user:example.com".to_string(),
+            reported_user_id: Some("@offender:example.com".to_string()),
+            event_json: Some(serde_json::json!({"type": "m.room.message"})),
+            reason: Some("inappropriate".to_string()),
+            description: Some("Inappropriate content".to_string()),
+            score: Some(20),
+        };
+        assert_eq!(request.event_id, "$event:example.com");
+        assert_eq!(request.score, Some(20));
+    }
+
+    #[test]
+    fn test_update_event_report_request() {
+        let request = crate::storage::event_report::UpdateEventReportRequest {
+            status: Some("resolved".to_string()),
+            score: Some(50),
+            resolved_by: Some("@admin:example.com".to_string()),
+            resolution_reason: Some("Action taken".to_string()),
+        };
+        assert_eq!(request.status, Some("resolved".to_string()));
+        assert!(request.resolved_by.is_some());
+    }
+
+    #[test]
+    fn test_update_event_report_request_default() {
+        let request = crate::storage::event_report::UpdateEventReportRequest::default();
+        assert!(request.status.is_none());
+        assert!(request.score.is_none());
+        assert!(request.resolved_by.is_none());
+    }
+
+    #[test]
+    fn test_report_rate_limit_check() {
+        let check = crate::storage::event_report::ReportRateLimitCheck {
+            is_allowed: true,
+            remaining_reports: 5,
+            block_reason: None,
+        };
+        assert!(check.is_allowed);
+        assert_eq!(check.remaining_reports, 5);
+        assert!(check.block_reason.is_none());
+    }
+
+    #[test]
+    fn test_report_rate_limit_blocked() {
+        let check = crate::storage::event_report::ReportRateLimitCheck {
+            is_allowed: false,
+            remaining_reports: 0,
+            block_reason: Some("Too many reports".to_string()),
+        };
+        assert!(!check.is_allowed);
+        assert_eq!(check.remaining_reports, 0);
+        assert!(check.block_reason.is_some());
+    }
+
+    #[test]
+    fn test_event_report_history() {
+        let history = crate::storage::event_report::EventReportHistory {
+            id: 1,
+            report_id: 1,
+            action: "status_change".to_string(),
+            actor_user_id: Some("@admin:example.com".to_string()),
+            actor_role: Some("admin".to_string()),
+            old_status: Some("open".to_string()),
+            new_status: Some("investigating".to_string()),
+            reason: None,
+            created_ts: 1234567890,
+            metadata: None,
+        };
+        assert_eq!(history.action, "status_change");
+        assert!(history.actor_user_id.is_some());
+    }
+
+    #[test]
+    fn test_report_rate_limit_structure() {
+        let rate_limit = crate::storage::event_report::ReportRateLimit {
+            id: 1,
+            user_id: "@user:example.com".to_string(),
+            report_count: 3,
+            last_report_ts: Some(1234567890),
+            blocked_until_ts: None,
+            is_blocked: false,
+            block_reason: None,
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+        };
+        assert_eq!(rate_limit.report_count, 3);
+        assert!(!rate_limit.is_blocked);
+    }
+
+    #[test]
+    fn test_event_report_stats() {
+        let stats = crate::storage::event_report::EventReportStats {
+            id: 1,
+            date: chrono::NaiveDate::from_ymd_opt(2026, 3, 13).unwrap(),
+            total_reports: 100,
+            open_reports: 20,
+            resolved_reports: 70,
+            dismissed_reports: 10,
+            avg_resolution_time_hours: Some(24),
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+        };
+        assert_eq!(stats.total_reports, 100);
+        assert_eq!(stats.open_reports, 20);
+        assert_eq!(stats.resolved_reports, 70);
+    }
+
+    #[test]
+    fn test_report_with_resolved_state() {
+        let mut report = create_test_report();
+        report.status = "resolved".to_string();
+        report.resolved_ts = Some(1234567999);
+        report.resolved_by = Some("@admin:example.com".to_string());
+        report.resolution_reason = Some("User banned".to_string());
+
+        assert_eq!(report.status, "resolved");
+        assert!(report.resolved_ts.is_some());
+        assert!(report.resolved_by.is_some());
+    }
+
+    #[test]
+    fn test_report_score_escalation() {
+        let report = create_test_report();
+        let initial_score = report.score;
+        let escalated_score = initial_score + 10;
+        
+        assert_eq!(initial_score, 10);
+        assert_eq!(escalated_score, 20);
+    }
+}

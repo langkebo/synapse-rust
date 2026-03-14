@@ -10,7 +10,7 @@ pub struct RegistrationToken {
     pub token_type: String,
     pub description: Option<String>,
     pub max_uses: i32,
-    pub current_uses: i32,
+    pub uses_count: i32,
     pub is_used: bool,
     pub is_enabled: bool,
     pub expires_at: Option<i64>,
@@ -53,7 +53,7 @@ pub struct RoomInvite {
     pub expires_at: Option<i64>,
     pub created_ts: i64,
     pub used_ts: Option<i64>,
-    pub revoked_ts: Option<i64>,
+    pub revoked_at: Option<i64>,
     pub revoked_reason: Option<String>,
 }
 
@@ -253,7 +253,7 @@ impl RegistrationTokenStorage {
                     });
                 }
 
-                if t.max_uses > 0 && t.current_uses >= t.max_uses {
+                if t.max_uses > 0 && t.uses_count >= t.max_uses {
                     return Ok(TokenValidationResult {
                         is_valid: false,
                         token_id: Some(t.id),
@@ -308,7 +308,7 @@ impl RegistrationTokenStorage {
         sqlx::query(
             r#"
             UPDATE registration_tokens
-            SET current_uses = current_uses + 1,
+            SET uses_count = uses_count + 1,
                 is_used = CASE WHEN token_type = 'single_use' THEN TRUE ELSE is_used END,
                 last_used_ts = $2
             WHERE id = $1
@@ -364,7 +364,7 @@ impl RegistrationTokenStorage {
             SELECT * FROM registration_tokens 
             WHERE is_enabled = TRUE 
             AND (expires_at IS NULL OR expires_at > $1)
-            AND (max_uses = 0 OR current_uses < max_uses)
+            AND (max_uses = 0 OR uses_count < max_uses)
             ORDER BY created_ts DESC
             "#,
         )
@@ -506,7 +506,7 @@ impl RegistrationTokenStorage {
             r#"
             UPDATE room_invites SET
                 is_revoked = TRUE,
-                revoked_ts = $2,
+                revoked_at = $2,
                 revoked_reason = $3
             WHERE invite_code = $1
             "#,
@@ -596,7 +596,7 @@ mod tests {
             token_type: "single_use".to_string(),
             description: Some("Test token for unit tests".to_string()),
             max_uses: 1,
-            current_uses: 0,
+            uses_count: 0,
             is_used: false,
             is_enabled: true,
             expires_at: None,
@@ -624,7 +624,7 @@ mod tests {
             Some("Test token for unit tests".to_string())
         );
         assert_eq!(token.max_uses, 1);
-        assert_eq!(token.current_uses, 0);
+        assert_eq!(token.uses_count, 0);
         assert!(!token.is_used);
         assert!(token.is_enabled);
         assert!(token.expires_at.is_none());
@@ -639,7 +639,7 @@ mod tests {
             token_type: "multi_use".to_string(),
             description: None,
             max_uses: 10,
-            current_uses: 5,
+            uses_count: 5,
             is_used: false,
             is_enabled: true,
             expires_at: Some(1800000000000),
@@ -827,7 +827,7 @@ mod tests {
             token_type: "single_use".to_string(),
             description: None,
             max_uses: 1,
-            current_uses: 0,
+            uses_count: 0,
             is_used: false,
             is_enabled: true,
             expires_at: Some(now + 86400000),
@@ -848,7 +848,7 @@ mod tests {
             token_type: "single_use".to_string(),
             description: None,
             max_uses: 1,
-            current_uses: 0,
+            uses_count: 0,
             is_used: false,
             is_enabled: true,
             expires_at: Some(now - 86400000),
@@ -875,7 +875,7 @@ mod tests {
             token_type: "multi_use".to_string(),
             description: None,
             max_uses: 0,
-            current_uses: 100,
+            uses_count: 100,
             is_used: false,
             is_enabled: true,
             expires_at: None,
@@ -896,7 +896,7 @@ mod tests {
             token_type: "multi_use".to_string(),
             description: None,
             max_uses: 10,
-            current_uses: 5,
+            uses_count: 5,
             is_used: false,
             is_enabled: true,
             expires_at: None,
@@ -917,7 +917,7 @@ mod tests {
             token_type: "multi_use".to_string(),
             description: None,
             max_uses: 10,
-            current_uses: 10,
+            uses_count: 10,
             is_used: false,
             is_enabled: true,
             expires_at: None,
@@ -934,10 +934,10 @@ mod tests {
 
         assert!(
             unlimited_token.max_uses == 0
-                || unlimited_token.current_uses < unlimited_token.max_uses
+                || unlimited_token.uses_count < unlimited_token.max_uses
         );
-        assert!(limited_token_available.current_uses < limited_token_available.max_uses);
-        assert!(limited_token_exhausted.current_uses >= limited_token_exhausted.max_uses);
+        assert!(limited_token_available.uses_count < limited_token_available.max_uses);
+        assert!(limited_token_exhausted.uses_count >= limited_token_exhausted.max_uses);
     }
 
     #[test]
@@ -948,7 +948,7 @@ mod tests {
             token_type: "single_use".to_string(),
             description: None,
             max_uses: 1,
-            current_uses: 0,
+            uses_count: 0,
             is_used: false,
             is_enabled: false,
             expires_at: None,
@@ -975,7 +975,7 @@ mod tests {
             token_type: "single_use".to_string(),
             description: None,
             max_uses: 1,
-            current_uses: 1,
+            uses_count: 1,
             is_used: true,
             is_enabled: true,
             expires_at: None,
@@ -992,7 +992,7 @@ mod tests {
 
         assert!(used_token.is_used);
         assert_eq!(used_token.token_type, "single_use");
-        assert_eq!(used_token.current_uses, used_token.max_uses);
+        assert_eq!(used_token.uses_count, used_token.max_uses);
     }
 
     #[test]
@@ -1009,7 +1009,7 @@ mod tests {
             expires_at: Some(1800000000000),
             created_ts: 1700000000000,
             used_ts: None,
-            revoked_ts: None,
+            revoked_at: None,
             revoked_reason: None,
         };
 
@@ -1034,12 +1034,12 @@ mod tests {
             expires_at: None,
             created_ts: 1700000000000,
             used_ts: None,
-            revoked_ts: Some(1700000100000),
+            revoked_at: Some(1700000100000),
             revoked_reason: Some("No longer needed".to_string()),
         };
 
         assert!(revoked_invite.is_revoked);
-        assert!(revoked_invite.revoked_ts.is_some());
+        assert!(revoked_invite.revoked_at.is_some());
         assert_eq!(
             revoked_invite.revoked_reason,
             Some("No longer needed".to_string())

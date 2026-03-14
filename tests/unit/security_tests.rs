@@ -242,21 +242,32 @@ fn test_origin_validation_valid() {
 
 #[test]
 fn test_origin_validation_invalid() {
-    let invalid_origins = vec![
-        "",
-        "a".repeat(300).as_str(),
-        "invalid!@#",
-        "space in name",
-        "dot.at.end.",
-    ];
-
-    for origin in invalid_origins {
-        assert!(
-            SecurityValidator::validate_origin(origin).is_err(),
-            "Origin '{}' should be invalid",
-            origin
-        );
-    }
+    // Test each invalid origin individually to avoid temporary value issues
+    assert!(
+        SecurityValidator::validate_origin("").is_err(),
+        "Empty origin should be invalid"
+    );
+    
+    let long_origin = "a".repeat(300);
+    assert!(
+        SecurityValidator::validate_origin(&long_origin).is_err(),
+        "Long origin should be invalid"
+    );
+    
+    assert!(
+        SecurityValidator::validate_origin("invalid!@#").is_err(),
+        "Special chars origin should be invalid"
+    );
+    
+    assert!(
+        SecurityValidator::validate_origin("space in name").is_err(),
+        "Space in name origin should be invalid"
+    );
+    
+    assert!(
+        SecurityValidator::validate_origin("dot.at.end.").is_err(),
+        "Dot at end origin should be invalid"
+    );
 }
 
 #[test]

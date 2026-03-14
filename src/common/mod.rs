@@ -8,6 +8,7 @@ pub mod crypto;
 pub mod early_exit;
 pub mod error;
 pub mod error_context;
+pub mod event_utils;
 pub mod federation_test_keys;
 pub mod health;
 pub mod logging;
@@ -20,10 +21,12 @@ pub mod regex_cache;
 pub mod security;
 pub mod task_queue;
 pub mod telemetry_config;
+pub mod time;
 pub mod tracing;
 pub mod transaction;
 pub mod types;
 pub mod validation;
+pub mod xml_parser;
 
 #[allow(ambiguous_glob_reexports)]
 pub use argon2_config::*;
@@ -46,11 +49,15 @@ pub use error::*;
 #[allow(ambiguous_glob_reexports)]
 pub use error_context::*;
 #[allow(ambiguous_glob_reexports)]
+pub use event_utils::*;
+#[allow(ambiguous_glob_reexports)]
 pub use health::*;
 #[allow(ambiguous_glob_reexports)]
 pub use logging::*;
 #[allow(ambiguous_glob_reexports)]
 pub use metrics::*;
+#[allow(ambiguous_glob_reexports)]
+pub use password_hash_pool::*;
 #[allow(ambiguous_glob_reexports)]
 pub use rate_limit::*;
 #[allow(ambiguous_glob_reexports)]
@@ -62,6 +69,12 @@ pub use security::*;
 #[allow(ambiguous_glob_reexports)]
 pub use task_queue::*;
 #[allow(ambiguous_glob_reexports)]
+pub use telemetry_config::*;
+#[allow(ambiguous_glob_reexports)]
+pub use time::*;
+#[allow(ambiguous_glob_reexports)]
 pub use tracing::*;
 #[allow(ambiguous_glob_reexports)]
 pub use types::*;
+#[allow(ambiguous_glob_reexports)]
+pub use xml_parser::*;

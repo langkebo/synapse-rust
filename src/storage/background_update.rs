@@ -11,7 +11,7 @@ pub struct BackgroundUpdate {
     pub table_name: Option<String>,
     pub column_name: Option<String>,
     pub status: String,
-    pub progress: i32,
+    pub progress: serde_json::Value,
     pub total_items: i32,
     pub processed_items: i32,
     pub created_ts: i64,
@@ -23,7 +23,7 @@ pub struct BackgroundUpdate {
     pub max_retries: i32,
     pub batch_size: i32,
     pub sleep_ms: i32,
-    pub depends_on: Option<Vec<String>>,
+    pub depends_on: Option<serde_json::Value>,
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -41,10 +41,10 @@ pub struct BackgroundUpdateHistory {
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct BackgroundUpdateLock {
-    pub job_name: String,
-    pub locked_by: Option<String>,
-    pub locked_ts: i64,
-    pub expires_ts: i64,
+    pub lock_name: String,
+    pub owner: Option<String>,
+    pub acquired_ts: i64,
+    pub expires_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -132,7 +132,7 @@ impl BackgroundUpdateStorage {
         job_name: &str,
     ) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         let row = sqlx::query_as::<_, BackgroundUpdate>(
-            "SELECT * FROM background_updates WHERE job_name = $1",
+            "SELECT * FROM background_updates WHERE update_name = $1",
         )
         .bind(job_name)
         .fetch_optional(&*self.pool)
@@ -201,7 +201,7 @@ impl BackgroundUpdateStorage {
                 started_ts = COALESCE($3, started_ts),
                 completed_ts = COALESCE($4, completed_ts),
                 last_updated_ts = $5
-            WHERE job_name = $1
+            WHERE update_name = $1
             RETURNING *
             "#,
         )
@@ -235,7 +235,7 @@ impl BackgroundUpdateStorage {
                     THEN ROUND((processed_items + $2)::FLOAT / COALESCE($3, total_items) * 100)::INTEGER
                     ELSE progress 
                 END
-            WHERE job_name = $1
+            WHERE update_name = $1
             RETURNING *
             "#,
         )
@@ -263,7 +263,7 @@ impl BackgroundUpdateStorage {
                 error_message = $2,
                 last_updated_ts = $3,
                 retry_count = retry_count + 1
-            WHERE job_name = $1
+            WHERE update_name = $1
             RETURNING *
             "#,
         )
@@ -277,7 +277,7 @@ impl BackgroundUpdateStorage {
     }
 
     pub async fn delete_update(&self, job_name: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM background_updates WHERE job_name = $1")
+        sqlx::query("DELETE FROM background_updates WHERE update_name = $1")
             .bind(job_name)
             .execute(&*self.pool)
             .await?;
@@ -296,13 +296,13 @@ impl BackgroundUpdateStorage {
 
         let result = sqlx::query(
             r#"
-            INSERT INTO background_update_locks (job_name, locked_by, locked_ts, expires_ts)
+            INSERT INTO background_update_locks (lock_name, owner, acquired_ts, expires_at)
             VALUES ($1, $2, $3, $4)
-            ON CONFLICT (job_name) DO UPDATE SET
-                locked_by = $2,
-                locked_ts = $3,
-                expires_ts = $4
-            WHERE background_update_locks.expires_ts < $3
+            ON CONFLICT (lock_name) DO UPDATE SET
+                owner = $2,
+                acquired_ts = $3,
+                expires_at = $4
+            WHERE background_update_locks.expires_at < $3
             "#,
         )
         .bind(job_name)
@@ -316,7 +316,7 @@ impl BackgroundUpdateStorage {
     }
 
     pub async fn release_lock(&self, job_name: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM background_update_locks WHERE job_name = $1")
+        sqlx::query("DELETE FROM background_update_locks WHERE lock_name = $1")
             .bind(job_name)
             .execute(&*self.pool)
             .await?;
@@ -328,7 +328,7 @@ impl BackgroundUpdateStorage {
         let now = Utc::now().timestamp_millis();
 
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM background_update_locks WHERE job_name = $1 AND expires_ts > $2",
+            "SELECT COUNT(*) FROM background_update_locks WHERE lock_name = $1 AND expires_at > $2",
         )
         .bind(job_name)
         .bind(now)
@@ -341,7 +341,7 @@ impl BackgroundUpdateStorage {
     pub async fn cleanup_expired_locks(&self) -> Result<i64, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let result = sqlx::query("DELETE FROM background_update_locks WHERE expires_ts < $1")
+        let result = sqlx::query("DELETE FROM background_update_locks WHERE expires_at < $1")
             .bind(now)
             .execute(&*self.pool)
             .await?;
@@ -456,7 +456,7 @@ mod tests {
             table_name: Some("users".to_string()),
             column_name: None,
             status: "running".to_string(),
-            progress: 50,
+            progress: serde_json::json!(50),
             total_items: 100,
             processed_items: 50,
             created_ts: 1234567800,
@@ -472,7 +472,7 @@ mod tests {
             metadata: None,
         };
         assert_eq!(update.job_name, "update_user_indices");
-        assert_eq!(update.progress, 50);
+        assert_eq!(update.progress, serde_json::json!(50));
     }
 
     #[test]
@@ -484,7 +484,7 @@ mod tests {
             table_name: Some("events".to_string()),
             column_name: None,
             status: "completed".to_string(),
-            progress: 100,
+            progress: serde_json::json!(100),
             total_items: 100,
             processed_items: 100,
             created_ts: 1234567800,
@@ -520,12 +520,12 @@ mod tests {
     #[test]
     fn test_background_update_lock_creation() {
         let lock = BackgroundUpdateLock {
-            job_name: "update_lock".to_string(),
-            locked_by: Some("@admin:example.com".to_string()),
-            locked_ts: 1234567890,
-            expires_ts: 1234568190,
+            lock_name: "update_lock".to_string(),
+            owner: Some("@admin:example.com".to_string()),
+            acquired_ts: 1234567890,
+            expires_at: 1234568190,
         };
-        assert_eq!(lock.job_name, "update_lock");
+        assert_eq!(lock.lock_name, "update_lock");
     }
 
     #[test]

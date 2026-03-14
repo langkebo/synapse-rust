@@ -7,12 +7,12 @@ pub struct AccessToken {
     pub user_id: String,
     pub device_id: Option<String>,
     pub created_ts: i64,
-    pub expires_ts: Option<i64>,
+    pub expires_at: Option<i64>,
     pub last_used_ts: Option<i64>,
     pub user_agent: Option<String>,
     pub ip_address: Option<String>,
     pub is_revoked: bool,
-    pub revoked_ts: Option<i64>,
+    pub revoked_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -42,7 +42,7 @@ pub struct TokenBlacklistEntry {
     pub token: Option<String>,
     pub token_type: String,
     pub user_id: Option<String>,
-    pub revoked_ts: i64,
+    pub revoked_at: i64,
     pub reason: Option<String>,
     pub expires_at: Option<i64>,
 }
@@ -54,7 +54,7 @@ pub struct OpenIdToken {
     pub user_id: String,
     pub device_id: Option<String>,
     pub created_ts: i64,
-    pub expires_ts: i64,
+    pub expires_at: i64,
     pub is_valid: bool,
 }
 
@@ -107,12 +107,12 @@ mod tests {
             user_id: "@alice:example.com".to_string(),
             device_id: Some("DEVICE123".to_string()),
             created_ts: 1234567890000,
-            expires_ts: Some(1234567890000 + 3600000),
+            expires_at: Some(1234567890000 + 3600000),
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
             is_revoked: false,
-            revoked_ts: None,
+            revoked_at: None,
         };
 
         assert_eq!(token.id, 1);
@@ -156,7 +156,7 @@ mod tests {
             token: Some("revoked_token".to_string()),
             token_type: "access".to_string(),
             user_id: Some("@alice:example.com".to_string()),
-            revoked_ts: 1234567890000,
+            revoked_at: 1234567890000,
             reason: Some("User logout".to_string()),
             expires_at: None,
         };
@@ -173,12 +173,12 @@ mod tests {
             user_id: "@alice:example.com".to_string(),
             device_id: Some("DEVICE123".to_string()),
             created_ts: 1234567890000,
-            expires_ts: 1234567890000 + 3600000,
+            expires_at: 1234567890000 + 3600000,
             is_valid: true,
         };
 
         assert!(token.is_valid);
-        assert!(token.expires_ts > token.created_ts);
+        assert!(token.expires_at > token.created_ts);
     }
 
     #[test]

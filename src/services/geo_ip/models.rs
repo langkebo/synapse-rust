@@ -69,7 +69,7 @@ pub struct IpAccessRule {
     pub allow: bool,
     pub reason: Option<String>,
     pub priority: i32,
-    pub created_at: i64,
+    pub created_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

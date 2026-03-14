@@ -197,9 +197,9 @@ async fn set_room_account_data(
 
     sqlx::query(
         r#"
-        INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_at)
+        INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
         VALUES ($1, $2, $3, $4, $5, $5)
-        ON CONFLICT (user_id, room_id, data_type) DO UPDATE SET data = $4, updated_at = $5
+        ON CONFLICT (user_id, room_id, data_type) DO UPDATE SET data = $4, updated_ts = $5
         "#,
     )
     .bind(&user_id)
@@ -322,8 +322,8 @@ async fn get_openid_token(
 
     sqlx::query(
         r#"
-        INSERT INTO openid_tokens (token, user_id, created_ts, expires_ts, expires_at, is_valid)
-        VALUES ($1, $2, $3, $4, $4, TRUE)
+        INSERT INTO openid_tokens (token, user_id, created_ts, expires_at, is_valid)
+        VALUES ($1, $2, $3, $4, TRUE)
         "#,
     )
     .bind(&token)

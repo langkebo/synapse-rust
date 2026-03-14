@@ -1,5 +1,6 @@
 use crate::common::config::SamlConfig;
 use crate::common::error::ApiError;
+use crate::common::xml_parser::{parse_saml_metadata, parse_saml_response};
 use crate::storage::saml::*;
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Utc};
@@ -444,104 +445,22 @@ impl SamlService {
     fn parse_saml_assertion(
         xml: &str,
     ) -> Result<(String, String, HashMap<String, Vec<String>>, Option<String>), ApiError> {
-        let mut name_id = String::new();
-        let mut issuer = String::new();
-        let mut attributes = HashMap::new();
-        let mut session_index = None;
+        let data = parse_saml_response(xml)
+            .map_err(|e| ApiError::bad_request(format!("Failed to parse SAML assertion: {}", e)))?;
 
-        if let Some(start) = xml.find("<saml:NameID>") {
-            if let Some(end) = xml[start..].find("</saml:NameID>") {
-                name_id = xml[start + 13..start + end].to_string();
-            }
-        }
-
-        if let Some(start) = xml.find("<saml:Issuer>") {
-            if let Some(end) = xml[start..].find("</saml:Issuer>") {
-                issuer = xml[start + 13..start + end].to_string();
-            }
-        }
-
-        if let Some(start) = xml.find("SessionIndex=\"") {
-            let rest = &xml[start + 14..];
-            if let Some(end) = rest.find('"') {
-                session_index = Some(rest[..end].to_string());
-            }
-        }
-
-        let attr_pattern = "<saml:Attribute Name=\"";
-        let mut pos = 0;
-        while let Some(start) = xml[pos..].find(attr_pattern) {
-            let attr_start = pos + start + attr_pattern.len();
-            if let Some(name_end) = xml[attr_start..].find('"') {
-                let attr_name = xml[attr_start..attr_start + name_end].to_string();
-
-                let value_start = attr_start + name_end;
-                if let Some(values_start) = xml[value_start..].find("<saml:AttributeValue>") {
-                    let vs = value_start + values_start + 21;
-                    if let Some(values_end) = xml[vs..].find("</saml:AttributeValue>") {
-                        let value = xml[vs..vs + values_end].to_string();
-                        attributes
-                            .entry(attr_name)
-                            .or_insert_with(Vec::new)
-                            .push(value);
-                    }
-                }
-            }
-            pos = attr_start;
-        }
-
-        Ok((name_id, issuer, attributes, session_index))
+        Ok((data.name_id, data.issuer, data.attributes, data.session_index))
     }
 
     fn parse_metadata_xml(xml: &str) -> Result<SamlMetadata, ApiError> {
-        let mut entity_id = String::new();
-        let mut sso_url = String::new();
-        let mut slo_url = None;
-        let mut certificate = String::new();
-        let valid_until = None;
-
-        if let Some(start) = xml.find("entityID=\"") {
-            if let Some(end) = xml[start + 10..].find('"') {
-                entity_id = xml[start + 10..start + 10 + end].to_string();
-            }
-        }
-
-        if let Some(start) = xml.find("<md:SingleSignOnService") {
-            let rest = &xml[start..];
-            if let Some(loc_start) = rest.find("Location=\"") {
-                if let Some(loc_end) = rest[loc_start + 10..].find('"') {
-                    sso_url = rest[loc_start + 10..loc_start + 10 + loc_end].to_string();
-                }
-            }
-        }
-
-        if let Some(start) = xml.find("<md:SingleLogoutService") {
-            let rest = &xml[start..];
-            if let Some(loc_start) = rest.find("Location=\"") {
-                if let Some(loc_end) = rest[loc_start + 10..].find('"') {
-                    slo_url = Some(rest[loc_start + 10..loc_start + 10 + loc_end].to_string());
-                }
-            }
-        }
-
-        if let Some(start) = xml.find("<ds:X509Certificate>") {
-            if let Some(end) = xml[start..].find("</ds:X509Certificate>") {
-                certificate = xml[start + 20..start + end].to_string();
-            }
-        }
-
-        if entity_id.is_empty() || sso_url.is_empty() {
-            return Err(ApiError::internal(
-                "Invalid IdP metadata: missing required fields",
-            ));
-        }
+        let parsed = parse_saml_metadata(xml)
+            .map_err(|e| ApiError::internal(format!("Failed to parse SAML metadata: {}", e)))?;
 
         Ok(SamlMetadata {
-            entity_id,
-            sso_url,
-            slo_url,
-            certificate,
-            valid_until,
+            entity_id: parsed.entity_id,
+            sso_url: parsed.sso_url,
+            slo_url: parsed.slo_url,
+            certificate: parsed.certificate,
+            valid_until: None,
         })
     }
 

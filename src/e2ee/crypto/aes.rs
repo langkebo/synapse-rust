@@ -951,7 +951,7 @@ mod tests {
     #[test]
     fn test_aes_gcm_nonce_invalid_length() {
         let short_bytes = [0u8; 8];
-        let result = Aes256GcmNonce::from_bytes(&short_bytes);
+        let result = Aes256GcmNonce::from_bytes(short_bytes);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), CryptoError::InvalidNonceLength);
     }
@@ -959,7 +959,7 @@ mod tests {
     #[test]
     fn test_xchacha_nonce_invalid_length() {
         let short_bytes = [0u8; 12];
-        let result = XChaCha20Poly1305Nonce::from_bytes(&short_bytes);
+        let result = XChaCha20Poly1305Nonce::from_bytes(short_bytes);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), CryptoError::InvalidNonceLength);
     }

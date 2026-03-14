@@ -11,7 +11,7 @@ pub struct DeviceKey {
     pub key_id: String,
     pub public_key: String,
     pub signatures: serde_json::Value,
-    pub created_at: DateTime<Utc>,
+    pub created_ts: DateTime<Utc>,
     pub updated_ts: DateTime<Utc>,
 }
 
@@ -76,7 +76,7 @@ mod tests {
             key_id: "KEY123".to_string(),
             public_key: "public_key_value".to_string(),
             signatures: serde_json::json!({}),
-            created_at: chrono::Utc::now(),
+            created_ts: chrono::Utc::now(),
             updated_ts: chrono::Utc::now(),
         };
 

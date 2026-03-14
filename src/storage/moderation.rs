@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_content_type() {
-        let types = vec![
+        let types = [
             ContentType::Text,
             ContentType::Image,
             ContentType::Video,

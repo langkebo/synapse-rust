@@ -10,7 +10,7 @@ pub struct SlidingSyncToken {
     pub conn_id: Option<String>,
     pub pos: i64,
     pub created_ts: i64,
-    pub expires_ts: Option<i64>,
+    pub expires_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -119,17 +119,17 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
     ) -> Result<SlidingSyncToken, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let expires_ts = now + 7 * 24 * 3600 * 1000;
+        let expires_at = now + 7 * 24 * 3600 * 1000;
 
         let token = uuid::Uuid::new_v4().to_string();
         
         sqlx::query_as::<_, SlidingSyncToken>(
             r#"
-            INSERT INTO sliding_sync_tokens (user_id, device_id, token, conn_id, pos, created_ts, expires_ts)
+            INSERT INTO sliding_sync_tokens (user_id, device_id, token, conn_id, pos, created_ts, expires_at)
             VALUES ($1, $2, $3, $4, nextval('sliding_sync_pos_seq'), $5, $6)
             ON CONFLICT (user_id, device_id, COALESCE(conn_id, ''::text)) DO UPDATE SET
                 pos = nextval('sliding_sync_pos_seq'),
-                expires_ts = EXCLUDED.expires_ts
+                expires_at = EXCLUDED.expires_at
             RETURNING *
             "#,
         )
@@ -138,7 +138,7 @@ impl SlidingSyncStorage {
         .bind(&token)
         .bind(conn_id)
         .bind(now)
-        .bind(expires_ts)
+        .bind(expires_at)
         .fetch_one(&*self.pool)
         .await
     }
@@ -472,7 +472,7 @@ impl SlidingSyncStorage {
         let result = sqlx::query(
             r#"
             DELETE FROM sliding_sync_tokens 
-            WHERE expires_ts IS NOT NULL AND expires_ts < $1
+            WHERE expires_at IS NOT NULL AND expires_at < $1
             "#,
         )
         .bind(now)
@@ -496,7 +496,7 @@ mod tests {
             conn_id: Some("conn456".to_string()),
             pos: 100,
             created_ts: 1234567890000,
-            expires_ts: Some(1235172690000),
+            expires_at: Some(1235172690000),
         };
 
         assert_eq!(token.user_id, "@alice:example.com");

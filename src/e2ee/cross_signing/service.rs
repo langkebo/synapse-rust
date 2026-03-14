@@ -1,7 +1,9 @@
 use super::models::*;
 use super::storage::CrossSigningStorage;
+use crate::e2ee::crypto::ed25519::Ed25519PublicKey;
 use crate::error::ApiError;
 use chrono::Utc;
+use ed25519_dalek::Verifier;
 
 #[derive(Clone)]
 pub struct CrossSigningService {
@@ -39,7 +41,7 @@ impl CrossSigningService {
             public_key: master_public_key.to_string(),
             usage: master_usage,
             signatures: upload.master_key["signatures"].clone(),
-            created_at: Utc::now(),
+            created_ts: Utc::now(),
             updated_ts: Utc::now(),
         };
         self.storage.create_cross_signing_key(&master_key).await?;
@@ -62,7 +64,7 @@ impl CrossSigningService {
             public_key: self_signing_public_key.to_string(),
             usage: self_signing_usage,
             signatures: upload.self_signing_key["signatures"].clone(),
-            created_at: Utc::now(),
+            created_ts: Utc::now(),
             updated_ts: Utc::now(),
         };
         self.storage
@@ -87,7 +89,7 @@ impl CrossSigningService {
             public_key: user_signing_public_key.to_string(),
             usage: user_signing_usage,
             signatures: upload.user_signing_key["signatures"].clone(),
-            created_at: Utc::now(),
+            created_ts: Utc::now(),
             updated_ts: Utc::now(),
         };
         self.storage
@@ -179,7 +181,7 @@ impl CrossSigningService {
             algorithm: algorithm.to_string(),
             public_key: public_key.to_string(),
             signatures,
-            created_at: Utc::now(),
+            created_ts: Utc::now(),
         };
         self.storage.save_device_key(&device_key).await?;
         Ok(())
@@ -205,7 +207,7 @@ impl CrossSigningService {
                                 target_device_id: "".to_string(),
                                 target_key_id: target_key_id.clone(),
                                 signature: signature.as_str().unwrap_or("").to_string(),
-                                created_at: Utc::now(),
+                                created_ts: Utc::now(),
                             };
                             if let Err(e) = self.storage.save_device_signature(&device_sig).await {
                                 fail.insert(
@@ -243,9 +245,80 @@ impl CrossSigningService {
             .get_signature(&request.user_id, &request.key_id, &request.signing_key_id)
             .await?;
 
-        let valid = sig
-            .map(|s| s.signature == request.signature)
-            .unwrap_or(false);
+        let Some(_signature_record) = sig else {
+            return Ok(SignatureVerificationResponse {
+                valid: false,
+                verified_at: Utc::now(),
+            });
+        };
+
+        let signing_key = self
+            .storage
+            .get_cross_signing_key(&request.user_id, &request.signing_key_id)
+            .await?;
+
+        let Some(key) = signing_key else {
+            return Ok(SignatureVerificationResponse {
+                valid: false,
+                verified_at: Utc::now(),
+            });
+        };
+
+        let public_key = match Ed25519PublicKey::from_base64(&key.public_key) {
+            Ok(pk) => pk,
+            Err(_) => {
+                return Ok(SignatureVerificationResponse {
+                    valid: false,
+                    verified_at: Utc::now(),
+                });
+            }
+        };
+
+        let signature_bytes = match base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            &request.signature,
+        ) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                return Ok(SignatureVerificationResponse {
+                    valid: false,
+                    verified_at: Utc::now(),
+                });
+            }
+        };
+
+        if signature_bytes.len() != 64 {
+            return Ok(SignatureVerificationResponse {
+                valid: false,
+                verified_at: Utc::now(),
+            });
+        }
+
+        let mut sig_array = [0u8; 64];
+        sig_array.copy_from_slice(&signature_bytes);
+
+        let ed25519_sig = match ed25519_dalek::Signature::from_slice(&sig_array) {
+            Ok(s) => s,
+            Err(_) => {
+                return Ok(SignatureVerificationResponse {
+                    valid: false,
+                    verified_at: Utc::now(),
+                });
+            }
+        };
+
+        let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(public_key.as_bytes()) {
+            Ok(vk) => vk,
+            Err(_) => {
+                return Ok(SignatureVerificationResponse {
+                    valid: false,
+                    verified_at: Utc::now(),
+                });
+            }
+        };
+
+        let message = format!("{}:{}", request.user_id, request.key_id);
+        let valid = verifying_key.verify(message.as_bytes(), &ed25519_sig).is_ok();
 
         Ok(SignatureVerificationResponse {
             valid,
@@ -334,7 +407,7 @@ impl CrossSigningService {
             target_device_id: device_id.to_string(),
             target_key_id: device_id.to_string(),
             signature: signature.to_string(),
-            created_at: Utc::now(),
+            created_ts: Utc::now(),
         };
 
         self.storage.save_device_signature(&device_sig).await
@@ -355,9 +428,153 @@ impl CrossSigningService {
             target_device_id: "".to_string(),
             target_key_id: "".to_string(),
             signature: signature.to_string(),
-            created_at: Utc::now(),
+            created_ts: Utc::now(),
         };
 
         self.storage.save_device_signature(&device_sig).await
+    }
+
+    pub async fn verify_device_signature(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<DeviceVerificationStatus, ApiError> {
+        let self_signing_key = self
+            .storage
+            .get_cross_signing_key(user_id, "self_signing")
+            .await?;
+
+        let Some(ssk) = self_signing_key else {
+            return Ok(DeviceVerificationStatus {
+                device_id: device_id.to_string(),
+                is_verified: false,
+                verified_by: None,
+                verified_at: None,
+            });
+        };
+
+        let signatures = self
+            .storage
+            .get_device_signatures(user_id, device_id)
+            .await?;
+
+        let ssk_sig = signatures.iter().find(|s| s.signing_key_id == "self_signing");
+
+        if let Some(sig) = ssk_sig {
+            let public_key = match Ed25519PublicKey::from_base64(&ssk.public_key) {
+                Ok(pk) => pk,
+                Err(_) => {
+                    return Ok(DeviceVerificationStatus {
+                        device_id: device_id.to_string(),
+                        is_verified: false,
+                        verified_by: None,
+                        verified_at: None,
+                    });
+                }
+            };
+
+            let signature_bytes = match base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                &sig.signature,
+            ) {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    return Ok(DeviceVerificationStatus {
+                        device_id: device_id.to_string(),
+                        is_verified: false,
+                        verified_by: None,
+                        verified_at: None,
+                    });
+                }
+            };
+
+            if signature_bytes.len() != 64 {
+                return Ok(DeviceVerificationStatus {
+                    device_id: device_id.to_string(),
+                    is_verified: false,
+                    verified_by: None,
+                    verified_at: None,
+                });
+            }
+
+            let mut sig_array = [0u8; 64];
+            sig_array.copy_from_slice(&signature_bytes);
+
+            let ed25519_sig = match ed25519_dalek::Signature::from_slice(&sig_array) {
+                Ok(s) => s,
+                Err(_) => {
+                    return Ok(DeviceVerificationStatus {
+                        device_id: device_id.to_string(),
+                        is_verified: false,
+                        verified_by: None,
+                        verified_at: None,
+                    });
+                }
+            };
+
+            let verifying_key =
+                match ed25519_dalek::VerifyingKey::from_bytes(public_key.as_bytes()) {
+                    Ok(vk) => vk,
+                    Err(_) => {
+                        return Ok(DeviceVerificationStatus {
+                            device_id: device_id.to_string(),
+                            is_verified: false,
+                            verified_by: None,
+                            verified_at: None,
+                        });
+                    }
+                };
+
+            let message = format!("{}:{}", user_id, device_id);
+            let is_valid = verifying_key.verify(message.as_bytes(), &ed25519_sig).is_ok();
+
+            Ok(DeviceVerificationStatus {
+                device_id: device_id.to_string(),
+                is_verified: is_valid,
+                verified_by: if is_valid {
+                    Some("self_signing".to_string())
+                } else {
+                    None
+                },
+                verified_at: if is_valid { Some(Utc::now()) } else { None },
+            })
+        } else {
+            Ok(DeviceVerificationStatus {
+                device_id: device_id.to_string(),
+                is_verified: false,
+                verified_by: None,
+                verified_at: None,
+            })
+        }
+    }
+
+    pub async fn get_user_verification_status(
+        &self,
+        user_id: &str,
+    ) -> Result<UserVerificationStatus, ApiError> {
+        let master_key = self.storage.get_cross_signing_key(user_id, "master").await?;
+        let self_signing_key = self
+            .storage
+            .get_cross_signing_key(user_id, "self_signing")
+            .await?;
+        let user_signing_key = self
+            .storage
+            .get_cross_signing_key(user_id, "user_signing")
+            .await?;
+
+        let has_master = master_key.is_some();
+        let has_self_signing = self_signing_key.is_some();
+        let has_user_signing = user_signing_key.is_some();
+
+        let is_verified = has_master && has_self_signing && has_user_signing;
+
+        Ok(UserVerificationStatus {
+            user_id: user_id.to_string(),
+            is_verified,
+            has_master_key: has_master,
+            has_self_signing_key: has_self_signing,
+            has_user_signing_key: has_user_signing,
+            verified_at: if is_verified { Some(Utc::now()) } else { None },
+        })
     }
 }

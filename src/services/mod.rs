@@ -1,5 +1,6 @@
 use crate::auth::*;
 use crate::cache::*;
+use crate::call_service::CallService;
 use crate::common::metrics::MetricsCollector;
 use crate::common::task_queue::RedisTaskQueue;
 use crate::common::*;
@@ -40,6 +41,12 @@ pub struct ServiceContainer {
     pub event_storage: EventStorage,
     /// 在线状态存储句柄
     pub presence_storage: PresenceStorage,
+    /// QR 登录存储 (MSC4388)
+    pub qr_login_storage: QrLoginStorage,
+    /// Invite blocklist storage (MSC4380)
+    pub invite_blocklist_storage: InviteBlocklistStorage,
+    /// Sticky event storage (MSC4354)
+    pub sticky_event_storage: StickyEventStorage,
     /// 在线状态服务
     pub presence_service: PresenceStorage,
     /// 认证服务
@@ -94,6 +101,8 @@ pub struct ServiceContainer {
     pub friend_room_service: Arc<FriendRoomService>,
     /// 好友联邦服务
     pub friend_federation: Arc<FriendFederation>,
+    /// 呼叫服务
+    pub call_service: Arc<CallService>,
     /// 空间存储
     pub space_storage: SpaceStorage,
     /// 空间服务
@@ -178,6 +187,10 @@ pub struct ServiceContainer {
     pub privacy_storage: crate::storage::privacy::PrivacyStorage,
     /// Rendezvous 存储
     pub rendezvous_storage: crate::storage::rendezvous::RendezvousStorage,
+    /// Widget 存储 (MSC4261)
+    pub widget_storage: crate::storage::widget::WidgetStorage,
+    /// Widget 服务 (MSC4261)
+    pub widget_service: Arc<crate::services::widget_service::WidgetService>,
 }
 
 impl ServiceContainer {
@@ -237,6 +250,9 @@ impl ServiceContainer {
         let room_storage = RoomStorage::new(pool);
         let event_storage = EventStorage::new(pool);
         let presence_storage = PresenceStorage::new(presence_pool.clone(), cache.clone());
+        let qr_login_storage = QrLoginStorage::new(pool.clone());
+        let invite_blocklist_storage = InviteBlocklistStorage::new(pool.clone());
+        let sticky_event_storage = StickyEventStorage::new(pool.clone());
 
         let registration_service = Arc::new(RegistrationService::new(
             user_storage.clone(),
@@ -291,6 +307,10 @@ impl ServiceContainer {
             config.server.name.clone(),
         ));
         let friend_federation = Arc::new(FriendFederation::new(friend_room_service.clone()));
+
+        // 呼叫服务初始化
+        let call_session_storage = crate::storage::call_session::CallSessionStorage::new(pool.clone());
+        let call_service = Arc::new(CallService::new(Arc::new(call_session_storage)));
 
         let space_storage = SpaceStorage::new(pool);
         let space_service = Arc::new(SpaceService::new(
@@ -425,6 +445,11 @@ impl ServiceContainer {
         let privacy_storage = crate::storage::privacy::PrivacyStorage::new(pool.clone());
         let rendezvous_storage = crate::storage::rendezvous::RendezvousStorage::new(pool.clone());
 
+        let widget_storage = crate::storage::widget::WidgetStorage::new(pool.clone());
+        let widget_service = Arc::new(crate::services::widget_service::WidgetService::new(
+            Arc::new(widget_storage.clone()),
+        ));
+
         Self {
             user_storage,
             device_storage: DeviceStorage::new(pool),
@@ -433,6 +458,9 @@ impl ServiceContainer {
             member_storage,
             event_storage,
             presence_storage,
+            qr_login_storage,
+            invite_blocklist_storage,
+            sticky_event_storage,
             presence_service,
             auth_service,
             device_keys_service,
@@ -460,6 +488,7 @@ impl ServiceContainer {
             friend_storage,
             friend_room_service,
             friend_federation,
+            call_service,
             space_storage,
             space_service,
             app_service_storage,
@@ -499,6 +528,8 @@ impl ServiceContainer {
             server_notification_service,
             privacy_storage,
             rendezvous_storage,
+            widget_storage,
+            widget_service,
         }
     }
 
@@ -738,13 +769,117 @@ impl PresenceStorage {
         }
         Ok(())
     }
-}
 
+    // ============================================================================
+    // Presence Subscription Methods (MSC2776)
+    // ============================================================================
+
+    /// 添加状态订阅
+    pub async fn add_subscription(
+        &self,
+        subscriber_id: &str,
+        target_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r#"
+            INSERT INTO presence_subscriptions (subscriber_id, target_id, created_ts)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (subscriber_id, target_id) DO NOTHING
+            "#,
+        )
+        .bind(subscriber_id)
+        .bind(target_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 移除状态订阅
+    pub async fn remove_subscription(
+        &self,
+        subscriber_id: &str,
+        target_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            DELETE FROM presence_subscriptions 
+            WHERE subscriber_id = $1 AND target_id = $2
+            "#,
+        )
+        .bind(subscriber_id)
+        .bind(target_id)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 获取用户的所有订阅目标
+    pub async fn get_subscriptions(
+        &self,
+        subscriber_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String,)>(
+            r#"
+            SELECT target_id FROM presence_subscriptions 
+            WHERE subscriber_id = $1
+            "#,
+        )
+        .bind(subscriber_id)
+        .fetch_all(&*self.pool)
+        .await?;
+        
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    /// 获取订阅了某用户的用户列表
+    pub async fn get_subscribers(
+        &self,
+        target_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String,)>(
+            r#"
+            SELECT subscriber_id FROM presence_subscriptions 
+            WHERE target_id = $1
+            "#,
+        )
+        .bind(target_id)
+        .fetch_all(&*self.pool)
+        .await?;
+        
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    /// 获取多个用户的在线状态（批量查询）
+    pub async fn get_presence_batch(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<(String, String, Option<String>)>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        
+        let rows = sqlx::query_as::<_, (String, String, Option<String>)>(
+            r#"
+            SELECT user_id, presence, status_msg 
+            FROM presence 
+            WHERE user_id = ANY($1)
+            "#,
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+        
+        Ok(rows)
+    }
+}
 pub mod admin_registration_service;
 pub mod application_service;
 pub mod auth;
 pub mod background_update_service;
 pub mod beacon_service;
+pub mod call_service;
 pub mod cache;
 pub mod captcha_service;
 pub mod cas_service;
@@ -786,6 +921,7 @@ pub mod url_preview_service;
 pub mod voice_service;
 pub mod voip_service;
 pub mod webhook_notification;
+pub mod widget_service;
 
 pub use admin_registration_service::*;
 pub use application_service::*;

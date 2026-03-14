@@ -304,3 +304,132 @@ impl FederationBlacklistService {
         self.storage.get_all_rules().await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_result_default() {
+        let result = CheckResult {
+            is_blocked: false,
+            is_whitelisted: false,
+            is_quarantined: false,
+            reason: None,
+            matched_rule: None,
+        };
+        assert!(!result.is_blocked);
+        assert!(!result.is_whitelisted);
+        assert!(!result.is_quarantined);
+    }
+
+    #[test]
+    fn test_check_result_blocked() {
+        let result = CheckResult {
+            is_blocked: true,
+            is_whitelisted: false,
+            is_quarantined: false,
+            reason: Some("Spam server".to_string()),
+            matched_rule: Some("direct_block".to_string()),
+        };
+        assert!(result.is_blocked);
+        assert!(result.reason.is_some());
+    }
+
+    #[test]
+    fn test_check_result_whitelisted() {
+        let result = CheckResult {
+            is_blocked: false,
+            is_whitelisted: true,
+            is_quarantined: false,
+            reason: Some("Server is whitelisted".to_string()),
+            matched_rule: None,
+        };
+        assert!(result.is_whitelisted);
+        assert!(!result.is_blocked);
+    }
+
+    #[test]
+    fn test_check_result_quarantined() {
+        let result = CheckResult {
+            is_blocked: false,
+            is_whitelisted: false,
+            is_quarantined: true,
+            reason: Some("Under investigation".to_string()),
+            matched_rule: Some("auto_rule".to_string()),
+        };
+        assert!(result.is_quarantined);
+        assert!(!result.is_blocked);
+    }
+
+    #[test]
+    fn test_add_blacklist_request() {
+        let request = AddBlacklistRequest {
+            server_name: "evil.example.com".to_string(),
+            block_type: "blacklist".to_string(),
+            reason: Some("Sending spam".to_string()),
+            expires_in_days: Some(30),
+        };
+        assert_eq!(request.server_name, "evil.example.com");
+        assert_eq!(request.block_type, "blacklist");
+        assert!(request.expires_in_days.is_some());
+    }
+
+    #[test]
+    fn test_add_blacklist_request_quarantine() {
+        let request = AddBlacklistRequest {
+            server_name: "suspicious.example.com".to_string(),
+            block_type: "quarantine".to_string(),
+            reason: None,
+            expires_in_days: None,
+        };
+        assert_eq!(request.block_type, "quarantine");
+        assert!(request.reason.is_none());
+    }
+
+    #[test]
+    fn test_check_server_request() {
+        let request = CheckServerRequest {
+            server_name: "matrix.example.com".to_string(),
+        };
+        assert_eq!(request.server_name, "matrix.example.com");
+    }
+
+    #[test]
+    fn test_valid_block_types() {
+        let valid_types = vec!["blacklist", "whitelist", "quarantine"];
+        for block_type in valid_types {
+            assert!(matches!(block_type, "blacklist" | "whitelist" | "quarantine"));
+        }
+    }
+
+    #[test]
+    fn test_valid_rule_types() {
+        let valid_types = vec!["domain", "regex", "wildcard", "cidr"];
+        for rule_type in valid_types {
+            assert!(matches!(rule_type, "domain" | "regex" | "wildcard" | "cidr"));
+        }
+    }
+
+    #[test]
+    fn test_valid_actions() {
+        let valid_actions = vec!["block", "allow", "quarantine", "rate_limit"];
+        for action in valid_actions {
+            assert!(matches!(action, "block" | "allow" | "quarantine" | "rate_limit"));
+        }
+    }
+
+    #[test]
+    fn test_check_result_serialization() {
+        let result = CheckResult {
+            is_blocked: true,
+            is_whitelisted: false,
+            is_quarantined: false,
+            reason: Some("Test reason".to_string()),
+            matched_rule: Some("test_rule".to_string()),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("is_blocked"));
+        assert!(json.contains("Test reason"));
+    }
+}

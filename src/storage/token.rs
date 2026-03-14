@@ -8,12 +8,12 @@ pub struct AccessToken {
     pub user_id: String,
     pub device_id: Option<String>,
     pub created_ts: i64,
-    pub expires_ts: Option<i64>,
+    pub expires_at: Option<i64>,
     pub last_used_ts: Option<i64>,
     pub user_agent: Option<String>,
     pub ip_address: Option<String>,
     pub is_revoked: bool,
-    pub revoked_ts: Option<i64>,
+    pub revoked_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -21,7 +21,7 @@ pub struct TokenBlacklistEntry {
     pub id: i64,
     pub token_hash: String,
     pub user_id: String,
-    pub revoked_ts: i64,
+    pub revoked_at: i64,
     pub reason: Option<String>,
 }
 
@@ -40,21 +40,21 @@ impl AccessTokenStorage {
         token: &str,
         user_id: &str,
         device_id: Option<&str>,
-        expires_ts: Option<i64>,
+        expires_at: Option<i64>,
     ) -> Result<AccessToken, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, AccessToken>(
             r#"
-            INSERT INTO access_tokens (token, user_id, device_id, created_ts, expires_ts, last_used_ts, user_agent, ip_address, is_revoked)
+            INSERT INTO access_tokens (token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked)
             VALUES ($1, $2, $3, $4, $5, NULL, NULL, NULL, FALSE)
-            RETURNING id, token, user_id, device_id, created_ts, expires_ts, last_used_ts, user_agent, ip_address, is_revoked, revoked_ts
+            RETURNING id, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked, revoked_at
             "#,
         )
         .bind(token)
         .bind(user_id)
         .bind(device_id)
         .bind(now)
-        .bind(expires_ts)
+        .bind(expires_at)
         .fetch_one(&*self.pool)
         .await?;
         Ok(row)
@@ -63,7 +63,7 @@ impl AccessTokenStorage {
     pub async fn get_token(&self, token: &str) -> Result<Option<AccessToken>, sqlx::Error> {
         let row = sqlx::query_as::<_, AccessToken>(
             r#"
-            SELECT id, token, user_id, device_id, created_ts, expires_ts, last_used_ts, user_agent, ip_address, is_revoked, revoked_ts
+            SELECT id, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked, revoked_at
             FROM access_tokens WHERE token = $1 AND is_revoked = FALSE
             "#,
         )
@@ -76,7 +76,7 @@ impl AccessTokenStorage {
     pub async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<AccessToken>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccessToken>(
             r#"
-            SELECT id, token, user_id, device_id, created_ts, expires_ts, last_used_ts, user_agent, ip_address, is_revoked, revoked_ts
+            SELECT id, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked, revoked_at
             FROM access_tokens WHERE user_id = $1
             "#,
         )
@@ -90,7 +90,7 @@ impl AccessTokenStorage {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            UPDATE access_tokens SET is_revoked = TRUE, revoked_ts = $2 WHERE token = $1
+            UPDATE access_tokens SET is_revoked = TRUE, revoked_at = $2 WHERE token = $1
             "#,
         )
         .bind(token)
@@ -104,7 +104,7 @@ impl AccessTokenStorage {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            UPDATE access_tokens SET is_revoked = TRUE, revoked_ts = $2 WHERE user_id = $1 AND is_revoked = FALSE
+            UPDATE access_tokens SET is_revoked = TRUE, revoked_at = $2 WHERE user_id = $1 AND is_revoked = FALSE
             "#,
         )
         .bind(user_id)
@@ -118,7 +118,7 @@ impl AccessTokenStorage {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            UPDATE access_tokens SET is_revoked = TRUE, revoked_ts = $2 WHERE device_id = $1 AND is_revoked = FALSE
+            UPDATE access_tokens SET is_revoked = TRUE, revoked_at = $2 WHERE device_id = $1 AND is_revoked = FALSE
             "#,
         )
         .bind(device_id)
@@ -163,7 +163,7 @@ impl AccessTokenStorage {
 
         sqlx::query(
             r#"
-            INSERT INTO token_blacklist (token_hash, token, token_type, user_id, revoked_ts, reason)
+            INSERT INTO token_blacklist (token_hash, token, token_type, user_id, revoked_at, reason)
             VALUES ($1, $2, 'access', $3, $4, $5)
             ON CONFLICT (token_hash) DO NOTHING
             "#,
@@ -198,7 +198,7 @@ impl AccessTokenStorage {
         let cutoff = chrono::Utc::now().timestamp_millis() - max_age_seconds * 1000;
         let result = sqlx::query(
             r#"
-            DELETE FROM token_blacklist WHERE revoked_ts < $1
+            DELETE FROM token_blacklist WHERE revoked_at < $1
             "#,
         )
         .bind(cutoff)
@@ -229,12 +229,12 @@ mod tests {
             user_id: "@alice:example.com".to_string(),
             device_id: Some("DEVICE123".to_string()),
             created_ts: 1234567890000,
-            expires_ts: Some(1234567890000 + 3600000),
+            expires_at: Some(1234567890000 + 3600000),
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
             is_revoked: false,
-            revoked_ts: None,
+            revoked_at: None,
         };
 
         assert_eq!(token.id, 1);
@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(token.user_id, "@alice:example.com");
         assert!(token.device_id.is_some());
         assert!(!token.is_revoked);
-        assert!(token.revoked_ts.is_none());
+        assert!(token.revoked_at.is_none());
     }
 
     #[test]
@@ -253,16 +253,16 @@ mod tests {
             user_id: "@bob:example.com".to_string(),
             device_id: None,
             created_ts: 1234567890000,
-            expires_ts: Some(1234567890000 + 7200000),
+            expires_at: Some(1234567890000 + 7200000),
             last_used_ts: Some(1234567895000),
             user_agent: Some("Mozilla/5.0".to_string()),
             ip_address: Some("192.168.1.1".to_string()),
             is_revoked: false,
-            revoked_ts: None,
+            revoked_at: None,
         };
 
         assert!(token.device_id.is_none());
-        assert!(token.expires_ts.unwrap() - token.created_ts == 7200000);
+        assert!(token.expires_at.unwrap() - token.created_ts == 7200000);
         assert!(token.last_used_ts.is_some());
         assert!(token.user_agent.is_some());
     }
@@ -275,16 +275,16 @@ mod tests {
             user_id: "@charlie:example.com".to_string(),
             device_id: Some("DEVICE456".to_string()),
             created_ts: 1234567890000,
-            expires_ts: Some(1234567890000 + 3600000),
+            expires_at: Some(1234567890000 + 3600000),
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
             is_revoked: true,
-            revoked_ts: Some(1234567900000),
+            revoked_at: Some(1234567900000),
         };
 
         assert!(token.is_revoked);
-        assert!(token.revoked_ts.is_some());
+        assert!(token.revoked_at.is_some());
     }
 
     #[test]
@@ -296,16 +296,16 @@ mod tests {
             user_id: "@user:example.com".to_string(),
             device_id: None,
             created_ts: now,
-            expires_ts: Some(now + 86400000),
+            expires_at: Some(now + 86400000),
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
             is_revoked: false,
-            revoked_ts: None,
+            revoked_at: None,
         };
 
-        assert!(token.expires_ts.unwrap() > token.created_ts);
-        assert!(token.expires_ts.unwrap() - token.created_ts == 86400000);
+        assert!(token.expires_at.unwrap() > token.created_ts);
+        assert!(token.expires_at.unwrap() - token.created_ts == 86400000);
     }
 
     #[test]
@@ -316,12 +316,12 @@ mod tests {
             user_id: "@test:example.com".to_string(),
             device_id: None,
             created_ts: 1234567890000,
-            expires_ts: Some(1234567890000 + 3600000),
+            expires_at: Some(1234567890000 + 3600000),
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
             is_revoked: false,
-            revoked_ts: None,
+            revoked_at: None,
         };
         assert_eq!(token.token, "test_token");
     }
@@ -341,19 +341,19 @@ mod tests {
     }
 
     #[test]
-    fn test_token_user_id_association() {
+    fn test_access_token_user_association() {
         let token = AccessToken {
             id: 5,
             token: "user_associated_token".to_string(),
             user_id: "@test:matrix.org".to_string(),
             device_id: Some("WEBCLIENT".to_string()),
             created_ts: 1234567890000,
-            expires_ts: Some(1234567890000 + 3600000),
+            expires_at: Some(1234567890000 + 3600000),
             last_used_ts: Some(1234567895000),
             user_agent: Some("Mozilla/5.0".to_string()),
             ip_address: Some("10.0.0.1".to_string()),
             is_revoked: false,
-            revoked_ts: None,
+            revoked_at: None,
         };
 
         assert!(token.user_id.starts_with('@'));

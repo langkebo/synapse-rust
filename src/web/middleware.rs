@@ -1745,7 +1745,7 @@ mod tests {
 
     #[test]
     fn test_cors_security_report_production_with_wildcard() {
-        let _result = std::thread::spawn(|| {
+        std::thread::spawn(|| {
             std::env::set_var("RUST_ENV", "production");
             std::env::set_var("ALLOWED_ORIGINS", "*");
 

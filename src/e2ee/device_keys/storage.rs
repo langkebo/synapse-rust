@@ -140,7 +140,7 @@ impl DeviceKeyStorage {
                         .cloned()
                         .unwrap_or(serde_json::json!({}))
                 }),
-            created_at: chrono::DateTime::from_timestamp_millis(
+            created_ts: chrono::DateTime::from_timestamp_millis(
                 row.get::<i64, _>("added_ts") / 1000,
             )
             .unwrap_or_default(),
@@ -357,7 +357,7 @@ mod tests {
                     "ed25519:DEVICE_ABC": "signature_base64_string"
                 }
             }),
-            created_at: chrono::Utc::now(),
+            created_ts: chrono::Utc::now(),
             updated_ts: chrono::Utc::now(),
         }
     }
@@ -386,7 +386,7 @@ mod tests {
             key_id: "KEY123".to_string(),
             public_key: "public_key".to_string(),
             signatures: json!({}),
-            created_at: chrono::Utc::now(),
+            created_ts: chrono::Utc::now(),
             updated_ts: chrono::Utc::now(),
         };
 
@@ -421,7 +421,7 @@ mod tests {
             key_id: "KEY_EMPTY".to_string(),
             public_key: "public_key".to_string(),
             signatures: json!({}),
-            created_at: chrono::Utc::now(),
+            created_ts: chrono::Utc::now(),
             updated_ts: chrono::Utc::now(),
         };
 
@@ -454,7 +454,7 @@ mod tests {
                     "ed25519:DEVICE_D": "sig_d"
                 }
             },
-            "created_at": "2026-01-01T00:00:00Z",
+            "created_ts": "2026-01-01T00:00:00Z",
             "updated_ts": "2026-01-01T00:00:00Z"
         });
 
@@ -503,7 +503,7 @@ mod tests {
                     "ed25519:DEVICE_ABC": "alice_cross_signature"
                 }
             }),
-            created_at: chrono::Utc::now(),
+            created_ts: chrono::Utc::now(),
             updated_ts: chrono::Utc::now(),
         };
 
@@ -527,11 +527,11 @@ mod tests {
             key_id: "KEY_FRANK".to_string(),
             public_key: "frank_key".to_string(),
             signatures: json!({}),
-            created_at: earlier,
+            created_ts: earlier,
             updated_ts: now,
         };
 
-        assert!(key.created_at < key.updated_ts);
+        assert!(key.created_ts < key.updated_ts);
         assert_eq!(key.updated_ts, now);
     }
 
@@ -550,7 +550,7 @@ mod tests {
                     "ed25519:DEVICE_SPECIAL": "特殊签名"
                 }
             }),
-            created_at: chrono::Utc::now(),
+            created_ts: chrono::Utc::now(),
             updated_ts: chrono::Utc::now(),
         };
 
@@ -562,7 +562,7 @@ mod tests {
 
     #[test]
     fn test_device_key_algorithm_variants() {
-        let algorithms = vec![
+        let algorithms = [
             "ed25519",
             "curve25519",
             "signed_curve25519",
@@ -579,7 +579,7 @@ mod tests {
                 key_id: format!("KEY_{}", idx),
                 public_key: "test_key".to_string(),
                 signatures: json!({}),
-                created_at: chrono::Utc::now(),
+                created_ts: chrono::Utc::now(),
                 updated_ts: chrono::Utc::now(),
             };
 
