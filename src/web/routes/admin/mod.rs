@@ -6,7 +6,6 @@ pub mod notification;
 pub mod token;
 pub mod federation;
 pub mod media;
-pub mod background;
 pub mod report;
 pub mod retention;
 
@@ -21,7 +20,6 @@ pub use notification::create_notification_router;
 pub use token::create_token_router;
 pub use federation::create_federation_router;
 pub use media::create_media_router;
-pub use background::create_background_router;
 pub use report::create_report_router;
 pub use retention::create_retention_router;
 
@@ -35,7 +33,6 @@ pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
         .merge(create_token_router(state.clone()))
         .merge(create_federation_router(state.clone()))
         .merge(create_media_router(state.clone()))
-        .merge(create_background_router(state.clone()))
         .merge(create_report_router(state.clone()))
         .merge(create_retention_router(state.clone()))
 }
