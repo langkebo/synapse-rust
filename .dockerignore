@@ -1,89 +1,51 @@
 # ============================================================================
-# Docker Build Ignore File
+# .dockerignore - Docker 构建忽略文件
 # ============================================================================
-# Build context: /home/hula/synapse_rust/synapse/
-# This file controls what gets sent to Docker daemon during build
 
-# Data directories (large, not needed for build)
-postgres_data/
-redis_data/
-data/
-media/
-logs/
-docker/data/
-docker/media/
-docker/logs/
-
-# Git data
-.git/
+# Git
+.git
 .gitignore
-.gitattributes
 
-# IDE and editor files
-.vscode/
+# 开发文件
+*.md
+LICENSE
+TODO
+*.txt
+
+# IDE
 .idea/
+.vscode/
 *.swp
 *.swo
-.DS_Store
-Thumbs.db
+*~
 
-# Documentation (not needed in image)
-docs/
-*.md
-!README.md
+# 测试文件
+# tests/
+# benches/
 
-# Test files
-tests/
-*.test
-test_data.json
-
-# CI/CD files
-.github/
-.gitlab-ci.yml
-.travis.yml
-
-# Rust build output
+# 构建产物
 target/
-!target/
-target/*
-!target/release/
-target/release/*
-!target/release/synapse-rust
+# Cargo.lock
 
-# Build artifacts
-*.o
-*.a
-*.so
-*.dylib
-
-# Temporary files
-tmp/
-temp/
+# 临时文件
 *.tmp
+*.bak
+*.orig
+
+# 日志
+logs/
 *.log
 
-# Docker files (prevent recursive copy)
-docker/Dockerfile*
-docker/docker-compose*
-docker/.dockerignore
-docker/monitoring/
-docker/*.md
-
-# Allow migrations directory
-!migrations/
-
-# SSL certificates (should be mounted, not baked in)
-docker/ssl/
-
-# Nginx configs (should be mounted)
-docker/nginx/
-
-# Environment files
-docker/.env
+# 环境文件
 .env
-.env.*
+.env.local
+.env.*.local
 
-# Backup files
-*.bak
-*.backup
-*~
+# Docker 文件 (不需要复制到镜像)
+# docker/
+docker-compose*
+.dockerignore
+
+# 其他
+.DS_Store
+Thumbs.db

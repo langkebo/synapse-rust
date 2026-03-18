@@ -484,10 +484,207 @@ impl FriendRoomStorage {
 
         Ok(())
     }
+
+    // ========================================================================
+    // 好友请求数据库操作 (使用 friend_requests 表)
+    // ========================================================================
+
+    pub async fn create_friend_request(
+        &self,
+        sender_id: &str,
+        receiver_id: &str,
+        message: Option<&str>,
+    ) -> Result<i64, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO friend_requests (sender_id, receiver_id, message, status, created_ts)
+            VALUES ($1, $2, $3, 'pending', $4)
+            ON CONFLICT (sender_id, receiver_id) 
+            DO UPDATE SET status = 'pending', updated_ts = $4, message = $3
+            RETURNING id
+            "#,
+        )
+        .bind(sender_id)
+        .bind(receiver_id)
+        .bind(message)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(row.get("id"))
+    }
+
+    pub async fn get_friend_request(
+        &self,
+        sender_id: &str,
+        receiver_id: &str,
+    ) -> Result<Option<FriendRequestRecord>, sqlx::Error> {
+        let row = sqlx::query_as::<_, FriendRequestRecord>(
+            r#"
+            SELECT id, sender_id, receiver_id, message, status, created_ts, updated_ts
+            FROM friend_requests
+            WHERE sender_id = $1 AND receiver_id = $2
+            "#,
+        )
+        .bind(sender_id)
+        .bind(receiver_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn get_pending_friend_request(
+        &self,
+        sender_id: &str,
+        receiver_id: &str,
+    ) -> Result<Option<FriendRequestRecord>, sqlx::Error> {
+        let row = sqlx::query_as::<_, FriendRequestRecord>(
+            r#"
+            SELECT id, sender_id, receiver_id, message, status, created_ts, updated_ts
+            FROM friend_requests
+            WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
+            "#,
+        )
+        .bind(sender_id)
+        .bind(receiver_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn get_incoming_friend_requests(
+        &self,
+        receiver_id: &str,
+    ) -> Result<Vec<FriendRequestRecord>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, FriendRequestRecord>(
+            r#"
+            SELECT id, sender_id, receiver_id, message, status, created_ts, updated_ts
+            FROM friend_requests
+            WHERE receiver_id = $1 AND status = 'pending'
+            ORDER BY created_ts DESC
+            "#,
+        )
+        .bind(receiver_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    pub async fn get_outgoing_friend_requests(
+        &self,
+        sender_id: &str,
+    ) -> Result<Vec<FriendRequestRecord>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, FriendRequestRecord>(
+            r#"
+            SELECT id, sender_id, receiver_id, message, status, created_ts, updated_ts
+            FROM friend_requests
+            WHERE sender_id = $1 AND status = 'pending'
+            ORDER BY created_ts DESC
+            "#,
+        )
+        .bind(sender_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    pub async fn update_friend_request_status(
+        &self,
+        sender_id: &str,
+        receiver_id: &str,
+        status: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+
+        let result = sqlx::query(
+            r#"
+            UPDATE friend_requests
+            SET status = $3, updated_ts = $4
+            WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
+            "#,
+        )
+        .bind(sender_id)
+        .bind(receiver_id)
+        .bind(status)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn delete_friend_request(
+        &self,
+        sender_id: &str,
+        receiver_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM friend_requests
+            WHERE sender_id = $1 AND receiver_id = $2
+            "#,
+        )
+        .bind(sender_id)
+        .bind(receiver_id)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn has_pending_request(
+        &self,
+        sender_id: &str,
+        receiver_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT 1 FROM friend_requests
+            WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
+            "#,
+        )
+        .bind(sender_id)
+        .bind(receiver_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row.is_some())
+    }
+
+    pub async fn has_any_pending_request(
+        &self,
+        user_a: &str,
+        user_b: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT 1 FROM friend_requests
+            WHERE ((sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1))
+            AND status = 'pending'
+            "#,
+        )
+        .bind(user_a)
+        .bind(user_b)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row.is_some())
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_storage_creation() {}
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct FriendRequestRecord {
+    pub id: i64,
+    pub sender_id: String,
+    pub receiver_id: String,
+    pub message: Option<String>,
+    pub status: String,
+    pub created_ts: i64,
+    pub updated_ts: Option<i64>,
 }

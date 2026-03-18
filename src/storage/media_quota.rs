@@ -17,7 +17,7 @@ pub struct MediaQuotaConfig {
     pub is_default: bool,
     pub is_enabled: bool,
     pub created_ts: i64,
-    pub updated_ts: i64,
+    pub updated_ts: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -31,7 +31,7 @@ pub struct UserMediaQuota {
     pub current_storage_bytes: i64,
     pub current_files_count: i32,
     pub created_ts: i64,
-    pub updated_ts: i64,
+    pub updated_ts: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -558,7 +558,7 @@ mod tests {
             is_default: true,
             is_enabled: true,
             created_ts: Utc::now().timestamp_millis(),
-            updated_ts: Utc::now().timestamp_millis(),
+            updated_ts: Some(Utc::now().timestamp_millis()),
         }
     }
 
@@ -573,7 +573,7 @@ mod tests {
             current_storage_bytes: 524288000,
             current_files_count: 50,
             created_ts: Utc::now().timestamp_millis(),
-            updated_ts: Utc::now().timestamp_millis(),
+            updated_ts: Some(Utc::now().timestamp_millis()),
         }
     }
 

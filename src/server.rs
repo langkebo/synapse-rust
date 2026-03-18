@@ -1,4 +1,5 @@
 use axum::Router;
+use tower_http::limit::RequestBodyLimitLayer;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -176,6 +177,7 @@ impl SynapseServer {
         let media_path = std::path::PathBuf::from("/app/data/media");
 
         let router = create_router((*app_state).clone())
+            .layer(RequestBodyLimitLayer::new(config.server.max_upload_size as usize))
             .layer(axum::middleware::from_fn(panic_catcher_middleware))
             .layer(axum::middleware::from_fn(request_timeout_middleware))
             .layer({

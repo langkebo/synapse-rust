@@ -43,8 +43,16 @@ impl KeyRotationManager {
     }
 
     pub async fn start_auto_rotation(&self) {
-        let mut interval = interval(TokioDuration::from_secs(3600));
         let manager = Arc::new(self.clone());
+
+        let init_result = manager.load_or_create_key().await;
+        if let Err(e) = init_result {
+            tracing::error!("Failed to initialize key rotation: {}", e);
+            let _ = sqlx::query("ROLLBACK").execute(&*manager.pool).await;
+            let _ = sqlx::query("SELECT 1").execute(&*manager.pool).await;
+        }
+
+        let mut interval = interval(TokioDuration::from_secs(3600));
 
         tokio::spawn(async move {
             loop {
@@ -54,12 +62,69 @@ impl KeyRotationManager {
                     tracing::info!("Auto-rotating federation signing keys");
                     if let Err(e) = manager.rotate_keys(None).await {
                         tracing::error!("Failed to auto-rotate keys: {}", e);
+                        let _ = sqlx::query("ROLLBACK").execute(&*manager.pool).await;
+                        let _ = sqlx::query("SELECT 1").execute(&*manager.pool).await;
                     }
                 }
             }
         });
 
         tracing::info!("Key rotation scheduler started");
+    }
+
+    pub async fn load_or_create_key(&self) -> Result<(), anyhow::Error> {
+        let existing_key = sqlx::query(
+            r#"
+            SELECT key_id, secret_key, public_key, created_ts, expires_at
+            FROM federation_signing_keys
+            WHERE server_name = $1 AND (expires_at = 0 OR expires_at > $2)
+            ORDER BY created_ts DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(&self.server_name)
+        .bind(Utc::now().timestamp_millis())
+        .fetch_optional(&*self.pool)
+        .await;
+
+        match existing_key {
+            Ok(Some(row)) => {
+                let key = SigningKey {
+                    key_id: row.get("key_id"),
+                    secret_key: row.get("secret_key"),
+                    public_key: row.get("public_key"),
+                    created_ts: row.get("created_ts"),
+                    expires_at: row.get("expires_at"),
+                };
+                *self.current_key.write().await = Some(key);
+                tracing::info!("Loaded existing signing key from database");
+                return Ok(());
+            }
+            Ok(None) => {
+                // No existing key, create new one
+            }
+            Err(e) => {
+                let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
+                return Err(e.into());
+            }
+        }
+
+        let key_id = format!("ed25519:{}", Utc::now().timestamp());
+        let secret_key = base64::engine::general_purpose::STANDARD_NO_PAD
+            .encode(rand::random::<[u8; 32]>());
+
+        match self.initialize(&secret_key, &key_id).await {
+            Ok(_) => {
+                tracing::info!("Created new signing key");
+                Ok(())
+            }
+            Err(e) => {
+                let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
+                Err(e)
+            }
+        }
     }
 
     pub async fn initialize(&self, secret_key: &str, key_id: &str) -> Result<(), anyhow::Error> {

@@ -36,11 +36,20 @@ END $$;
 -- 4. 确保 version 字段有默认值
 ALTER TABLE key_backups ALTER COLUMN version SET DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT;
 
--- 5. 修改 auth_data 为可空（代码使用 backup_data）
+-- 5. 修改 auth_data 为可空
 ALTER TABLE key_backups ALTER COLUMN auth_data DROP NOT NULL;
 
--- 6. 确保 backup_data 有默认值
-ALTER TABLE key_backups ALTER COLUMN backup_data SET DEFAULT '{}';
+-- 6. 添加 backup_data 列（如果不存在）
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'key_backups' AND column_name = 'backup_data'
+    ) THEN
+        ALTER TABLE key_backups ADD COLUMN backup_data JSONB DEFAULT '{}';
+        RAISE NOTICE 'Added column: backup_data';
+    END IF;
+END $$;
 
 -- 7. 添加索引优化查询
 CREATE INDEX IF NOT EXISTS idx_key_backups_user_version ON key_backups(user_id, version DESC);

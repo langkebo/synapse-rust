@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RoomSummary {
-    pub id: i64,
+    pub id: Option<i64>,
     pub room_id: String,
     pub room_type: Option<String>,
     pub name: Option<String>,
@@ -27,8 +27,8 @@ pub struct RoomSummary {
     pub last_message_ts: Option<i64>,
     pub unread_notifications: i64,
     pub unread_highlight: i64,
-    pub updated_ts: i64,
-    pub created_ts: i64,
+    pub updated_ts: Option<i64>,
+    pub created_ts: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -171,11 +171,11 @@ impl RoomSummaryStorage {
             INSERT INTO room_summaries (
                 room_id, room_type, name, topic, avatar_url, canonical_alias,
                 join_rules, history_visibility, guest_access, is_direct, is_space,
-                member_count, joined_member_count, invited_member_count, hero_users,
-                updated_ts, created_ts
+                member_count, joined_members, invited_members, hero_users,
+                updated_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 0, 0, '[]'::jsonb, $12, $13)
-            RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 0, 0, '[]'::jsonb, $12)
+            RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_members as joined_member_count, invited_members as invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, NULL as created_ts
             "#,
         )
         .bind(&request.room_id)
@@ -198,7 +198,6 @@ impl RoomSummaryStorage {
         .bind(request.is_direct.unwrap_or(false))
         .bind(request.is_space.unwrap_or(false))
         .bind(now)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -207,7 +206,7 @@ impl RoomSummaryStorage {
 
     pub async fn get_summary(&self, room_id: &str) -> Result<Option<RoomSummary>, sqlx::Error> {
         let row =
-            sqlx::query_as::<_, RoomSummary>("SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts FROM room_summaries WHERE room_id = $1")
+            sqlx::query_as::<_, RoomSummary>("SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_members as joined_member_count, invited_members as invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, NULL as created_ts FROM room_summaries WHERE room_id = $1")
                 .bind(room_id)
                 .fetch_optional(&*self.pool)
                 .await?;
@@ -276,7 +275,7 @@ impl RoomSummaryStorage {
         room_ids: &[String],
     ) -> Result<Vec<RoomSummary>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummary>(
-            "SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts FROM room_summaries WHERE room_id = ANY($1)",
+            "SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_members as joined_member_count, invited_members as invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, NULL as created_ts FROM room_summaries WHERE room_id = ANY($1)",
         )
         .bind(room_ids)
         .fetch_all(&*self.pool)
@@ -291,7 +290,7 @@ impl RoomSummaryStorage {
     ) -> Result<Vec<RoomSummary>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummary>(
             r#"
-            SELECT rs.* FROM room_summaries rs
+            SELECT rs.id, rs.room_id, rs.room_type, rs.name, rs.topic, rs.avatar_url, rs.canonical_alias, rs.join_rules, rs.history_visibility, rs.guest_access, rs.is_direct, rs.is_space, rs.is_encrypted, rs.member_count, rs.joined_members as joined_member_count, rs.invited_members as invited_member_count, rs.hero_users, rs.last_event_id, rs.last_event_ts, rs.last_message_ts, rs.unread_notifications, rs.unread_highlight, rs.updated_ts, NULL as created_ts FROM room_summaries rs
             INNER JOIN room_summary_members rsm ON rs.room_id = rsm.room_id
             WHERE rsm.user_id = $1 AND rsm.membership IN ('join', 'invite')
             ORDER BY rs.last_event_ts DESC NULLS LAST
@@ -700,7 +699,7 @@ mod tests {
     #[test]
     fn test_room_summary_creation() {
         let summary = RoomSummary {
-            id: 1,
+            id: Some(1),
             room_id: "!room:example.com".to_string(),
             room_type: None,
             name: Some("Test Room".to_string()),
@@ -722,8 +721,8 @@ mod tests {
             last_message_ts: None,
             unread_notifications: 0,
             unread_highlight: 0,
-            updated_ts: 1234567890,
-            created_ts: 1234567800,
+            updated_ts: Some(1234567890),
+            created_ts: Some(1234567800),
         };
         assert_eq!(summary.room_id, "!room:example.com");
         assert!(summary.name.is_some());
@@ -836,7 +835,7 @@ mod tests {
     #[test]
     fn test_room_summary_optional_fields() {
         let summary = RoomSummary {
-            id: 2,
+            id: Some(2),
             room_id: "!room2:example.com".to_string(),
             room_type: None,
             name: None,
@@ -858,8 +857,8 @@ mod tests {
             last_message_ts: None,
             unread_notifications: 0,
             unread_highlight: 0,
-            updated_ts: 0,
-            created_ts: 0,
+            updated_ts: Some(0),
+            created_ts: Some(0),
         };
         assert!(summary.name.is_none());
         assert!(summary.topic.is_none());

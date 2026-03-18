@@ -418,6 +418,10 @@ pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/_matrix/client/v3/rooms/{room_id}/summary",
+            post(create_room_summary),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/summary",
             put(update_room_summary),
         )
         .route(

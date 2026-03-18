@@ -216,14 +216,14 @@ async fn send_friend_request(
         ));
     }
 
-    let room_id = state
+    let request_id = state
         .services
         .friend_room_service
-        .add_friend(&auth_user.user_id, &body.user_id)
+        .send_friend_request(&auth_user.user_id, &body.user_id, body.message.as_deref())
         .await?;
 
     Ok(Json(json!({
-        "room_id": room_id,
+        "request_id": request_id,
         "status": "pending"
     })))
 }
@@ -238,7 +238,7 @@ async fn accept_friend_request(
     let room_id = state
         .services
         .friend_room_service
-        .add_friend(&auth_user.user_id, &requester_id)
+        .accept_friend_request(&auth_user.user_id, &requester_id)
         .await?;
 
     Ok(Json(json!({

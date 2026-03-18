@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
     generation BIGINT NOT NULL,
     avatar_url TEXT,
     displayname TEXT,
-    invalid_update_ts BIGINT,
+    invalid_update_at BIGINT,
     migration_state TEXT
 );
 

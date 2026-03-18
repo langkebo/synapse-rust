@@ -277,7 +277,7 @@ impl SamlStorage {
             r#"
             INSERT INTO saml_sessions (
                 session_id, user_id, name_id, issuer, session_index, attributes,
-                created_ts, expires_at, last_used_at, status
+                created_ts, expires_at, last_used_ts, status
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $7, 'active')
             RETURNING *

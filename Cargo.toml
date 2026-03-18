@@ -15,7 +15,7 @@ async-trait = "0.1"
 
 axum = { version = "0.8", optional = true, features = ["macros"] }
 tower = "0.5"
-tower-http = { version = "0.6", optional = true, features = ["fs", "cors", "trace", "compression-gzip"] }
+tower-http = { version = "0.6", optional = true, features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
 tower_governor = { version = "0.8", optional = true, features = ["axum", "tracing"] }
 hyper = "1"
 http = "1"
@@ -116,25 +116,25 @@ incremental = false
 inherits = "release"
 debug = true
 
-[[bench]]
-name = "database_bench"
-harness = false
+# [[bench]]
+# name = "database_bench"
+# harness = false
 
-[[bench]]
-name = "cache_benchmarks"
-harness = false
+# [[bench]]
+# name = "cache_benchmarks"
+# harness = false
 
-[[bench]]
-name = "concurrency_benchmarks"
-harness = false
+# [[bench]]
+# name = "concurrency_benchmarks"
+# harness = false
 
-[[bench]]
-name = "metrics_benchmarks"
-harness = false
+# [[bench]]
+# name = "metrics_benchmarks"
+# harness = false
 
-[[bench]]
-name = "collections_benchmarks"
-harness = false
+# [[bench]]
+# name = "collections_benchmarks"
+# harness = false
 
 [workspace]
 

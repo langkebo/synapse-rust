@@ -133,8 +133,11 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to start transaction: {}", e)))?;
 
-        self.create_room_in_db(&room_id, user_id, join_rule, is_public, Some(&mut tx))
-            .await?;
+        let result = self.create_room_in_db(&room_id, user_id, join_rule, is_public, Some(&mut tx)).await;
+        if result.is_err() {
+            let _ = tx.rollback().await;
+            return Err(result.map_err(|e| ApiError::internal(format!("Failed to create room: {}", e))).unwrap_err());
+        }
 
         // Create m.room.create event
         let now = chrono::Utc::now().timestamp_millis();
@@ -145,7 +148,7 @@ impl RoomService {
         if let Some(ref room_type) = config.room_type {
             create_content["type"] = json!(room_type);
         }
-        self.event_storage
+        let result = self.event_storage
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -157,30 +160,40 @@ impl RoomService {
                     origin_server_ts: now,
                 },
                 Some(&mut tx),
-            )
-            .await
-            .map_err(|e| {
-                ApiError::internal(format!("Failed to create m.room.create event: {}", e))
-            })?;
+            ).await;
+        if result.is_err() {
+            let _ = tx.rollback().await;
+            return Err(result.map_err(|e| ApiError::internal(format!("Failed to create m.room.create event: {}", e))).unwrap_err());
+        }
 
-        self.add_creator_to_room(&room_id, user_id, Some(&mut tx))
-            .await?;
-        self.set_room_metadata(
+        let result = self.add_creator_to_room(&room_id, user_id, Some(&mut tx)).await;
+        if result.is_err() {
+            let _ = tx.rollback().await;
+            return Err(result.map_err(|e| ApiError::internal(format!("Failed to add creator to room: {}", e))).unwrap_err());
+        }
+
+        let result = self.set_room_metadata(
             &room_id,
             config.name.as_deref(),
             config.topic.as_deref(),
             Some(&mut tx),
-        )
-        .await?;
-        self.process_invites(&room_id, config.invite_list.as_ref(), Some(&mut tx))
-            .await?;
+        ).await;
+        if result.is_err() {
+            let _ = tx.rollback().await;
+            return Err(result.map_err(|e| ApiError::internal(format!("Failed to set room metadata: {}", e))).unwrap_err());
+        }
+
+        let result = self.process_invites(&room_id, config.invite_list.as_ref(), Some(&mut tx)).await;
+        if result.is_err() {
+            let _ = tx.rollback().await;
+            return Err(result.map_err(|e| ApiError::internal(format!("Failed to process invites: {}", e))).unwrap_err());
+        }
 
         // Handle trusted private chat specific logic
         if is_trusted_private {
             // Set history visibility to invited
-            let now = chrono::Utc::now().timestamp_millis();
             let history_content = json!({ "history_visibility": "invited" });
-            self.event_storage
+            let result = self.event_storage
                 .create_event(
                     CreateEventParams {
                         event_id: generate_event_id(&self.server_name),
@@ -192,15 +205,15 @@ impl RoomService {
                         origin_server_ts: now,
                     },
                     Some(&mut tx),
-                )
-                .await
-                .map_err(|e| {
-                    ApiError::internal(format!("Failed to set history visibility: {}", e))
-                })?;
+                ).await;
+            if result.is_err() {
+                let _ = tx.rollback().await;
+                return Err(result.map_err(|e| ApiError::internal(format!("Failed to set history visibility: {}", e))).unwrap_err());
+            }
 
             // Set guest access to forbidden
             let guest_content = json!({ "guest_access": "forbidden" });
-            self.event_storage
+            let result = self.event_storage
                 .create_event(
                     CreateEventParams {
                         event_id: generate_event_id(&self.server_name),
@@ -212,13 +225,15 @@ impl RoomService {
                         origin_server_ts: now,
                     },
                     Some(&mut tx),
-                )
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to set guest access: {}", e)))?;
+                ).await;
+            if result.is_err() {
+                let _ = tx.rollback().await;
+                return Err(result.map_err(|e| ApiError::internal(format!("Failed to set guest access: {}", e))).unwrap_err());
+            }
 
             // Set privacy marker for anti-screenshot
             let privacy_content = json!({ "action": "block_screenshot" });
-            self.event_storage
+            let result = self.event_storage
                 .create_event(
                     CreateEventParams {
                         event_id: generate_event_id(&self.server_name),
@@ -230,14 +245,24 @@ impl RoomService {
                         origin_server_ts: now,
                     },
                     Some(&mut tx),
-                )
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to set privacy marker: {}", e)))?;
+                ).await;
+            if result.is_err() {
+                let _ = tx.rollback().await;
+                return Err(result.map_err(|e| ApiError::internal(format!("Failed to set privacy marker: {}", e))).unwrap_err());
+            }
         }
 
         tx.commit()
             .await
             .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {}", e)))?;
+
+        // Save room alias if provided
+        if let Some(ref alias) = config.room_alias_name {
+            let full_alias = format!("#{}:{}", alias, self.server_name);
+            if let Err(e) = self.room_storage.set_room_alias(&room_id, &full_alias, user_id).await {
+                ::tracing::warn!("Failed to save room alias: {}", e);
+            }
+        }
 
         let room_alias = self.format_room_alias(config.room_alias_name.as_deref());
         Ok(self.build_room_response(&room_id, room_alias))

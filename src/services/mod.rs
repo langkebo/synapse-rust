@@ -14,9 +14,11 @@ use crate::e2ee::cross_signing::CrossSigningService;
 use crate::e2ee::device_keys::DeviceKeyService;
 use crate::e2ee::megolm::MegolmService;
 use crate::e2ee::to_device::ToDeviceService;
+use crate::e2ee::verification::VerificationService;
 use crate::federation::{DeviceSyncManager, EventAuthChain, FriendFederation, KeyRotationManager};
 use crate::storage::email_verification::EmailVerificationStorage;
 use crate::storage::*;
+use crate::services::burn_after_read_service::BurnAfterReadServiceImpl;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
@@ -61,6 +63,8 @@ pub struct ServiceContainer {
     pub backup_service: KeyBackupService,
     /// 设备间消息服务
     pub to_device_service: ToDeviceService,
+    /// 设备验证服务 (SAS/QR)
+    pub verification_service: VerificationService,
     /// 语音消息服务
     pub voice_service: VoiceService,
     /// 注册服务
@@ -103,6 +107,12 @@ pub struct ServiceContainer {
     pub friend_federation: Arc<FriendFederation>,
     /// 呼叫服务
     pub call_service: Arc<CallService>,
+    /// 目录服务
+    pub directory_service: Arc<directory_service::DirectoryServiceImpl>,
+    /// DM 服务
+    pub dm_service: Arc<dm_service::DMServiceImpl>,
+    /// 打字提示服务
+    pub typing_service: Arc<typing_service::TypingServiceImpl>,
     /// 空间存储
     pub space_storage: SpaceStorage,
     /// 空间服务
@@ -191,6 +201,8 @@ pub struct ServiceContainer {
     pub widget_storage: crate::storage::widget::WidgetStorage,
     /// Widget 服务 (MSC4261)
     pub widget_service: Arc<crate::services::widget_service::WidgetService>,
+    /// 阅后即焚服务
+    pub burn_after_read: Arc<BurnAfterReadServiceImpl>,
 }
 
 impl ServiceContainer {
@@ -237,6 +249,11 @@ impl ServiceContainer {
         let user_storage = UserStorage::new(pool, cache.clone());
         let to_device_service =
             ToDeviceService::new(to_device_storage).with_user_storage(user_storage.clone());
+        
+        // 初始化 verification 服务
+        let verification_storage = crate::e2ee::verification::VerificationStorage::new(pool);
+        let verification_service = VerificationService::new(std::sync::Arc::new(verification_storage));
+        
         let presence_service = PresenceStorage::new(presence_pool.clone(), cache.clone());
         let voice_service = VoiceService::new(pool, cache.clone(), "/app/data/media/voice");
         let search_service = Arc::new(crate::services::search_service::SearchService::new(
@@ -248,7 +265,7 @@ impl ServiceContainer {
         let server_name_for_storage = config.server.get_server_name().to_string();
         let member_storage = RoomMemberStorage::new(pool, &server_name_for_storage);
         let room_storage = RoomStorage::new(pool);
-        let event_storage = EventStorage::new(pool);
+        let event_storage = EventStorage::new(pool, server_name_for_storage.clone());
         let presence_storage = PresenceStorage::new(presence_pool.clone(), cache.clone());
         let qr_login_storage = QrLoginStorage::new(pool.clone());
         let invite_blocklist_storage = InviteBlocklistStorage::new(pool.clone());
@@ -283,7 +300,7 @@ impl ServiceContainer {
             sliding_sync_storage.clone(),
             cache.clone(),
         ));
-        let media_service = MediaService::new("/app/data/media", task_queue.clone());
+        let media_service = MediaService::new("/app/data/media", task_queue.clone(), &config.server.name);
         let admin_registration_service = AdminRegistrationService::new(
             auth_service.clone(),
             config.admin_registration.clone(),
@@ -311,6 +328,13 @@ impl ServiceContainer {
         // 呼叫服务初始化
         let call_session_storage = crate::storage::call_session::CallSessionStorage::new(pool.clone());
         let call_service = Arc::new(CallService::new(Arc::new(call_session_storage)));
+
+        // 目录服务初始化
+        let directory_service = Arc::new(directory_service::DirectoryServiceImpl::new());
+        // DM 服务初始化
+        let dm_service = Arc::new(dm_service::DMServiceImpl::new());
+        // 打字提示服务初始化
+        let typing_service = Arc::new(typing_service::TypingServiceImpl::new());
 
         let space_storage = SpaceStorage::new(pool);
         let space_service = Arc::new(SpaceService::new(
@@ -450,6 +474,9 @@ impl ServiceContainer {
             Arc::new(widget_storage.clone()),
         ));
 
+        // 阅后即焚服务
+        let burn_after_read = Arc::new(BurnAfterReadServiceImpl::new());
+
         Self {
             user_storage,
             device_storage: DeviceStorage::new(pool),
@@ -468,6 +495,7 @@ impl ServiceContainer {
             cross_signing_service,
             backup_service,
             to_device_service,
+            verification_service,
             voice_service,
             registration_service,
             room_service,
@@ -489,6 +517,9 @@ impl ServiceContainer {
             friend_room_service,
             friend_federation,
             call_service,
+            directory_service,
+            dm_service,
+            typing_service,
             space_storage,
             space_service,
             app_service_storage,
@@ -530,6 +561,7 @@ impl ServiceContainer {
             rendezvous_storage,
             widget_storage,
             widget_service,
+            burn_after_read,
         }
     }
 
@@ -554,6 +586,8 @@ impl ServiceContainer {
                 .max_connections(50)
                 .min_connections(5)
                 .acquire_timeout(std::time::Duration::from_secs(2))
+                .idle_timeout(Some(std::time::Duration::from_secs(600)))
+                .max_lifetime(Some(std::time::Duration::from_secs(1800)))
                 .connect_lazy(&db_url)
                 .expect("Failed to create test database pool"),
         );
@@ -886,6 +920,7 @@ pub mod cas_service;
 pub mod content_scanner;
 pub mod database_initializer;
 pub mod dehydrated_device_service;
+pub mod e2ee;
 pub mod event_report_service;
 pub mod federation_blacklist_service;
 pub mod friend_room_service;
@@ -893,6 +928,7 @@ pub mod geo_ip;
 pub mod identity;
 pub mod livekit_client;
 pub mod matrixrtc_service;
+pub mod media;
 pub mod media_quota_service;
 pub mod media_service;
 pub mod message_queue;
@@ -945,3 +981,16 @@ pub use sync_service::*;
 pub use url_preview_service::*;
 pub use voice_service::*;
 pub use voip_service::*;
+
+pub mod key_rotation_service;
+pub mod burn_after_read_service;
+
+pub mod directory_service;
+pub mod dm_service;
+pub mod external_service_integration;
+pub mod typing_service;
+
+pub use directory_service::*;
+pub use dm_service::*;
+pub use external_service_integration::*;
+pub use typing_service::*;

@@ -10,6 +10,7 @@ pub mod beacon;
 pub mod call_session;
 pub mod captcha;
 pub mod cas;
+pub mod connection_monitor;
 pub mod dehydrated_device;
 pub mod delayed_event;
 pub mod device;
@@ -19,6 +20,7 @@ pub mod event_report;
 pub mod federation_blacklist;
 pub mod filter;
 pub mod friend_room;
+pub mod integrity_checker;
 pub mod maintenance;
 pub mod matrixrtc;
 pub mod media;
@@ -38,6 +40,7 @@ pub mod rendezvous;
 pub mod retention;
 pub mod room;
 pub mod room_summary;
+pub mod room_tag;
 pub mod qr_login;
 pub mod invite_blocklist;
 pub mod sticky_event;
@@ -248,11 +251,11 @@ mod tests {
             consent_version: None,
             appservice_id: None,
             user_type: None,
-            invalid_update_ts: None,
+            invalid_update_at: None,
             migration_state: None,
             password_changed_ts: None,
             must_change_password: false,
-            password_expires_ts: None,
+            password_expires_at: None,
             failed_login_attempts: 0,
             locked_until: None,
         };

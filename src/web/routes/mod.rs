@@ -2,47 +2,65 @@ pub mod account_data;
 pub mod admin;
 pub mod app_service;
 pub mod background_update;
+pub mod burn_after_read;
 pub mod captcha;
 pub mod cas;
+pub mod device;
+pub mod directory;
+pub mod dm;
 pub mod e2ee_routes;
+pub mod ephemeral;
 pub mod event_report;
+pub mod external_service;
 pub mod federation;
 pub mod friend_room;
+pub mod guest;
+pub mod invite_blocklist;
 pub mod key_backup;
+pub mod key_rotation;
 pub mod media;
 pub mod module;
 pub mod oidc;
 pub mod push;
 pub mod push_notification;
+pub mod qr_login;
+pub mod reactions;
+pub mod relations;
 pub mod rendezvous;
 pub mod room_summary;
 pub mod saml;
 pub mod search;
 pub mod sliding_sync;
 pub mod space;
+pub mod sticky_event;
+pub mod tags;
 pub mod telemetry;
 pub mod thirdparty;
 pub mod thread;
+pub mod typing;
+pub mod verification_routes;
 pub mod voice;
 pub mod voip;
 pub mod widget;
-pub mod qr_login;
-pub mod invite_blocklist;
-pub mod sticky_event;
-pub mod tags;
 pub mod worker;
 
 pub use account_data::create_account_data_router;
+pub use external_service::create_external_service_router;
 pub use admin::create_admin_module_router;
 pub use app_service::create_app_service_router;
 pub use background_update::create_background_update_router;
+pub use burn_after_read::create_burn_after_read_router;
 pub use captcha::create_captcha_router;
 pub use cas::cas_routes;
+pub use device::create_device_router;
+pub use dm::create_dm_router;
 pub use e2ee_routes::create_e2ee_router;
 pub use event_report::create_event_report_router;
 pub use federation::create_federation_router;
 pub use friend_room::create_friend_router;
+pub use guest::create_guest_router;
 pub use key_backup::create_key_backup_router;
+pub use key_rotation::create_key_rotation_router;
 pub use media::create_media_router;
 pub use module::create_module_router;
 pub use oidc::create_oidc_router;
@@ -58,6 +76,9 @@ pub use telemetry::create_telemetry_router;
 pub use tags::create_tags_router;
 pub use thirdparty::create_thirdparty_router;
 pub use thread::create_thread_routes;
+pub use verification_routes::create_verification_router;
+pub use relations::create_relations_router;
+pub use reactions::create_reactions_router;
 pub use voice::create_voice_router;
 pub use voip::get_turn_credentials_guest;
 pub use voip::get_turn_server;
@@ -82,6 +103,7 @@ use axum::{
     routing::{get, post, put},
     Router,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{Row, types::JsonValue};
 use std::sync::Arc;
@@ -341,6 +363,9 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_media_router(state.clone()))
         .merge(create_e2ee_router(state.clone()))
         .merge(create_key_backup_router(state.clone()))
+        .merge(create_verification_router(state.clone()))
+        .merge(create_relations_router(state.clone()))
+        .merge(create_reactions_router(state.clone()))
         .merge(create_admin_module_router(state.clone()))
         .merge(create_federation_router(state.clone()))
         .merge(create_friend_router(state.clone()))
@@ -362,6 +387,11 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_telemetry_router())
         .merge(create_thirdparty_router(state.clone()))
         .merge(create_tags_router(state.clone()))
+        .merge(dm::create_dm_router(state.clone()))
+        .merge(typing::create_typing_router(state.clone()))
+        .merge(ephemeral::create_ephemeral_router(state.clone()))
+        .merge(create_external_service_router(state.clone()))
+        .merge(create_burn_after_read_router(state.clone()))
         .merge(create_thread_routes(state.clone()))
         .merge(create_widget_router())
         .merge(create_rendezvous_router(state.clone()))
@@ -509,7 +539,12 @@ fn create_auth_router() -> Router<AppState> {
             "/_matrix/client/v1/login/qr/{transaction_id}/status",
             get(qr_login::get_qr_status),
         )
+        .route(
+            "/_matrix/client/v1/login/qr/invalidate",
+            post(qr_login::invalidate_qr_login),
+        )
         .route("/_matrix/client/r0/refresh", post(refresh_token))
+        .route("/_matrix/client/v3/refresh", post(refresh_token))
 }
 
 fn create_account_router() -> Router<AppState> {
@@ -527,8 +562,8 @@ fn create_account_router() -> Router<AppState> {
             "/_matrix/client/r0/account/profile/{user_id}/avatar_url",
             put(update_avatar),
         )
-        .route("/_matrix/client/r0/account/password", post(change_password))
-        .route("/_matrix/client/v3/account/password", post(change_password))
+        .route("/_matrix/client/r0/account/password", post(change_password_uia))
+        .route("/_matrix/client/v3/account/password", post(change_password_uia))
         .route(
             "/_matrix/client/r0/account/deactivate",
             post(deactivate_account),
@@ -639,11 +674,19 @@ fn create_room_router() -> Router<AppState> {
             post(report_event),
         )
         .route(
+            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}",
+            post(report_event),
+        )
+        .route(
             "/_matrix/client/v3/rooms/{room_id}/report/{event_id}",
             post(report_event),
         )
         .route(
             "/_matrix/client/r0/rooms/{room_id}/report/{event_id}/score",
+            put(update_report_score),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/score",
             put(update_report_score),
         )
         .route(
@@ -663,15 +706,6 @@ fn create_room_router() -> Router<AppState> {
         .route(
             "/_matrix/client/v3/rooms/{room_id}/messages",
             get(get_messages),
-        )
-        // Typing
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/typing/{user_id}",
-            put(set_typing),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
-            put(set_typing),
         )
         // Receipts
         .route(
@@ -720,6 +754,15 @@ fn create_room_router() -> Router<AppState> {
         // Leave
         .route("/_matrix/client/r0/rooms/{room_id}/leave", post(leave_room))
         .route("/_matrix/client/v3/rooms/{room_id}/leave", post(leave_room))
+        // Upgrade Room (MSC2174)
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/upgrade",
+            post(upgrade_room),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/upgrade",
+            post(upgrade_room),
+        )
         // Forget
         .route(
             "/_matrix/client/r0/rooms/{room_id}/forget",
@@ -728,6 +771,15 @@ fn create_room_router() -> Router<AppState> {
         .route(
             "/_matrix/client/v3/rooms/{room_id}/forget",
             post(forget_room),
+        )
+        // Initial Sync
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/initialSync",
+            get(room_initial_sync),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/initialSync",
+            get(room_initial_sync),
         )
         // Members
         .route(
@@ -798,7 +850,7 @@ fn create_room_router() -> Router<AppState> {
             "/_matrix/client/v3/user/{user_id}/rooms",
             get(get_user_rooms),
         )
-        // State events
+        // State events - with state_key
         .route(
             "/_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}",
             put(put_state_event).get(get_state_event),
@@ -807,6 +859,16 @@ fn create_room_router() -> Router<AppState> {
             "/_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}",
             put(put_state_event).get(get_state_event),
         )
+        // State events - empty state_key (URL ends with /)
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/state/{event_type}/",
+            put(put_state_event_empty_key).get(get_state_event_empty_key),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/state/{event_type}/",
+            put(put_state_event_empty_key).get(get_state_event_empty_key),
+        )
+        // State events - without state_key
         .route(
             "/_matrix/client/r0/rooms/{room_id}/state/{event_type}",
             put(put_state_event_no_key)
@@ -885,16 +947,6 @@ fn create_presence_router() -> Router<AppState> {
         )
 }
 
-fn create_device_router() -> Router<AppState> {
-    Router::new()
-        .route("/_matrix/client/r0/devices", get(get_devices))
-        .route("/_matrix/client/v3/devices", get(get_devices))
-        .route("/_matrix/client/r0/delete_devices", post(delete_devices))
-        .route("/_matrix/client/v3/delete_devices", post(delete_devices))
-        .route("/_matrix/client/r0/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
-        .route("/_matrix/client/v3/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
-}
-
 // ============================================================================
 // SECTION: Server Info & Discovery
 // ============================================================================
@@ -907,7 +959,9 @@ async fn get_client_versions() -> Json<Value> {
             "m.require_identity_server": false,
             "m.supports_login_via_phone_number": true,
             "org.matrix.msc3882": true,
-            "org.matrix.msc3983": true
+            "org.matrix.msc3983": true,
+            "org.matrix.msc3245": true,
+            "org.matrix.msc3266": true
         }
     }))
 }
@@ -1073,6 +1127,12 @@ async fn get_capabilities() -> Json<Value> {
             },
             "m.3pid_changes": {
                 "enabled": true
+            },
+            "m.room.summary": {
+                "enabled": true
+            },
+            "m.room.suggested": {
+                "enabled": true
             }
         }
     }))
@@ -1132,16 +1192,32 @@ async fn register(
     State(state): State<AppState>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let username = body
-        .get("username")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
-    let password = body
-        .get("password")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
+    let auth = body.get("auth").cloned();
+    let auth_type = auth
+        .as_ref()
+        .and_then(|a| a.get("type"))
+        .and_then(|t| t.as_str());
 
-    // P1 Quality: Validate username and password
+    let username = body.get("username").and_then(|v| v.as_str());
+    let password = body.get("password").and_then(|v| v.as_str());
+
+    if username.is_none() || password.is_none() {
+        if auth_type == Some("m.login.dummy") || auth_type == Some("m.login.password") {
+            return Err(ApiError::bad_request("Username and password required".to_string()));
+        }
+        return Ok(Json(json!({
+            "flows": [
+                { "stages": ["m.login.dummy"] },
+                { "stages": ["m.login.password"] }
+            ],
+            "params": {},
+            "session": uuid::Uuid::new_v4().to_string()
+        })));
+    }
+
+    let username = username.ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
+    let password = password.ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
+
     state
         .services
         .auth_service
@@ -1153,22 +1229,6 @@ async fn register(
         .validator
         .validate_password(password)?;
 
-    // Matrix spec: check for registration type if provided
-    if let Some(auth_type) = body
-        .get("auth")
-        .and_then(|a| a.get("type"))
-        .and_then(|t| t.as_str())
-    {
-        if auth_type != "m.login.password" && auth_type != "m.login.dummy" {
-            return Err(ApiError::bad_request(format!(
-                "Unsupported authentication type: {}",
-                auth_type
-            )));
-        }
-    }
-
-    // P0 Security: Standard registration cannot request admin status.
-    // Admin registration must go through the dedicated admin registration flow (HMAC-based).
     let admin = false;
     let displayname = body.get("displayname").and_then(|v| v.as_str());
 
@@ -1629,19 +1689,6 @@ fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn validate_device_id(device_id: &str) -> Result<(), ApiError> {
-    if device_id.is_empty() {
-        return Err(ApiError::bad_request("device_id is required".to_string()));
-    }
-    if device_id.len() > MAX_DEVICE_ID_LENGTH {
-        return Err(ApiError::bad_request(format!(
-            "device_id too long (max {} characters)",
-            MAX_DEVICE_ID_LENGTH
-        )));
-    }
-    Ok(())
-}
-
 fn validate_presence_status(presence: &str) -> Result<(), ApiError> {
     let valid_statuses = ["online", "offline", "unavailable"];
     if !valid_statuses.contains(&presence) {
@@ -1839,6 +1886,7 @@ async fn update_avatar(
     Ok(Json(json!({})))
 }
 
+#[allow(dead_code)]
 async fn change_password(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -1862,6 +1910,88 @@ async fn change_password(
         .await?;
 
     Ok(Json(json!({})))
+}
+
+async fn change_password_uia(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let new_password = body
+        .get("new_password")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("New password required".to_string()))?;
+
+    let auth = body.get("auth").cloned().unwrap_or(serde_json::json!({}));
+    let auth_type = auth.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+    if auth_type == "m.login.dummy" {
+        state
+            .services
+            .auth_service
+            .validator
+            .validate_password(new_password)?;
+
+        state
+            .services
+            .registration_service
+            .change_password(&auth_user.user_id, new_password)
+            .await?;
+
+        Ok(Json(json!({})))
+    } else if auth_type == "m.login.password" {
+        let password = auth
+            .get("password")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ApiError::bad_request("Password required for m.login.password".to_string()))?;
+
+        let user_identifier = auth.get("identifier").and_then(|i| i.get("user")).and_then(|u| u.as_str())
+            .or_else(|| auth.get("user").and_then(|u| u.as_str()));
+
+        if let Some(username) = user_identifier {
+            let user_id = if username.starts_with('@') {
+                username.to_string()
+            } else {
+                format!("@{}:{}", username, state.services.server_name)
+            };
+
+            if user_id != auth_user.user_id {
+                return Err(ApiError::forbidden("User mismatch".to_string()));
+            }
+
+            state.services.auth_service.validator.validate_password(new_password)?;
+
+            let user = state
+                .services
+                .user_storage
+                .get_user_by_id(&user_id)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get user: {}", e)))?
+                .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+
+            let password_hash = user.password_hash
+                .ok_or_else(|| ApiError::forbidden("User has no password set".to_string()))?;
+
+            let valid = crate::common::crypto::verify_password(password, &password_hash, false)
+                .map_err(|e| ApiError::internal(format!("Password verification failed: {}", e)))?;
+
+            if !valid {
+                return Err(ApiError::forbidden("Invalid password".to_string()));
+            }
+
+            state
+                .services
+                .registration_service
+                .change_password(&auth_user.user_id, new_password)
+                .await?;
+
+            Ok(Json(json!({})))
+        } else {
+            Err(ApiError::bad_request("User identifier required".to_string()))
+        }
+    } else {
+        Err(ApiError::unauthorized("Authentication required".to_string()))
+    }
 }
 
 async fn deactivate_account(
@@ -2484,13 +2614,43 @@ async fn leave_room(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-
     state
         .services
         .room_service
         .leave_room(&room_id, &auth_user.user_id)
         .await?;
     Ok(Json(json!({})))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpgradeRoomRequest {
+    new_version: String,
+}
+
+#[derive(Debug, Serialize)]
+struct UpgradeRoomResponse {
+    replacement_room: String,
+}
+
+/// Upgrade Room (MSC2174)
+/// POST /_matrix/client/v3/rooms/{room_id}/upgrade
+async fn upgrade_room(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Json(body): Json<UpgradeRoomRequest>,
+) -> Result<Json<UpgradeRoomResponse>, ApiError> {
+    validate_room_id(&room_id)?;
+    
+    let new_room_id = state
+        .services
+        .room_service
+        .upgrade_room(&room_id, &body.new_version, &auth_user.user_id)
+        .await?;
+    
+    Ok(Json(UpgradeRoomResponse {
+        replacement_room: new_room_id,
+    }))
 }
 
 async fn forget_room(
@@ -2506,6 +2666,87 @@ async fn forget_room(
         .forget_room(&room_id, &auth_user.user_id)
         .await?;
     Ok(Json(json!({})))
+}
+
+/// Room Initial Sync
+/// GET /_matrix/client/r0/rooms/{room_id}/initialSync
+/// GET /_matrix/client/v3/rooms/{room_id}/initialSync
+/// 
+/// Room Initial Sync
+/// GET /_matrix/client/r0/rooms/{room_id}/initialSync
+/// GET /_matrix/client/v3/rooms/{room_id}/initialSync
+/// 
+/// Returns initial sync data for a room including:
+/// - Room state events
+/// - Timeline messages  
+/// - Presence events
+/// - Member list
+/// - Account data
+async fn room_initial_sync(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+    
+    // 检查房间是否存在
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Room not found"))?;
+    
+    // 检查用户是否是房间成员
+    let member = state
+        .services
+        .member_storage
+        .get_member(&room_id, &auth_user.user_id)
+        .await?;
+    
+    if member.is_none() {
+        return Err(ApiError::forbidden("You are not a member of this room"));
+    }
+    
+    // 获取成员列表
+    let members = state
+        .services
+        .member_storage
+        .get_joined_members(&room_id)
+        .await
+        .unwrap_or_default();
+    
+    // 构建完整响应
+    let mut response = json!({
+        "room_id": room_id,
+        "messages": {
+            "chunk": [],
+            "start": "s",
+            "end": "e"
+        },
+        "state": [],
+        "presence": [],
+        "account_data": [],
+        "members": members,
+        "num_joined_members": members.len(),
+    });
+    
+    // 添加房间元数据
+    if let Some(name) = room.name {
+        response["name"] = serde_json::Value::String(name);
+    }
+    if let Some(topic) = room.topic {
+        response["topic"] = serde_json::Value::String(topic);
+    }
+    if let Some(avatar_url) = room.avatar_url {
+        response["avatar_url"] = serde_json::Value::String(avatar_url);
+    }
+    
+    // 添加创建信息
+    response["created_by"] = serde_json::Value::String(room.creator_user_id.unwrap_or_default());
+    response["created_ts"] = serde_json::Value::Number(serde_json::Number::from(room.created_ts));
+    
+    Ok(Json(response))
 }
 
 async fn get_room_members(
@@ -2794,13 +3035,33 @@ async fn create_room(
         ..Default::default()
     };
 
-    Ok(Json(
-        state
-            .services
-            .room_service
-            .create_room(&user_id, config)
-            .await?,
-    ))
+    let result = state
+        .services
+        .room_service
+        .create_room(&user_id, config)
+        .await?;
+
+    // Create room summary
+    let room_id = result.get("room_id").and_then(|r| r.as_str()).unwrap_or("");
+    if !room_id.is_empty() {
+        let _ = state.services.room_summary_storage.create_summary(
+            crate::storage::room_summary::CreateRoomSummaryRequest {
+                room_id: room_id.to_string(),
+                room_type: None,
+                name: name.map(|s| s.to_string()),
+                topic: topic.map(|s| s.to_string()),
+                avatar_url: None,
+                canonical_alias: None,
+                join_rules: None,
+                history_visibility: None,
+                guest_access: None,
+                is_direct: None,
+                is_space: None,
+            },
+        ).await;
+    }
+
+    Ok(Json(result))
 }
 
 #[axum::debug_handler]
@@ -3102,159 +3363,6 @@ async fn get_user_rooms(
     })))
 }
 
-async fn get_devices(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<Value>, ApiError> {
-    let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
-
-    let devices = state
-        .services
-        .device_storage
-        .get_user_devices(&user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get devices: {}", e)))?;
-
-    let device_list: Vec<Value> = devices
-        .iter()
-        .map(|d| {
-            json!({
-                "device_id": d.device_id,
-                "display_name": d.display_name,
-                "last_seen_ts": d.last_seen_ts.unwrap_or(0),
-                "user_id": d.user_id
-            })
-        })
-        .collect();
-
-    Ok(Json(json!({ "devices": device_list })))
-}
-
-async fn get_device(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Path(device_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let device = _state
-        .services
-        .device_storage
-        .get_device(&device_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get device: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Device not found".to_string()))?;
-
-    if device.user_id != _auth_user.user_id && !_auth_user.is_admin {
-        return Err(ApiError::forbidden("Access denied".to_string()));
-    }
-
-    Ok(Json(json!({
-        "device_id": device.device_id,
-        "display_name": device.display_name,
-        "last_seen_ts": device.last_seen_ts.unwrap_or(0),
-        "user_id": device.user_id
-    })))
-}
-
-async fn update_device(
-    State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Path(device_id): Path<String>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    validate_device_id(&device_id)?;
-
-    let display_name = body
-        .get("display_name")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Display name required".to_string()))?;
-
-    if display_name.len() > MAX_DISPLAY_NAME_LENGTH {
-        return Err(ApiError::bad_request(format!(
-            "Display name too long (max {} characters)",
-            MAX_DISPLAY_NAME_LENGTH
-        )));
-    }
-
-    let exists = state
-        .services
-        .device_storage
-        .device_exists(&device_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check device existence: {}", e)))?;
-
-    if !exists {
-        return Err(ApiError::not_found("Device not found".to_string()));
-    }
-
-    state
-        .services
-        .device_storage
-        .update_device_display_name(&device_id, display_name)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to update device: {}", e)))?;
-
-    Ok(Json(json!({})))
-}
-
-async fn delete_device(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Path(device_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    validate_device_id(&device_id)?;
-
-    let exists = _state
-        .services
-        .device_storage
-        .device_exists(&device_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check device existence: {}", e)))?;
-
-    if !exists {
-        return Err(ApiError::not_found("Device not found".to_string()));
-    }
-
-    _state
-        .services
-        .device_storage
-        .delete_device(&device_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete device: {}", e)))?;
-
-    Ok(Json(json!({})))
-}
-
-async fn delete_devices(
-    State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let devices = body
-        .get("devices")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| ApiError::bad_request("Devices array required".to_string()))?;
-
-    let device_ids: Vec<String> = devices
-        .iter()
-        .filter_map(|v| v.as_str())
-        .map(String::from)
-        .collect();
-
-    if device_ids.is_empty() {
-        return Ok(Json(json!({})));
-    }
-
-    state
-        .services
-        .device_storage
-        .delete_devices_batch(&device_ids)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete devices: {}", e)))?;
-
-    Ok(Json(json!({})))
-}
-
 async fn get_presence(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
@@ -3328,38 +3436,6 @@ async fn set_presence(
         .set_presence(&user_id, presence, status_msg)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to set presence: {}", e)))?;
-
-    Ok(Json(json!({})))
-}
-
-// ============================================================================
-// SECTION: Presence & Typing Indicators
-// ============================================================================
-
-async fn set_typing(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path((room_id, user_id)): Path<(String, String)>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    validate_user_id(&user_id)?;
-
-    if auth_user.user_id != user_id && !auth_user.is_admin {
-        return Err(ApiError::forbidden("Access denied".to_string()));
-    }
-
-    let typing = body
-        .get("typing")
-        .and_then(|v| v.as_bool())
-        .ok_or_else(|| ApiError::bad_request("Typing flag required".to_string()))?;
-
-    state
-        .services
-        .presence_storage
-        .set_typing(&room_id, &user_id, typing)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to set typing: {}", e)))?;
 
     Ok(Json(json!({})))
 }
@@ -3572,16 +3648,26 @@ async fn get_state_event(
 
     let event = events
         .iter()
-        .find(|e| e.state_key == Some(state_key.clone()))
+        .find(|e| {
+            e.state_key.as_deref() == Some(state_key.as_str()) ||
+            (e.state_key.as_ref().map(|s| s.is_empty()) == Some(true) && state_key.is_empty())
+        })
         .ok_or_else(|| ApiError::not_found("State event not found".to_string()))?;
 
-    Ok(Json(json!({
+    let mut response = json!({
         "type": event.event_type,
         "event_id": event.event_id,
-        "sender": event.user_id,
-        "content": event.content,
+        "sender": event.sender,
         "state_key": event.state_key
-    })))
+    });
+
+    if let Some(content) = event.content.as_object() {
+        for (k, v) in content {
+            response[k] = v.clone();
+        }
+    }
+
+    Ok(Json(response))
 }
 
 async fn send_state_event(
@@ -3656,6 +3742,91 @@ async fn put_state_event(
                 event_type: final_event_type.clone(),
                 content: body,
                 state_key: Some(state_key),
+                origin_server_ts: now,
+            },
+            None,
+        )
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to put state event: {}", e)))?;
+
+    Ok(Json(json!({
+        "event_id": new_event_id,
+        "type": event.event_type,
+        "state_key": event.state_key
+    })))
+}
+
+async fn get_state_event_empty_key(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path((room_id, event_type)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
+        event_type.clone()
+    } else {
+        format!("m.room.{}", event_type)
+    };
+
+    let events = state
+        .services
+        .event_storage
+        .get_state_events_by_type(&room_id, &final_event_type)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+
+    let event = events
+        .iter()
+        .find(|e| {
+            e.state_key.as_ref().map(|s| s.is_empty()) == Some(true)
+        })
+        .ok_or_else(|| ApiError::not_found("State event not found".to_string()))?;
+
+    let mut response = json!({
+        "type": event.event_type,
+        "event_id": event.event_id,
+        "sender": event.sender,
+        "state_key": event.state_key
+    });
+
+    if let Some(content) = event.content.as_object() {
+        for (k, v) in content {
+            response[k] = v.clone();
+        }
+    }
+
+    Ok(Json(response))
+}
+
+async fn put_state_event_empty_key(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, event_type)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
+    let now = chrono::Utc::now().timestamp_millis();
+
+    let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
+        event_type.clone()
+    } else {
+        format!("m.room.{}", event_type)
+    };
+
+    let event = state
+        .services
+        .event_storage
+        .create_event(
+            CreateEventParams {
+                event_id: new_event_id.clone(),
+                room_id: room_id.clone(),
+                user_id: auth_user.user_id.clone(),
+                event_type: final_event_type.clone(),
+                content: body,
+                state_key: Some("".to_string()),
                 origin_server_ts: now,
             },
             None,
