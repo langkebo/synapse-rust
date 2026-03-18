@@ -66,12 +66,25 @@ impl DatabaseMaintenance {
         for table in tables {
             let start = Instant::now();
 
-            sqlx::query(&format!("VACUUM ANALYZE {}", table))
+            match sqlx::query(&format!("VACUUM ANALYZE {}", table))
                 .execute(&self.pool)
-                .await?;
-
-            result.tables_processed.push(table.to_string());
-            result.execution_time_ms += start.elapsed().as_millis() as i64;
+                .await
+            {
+                Ok(_) => {
+                    result.tables_processed.push(table.to_string());
+                    result.execution_time_ms += start.elapsed().as_millis() as i64;
+                }
+                Err(e) => {
+                    let err_str = e.to_string();
+                    if err_str.contains("VACUUM cannot run inside a transaction block") {
+                        debug!("VACUUM {} 跳过: 需要独立连接", table);
+                        let _ = sqlx::query("ROLLBACK").execute(&self.pool).await;
+                        let _ = sqlx::query("SELECT 1").execute(&self.pool).await;
+                    } else {
+                        warn!("VACUUM {} 失败: {}", table, e);
+                    }
+                }
+            }
         }
 
         Ok(result)

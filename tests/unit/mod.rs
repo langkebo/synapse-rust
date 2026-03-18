@@ -30,3 +30,7 @@ mod reactions_api_tests;
 mod sliding_sync_api_tests;
 mod telemetry_api_tests;
 mod msc_tests;
+
+mod directory_service_tests;
+mod dm_service_tests;
+mod typing_service_tests;

@@ -49,6 +49,32 @@ impl DeviceStorage {
         .await
     }
 
+    /// Creates a new device in the database within a transaction.
+    pub async fn create_device_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        device_id: &str,
+        user_id: &str,
+        display_name: Option<&str>,
+    ) -> Result<Device, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query_as::<_, Device>(
+            r#"
+            INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
+            "#,
+        )
+        .bind(device_id)
+        .bind(user_id)
+        .bind(display_name)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .fetch_one(&mut **tx)
+        .await
+    }
+
     pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
         sqlx::query_as::<_, Device>(
             r#"
@@ -105,27 +131,51 @@ impl DeviceStorage {
     }
 
     pub async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             DELETE FROM devices WHERE device_id = $1
             "#,
         )
         .bind(device_id)
         .execute(&*self.pool)
-        .await?;
-        Ok(())
+        .await;
+        
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("current transaction is aborted") {
+                    tracing::warn!("Connection in aborted transaction state in delete_device, attempting reset");
+                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
+                }
+                Err(e)
+            }
+        }
     }
 
     pub async fn delete_user_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             DELETE FROM devices WHERE user_id = $1
             "#,
         )
         .bind(user_id)
         .execute(&*self.pool)
-        .await?;
-        Ok(())
+        .await;
+        
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("current transaction is aborted") {
+                    tracing::warn!("Connection in aborted transaction state in delete_user_devices, attempting reset");
+                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
+                }
+                Err(e)
+            }
+        }
     }
 
     pub async fn delete_devices_batch(&self, device_ids: &[String]) -> Result<u64, sqlx::Error> {

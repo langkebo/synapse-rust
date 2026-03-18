@@ -141,11 +141,21 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal(format!("Hashing task panicked: {}", e)))??;
 
-        let user = self
+        // Use a transaction to ensure user and device are created atomically
+        let mut tx = self.user_storage.pool.begin().await
+            .map_err(|e| ApiError::internal(format!("Failed to start transaction: {}", e)))?;
+
+        let user = match self
             .user_storage
-            .create_user(&user_id, username, Some(&password_hash), admin)
+            .create_user_tx(&mut tx, &user_id, username, Some(&password_hash), admin)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create user: {}", e)))?;
+        {
+            Ok(u) => u,
+            Err(e) => {
+                let _ = tx.rollback().await;
+                return Err(ApiError::internal(format!("Failed to create user: {}", e)));
+            }
+        };
 
         ::tracing::info!(
             target: "security_audit",
@@ -155,10 +165,18 @@ impl AuthService {
         );
 
         let device_id = generate_token(16);
-        self.device_storage
-            .create_device(&device_id, &user_id, None)
+        if let Err(e) = self
+            .device_storage
+            .create_device_tx(&mut tx, &device_id, &user_id, None)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
+        {
+            let _ = tx.rollback().await;
+            return Err(ApiError::internal(format!("Failed to create device: {}", e)));
+        }
+
+        if let Err(e) = tx.commit().await {
+            return Err(ApiError::internal(format!("Failed to commit transaction: {}", e)));
+        }
 
         let access_token = self
             .generate_access_token(&user_id, &device_id, user.is_admin)
@@ -426,15 +444,42 @@ impl AuthService {
     }
 
     pub async fn logout_all(&self, user_id: &str) -> ApiResult<()> {
+        // Get all user tokens first
+        let tokens = self
+            .token_storage
+            .get_user_tokens(user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get user tokens: {}", e)))?;
+
+        // Add all tokens to blacklist
+        for token in &tokens {
+            if let Err(e) = self
+                .token_storage
+                .add_to_blacklist(&token.token, user_id, Some("Logout all devices"))
+                .await
+            {
+                ::tracing::warn!("Failed to add token to blacklist during logout_all: {}", e);
+            }
+            // Invalidate token cache
+            self.cache.delete_token(&token.token).await;
+        }
+
+        // Delete tokens from database
         self.token_storage
             .delete_user_tokens(user_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to delete tokens: {}", e)))?;
 
+        // Delete user devices
         self.device_storage
             .delete_user_devices(user_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to delete devices: {}", e)))?;
+
+        // Mark user as fully logged out - this will invalidate all cached JWT tokens
+        // by setting a special flag that validate_token will check
+        let logout_marker = format!("user:logout_all:{}", user_id);
+        self.cache.set_raw(&logout_marker, "true", 3600).await;
 
         Ok(())
     }
@@ -519,15 +564,28 @@ impl AuthService {
             return Err(ApiError::unauthorized("Token has been revoked".to_string()));
         }
 
-        let cached_token = self.cache.get_token(token).await;
-        if let Some(claims) = cached_token {
-            ::tracing::debug!(target: "token_validation", "Found cached token for user: {}", 
-                claims.sub);
+        // Decode token first to get user_id for logout_all check
+        let claims = self.decode_token(token).map_err(|e| {
+            ::tracing::debug!(target: "token_validation", "Invalid token: {}", e);
+            ApiError::unauthorized(format!("Invalid token: {}", e))
+        })?;
 
-            if let Some(active) = self.cache.is_user_active(&claims.sub).await {
+        // Check if user has been logged out from all devices
+        let logout_marker = format!("user:logout_all:{}", claims.sub);
+        if self.cache.get_raw(&logout_marker).is_some() {
+            ::tracing::debug!(target: "token_validation", "User has been logged out from all devices");
+            return Err(ApiError::unauthorized("Token has been revoked".to_string()));
+        }
+
+        let cached_token = self.cache.get_token(token).await;
+        if let Some(cached_claims) = cached_token {
+            ::tracing::debug!(target: "token_validation", "Found cached token for user: {}", 
+                cached_claims.sub);
+
+            if let Some(active) = self.cache.is_user_active(&cached_claims.sub).await {
                 ::tracing::debug!(target: "token_validation", "Cache hit for user active: {:?}", active);
                 return if active {
-                    Ok((claims.user_id, claims.device_id.clone(), claims.admin))
+                    Ok((cached_claims.user_id, cached_claims.device_id.clone(), cached_claims.admin))
                 } else {
                     Err(ApiError::unauthorized(
                         "User not found or deactivated".to_string(),
@@ -539,7 +597,7 @@ impl AuthService {
 
             let user = self
                 .user_storage
-                .get_user_by_id(&claims.sub)
+                .get_user_by_id(&cached_claims.sub)
                 .await
                 .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
@@ -547,26 +605,21 @@ impl AuthService {
                 let is_active = !u.is_deactivated;
                 ::tracing::debug!(target: "token_validation", "User found, is_deactivated: {:?}, is_active: {}", u.is_deactivated, is_active);
 
-                self.cache.set_user_active(&claims.sub, is_active, 60).await;
+                self.cache.set_user_active(&cached_claims.sub, is_active, 60).await;
 
                 if is_active {
-                    Ok((claims.user_id, claims.device_id.clone(), claims.admin))
+                    Ok((cached_claims.user_id, cached_claims.device_id.clone(), cached_claims.admin))
                 } else {
                     Err(ApiError::unauthorized("User is deactivated".to_string()))
                 }
             } else {
                 ::tracing::debug!(target: "token_validation", "User not found in database");
-                self.cache.set_user_active(&claims.sub, false, 60).await;
+                self.cache.set_user_active(&cached_claims.sub, false, 60).await;
                 Err(ApiError::unauthorized("User not found".to_string()))
             };
         }
 
-        ::tracing::debug!(target: "token_validation", "Token not found in cache, decoding from JWT");
-
-        let claims = self.decode_token(token).map_err(|e| {
-            ::tracing::debug!(target: "token_validation", "Invalid token: {}", e);
-            ApiError::unauthorized(format!("Invalid token: {}", e))
-        })?;
+        ::tracing::debug!(target: "token_validation", "Token not found in cache, using decoded JWT");
 
         if claims.exp < Utc::now().timestamp() {
             ::tracing::debug!(target: "token_validation", "Token expired");

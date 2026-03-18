@@ -38,7 +38,7 @@ pub struct MegolmSession {
     pub algorithm: String,
     pub message_index: i64,
     pub created_ts: i64,
-    pub last_used_at: Option<i64>,
+    pub last_used_ts: Option<i64>,
     pub expires_at: Option<i64>,
 }
 
@@ -141,7 +141,7 @@ mod tests {
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
             created_ts: 1234567890000,
-            last_used_at: Some(1234567900000),
+            last_used_ts: Some(1234567900000),
             expires_at: Some(1234653490000),
         };
 

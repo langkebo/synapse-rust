@@ -406,11 +406,22 @@ impl DatabaseInitService {
                         let err_str = e.to_string();
                         if err_str.contains("already exists")
                             || err_str.contains("duplicate key value")
+                            || err_str.contains("multiple primary keys")
+                            || err_str.contains("relation already exists")
                         {
+                            debug!("迁移 {} 跳过已存在对象: {}", filename, err_str);
+                            // Reset connection state after constraint violation
+                            let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                            let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
                         } else {
                             let preview: String = trimmed.chars().take(100).collect();
-                            warn!("迁移 {} 语句执行警告: {} - {}", filename, preview, e);
+                            warn!("迁移 {} 语句执行失败: {} - {}", filename, preview, e);
                             file_success = false;
+                            
+                            // Reset the connection state by executing ROLLBACK and then a simple query
+                            let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                            let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
+                            break;
                         }
                     }
                 }
@@ -620,8 +631,8 @@ impl DatabaseInitService {
                 key_json JSONB NOT NULL DEFAULT '{}',
                 ts_added_ms BIGINT NOT NULL,
                 ts_last_accessed BIGINT NOT NULL,
-                verified BOOLEAN DEFAULT FALSE,
-                blocked BOOLEAN DEFAULT FALSE,
+                is_verified BOOLEAN DEFAULT FALSE,
+                is_blocked BOOLEAN DEFAULT FALSE,
                 UNIQUE (user_id, device_id, key_id),
                 FOREIGN KEY (device_id, user_id) REFERENCES devices(device_id, user_id) ON DELETE CASCADE
             )
@@ -656,7 +667,7 @@ impl DatabaseInitService {
 
         sqlx::query(
             r#"
-            CREATE INDEX IF NOT EXISTS idx_device_keys_verified ON device_keys(verified) WHERE verified = TRUE
+            CREATE INDEX IF NOT EXISTS idx_device_keys_verified ON device_keys(is_verified) WHERE is_verified = TRUE
             "#,
         )
         .execute(&*self.pool)

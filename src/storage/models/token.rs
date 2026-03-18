@@ -25,7 +25,7 @@ pub struct RefreshToken {
     pub scope: Option<String>,
     pub created_ts: i64,
     pub expires_at: Option<i64>,
-    pub last_used_at: Option<i64>,
+    pub last_used_ts: Option<i64>,
     pub use_count: i32,
     pub is_revoked: bool,
     pub revoked_at: Option<i64>,
@@ -65,10 +65,10 @@ pub struct RefreshTokenFamily {
     pub user_id: String,
     pub device_id: Option<String>,
     pub created_ts: i64,
-    pub last_refresh_at: Option<i64>,
+    pub last_refresh_ts: Option<i64>,
     pub refresh_count: i32,
     pub is_compromised: bool,
-    pub compromised_at: Option<i64>,
+    pub compromised_ts: Option<i64>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -133,7 +133,7 @@ mod tests {
             scope: Some("read write".to_string()),
             created_ts: 1234567890000,
             expires_at: Some(1234567890000 + 86400000),
-            last_used_at: None,
+            last_used_ts: None,
             use_count: 0,
             is_revoked: false,
             revoked_at: None,
@@ -189,10 +189,10 @@ mod tests {
             user_id: "@alice:example.com".to_string(),
             device_id: Some("DEVICE123".to_string()),
             created_ts: 1234567890000,
-            last_refresh_at: Some(1234567895000),
+            last_refresh_ts: Some(1234567895000),
             refresh_count: 5,
             is_compromised: false,
-            compromised_at: None,
+            compromised_ts: None,
         };
 
         assert_eq!(family.family_id, "family_abc123");

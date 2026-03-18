@@ -1,219 +1,275 @@
 #!/bin/bash
 # ============================================================================
-# Synapse Rust Docker Entrypoint Script
-# ============================================================================
-# 功能:
-#   1. 等待数据库就绪
-#   2. 执行数据库迁移
-#   3. 启动主应用
-#
-# 环境变量:
-#   DATABASE_URL      - 数据库连接字符串
-#   RUN_MIGRATIONS    - 是否执行迁移 (默认: true)
-#   MIGRATION_TIMEOUT - 迁移超时时间(秒) (默认: 300)
+# synapse-rust 容器入口脚本
+# 版本: 1.1.0
+# 描述: 容器启动时自动执行数据库迁移和健康检查
 # ============================================================================
 
-set -e
+set -euo pipefail
+
+# 配置
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="/app"
+MIGRATIONS_DIR="$PROJECT_ROOT/migrations"
+LOG_DIR="$PROJECT_ROOT/logs"
+HEALTHCHECK_ENDPOINT="${HEALTHCHECK_ENDPOINT:-http://localhost:8008/_matrix/federation/v1/version}"
 
 # 颜色输出
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+CYAN='\033[0;36m'
+NC='\033[0m'
 
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+    echo -e "${BLUE}[INFO]${NC} $*"
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+    echo -e "${GREEN}[SUCCESS]${NC} $*"
 }
 
 log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+    echo -e "${YELLOW}[WARNING]${NC} $*"
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+    echo -e "${RED}[ERROR]${NC} $*" >&2
 }
 
-# 解析数据库连接信息
-parse_database_url() {
-    if [ -z "$DATABASE_URL" ]; then
-        log_error "DATABASE_URL is not set"
-        exit 1
+log_debug() {
+    if [ "${RUST_LOG:-info}" = "debug" ]; then
+        echo -e "${CYAN}[DEBUG]${NC} $*"
     fi
-
-    DB_HOST=$(echo "$DATABASE_URL" | sed -n 's/.*@\([^:]*\):.*/\1/p')
-    DB_PORT=$(echo "$DATABASE_URL" | sed -n 's/.*:\([0-9]*\)\/.*/\1/p')
-    DB_NAME=$(echo "$DATABASE_URL" | sed -n 's/.*\/\([^?]*\).*/\1/p')
-    DB_USER=$(echo "$DATABASE_URL" | sed -n 's/.*\/\/\([^:]*\):.*/\1/p')
-
-    log_info "Database: ${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
 }
 
 # 等待数据库就绪
-wait_for_database() {
-    local max_attempts=${DB_WAIT_ATTEMPTS:-30}
-    local wait_interval=${DB_WAIT_INTERVAL:-2}
-    local attempt=1
-
-    log_info "Waiting for database to be ready..."
-
-    while [ $attempt -le $max_attempts ]; do
-        if pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" > /dev/null 2>&1; then
-            log_success "Database is ready!"
+wait_for_db() {
+    local max_attempts="${DB_WAIT_ATTEMPTS:-30}"
+    local attempt=0
+    local wait_interval="${DB_WAIT_INTERVAL:-2}"
+    
+    log_info "等待数据库就绪..."
+    
+    while [ $attempt -lt $max_attempts ]; do
+        # 每次尝试前清理连接状态
+        psql "$DATABASE_URL" -c "ABORT;" >/dev/null 2>&1 || true
+        
+        if psql "$DATABASE_URL" -c "SELECT 1" > /dev/null 2>&1; then
+            log_success "数据库连接成功"
             return 0
         fi
-
-        log_info "Attempt $attempt/$max_attempts: Database not ready yet, waiting ${wait_interval}s..."
-        sleep $wait_interval
+        
         attempt=$((attempt + 1))
+        log_info "等待数据库... ($attempt/$max_attempts)"
+        sleep $wait_interval
     done
-
-    log_error "Database connection timeout after $max_attempts attempts"
-    exit 1
+    
+    log_error "数据库连接超时"
+    return 1
 }
 
-# 执行数据库迁移
+# 等待 Redis 就绪
+wait_for_redis() {
+    if [ "${REDIS_ENABLED:-true}" != "true" ]; then
+        log_info "Redis 已禁用，跳过"
+        return 0
+    fi
+    
+    local max_attempts="${REDIS_WAIT_ATTEMPTS:-30}"
+    local attempt=0
+    
+    log_info "等待 Redis 就绪..."
+    
+    while [ $attempt -lt $max_attempts ]; do
+        if redis-cli -u "$REDIS_URL" ping > /dev/null 2>&1; then
+            log_success "Redis 连接成功"
+            return 0
+        fi
+        
+        attempt=$((attempt + 1))
+        log_info "等待 Redis... ($attempt/$max_attempts)"
+        sleep 2
+    done
+    
+    log_warning "Redis 连接超时，继续启动..."
+    return 0
+}
+
+# 执行迁移
 run_migrations() {
     if [ "${RUN_MIGRATIONS:-true}" != "true" ]; then
-        log_info "Skipping migrations (RUN_MIGRATIONS=false)"
+        log_info "跳过数据库迁移 (RUN_MIGRATIONS=false)"
         return 0
     fi
-
-    log_info "Starting database migrations..."
-
-    local migration_dir="/app/migrations"
-    local migration_log="/app/logs/migrations.log"
-
-    mkdir -p "$(dirname "$migration_log")"
-
-    if [ ! -d "$migration_dir" ]; then
-        log_warning "Migration directory not found: $migration_dir"
-        return 0
-    fi
-
-    if [ ! -f "/app/scripts/run-migrations.sh" ]; then
-        log_warning "Migration script not found: /app/scripts/run-migrations.sh"
-        return 0
-    fi
-
-    chmod +x /app/scripts/run-migrations.sh
-
-    local timeout=${MIGRATION_TIMEOUT:-300}
-    log_info "Executing migrations with timeout ${timeout}s..."
-
-    if timeout "$timeout" /app/scripts/run-migrations.sh 2>&1 | tee -a "$migration_log"; then
-        log_success "Database migrations completed successfully"
-    else
-        local exit_code=$?
-        if [ $exit_code -eq 124 ]; then
-            log_error "Migration timeout after ${timeout}s"
+    
+    log_info "开始执行数据库迁移..."
+    
+    mkdir -p "$LOG_DIR"
+    local log_file="$LOG_DIR/migration_$(date +%Y%m%d_%H%M%S).log"
+    
+    # 确保数据库连接处于干净状态
+    log_debug "确保数据库连接处于干净状态..."
+    psql "$DATABASE_URL" -c "ABORT;" >/dev/null 2>&1 || true
+    
+    # 使用 db_migrate.sh 执行迁移
+    if [ -f "$PROJECT_ROOT/scripts/db_migrate.sh" ]; then
+        log_info "使用迁移脚本执行..."
+        
+        # 设置单独的环境变量，避免 set -e 影响
+        set +e
+        bash "$PROJECT_ROOT/scripts/db_migrate.sh" migrate 2>&1 | tee "$log_file"
+        local exit_code=${PIPESTATUS[0]}
+        set -e
+        
+        if [ $exit_code -eq 0 ]; then
+            log_success "迁移执行成功"
+            return 0
         else
-            log_error "Migration failed with exit code: $exit_code"
+            log_error "迁移执行失败 (exit code: $exit_code)"
+            
+            # 尝试恢复连接状态
+            log_info "尝试恢复数据库连接状态..."
+            psql "$DATABASE_URL" -c "ABORT;" >/dev/null 2>&1 || true
+            
+            if [ "${STOP_ON_MIGRATION_FAILURE:-true}" = "true" ]; then
+                log_error "迁移失败，退出"
+                exit 1
+            else
+                log_warning "迁移失败，但继续启动 (STOP_ON_MIGRATION_FAILURE=false)"
+                return 0
+            fi
         fi
-        return $exit_code
+    else
+        log_warning "迁移脚本不存在，跳过迁移"
+        return 0
     fi
 }
 
-# 验证数据库架构
-verify_schema() {
+# 验证迁移
+verify_migrations() {
     if [ "${VERIFY_SCHEMA:-true}" != "true" ]; then
-        log_info "Skipping schema verification (VERIFY_SCHEMA=false)"
+        log_info "跳过架构验证 (VERIFY_SCHEMA=false)"
         return 0
     fi
-
-    log_info "Verifying database schema..."
-
-    if [ ! -f "/app/scripts/verify-schema.sh" ]; then
-        log_warning "Schema verification script not found"
-        return 0
-    fi
-
-    chmod +x /app/scripts/verify-schema.sh
-
-    if /app/scripts/verify-schema.sh; then
-        log_success "Database schema verification passed"
-    else
-        log_warning "Database schema verification reported issues (non-fatal)"
-    fi
-}
-
-# 生成密钥（如果需要）
-generate_keys_if_needed() {
-    local keys_dir="/app/data/keys"
-
-    if [ ! -d "$keys_dir" ]; then
-        mkdir -p "$keys_dir"
-        chmod 700 "$keys_dir"
-    fi
-
-    if [ ! -f "$keys_dir/signing.key" ]; then
-        log_info "Generating federation signing key..."
-        if command -v generate_test_keypair &> /dev/null; then
-            generate_test_keypair > "$keys_dir/signing.key"
-            chmod 600 "$keys_dir/signing.key"
-            log_success "Federation signing key generated"
+    
+    log_info "验证数据库架构..."
+    
+    # 简单验证 - 检查必要表是否存在
+    local required_tables=(
+        "users"
+        "devices"
+        "rooms"
+        "events"
+        "schema_migrations"
+    )
+    
+    for table in "${required_tables[@]}"; do
+        local exists=$(psql "$DATABASE_URL" -t -c "
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' AND table_name = '$table'
+            )
+        " 2>/dev/null | tr -d ' ')
+        
+        if [ "$exists" = "t" ]; then
+            log_debug "表验证通过: $table"
         else
-            log_warning "generate_test_keypair not found, skipping key generation"
+            log_error "表验证失败: $table"
+            return 1
         fi
-    fi
+    done
+    
+    log_success "架构验证通过"
+    return 0
 }
 
-# 验证配置
-validate_config() {
-    log_info "Validating configuration..."
+# 健康检查
+healthcheck_db() {
+    if ! psql "$DATABASE_URL" -c "SELECT 1" > /dev/null 2>&1; then
+        log_error "数据库健康检查失败"
+        return 1
+    fi
+    return 0
+}
 
-    if [ -z "$SERVER_NAME" ]; then
-        log_error "SERVER_NAME is not set"
+healthcheck_redis() {
+    if [ "${REDIS_ENABLED:-true}" != "true" ]; then
+        return 0
+    fi
+    
+    if ! redis-cli -u "$REDIS_URL" ping > /dev/null 2>&1; then
+        log_error "Redis 健康检查失败"
+        return 1
+    fi
+    return 0
+}
+
+# 启动应用
+start_application() {
+    log_info "=========================================="
+    log_info "synapse-rust 容器启动"
+    log_info "版本: $(date '+%Y-%m-%d %H:%M:%S')"
+    log_info "=========================================="
+    
+    # 设置配置文件路径
+    export SYNAPSE_CONFIG_PATH="${SYNAPSE_CONFIG_PATH:-/app/config/homeserver.yaml}"
+    
+    # 如果配置文件存在，复制到工作目录
+    if [ -f "$SYNAPSE_CONFIG_PATH" ]; then
+        log_info "使用配置文件: $SYNAPSE_CONFIG_PATH"
+    else
+        log_error "配置文件不存在: $SYNAPSE_CONFIG_PATH"
         exit 1
     fi
-
-    if [ ! -f "$SYNAPSE_CONFIG_PATH" ]; then
-        log_warning "Config file not found: $SYNAPSE_CONFIG_PATH"
+    
+    # 执行传入的命令或默认启动命令
+    if [ $# -gt 0 ]; then
+        log_info "执行命令: $*"
+        exec "$@"
+    else
+        log_info "启动应用: /app/synapse-rust"
+        exec /app/synapse-rust
     fi
-
-    log_success "Configuration validated"
-}
-
-# 显示启动信息
-print_startup_info() {
-    echo ""
-    echo "========================================"
-    echo "  Synapse Rust Matrix Homeserver"
-    echo "========================================"
-    echo "  Server Name:  ${SERVER_NAME}"
-    echo "  Database:     ${DB_HOST}:${DB_PORT}/${DB_NAME}"
-    echo "  Config:       ${SYNAPSE_CONFIG_PATH}"
-    echo "  Log Level:    ${RUST_LOG:-info}"
-    echo "  Timezone:     ${TZ:-UTC}"
-    echo "========================================"
-    echo ""
 }
 
 # 主函数
 main() {
-    log_info "Starting Synapse Rust entrypoint..."
-
-    parse_database_url
-
-    wait_for_database
-
-    run_migrations
-
-    verify_schema
-
-    generate_keys_if_needed
-
-    validate_config
-
-    print_startup_info
-
-    log_info "Starting Synapse Rust application..."
-
-    exec "$@"
+    log_info "=========================================="
+    log_info "synapse-rust 容器初始化"
+    log_info "=========================================="
+    
+    # 等待数据库
+    if ! wait_for_db; then
+        log_error "数据库连接失败，退出"
+        exit 1
+    fi
+    
+    # 等待 Redis (跳过检查)
+    log_warning "Redis 检查已跳过"
+    # if ! wait_for_redis; then
+    #     log_warning "Redis 连接失败，继续启动..."
+    # fi
+    
+    # 执行迁移（如果启用）
+    if ! run_migrations; then
+        log_error "迁移失败，退出"
+        exit 1
+    fi
+    
+    # 验证迁移
+    if ! verify_migrations; then
+        log_error "迁移验证失败，退出"
+        exit 1
+    fi
+    
+    log_info "=========================================="
+    log_info "启动应用服务"
+    log_info "=========================================="
+    
+    # 启动应用
+    start_application "$@"
 }
 
 main "$@"

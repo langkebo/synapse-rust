@@ -9,14 +9,11 @@ CREATE TABLE IF NOT EXISTS qr_login_transactions (
     user_id TEXT NOT NULL,
     device_id TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
-    -- Status: pending, confirmed, expired, failed
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT,
+    created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+    updated_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
     expires_at BIGINT NOT NULL,
     completed_at BIGINT,
-    access_token TEXT,
-    created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
-    updated_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+    access_token TEXT
 );
 
 -- Index for looking up transactions

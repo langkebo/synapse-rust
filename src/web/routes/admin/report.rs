@@ -37,8 +37,8 @@ pub async fn get_all_reports(
     let reports = sqlx::query(
         "SELECT id, room_id, event_id, user_id, reason, content, received_ts FROM event_reports ORDER BY received_ts DESC LIMIT $1 OFFSET $2"
     )
-    .bind(limit as i64)
-    .bind(offset as i64)
+    .bind(limit)
+    .bind(offset)
     .fetch_all(&*state.services.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;

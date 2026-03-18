@@ -110,7 +110,24 @@ impl<'a> ManagedTransaction<'a> {
 impl<'a> Drop for ManagedTransaction<'a> {
     fn drop(&mut self) {
         if self.transaction.is_some() && !self.committed && !self.rolled_back {
-            tracing::warn!("Transaction was dropped without explicit commit or rollback");
+            tracing::warn!("Transaction was dropped without explicit commit or rollback, attempting automatic rollback");
+            
+            if let Some(tx) = self.transaction.take() {
+                #[cfg(feature = "server")]
+                {
+                    let _ = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            tx.rollback().await
+                        })
+                    });
+                }
+                #[cfg(not(feature = "server"))]
+                {
+                    let _ = tx;
+                    tracing::error!("Cannot rollback transaction in drop without server feature");
+                }
+            }
+            self.rolled_back = true;
         }
     }
 }
