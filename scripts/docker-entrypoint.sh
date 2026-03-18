@@ -45,6 +45,9 @@ wait_for_db() {
     log_info "等待数据库就绪..."
     
     while [ $attempt -lt $max_attempts ]; do
+        # 每次尝试前先清理连接状态
+        psql "$DATABASE_URL" -c "ABORT;" >/dev/null 2>&1 || true
+        
         if psql "$DATABASE_URL" -c "SELECT 1" > /dev/null 2>&1; then
             log_success "数据库连接成功"
             return 0
@@ -66,17 +69,33 @@ run_migrations() {
     mkdir -p "$LOG_DIR"
     local log_file="$LOG_DIR/migration_$(date +%Y%m%d_%H%M%S).log"
     
+    # 首先确保数据库连接处于干净状态
+    log_info "确保数据库连接处于干净状态..."
+    psql "$DATABASE_URL" -c "ABORT;" >/dev/null 2>&1 || true
+    
     # 使用 db_migrate.sh 执行迁移
     if [ -f "$PROJECT_ROOT/scripts/db_migrate.sh" ]; then
         log_info "使用迁移脚本执行..."
+        
+        # 设置单独的环境变量，避免 set -e 影响
+        set +e
         bash "$PROJECT_ROOT/scripts/db_migrate.sh" migrate 2>&1 | tee "$log_file"
         local exit_code=${PIPESTATUS[0]}
+        set -e
         
         if [ $exit_code -eq 0 ]; then
             log_success "迁移执行成功"
             return 0
         else
-            log_error "迁移执行失败"
+            log_error "迁移执行失败 (exit code: $exit_code)"
+            
+            # 尝试恢复连接状态
+            log_info "尝试恢复数据库连接状态..."
+            psql "$DATABASE_URL" -c "ABORT;" >/dev/null 2>&1 || true
+            
+            # 等待一小段时间让连接恢复
+            sleep 1
+            
             return 1
         fi
     else
@@ -87,10 +106,14 @@ run_migrations() {
             local filename=$(basename "$file")
             log_info "执行: $filename"
             
-            if psql "$DATABASE_URL" -f "$file" >> "$log_file" 2>&1; then
+            # 每个文件使用 ON_ERROR_ROLLBACK=on
+            if psql "$DATABASE_URL" --set ON_ERROR_ROLLBACK=on -f "$file" >> "$log_file" 2>&1; then
                 log_success "完成: $filename"
             else
                 log_error "失败: $filename"
+                
+                # 恢复连接状态
+                psql "$DATABASE_URL" -c "ABORT;" >/dev/null 2>&1 || true
                 return 1
             fi
         done

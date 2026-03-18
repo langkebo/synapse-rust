@@ -74,7 +74,7 @@ pub fn parse_saml_response(xml: &str) -> Result<SamlAssertionData, XmlParseError
                 } else if in_attr_value && !current_attr_name.is_empty() {
                     attributes
                         .entry(current_attr_name.clone())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(text);
                 }
             }

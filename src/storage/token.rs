@@ -88,7 +88,7 @@ impl AccessTokenStorage {
 
     pub async fn delete_token(&self, token: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             UPDATE access_tokens SET is_revoked = TRUE, revoked_at = $2 WHERE token = $1
             "#,
@@ -96,13 +96,25 @@ impl AccessTokenStorage {
         .bind(token)
         .bind(now)
         .execute(&*self.pool)
-        .await?;
-        Ok(())
+        .await;
+        
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("current transaction is aborted") {
+                    tracing::warn!("Connection in aborted transaction state in delete_token, attempting reset");
+                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
+                }
+                Err(e)
+            }
+        }
     }
 
     pub async fn delete_user_tokens(&self, user_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             UPDATE access_tokens SET is_revoked = TRUE, revoked_at = $2 WHERE user_id = $1 AND is_revoked = FALSE
             "#,
@@ -110,13 +122,25 @@ impl AccessTokenStorage {
         .bind(user_id)
         .bind(now)
         .execute(&*self.pool)
-        .await?;
-        Ok(())
+        .await;
+        
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("current transaction is aborted") {
+                    tracing::warn!("Connection in aborted transaction state in delete_user_tokens, attempting reset");
+                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
+                }
+                Err(e)
+            }
+        }
     }
 
     pub async fn delete_device_tokens(&self, device_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             UPDATE access_tokens SET is_revoked = TRUE, revoked_at = $2 WHERE device_id = $1 AND is_revoked = FALSE
             "#,
@@ -124,8 +148,20 @@ impl AccessTokenStorage {
         .bind(device_id)
         .bind(now)
         .execute(&*self.pool)
-        .await?;
-        Ok(())
+        .await;
+        
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("current transaction is aborted") {
+                    tracing::warn!("Connection in aborted transaction state in delete_device_tokens, attempting reset");
+                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
+                }
+                Err(e)
+            }
+        }
     }
 
     pub async fn token_exists(&self, token: &str) -> Result<bool, sqlx::Error> {
@@ -161,7 +197,7 @@ impl AccessTokenStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let token_hash = Self::hash_token(token);
 
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             INSERT INTO token_blacklist (token_hash, token, token_type, user_id, revoked_at, reason)
             VALUES ($1, $2, 'access', $3, $4, $5)
@@ -174,8 +210,20 @@ impl AccessTokenStorage {
         .bind(now)
         .bind(reason)
         .execute(&*self.pool)
-        .await?;
-        Ok(())
+        .await;
+        
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("current transaction is aborted") {
+                    tracing::warn!("Connection in aborted transaction state in add_to_blacklist, attempting reset");
+                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
+                }
+                Err(e)
+            }
+        }
     }
 
     pub async fn is_in_blacklist(&self, token: &str) -> Result<bool, sqlx::Error> {
@@ -187,8 +235,20 @@ impl AccessTokenStorage {
         )
         .bind(&token_hash)
         .fetch_optional(&*self.pool)
-        .await?;
-        Ok(result.is_some())
+        .await;
+        
+        match result {
+            Ok(r) => Ok(r.is_some()),
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("current transaction is aborted") {
+                    tracing::warn!("Connection in aborted transaction state, attempting reset");
+                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
+                }
+                Err(e)
+            }
+        }
     }
 
     pub async fn cleanup_expired_blacklist_entries(

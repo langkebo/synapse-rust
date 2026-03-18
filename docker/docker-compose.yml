@@ -1,24 +1,25 @@
 # ============================================================================
-# Synapse Rust Docker Compose Configuration
+# Synapse Rust Docker Compose Configuration - Production
 # ============================================================================
 # 使用方法:
 #   首次部署:
-#     cd /home/hula/synapse_rust/synapse-rust
-#     cargo build --release
-#     docker build -f docker/Dockerfile -t synapse-rust:latest .
-#     cd docker && docker compose up -d
+#     cd docker
+#     cp config/.env.example .env
+#     # 编辑 .env 填写实际配置
+#     docker compose -f docker-compose.yml up -d
 #
 #   日常运维:
-#     docker compose up -d      # 启动服务
-#     docker compose down       # 停止服务
-#     docker compose logs -f    # 查看日志
-#     docker compose ps         # 查看状态
+#     docker compose up -d           # 启动服务
+#     docker compose down           # 停止服务
+#     docker compose logs -f        # 查看日志
+#     docker compose ps             # 查看状态
+#     docker compose restart        # 重启服务
 #
 #   数据库迁移:
-#     docker compose exec synapse-rust /app/scripts/run-migrations.sh
+#     docker compose exec synapse-rust bash /app/scripts/run-migrations.sh
 #
-#   查看迁移状态:
-#     docker compose exec db psql -U synapse -d synapse_test -c "SELECT * FROM schema_migrations ORDER BY version DESC LIMIT 20;"
+#   扩展workers:
+#     docker compose -f docker-compose.yml -f docker-compose.workers.yml up -d
 # ============================================================================
 
 services:
@@ -26,92 +27,133 @@ services:
   # Synapse Rust - Matrix Homeserver
   # ==========================================================================
   synapse-rust:
-    image: synapse-rust:v0.1.0
+    image: synapse-rust:${IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: docker/Dockerfile
       args:
-        SERVER_NAME: cjystx.top
-    container_name: synapse-rust
+        SERVER_NAME: ${SERVER_NAME:-cjystx.top}
+        RUST_VERSION: ${RUST_VERSION:-1.88}
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-rust
     restart: unless-stopped
+    networks:
+      - synapse_network
     ports:
-      - "8008:8008"
-      - "9090:9090"
+      - "${SYNAPSE_PORT:-8008}:8008"
+      - "${FEDERATION_PORT:-8448}:8448"
+      - "${METRICS_PORT:-9090}:9090"
     environment:
+      # 基础配置
       - RUST_LOG=${RUST_LOG:-info}
       - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
+      - TZ=${TZ:-Asia/Shanghai}
+      
+      # 服务器配置
       - SERVER_NAME=${SERVER_NAME:-cjystx.top}
       - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
-      - TZ=${TZ:-Asia/Shanghai}
-      - ALLOWED_ORIGINS=https://cjystx.top,https://matrix.cjystx.top,https://element.cjystx.top
+      
+      # 安全配置
       - SECRET_KEY=${SECRET_KEY}
       - MACAROON_SECRET=${MACAROON_SECRET}
       - FORM_SECRET=${FORM_SECRET}
       - REGISTRATION_SECRET=${REGISTRATION_SECRET}
       - ADMIN_SECRET=${ADMIN_SECRET}
       - FEDERATION_SIGNING_KEY=${FEDERATION_SIGNING_KEY}
-      - DB_PASSWORD=${DB_PASSWORD:-synapse}
-      - DATABASE_URL=postgres://synapse:${DB_PASSWORD:-synapse}@db:5432/synapse_test
-      - REDIS_URL=redis://redis:6379
+      
+      # CORS 配置
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - CORS_ORIGIN_PATTERN=${CORS_ORIGIN_PATTERN:-.*}
+      
+      # 数据库配置
+      - DATABASE_URL=postgres://${DB_USER:-synapse}:${DB_PASSWORD:-synapse}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${DB_NAME:-synapse}
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-20}
+      - DB_MAX_SIZE=${DB_MAX_SIZE:-50}
+      - DB_MIN_IDLE=${DB_MIN_IDLE:-10}
+      - DB_CONNECTION_TIMEOUT=${DB_CONNECTION_TIMEOUT:-30}
+      
+      # Redis 配置
+      - REDIS_URL=redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}
+      - REDIS_KEY_PREFIX=${REDIS_KEY_PREFIX:-synapse:}
+      - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-20}
+      - REDIS_ENABLED=${REDIS_ENABLED:-true}
+      
+      # 迁移配置
       - RUN_MIGRATIONS=${RUN_MIGRATIONS:-true}
       - VERIFY_SCHEMA=${VERIFY_SCHEMA:-true}
       - MIGRATION_TIMEOUT=${MIGRATION_TIMEOUT:-300}
       - DB_WAIT_ATTEMPTS=${DB_WAIT_ATTEMPTS:-30}
       - DB_WAIT_INTERVAL=${DB_WAIT_INTERVAL:-2}
       - STOP_ON_MIGRATION_FAILURE=${STOP_ON_MIGRATION_FAILURE:-true}
+      
+      # 日志配置
+      - LOG_FORMAT=${LOG_FORMAT:-text}
+      - LOG_DIR=/app/logs
+      
+      # Worker 配置
+      - WORKER_MODE=${WORKER_MODE:-single}
+      - WORKER_COUNT=${WORKER_COUNT:-1}
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./config:/app/config:ro
-      - migration_logs:/app/logs/migrations
+      - synapse_data:/app/data
+      - synapse_logs:/app/logs
+      - ./config/homeserver.yaml:/app/config/homeserver.yaml:ro
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8008/_matrix/federation/v1/version"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
+      test: ["CMD", "bash", "/app/scripts/healthcheck.sh"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
       start_period: 90s
-    networks:
-      - synapse_network
     security_opt:
       - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     tmpfs:
-      - /tmp:size=50M,mode=1777
+      - /tmp:size=100M,mode=1777
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: ${SYNAPSE_MEMORY_LIMIT:-2G}
         reservations:
-          memory: 512M
+          memory: ${SYNAPSE_MEMORY_RESERVATION:-512M}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "5"
 
   # ==========================================================================
   # PostgreSQL - Primary Database
   # ==========================================================================
   db:
-    image: postgres:16-alpine
-    container_name: synapse-postgres
+    image: postgres:${POSTGRES_VERSION:-16}-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-postgres
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=synapse
+      - POSTGRES_USER=${DB_USER:-synapse}
       - POSTGRES_PASSWORD=${DB_PASSWORD:-synapse}
-      - POSTGRES_DB=synapse_test
+      - POSTGRES_DB=${DB_NAME:-synapse}
       - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
       - TZ=${TZ:-Asia/Shanghai}
+      - POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS:-100}
+      - POSTGRES_SHARED_BUFFERS=${POSTGRES_SHARED_BUFFERS:-256MB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres.conf:/etc/postgresql/postgresql.conf:ro
     ports:
       - "${DB_EXPOSE_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U synapse -d synapse_test"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-synapse} -d ${DB_NAME:-synapse}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -121,46 +163,56 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: ${POSTGRES_MEMORY_LIMIT:-1G}
         reservations:
-          memory: 256M
+          memory: ${POSTGRES_MEMORY_RESERVATION:-256M}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
     command: >
       postgres
-      -c shared_buffers=256MB
-      -c effective_cache_size=512MB
-      -c maintenance_work_mem=64MB
-      -c work_mem=16MB
-      -c max_connections=100
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}
+      -c effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-512MB}
+      -c maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-64MB}
+      -c work_mem=${POSTGRES_WORK_MEM:-16MB}
+      -c max_connections=${POSTGRES_MAX_CONNECTIONS:-100}
       -c random_page_cost=1.1
       -c effective_io_concurrency=200
-      -c checkpoint_timeout=30min
-      -c max_wal_size=512MB
-      -c min_wal_size=64MB
+      -c checkpoint_timeout=${POSTGRES_CHECKPOINT_TIMEOUT:-30min}
+      -c max_wal_size=${POSTGRES_MAX_WAL_SIZE:-512MB}
+      -c min_wal_size=${POSTGRES_MIN_WAL_SIZE:-64MB}
       -c log_min_duration_statement=1000
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "5"
 
   # ==========================================================================
   # Redis - Cache & Session Store
   # ==========================================================================
   redis:
-    image: redis:7-alpine
-    container_name: synapse-redis
+    image: redis:${REDIS_VERSION:-7}-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-redis
     restart: unless-stopped
     command: >
       redis-server
       --appendonly yes
-      --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
+      --maxmemory ${REDIS_MAX_MEMORY:-256mb}
+      --maxmemory-policy ${REDIS_EVICTION_POLICY:-allkeys-lru}
       --save 60 1000
+      --save 300 100
+      --save 900 1
       --tcp-backlog 511
+      --timeout 0
+      --tcp-keepalive 300
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - "${REDIS_EXPOSE_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -172,46 +224,19 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: ${REDIS_MEMORY_LIMIT:-512M}
         reservations:
-          memory: 128M
+          memory: ${REDIS_MEMORY_RESERVATION:-128M}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
     logging:
       driver: "json-file"
       options:
         max-size: "5m"
         max-file: "3"
-
-  # ==========================================================================
-  # Nginx - Reverse Proxy & SSL Termination (暂时禁用)
-  # ==========================================================================
-  # nginx:
-  #   image: nginx:alpine
-  #   container_name: synapse-nginx
-  #   restart: unless-stopped
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #     - "8448:8448"
-  #   volumes:
-  #     - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-  #     - ./nginx/.well-known:/var/www/html/.well-known:ro
-  #     - ./ssl:/etc/nginx/ssl:ro
-  #     - ./logs/nginx:/var/log/nginx
-  #   depends_on:
-  #     synapse-rust:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD", "nginx", "-t"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-  #   networks:
-  #     - synapse_network
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
 
 # ============================================================================
 # Volumes
@@ -221,7 +246,9 @@ volumes:
     driver: local
   redis_data:
     driver: local
-  migration_logs:
+  synapse_data:
+    driver: local
+  synapse_logs:
     driver: local
 
 # ============================================================================
@@ -230,6 +257,8 @@ volumes:
 networks:
   synapse_network:
     driver: bridge
+    name: ${COMPOSE_PROJECT_NAME:-synapse}_network
     ipam:
+      driver: default
       config:
-        - subnet: 172.28.0.0/16
+        - subnet: ${NETWORK_SUBNET:-172.28.0.0/16}

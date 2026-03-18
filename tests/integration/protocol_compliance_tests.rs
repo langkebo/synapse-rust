@@ -207,7 +207,7 @@ fn test_receipt_insert() {
             let pool = match setup_test_database().await { Some(p) => p, None => return };
             let arc_pool = Arc::new(pool.clone());
             let room_storage = RoomStorage::new(&arc_pool);
-            let event_storage = EventStorage::new(&arc_pool);
+            let event_storage = EventStorage::new(&arc_pool, "localhost".to_string());
             let services = ServiceContainer::new_test();
 
             let room_id = "!room:test";
@@ -219,7 +219,7 @@ fn test_receipt_insert() {
 
             let event_id = "$ev_read:test";
             let now = chrono::Utc::now().timestamp_millis();
-            EventStorage::new(&arc_pool)
+            EventStorage::new(&arc_pool, "localhost".to_string())
                 .create_event(CreateEventParams {
                     event_id: event_id.to_string(),
                     room_id: room_id.to_string(),

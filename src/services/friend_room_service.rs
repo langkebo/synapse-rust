@@ -59,7 +59,252 @@ impl FriendRoomService {
         Ok(room_id)
     }
 
-    /// 添加好友
+    /// 发送好友请求 (创建 pending 状态的请求)
+    pub async fn send_friend_request(
+        &self,
+        sender_id: &str,
+        receiver_id: &str,
+        message: Option<&str>,
+    ) -> ApiResult<i64> {
+        if receiver_id == sender_id {
+            return Err(ApiError::bad_request("Cannot send friend request to yourself"));
+        }
+
+        let sender_friend_room = self.create_friend_list_room(sender_id).await?;
+        if self
+            .friend_storage
+            .is_friend(&sender_friend_room, receiver_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to check friendship: {}", e)))?
+        {
+            return Err(ApiError::conflict(format!(
+                "User {} is already your friend",
+                receiver_id
+            )));
+        }
+
+        if self
+            .friend_storage
+            .has_any_pending_request(sender_id, receiver_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to check pending request: {}", e)))?
+        {
+            return Err(ApiError::conflict(
+                "A pending friend request already exists between you and this user".to_string(),
+            ));
+        }
+
+        let request_id = self
+            .friend_storage
+            .create_friend_request(sender_id, receiver_id, message)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to create friend request: {}", e)))?;
+
+        if self.is_remote_user(receiver_id) {
+            tracing::info!("Sending remote friend request: {} -> {}", sender_id, receiver_id);
+            let parts: Vec<&str> = receiver_id.split(':').collect();
+            if parts.len() >= 2 {
+                let domain = parts[1];
+                let invite_content = json!({
+                    "requester": sender_id,
+                    "target": receiver_id,
+                    "message": message,
+                    "timestamp": chrono::Utc::now().timestamp_millis(),
+                    "msgtype": "m.friend_request"
+                });
+
+                if let Err(e) = self
+                    .federation_client
+                    .send_invite(domain, "unused", &invite_content)
+                    .await
+                {
+                    tracing::warn!("Failed to send federation friend request: {}", e);
+                }
+            }
+        }
+
+        Ok(request_id)
+    }
+
+    /// 接受好友请求
+    pub async fn accept_friend_request(
+        &self,
+        user_id: &str,
+        requester_id: &str,
+    ) -> ApiResult<String> {
+        let _pending_request = self
+            .friend_storage
+            .get_pending_friend_request(requester_id, user_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to get friend request: {}", e)))?
+            .ok_or_else(|| {
+                ApiError::not_found(format!("No pending friend request from {}", requester_id))
+            })?;
+
+        // 为接受者添加好友关系
+        let dm_room_id = self
+            .add_friend_internal(user_id, requester_id)
+            .await?;
+
+        // 为请求者添加好友关系（双向好友）
+        self.add_friend_internal(requester_id, user_id)
+            .await?;
+
+        self.friend_storage
+            .update_friend_request_status(requester_id, user_id, "accepted")
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to update request status: {}", e)))?;
+
+        if self.is_remote_user(requester_id) {
+            let parts: Vec<&str> = requester_id.split(':').collect();
+            if parts.len() >= 2 {
+                let domain = parts[1];
+                let accept_content = json!({
+                    "requester": requester_id,
+                    "accepter": user_id,
+                    "timestamp": chrono::Utc::now().timestamp_millis(),
+                    "msgtype": "m.friend_request.accepted"
+                });
+
+                if let Err(e) = self
+                    .federation_client
+                    .send_invite(domain, "unused", &accept_content)
+                    .await
+                {
+                    tracing::warn!("Failed to send federation friend accept: {}", e);
+                }
+            }
+        }
+
+        Ok(dm_room_id)
+    }
+
+    /// 拒绝好友请求
+    pub async fn reject_friend_request(&self, user_id: &str, requester_id: &str) -> ApiResult<()> {
+        let updated = self
+            .friend_storage
+            .update_friend_request_status(requester_id, user_id, "rejected")
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to reject friend request: {}", e)))?;
+
+        if !updated {
+            return Err(ApiError::not_found(format!(
+                "No pending friend request from {}",
+                requester_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// 取消发出的好友请求
+    pub async fn cancel_friend_request(&self, user_id: &str, target_id: &str) -> ApiResult<()> {
+        let updated = self
+            .friend_storage
+            .update_friend_request_status(user_id, target_id, "cancelled")
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to cancel friend request: {}", e)))?;
+
+        if !updated {
+            return Err(ApiError::not_found(format!(
+                "No pending friend request to {}",
+                target_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// 获取收到的好友请求列表
+    pub async fn get_incoming_requests(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+        let requests = self
+            .friend_storage
+            .get_incoming_friend_requests(user_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?;
+
+        Ok(requests
+            .into_iter()
+            .map(|r| {
+                json!({
+                    "user_id": r.sender_id,
+                    "message": r.message,
+                    "timestamp": r.created_ts,
+                    "status": r.status
+                })
+            })
+            .collect())
+    }
+
+    /// 获取发出的好友请求列表
+    pub async fn get_outgoing_requests(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+        let requests = self
+            .friend_storage
+            .get_outgoing_friend_requests(user_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?;
+
+        Ok(requests
+            .into_iter()
+            .map(|r| {
+                json!({
+                    "user_id": r.receiver_id,
+                    "message": r.message,
+                    "timestamp": r.created_ts,
+                    "status": r.status
+                })
+            })
+            .collect())
+    }
+
+    /// 内部方法：添加好友（不检查请求）
+    async fn add_friend_internal(&self, user_id: &str, friend_id: &str) -> ApiResult<String> {
+        let user_friend_room = self.create_friend_list_room(user_id).await?;
+
+        if self
+            .friend_storage
+            .is_friend(&user_friend_room, friend_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to check friendship: {}", e)))?
+        {
+            let config = crate::services::room_service::CreateRoomConfig {
+                visibility: Some("private".to_string()),
+                preset: Some("trusted_private_chat".to_string()),
+                invite_list: Some(vec![friend_id.to_string()]),
+                is_direct: Some(true),
+                ..Default::default()
+            };
+
+            let response = self.room_service.create_room(user_id, config).await?;
+            return Ok(response
+                .get("room_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::internal("Failed to get room_id for DM"))?
+                .to_string());
+        }
+
+        let config = crate::services::room_service::CreateRoomConfig {
+            visibility: Some("private".to_string()),
+            preset: Some("trusted_private_chat".to_string()),
+            invite_list: Some(vec![friend_id.to_string()]),
+            is_direct: Some(true),
+            ..Default::default()
+        };
+
+        let response = self.room_service.create_room(user_id, config).await?;
+        let dm_room_id = response
+            .get("room_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ApiError::internal("Failed to get room_id for DM"))?
+            .to_string();
+
+        self.update_friend_list(user_id, &user_friend_room, friend_id, "add")
+            .await?;
+
+        Ok(dm_room_id)
+    }
+
+    /// 添加好友 (直接添加，用于向后兼容)
     pub async fn add_friend(&self, user_id: &str, friend_id: &str) -> ApiResult<String> {
         if friend_id == user_id {
             return Err(ApiError::bad_request("Cannot add yourself as a friend"));
@@ -260,24 +505,6 @@ impl FriendRoomService {
         let friend_room = self.create_friend_list_room(user_id).await?;
         self.friend_storage
             .get_friend_info(&friend_room, friend_id)
-            .await
-            .map_err(|e| ApiError::database(format!("Database error: {}", e)))
-    }
-
-    /// 获取收到的好友请求列表
-    pub async fn get_incoming_requests(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
-        let friend_room = self.create_friend_list_room(user_id).await?;
-        self.friend_storage
-            .get_friend_requests(&friend_room, "incoming")
-            .await
-            .map_err(|e| ApiError::database(format!("Database error: {}", e)))
-    }
-
-    /// 获取发出的好友请求列表
-    pub async fn get_outgoing_requests(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
-        let friend_room = self.create_friend_list_room(user_id).await?;
-        self.friend_storage
-            .get_friend_requests(&friend_room, "outgoing")
             .await
             .map_err(|e| ApiError::database(format!("Database error: {}", e)))
     }
@@ -580,72 +807,6 @@ impl FriendRoomService {
         Ok(Vec::new())
     }
 
-    /// 拒绝好友请求
-    pub async fn reject_friend_request(&self, user_id: &str, requester_id: &str) -> ApiResult<()> {
-        let friend_room = self.create_friend_list_room(user_id).await?;
-
-        let mut requests = self
-            .friend_storage
-            .get_friend_requests(&friend_room, "incoming")
-            .await
-            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?;
-
-        let original_len = requests.len();
-        requests.retain(|r| r.get("user_id").and_then(|u| u.as_str()) != Some(requester_id));
-
-        if requests.len() == original_len {
-            return Err(ApiError::not_found(format!(
-                "No pending request from {}",
-                requester_id
-            )));
-        }
-
-        let content = json!({ "requests": requests });
-        self.send_state_event(
-            &friend_room,
-            user_id,
-            "m.friend_requests.incoming",
-            "",
-            content,
-        )
-        .await?;
-
-        Ok(())
-    }
-
-    /// 取消发出的好友请求
-    pub async fn cancel_friend_request(&self, user_id: &str, target_id: &str) -> ApiResult<()> {
-        let friend_room = self.create_friend_list_room(user_id).await?;
-
-        let mut requests = self
-            .friend_storage
-            .get_friend_requests(&friend_room, "outgoing")
-            .await
-            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?;
-
-        let original_len = requests.len();
-        requests.retain(|r| r.get("user_id").and_then(|u| u.as_str()) != Some(target_id));
-
-        if requests.len() == original_len {
-            return Err(ApiError::not_found(format!(
-                "No pending request to {}",
-                target_id
-            )));
-        }
-
-        let content = json!({ "requests": requests });
-        self.send_state_event(
-            &friend_room,
-            user_id,
-            "m.friend_requests.outgoing",
-            "",
-            content,
-        )
-        .await?;
-
-        Ok(())
-    }
-
     /// 处理收到的好友请求 (Federation)
     pub async fn handle_incoming_friend_request(
         &self,
@@ -653,38 +814,12 @@ impl FriendRoomService {
         requester_id: &str,
         content: serde_json::Value,
     ) -> ApiResult<()> {
-        let friend_room_id = self.create_friend_list_room(user_id).await?;
+        let message = content.get("message").and_then(|m| m.as_str());
 
-        let request_content = json!({
-            "user_id": requester_id,
-            "content": content,
-            "timestamp": chrono::Utc::now().timestamp_millis(),
-            "status": "pending"
-        });
-
-        let mut current_requests = self
-            .get_state_content(&friend_room_id, "m.friend_requests.incoming", "")
+        self.friend_storage
+            .create_friend_request(requester_id, user_id, message)
             .await
-            .unwrap_or(json!({ "requests": [] }));
-
-        let requests_array = current_requests
-            .get_mut("requests")
-            .and_then(|r| r.as_array_mut());
-
-        if let Some(arr) = requests_array {
-            arr.push(request_content);
-        } else {
-            current_requests = json!({ "requests": [request_content] });
-        }
-
-        self.send_state_event(
-            &friend_room_id,
-            user_id,
-            "m.friend_requests.incoming",
-            "",
-            current_requests,
-        )
-        .await?;
+            .map_err(|e| ApiError::database(format!("Failed to create friend request: {}", e)))?;
 
         Ok(())
     }
@@ -719,23 +854,6 @@ impl FriendRoomService {
 
     fn is_remote_user(&self, user_id: &str) -> bool {
         !user_id.ends_with(&format!(":{}", self.server_name))
-    }
-
-    async fn get_state_content(
-        &self,
-        room_id: &str,
-        event_type: &str,
-        _state_key: &str,
-    ) -> Option<serde_json::Value> {
-        match event_type {
-            "m.friends.list" => self
-                .friend_storage
-                .get_friend_list_content(room_id)
-                .await
-                .ok()
-                .flatten(),
-            _ => None,
-        }
     }
 
     async fn send_state_event(

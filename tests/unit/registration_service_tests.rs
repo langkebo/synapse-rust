@@ -72,7 +72,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             user_type TEXT,
             shadow_banned BOOLEAN DEFAULT FALSE,
             generation BIGINT DEFAULT 0,
-            invalid_update_ts BIGINT,
+            invalid_update_at BIGINT,
             migration_state TEXT,
             creation_ts BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
             updated_ts BIGINT

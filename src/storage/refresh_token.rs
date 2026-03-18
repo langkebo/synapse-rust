@@ -11,8 +11,8 @@ pub struct RefreshToken {
     pub device_id: Option<String>,
     pub access_token_id: Option<String>,
     pub scope: Option<String>,
-    pub expires_at: Option<i64>,
     pub created_ts: i64,
+    pub expires_at: Option<i64>,
     pub last_used_ts: Option<i64>,
     pub use_count: i32,
     pub is_revoked: bool,
@@ -174,8 +174,8 @@ impl RefreshTokenStorage {
         let row = sqlx::query_as::<_, RefreshToken>(
             r#"
             INSERT INTO refresh_tokens (
-                token_hash, user_id, device_id, access_token_id, scope, expires_at,
-                created_ts, client_info, ip_address, user_agent
+                token_hash, user_id, device_id, access_token_id, scope, created_ts,
+                expires_at, client_info, ip_address, user_agent
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
@@ -186,8 +186,8 @@ impl RefreshTokenStorage {
         .bind(&request.device_id)
         .bind(&request.access_token_id)
         .bind(&request.scope)
-        .bind(request.expires_at)
         .bind(now)
+        .bind(request.expires_at)
         .bind(&request.client_info)
         .bind(&request.ip_address)
         .bind(&request.user_agent)

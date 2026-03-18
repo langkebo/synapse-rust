@@ -85,6 +85,40 @@ pub fn create_key_backup_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/v3/room_keys/keys/{version}",
             get(get_room_keys).put(put_room_keys),
         )
+        // Key Export/Import (E2EE 100%)
+        .route(
+            "/_matrix/client/r0/room_keys/export",
+            get(export_keys),
+        )
+        .route(
+            "/_matrix/client/r0/room_keys/export/{version}",
+            get(export_keys_by_version),
+        )
+        .route(
+            "/_matrix/client/r0/room_keys/import",
+            post(import_keys),
+        )
+        .route(
+            "/_matrix/client/r0/room_keys/import/{version}",
+            post(import_keys_by_version),
+        )
+        // v3 routes
+        .route(
+            "/_matrix/client/v3/room_keys/export",
+            get(export_keys),
+        )
+        .route(
+            "/_matrix/client/v3/room_keys/export/{version}",
+            get(export_keys_by_version),
+        )
+        .route(
+            "/_matrix/client/v3/room_keys/import",
+            post(import_keys),
+        )
+        .route(
+            "/matrix/client/v3/room_keys/import/{version}",
+            post(import_keys_by_version),
+        )
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -615,4 +649,190 @@ async fn recover_session_key(
             session_id, room_id
         ))),
     }
+}
+
+// ============================================================================
+// Key Export/Import (E2EE 100%)
+// ============================================================================
+
+/// Export all keys
+/// GET /_matrix/client/r0/room_keys/export
+#[axum::debug_handler]
+async fn export_keys(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let backup_keys = state.services.backup_service.get_all_backup_keys(&auth_user.user_id).await?;
+
+    let mut room_keys = Vec::new();
+    for key in backup_keys {
+        room_keys.push(serde_json::json!({
+            "room_id": key.room_id,
+            "session_id": key.session_id,
+            "session_data": key.backup_data,
+            "first_message_index": key.first_message_index,
+            "forwarded_count": key.forwarded_count,
+            "is_verified": key.is_verified
+        }));
+    }
+
+    let export_data = serde_json::json!({
+        "room_keys": room_keys,
+        "version": "1"
+    });
+
+    Ok(Json(export_data))
+}
+
+/// Export keys by version
+/// GET /_matrix/client/r0/room_keys/export/{version}
+#[axum::debug_handler]
+async fn export_keys_by_version(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(version): Path<String>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let backup_keys = state.services.backup_service.get_all_backup_keys(&auth_user.user_id).await?;
+
+    let mut room_keys = Vec::new();
+    for key in backup_keys {
+        room_keys.push(serde_json::json!({
+            "room_id": key.room_id,
+            "session_id": key.session_id,
+            "session_data": key.backup_data,
+            "first_message_index": key.first_message_index,
+            "forwarded_count": key.forwarded_count,
+            "is_verified": key.is_verified
+        }));
+    }
+
+    let export_data = serde_json::json!({
+        "room_keys": room_keys,
+        "version": version
+    });
+
+    Ok(Json(export_data))
+}
+
+/// Import keys
+/// POST /_matrix/client/r0/room_keys/import
+#[axum::debug_handler]
+async fn import_keys(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let room_keys = body.get("room_keys")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| crate::error::ApiError::bad_request("Missing room_keys".to_string()))?;
+    
+    let version = body.get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("1");
+
+    let mut imported_count = 0;
+    let mut failed_count = 0;
+
+    for key_data in room_keys.iter() {
+        let room_id = key_data.get("room_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let session_id = key_data.get("session_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let session_data = key_data.get("session_data")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        if !room_id.is_empty() && !session_id.is_empty() {
+            let params = crate::e2ee::backup::BackupKeyUploadParams {
+                user_id: auth_user.user_id.clone(),
+                room_id: room_id.to_string(),
+                session_id: session_id.to_string(),
+                session_data: session_data.to_string(),
+                version: version.to_string(),
+                is_verified: true,
+                first_message_index: key_data.get("first_message_index")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0),
+                forwarded_count: key_data.get("forwarded_count")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0),
+            };
+
+            if state.services.backup_service.upload_backup_key(params).await.is_ok() {
+                imported_count += 1;
+            } else {
+                failed_count += 1;
+            }
+        } else {
+            failed_count += 1;
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "count": imported_count,
+        "failed": failed_count,
+        "total": room_keys.len()
+    })))
+}
+
+/// Import keys by version
+/// POST /_matrix/client/r0/room_keys/import/{version}
+#[axum::debug_handler]
+async fn import_keys_by_version(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(version): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let room_keys = body.get("room_keys")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| crate::error::ApiError::bad_request("Missing room_keys".to_string()))?;
+
+    let mut imported_count = 0;
+    let mut failed_count = 0;
+
+    for key_data in room_keys.iter() {
+        let room_id = key_data.get("room_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let session_id = key_data.get("session_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let session_data = key_data.get("session_data")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        if !room_id.is_empty() && !session_id.is_empty() {
+            let params = crate::e2ee::backup::BackupKeyUploadParams {
+                user_id: auth_user.user_id.clone(),
+                room_id: room_id.to_string(),
+                session_id: session_id.to_string(),
+                session_data: session_data.to_string(),
+                version: version.clone(),
+                is_verified: true,
+                first_message_index: key_data.get("first_message_index")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0),
+                forwarded_count: key_data.get("forwarded_count")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0),
+            };
+
+            if state.services.backup_service.upload_backup_key(params).await.is_ok() {
+                imported_count += 1;
+            } else {
+                failed_count += 1;
+            }
+        } else {
+            failed_count += 1;
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "count": imported_count,
+        "failed": failed_count,
+        "total": room_keys.len()
+    })))
 }

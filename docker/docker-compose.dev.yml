@@ -1,0 +1,59 @@
+# ============================================================================
+# Synapse Rust Docker Compose - Development Configuration
+# ============================================================================
+# 使用方法:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# 特性:
+# - 热重载支持
+# - 调试端口
+# - 更大的资源限制
+# - 日志输出到终端
+# ============================================================================
+
+services:
+  synapse-rust:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: builder  # 使用 builder 阶段支持调试
+    environment:
+      - RUST_LOG=debug
+      - RUST_BACKTRACE=full
+      - DEBUG=true
+    ports:
+      - "5005:5005"  # Debug port
+      - "8008:8008"
+      - "8448:8448"
+      - "9090:9090"
+    volumes:
+      - ../src:/app/src:ro
+      - ../migrations:/app/migrations:ro
+    command: >
+      /bin/bash -c "
+        cargo build --release && 
+        /app/scripts/docker-entrypoint.sh
+      "
+    profiles:
+      - dev
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  db:
+    environment:
+      - POSTGRES_LOG_STATEMENT=all
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  redis:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

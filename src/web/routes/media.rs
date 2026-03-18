@@ -10,6 +10,7 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
+use chrono;
 
 pub fn create_media_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -34,6 +35,9 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
         .route("/_matrix/media/r0/upload", post(upload_media_v3))
         .route("/_matrix/media/v1/config", get(media_config))
         .route("/_matrix/media/r0/config", get(media_config))
+        .route("/_matrix/media/v1/quota/check", get(check_quota))
+        .route("/_matrix/media/v1/quota/stats", get(quota_stats))
+        .route("/_matrix/media/v1/quota/alerts", get(quota_alerts))
         .route(
             "/_matrix/media/v1/download/{server_name}/{media_id}",
             get(download_media_v1),
@@ -97,6 +101,64 @@ pub async fn media_config(State(_state): State<AppState>) -> Json<Value> {
     Json(json!({
         "m.upload.size": 50 * 1024 * 1024
     }))
+}
+
+pub async fn check_quota(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let quota_info = state.services.media_quota_service.get_user_quota(&auth_user.user_id).await?;
+    
+    let limit = quota_info.max_storage_bytes;
+    let used = quota_info.current_storage_bytes;
+    let remaining = if used >= limit { 0 } else { limit - used };
+    
+    Ok(Json(json!({
+        "limit": limit,
+        "used": used,
+        "remaining": remaining,
+        "rule": "global"
+    })))
+}
+
+pub async fn quota_stats(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let quota_info = state.services.media_quota_service.get_user_quota(&auth_user.user_id).await?;
+    let stats = state.services.media_quota_service.get_usage_stats(&auth_user.user_id).await?;
+    
+    Ok(Json(json!({
+        "user_id": auth_user.user_id,
+        "storage_bytes": quota_info.current_storage_bytes,
+        "media_count": quota_info.current_files_count,
+        "limit_bytes": quota_info.max_storage_bytes,
+        "statistics": stats
+    })))
+}
+
+pub async fn quota_alerts(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let alerts = state.services.media_quota_service.get_user_alerts(&auth_user.user_id, false).await?;
+    
+    let alerts_list: Vec<Value> = alerts.into_iter().map(|alert| {
+        json!({
+            "alert_id": alert.id,
+            "alert_type": alert.alert_type,
+            "threshold_percent": alert.threshold_percent,
+            "current_usage_bytes": alert.current_usage_bytes,
+            "quota_limit_bytes": alert.quota_limit_bytes,
+            "message": alert.message,
+            "created_ts": alert.created_ts,
+            "is_read": alert.is_read
+        })
+    }).collect();
+    
+    Ok(Json(json!({
+        "alerts": alerts_list
+    })))
 }
 
 async fn upload_media_with_id(

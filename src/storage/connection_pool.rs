@@ -100,15 +100,14 @@ impl ConnectionPoolManager {
             ))));
         }
 
-        let pool = sqlx::PgPool::connect_with(
-            sqlx::postgres::PgConnectOptions::from_str(database_url)?
-                .connect_timeout(config.connect_timeout)
-                .idle_timeout(config.idle_timeout)
-                .max_lifetime(config.max_lifetime),
-        )
-        .await?;
-
-        pool.resize(config.max_connections).await;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(config.max_connections)
+            .min_connections(config.min_connections)
+            .acquire_timeout(config.acquire_timeout)
+            .idle_timeout(config.idle_timeout)
+            .max_lifetime(config.max_lifetime)
+            .connect(database_url)
+            .await?;
 
         Ok(Self {
             pool,
@@ -155,6 +154,18 @@ impl ConnectionPoolManager {
     pub async fn close(&mut self) {
         self.is_shutdown = true;
         self.pool.close().await;
+    }
+
+    pub async fn reset_connection(&self) -> Result<(), sqlx::Error> {
+        let mut conn = self.pool.acquire().await?;
+        sqlx::query("ROLLBACK")
+            .execute(&mut *conn)
+            .await
+            .ok();
+        sqlx::query("SELECT 1")
+            .execute(&mut *conn)
+            .await?;
+        Ok(())
     }
 }
 

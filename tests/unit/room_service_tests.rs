@@ -431,3 +431,77 @@ fn test_ban_user_success() {
         assert_eq!(member.banned_by, Some(alice_id));
     });
 }
+
+#[test]
+fn test_upgrade_room_success() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = match setup_test_database().await {
+            Some(pool) => Arc::new(pool),
+            None => return,
+        };
+        let id = unique_id();
+        let alice_id = format!("@alice_{}:localhost", id);
+        let alice_name = format!("alice_{}", id);
+        create_test_user(&pool, &alice_id, &alice_name).await;
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let room_service = RoomService::new(
+            RoomStorage::new(&pool),
+            RoomMemberStorage::new(&pool, "localhost"),
+            EventStorage::new(&pool),
+            UserStorage::new(&pool, cache.clone()),
+            Arc::new(Validator::default()),
+            "localhost".to_string(),
+            None,
+        );
+
+        let config = CreateRoomConfig::default();
+        let room_val = room_service
+            .create_room(&alice_id, config)
+            .await
+            .unwrap();
+        let old_room_id = room_val["room_id"].as_str().unwrap();
+
+        let result = room_service
+            .upgrade_room(old_room_id, "11", &alice_id)
+            .await;
+        
+        assert!(result.is_ok());
+        let new_room_id = result.unwrap();
+        assert!(!new_room_id.is_empty());
+        assert_ne!(new_room_id, old_room_id);
+    });
+}
+
+#[test]
+fn test_upgrade_room_not_found() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = match setup_test_database().await {
+            Some(pool) => Arc::new(pool),
+            None => return,
+        };
+        let id = unique_id();
+        let alice_id = format!("@alice_{}:localhost", id);
+        let alice_name = format!("alice_{}", id);
+        create_test_user(&pool, &alice_id, &alice_name).await;
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let room_service = RoomService::new(
+            RoomStorage::new(&pool),
+            RoomMemberStorage::new(&pool, "localhost"),
+            EventStorage::new(&pool),
+            UserStorage::new(&pool, cache.clone()),
+            Arc::new(Validator::default()),
+            "localhost".to_string(),
+            None,
+        );
+
+        let result = room_service
+            .upgrade_room("!nonexistent:localhost", "11", &alice_id)
+            .await;
+        
+        assert!(result.is_err());
+    });
+}

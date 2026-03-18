@@ -91,17 +91,15 @@ async fn add_reaction(
 
     // 保存 reaction
     let pool = &*state.services.user_storage.pool;
-    let now = chrono::Utc::now().timestamp_millis();
     
     sqlx::query(
-        "INSERT INTO event_reactions (event_id, relates_to_id, sender, room_id, annotation, origin_server_ts) VALUES ($1, $2, $3, $4, $5, $6)"
+        "INSERT INTO reaction_aggregations (event_id, relates_to_event_id, sender, room_id, reaction_key, count) VALUES ($1, $2, $3, $4, $5, 1)"
     )
     .bind(&event_id)
     .bind(&relates_to.event_id)
     .bind(&auth_user.user_id)
     .bind(&room_id)
     .bind(&annotation)
-    .bind(now)
     .execute(pool)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to add reaction: {}", e)))?;
@@ -128,7 +126,7 @@ async fn get_relations(
 
     // 获取 reactions (m.annotation)
     let reactions: Vec<(String, String, String, i64)> = sqlx::query_as(
-        "SELECT event_id, sender, annotation, origin_server_ts FROM event_reactions WHERE room_id = $1 AND relates_to_id = $2 ORDER BY origin_server_ts DESC LIMIT $3"
+        "SELECT event_id, sender, reaction_key, origin_server_ts FROM reaction_aggregations WHERE room_id = $1 AND relates_to_event_id = $2 ORDER BY origin_server_ts DESC LIMIT $3"
     )
     .bind(&room_id)
     .bind(&event_id)
@@ -267,7 +265,7 @@ mod tests {
             "event_id": "$test_event",
             "rel_type": "m.annotation"
         }"#;
-        let relates: RelatesTo = serde_json::from_str(json).unwrap();
+        let relates: RelatesTo = serde_json::from_str(json).expect("Failed to parse RelatesTo JSON");
         assert_eq!(relates.event_id, "$test_event");
         assert_eq!(relates.rel_type, "m.annotation");
     }

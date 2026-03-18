@@ -1,11 +1,34 @@
 #!/bin/bash
 
-TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAYXBpdGVzdF9maW5hbDpjanlzdHgudG9wIiwidXNlcl9pZCI6IkBhcGl0ZXN0X2ZpbmFsOmNqeXN0eC50b3AiLCJqdGkiOiIyZmU5Y2VkNy1jZmU4LTQ3NzAtYjNiZS1mYzFkMzlkZGQ0NDYiLCJhZG1pbiI6ZmFsc2UsImV4cCI6MTc3MzIxNDc4MSwiaWF0IjoxNzczMjExMTgxLCJkZXZpY2VfaWQiOiJGbnRMMEdNWEFqUW5IeDNOIn0.Y2gxKz1xxkIXmREXel_6xn90iPkFuSFMT5oy9vkFidA"
 HOST="matrix.cjystx.top"
-BASE_URL="https://localhost"
+BASE_URL="http://localhost:8008"
 PASS=0
 FAIL=0
 TOTAL=0
+
+# 动态获取有效的 access_token (通过注册新用户)
+echo "正在获取有效的访问令牌..."
+REGISTER_RESPONSE=$(curl -s -X POST "$BASE_URL/_matrix/client/v3/register" \
+    -H "Host: $HOST" \
+    -H "Content-Type: application/json" \
+    -d '{"auth":{"type":"m.login.dummy"},"username":"apifulltest","password":"Test@123"}' 2>/dev/null)
+
+TOKEN=$(echo "$REGISTER_RESPONSE" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+
+if [ -z "$TOKEN" ]; then
+    echo "注册新用户失败，尝试登录..."
+    LOGIN_RESPONSE=$(curl -s -X POST "$BASE_URL/_matrix/client/v3/login" \
+        -H "Host: $HOST" \
+        -H "Content-Type: application/json" \
+        -d '{"type":"m.login.password","user":"apifulltest","password":"Test@123"}' 2>/dev/null)
+    TOKEN=$(echo "$LOGIN_RESPONSE" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+fi
+
+if [ -z "$TOKEN" ]; then
+    echo "警告: 无法获取令牌..."
+else
+    echo "成功获取访问令牌"
+fi
 
 test_api() {
     local name="$1"

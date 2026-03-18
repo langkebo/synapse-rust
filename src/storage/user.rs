@@ -38,8 +38,8 @@ impl UserStorage {
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                       created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
-                      appservice_id, user_type, invalid_update_ts, migration_state, password_changed_ts,
-                      must_change_password, password_expires_ts, failed_login_attempts, locked_until
+                      appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
+                      must_change_password, password_expires_at, failed_login_attempts, locked_until
             "#,
         )
         .bind(user_id)
@@ -52,13 +52,44 @@ impl UserStorage {
         .await
     }
 
+    /// Creates a new user in the database within a transaction.
+    pub async fn create_user_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: &str,
+        username: &str,
+        password_hash: Option<&str>,
+        is_admin: bool,
+    ) -> Result<User, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let generation = now;
+        sqlx::query_as::<_, User>(
+            r#"
+            INSERT INTO users (user_id, username, password_hash, is_admin, created_ts, generation)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
+                      created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
+                      appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
+                      must_change_password, password_expires_at, failed_login_attempts, locked_until
+            "#,
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(password_hash)
+        .bind(is_admin)
+        .bind(now)
+        .bind(generation)
+        .fetch_one(&mut **tx)
+        .await
+    }
+
     pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
             r#"
             SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
-                   appservice_id, user_type, invalid_update_ts, migration_state, password_changed_ts,
-                   must_change_password, password_expires_ts, failed_login_attempts, locked_until
+                   appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
+                   must_change_password, password_expires_at, failed_login_attempts, locked_until
             FROM users
             WHERE user_id = $1
             "#,
@@ -73,8 +104,8 @@ impl UserStorage {
             r#"
             SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
-                   appservice_id, user_type, invalid_update_ts, migration_state, password_changed_ts,
-                   must_change_password, password_expires_ts, failed_login_attempts, locked_until
+                   appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
+                   must_change_password, password_expires_at, failed_login_attempts, locked_until
             FROM users
             WHERE username = $1
             "#,
@@ -100,7 +131,7 @@ impl UserStorage {
             r#"
             SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
                    is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
-                   appservice_id, user_type, invalid_update_ts, migration_state
+                   appservice_id, user_type, invalid_update_at, migration_state
             FROM users
             ORDER BY created_ts DESC
             LIMIT $1
@@ -120,9 +151,9 @@ impl UserStorage {
             r#"
             SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, 
                    is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts, 
-                   generation, consent_version, appservice_id, user_type, invalid_update_ts, 
+                   generation, consent_version, appservice_id, user_type, invalid_update_at, 
                    migration_state, email, phone, password_changed_ts, must_change_password, 
-                   password_expires_ts, failed_login_attempts, locked_until
+                   password_expires_at, failed_login_attempts, locked_until
             FROM users
             ORDER BY created_ts DESC
             LIMIT $1 OFFSET $2
@@ -368,7 +399,7 @@ impl UserStorage {
             r#"
             SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
                    is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
-                   appservice_id, user_type, invalid_update_ts, migration_state
+                   appservice_id, user_type, invalid_update_at, migration_state
             FROM users
             WHERE user_id = ANY($1)
             "#,

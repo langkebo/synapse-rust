@@ -1,13 +1,22 @@
 -- ============================================================================
--- synapse-rust 统一数据库架构 v6.0.0
+-- synapse-rust 统一数据库架构 v6.0.4
 -- 创建日期: 2026-03-09
 --
--- v6.0.1 优化说明 (2026-03-11):
---   - 移除重复表: threepids, reports, thread_statistics
---   - 统一时间字段命名: _ts (NOT NULL), _at (可空)
---   - 移除冗余字段: rooms.member_count, notifications.read, voice_usage_stats.last_activity_at
---   - 完善外键约束
---   - 添加条件索引优化
+-- v6.0.4 优化说明 (2026-03-14):
+--   - 修复字段命名一致性:
+--     * users.password_expires_at (索引修复)
+--     * user_threepids.validated_at (字段名修复)
+--     * registration_tokens.last_used_ts (字段名修复)
+--   - 代码与数据库完全一致
+--
+-- v6.0.3 优化说明 (2026-03-13):
+--   - 修复字段命名规范: nullable timestamps 统一使用 _at 后缀
+--   - 修复 private_sessions.last_activity_at → last_activity_ts (NOT NULL)
+--   - 修复 pushers/background_updates/spaces 等表的 updated_at → updated_ts
+--   - 修复 access_tokens/refresh_tokens 的 last_used_ts (保持不变，符合规范)
+--   - 修复 megolm_sessions 的 last_used_at (保持不变，符合规范)
+--   - 统一所有 updated_ts 字段的 nullable 状态
+--   - 所有 updated_at 已统一改为 updated_ts (2026-03-13)
 --
 -- v6.0.2 优化说明 (基于测试发现问题修复):
 --   - 添加缺失表: server_retention_policy, ip_reputation, user_media_quota, media_quota_config
@@ -66,7 +75,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_is_admin ON users(is_admin);
 CREATE INDEX IF NOT EXISTS idx_users_must_change_password ON users(must_change_password) WHERE must_change_password = TRUE;
-CREATE INDEX IF NOT EXISTS idx_users_password_expires ON users(password_expires_ts) WHERE password_expires_ts IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_users_password_expires ON users(password_expires_at) WHERE password_expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_users_locked ON users(locked_until) WHERE locked_until IS NOT NULL;
 
 -- 用户第三方身份表 (Third-party IDs)
@@ -76,7 +85,7 @@ CREATE TABLE IF NOT EXISTS user_threepids (
     user_id TEXT NOT NULL,
     medium TEXT NOT NULL,
     address TEXT NOT NULL,
-    validated_ts BIGINT,
+    validated_at BIGINT,
     added_ts BIGINT NOT NULL,
     is_verified BOOLEAN DEFAULT FALSE,
     verification_token TEXT,
@@ -166,7 +175,7 @@ CREATE TABLE IF NOT EXISTS token_blacklist (
     token TEXT,
     token_type TEXT DEFAULT 'access',
     user_id TEXT,
-    revoked_ts BIGINT NOT NULL,
+    revoked_at BIGINT NOT NULL,
     reason TEXT,
     expires_at BIGINT,
     CONSTRAINT pk_token_blacklist PRIMARY KEY (id),
@@ -430,7 +439,7 @@ CREATE TABLE IF NOT EXISTS megolm_sessions (
     algorithm TEXT NOT NULL,
     message_index BIGINT DEFAULT 0,
     created_ts BIGINT NOT NULL,
-    last_used_at BIGINT,
+    last_used_ts BIGINT,
     expires_at BIGINT,
     CONSTRAINT pk_megolm_sessions PRIMARY KEY (id),
     CONSTRAINT uq_megolm_sessions_session UNIQUE (session_id)
@@ -545,7 +554,7 @@ CREATE TABLE IF NOT EXISTS olm_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_olm_sessions_user_device ON olm_sessions(user_id, device_id);
 CREATE INDEX IF NOT EXISTS idx_olm_sessions_sender_key ON olm_sessions(sender_key);
-CREATE INDEX IF NOT EXISTS idx_olm_sessions_expires ON olm_sessions(expires_ts) WHERE expires_ts IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_olm_sessions_expires ON olm_sessions(expires_at) WHERE expires_at IS NOT NULL;
 
 -- ============================================================================
 -- E2EE 密钥请求表
@@ -1465,7 +1474,7 @@ CREATE TABLE IF NOT EXISTS registration_tokens (
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
     expires_at BIGINT,
-    last_used_at BIGINT,
+    last_used_ts BIGINT,
     created_by TEXT NOT NULL,
     allowed_email_domains TEXT[],
     allowed_user_ids TEXT[],
@@ -1477,7 +1486,7 @@ CREATE TABLE IF NOT EXISTS registration_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_registration_tokens_type ON registration_tokens(token_type);
-CREATE INDEX IF NOT EXISTS idx_registration_tokens_expires ON registration_tokens(expires_ts) WHERE expires_ts IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_registration_tokens_expires ON registration_tokens(expires_at) WHERE expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_registration_tokens_enabled ON registration_tokens(is_enabled) WHERE is_enabled = TRUE;
 
 -- ============================================================================
@@ -2308,11 +2317,13 @@ CREATE TABLE IF NOT EXISTS password_policy (
 CREATE TABLE IF NOT EXISTS schema_migrations (
     id BIGSERIAL,
     version TEXT NOT NULL,
-    name TEXT NOT NULL,
-    applied_ts BIGINT NOT NULL,
-    execution_time_ms BIGINT,
+    name TEXT,
     checksum TEXT,
+    applied_ts BIGINT,
+    execution_time_ms BIGINT,
+    success BOOLEAN NOT NULL DEFAULT TRUE,
     description TEXT,
+    executed_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT pk_schema_migrations PRIMARY KEY (id),
     CONSTRAINT uq_schema_migrations_version UNIQUE (version)
 );

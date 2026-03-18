@@ -142,13 +142,19 @@ impl RoomMemberStorage {
     }
 
     pub async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            DELETE FROM room_memberships WHERE room_id = $1 AND user_id = $2
+            UPDATE room_memberships 
+            SET membership = 'leave', 
+                left_ts = $3,
+                updated_ts = $3
+            WHERE room_id = $1 AND user_id = $2 AND membership = 'join'
             "#,
         )
         .bind(room_id)
         .bind(user_id)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())

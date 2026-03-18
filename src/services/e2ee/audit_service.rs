@@ -377,7 +377,7 @@ impl CrossSigningVerificationService {
     }
 
     async fn verify_device_signature(&self, device: &DeviceInfo) -> Result<bool, ApiError> {
-        let result = sqlx::query_scalar::<_, Option<bool>>(
+        let result: Option<Option<bool>> = sqlx::query_scalar(
             r#"
             SELECT signature_valid FROM device_signatures 
             WHERE device_id = $1
@@ -390,11 +390,11 @@ impl CrossSigningVerificationService {
         .await
         .map_err(|e| ApiError::internal(format!("Failed to check signature: {}", e)))?;
 
-        Ok(result.unwrap_or(false))
+        Ok(result.flatten().unwrap_or(false))
     }
 
     async fn check_cross_signing(&self, device: &DeviceInfo) -> Result<bool, ApiError> {
-        let result = sqlx::query_scalar::<_, Option<bool>>(
+        let result: Option<Option<bool>> = sqlx::query_scalar(
             r#"
             SELECT cross_signed FROM cross_signing_keys 
             WHERE user_id = $1 AND device_id = $2
@@ -406,12 +406,12 @@ impl CrossSigningVerificationService {
         .await
         .map_err(|e| ApiError::internal(format!("Failed to check cross signing: {}", e)))?;
 
-        Ok(result.unwrap_or(false))
+        Ok(result.flatten().unwrap_or(false))
     }
 }
 
 #[derive(Debug, Clone)]
-struct DeviceInfo {
+pub struct DeviceInfo {
     device_id: String,
     user_id: String,
     display_name: Option<String>,

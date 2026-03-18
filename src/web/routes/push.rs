@@ -181,11 +181,11 @@ async fn set_pusher(
         sqlx::query(
             r#"
             INSERT INTO pushers (user_id, device_id, pushkey, kind, app_id, app_display_name, 
-                                 device_display_name, profile_tag, lang, data, created_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT (user_id, pushkey) DO UPDATE SET
+                                 device_display_name, profile_tag, lang, data, created_ts, last_updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            ON CONFLICT (user_id, device_id, pushkey) DO UPDATE SET
                 kind = $4, app_id = $5, app_display_name = $6,
-                device_display_name = $7, profile_tag = $8, lang = $9, data = $10, last_updated_ts = $11
+                device_display_name = $7, profile_tag = $8, lang = $9, data = $10, last_updated_ts = $12
             "#
         )
         .bind(&auth_user.user_id)
@@ -198,6 +198,7 @@ async fn set_pusher(
         .bind(&body.profile_tag)
         .bind(&body.lang)
         .bind(&body.data)
+        .bind(chrono::Utc::now().timestamp_millis())
         .bind(chrono::Utc::now().timestamp_millis())
         .execute(&*state.services.user_storage.pool)
         .await
@@ -346,8 +347,8 @@ async fn set_push_rule(
 
     sqlx::query(
         r#"
-        INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, true, false)
+        INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default, priority_class, created_ts)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, extract(epoch from now())::bigint * 1000)
         ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
             pattern = $5, conditions = $6, actions = $7
         "#
@@ -394,8 +395,8 @@ async fn create_push_rule(
 
     sqlx::query(
         r#"
-        INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, true, false)
+        INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default, priority_class, created_ts)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, extract(epoch from now())::bigint * 1000)
         ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
             pattern = $5, conditions = $6, actions = $7
         "#
@@ -443,7 +444,11 @@ async fn set_push_rule_actions(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let actions = body.get("actions").cloned().unwrap_or(json!([]));
+    let actions = if body.is_array() {
+        body
+    } else {
+        body.get("actions").cloned().unwrap_or(json!([]))
+    };
 
     sqlx::query(
         "UPDATE push_rules SET actions = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5"

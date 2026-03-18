@@ -247,3 +247,83 @@ pub struct UserQuotaInfo {
 }
 
 use serde::{Deserialize, Serialize};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_user_quota_info() {
+        let info = UserQuotaInfo {
+            current_storage_bytes: 1000,
+            current_files_count: 10,
+            max_storage_bytes: 10000,
+            max_file_size_bytes: 1000,
+            max_files_count: 100,
+            usage_percent: 10.0,
+        };
+        
+        assert_eq!(info.current_storage_bytes, 1000);
+        assert_eq!(info.usage_percent, 10.0);
+    }
+
+    #[test]
+    fn test_user_quota_info_usage_percent() {
+        let info = UserQuotaInfo {
+            current_storage_bytes: 5000,
+            current_files_count: 50,
+            max_storage_bytes: 10000,
+            max_file_size_bytes: 1000,
+            max_files_count: 100,
+            usage_percent: 50.0,
+        };
+        
+        assert_eq!(info.usage_percent, 50.0);
+    }
+
+    #[test]
+    fn test_user_quota_info_full() {
+        let info = UserQuotaInfo {
+            current_storage_bytes: 10000,
+            current_files_count: 100,
+            max_storage_bytes: 10000,
+            max_file_size_bytes: 1000,
+            max_files_count: 100,
+            usage_percent: 100.0,
+        };
+        
+        assert_eq!(info.usage_percent, 100.0);
+    }
+
+    #[test]
+    fn test_user_quota_info_zero_limit() {
+        let info = UserQuotaInfo {
+            current_storage_bytes: 100,
+            current_files_count: 5,
+            max_storage_bytes: 0,
+            max_file_size_bytes: 0,
+            max_files_count: 0,
+            usage_percent: 0.0,
+        };
+        
+        assert_eq!(info.usage_percent, 0.0);
+    }
+
+    #[test]
+    fn test_user_quota_info_serialization() {
+        let info = UserQuotaInfo {
+            current_storage_bytes: 1000,
+            current_files_count: 10,
+            max_storage_bytes: 10000,
+            max_file_size_bytes: 1000,
+            max_files_count: 100,
+            usage_percent: 10.0,
+        };
+        
+        let json = serde_json::to_string(&info).expect("Failed to serialize UserQuotaInfo");
+        let parsed: UserQuotaInfo = serde_json::from_str(&json).expect("Failed to deserialize UserQuotaInfo");
+        
+        assert_eq!(parsed.current_storage_bytes, info.current_storage_bytes);
+        assert_eq!(parsed.usage_percent, info.usage_percent);
+    }
+}

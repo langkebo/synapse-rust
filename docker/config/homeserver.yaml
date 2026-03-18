@@ -1,103 +1,41 @@
-# ============================================================================
-# Synapse Rust - 生产环境配置文件
-# ============================================================================
-# 官方文档: https://element-hq.github.io/synapse/latest/usage/configuration/
-# 配置说明: 所有设置项都有详细注释，未使用的配置已注释
-# ============================================================================
-
-# ============================================================================
-# 服务器基本配置
-# ============================================================================
-# Matrix 服务器名称，决定用户ID格式: @user:cjystx.top
-# 注意: 此设置一旦部署后不可更改
 server_name: "cjystx.top"
 
 server:
-  # 服务器名称 (与 server_name 保持一致)
   name: "cjystx.top"
-  
-  # 监听地址 (0.0.0.0 表示监听所有网络接口)
   host: "0.0.0.0"
-  
-  # HTTP 端口 (客户端 API)
   port: 8008
   http_port: 8008
-  
-  # HTTPS 端口 (联邦通信，需要 Nginx 反向代理)
   https_port: 8448
-  
-  # 绑定地址
   bind_address: "0.0.0.0"
-  
-  # 公共访问 URL (客户端连接地址)
-  # 生产环境必须配置为实际的公网地址
   public_baseurl: "https://matrix.cjystx.top"
-  
-  # 签名密钥路径 (用于联邦通信签名)
   signing_key_path: "/app/data/signing.key"
-  
-  # 安全密钥 (用于生成 macaroons)
-  # 生产环境应使用: openssl rand -hex 32 生成
   macaroon_secret_key: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
-  
-  # 表单密钥 (CSRF 保护)
   form_secret: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
-  
-  # 注册共享密钥 (用于命令行注册用户)
-  # 生产环境应使用: openssl rand -hex 32 生成
-  registration_shared_secret: "CHANGE_ME_IN_PRODUCTION"
-  
-  # 最大上传文件大小 (字节)，默认 100MB
+  registration_shared_secret: "test_shared_secret"
   max_upload_size: 104857600
-  
-  # 最大图片分辨率
   max_image_resolution: 1920
-  
-  # 是否允许注册 (已开启无认证注册)
   enable_registration: true
-  
-  # 注册时是否需要验证码 (已关闭)
   enable_registration_captcha: false
-  
-  # 后台任务执行间隔 (秒)
   background_tasks_interval: 3600
-  
-  # 访问令牌过期设置
   expire_access_token: false
-  expire_access_token_lifetime: 86400  # 24小时
-  
-  # 刷新令牌设置
-  refresh_token_lifetime: 604800  # 7天
-  refresh_token_sliding_window_size: 2592000  # 30天
-  
-  # 会话持续时间 (秒)
+  expire_access_token_lifetime: 86400
+  refresh_token_lifetime: 604800
+  refresh_token_sliding_window_size: 2592000
+  # Sessions API 配置
   session_duration: 86400
-  
-  # 是否预热数据库连接池
   warmup_pool: true
 
-# ============================================================================
-# 数据库配置 (PostgreSQL)
-# ============================================================================
-# 官方建议: 生产环境必须使用 PostgreSQL，不要使用 SQLite
 database:
   host: "db"
   port: 5432
   username: "synapse"
-  # 与 docker-compose.yml 中的 DB_PASSWORD 保持一致
   password: "synapse"
-  name: "synapse_test"
-  
-  # 连接池设置
+  name: "synapse"
   pool_size: 10
   max_size: 20
   min_idle: 2
   connection_timeout: 30
 
-# ============================================================================
-# Redis 缓存配置
-# ============================================================================
-# Redis 用于缓存和会话存储，提升性能
 redis:
   host: "redis"
   port: 6379
@@ -107,91 +45,41 @@ redis:
   connection_timeout_ms: 5000
   command_timeout_ms: 3000
 
-# ============================================================================
-# 日志配置
-# ============================================================================
-# 生产环境建议使用 info 级别
 logging:
-  level: "info"  # 可选: trace, debug, info, warn, error
-  format: "text"  # 可选: text, json
+  level: "info"
+  format: "text"
 
-# ============================================================================
-# 联邦配置 (Federation)
-# ============================================================================
-# 联邦允许与其他 Matrix 服务器通信
 federation:
   enabled: true
   allow_ingress: true
   server_name: "cjystx.top"
   federation_port: 8448
-  
-  # 联邦连接池大小
   connection_pool_size: 100
-  
-  # 最大事务负载 (字节)
   max_transaction_payload: 10485760
-  
-  # 签名密钥 (生产环境应从文件读取)
-  # signing_key: "vOF91ju/RyF0Tx0KVPHNwViHVviGIsF5GtHaAwKkzR8"
-  # key_id: "ed25519:test4BGgmI"
 
-# ============================================================================
-# 安全配置
-# ============================================================================
 security:
-  # JWT 签名密钥
   secret: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
-  
-  # 令牌过期时间 (秒)
-  expiry_time: 3600  # 1小时
-  
-  # 刷新令牌过期时间 (秒)
-  refresh_token_expiry: 604800  # 7天
+  expiry_time: 3600
+  refresh_token_expiry: 604800
 
-# ============================================================================
-# 搜索配置 (Elasticsearch)
-# ============================================================================
-# 可选: 启用全文搜索功能
+# Identity Server 配置 - 使用 Matrix.org 公共服务
+identity_server_url: "https://vector.im"
+
 search:
   elasticsearch_url: "http://localhost:9200"
   enabled: false
 
-# ============================================================================
-# 速率限制配置
-# ============================================================================
-# 防止滥用和 DDoS 攻击
 rate_limit:
-  enabled: true
-  # 以下为可选配置
-  # requests_per_second: 10
-  # burst_count: 100
+  enabled: false
 
-# ============================================================================
-# 管理员注册配置
-# ============================================================================
-# 使用 HMAC-SHA256 签名验证的管理员注册
 admin_registration:
   enabled: true
-  secret: "CHANGE_ME_IN_PRODUCTION"
-  shared_secret: "CHANGE_ME_IN_PRODUCTION"
-
-# ============================================================================
-# Worker 配置
-# ============================================================================
-# 多进程模式，用于大规模部署
-# worker:
-#   enabled: false
-#   name: "main"
-#   worker_replication_host: "localhost"
-#   worker_replication_port: 9092
+  secret: "admin_secret_key"
+  shared_secret: "admin_secret_key"
 
 worker:
   enabled: false
 
-# ============================================================================
-# CORS 配置
-# ============================================================================
-# 跨域资源共享设置
 cors:
   allowed_origins: ["*"]
   allow_credentials: true
@@ -199,86 +87,22 @@ cors:
   allowed_headers: ["*"]
   max_age_seconds: 3600
 
-# ============================================================================
-# 邮件配置 (SMTP)
-# ============================================================================
-# 用于发送密码重置邮件、通知等
-# smtp:
-#   enabled: true
-#   host: "smtp.example.com"
-#   port: 587
-#   user: "noreply@example.com"
-#   pass: "your_password"
-#   require_transport_security: true
-#   notif_from: "Matrix <noreply@example.com>"
-
 smtp:
   enabled: false
 
-# ============================================================================
-# VoIP 配置 (TURN/STUN)
-# ============================================================================
-# 用于音视频通话的 NAT 穿透
-# 生产环境建议使用 coturn 或 eturnal
+# VoIP/TURN 配置 - 使用 Matrix.org 公共服务
 voip:
-  enabled: false
-  # turn_uris:
-  #   - "turn:turn.cjystx.top:3478?transport=udp"
-  #   - "turn:turn.cjystx.top:3478?transport=tcp"
-  # turn_username: "turn_user"
-  # turn_password: "turn_password"
-  # turn_shared_secret: "shared_secret"
-  # stun_servers:
-  #   - "stun:stun.cjystx.top:3478"
+  enabled: true
+  turn_uris:
+    - "turn:vector.im:3478"
+  turn_username: "matrix"
+  turn_password: "matrix"
 
-# ============================================================================
-# 推送通知配置
-# ============================================================================
-# 用于移动端推送通知
 push:
   enabled: false
-  # push_gateway: "https://push.example.com/_matrix/push/v1/notify"
 
-# ============================================================================
-# URL 预览配置
-# ============================================================================
-# 在聊天中显示链接预览
-# 安全警告: 必须配置 IP 黑名单防止 SSRF 攻击
 url_preview:
   enabled: false
-  # url_preview_ip_range_blacklist:
-  #   - '127.0.0.0/8'
-  #   - '10.0.0.0/8'
-  #   - '172.16.0.0/12'
-  #   - '192.168.0.0/16'
-  #   - '100.64.0.0/10'
-  #   - '192.0.0.0/24'
-  #   - '169.254.0.0/16'
-  #   - '192.88.99.0/24'
-  #   - '198.18.0.0/15'
-  #   - '192.0.2.0/24'
-  #   - '198.51.100.0/24'
-  #   - '203.0.113.0/24'
-  #   - '224.0.0.0/4'
-  #   - '::1/128'
-  #   - 'fe80::/10'
-  #   - 'fc00::/7'
-
-# ============================================================================
-# OIDC 配置 (OpenID Connect)
-# ============================================================================
-# 支持 Google、Keycloak、Auth0 等 OIDC 提供商
-# oidc:
-#   enabled: true
-#   issuer: "https://auth.example.com"
-#   client_id: "synapse"
-#   client_secret: "your_client_secret"
-#   scopes: ["openid", "profile", "email"]
-#   allow_existing_users: true
-#   user_mapping_provider:
-#     config:
-#       localpart_template: "{{ user.preferred_username }}"
-#       display_name_template: "{{ user.name }}"
 
 oidc:
   enabled: false
@@ -286,59 +110,16 @@ oidc:
   client_id: "synapse"
   scopes: ["openid", "profile", "email"]
 
-# ============================================================================
-# SAML 配置
-# ============================================================================
-# 企业级 SSO 集成
-# saml:
-#   enabled: true
-#   sp_config:
-#     metadata:
-#       local: ["path/to/idp_metadata.xml"]
-#     organization:
-#       name: "Example Inc"
-#       display_name: "Example"
-#       url: "https://example.com"
-#   user_mapping_provider:
-#     config:
-#       localpart_template: "{{ user.username }}"
-#       display_name_template: "{{ user.display_name }}"
-
 saml:
   enabled: false
 
-# ============================================================================
-# CAS 配置
-# ============================================================================
-# 中央认证服务
-# cas:
-#   enabled: true
-#   server_url: "https://cas.example.com"
-#   service_url: "https://matrix.example.com"
-
-# ============================================================================
-# 消息保留策略配置
-# ============================================================================
-# 自动清理历史消息
-# retention:
-#   enabled: true
-#   default_policy:
-#     min_lifetime: 1d
-#     max_lifetime: 1y
-#   allowed_lifetime_min: 1d
-#   allowed_lifetime_max: 1y
-#   purge_jobs:
-#     - interval: 1d
-#       shortest_max_lifetime: 1d
-#       longest_max_lifetime: 3d
-
+# Retention 配置
 retention:
-  enabled: false
+  enabled: true
+  default_policy:
+    min_lifetime: 1
+    max_lifetime: 90
 
-# ============================================================================
-# 遥测配置
-# ============================================================================
-# OpenTelemetry 分布式追踪
 telemetry:
   enabled: false
   service_name: "synapse-rust"
@@ -354,111 +135,49 @@ telemetry:
   max_export_batch_size: 512
   scheduled_delay_millis: 5000
 
-# ============================================================================
-# Jaeger 配置
-# ============================================================================
-# 分布式追踪后端
 jaeger:
   enabled: false
   service_name: "synapse-rust"
   sampling_rate: 1.0
 
-# ============================================================================
-# Prometheus 监控配置
-# ============================================================================
-# 指标导出端点
 prometheus:
-  enabled: true
+  enabled: false
   port: 9090
   path: "/metrics"
   include_namespace: true
 
-# ============================================================================
-# 账户有效性配置
-# ============================================================================
-# 账户过期和重新激活
-# account_validity:
-#   enabled: true
-#   period: 26w
-#   renew_at: 1w
-#   renew_email_subject: "Renew your account"
-#   account_renewed_email_subject: "Account renewed"
+# Bridges 配置 - 使用 Matrix.org 公共服务
+bridges:
+  # Telegram Bridge
+  telegram:
+    enabled: true
+    api_id: "YOUR_API_ID"
+    api_hash: "YOUR_API_HASH"
+    bot_token: "YOUR_BOT_TOKEN"
+  
+  # IRC Bridge (可选)
+  irc:
+    enabled: false
+    servers:
+      - address: "irc.libera.chat"
+        ports: [6697]
+        tls: true
 
-# ============================================================================
-# 用户目录配置
-# ============================================================================
-# 用户搜索和发现
-# user_directory:
-#   enabled: true
-#   search_all_users: false
-#   prefer_local_users: true
-
-# ============================================================================
-# 模块配置 (第三方扩展)
-# ============================================================================
-# modules:
-#   - module: "my_module.CustomModule"
-#     config:
-#       custom_option: "value"
-
-# ============================================================================
-# 应用服务配置
-# ============================================================================
-# 用于桥接其他协议 (IRC、Slack、Discord 等)
-# app_service_config_files:
-#   - "/app/config/bridge-irc.yaml"
-#   - "/app/config/bridge-slack.yaml"
-
-# ============================================================================
-# 签名密钥配置 (联邦)
-# ============================================================================
-# 用于联邦通信的 Ed25519 签名密钥
-# 生产环境应从文件读取，不要在此配置
-# signing_key:
-#   key_id: "ed25519:1"
-#   key: "your_base64_encoded_key"
-
-# ============================================================================
-# 媒体存储配置
-# ============================================================================
-# media_store_path: "/app/data/media"
-# uploads_path: "/app/data/uploads"
-# max_media_file_size: 100M
-# dynamic_thumbnails: true
-# thumbnail_sizes:
-#   - width: 32
-#     height: 32
-#     method: crop
-#   - width: 96
-#     height: 96
-#     method: crop
-#   - width: 320
-#     height: 240
-#     method: scale
-#   - width: 640
-#     height: 480
-#     method: scale
-#   - width: 800
-#     height: 600
-#     method: scale
-
-# ============================================================================
-# 注册令牌配置
-# ============================================================================
-# 使用令牌限制注册
-# registration_token:
-#   enabled: true
-#   tokens:
-#     - token: "invite_token_1"
-#       uses_allowed: 10
-#       expires_at: 1735689600000  # 2025-01-01
-
-# ============================================================================
-# 联邦黑名单/白名单
-# ============================================================================
-# 限制与哪些服务器联邦
-# federation_domain_whitelist:
-#   - "matrix.org"
-#   - "example.com"
-# federation_domain_blacklist:
-#   - "evil.example.com"
+# App Service 配置 - 准备对接 OpenClaw
+app_service:
+  enabled: true
+  appservice:
+    - id: "openclaw"
+      url: "http://host.docker.internal:8080"
+      as_token: "openclaw_as_token_change_this"
+      hs_token: "openclaw_hs_token_change_this"
+      sender_localpart: "openclaw"
+      names:
+        - "OpenClaw Bot"
+      namespaces:
+        users:
+          - exclusive: true
+            regex: "@openclaw_.*:cjystx.top"
+        rooms:
+          - exclusive: false
+            regex: "!openclaw_.*:cjystx.top"

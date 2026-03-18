@@ -41,6 +41,7 @@ pub struct StateEvent {
 #[derive(Clone)]
 pub struct EventStorage {
     pub pool: Arc<Pool<Postgres>>,
+    pub server_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -55,8 +56,8 @@ pub struct CreateEventParams {
 }
 
 impl EventStorage {
-    pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
-        Self { pool: pool.clone() }
+    pub fn new(pool: &Arc<Pool<Postgres>>, server_name: String) -> Self {
+        Self { pool: pool.clone(), server_name }
     }
 
     pub async fn create_event(

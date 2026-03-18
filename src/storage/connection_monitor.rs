@@ -4,8 +4,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ConnectionStateMonitor {
     pool: Pool<Postgres>,
     stats: Arc<ConnectionStats>,
@@ -13,7 +14,27 @@ pub struct ConnectionStateMonitor {
     max_events: usize,
 }
 
-#[derive(Debug, Clone)]
+impl Clone for ConnectionStateMonitor {
+    fn clone(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            stats: Arc::new(ConnectionStats {
+                total_connections_created: AtomicU64::new(self.stats.total_connections_created.load(Ordering::SeqCst)),
+                total_connections_closed: AtomicU64::new(self.stats.total_connections_closed.load(Ordering::SeqCst)),
+                total_errors: AtomicU64::new(self.stats.total_errors.load(Ordering::SeqCst)),
+                total_timeouts: AtomicU64::new(self.stats.total_timeouts.load(Ordering::SeqCst)),
+                current_active_connections: AtomicU64::new(self.stats.current_active_connections.load(Ordering::SeqCst)),
+                peak_connections: AtomicU64::new(self.stats.peak_connections.load(Ordering::SeqCst)),
+                average_connection_duration: AtomicU64::new(self.stats.average_connection_duration.load(Ordering::SeqCst)),
+                last_error_time: AtomicU64::new(self.stats.last_error_time.load(Ordering::SeqCst)),
+            }),
+            events: self.events.clone(),
+            max_events: self.max_events,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct ConnectionStats {
     total_connections_created: AtomicU64,
     total_connections_closed: AtomicU64,
@@ -40,7 +61,7 @@ impl Default for ConnectionStats {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ConnectionEventType {
     Connected,
     Disconnected,
@@ -208,6 +229,10 @@ impl ConnectionStateMonitor {
         let timeout_penalty = timeout_rate * 20.0;
         
         (base_score - error_penalty - timeout_penalty).max(0.0)
+    }
+
+    pub fn pool(&self) -> &Pool<Postgres> {
+        &self.pool
     }
 }
 

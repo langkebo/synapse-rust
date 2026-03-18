@@ -860,6 +860,17 @@ impl CacheManager {
         }
     }
 
+    pub async fn set_raw(&self, key: &str, value: &str, ttl: u64) {
+        self.local.set_raw(key, value);
+        if let Some(redis) = &self.redis {
+            let _ = redis.set(key, value, ttl).await;
+        }
+    }
+
+    pub fn get_raw(&self, key: &str) -> Option<String> {
+        self.local.get_raw(key)
+    }
+
     pub async fn delete(&self, key: &str) {
         self.local.remove(key);
         if let Some(redis) = &self.redis {

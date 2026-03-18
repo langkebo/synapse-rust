@@ -175,3 +175,46 @@ pub async fn get_qr_status(
         "status": status,
     })))
 }
+
+/// Invalidate QR code login
+/// Cancel a QR login transaction
+/// POST /_matrix/client/v1/login/qr/invalidate
+pub async fn invalidate_qr_login(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let transaction_id = body
+        .get("transaction_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Transaction ID required".to_string()))?;
+
+    // Get transaction to verify it exists
+    let transaction = state
+        .services
+        .qr_login_storage
+        .get_qr_transaction(transaction_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get QR transaction: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Transaction not found".to_string()))?;
+
+    // Verify the user owns the transaction
+    if transaction.user_id != auth_user.user_id {
+        return Err(ApiError::forbidden(
+            "Transaction does not match authenticated user".to_string(),
+        ));
+    }
+
+    // Update status to invalidated
+    state
+        .services
+        .qr_login_storage
+        .update_qr_status(transaction_id, "invalidated")
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to update status: {}", e)))?;
+
+    Ok(Json(json!({
+        "transaction_id": transaction_id,
+        "status": "invalidated"
+    })))
+}

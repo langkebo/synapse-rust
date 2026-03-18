@@ -28,4 +28,7 @@ pub use olm::OlmService;
 pub use signature::EventSignature;
 pub use signature::SignatureService;
 pub use ssss::SecretStorage;
+pub use verification::{VerificationMethod, VerificationState, SasState, SasData, SasResult, SasRepresentation, QrCodeData, QrState};
 pub use ssss::SecretStorageService;
+
+pub mod verification;

@@ -586,7 +586,7 @@ mod tests {
     #[test]
     fn test_room_summary_structure() {
         let summary = crate::storage::room_summary::RoomSummary {
-            id: 1,
+            id: Some(1),
             room_id: "!room:example.com".to_string(),
             room_type: Some("m.space".to_string()),
             name: Some("Test Room".to_string()),
@@ -608,8 +608,8 @@ mod tests {
             last_message_ts: None,
             unread_notifications: 0,
             unread_highlight: 0,
-            updated_ts: 1234567890,
-            created_ts: 1234567800,
+            updated_ts: Some(1234567890),
+            created_ts: Some(1234567800),
         };
         assert_eq!(summary.member_count, 10);
         assert_eq!(summary.joined_member_count, 8);
