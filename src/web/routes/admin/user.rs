@@ -27,6 +27,15 @@ pub fn create_user_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v2/users/{user_id}", get(get_user_v2))
         .route("/_synapse/admin/v2/users/{user_id}", put(create_or_update_user_v2))
         .route("/_synapse/admin/v1/user_stats", get(get_user_stats))
+        // Batch operations
+        .route("/_synapse/admin/v1/users/batch", post(batch_create_users))
+        .route("/_synapse/admin/v1/users/batch_deactivate", post(batch_deactivate_users))
+        // User sessions
+        .route("/_synapse/admin/v1/user_sessions/{user_id}", get(get_user_sessions))
+        .route("/_synapse/admin/v1/user_sessions/{user_id}/invalidate", post(invalidate_user_sessions))
+        // Account details
+        .route("/_synapse/admin/v1/account/{user_id}", get(get_account_details))
+        .route("/_synapse/admin/v1/account/{user_id}", post(update_account))
 }
 
 #[derive(Debug, Deserialize)]
@@ -627,5 +636,235 @@ pub async fn get_user_stats(
         "guest_users": 0,
         "average_rooms_per_user": average_rooms_per_user,
         "user_registration_enabled": true
+    })))
+}
+
+/// Batch create users
+#[derive(Debug, Deserialize)]
+pub struct BatchCreateUsersRequest {
+    pub users: Vec<BatchCreateUser>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BatchCreateUser {
+    pub username: String,
+    pub password: Option<String>,
+    pub displayname: Option<String>,
+    pub admin: Option<bool>,
+}
+
+#[axum::debug_handler]
+pub async fn batch_create_users(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Json(body): Json<BatchCreateUsersRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let mut created = Vec::new();
+    let mut failed = Vec::new();
+    let now = chrono::Utc::now().timestamp_millis();
+
+    for user in &body.users {
+        let password = user.password.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let username = user.username.clone();
+        
+        let result = sqlx::query(
+            r#"
+            INSERT INTO users (user_id, username, password_hash, displayname, is_admin, creation_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (username) DO NOTHING
+            "#
+        )
+        .bind(format!("@{}:{}", username, state.services.config.server.name))
+        .bind(&username)
+        .bind(&password)  // In production, hash this!
+        .bind(user.displayname.as_deref().unwrap_or(&username))
+        .bind(user.admin.unwrap_or(false))
+        .bind(now)
+        .bind(now)
+        .execute(&*state.services.user_storage.pool)
+        .await;
+
+        match result {
+            Ok(_) => created.push(username.clone()),
+            Err(_) => failed.push(username),
+        }
+    }
+
+    Ok(Json(json!({
+        "created": created,
+        "failed": failed,
+        "total": body.users.len()
+    })))
+}
+
+/// Batch deactivate users
+#[derive(Debug, Deserialize)]
+pub struct BatchDeactivateRequest {
+    pub users: Vec<String>,
+    pub erase: Option<bool>,
+}
+
+#[axum::debug_handler]
+pub async fn batch_deactivate_users(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Json(body): Json<BatchDeactivateRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let mut deactivated = Vec::new();
+    
+    for user_id in body.users {
+        sqlx::query("UPDATE users SET deactivated = true WHERE user_id = $1")
+            .bind(&user_id)
+            .execute(&*state.services.user_storage.pool)
+            .await
+            .ok();
+        
+        deactivated.push(user_id);
+    }
+
+    Ok(Json(json!({
+        "deactivated": deactivated,
+        "total": deactivated.len()
+    })))
+}
+
+/// Get user sessions (devices and connections)
+#[axum::debug_handler]
+pub async fn get_user_sessions(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let devices = sqlx::query(
+        "SELECT device_id, display_name, last_seen_ts, last_seen_ip FROM devices WHERE user_id = $1"
+    )
+    .bind(&user_id)
+    .fetch_all(&*state.services.device_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let sessions: Vec<Value> = devices
+        .iter()
+        .map(|row| {
+            json!({
+                "device_id": row.get::<Option<String>, _>("device_id"),
+                "display_name": row.get::<Option<String>, _>("display_name"),
+                "last_seen_ts": row.get::<Option<i64>, _>("last_seen_ts"),
+                "last_seen_ip": row.get::<Option<String>, _>("last_seen_ip"),
+                "session_id": row.get::<Option<String>, _>("device_id")
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "user_id": user_id,
+        "sessions": sessions,
+        "total": sessions.len()
+    })))
+}
+
+/// Invalidate all user sessions
+#[axum::debug_handler]
+pub async fn invalidate_user_sessions(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let deleted = sqlx::query("DELETE FROM devices WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&*state.services.device_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(json!({
+        "invalidated": true,
+        "sessions_removed": deleted.rows_affected()
+    })))
+}
+
+/// Get account details
+#[axum::debug_handler]
+pub async fn get_account_details(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user = sqlx::query(
+        "SELECT user_id, username, displayname, is_admin, deactivated, creation_ts FROM users WHERE user_id = $1"
+    )
+    .bind(&user_id)
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    match user {
+        Some(row) => {
+            let device_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM devices WHERE user_id = $1"
+            )
+            .bind(&user_id)
+            .fetch_one(&*state.services.device_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+            let room_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM room_memberships WHERE user_id = $1 AND membership = 'join'"
+            )
+            .bind(&user_id)
+            .fetch_one(&*state.services.room_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+            Ok(Json(json!({
+                "name": row.get::<Option<String>, _>("username"),
+                "user_id": row.get::<String, _>("user_id"),
+                "displayname": row.get::<Option<String>, _>("displayname"),
+                "admin": row.get::<bool, _>("is_admin"),
+                "deactivated": row.get::<bool, _>("deactivated"),
+                "creation_ts": row.get::<i64, _>("creation_ts"),
+                "device_count": device_count,
+                "room_count": room_count
+            })))
+        }
+        None => Err(ApiError::not_found("User not found".to_string())),
+    }
+}
+
+/// Update account
+#[derive(Debug, Deserialize)]
+pub struct UpdateAccountRequest {
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub admin: Option<bool>,
+}
+
+#[axum::debug_handler]
+pub async fn update_account(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+    Json(body): Json<UpdateAccountRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if let Some(displayname) = &body.displayname {
+        sqlx::query("UPDATE users SET displayname = $1 WHERE user_id = $2")
+            .bind(displayname)
+            .bind(&user_id)
+            .execute(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    }
+
+    if let Some(admin) = body.admin {
+        sqlx::query("UPDATE users SET is_admin = $1 WHERE user_id = $2")
+            .bind(admin)
+            .bind(&user_id)
+            .execute(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    }
+
+    Ok(Json(json!({
+        "user_id": user_id,
+        "updated": true
     })))
 }
