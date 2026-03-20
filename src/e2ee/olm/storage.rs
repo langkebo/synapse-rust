@@ -79,14 +79,14 @@ impl OlmStorage {
             r#"
             INSERT INTO olm_accounts (
                 user_id, device_id, identity_key, serialized_account,
-                is_one_time_keys_published, is_fallback_key_published, created_ts, updated_ts
+                has_published_one_time_keys, has_published_fallback_key, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (user_id, device_id) DO UPDATE SET
                 identity_key = EXCLUDED.identity_key,
                 serialized_account = EXCLUDED.serialized_account,
-                is_one_time_keys_published = EXCLUDED.is_one_time_keys_published,
-                is_fallback_key_published = EXCLUDED.is_fallback_key_published,
+                has_published_one_time_keys = EXCLUDED.has_published_one_time_keys,
+                has_published_fallback_key = EXCLUDED.has_published_fallback_key,
                 updated_ts = EXCLUDED.updated_ts
             "#,
         )
@@ -94,8 +94,8 @@ impl OlmStorage {
         .bind(&account.device_id)
         .bind(&account.identity_key)
         .bind(&account.serialized_account)
-        .bind(account.is_one_time_keys_published)
-        .bind(account.is_fallback_key_published)
+        .bind(account.has_published_one_time_keys)
+        .bind(account.has_published_fallback_key)
         .bind(now)
         .bind(now)
         .execute(&*self.pool)
@@ -113,7 +113,7 @@ impl OlmStorage {
         let row = sqlx::query(
             r#"
             SELECT user_id, device_id, identity_key, serialized_account,
-                   is_one_time_keys_published, is_fallback_key_published
+                   has_published_one_time_keys, has_published_fallback_key
             FROM olm_accounts
             WHERE user_id = $1 AND device_id = $2
             "#,
@@ -129,8 +129,8 @@ impl OlmStorage {
             device_id: r.get("device_id"),
             identity_key: r.get("identity_key"),
             serialized_account: r.get("serialized_account"),
-            is_one_time_keys_published: r.get("is_one_time_keys_published"),
-            is_fallback_key_published: r.get("is_fallback_key_published"),
+            has_published_one_time_keys: r.get("has_published_one_time_keys"),
+            has_published_fallback_key: r.get("has_published_fallback_key"),
         }))
     }
 
@@ -388,13 +388,13 @@ mod tests {
             device_id: "DEVICE123".to_string(),
             identity_key: "test_identity_key".to_string(),
             serialized_account: "serialized_data".to_string(),
-            is_one_time_keys_published: false,
-            is_fallback_key_published: false,
+            has_published_one_time_keys: false,
+            has_published_fallback_key: false,
         };
 
         assert_eq!(account.user_id, "@test:example.com");
         assert_eq!(account.device_id, "DEVICE123");
-        assert!(!account.is_one_time_keys_published);
+        assert!(!account.has_published_one_time_keys);
     }
 
     #[test]

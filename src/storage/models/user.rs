@@ -22,7 +22,7 @@ pub struct User {
     pub invalid_update_at: Option<i64>,
     pub migration_state: Option<String>,
     pub password_changed_ts: Option<i64>,
-    pub must_change_password: bool,
+    pub is_password_change_required: bool,
     pub password_expires_at: Option<i64>,
     pub failed_login_attempts: i32,
     pub locked_until: Option<i64>,
@@ -160,7 +160,7 @@ mod tests {
             invalid_update_at: None,
             migration_state: None,
             password_changed_ts: None,
-            must_change_password: false,
+            is_password_change_required: false,
             password_expires_at: None,
             failed_login_attempts: 0,
             locked_until: None,
@@ -171,7 +171,7 @@ mod tests {
         assert!(user.password_hash.is_some());
         assert!(!user.is_admin);
         assert!(!user.is_guest);
-        assert!(!user.must_change_password);
+        assert!(!user.is_password_change_required);
         assert_eq!(user.failed_login_attempts, 0);
     }
 
