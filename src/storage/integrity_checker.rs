@@ -209,15 +209,12 @@ impl IntegrityChecker {
             );
 
             let result = sqlx::query(&query).fetch_one(&self.pool).await;
-            match result {
-                Ok(row) => {
-                    let count: i64 = row.try_get("count")?;
-                    if count > 0 {
-                        total_orphans += count as u64;
-                        recommendations.push(format!("Clean up {} in {}", description, table));
-                    }
+            if let Ok(row) = result {
+                let count: i64 = row.try_get("count")?;
+                if count > 0 {
+                    total_orphans += count as u64;
+                    recommendations.push(format!("Clean up {} in {}", description, table));
                 }
-                Err(_) => {}
             }
         }
 
@@ -258,14 +255,11 @@ impl IntegrityChecker {
             );
 
             let result = sqlx::query(&query).fetch_one(&self.pool).await;
-            match result {
-                Ok(row) => {
-                    let duplicates: Option<i64> = row.try_get("duplicates").ok();
-                    if let Some(d) = duplicates {
-                        total_duplicates += d as u64;
-                    }
+            if let Ok(row) = result {
+                let duplicates: Option<i64> = row.try_get("duplicates").ok();
+                if let Some(d) = duplicates {
+                    total_duplicates += d as u64;
                 }
-                Err(_) => {}
             }
         }
 
@@ -306,18 +300,15 @@ impl IntegrityChecker {
             );
 
             let result = sqlx::query(&query).fetch_one(&self.pool).await;
-            match result {
-                Ok(row) => {
-                    let count: i64 = row.try_get("count")?;
-                    if count > 0 {
-                        total_nulls += count as u64;
-                        recommendations.push(format!(
-                            "Found {} NULL values in {}.{} (should be NOT NULL)",
-                            count, table, column
-                        ));
-                    }
+            if let Ok(row) = result {
+                let count: i64 = row.try_get("count")?;
+                if count > 0 {
+                    total_nulls += count as u64;
+                    recommendations.push(format!(
+                        "Found {} NULL values in {}.{} (should be NOT NULL)",
+                        count, table, column
+                    ));
                 }
-                Err(_) => {}
             }
         }
 
@@ -351,16 +342,13 @@ impl IntegrityChecker {
         ];
 
         for (_description, query) in &consistency_checks {
-            match sqlx::query(query).fetch_one(&self.pool).await {
-                Ok(row) => {
-                    let diff: Option<i64> = row.try_get("diff").ok();
-                    if let Some(d) = diff {
-                        if d > 0 {
-                            issues += d as u64;
-                        }
+            if let Ok(row) = sqlx::query(query).fetch_one(&self.pool).await {
+                let diff: Option<i64> = row.try_get("diff").ok();
+                if let Some(d) = diff {
+                    if d > 0 {
+                        issues += d as u64;
                     }
                 }
-                Err(_) => {}
             }
         }
 

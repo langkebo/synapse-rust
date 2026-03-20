@@ -23,6 +23,10 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v3/search", post(search))
         .route("/_matrix/client/r0/search", post(search))
+        .route("/_matrix/client/v3/search_recipients", post(search_recipients))
+        .route("/_matrix/client/r0/search_recipients", post(search_recipients))
+        .route("/_matrix/client/v3/search_rooms", post(search_rooms))
+        .route("/_matrix/client/r0/search_rooms", post(search_rooms))
         .route(
             "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads",
             get(get_threads),
@@ -829,4 +833,116 @@ mod tests {
         assert!(response.get("events_before").is_some());
         assert!(response.get("events_after").is_some());
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct SearchRecipientsRequest {
+    search_term: String,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
+async fn search_recipients(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Json(body): Json<SearchRecipientsRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = body.limit.unwrap_or(10).min(50) as i64;
+    let search_term = body.search_term.trim();
+
+    if search_term.is_empty() {
+        return Err(ApiError::bad_request("Search term cannot be empty".to_string()));
+    }
+
+    let search_pattern = format!("%{}%", search_term.to_lowercase());
+
+    let users = sqlx::query(
+        r#"
+        SELECT user_id, username, displayname, avatar_url
+        FROM users
+        WHERE LOWER(username) LIKE $1 OR LOWER(displayname) LIKE $1
+        LIMIT $2
+        "#,
+    )
+    .bind(&search_pattern)
+    .bind(limit)
+    .fetch_all(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
+
+    let results: Vec<Value> = users
+        .iter()
+        .map(|row| {
+            json!({
+                "user_id": row.get::<String, _>("user_id"),
+                "username": row.get::<String, _>("username"),
+                "display_name": row.get::<Option<String>, _>("displayname"),
+                "avatar_url": row.get::<Option<String>, _>("avatar_url"),
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "results": results,
+        "count": results.len(),
+        "next_batch": null
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct SearchRoomsRequest {
+    search_term: String,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
+async fn search_rooms(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Json(body): Json<SearchRoomsRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = body.limit.unwrap_or(10).min(50) as i64;
+    let search_term = body.search_term.trim();
+
+    if search_term.is_empty() {
+        return Err(ApiError::bad_request("Search term cannot be empty".to_string()));
+    }
+
+    let search_pattern = format!("%{}%", search_term.to_lowercase());
+
+    let rooms = sqlx::query(
+        r#"
+        SELECT room_id, name, topic, avatar_url, is_public
+        FROM rooms
+        WHERE LOWER(name) LIKE $1 OR LOWER(topic) LIKE $1
+        ORDER BY name
+        LIMIT $2
+        "#,
+    )
+    .bind(&search_pattern)
+    .bind(limit)
+    .fetch_all(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
+
+    let results: Vec<Value> = rooms
+        .iter()
+        .map(|row| {
+            json!({
+                "room_id": row.get::<String, _>("room_id"),
+                "name": row.get::<Option<String>, _>("name"),
+                "topic": row.get::<Option<String>, _>("topic"),
+                "avatar_url": row.get::<Option<String>, _>("avatar_url"),
+                "is_public": row.get::<bool, _>("is_public"),
+                "world_readable": row.get::<bool, _>("is_public"),
+                "num_joined_members": 0,
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "results": results,
+        "count": results.len(),
+        "next_batch": null
+    })))
 }

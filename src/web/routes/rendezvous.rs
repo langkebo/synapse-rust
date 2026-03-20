@@ -110,7 +110,7 @@ async fn get_session(
         "transport_data": session.transport_data,
         "status": session.status,
         "created_ts": session.created_ts,
-        "expires_ts": session.expires_at
+        "expires_at": session.expires_at
     })))
 }
 

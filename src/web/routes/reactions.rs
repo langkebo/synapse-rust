@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State, Query},
-    routing::{get, post},
+    routing::{get, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -11,10 +11,15 @@ use crate::common::error::ApiError;
 
 pub fn create_reactions_router(state: AppState) -> Router<AppState> {
     Router::new()
-        // 添加 reaction (annotation)
+        // 添加 reaction (annotation) - 使用 PUT 方法符合 Matrix 规范
         .route(
             "/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}",
-            post(add_reaction),
+            put(add_reaction),
+        )
+        // 同时支持 r0 版本路径
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/send/m.reaction/{txn_id}",
+            put(add_reaction),
         )
         // 获取事件的 reactions/relations
         .route(

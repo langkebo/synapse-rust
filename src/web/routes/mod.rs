@@ -693,6 +693,21 @@ fn create_room_router() -> Router<AppState> {
             "/_matrix/client/v3/rooms/{room_id}/report/{event_id}/score",
             put(update_report_score),
         )
+        // Report room (without event_id) - MSC3891
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/report",
+            post(report_room),
+        )
+        // Content scanner info - MSC3891
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info",
+            get(get_scanner_info),
+        )
+        // Room notifications - MSC3891
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/notifications",
+            get(get_room_notifications),
+        )
         // Sync & Events
         .route("/_matrix/client/r0/sync", get(sync))
         .route("/_matrix/client/r0/events", get(get_events))
@@ -867,6 +882,19 @@ fn create_room_router() -> Router<AppState> {
         .route(
             "/_matrix/client/v3/rooms/{room_id}/state/{event_type}/",
             put(put_state_event_empty_key).get(get_state_event_empty_key),
+        )
+        // Special handling for m.room.power_levels with trailing slash (SDK compatibility)
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/state/m.room.power_levels/",
+            get(get_power_levels),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/",
+            get(get_power_levels),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/",
+            get(get_power_levels),
         )
         // State events - without state_key
         .route(
@@ -1148,8 +1176,7 @@ async fn get_well_known_server(State(state): State<AppState>) -> Json<Value> {
 }
 
 async fn get_well_known_client(State(state): State<AppState>) -> Json<Value> {
-    let server_name = &state.services.config.server.name;
-    let base_url = format!("https://{}", server_name);
+    let base_url = state.services.config.server.get_public_baseurl();
 
     Json(json!({
         "m.homeserver": {
@@ -2305,6 +2332,128 @@ async fn update_report_score(
     Ok(Json(json!({})))
 }
 
+// Report room (MSC3891) - report entire room without specific event
+async fn report_room(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    // Check if room exists by querying room members
+    let members = sqlx::query(
+        "SELECT room_id FROM room_members WHERE room_id = $1 LIMIT 1"
+    )
+    .bind(&room_id)
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if members.is_none() {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    // Get reason and optional description from request body
+    let reason = body.get("reason").and_then(|v| v.as_str()).unwrap_or("No reason provided");
+    let description = body.get("description").and_then(|v| v.as_str());
+
+    // Log the room report for moderation purposes
+    ::tracing::info!(
+        "Room report submitted: room_id={}, user_id={}, reason={}",
+        room_id,
+        auth_user.user_id,
+        reason
+    );
+
+    // Return a report ID (in a full implementation, this would be a real DB entry)
+    let report_id = format!("{}_{}", room_id, chrono::Utc::now().timestamp_millis());
+
+    Ok(Json(json!({
+        "report_id": report_id,
+        "room_id": room_id,
+        "reason": reason,
+        "description": description,
+        "status": "submitted"
+    })))
+}
+
+// Get content scanner info (MSC3891) - get scanner information for an event
+async fn get_scanner_info(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path((room_id, event_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    // In a full implementation, this would check with an external content scanner service
+    // For now, return placeholder data indicating scanner is not configured
+    Ok(Json(json!({
+        "scanner_enabled": false,
+        "room_id": room_id,
+        "event_id": event_id,
+        "status": "not_configured",
+        "message": "Content scanner is not enabled on this server"
+    })))
+}
+
+// Get room notifications (MSC3891) - get notifications for a specific room
+async fn get_room_notifications(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20);
+
+    let _from = params.get("from").cloned();
+
+    // Get notifications for this specific room
+    let notifications = sqlx::query(
+        r#"
+        SELECT event_id, room_id, ts, notification_type, is_read
+        FROM notifications
+        WHERE user_id = $1 AND room_id = $2
+        ORDER BY ts DESC
+        LIMIT $3
+        "#,
+    )
+    .bind(&auth_user.user_id)
+    .bind(&room_id)
+    .bind(limit as i64)
+    .fetch_all(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let notifications_list: Vec<Value> = notifications
+        .iter()
+        .map(|row| {
+            let event_id = row.get::<Option<String>, _>("event_id").unwrap_or_default();
+            json!({
+                "event_id": event_id,
+                "room_id": row.get::<Option<String>, _>("room_id"),
+                "ts": row.get::<Option<i64>, _>("ts"),
+                "profile_tag": row.get::<Option<String>, _>("notification_type"),
+                "read": row.get::<Option<bool>, _>("is_read").unwrap_or(false),
+                "room_name": None::<Value>,
+                "sender": None::<Value>,
+                "prio": "high",
+                "client_action": "notify"
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "notifications": notifications_list,
+        "next_token": None::<String>
+    })))
+}
+
 async fn sync(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2343,6 +2492,54 @@ async fn sync(
             Err(ApiError::internal("Sync operation timed out".to_string()))
         }
     }
+}
+
+#[derive(serde::Serialize)]
+#[allow(dead_code)]
+struct FilterResponse {
+    filter_id: String,
+    room: Option<Value>,
+    presence: Option<Value>,
+}
+
+#[allow(dead_code)]
+async fn create_filter(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(_user_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<FilterResponse>, ApiError> {
+    let token = extract_token_from_headers(&headers)?;
+    let (_, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    let filter_id = format!("f{}", uuid::Uuid::new_v4());
+
+    Ok(Json(FilterResponse {
+        filter_id,
+        room: body.get("room").cloned(),
+        presence: body.get("presence").cloned(),
+    }))
+}
+
+#[allow(dead_code)]
+async fn get_filter(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((_user_id, filter_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let token = extract_token_from_headers(&headers)?;
+    let (_, _, _) = state.services.auth_service.validate_token(&token).await?;
+
+    Ok(Json(json!({
+        "filter_id": filter_id,
+        "filter": {
+            "room": {
+                "state": {"limit": 50},
+                "timeline": {"limit": 50}
+            },
+            "presence": {"limit": 100}
+        }
+    })))
 }
 
 async fn get_events(
@@ -3797,6 +3994,30 @@ async fn get_state_event_empty_key(
     }
 
     Ok(Json(response))
+}
+
+async fn get_power_levels(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    let events = state
+        .services
+        .event_storage
+        .get_state_events_by_type(&room_id, "m.room.power_levels")
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get power levels: {}", e)))?;
+
+    let event = events
+        .iter()
+        .find(|e| e.state_key.as_ref().map(|s| s.is_empty()) == Some(true))
+        .ok_or_else(|| ApiError::not_found("Power levels not found".to_string()))?;
+
+    let power_levels_content = event.content.clone();
+
+    Ok(Json(power_levels_content))
 }
 
 async fn put_state_event_empty_key(

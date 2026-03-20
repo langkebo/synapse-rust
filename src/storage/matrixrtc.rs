@@ -190,7 +190,7 @@ impl MatrixRTCStorage {
             ON CONFLICT (room_id, session_id, user_id, device_id) DO UPDATE SET
                 membership_id = EXCLUDED.membership_id,
                 updated_ts = EXCLUDED.updated_ts,
-                expires_ts = EXCLUDED.expires_at,
+                expires_at = EXCLUDED.expires_at,
                 foci_active = EXCLUDED.foci_active,
                 foci_preferred = EXCLUDED.foci_preferred,
                 application_data = EXCLUDED.application_data,
@@ -226,7 +226,7 @@ impl MatrixRTCStorage {
             r#"
             SELECT * FROM matrixrtc_memberships 
             WHERE room_id = $1 AND session_id = $2 AND is_active = true 
-              AND (expires_at IS NULL OR expires_ts > $3)
+              AND (expires_at IS NULL OR expires_at > $3)
             ORDER BY created_ts ASC
             "#,
         )
@@ -292,7 +292,7 @@ impl MatrixRTCStorage {
             r#"
             UPDATE matrixrtc_memberships 
             SET is_active = false
-            WHERE is_active = true AND expires_ts IS NOT NULL AND expires_ts < $1
+            WHERE is_active = true AND expires_at IS NOT NULL AND expires_at < $1
             "#,
         )
         .bind(now)
@@ -322,7 +322,7 @@ impl MatrixRTCStorage {
             ON CONFLICT (room_id, session_id, key_index) DO UPDATE SET
                 key = EXCLUDED.key,
                 created_ts = EXCLUDED.created_ts,
-                expires_ts = EXCLUDED.expires_at,
+                expires_at = EXCLUDED.expires_at,
                 sender_user_id = EXCLUDED.sender_user_id,
                 sender_device_id = EXCLUDED.sender_device_id
             RETURNING *

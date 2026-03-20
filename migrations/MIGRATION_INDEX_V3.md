@@ -1,7 +1,7 @@
 # 数据库迁移索引 - Migration Index
 
-> 版本: v3.1.0
-> 更新日期: 2026-03-14
+> 版本: v4.0.0
+> 更新日期: 2026-03-20
 > 项目: synapse-rust
 
 ---
@@ -14,141 +14,113 @@
 |--------|------|------|------|
 | `00000000_unified_schema_v6.sql` | 99KB | ✅ 必需 | 统一 Schema 基线，包含 129 个表定义 |
 
-### 1.2 增量迁移文件
-
-#### 2026-03-09
+### 1.2 统一迁移文件 (v4.0.0 新增)
 
 | 文件名 | 大小 | 状态 | 说明 |
 |--------|------|------|------|
-| `20260309000001_password_security_enhancement.sql` | 4KB | ✅ 必需 | 密码安全增强 |
+| `UNIFIED_MIGRATION_v1.sql` | ~60KB | ✅ 推荐 | 统一迁移脚本，合并28个增量迁移 |
 
-#### 2026-03-10
+### 1.3 增量迁移文件
 
-| 文件名 | 大小 | 状态 | 说明 |
-|--------|------|------|------|
-| `20260310000001_add_missing_e2ee_tables.sql` | - | ❌ 已删除 | 功能已合并到 unified_schema_v6.sql |
-| `20260310000002_normalize_fields_and_add_tables.sql` | - | ❌ 不存在 | 已移除 |
-| `20260310000003_fix_api_test_issues.sql` | - | ❌ 已删除 | 功能已合并到 unified_schema_v6.sql |
-| `20260310000004_create_federation_signing_keys.sql` | 1KB | ✅ 必需 | 联邦签名密钥 |
-
-#### 2026-03-11
+#### 布尔字段重命名 (2026-03-20)
 
 | 文件名 | 大小 | 状态 | 说明 |
 |--------|------|------|------|
-| `20260311000001_add_space_members_table.sql` | 2KB | ✅ 必需 | Space 成员表 |
-| `20260311000002_fix_table_structures.sql` | - | ❌ 已删除 | 功能已合并到 unified_schema_v6.sql |
-| `20260311000003_optimize_database_structure.sql` | - | ❌ 已删除 | 功能已合并到 unified_schema_v6.sql |
-| `20260311000004_fix_ip_reputation_table.sql` | 2KB | ✅ 必需 | IP 信誉表修复 |
-| `20260311000005_fix_media_quota_tables.sql` | - | ❌ 已删除 | 功能已合并到 unified_schema_v6.sql |
-| `20260311000006_add_e2ee_tables.sql` | 6KB | ✅ 必需 | E2EE 表补充 |
-| `20260311000007_fix_application_services_tables.sql` | - | ❌ 已删除 | 功能已合并到 unified_schema_v6.sql |
-| `20260311000008_fix_key_backups_constraints.sql` | 2KB | ✅ 必需 | 密钥备份约束 |
+| `20260320000001_rename_must_change_password.sql` | 1KB | ✅ 必需 | 用户表布尔字段重命名 |
+| `20260320000002_rename_olm_boolean_fields.sql` | 1KB | ✅ 必需 | Olm模型布尔字段重命名 |
 
-#### 2026-03-13
+#### 设备信任与安全备份 (2026-03-21)
 
 | 文件名 | 大小 | 状态 | 说明 |
 |--------|------|------|------|
-| `20260313000000_create_room_tags_and_password_reset_tokens.sql` | 2KB | ✅ 必需 | 房间标签/密码重置 |
-| `20260313000001_qr_login.sql` | 2KB | ✅ 必需 | QR 登录 |
-| `20260313000002_invite_blocklist.sql` | 1KB | ✅ 必需 | 邀请黑名单 |
-| `20260313000003_sticky_event.sql` | 1KB | ✅ 必需 | 粘性事件 |
+| `20260321000001_add_device_trust_tables.sql` | 2KB | ✅ 必需 | 设备信任表 |
+| `20260321000003_add_secure_backup_tables.sql` | 3KB | ✅ 必需 | 安全备份表 |
 
-#### 2026-03-14
+### 1.4 已归档迁移文件 (v4.0.0 清理)
 
-| 文件名 | 大小 | 状态 | 说明 |
-|--------|------|------|------|
-| `20260314000001_widget_support.sql` | 2KB | ✅ 必需 | Widget 支持 |
-| `20260314000002_add_performance_indexes.sql` | 3KB | ✅ 必需 | 性能索引 |
-| `20260314000003_fix_updated_at_to_updated_ts.sql` | - | ❌ 已删除 | 功能已合并到 unified_schema_v6.sql |
-| `20260314000004_fix_refresh_tokens_fields.sql` | - | ❌ 已删除 | 功能已合并到 unified_schema_v6.sql |
-| `20260314000005_fix_refresh_token_families.sql` | - | ❌ 已删除 | 功能已合并到 unified_schema_v6.sql |
+以下文件已被 `UNIFIED_MIGRATION_v1.sql` 合并，已删除：
 
-#### 2026-03-15
+| 原文件名 | 状态 | 合并说明 |
+|----------|------|----------|
+| `20260309000001_password_security_enhancement.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260310000004_create_federation_signing_keys.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260311000001_add_space_members_table.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260311000004_fix_ip_reputation_table.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260311000006_add_e2ee_tables.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260311000008_fix_key_backups_constraints.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260313000000_create_room_tags_and_password_reset_tokens.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260313000001_qr_login.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260313000002_invite_blocklist.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260313000003_sticky_event.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260314000001_widget_support.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260314000002_add_performance_indexes.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260315000002_create_admin_api_tables.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260315000003_create_feature_tables.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260315000004_fix_typing_columns.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260315000005_fix_push_constraints.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260315000005_fix_room_guest_access.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260315000006_add_events_processed_ts.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260315000006_fix_media_quota_config.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260315000006_fix_room_summaries.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260315000007_fix_media_quota_config_structure.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260315000008_fix_user_media_quota_structure.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260316000000_comprehensive_migration.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260316000001_fix_field_consistency.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260316000002_create_room_summary_state.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260317000000_add_missing_tables.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260317000001_add_verification_tables.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260318000001_add_event_relations.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260318000002_fix_push_module.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
+| `20260319000001_add_application_services.sql` | ❌ 已删除 | 已合并到 UNIFIED_MIGRATION_v1.sql |
 
-| 文件名 | 大小 | 状态 | 说明 |
-|--------|------|------|------|
-| `20260315000001_fix_field_names.sql` | 1KB | 📁 已归档 | 字段名修复 |
-| `20260315000002_create_admin_api_tables.sql` | 3KB | ✅ 必需 | Admin API 表 |
-| `20260315000003_create_feature_tables.sql` | 5KB | ✅ 必需 | 功能模块表 |
-| `20260315000004_fix_field_naming_inconsistencies.sql` | 3KB | 📁 已归档 | 字段命名一致性 |
-| `20260315000005_fix_room_guest_access.sql` | 1KB | ✅ 必需 | 房间访客访问 |
-| `20260315000006_fix_room_summaries.sql` | 3KB | ✅ 必需 | 房间摘要修复 |
-| `20260315000007_add_foreign_key_constraints.sql` | - | ❌ 已删除 | 功能已合并到 unified_schema_v6.sql |
-| `20260315000008_performance_optimization.sql` | - | ❌ 已删除 | 功能已合并到 unified_schema_v6.sql |
-
-#### 2026-03-16
-
-| 文件名 | 大小 | 状态 | 说明 |
-|--------|------|------|------|
-| `20260316000000_comprehensive_migration.sql` | 4KB | ✅ 必需 | 综合字段修复 |
-| `20260316000001_fix_field_consistency.sql` | 4KB | ✅ 必需 | 字段一致性修复 |
-
-### 1.3 统一迁移文件
-
-| 文件名 | 大小 | 状态 | 说明 |
-|--------|------|------|------|
-| `202603150000_unified_migration.sql` | 15KB | 🆕 新建 | 合并统一迁移 |
-
-### 1.4 归档文件
+### 1.5 归档目录文件
 
 | 文件名 | 状态 | 说明 |
 |--------|------|------|
-| `archive/20260313000000_unified_migration_optimized.sql` | 📁 已归档 | 重复文件 |
+| `archive/20260313000000_unified_migration_optimized.sql` | 📁 已归档 | 历史版本 |
+| `archive/20260315000001_fix_field_names.sql` | 📁 已归档 | 历史版本 |
+| `archive/20260315000004_fix_field_naming_inconsistencies.sql` | 📁 已归档 | 历史版本 |
+| `archive/202603150000_unified_migration.sql` | 📁 已归档 | 历史版本 |
 
 ---
 
 ## 二、迁移执行顺序
 
-### 2.1 新环境部署
+### 2.1 新环境部署 (推荐方式)
 
 ```bash
-# 1. 执行基础架构 (包含所有核心表定义)
+# 1. 执行基础架构
 psql -U synapse -d synapse -f migrations/00000000_unified_schema_v6.sql
 
-# 2. 按时间顺序执行增量迁移 (仅执行存在的文件)
-# 2026-03-09
-psql -U synapse -d synapse -f migrations/20260309000001_password_security_enhancement.sql
+# 2. 执行统一迁移 (合并了28个增量迁移)
+psql -U synapse -d synapse -f migrations/UNIFIED_MIGRATION_v1.sql
 
-# 2026-03-10
-psql -U synapse -d synapse -f migrations/20260310000004_create_federation_signing_keys.sql
+# 3. 执行字段重命名迁移
+psql -U synapse -d synapse -f migrations/20260320000001_rename_must_change_password.sql
+psql -U synapse -d synapse -f migrations/20260320000002_rename_olm_boolean_fields.sql
 
-# 2026-03-11
-psql -U synapse -d synapse -f migrations/20260311000001_add_space_members_table.sql
-psql -U synapse -d synapse -f migrations/20260311000004_fix_ip_reputation_table.sql
-psql -U synapse -d synapse -f migrations/20260311000006_add_e2ee_tables.sql
-psql -U synapse -d synapse -f migrations/20260311000008_fix_key_backups_constraints.sql
-
-# 2026-03-13
-psql -U synapse -d synapse -f migrations/20260313000000_create_room_tags_and_password_reset_tokens.sql
-psql -U synapse -d synapse -f migrations/20260313000001_qr_login.sql
-psql -U synapse -d synapse -f migrations/20260313000002_invite_blocklist.sql
-psql -U synapse -d synapse -f migrations/20260313000003_sticky_event.sql
-
-# 2026-03-14
-psql -U synapse -d synapse -f migrations/20260314000001_widget_support.sql
-psql -U synapse -d synapse -f migrations/20260314000002_add_performance_indexes.sql
-
-# 2026-03-15
-psql -U synapse -d synapse -f migrations/20260315000002_create_admin_api_tables.sql
-psql -U synapse -d synapse -f migrations/20260315000003_create_feature_tables.sql
-psql -U synapse -d synapse -f migrations/20260315000005_fix_room_guest_access.sql
-psql -U synapse -d synapse -f migrations/20260315000006_fix_room_summaries.sql
-
-# 2026-03-16 (字段一致性修复)
-psql -U synapse -d synapse -f migrations/20260316000000_comprehensive_migration.sql
-psql -U synapse -d synapse -f migrations/20260316000001_fix_field_consistency.sql
+# 4. 执行新增功能迁移
+psql -U synapse -d synapse -f migrations/20260321000001_add_device_trust_tables.sql
+psql -U synapse -d synapse -f migrations/20260321000003_add_secure_backup_tables.sql
 ```
 
 ### 2.2 现有环境升级
 
 ```bash
 # 只执行新增的迁移
-psql -U synapse -d synapse -f migrations/20260316000001_fix_field_consistency.sql
+psql -U synapse -d synapse -f migrations/20260321000001_add_device_trust_tables.sql
+psql -U synapse -d synapse -f migrations/20260321000003_add_secure_backup_tables.sql
 ```
 
 ---
 
 ## 三、版本历史
+
+### v4.0.0 (2026-03-20)
+- 删除28个已被统一迁移合并的冗余脚本
+- 新增 UNIFIED_MIGRATION_v1.sql 统一迁移脚本
+- 更新迁移执行顺序为推荐方式
+- 清理迁移索引，标记已删除文件
 
 ### v3.1.0 (2026-03-14)
 - 删除已合并到 unified_schema_v6.sql 的冗余迁移文件
@@ -172,18 +144,18 @@ psql -U synapse -d synapse -f migrations/20260316000001_fix_field_consistency.sq
 
 ## 四、回滚方案
 
-### 4.1 单个迁移回滚
+### 4.1 统一迁移回滚
 
-每个迁移文件都有对应的回滚逻辑：
+由于统一迁移是幂等的，可以选择性回滚特定部分：
 
 ```sql
--- 示例：回滚外键约束
+-- 回滚外键约束
 ALTER TABLE devices DROP CONSTRAINT IF EXISTS fk_devices_user;
 
--- 示例：回滚字段修改
+-- 回滚字段修改
 ALTER TABLE some_table RENAME COLUMN new_field TO old_field;
 
--- 示例：回滚索引
+-- 回滚索引
 DROP INDEX IF EXISTS idx_new_index;
 ```
 
@@ -191,7 +163,7 @@ DROP INDEX IF EXISTS idx_new_index;
 
 ```bash
 # 恢复到备份
-pg_restore -d synapse backup_20260314.dump
+pg_restore -d synapse backup_20260320.dump
 ```
 
 ---
@@ -202,18 +174,21 @@ pg_restore -d synapse backup_20260314.dump
 
 ```sql
 -- 检查表数量
-SELECT COUNT(*) FROM information_schema.tables 
+SELECT COUNT(*) FROM information_schema.tables
 WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
--- 预期: 129
+-- 预期: 129+
 
 -- 检查外键数量
-SELECT COUNT(*) FROM information_schema.table_constraints 
+SELECT COUNT(*) FROM information_schema.table_constraints
 WHERE constraint_type = 'FOREIGN KEY';
 -- 预期: 95+
 
 -- 检查索引数量
 SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public';
 -- 预期: 200+
+
+-- 检查迁移记录
+SELECT * FROM schema_migrations ORDER BY executed_at DESC LIMIT 10;
 ```
 
 ### 5.2 字段检查
@@ -222,3 +197,11 @@ SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public';
 # 运行健康检查
 bash scripts/db_health_check.sh
 ```
+
+---
+
+## 六、相关文档
+
+- [MIGRATION_CONSOLIDATION_PLAN.md](./MIGRATION_CONSOLIDATION_PLAN.md) - 迁移合并计划
+- [MIGRATION_IMPLEMENTATION_GUIDE.md](./MIGRATION_IMPLEMENTATION_GUIDE.md) - 实施指南
+- [DATABASE_FIELD_STANDARDS.md](./DATABASE_FIELD_STANDARDS.md) - 字段规范

@@ -99,6 +99,49 @@ pub async fn delete_devices(
     Ok(Json(json!({})))
 }
 
+pub async fn get_device_list_updates(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let users = body
+        .get("users")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| ApiError::bad_request("Missing users array".to_string()))?
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect::<Vec<String>>();
+
+    let mut changed: Vec<Value> = Vec::new();
+    let mut left: Vec<String> = Vec::new();
+
+    for user_id in &users {
+        let devices = state.services.device_storage.get_user_devices(user_id).await
+            .map_err(|e| ApiError::internal(format!("Failed to get devices: {}", e)))?;
+
+        if devices.is_empty() {
+            left.push(user_id.clone());
+        } else {
+            for device in devices {
+                changed.push(json!({
+                    "user_id": user_id,
+                    "device_id": device.device_id,
+                    "device_data": {
+                        "display_name": device.display_name,
+                        "last_seen_ts": device.last_seen_ts,
+                        "last_seen_ip": device.last_seen_ip,
+                    }
+                }));
+            }
+        }
+    }
+
+    Ok(Json(json!({
+        "changed": changed,
+        "left": left
+    })))
+}
+
 pub fn create_device_router() -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/r0/devices", get(get_devices))
@@ -107,4 +150,6 @@ pub fn create_device_router() -> Router<AppState> {
         .route("/_matrix/client/v3/delete_devices", post(delete_devices))
         .route("/_matrix/client/r0/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
         .route("/_matrix/client/v3/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
+        .route("/_matrix/client/r0/keys/device_list_updates", post(get_device_list_updates))
+        .route("/_matrix/client/v3/keys/device_list_updates", post(get_device_list_updates))
 }

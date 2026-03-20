@@ -576,7 +576,7 @@ impl SyncService {
             SELECT event_type, user_id, content
             FROM room_ephemeral
             WHERE room_id = $1
-            AND (expires_ts IS NULL OR expires_ts > $2)
+            AND (expires_at IS NULL OR expires_at > $2)
             ORDER BY stream_id DESC
             LIMIT 50
             "#,

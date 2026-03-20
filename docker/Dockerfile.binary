@@ -1,40 +1,62 @@
+# ============================================================================
+# Synapse Rust Dockerfile - Binary Deployment
+# ============================================================================
+# 用于在 Docker 环境中部署编译好的 synapse-rust 二进制文件
+#
+# 使用方法:
+#   构建: docker build -f Dockerfile.binary -t synapse-rust:v3.0 .
+#   运行: docker run -d --name synapse-rust -p 8008:8008 synapse-rust:v3.0
+# ============================================================================
+
 FROM debian:bookworm-slim
+
+# 防止交互式提示
+ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
+# 安装运行时依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
-    postgresql-client \
     curl \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
+# 创建非 root 用户
 RUN useradd -r -s /bin/false synapse && \
-    mkdir -p /app/logs/migrations /app/data /app/scripts /app/migrations && \
+    mkdir -p /app/logs /app/data /app/config /app/scripts /app/migrations && \
     chown -R synapse:synapse /app
 
-COPY target/release/synapse-rust /app/synapse-rust
-COPY migrations/ /app/migrations/
-COPY scripts/db_migrate.sh /app/scripts/
-COPY scripts/verify_migration.sh /app/scripts/
-COPY scripts/docker-entrypoint.sh /app/scripts/
-COPY docker/run-migrations.sh /app/scripts/
+# 复制二进制文件
+COPY --chmod=755 synapse-rust /app/synapse-rust
 
-RUN chmod +x /app/scripts/*.sh /app/synapse-rust && \
-    chmod -R 755 /app/migrations
+# 复制迁移脚本
+COPY --chmod=755 run-migrations.sh /app/scripts/
+COPY --chmod=755 healthcheck.sh /app/scripts/
 
-ENV DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
-ENV RUN_MIGRATIONS=true
-ENV VERIFY_MIGRATIONS=true
-ENV DB_WAIT_ATTEMPTS=30
+# 复制配置示例（用户需要绑定挂载实际配置）
+COPY --chmod=644 config/homeserver.yaml /app/config/homeserver.yaml.example
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8008/health || exit 1
+# 设置权限
+RUN chmod -R 755 /app/scripts && \
+    chmod -R 644 /app/config
 
+# 环境变量
+ENV SERVER_NAME=cjystx.top
+ENV RUST_LOG=info
+ENV CORS_ORIGIN_PATTERN=.*
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8008/_matrix/client/versions || exit 1
+
+# 端口
 EXPOSE 8008 8448
 
+# 切换到非 root 用户
 USER synapse
 
-ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
-CMD ["/app/synapse-rust"]
+# 入口点 - 使用 exec 模式确保信号正确处理
+ENTRYPOINT ["/app/synapse-rust"]
+CMD []
