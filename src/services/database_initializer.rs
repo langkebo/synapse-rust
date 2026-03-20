@@ -873,6 +873,12 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
+        // Ensure rooms table has guest_access column (for RoomSummary compatibility)
+        // Note: rooms table has has_guest_access BOOLEAN, but room_summaries uses guest_access VARCHAR
+        sqlx::query("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS guest_access VARCHAR(50) DEFAULT 'forbidden'")
+            .execute(&*self.pool)
+            .await?;
+
         // Ensure refresh_tokens table has expires_at column
         sqlx::query("ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS expires_at BIGINT")
             .execute(&*self.pool)
