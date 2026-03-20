@@ -1,43 +1,39 @@
-server_name: "cjystx.top"
+# ============================================================================
+# Synapse Rust Homeserver Configuration
+# ============================================================================
 
 server:
   name: "cjystx.top"
   host: "0.0.0.0"
   port: 8008
-  http_port: 8008
-  https_port: 8448
-  bind_address: "0.0.0.0"
-  public_baseurl: "https://matrix.cjystx.top"
+  public_baseurl: "https://cjystx.top:8443"
   signing_key_path: "/app/data/signing.key"
-  macaroon_secret_key: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
-  form_secret: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
-  registration_shared_secret: "test_shared_secret"
-  max_upload_size: 104857600
-  max_image_resolution: 1920
+  server_name: "cjystx.top"
+  max_upload_size: 10485760
+  max_image_resolution: 8000000
   enable_registration: true
   enable_registration_captcha: false
-  background_tasks_interval: 3600
+  background_tasks_interval: 300
   expire_access_token: false
   expire_access_token_lifetime: 86400
   refresh_token_lifetime: 604800
-  refresh_token_sliding_window_size: 2592000
-  # Sessions API 配置
-  session_duration: 86400
+  refresh_token_sliding_window_size: 3600
+  session_duration: 86400000
   warmup_pool: true
 
 database:
-  host: "db"
+  host: "synapse-postgres"
   port: 5432
   username: "synapse"
   password: "synapse"
   name: "synapse"
-  pool_size: 10
-  max_size: 20
-  min_idle: 2
+  pool_size: 20
+  max_size: 50
+  min_idle: 5
   connection_timeout: 30
 
 redis:
-  host: "redis"
+  host: "synapse-redis"
   port: 6379
   key_prefix: "synapse:"
   pool_size: 10
@@ -49,6 +45,10 @@ logging:
   level: "info"
   format: "text"
 
+search:
+  enabled: false
+  elasticsearch_url: "http://localhost:9200"
+
 federation:
   enabled: true
   allow_ingress: true
@@ -59,61 +59,53 @@ federation:
 
 security:
   secret: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
-  expiry_time: 3600
+  expiry_time: 86400
   refresh_token_expiry: 604800
+  argon2_m_cost: 65536
+  argon2_t_cost: 3
+  argon2_p_cost: 4
+  allow_legacy_hashes: false
+  login_failure_lockout_threshold: 5
+  login_lockout_duration_seconds: 300
 
-# Identity Server 配置 - 使用 Matrix.org 公共服务
-identity_server_url: "https://vector.im"
-
-search:
-  elasticsearch_url: "http://localhost:9200"
-  enabled: false
-
-rate_limit:
-  enabled: false
-
-admin_registration:
+registration:
   enabled: true
-  secret: "admin_secret_key"
-  shared_secret: "admin_secret_key"
+  enable_registration_captcha: false
+  session_duration: 86400000
 
 worker:
   enabled: false
 
 cors:
-  allowed_origins: ["*"]
+  allowed_origins:
+    - "*"
   allow_credentials: true
-  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-  allowed_headers: ["*"]
+  allowed_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "OPTIONS"
+  allowed_headers:
+    - "*"
   max_age_seconds: 3600
 
-smtp:
+rate_limit:
   enabled: false
 
-# VoIP/TURN 配置 - 使用 Matrix.org 公共服务
+identity_server_url: "https://vector.im"
+
 voip:
   enabled: true
-  turn_uris:
-    - "turn:vector.im:3478"
-  turn_username: "matrix"
-  turn_password: "matrix"
-
-push:
-  enabled: false
+  stun_uris:
+    - "stun:stun.l.google.com:19302"
 
 url_preview:
   enabled: false
 
-oidc:
-  enabled: false
-  issuer: "https://localhost"
-  client_id: "synapse"
-  scopes: ["openid", "profile", "email"]
-
-saml:
+push:
   enabled: false
 
-# Retention 配置
 retention:
   enabled: true
   default_policy:
@@ -123,22 +115,20 @@ retention:
 telemetry:
   enabled: false
   service_name: "synapse-rust"
-  service_version: "0.1.0"
+  service_version: "6.0.4"
   service_namespace: "matrix"
   trace_enabled: false
   metrics_enabled: false
   logs_enabled: false
+  otlp_endpoint: null
+  otlp_headers: null
   sampling_ratio: 1.0
   batch_export: true
   export_timeout_seconds: 30
   max_queue_size: 2048
   max_export_batch_size: 512
   scheduled_delay_millis: 5000
-
-jaeger:
-  enabled: false
-  service_name: "synapse-rust"
-  sampling_rate: 1.0
+  resource_attributes: null
 
 prometheus:
   enabled: false
@@ -146,24 +136,6 @@ prometheus:
   path: "/metrics"
   include_namespace: true
 
-# Bridges 配置 - 使用 Matrix.org 公共服务
-bridges:
-  # Telegram Bridge
-  telegram:
-    enabled: true
-    api_id: "YOUR_API_ID"
-    api_hash: "YOUR_API_HASH"
-    bot_token: "YOUR_BOT_TOKEN"
-  
-  # IRC Bridge (可选)
-  irc:
-    enabled: false
-    servers:
-      - address: "irc.libera.chat"
-        ports: [6697]
-        tls: true
-
-# App Service 配置 - 准备对接 OpenClaw
 app_service:
   enabled: true
   appservice:
@@ -172,8 +144,9 @@ app_service:
       as_token: "openclaw_as_token_change_this"
       hs_token: "openclaw_hs_token_change_this"
       sender_localpart: "openclaw"
-      names:
-        - "OpenClaw Bot"
+      rate_limited: false
+      protocols:
+        - "openclaw"
       namespaces:
         users:
           - exclusive: true
@@ -181,3 +154,6 @@ app_service:
         rooms:
           - exclusive: false
             regex: "!openclaw_.*:cjystx.top"
+        aliases:
+          - exclusive: false
+            regex: "#openclaw_.*:cjystx.top"

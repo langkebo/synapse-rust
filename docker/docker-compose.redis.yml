@@ -1,0 +1,53 @@
+# ============================================================================
+# Synapse Rust - Redis Only
+# ============================================================================
+# 只启动 Redis，PostgreSQL 使用 macOS 本地安装
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # Redis - Cache & Session Store
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:${REDIS_VERSION:-7}-alpine
+    container_name: synapse-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory ${REDIS_MAX_MEMORY:-256mb}
+      --maxmemory-policy ${REDIS_EVICTION_POLICY:-allkeys-lru}
+      --save 60 1000
+      --save 300 100
+      --save 900 1
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_EXPOSE_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - synapse_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+# --------------------------------------------------------------------------
+# Volumes
+# --------------------------------------------------------------------------
+volumes:
+  redis_data:
+    driver: local
+
+# --------------------------------------------------------------------------
+# Networks
+# --------------------------------------------------------------------------
+networks:
+  synapse_network:
+    driver: bridge

@@ -1,39 +1,30 @@
 # ============================================================================
-# Synapse Rust Docker Compose Configuration - Production
+# Synapse Rust Docker Compose Configuration
 # ============================================================================
+# 用于本地开发和生产部署
+#
 # 使用方法:
 #   首次部署:
 #     cd docker
 #     cp config/.env.example .env
-#     # 编辑 .env 填写实际配置
-#     docker compose -f docker-compose.yml up -d
+#     docker compose up -d
 #
 #   日常运维:
-#     docker compose up -d           # 启动服务
-#     docker compose down           # 停止服务
-#     docker compose logs -f        # 查看日志
-#     docker compose ps             # 查看状态
-#     docker compose restart        # 重启服务
-#
-#   数据库迁移:
-#     docker compose exec synapse-rust bash /app/scripts/run-migrations.sh
-#
-#   扩展workers:
-#     docker compose -f docker-compose.yml -f docker-compose.workers.yml up -d
+#     docker compose up -d        # 启动
+#     docker compose down          # 停止
+#     docker compose logs -f       # 查看日志
+#     docker compose restart       # 重启
 # ============================================================================
 
 services:
-  # ==========================================================================
+  # --------------------------------------------------------------------------
   # Synapse Rust - Matrix Homeserver
-  # ==========================================================================
+  # --------------------------------------------------------------------------
   synapse-rust:
-    image: synapse-rust:${IMAGE_TAG:-latest}
+    image: synapse-rust:${IMAGE_TAG:-v3.0}
     build:
       context: ..
-      dockerfile: docker/Dockerfile
-      args:
-        SERVER_NAME: ${SERVER_NAME:-cjystx.top}
-        RUST_VERSION: ${RUST_VERSION:-1.88}
+      dockerfile: docker/Dockerfile.binary
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-rust
     restart: unless-stopped
     networks:
@@ -41,80 +32,74 @@ services:
     ports:
       - "${SYNAPSE_PORT:-8008}:8008"
       - "${FEDERATION_PORT:-8448}:8448"
-      - "${METRICS_PORT:-9090}:9090"
     environment:
       # 基础配置
       - RUST_LOG=${RUST_LOG:-info}
-      - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
       - TZ=${TZ:-Asia/Shanghai}
-      
+
       # 服务器配置
       - SERVER_NAME=${SERVER_NAME:-cjystx.top}
-      - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
-      
+
       # 安全配置
-      - SECRET_KEY=${SECRET_KEY}
-      - MACAROON_SECRET=${MACAROON_SECRET}
-      - FORM_SECRET=${FORM_SECRET}
-      - REGISTRATION_SECRET=${REGISTRATION_SECRET}
-      - ADMIN_SECRET=${ADMIN_SECRET}
-      - FEDERATION_SIGNING_KEY=${FEDERATION_SIGNING_KEY}
-      
+      - SECRET_KEY=${SECRET_KEY:-e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d}
+      - MACAROON_SECRET=${MACAROON_SECRET:-e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d}
+      - FORM_SECRET=${FORM_SECRET:-e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d}
+      - REGISTRATION_SECRET=${REGISTRATION_SECRET:-test_shared_secret}
+      - ADMIN_SECRET=${ADMIN_SECRET:-admin_secret_key}
+
       # CORS 配置
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
       - CORS_ORIGIN_PATTERN=${CORS_ORIGIN_PATTERN:-.*}
-      
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+
       # 数据库配置
       - DATABASE_URL=postgres://${DB_USER:-synapse}:${DB_PASSWORD:-synapse}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${DB_NAME:-synapse}
       - DB_POOL_SIZE=${DB_POOL_SIZE:-20}
       - DB_MAX_SIZE=${DB_MAX_SIZE:-50}
-      - DB_MIN_IDLE=${DB_MIN_IDLE:-10}
+      - DB_MIN_IDLE=${DB_MIN_IDLE:-5}
       - DB_CONNECTION_TIMEOUT=${DB_CONNECTION_TIMEOUT:-30}
-      
+
       # Redis 配置
       - REDIS_URL=redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}
       - REDIS_KEY_PREFIX=${REDIS_KEY_PREFIX:-synapse:}
-      - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-20}
+      - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-10}
       - REDIS_ENABLED=${REDIS_ENABLED:-true}
-      
+
       # 迁移配置
       - RUN_MIGRATIONS=${RUN_MIGRATIONS:-true}
-      - VERIFY_SCHEMA=${VERIFY_SCHEMA:-true}
-      - MIGRATION_TIMEOUT=${MIGRATION_TIMEOUT:-300}
+      - VERIFY_MIGRATIONS=${VERIFY_MIGRATIONS:-true}
       - DB_WAIT_ATTEMPTS=${DB_WAIT_ATTEMPTS:-30}
       - DB_WAIT_INTERVAL=${DB_WAIT_INTERVAL:-2}
-      - STOP_ON_MIGRATION_FAILURE=${STOP_ON_MIGRATION_FAILURE:-true}
-      
+      - STOP_ON_MIGRATION_FAILURE=${STOP_ON_MIGRATION_FAILURE:-false}
+
       # 日志配置
       - LOG_FORMAT=${LOG_FORMAT:-text}
-      - LOG_DIR=/app/logs
-      
-      # Worker 配置
-      - WORKER_MODE=${WORKER_MODE:-single}
-      - WORKER_COUNT=${WORKER_COUNT:-1}
+
     volumes:
       - synapse_data:/app/data
       - synapse_logs:/app/logs
       - ./config/homeserver.yaml:/app/config/homeserver.yaml:ro
+
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+
     healthcheck:
-      test: ["CMD", "bash", "/app/scripts/healthcheck.sh"]
+      test: ["CMD", "curl", "-f", "http://localhost:8008/_matrix/client/versions"]
       interval: 30s
-      timeout: 15s
+      timeout: 10s
       retries: 5
-      start_period: 90s
+      start_period: 30s
+
     security_opt:
       - no-new-privileges:true
+
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
-    tmpfs:
-      - /tmp:size=100M,mode=1777
+
     deploy:
       resources:
         limits:
@@ -126,15 +111,16 @@ services:
         delay: 5s
         max_attempts: 3
         window: 120s
+
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "5"
 
-  # ==========================================================================
+  # --------------------------------------------------------------------------
   # PostgreSQL - Primary Database
-  # ==========================================================================
+  # --------------------------------------------------------------------------
   db:
     image: postgres:${POSTGRES_VERSION:-16}-alpine
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-postgres
@@ -145,8 +131,6 @@ services:
       - POSTGRES_DB=${DB_NAME:-synapse}
       - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
       - TZ=${TZ:-Asia/Shanghai}
-      - POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS:-100}
-      - POSTGRES_SHARED_BUFFERS=${POSTGRES_SHARED_BUFFERS:-256MB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./config/postgres.conf:/etc/postgresql/postgresql.conf:ro
@@ -181,19 +165,15 @@ services:
       -c max_connections=${POSTGRES_MAX_CONNECTIONS:-100}
       -c random_page_cost=1.1
       -c effective_io_concurrency=200
-      -c checkpoint_timeout=${POSTGRES_CHECKPOINT_TIMEOUT:-30min}
-      -c max_wal_size=${POSTGRES_MAX_WAL_SIZE:-512MB}
-      -c min_wal_size=${POSTGRES_MIN_WAL_SIZE:-64MB}
-      -c log_min_duration_statement=1000
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "5"
 
-  # ==========================================================================
+  # --------------------------------------------------------------------------
   # Redis - Cache & Session Store
-  # ==========================================================================
+  # --------------------------------------------------------------------------
   redis:
     image: redis:${REDIS_VERSION:-7}-alpine
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-redis
@@ -206,9 +186,6 @@ services:
       --save 60 1000
       --save 300 100
       --save 900 1
-      --tcp-backlog 511
-      --timeout 0
-      --tcp-keepalive 300
     volumes:
       - redis_data:/data
     ports:
@@ -238,9 +215,9 @@ services:
         max-size: "5m"
         max-file: "3"
 
-# ============================================================================
+# --------------------------------------------------------------------------
 # Volumes
-# ============================================================================
+# --------------------------------------------------------------------------
 volumes:
   postgres_data:
     driver: local
@@ -251,14 +228,10 @@ volumes:
   synapse_logs:
     driver: local
 
-# ============================================================================
+# --------------------------------------------------------------------------
 # Networks
-# ============================================================================
+# --------------------------------------------------------------------------
 networks:
   synapse_network:
     driver: bridge
     name: ${COMPOSE_PROJECT_NAME:-synapse}_network
-    ipam:
-      driver: default
-      config:
-        - subnet: ${NETWORK_SUBNET:-172.28.0.0/16}

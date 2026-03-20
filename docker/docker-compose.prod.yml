@@ -1,0 +1,136 @@
+# ============================================================================
+# Synapse Rust Docker Compose - 使用预构建镜像部署
+# ============================================================================
+# 用于从 Docker Hub 拉取镜像部署 (vmuser232922/synapse-rust:v3.1)
+#
+# 使用方法:
+#   首次部署:
+#     docker compose -f docker/docker-compose.prod.yml up -d
+#
+#   查看日志:
+#     docker compose -f docker/docker-compose.prod.yml logs -f
+#
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # Synapse Rust - Matrix Homeserver
+  # --------------------------------------------------------------------------
+  synapse-rust:
+    image: vmuser232922/synapse-rust:v3.1
+    container_name: synapse-rust
+    restart: unless-stopped
+    networks:
+      - synapse_network
+    ports:
+      - "8008:8008"
+      - "8448:8448"
+    environment:
+      - RUST_LOG=info
+      - TZ=Asia/Shanghai
+      - SERVER_NAME=cjystx.top
+      - DATABASE_URL=postgres://synapse:synapse@synapse-postgres:5432/synapse
+      - DB_POOL_SIZE=20
+      - DB_MAX_SIZE=50
+      - REDIS_URL=redis://synapse-redis:6379
+      - REDIS_KEY_PREFIX=synapse:
+      - REDIS_ENABLED=true
+    volumes:
+      - synapse_data:/app/data
+      - synapse_logs:/app/logs
+    depends_on:
+      synapse-postgres:
+        condition: service_healthy
+      synapse-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/_matrix/client/versions"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # --------------------------------------------------------------------------
+  # PostgreSQL - Primary Database
+  # --------------------------------------------------------------------------
+  synapse-postgres:
+    image: postgres:16-alpine
+    container_name: synapse-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=synapse
+      - POSTGRES_PASSWORD=synapse
+      - POSTGRES_DB=synapse
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse -d synapse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - synapse_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # --------------------------------------------------------------------------
+  # Redis - Cache & Session Store
+  # --------------------------------------------------------------------------
+  synapse-redis:
+    image: redis:7-alpine
+    container_name: synapse-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - synapse_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+# --------------------------------------------------------------------------
+# Volumes
+# --------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  synapse_data:
+    driver: local
+  synapse_logs:
+    driver: local
+
+# --------------------------------------------------------------------------
+# Networks
+# --------------------------------------------------------------------------
+networks:
+  synapse_network:
+    driver: bridge

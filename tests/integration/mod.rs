@@ -16,6 +16,9 @@ mod regex_cache_tests;
 mod transaction_tests;
 mod voice_routes_tests;
 
+#[cfg(test)]
+mod coverage_tests;
+
 use std::sync::Arc;
 use synapse_rust::services::DatabaseInitService;
 

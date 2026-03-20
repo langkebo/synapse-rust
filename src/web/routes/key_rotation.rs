@@ -120,7 +120,7 @@ pub async fn revoke_old_keys(
         .await;
 
         if let Ok(r) = result {
-            revoked_count += r.rows_affected() as u64;
+            revoked_count += r.rows_affected();
         }
     }
 

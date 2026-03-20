@@ -117,6 +117,10 @@ impl KeyBackupService {
         Ok(())
     }
 
+    pub async fn list_backups(&self, user_id: &str) -> Result<Vec<KeyBackup>, ApiError> {
+        self.storage.get_all_backup_versions(user_id).await
+    }
+
     pub async fn upload_backup_key(&self, params: BackupKeyUploadParams) -> Result<(), ApiError> {
         let backup = self
             .storage

@@ -61,10 +61,14 @@ pub struct ServiceContainer {
     pub cross_signing_service: CrossSigningService,
     /// 密钥备份服务
     pub backup_service: KeyBackupService,
+    /// 安全密钥备份服务 (E2EE Phase 3)
+    pub secure_backup_service: crate::e2ee::secure_backup::SecureBackupService,
     /// 设备间消息服务
     pub to_device_service: ToDeviceService,
     /// 设备验证服务 (SAS/QR)
     pub verification_service: VerificationService,
+    /// 设备信任服务 (E2EE Phase 1)
+    pub device_trust_service: crate::e2ee::device_trust::DeviceTrustService,
     /// 语音消息服务
     pub voice_service: VoiceService,
     /// 注册服务
@@ -245,6 +249,10 @@ impl ServiceContainer {
         let cross_signing_service = CrossSigningService::new(cross_signing_storage);
         let key_backup_storage = crate::e2ee::backup::KeyBackupStorage::new(pool);
         let backup_service = KeyBackupService::new(key_backup_storage);
+        
+        // E2EE Phase 3: Initialize secure backup service
+        let secure_backup_service = crate::e2ee::secure_backup::SecureBackupService::new(pool);
+        
         let to_device_storage = crate::e2ee::to_device::ToDeviceStorage::new(pool);
         let user_storage = UserStorage::new(pool, cache.clone());
         let to_device_service =
@@ -253,6 +261,15 @@ impl ServiceContainer {
         // 初始化 verification 服务
         let verification_storage = crate::e2ee::verification::VerificationStorage::new(pool);
         let verification_service = VerificationService::new(std::sync::Arc::new(verification_storage));
+        
+        // E2EE Phase 1: 初始化 device trust 服务
+        let device_trust_storage = crate::e2ee::device_trust::DeviceTrustStorage::new(pool);
+        let device_trust_service = crate::e2ee::device_trust::DeviceTrustService::new(
+            std::sync::Arc::new(device_trust_storage),
+            std::sync::Arc::new(verification_service.clone()),
+            std::sync::Arc::new(cross_signing_service.clone()),
+            std::sync::Arc::new(device_keys_service.clone()),
+        );
         
         let presence_service = PresenceStorage::new(presence_pool.clone(), cache.clone());
         let voice_service = VoiceService::new(pool, cache.clone(), "/app/data/media/voice");
@@ -494,8 +511,10 @@ impl ServiceContainer {
             megolm_service,
             cross_signing_service,
             backup_service,
+            secure_backup_service,
             to_device_service,
             verification_service,
+            device_trust_service,
             voice_service,
             registration_service,
             room_service,

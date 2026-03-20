@@ -1,25 +1,28 @@
-# 多阶段构建：在 Docker 内编译 Rust 项目
-# 阶段 1：编译
-FROM rust:1.93-bookworm AS builder
+# ============================================================================
+# Synapse Rust Dockerfile - Multi-stage Build with Rust 1.93
+# ============================================================================
+# 在 Docker 容器内编译 Linux amd64 二进制
+# ============================================================================
+
+# 阶段 1: Rust 编译环境 (Rust 1.93)
+FROM rust:1.93-slim-bookworm AS builder
 
 WORKDIR /build
 
-# 安装编译依赖
-RUN apt-get update && apt-get install -y \
-    libssl-dev \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libc6-dev \
     pkg-config \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制源代码
 COPY Cargo.toml Cargo.lock ./
-COPY src ./src
-COPY migrations ./migrations
-COPY benches ./benches
+COPY src/ ./src/
 
-# 编译项目
-RUN cargo build --release
+RUN cargo build --release --target x86_64-unknown-linux-gnu
 
-# 阶段 2：运行
+# 阶段 2: 运行时镜像
 FROM debian:bookworm-slim
 
 WORKDIR /app
@@ -27,37 +30,37 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
-    postgresql-client \
     curl \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 RUN useradd -r -s /bin/false synapse && \
-    mkdir -p /app/logs/migrations /app/data /app/scripts /app/migrations && \
+    mkdir -p /app/logs /app/data /app/scripts /app/migrations && \
     chown -R synapse:synapse /app
 
-# 从 builder 阶段复制编译好的二进制
-COPY --from=builder /build/target/release/synapse-rust /app/synapse-rust
-COPY migrations/ /app/migrations/
-COPY scripts/db_migrate.sh /app/scripts/
-COPY scripts/verify_migration.sh /app/scripts/
-COPY scripts/docker-entrypoint.sh /app/scripts/
+# 从编译阶段复制二进制
+COPY --from=builder /build/target/x86_64-unknown-linux-gnu/release/synapse-rust /app/synapse-rust
+
+# 复制脚本
 COPY docker/run-migrations.sh /app/scripts/
+COPY docker/healthcheck.sh /app/scripts/
 
-RUN chmod +x /app/scripts/*.sh /app/synapse-rust && \
-    chmod -R 755 /app/migrations
+# 复制配置到正确位置 /app/homeserver.yaml
+COPY docker/config/homeserver.yaml /app/homeserver.yaml
 
-ENV DATABASE_URL=postgres://synapse:synapse@db:5432/synapse_test
-ENV RUN_MIGRATIONS=true
-ENV VERIFY_MIGRATIONS=true
-ENV DB_WAIT_ATTEMPTS=30
+# 复制迁移文件
+COPY migrations/ /app/migrations/
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8008/health || exit 1
+ENV SERVER_NAME=cjystx.top
+ENV RUST_LOG=info
+ENV CORS_ORIGIN_PATTERN=.*
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8008/_matrix/client/versions || exit 1
 
 EXPOSE 8008 8448
 
 USER synapse
 
-ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
-CMD ["/app/synapse-rust"]
+ENTRYPOINT ["/app/synapse-rust"]
+CMD []
