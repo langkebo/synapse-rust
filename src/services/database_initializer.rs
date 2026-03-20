@@ -281,17 +281,29 @@ impl DatabaseInitService {
     async fn ensure_schema_migrations_table(&self) -> Result<(), sqlx::Error> {
         let create_table_sql = r#"
             CREATE TABLE IF NOT EXISTS schema_migrations (
-                version VARCHAR(255) PRIMARY KEY,
-                checksum VARCHAR(64),
-                executed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                id BIGSERIAL PRIMARY KEY,
+                version TEXT NOT NULL,
+                name TEXT,
+                checksum TEXT,
+                applied_ts BIGINT,
                 execution_time_ms BIGINT,
                 success BOOLEAN NOT NULL DEFAULT TRUE,
-                error_message TEXT,
-                description TEXT
+                description TEXT,
+                executed_at TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT uq_schema_migrations_version UNIQUE (version)
             )
         "#;
 
         sqlx::raw_sql(create_table_sql).execute(&*self.pool).await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
         info!("schema_migrations 表已就绪");
         Ok(())
     }
@@ -313,17 +325,20 @@ impl DatabaseInitService {
         execution_time_ms: i64,
         success: bool,
     ) -> Result<(), sqlx::Error> {
+        let now_ts = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            r#"INSERT INTO schema_migrations (version, checksum, execution_time_ms, success)
-               VALUES ($1, $2, $3, $4)
+            r#"INSERT INTO schema_migrations (version, checksum, applied_ts, execution_time_ms, success)
+               VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT (version) DO UPDATE SET
                    checksum = EXCLUDED.checksum,
+                   applied_ts = EXCLUDED.applied_ts,
                    executed_at = NOW(),
                    execution_time_ms = EXCLUDED.execution_time_ms,
                    success = EXCLUDED.success"#,
         )
         .bind(version)
         .bind(checksum)
+        .bind(now_ts)
         .bind(execution_time_ms)
         .bind(success)
         .execute(&*self.pool)
@@ -617,24 +632,22 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS device_keys (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                user_id VARCHAR(255) NOT NULL,
-                device_id VARCHAR(255) NOT NULL,
-                display_name VARCHAR(255),
-                algorithm VARCHAR(100),
-                key_id VARCHAR(255) NOT NULL,
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                algorithm TEXT NOT NULL,
+                key_id TEXT NOT NULL,
                 public_key TEXT NOT NULL,
+                key_data TEXT,
                 signatures JSONB,
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                updated_ts TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                ts_updated_ms BIGINT NOT NULL,
-                key_json JSONB NOT NULL DEFAULT '{}',
-                ts_added_ms BIGINT NOT NULL,
-                ts_last_accessed BIGINT NOT NULL,
+                added_ts BIGINT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT,
+                ts_updated_ms BIGINT,
                 is_verified BOOLEAN DEFAULT FALSE,
                 is_blocked BOOLEAN DEFAULT FALSE,
-                UNIQUE (user_id, device_id, key_id),
-                FOREIGN KEY (device_id, user_id) REFERENCES devices(device_id, user_id) ON DELETE CASCADE
+                display_name TEXT,
+                CONSTRAINT uq_device_keys_user_device_key UNIQUE (user_id, device_id, key_id)
             )
             "#,
         )
@@ -643,39 +656,7 @@ impl DatabaseInitService {
 
         sqlx::query(
             r#"
-            CREATE INDEX IF NOT EXISTS idx_device_keys_user ON device_keys(user_id)
-            "#,
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_device_keys_device ON device_keys(device_id)
-            "#,
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_device_keys_key_id ON device_keys(key_id)
-            "#,
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_device_keys_verified ON device_keys(is_verified) WHERE is_verified = TRUE
-            "#,
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_device_keys_ts ON device_keys(ts_last_accessed)
+            CREATE INDEX IF NOT EXISTS idx_device_keys_user_device ON device_keys(user_id, device_id)
             "#,
         )
         .execute(&*self.pool)
@@ -709,10 +690,11 @@ impl DatabaseInitService {
                 room_id VARCHAR(255) NOT NULL,
                 user_id VARCHAR(255) NOT NULL,
                 event_type VARCHAR(255) NOT NULL,
+                type VARCHAR(255) NOT NULL,
                 content TEXT NOT NULL,
                 created_ts BIGINT NOT NULL,
                 updated_ts BIGINT,
-                UNIQUE (event_id)
+                CONSTRAINT uq_search_index_event UNIQUE (event_id)
             )
             "#,
         )
@@ -747,11 +729,13 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS user_directory (
-                user_id VARCHAR(255) PRIMARY KEY,
-                displayname VARCHAR(255),
-                avatar_url TEXT,
-                server_name VARCHAR(255),
-                updated_ts BIGINT
+                user_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                visibility TEXT NOT NULL DEFAULT 'private',
+                added_by TEXT,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT,
+                CONSTRAINT pk_user_directory PRIMARY KEY (user_id, room_id)
             )
             "#,
         )
@@ -760,8 +744,16 @@ impl DatabaseInitService {
 
         sqlx::query(
             r#"
-            CREATE INDEX IF NOT EXISTS idx_user_directory_displayname ON user_directory(displayname)
-            "#,
+            CREATE INDEX IF NOT EXISTS idx_user_directory_user ON user_directory(user_id)
+            "#
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_user_directory_visibility ON user_directory(visibility)
+            "#
         )
         .execute(&*self.pool)
         .await?;
@@ -791,22 +783,22 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS pushers (
-                id SERIAL PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
                 pushkey TEXT NOT NULL,
-                kind VARCHAR(50),
-                app_id VARCHAR(255) NOT NULL,
-                app_display_name VARCHAR(255),
-                device_display_name VARCHAR(255),
-                profile_tag VARCHAR(255),
-                lang VARCHAR(50),
-                data JSONB,
-                last_success_ts BIGINT,
-                last_failure_ts BIGINT,
-                last_failure_reason TEXT,
-                created_ts BIGINT NOT NULL,
+                pushkey_ts BIGINT NOT NULL,
+                kind TEXT NOT NULL,
+                app_id TEXT NOT NULL,
+                app_display_name TEXT NOT NULL,
+                device_display_name TEXT NOT NULL,
+                profile_tag TEXT,
+                lang TEXT DEFAULT 'en',
+                data JSONB DEFAULT '{}',
                 updated_ts BIGINT,
-                UNIQUE (user_id, pushkey)
+                created_ts BIGINT NOT NULL,
+                is_enabled BOOLEAN DEFAULT TRUE,
+                CONSTRAINT uq_pushers_user_device_pushkey UNIQUE (user_id, device_id, pushkey)
             )
             "#,
         )
@@ -821,56 +813,30 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
-        // Ensure threepids table exists with validated_at column
         sqlx::query(
             r#"
-            CREATE TABLE IF NOT EXISTS threepids (
-                id SERIAL PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
-                medium VARCHAR(50) NOT NULL,
-                address VARCHAR(255) NOT NULL,
-                validated_at BIGINT,
-                added_at BIGINT NOT NULL,
-                UNIQUE (medium, address)
-            )
+            CREATE INDEX IF NOT EXISTS idx_pushers_enabled ON pushers(is_enabled) WHERE is_enabled = TRUE
             "#,
         )
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query("ALTER TABLE threepids ADD COLUMN IF NOT EXISTS validated_at BIGINT")
-            .execute(&*self.pool)
-            .await?;
-
-        sqlx::query(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_threepids_user ON threepids(user_id)
-            "#,
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        // Ensure account_data table exists with content column
+        // Ensure account_data table exists
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS account_data (
-                id SERIAL PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
-                room_id VARCHAR(255),
-                data_type VARCHAR(255) NOT NULL,
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                data_type TEXT NOT NULL,
                 content JSONB NOT NULL DEFAULT '{}',
                 created_ts BIGINT NOT NULL,
-                updated_ts BIGINT,
-                UNIQUE (user_id, room_id, data_type)
+                updated_ts BIGINT NOT NULL,
+                CONSTRAINT uq_account_data_user_type UNIQUE (user_id, data_type)
             )
             "#,
         )
         .execute(&*self.pool)
         .await?;
-
-        sqlx::query("ALTER TABLE account_data ADD COLUMN IF NOT EXISTS content JSONB NOT NULL DEFAULT '{}'")
-            .execute(&*self.pool)
-            .await?;
 
         sqlx::query(
             r#"
@@ -884,25 +850,20 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS key_backups (
-                id SERIAL PRIMARY KEY,
-                backup_id VARCHAR(255) UNIQUE NOT NULL,
-                user_id VARCHAR(255) NOT NULL,
-                version VARCHAR(255),
-                algorithm VARCHAR(255) NOT NULL,
+                backup_id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                algorithm TEXT NOT NULL,
                 auth_data JSONB,
-                etag VARCHAR(255),
-                count INTEGER DEFAULT 0,
+                auth_key TEXT,
+                version BIGINT DEFAULT 1,
                 created_ts BIGINT NOT NULL,
-                updated_ts BIGINT
+                updated_ts BIGINT,
+                CONSTRAINT uq_key_backups_user_version UNIQUE (user_id, version)
             )
             "#,
         )
         .execute(&*self.pool)
         .await?;
-
-        sqlx::query("ALTER TABLE key_backups ADD COLUMN IF NOT EXISTS backup_id VARCHAR(255) UNIQUE")
-            .execute(&*self.pool)
-            .await?;
 
         sqlx::query(
             r#"
@@ -911,11 +872,6 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
-        // Ensure rooms table has guest_access column
-        sqlx::query("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS guest_access VARCHAR(50) DEFAULT 'forbidden'")
-            .execute(&*self.pool)
-            .await?;
 
         // Ensure refresh_tokens table has expires_at column
         sqlx::query("ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS expires_at BIGINT")
@@ -978,31 +934,6 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_room_events_event ON room_events(event_id)
-            "#,
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        // Ensure reports table for event reporting
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS reports (
-                id SERIAL PRIMARY KEY,
-                room_id VARCHAR(255) NOT NULL,
-                event_id VARCHAR(255) NOT NULL,
-                reporter_user_id VARCHAR(255) NOT NULL,
-                reason TEXT,
-                score INTEGER DEFAULT 0,
-                created_ts BIGINT NOT NULL
-            )
-            "#,
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_reports_room ON reports(room_id)
             "#,
         )
         .execute(&*self.pool)
@@ -1087,7 +1018,7 @@ impl DatabaseInitService {
                 content JSONB NOT NULL DEFAULT '{}',
                 stream_id BIGINT NOT NULL,
                 created_ts BIGINT NOT NULL,
-                expires_ts BIGINT
+                expires_at BIGINT
             )
             "#,
         )
@@ -1152,7 +1083,11 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS sync_stream_id (
-                id BIGSERIAL PRIMARY KEY
+                id BIGSERIAL PRIMARY KEY,
+                stream_type TEXT,
+                last_id BIGINT DEFAULT 0,
+                updated_ts BIGINT,
+                CONSTRAINT uq_sync_stream_id_type UNIQUE (stream_type)
             )
             "#,
         )
@@ -1256,12 +1191,12 @@ impl DatabaseInitService {
                 id BIGSERIAL PRIMARY KEY,
                 space_id TEXT NOT NULL,
                 room_id TEXT NOT NULL,
-                "order" INTEGER DEFAULT 0,
-                suggested BOOLEAN DEFAULT FALSE,
-                via_servers TEXT[],
-                created_ts BIGINT NOT NULL,
-                updated_ts BIGINT NOT NULL,
-                UNIQUE (space_id, room_id)
+                sender TEXT NOT NULL,
+                is_suggested BOOLEAN DEFAULT FALSE,
+                via_servers JSONB DEFAULT '[]',
+                added_ts BIGINT NOT NULL,
+                CONSTRAINT pk_space_children PRIMARY KEY (id),
+                CONSTRAINT uq_space_children_space_room UNIQUE (space_id, room_id)
             )
             "#,
         )
@@ -1271,6 +1206,14 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_space_children_space ON space_children(space_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_space_children_room ON space_children(room_id)
             "#,
         )
         .execute(&*self.pool)

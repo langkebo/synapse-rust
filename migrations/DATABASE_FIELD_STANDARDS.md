@@ -1,8 +1,8 @@
 # Synapse Rust 数据库字段使用规范
 
-> **版本**: v3.0.0
-> **更新日期**: 2026-03-14
-> **审核状态**: 已通过全面排查
+> **版本**: v3.1.0
+> **更新日期**: 2026-03-20
+> **审核状态**: 已通过全面排查 (db-comprehensive-audit-v1)
 
 ---
 
@@ -14,7 +14,7 @@
 |------|------|------|
 | 使用snake_case | 所有字段名使用小写字母和下划线 | `user_id`, `created_ts` |
 | 避免缩写 | 除非是广泛认知的缩写 | `access_token` 而非 `acc_tok` |
-| 布尔字段使用is_/has_前缀 | 明确表示布尔类型 | `is_revoked`, `is_admin` |
+| 布尔字段使用is_/has_前缀 | 明确表示布尔类型 | `is_revoked`, `is_admin`, `has_published_keys` |
 
 ### 1.2 时间字段规范 ⭐ 核心规范
 
@@ -47,7 +47,22 @@
 | refresh_tokens | 最后使用时间 | `last_used_ts` | `last_used_at` |
 | registration_tokens | 最后使用时间 | `last_used_ts` | `last_used_at` |
 
-### 1.3 禁止使用的字段
+### 1.3 布尔字段命名规范
+
+| 前缀 | 用途 | 示例 |
+|------|------|------|
+| `is_` | 是否...状态 | `is_admin`, `is_revoked`, `is_enabled` |
+| `has_` | 拥有...属性 | `has_published_keys`, `has_avatar` |
+
+**建议优化（非强制）**：
+
+| 当前命名 | 建议命名 | 原因 |
+|----------|----------|------|
+| `must_change_password` | `is_password_change_required` | 更符合 `is_` 前缀规范 |
+| `is_one_time_keys_published` | `has_published_one_time_keys` | 更符合 `has_` 前缀规范 |
+| `is_fallback_key_published` | `has_published_fallback_key` | 更符合 `has_` 前缀规范 |
+
+### 1.4 禁止使用的字段
 
 | 禁止字段 | 替代字段 | 原因 |
 |----------|----------|------|
@@ -59,6 +74,7 @@
 | `revoked_ts` | `revoked_at` | 可选撤销时间用 `_at` |
 | `validated_ts` | `validated_at` | 验证时间用 `_at` |
 | `enabled` | `is_enabled` | 布尔字段需 `is_` 前缀 |
+| `last_used_at` | `last_used_ts` | 活跃时间用 `_ts` |
 
 ---
 
@@ -214,6 +230,25 @@ pub struct RefreshToken {
 | 2.0.0 | 2026-03-09 | 创建统一 Schema 基线文件 |
 | 2.1.0 | 2026-03-12 | 完成 22 个模块审核验证 |
 | **3.0.0** | **2026-03-14** | **全面排查修复：password_expires_at, validated_at, last_used_ts** |
+| **3.1.0** | **2026-03-20** | **db-comprehensive-audit-v1 全面排查更新** |
+
+### v3.1.0 详细变更
+
+#### 新增规范
+
+| 变更类型 | 内容 |
+|----------|------|
+| 新增布尔字段规范 | 添加 `is_`/`has_` 前缀使用指南 |
+| 新增建议优化 | 添加布尔字段命名建议（非强制） |
+| 更新禁止字段列表 | 添加 `last_used_at` 禁止项 |
+
+#### 发现的规范问题（建议优化，非强制）
+
+| 表名 | 字段 | 当前命名 | 建议命名 |
+|------|------|----------|----------|
+| users | must_change_password | `must_change_password` | `is_password_change_required` |
+| olm_accounts | is_one_time_keys_published | `is_one_time_keys_published` | `has_published_one_time_keys` |
+| olm_accounts | is_fallback_key_published | `is_fallback_key_published` | `has_published_fallback_key` |
 
 ### v3.0.0 详细变更
 
