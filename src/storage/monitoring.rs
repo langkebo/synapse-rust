@@ -2,7 +2,7 @@ use chrono::{NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::{debug, error};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DatabaseHealthStatus {
@@ -109,13 +109,11 @@ impl DatabaseMonitor {
 
         match result {
             Ok(_) => {
-                info!("数据库连接检查成功");
+                debug!("数据库连接检查成功");
                 Ok(true)
             }
             Err(e) => {
                 error!("数据库连接检查失败: {}", e);
-                let _ = sqlx::query("ROLLBACK").execute(&self.pool).await;
-                let _ = sqlx::query("SELECT 1").execute(&self.pool).await;
                 Err(e)
             }
         }
@@ -128,10 +126,10 @@ impl DatabaseMonitor {
 
         let status = sqlx::query_as::<_, (i64, i64)>(
             r#"
-            SELECT 
+            SELECT
                 count(*) as total_connections,
                 count(*) FILTER (WHERE state = 'idle') as idle_connections
-            FROM pg_stat_activity 
+            FROM pg_stat_activity
             WHERE datname = current_database()
             "#,
         )
@@ -151,11 +149,7 @@ impl DatabaseMonitor {
                 },
                 average_connection_wait_time_ms: 0.0,
             }),
-            Err(e) => {
-                let _ = sqlx::query("ROLLBACK").execute(&self.pool).await;
-                let _ = sqlx::query("SELECT 1").execute(&self.pool).await;
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -192,11 +186,7 @@ impl DatabaseMonitor {
 
         let stats = match stats {
             Ok(s) => s,
-            Err(e) => {
-                let _ = sqlx::query("ROLLBACK").execute(&self.pool).await;
-                let _ = sqlx::query("SELECT 1").execute(&self.pool).await;
-                return Err(e);
-            }
+            Err(e) => return Err(e),
         };
 
         let tps = sqlx::query_as::<_, (i64, i64)>(
@@ -214,11 +204,7 @@ impl DatabaseMonitor {
 
         let tps = match tps {
             Ok(t) => t,
-            Err(e) => {
-                let _ = sqlx::query("ROLLBACK").execute(&self.pool).await;
-                let _ = sqlx::query("SELECT 1").execute(&self.pool).await;
-                return Err(e);
-            }
+            Err(e) => return Err(e),
         };
 
         let vacuum_stats = self.get_vacuum_stats().await?;

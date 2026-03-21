@@ -1,7 +1,7 @@
-use sqlx::{Pool, Postgres, Row};
-use std::time::Duration;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::{Pool, Postgres, Row};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntegrityReport {
@@ -100,14 +100,25 @@ impl IntegrityChecker {
             }
         }
 
-        let passed_checks = checks.iter().filter(|c| c.status == CheckStatus::Passed).count() as u64;
-        let warning_checks = checks.iter().filter(|c| c.status == CheckStatus::Warning).count() as u64;
-        let failed_checks = checks.iter().filter(|c| c.status == CheckStatus::Failed).count() as u64;
+        let passed_checks = checks
+            .iter()
+            .filter(|c| c.status == CheckStatus::Passed)
+            .count() as u64;
+        let warning_checks = checks
+            .iter()
+            .filter(|c| c.status == CheckStatus::Warning)
+            .count() as u64;
+        let failed_checks = checks
+            .iter()
+            .filter(|c| c.status == CheckStatus::Failed)
+            .count() as u64;
 
         let overall_score = if checks.is_empty() {
             100.0
         } else {
-            (passed_checks as f64 * 100.0 + warning_checks as f64 * 50.0) / (checks.len() as f64 * 100.0) * 100.0
+            (passed_checks as f64 * 100.0 + warning_checks as f64 * 50.0)
+                / (checks.len() as f64 * 100.0)
+                * 100.0
         };
 
         let summary = IntegritySummary {
@@ -180,7 +191,11 @@ impl IntegrityChecker {
             affected_rows: total_violations,
             duration_ms,
             details: if total_violations > 0 {
-                Some(format!("Found {} foreign key violations across {} table(s)", total_violations, foreign_key_checks.len()))
+                Some(format!(
+                    "Found {} foreign key violations across {} table(s)",
+                    total_violations,
+                    foreign_key_checks.len()
+                ))
             } else {
                 None
             },
@@ -195,9 +210,21 @@ impl IntegrityChecker {
 
         let orphan_checks = vec![
             ("devices", "user_id", "orphaned devices without valid users"),
-            ("access_tokens", "user_id", "access tokens without valid users"),
-            ("room_memberships", "room_id", "memberships without valid rooms"),
-            ("room_memberships", "user_id", "memberships without valid users"),
+            (
+                "access_tokens",
+                "user_id",
+                "access tokens without valid users",
+            ),
+            (
+                "room_memberships",
+                "room_id",
+                "memberships without valid rooms",
+            ),
+            (
+                "room_memberships",
+                "user_id",
+                "memberships without valid users",
+            ),
             ("events", "room_id", "events without valid rooms"),
             ("events", "user_id", "events without valid users"),
         ];
@@ -243,10 +270,7 @@ impl IntegrityChecker {
         let mut total_duplicates = 0u64;
         let recommendations = Vec::new();
 
-        let unique_checks = vec![
-            ("users", "username"),
-            ("devices", "device_id"),
-        ];
+        let unique_checks = vec![("users", "username"), ("devices", "device_id")];
 
         for (table, column) in &unique_checks {
             let query = format!(
@@ -337,9 +361,8 @@ impl IntegrityChecker {
         let mut issues = 0u64;
         let recommendations = Vec::new();
 
-        let consistency_checks: Vec<(&str, &str)> = vec![
-            ("Check room member counts", "SELECT 0 as diff"),
-        ];
+        let consistency_checks: Vec<(&str, &str)> =
+            vec![("Check room member counts", "SELECT 0 as diff")];
 
         for (_description, query) in &consistency_checks {
             if let Ok(row) = sqlx::query(query).fetch_one(&self.pool).await {
@@ -370,19 +393,30 @@ impl IntegrityChecker {
         })
     }
 
-    async fn run_custom_rule(&self, rule: &CustomIntegrityRule) -> Result<IntegrityCheck, sqlx::Error> {
+    async fn run_custom_rule(
+        &self,
+        rule: &CustomIntegrityRule,
+    ) -> Result<IntegrityCheck, sqlx::Error> {
         let start = std::time::Instant::now();
-        
+
         let result = sqlx::query(&rule.query).fetch_all(&self.pool).await?;
         let affected_rows = result.len() as u64;
         let duration_ms = start.elapsed().as_millis() as u64;
 
         let status = match rule.severity {
             RuleSeverity::Error => {
-                if affected_rows > 0 { CheckStatus::Failed } else { CheckStatus::Passed }
+                if affected_rows > 0 {
+                    CheckStatus::Failed
+                } else {
+                    CheckStatus::Passed
+                }
             }
             RuleSeverity::Warning => {
-                if affected_rows > 0 { CheckStatus::Warning } else { CheckStatus::Passed }
+                if affected_rows > 0 {
+                    CheckStatus::Warning
+                } else {
+                    CheckStatus::Passed
+                }
             }
             RuleSeverity::Info => CheckStatus::Passed,
         };
@@ -447,10 +481,10 @@ pub async fn run_periodic_integrity_checks(
     shutdown: &std::sync::atomic::AtomicU64,
 ) {
     let mut interval_timer = tokio::time::interval(interval);
-    
+
     while shutdown.load(std::sync::atomic::Ordering::SeqCst) == 0 {
         interval_timer.tick().await;
-        
+
         if let Ok(report) = checker.run_full_check(Duration::from_secs(300)).await {
             tracing::info!(
                 "Integrity check completed: score={:.1}%, issues={}, duration={}ms",

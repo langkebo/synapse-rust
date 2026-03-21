@@ -13,52 +13,19 @@ use serde::{Deserialize, Serialize};
 pub fn create_oidc_router(state: AppState) -> Router<AppState> {
     Router::new()
         // v3 路径
-        .route(
-            "/_matrix/client/v3/oidc/userinfo",
-            get(oidc_userinfo),
-        )
-        .route(
-            "/_matrix/client/v3/oidc/token",
-            post(oidc_token),
-        )
-        .route(
-            "/_matrix/client/v3/oidc/logout",
-            post(oidc_logout),
-        )
-        .route(
-            "/_matrix/client/v3/oidc/authorize",
-            get(oidc_authorize),
-        )
-        .route(
-            "/_matrix/client/v3/oidc/register",
-            post(oidc_register),
-        )
+        .route("/_matrix/client/v3/oidc/userinfo", get(oidc_userinfo))
+        .route("/_matrix/client/v3/oidc/token", post(oidc_token))
+        .route("/_matrix/client/v3/oidc/logout", post(oidc_logout))
+        .route("/_matrix/client/v3/oidc/authorize", get(oidc_authorize))
+        .route("/_matrix/client/v3/oidc/register", post(oidc_register))
         // r0 路径兼容
-        .route(
-            "/_matrix/client/r0/oidc/userinfo",
-            get(oidc_userinfo),
-        )
-        .route(
-            "/_matrix/client/r0/oidc/token",
-            post(oidc_token),
-        )
-        .route(
-            "/_matrix/client/r0/oidc/logout",
-            post(oidc_logout),
-        )
-        .route(
-            "/_matrix/client/r0/oidc/authorize",
-            get(oidc_authorize),
-        )
-        .route(
-            "/_matrix/client/r0/oidc/register",
-            post(oidc_register),
-        )
+        .route("/_matrix/client/r0/oidc/userinfo", get(oidc_userinfo))
+        .route("/_matrix/client/r0/oidc/token", post(oidc_token))
+        .route("/_matrix/client/r0/oidc/logout", post(oidc_logout))
+        .route("/_matrix/client/r0/oidc/authorize", get(oidc_authorize))
+        .route("/_matrix/client/r0/oidc/register", post(oidc_register))
         // OIDC 发现
-        .route(
-            "/.well-known/openid-configuration",
-            get(openid_discovery),
-        )
+        .route("/.well-known/openid-configuration", get(openid_discovery))
         .with_state(state)
 }
 
@@ -91,16 +58,13 @@ async fn oidc_userinfo(
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    let picture = profile
-        .get("avatar_url")
-        .and_then(|v| v.as_str())
-        .map(|s| {
-            if s.starts_with("mxc://") {
-                s.to_string()
-            } else {
-                format!("mxc://{}", s)
-            }
-        });
+    let picture = profile.get("avatar_url").and_then(|v| v.as_str()).map(|s| {
+        if s.starts_with("mxc://") {
+            s.to_string()
+        } else {
+            format!("mxc://{}", s)
+        }
+    });
 
     Ok(Json(OidcUserInfoResponse {
         sub: user_id.clone(),
@@ -168,7 +132,8 @@ async fn oidc_authorize(
     _query: axum::extract::Query<OidcAuthorizeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     Err(ApiError::bad_request(
-        "OIDC authorization endpoint not available. Please use SAML or CAS authentication.".to_string(),
+        "OIDC authorization endpoint not available. Please use SAML or CAS authentication."
+            .to_string(),
     ))
 }
 
@@ -200,7 +165,8 @@ async fn oidc_register(
     Json(_body): Json<OidcRegistrationRequest>,
 ) -> Result<Json<OidcRegistrationResponse>, ApiError> {
     Err(ApiError::bad_request(
-        "Dynamic client registration not supported. Please configure OIDC in server configuration.".to_string(),
+        "Dynamic client registration not supported. Please configure OIDC in server configuration."
+            .to_string(),
     ))
 }
 
@@ -211,7 +177,7 @@ async fn oidc_logout(
     Json(body): Json<OidcLogoutRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let pool = state.services.user_storage.pool.clone();
-    
+
     // 如果提供了设备 ID，则删除该设备
     if let Some(device_id) = body.device_id {
         state
@@ -274,10 +240,17 @@ pub async fn openid_discovery(
         userinfo_endpoint: format!("{}/_matrix/client/v3/oidc/userinfo", issuer),
         jwks_uri: format!("{}/_matrix/keys/v1", issuer),
         registration_endpoint: None,
-        scopes_supported: vec!["openid".to_string(), "profile".to_string(), "email".to_string()],
+        scopes_supported: vec![
+            "openid".to_string(),
+            "profile".to_string(),
+            "email".to_string(),
+        ],
         response_types_supported: vec!["code".to_string()],
         response_modes_supported: vec!["query".to_string(), "fragment".to_string()],
-        grant_types_supported: vec!["authorization_code".to_string(), "refresh_token".to_string()],
+        grant_types_supported: vec![
+            "authorization_code".to_string(),
+            "refresh_token".to_string(),
+        ],
         token_endpoint_auth_methods_supported: vec!["client_secret_basic".to_string()],
         claims_supported: vec![
             "sub".to_string(),
@@ -310,7 +283,8 @@ mod tests {
     fn test_openid_discovery() {
         let discovery = OpenIdDiscovery {
             issuer: "https://example.com".to_string(),
-            authorization_endpoint: "https://example.com/_matrix/client/v3/oidc/authorize".to_string(),
+            authorization_endpoint: "https://example.com/_matrix/client/v3/oidc/authorize"
+                .to_string(),
             token_endpoint: "https://example.com/_matrix/client/v3/oidc/token".to_string(),
             userinfo_endpoint: "https://example.com/_matrix/client/v3/oidc/userinfo".to_string(),
             jwks_uri: "https://example.com/_matrix/keys/v1".to_string(),

@@ -16,12 +16,11 @@ use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
 static TEST_POOL: Lazy<Option<Arc<sqlx::PgPool>>> = Lazy::new(|| {
-    let database_url = match std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-    {
-        Ok(url) => url,
-        Err(_) => return None,
-    };
+    let database_url =
+        match std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL")) {
+            Ok(url) => url,
+            Err(_) => return None,
+        };
 
     let rt = tokio::runtime::Runtime::new().ok()?;
     let pool = rt.block_on(async {
@@ -192,12 +191,14 @@ async fn test_room_lifecycle() {
         eprintln!("Skipping test: database not available");
         return;
     };
-    
-    let Some(alice_token) = register_user(&app, &format!("alice_{}", rand::random::<u32>())).await else {
+
+    let Some(alice_token) = register_user(&app, &format!("alice_{}", rand::random::<u32>())).await
+    else {
         eprintln!("Skipping test: failed to register alice");
         return;
     };
-    let Some(bob_token) = register_user(&app, &format!("bob_{}", rand::random::<u32>())).await else {
+    let Some(bob_token) = register_user(&app, &format!("bob_{}", rand::random::<u32>())).await
+    else {
         eprintln!("Skipping test: failed to register bob");
         return;
     };
@@ -275,7 +276,9 @@ async fn test_room_lifecycle() {
         ))
         .header("Authorization", format!("Bearer {}", bob_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({"msgtype": "m.text", "body": "Hello Alice!"}).to_string()))
+        .body(Body::from(
+            json!({"msgtype": "m.text", "body": "Hello Alice!"}).to_string(),
+        ))
         .unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
@@ -318,8 +321,9 @@ async fn test_room_directory_and_public_rooms() {
         eprintln!("Skipping test: database not available");
         return;
     };
-    
-    let Some(alice_token) = register_user(&app, &format!("alice_{}", rand::random::<u32>())).await else {
+
+    let Some(alice_token) = register_user(&app, &format!("alice_{}", rand::random::<u32>())).await
+    else {
         eprintln!("Skipping test: failed to register alice");
         return;
     };
@@ -329,7 +333,9 @@ async fn test_room_directory_and_public_rooms() {
         .uri("/_matrix/client/r0/createRoom")
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({"name": "Public Room", "visibility": "public"}).to_string()))
+        .body(Body::from(
+            json!({"name": "Public Room", "visibility": "public"}).to_string(),
+        ))
         .unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
@@ -355,7 +361,11 @@ async fn test_room_directory_and_public_rooms() {
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["chunk"].as_array().unwrap().iter().any(|r| r["room_id"] == room_id));
+    assert!(json["chunk"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["room_id"] == room_id));
 }
 
 #[tokio::test]
@@ -364,8 +374,9 @@ async fn test_room_state_and_redaction() {
         eprintln!("Skipping test: database not available");
         return;
     };
-    
-    let Some(alice_token) = register_user(&app, &format!("alice_{}", rand::random::<u32>())).await else {
+
+    let Some(alice_token) = register_user(&app, &format!("alice_{}", rand::random::<u32>())).await
+    else {
         eprintln!("Skipping test: failed to register alice");
         return;
     };
@@ -404,7 +415,9 @@ async fn test_room_state_and_redaction() {
         ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({"msgtype": "m.text", "body": "To be redacted"}).to_string()))
+        .body(Body::from(
+            json!({"msgtype": "m.text", "body": "To be redacted"}).to_string(),
+        ))
         .unwrap();
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
@@ -437,12 +450,14 @@ async fn test_room_moderation() {
         eprintln!("Skipping test: database not available");
         return;
     };
-    
-    let Some(alice_token) = register_user(&app, &format!("alice_{}", rand::random::<u32>())).await else {
+
+    let Some(alice_token) = register_user(&app, &format!("alice_{}", rand::random::<u32>())).await
+    else {
         eprintln!("Skipping test: failed to register alice");
         return;
     };
-    let Some(bob_token) = register_user(&app, &format!("bob_{}", rand::random::<u32>())).await else {
+    let Some(bob_token) = register_user(&app, &format!("bob_{}", rand::random::<u32>())).await
+    else {
         eprintln!("Skipping test: failed to register bob");
         return;
     };
@@ -503,7 +518,9 @@ async fn test_room_moderation() {
         .uri(format!("/_matrix/client/r0/rooms/{}/kick", room_id))
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({"user_id": bob_user_id, "reason": "Behave!"}).to_string()))
+        .body(Body::from(
+            json!({"user_id": bob_user_id, "reason": "Behave!"}).to_string(),
+        ))
         .unwrap();
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
@@ -515,7 +532,9 @@ async fn test_room_moderation() {
         .uri(format!("/_matrix/client/r0/rooms/{}/ban", room_id))
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({"user_id": bob_user_id, "reason": "Banned!"}).to_string()))
+        .body(Body::from(
+            json!({"user_id": bob_user_id, "reason": "Banned!"}).to_string(),
+        ))
         .unwrap();
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await

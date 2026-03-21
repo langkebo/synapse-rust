@@ -49,10 +49,7 @@ impl InviteBlocklistStorage {
     }
 
     /// Get the invite blocklist for a room
-    pub async fn get_invite_blocklist(
-        &self,
-        room_id: &str,
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn get_invite_blocklist(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String,)>(
             r#"
             SELECT user_id FROM room_invite_blocklist WHERE room_id = $1
@@ -66,11 +63,7 @@ impl InviteBlocklistStorage {
     }
 
     /// Check if a user is blocked from being invited
-    pub async fn is_user_blocked(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn is_user_blocked(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_as::<_, (String,)>(
             r#"
             SELECT user_id FROM room_invite_blocklist 
@@ -119,10 +112,7 @@ impl InviteBlocklistStorage {
     }
 
     /// Get the invite allowlist for a room
-    pub async fn get_invite_allowlist(
-        &self,
-        room_id: &str,
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn get_invite_allowlist(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String,)>(
             r#"
             SELECT user_id FROM room_invite_allowlist WHERE room_id = $1
@@ -136,11 +126,7 @@ impl InviteBlocklistStorage {
     }
 
     /// Check if a user is allowed to be invited (when allowlist is set)
-    pub async fn is_user_allowed(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn is_user_allowed(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_as::<_, (String,)>(
             r#"
             SELECT user_id FROM room_invite_allowlist 
@@ -156,27 +142,22 @@ impl InviteBlocklistStorage {
     }
 
     /// Check if invite blocking is enabled for a room
-    pub async fn has_any_invite_restriction(
-        &self,
-        room_id: &str,
-    ) -> Result<bool, sqlx::Error> {
-        let blocklist = sqlx::query(
-            "SELECT 1 FROM room_invite_blocklist WHERE room_id = $1 LIMIT 1"
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+    pub async fn has_any_invite_restriction(&self, room_id: &str) -> Result<bool, sqlx::Error> {
+        let blocklist =
+            sqlx::query("SELECT 1 FROM room_invite_blocklist WHERE room_id = $1 LIMIT 1")
+                .bind(room_id)
+                .fetch_optional(&*self.pool)
+                .await?;
 
         if blocklist.is_some() {
             return Ok(true);
         }
 
-        let allowlist = sqlx::query(
-            "SELECT 1 FROM room_invite_allowlist WHERE room_id = $1 LIMIT 1"
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let allowlist =
+            sqlx::query("SELECT 1 FROM room_invite_allowlist WHERE room_id = $1 LIMIT 1")
+                .bind(room_id)
+                .fetch_optional(&*self.pool)
+                .await?;
 
         Ok(allowlist.is_some())
     }
@@ -186,10 +167,7 @@ impl InviteBlocklistStorage {
 mod tests {
     #[test]
     fn test_user_id_format() {
-        let valid_users = vec![
-            "@user:localhost",
-            "@alice:example.com",
-        ];
+        let valid_users = vec!["@user:localhost", "@alice:example.com"];
 
         for user in valid_users {
             assert!(user.starts_with('@'), "User ID should start with @");
@@ -199,10 +177,7 @@ mod tests {
 
     #[test]
     fn test_room_id_format() {
-        let valid_rooms = vec![
-            "!room:localhost",
-            "!abc123:matrix.org",
-        ];
+        let valid_rooms = vec!["!room:localhost", "!abc123:matrix.org"];
 
         for room in valid_rooms {
             assert!(room.starts_with('!'), "Room ID should start with !");

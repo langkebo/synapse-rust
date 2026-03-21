@@ -52,14 +52,12 @@ impl RoomTagStorage {
         room_id: &str,
         tag: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "DELETE FROM room_tags WHERE user_id = $1 AND room_id = $2 AND tag = $3"
-        )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(tag)
-        .execute(pool)
-        .await?;
+        sqlx::query("DELETE FROM room_tags WHERE user_id = $1 AND room_id = $2 AND tag = $3")
+            .bind(user_id)
+            .bind(room_id)
+            .bind(tag)
+            .execute(pool)
+            .await?;
         Ok(())
     }
 }

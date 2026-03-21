@@ -14,8 +14,14 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/media/{media_id}", get(get_media_info))
         .route("/_synapse/admin/v1/media/{media_id}", delete(delete_media))
         .route("/_synapse/admin/v1/media/quota", get(get_media_quota))
-        .route("/_synapse/admin/v1/users/{user_id}/media", get(get_user_media))
-        .route("/_synapse/admin/v1/users/{user_id}/media", delete(delete_user_media))
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/media",
+            get(get_user_media),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/media",
+            delete(delete_user_media),
+        )
 }
 
 #[axum::debug_handler]
@@ -58,7 +64,9 @@ pub async fn get_all_media(
         })
         .collect();
 
-    Ok(Json(json!({ "media": media_list, "total": media_list.len() })))
+    Ok(Json(
+        json!({ "media": media_list, "total": media_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]
@@ -159,7 +167,9 @@ pub async fn get_user_media(
         })
         .collect();
 
-    Ok(Json(json!({ "media": media_list, "total": media_list.len() })))
+    Ok(Json(
+        json!({ "media": media_list, "total": media_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]

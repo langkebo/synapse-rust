@@ -1,5 +1,4 @@
 use axum::Router;
-use tower_http::limit::RequestBodyLimitLayer;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -7,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
@@ -16,14 +16,17 @@ use crate::common::rate_limit_config::{
     start_config_watcher, RateLimitConfigFile, RateLimitConfigManager,
 };
 use crate::services::*;
+use crate::storage::schema_health_check::run_schema_health_check;
 use crate::storage::*;
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
 use crate::web::middleware::{
-    check_cors_security, log_cors_security_report, validate_bind_address_for_dev_mode,
-    validate_cors_config_for_production, panic_catcher_middleware, request_timeout_middleware,
+    check_cors_security, log_cors_security_report, panic_catcher_middleware,
+    request_timeout_middleware, validate_bind_address_for_dev_mode,
+    validate_cors_config_for_production,
 };
 use crate::web::routes::create_router;
 use crate::web::AppState;
+use tracing::{error, warn};
 
 const DEFAULT_MAX_LIFETIME: Duration = Duration::from_secs(1800);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
@@ -75,6 +78,41 @@ impl SynapseServer {
         let database_url = config.database_url();
         let pool = pool_options.connect(&database_url).await?;
         let pool = Arc::new(pool);
+
+        // 运行数据库 Schema 健康检查
+        info!("Running database schema health check...");
+        match run_schema_health_check(&pool, true).await {
+            Ok(result) => {
+                if result.passed {
+                    info!("✅ Database schema validation PASSED");
+                } else {
+                    error!("❌ Database schema validation FAILED");
+                    if !result.missing_tables.is_empty() {
+                        error!("  Missing tables: {:?}", result.missing_tables);
+                    }
+                    if !result.missing_columns.is_empty() {
+                        error!("  Missing columns: {:?}", result.missing_columns);
+                    }
+                    if !result.repaired_indexes.is_empty() {
+                        info!("  Repaired indexes: {:?}", result.repaired_indexes);
+                    }
+                    // 如果有严重问题（缺少表或列），退出
+                    if !result.missing_tables.is_empty() || !result.missing_columns.is_empty() {
+                        return Err(
+                            "Database schema validation failed: missing critical tables or columns"
+                                .into(),
+                        );
+                    }
+                }
+                if !result.warnings.is_empty() {
+                    warn!("Schema warnings (non-critical): {:?}", result.warnings);
+                }
+            }
+            Err(e) => {
+                error!("Failed to run schema health check: {}", e);
+                // 非致命错误，继续启动
+            }
+        }
 
         // Initialize database using the new database initialization service
         let db_init_service = DatabaseInitService::new(pool.clone());
@@ -177,7 +215,9 @@ impl SynapseServer {
         let media_path = std::path::PathBuf::from("/app/data/media");
 
         let router = create_router((*app_state).clone())
-            .layer(RequestBodyLimitLayer::new(config.server.max_upload_size as usize))
+            .layer(RequestBodyLimitLayer::new(
+                config.server.max_upload_size as usize,
+            ))
             .layer(axum::middleware::from_fn(panic_catcher_middleware))
             .layer(axum::middleware::from_fn(request_timeout_middleware))
             .layer({

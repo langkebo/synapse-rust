@@ -145,11 +145,7 @@ impl DehydratedDeviceStorage {
         .await
     }
 
-    pub async fn delete_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn delete_device(&self, user_id: &str, device_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
             DELETE FROM dehydrated_devices 
@@ -164,10 +160,7 @@ impl DehydratedDeviceStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn delete_devices_for_user(
-        &self,
-        user_id: &str,
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn delete_devices_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             r#"
             DELETE FROM dehydrated_devices WHERE user_id = $1

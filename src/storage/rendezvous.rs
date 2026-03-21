@@ -1,7 +1,7 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RendezvousSession {
@@ -192,10 +192,7 @@ impl RendezvousStorage {
         Ok(())
     }
 
-    pub async fn complete_session(
-        &self,
-        session_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn complete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             UPDATE rendezvous_session 
@@ -210,10 +207,7 @@ impl RendezvousStorage {
         Ok(())
     }
 
-    pub async fn delete_session(
-        &self,
-        session_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             DELETE FROM rendezvous_session WHERE session_id = $1
@@ -349,7 +343,10 @@ mod tests {
 
     #[test]
     fn test_rendezvous_intent() {
-        assert_eq!(RendezvousIntent::LoginReciprocate.as_str(), "login.reciprocate");
+        assert_eq!(
+            RendezvousIntent::LoginReciprocate.as_str(),
+            "login.reciprocate"
+        );
         assert_eq!(RendezvousIntent::LoginStart.as_str(), "login.start");
     }
 

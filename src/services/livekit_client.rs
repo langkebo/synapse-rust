@@ -312,9 +312,9 @@ impl LivekitClient {
         can_subscribe: bool,
         can_publish_data: bool,
     ) -> Result<String, LivekitError> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
 
         let now = chrono::Utc::now().timestamp();
         let exp = now + 3600;
@@ -347,11 +347,11 @@ impl LivekitClient {
 
         let header_b64 = STANDARD.encode(
             serde_json::to_string(&header)
-                .expect("JSON serialization of known JSON value should not fail")
+                .expect("JSON serialization of known JSON value should not fail"),
         );
         let claims_b64 = STANDARD.encode(
             serde_json::to_string(&claims)
-                .expect("JSON serialization of known JSON value should not fail")
+                .expect("JSON serialization of known JSON value should not fail"),
         );
 
         let message = format!("{}.{}", header_b64, claims_b64);
@@ -366,9 +366,9 @@ impl LivekitClient {
     }
 
     fn create_auth_header(&self) -> String {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
 
         let now = chrono::Utc::now().timestamp();
 
@@ -385,11 +385,11 @@ impl LivekitClient {
 
         let header_b64 = STANDARD.encode(
             serde_json::to_string(&header)
-                .expect("JSON serialization of known JSON value should not fail")
+                .expect("JSON serialization of known JSON value should not fail"),
         );
         let claims_b64 = STANDARD.encode(
             serde_json::to_string(&claims)
-                .expect("JSON serialization of known JSON value should not fail")
+                .expect("JSON serialization of known JSON value should not fail"),
         );
 
         let message = format!("{}.{}", header_b64, claims_b64);

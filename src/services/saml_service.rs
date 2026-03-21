@@ -448,7 +448,12 @@ impl SamlService {
         let data = parse_saml_response(xml)
             .map_err(|e| ApiError::bad_request(format!("Failed to parse SAML assertion: {}", e)))?;
 
-        Ok((data.name_id, data.issuer, data.attributes, data.session_index))
+        Ok((
+            data.name_id,
+            data.issuer,
+            data.attributes,
+            data.session_index,
+        ))
     }
 
     fn parse_metadata_xml(xml: &str) -> Result<SamlMetadata, ApiError> {

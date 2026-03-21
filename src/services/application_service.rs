@@ -534,13 +534,11 @@ mod tests {
     #[test]
     fn test_namespaces_structure() {
         let namespaces = crate::storage::application_service::Namespaces {
-            users: vec![
-                crate::storage::application_service::NamespaceRule {
-                    exclusive: true,
-                    regex: "@_.*:example.com".to_string(),
-                    group_id: None,
-                },
-            ],
+            users: vec![crate::storage::application_service::NamespaceRule {
+                exclusive: true,
+                regex: "@_.*:example.com".to_string(),
+                group_id: None,
+            }],
             aliases: vec![],
             rooms: vec![],
         };

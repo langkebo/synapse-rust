@@ -8,7 +8,7 @@ use serde_json::json;
 fn test_get_status_request() {
     // No parameters required
     let request = json!({});
-    
+
     assert!(request.get("user_id").is_none());
 }
 
@@ -21,7 +21,7 @@ fn test_telemetry_status_response() {
         "interval": 3600,
         "last_sent": 1700000000000_i64
     });
-    
+
     assert!(status.get("enabled").is_some());
     assert!(status.get("endpoint").is_some());
     assert!(status.get("interval").is_some());
@@ -34,7 +34,7 @@ fn test_get_resource_attributes_request() {
     let request = json!({
         "resource": "cpu"
     });
-    
+
     assert!(request.get("resource").is_some());
 }
 
@@ -48,7 +48,7 @@ fn test_resource_attributes_response() {
             "count": 8
         }
     });
-    
+
     assert!(attrs.get("resource").is_some());
     assert!(attrs.get("metrics").is_some());
 }
@@ -60,7 +60,7 @@ fn test_get_metrics_summary_request() {
         "from": 0,
         "limit": 50
     });
-    
+
     assert!(request.get("limit").is_some());
 }
 
@@ -73,7 +73,7 @@ fn test_metrics_summary_response() {
         "total_users": 100,
         "total_rooms": 50
     });
-    
+
     assert!(summary.get("total_events").is_some());
     assert!(summary.get("total_messages").is_some());
     assert!(summary.get("total_users").is_some());
@@ -84,7 +84,7 @@ fn test_metrics_summary_response() {
 #[test]
 fn test_health_check_request() {
     let request = json!({});
-    
+
     assert!(request.get("user_id").is_none());
 }
 
@@ -96,7 +96,7 @@ fn test_health_check_response() {
         "uptime_seconds": 3600,
         "memory_usage": 524288000_i64
     });
-    
+
     assert!(health.get("status").is_some());
     assert_eq!(health["status"], "healthy");
     assert!(health.get("uptime_seconds").is_some());
@@ -110,7 +110,7 @@ fn test_health_check_unhealthy_response() {
         "status": "unhealthy",
         "error": "Database connection failed"
     });
-    
+
     assert_eq!(health["status"], "unhealthy");
     assert!(health.get("error").is_some());
 }
@@ -123,7 +123,7 @@ fn test_resource_type_validation() {
     assert!(is_valid_resource_type("memory"));
     assert!(is_valid_resource_type("disk"));
     assert!(is_valid_resource_type("network"));
-    
+
     // Invalid
     assert!(!is_valid_resource_type("invalid"));
 }
@@ -135,7 +135,7 @@ fn test_health_status_validation() {
     assert!(is_valid_health_status("healthy"));
     assert!(is_valid_health_status("unhealthy"));
     assert!(is_valid_health_status("degraded"));
-    
+
     // Invalid
     assert!(!is_valid_health_status("invalid"));
 }

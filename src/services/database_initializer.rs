@@ -425,17 +425,11 @@ impl DatabaseInitService {
                             || err_str.contains("relation already exists")
                         {
                             debug!("迁移 {} 跳过已存在对象: {}", filename, err_str);
-                            // Reset connection state after constraint violation
-                            let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
-                            let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
                         } else {
                             let preview: String = trimmed.chars().take(100).collect();
                             warn!("迁移 {} 语句执行失败: {} - {}", filename, preview, e);
                             file_success = false;
-                            
-                            // Reset the connection state by executing ROLLBACK and then a simple query
                             let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
-                            let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
                             break;
                         }
                     }
@@ -444,12 +438,9 @@ impl DatabaseInitService {
 
             let execution_time_ms = start_time.elapsed().as_millis() as i64;
 
-            if let Err(e) = self
+            let _ = self
                 .record_migration(version, &checksum, execution_time_ms, file_success)
-                .await
-            {
-                warn!("记录迁移状态失败 {}: {}", filename, e);
-            }
+                .await;
 
             if file_success {
                 info!("迁移 {} 执行成功 ({}ms)", filename, execution_time_ms);
@@ -745,7 +736,7 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_user_directory_user ON user_directory(user_id)
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;
@@ -753,7 +744,7 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_user_directory_visibility ON user_directory(visibility)
-            "#
+            "#,
         )
         .execute(&*self.pool)
         .await?;

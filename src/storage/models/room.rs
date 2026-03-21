@@ -227,7 +227,10 @@ mod tests {
             last_reply_event_id: Some("$reply:example.com".to_string()),
             last_reply_sender: Some("@bob:example.com".to_string()),
             last_reply_ts: Some(1234567890),
-            participants: Some(serde_json::json!(["@alice:example.com", "@bob:example.com"])),
+            participants: Some(serde_json::json!([
+                "@alice:example.com",
+                "@bob:example.com"
+            ])),
             is_fetched: true,
             created_ts: 1234567800,
             updated_ts: Some(1234567890),

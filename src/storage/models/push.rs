@@ -146,7 +146,9 @@ mod tests {
             priority_class: 5,
             priority: 0,
             conditions: Some(serde_json::json!([{"kind": "contains_display_name"}])),
-            actions: Some(serde_json::json!(["notify", {"set_tweak": "sound", "value": "default"}])),
+            actions: Some(
+                serde_json::json!(["notify", {"set_tweak": "sound", "value": "default"}]),
+            ),
             pattern: None,
             is_default: true,
             is_enabled: true,

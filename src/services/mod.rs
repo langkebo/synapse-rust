@@ -16,9 +16,9 @@ use crate::e2ee::megolm::MegolmService;
 use crate::e2ee::to_device::ToDeviceService;
 use crate::e2ee::verification::VerificationService;
 use crate::federation::{DeviceSyncManager, EventAuthChain, FriendFederation, KeyRotationManager};
+use crate::services::burn_after_read_service::BurnAfterReadServiceImpl;
 use crate::storage::email_verification::EmailVerificationStorage;
 use crate::storage::*;
-use crate::services::burn_after_read_service::BurnAfterReadServiceImpl;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
@@ -249,19 +249,20 @@ impl ServiceContainer {
         let cross_signing_service = CrossSigningService::new(cross_signing_storage);
         let key_backup_storage = crate::e2ee::backup::KeyBackupStorage::new(pool);
         let backup_service = KeyBackupService::new(key_backup_storage);
-        
+
         // E2EE Phase 3: Initialize secure backup service
         let secure_backup_service = crate::e2ee::secure_backup::SecureBackupService::new(pool);
-        
+
         let to_device_storage = crate::e2ee::to_device::ToDeviceStorage::new(pool);
         let user_storage = UserStorage::new(pool, cache.clone());
         let to_device_service =
             ToDeviceService::new(to_device_storage).with_user_storage(user_storage.clone());
-        
+
         // 初始化 verification 服务
         let verification_storage = crate::e2ee::verification::VerificationStorage::new(pool);
-        let verification_service = VerificationService::new(std::sync::Arc::new(verification_storage));
-        
+        let verification_service =
+            VerificationService::new(std::sync::Arc::new(verification_storage));
+
         // E2EE Phase 1: 初始化 device trust 服务
         let device_trust_storage = crate::e2ee::device_trust::DeviceTrustStorage::new(pool);
         let device_trust_service = crate::e2ee::device_trust::DeviceTrustService::new(
@@ -270,7 +271,7 @@ impl ServiceContainer {
             std::sync::Arc::new(cross_signing_service.clone()),
             std::sync::Arc::new(device_keys_service.clone()),
         );
-        
+
         let presence_service = PresenceStorage::new(presence_pool.clone(), cache.clone());
         let voice_service = VoiceService::new(pool, cache.clone(), "/app/data/media/voice");
         let search_service = Arc::new(crate::services::search_service::SearchService::new(
@@ -312,12 +313,16 @@ impl ServiceContainer {
             room_storage.clone(),
             DeviceStorage::new(pool),
         ));
-        let sliding_sync_storage = crate::storage::sliding_sync::SlidingSyncStorage::new(pool.clone());
-        let sliding_sync_service = Arc::new(crate::services::sliding_sync_service::SlidingSyncService::new(
-            sliding_sync_storage.clone(),
-            cache.clone(),
-        ));
-        let media_service = MediaService::new("/app/data/media", task_queue.clone(), &config.server.name);
+        let sliding_sync_storage =
+            crate::storage::sliding_sync::SlidingSyncStorage::new(pool.clone());
+        let sliding_sync_service = Arc::new(
+            crate::services::sliding_sync_service::SlidingSyncService::new(
+                sliding_sync_storage.clone(),
+                cache.clone(),
+            ),
+        );
+        let media_service =
+            MediaService::new("/app/data/media", task_queue.clone(), &config.server.name);
         let admin_registration_service = AdminRegistrationService::new(
             auth_service.clone(),
             config.admin_registration.clone(),
@@ -343,7 +348,8 @@ impl ServiceContainer {
         let friend_federation = Arc::new(FriendFederation::new(friend_room_service.clone()));
 
         // 呼叫服务初始化
-        let call_session_storage = crate::storage::call_session::CallSessionStorage::new(pool.clone());
+        let call_session_storage =
+            crate::storage::call_session::CallSessionStorage::new(pool.clone());
         let call_service = Arc::new(CallService::new(Arc::new(call_session_storage)));
 
         // 目录服务初始化
@@ -869,10 +875,7 @@ impl PresenceStorage {
     }
 
     /// 获取用户的所有订阅目标
-    pub async fn get_subscriptions(
-        &self,
-        subscriber_id: &str,
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String,)>(
             r#"
             SELECT target_id FROM presence_subscriptions 
@@ -882,15 +885,12 @@ impl PresenceStorage {
         .bind(subscriber_id)
         .fetch_all(&*self.pool)
         .await?;
-        
+
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
     /// 获取订阅了某用户的用户列表
-    pub async fn get_subscribers(
-        &self,
-        target_id: &str,
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn get_subscribers(&self, target_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String,)>(
             r#"
             SELECT subscriber_id FROM presence_subscriptions 
@@ -900,7 +900,7 @@ impl PresenceStorage {
         .bind(target_id)
         .fetch_all(&*self.pool)
         .await?;
-        
+
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
@@ -912,7 +912,7 @@ impl PresenceStorage {
         if user_ids.is_empty() {
             return Ok(Vec::new());
         }
-        
+
         let rows = sqlx::query_as::<_, (String, String, Option<String>)>(
             r#"
             SELECT user_id, presence, status_msg 
@@ -923,7 +923,7 @@ impl PresenceStorage {
         .bind(user_ids)
         .fetch_all(&*self.pool)
         .await?;
-        
+
         Ok(rows)
     }
 }
@@ -932,8 +932,8 @@ pub mod application_service;
 pub mod auth;
 pub mod background_update_service;
 pub mod beacon_service;
-pub mod call_service;
 pub mod cache;
+pub mod call_service;
 pub mod captcha_service;
 pub mod cas_service;
 pub mod content_scanner;
@@ -1001,8 +1001,8 @@ pub use url_preview_service::*;
 pub use voice_service::*;
 pub use voip_service::*;
 
-pub mod key_rotation_service;
 pub mod burn_after_read_service;
+pub mod key_rotation_service;
 
 pub mod directory_service;
 pub mod dm_service;

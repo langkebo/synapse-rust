@@ -1,13 +1,7 @@
 use crate::common::ApiError;
-use crate::storage::sliding_sync::{
-    SlidingSyncRequest, SlidingSyncResponse,
-};
+use crate::storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
 use crate::web::routes::{AppState, AuthenticatedUser};
-use axum::{
-    extract::State,
-    routing::post,
-    Json, Router,
-};
+use axum::{extract::State, routing::post, Json, Router};
 
 /// Sliding Sync endpoint
 /// Matrix MSC3575: https://github.com/matrix-org/matrix-spec-proposals/pull/3575

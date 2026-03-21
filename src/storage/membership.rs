@@ -252,7 +252,7 @@ impl RoomMemberStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await?;
-        
+
         Ok(rows)
     }
 

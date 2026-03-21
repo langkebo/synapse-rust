@@ -418,8 +418,7 @@ impl Validator {
                 .expect("Valid regex pattern should not fail"),
             device_id_regex: Regex::new(r"^[a-zA-Z0-9._\-]+$")
                 .expect("Valid regex pattern should not fail"),
-            url_regex: Regex::new(r"^https?://.+")
-                .expect("Valid regex pattern should not fail"),
+            url_regex: Regex::new(r"^https?://.+").expect("Valid regex pattern should not fail"),
         }
     }
 }

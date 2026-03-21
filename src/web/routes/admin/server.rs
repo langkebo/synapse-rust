@@ -12,15 +12,24 @@ use sqlx::Row;
 pub fn create_server_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/server_version", get(get_server_version))
-        .route("/_synapse/admin/v1/purge_media_cache", post(purge_media_cache))
+        .route(
+            "/_synapse/admin/v1/purge_media_cache",
+            post(purge_media_cache),
+        )
         .route("/_synapse/admin/v1/restart", post(restart_server))
         .route("/_synapse/admin/v1/statistics", get(get_statistics))
         .route("/_synapse/admin/v1/status", get(get_status))
         .route("/_synapse/admin/v1/whois/{user_id}", get(whois))
-        .route("/_synapse/admin/v1/whois/{user_id}/{device_id}", get(whois_device))
+        .route(
+            "/_synapse/admin/v1/whois/{user_id}/{device_id}",
+            get(whois_device),
+        )
         .route("/_synapse/admin/v1/health", get(get_health))
         .route("/_synapse/admin/v1/config", get(get_config))
-        .route("/_synapse/admin/v1/experimental_features", get(get_experimental_features))
+        .route(
+            "/_synapse/admin/v1/experimental_features",
+            get(get_experimental_features),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -214,10 +223,11 @@ pub async fn get_background_updates_status(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let pending: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM background_updates WHERE NOT completed")
-        .fetch_one(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let pending: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM background_updates WHERE NOT completed")
+            .fetch_one(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({
         "enabled": true,

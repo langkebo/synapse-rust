@@ -10,7 +10,7 @@ pub struct CreateThreepidRequest {
     pub medium: String,
     pub address: String,
     pub verification_token: Option<String>,
-    pub verification_expires_at: Option<i64>,
+    pub verification_expires_ts: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -31,9 +31,9 @@ impl ThreepidStorage {
 
         let threepid = sqlx::query_as::<_, UserThreepid>(
             r#"
-            INSERT INTO user_threepids (user_id, medium, address, added_ts, is_verified, verification_token, verification_expires_at)
+            INSERT INTO user_threepids (user_id, medium, address, added_ts, is_verified, verification_token, verification_expires_ts)
             VALUES ($1, $2, $3, $4, FALSE, $5, $6)
-            RETURNING id, user_id, medium, address, validated_at, added_ts, is_verified, verification_token, verification_expires_at
+            RETURNING id, user_id, medium, address, validated_ts, added_ts, is_verified, verification_token, verification_expires_ts
             "#,
         )
         .bind(&request.user_id)
@@ -41,7 +41,7 @@ impl ThreepidStorage {
         .bind(&request.address)
         .bind(now)
         .bind(&request.verification_token)
-        .bind(request.verification_expires_at)
+        .bind(request.verification_expires_ts)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to add threepid: {}", e)))?;
@@ -57,7 +57,7 @@ impl ThreepidStorage {
     ) -> Result<Option<UserThreepid>, ApiError> {
         let threepid = sqlx::query_as::<_, UserThreepid>(
             r#"
-            SELECT id, user_id, medium, address, validated_at, added_ts, is_verified, verification_token, verification_expires_at
+            SELECT id, user_id, medium, address, validated_ts, added_ts, is_verified, verification_token, verification_expires_ts
             FROM user_threepids
             WHERE user_id = $1 AND medium = $2 AND address = $3
             "#,
@@ -78,7 +78,7 @@ impl ThreepidStorage {
     ) -> Result<Vec<UserThreepid>, ApiError> {
         let threepids = sqlx::query_as::<_, UserThreepid>(
             r#"
-            SELECT id, user_id, medium, address, validated_at, added_ts, is_verified, verification_token, verification_expires_at
+            SELECT id, user_id, medium, address, validated_ts, added_ts, is_verified, verification_token, verification_expires_ts
             FROM user_threepids
             WHERE user_id = $1
             ORDER BY added_ts DESC
@@ -99,7 +99,7 @@ impl ThreepidStorage {
     ) -> Result<Option<UserThreepid>, ApiError> {
         let threepid = sqlx::query_as::<_, UserThreepid>(
             r#"
-            SELECT id, user_id, medium, address, validated_at, added_ts, is_verified, verification_token, verification_expires_at
+            SELECT id, user_id, medium, address, validated_ts, added_ts, is_verified, verification_token, verification_expires_ts
             FROM user_threepids
             WHERE medium = $1 AND address = $2
             "#,
@@ -124,7 +124,7 @@ impl ThreepidStorage {
         let result = sqlx::query(
             r#"
             UPDATE user_threepids
-            SET is_verified = TRUE, validated_at = $4, verification_token = NULL, verification_expires_at = NULL
+            SET is_verified = TRUE, validated_ts = $4, verification_token = NULL, verification_expires_ts = NULL
             WHERE user_id = $1 AND medium = $2 AND address = $3
             "#,
         )
@@ -148,9 +148,9 @@ impl ThreepidStorage {
         let threepid = sqlx::query_as::<_, UserThreepid>(
             r#"
             UPDATE user_threepids
-            SET is_verified = TRUE, validated_at = $2, verification_token = NULL, verification_expires_at = NULL
-            WHERE verification_token = $1 AND verification_expires_at > $2
-            RETURNING id, user_id, medium, address, validated_at, added_ts, is_verified, verification_token, verification_expires_at
+            SET is_verified = TRUE, validated_ts = $2, verification_token = NULL, verification_expires_ts = NULL
+            WHERE verification_token = $1 AND verification_expires_ts > $2
+            RETURNING id, user_id, medium, address, validated_ts, added_ts, is_verified, verification_token, verification_expires_ts
             "#,
         )
         .bind(token)
@@ -205,7 +205,7 @@ impl ThreepidStorage {
         let result = sqlx::query(
             r#"
             DELETE FROM user_threepids
-            WHERE is_verified = FALSE AND verification_expires_at IS NOT NULL AND verification_expires_at < $1
+            WHERE is_verified = FALSE AND verification_expires_ts IS NOT NULL AND verification_expires_ts < $1
             "#,
         )
         .bind(now)
@@ -228,7 +228,7 @@ mod tests {
             medium: "email".to_string(),
             address: "test@example.com".to_string(),
             verification_token: Some("token123".to_string()),
-            verification_expires_at: Some(1234567890000),
+            verification_expires_ts: Some(1234567890000),
         };
         assert_eq!(request.medium, "email");
         assert_eq!(request.address, "test@example.com");
@@ -241,11 +241,11 @@ mod tests {
             user_id: "@test:example.com".to_string(),
             medium: "email".to_string(),
             address: "test@example.com".to_string(),
-            validated_at: Some(1234567890000),
+            validated_ts: Some(1234567890000),
             added_ts: 1234567800000,
             is_verified: true,
             verification_token: None,
-            verification_expires_at: None,
+            verification_expires_ts: None,
         };
         assert_eq!(threepid.id, 1);
         assert!(threepid.is_verified);

@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedRoomSummary {
@@ -76,7 +76,7 @@ impl RoomSummaryCache {
         let summaries = self.summaries.read().await;
         let now = chrono::Utc::now().timestamp_millis();
         let ttl_ms = self.ttl.as_millis() as i64;
-        
+
         room_ids
             .iter()
             .filter_map(|id| {
@@ -94,7 +94,7 @@ impl RoomSummaryCache {
     pub async fn set_summaries_batch(&self, new_summaries: Vec<CachedRoomSummary>) {
         let mut summaries = self.summaries.write().await;
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         for mut summary in new_summaries {
             summary.cached_at = now;
             summaries.insert(summary.room_id.clone(), summary);
@@ -159,7 +159,7 @@ impl RoomSummaryCache {
         let presence = self.presence.read().await;
         let now = chrono::Utc::now().timestamp_millis();
         let ttl_ms = self.ttl.as_millis() as i64;
-        
+
         user_ids
             .iter()
             .filter_map(|id| {
@@ -178,7 +178,7 @@ impl RoomSummaryCache {
         let mut summaries = self.summaries.write().await;
         let mut members = self.members.write().await;
         let mut presence = self.presence.write().await;
-        
+
         summaries.clear();
         members.clear();
         presence.clear();
@@ -188,7 +188,7 @@ impl RoomSummaryCache {
         let summaries = self.summaries.read().await;
         let members = self.members.read().await;
         let presence = self.presence.read().await;
-        
+
         CacheStats {
             summary_count: summaries.len(),
             member_cache_count: members.len(),

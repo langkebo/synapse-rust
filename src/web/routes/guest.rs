@@ -1,6 +1,6 @@
 use crate::storage::device::DeviceStorage;
-use crate::storage::user::UserStorage;
 use crate::storage::token::AccessTokenStorage;
+use crate::storage::user::UserStorage;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::State,
@@ -10,9 +10,7 @@ use axum::{
 use chrono::Utc;
 use serde_json::{json, Value};
 
-pub async fn register_guest(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     if !state.services.config.server.enable_registration {
         return Err(ApiError::forbidden("Registration is disabled".to_string()));
     }
@@ -22,21 +20,38 @@ pub async fn register_guest(
     let user_id = format!("@{}:{}", username, state.services.server_name);
     let device_id = format!("guest_device_{}", guest_num);
 
-    let user = UserStorage::create_user(&state.services.user_storage, &user_id, &username, None, false)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to create guest user: {}", e)))?;
+    let user = UserStorage::create_user(
+        &state.services.user_storage,
+        &user_id,
+        &username,
+        None,
+        false,
+    )
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to create guest user: {}", e)))?;
 
     let now = Utc::now().timestamp_millis();
-    DeviceStorage::create_device(&state.services.device_storage, &device_id, &user.user_id, Some("Guest Device"))
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
+    DeviceStorage::create_device(
+        &state.services.device_storage,
+        &device_id,
+        &user.user_id,
+        Some("Guest Device"),
+    )
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
 
     let access_token = format!("guest_token_{}", uuid::Uuid::new_v4());
     let expires_at = now + 86400000;
 
-    AccessTokenStorage::create_token(&state.services.token_storage, &access_token, &user.user_id, Some(&device_id), Some(expires_at))
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to store token: {}", e)))?;
+    AccessTokenStorage::create_token(
+        &state.services.token_storage,
+        &access_token,
+        &user.user_id,
+        Some(&device_id),
+        Some(expires_at),
+    )
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to store token: {}", e)))?;
 
     Ok(Json(json!({
         "access_token": access_token,
@@ -84,9 +99,10 @@ pub async fn upgrade_guest(
 
     match user {
         Some(u) if u.is_guest => {
-            let existing = UserStorage::get_user_by_username(&state.services.user_storage, username)
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to check username: {}", e)))?;
+            let existing =
+                UserStorage::get_user_by_username(&state.services.user_storage, username)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Failed to check username: {}", e)))?;
 
             if existing.is_some() {
                 return Err(ApiError::conflict("Username already exists".to_string()));
@@ -118,6 +134,9 @@ pub fn create_guest_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v3/register/guest", post(register_guest))
         .route("/_matrix/client/v3/account/guest", get(get_guest_info))
-        .route("/_matrix/client/v3/account/guest/upgrade", post(upgrade_guest))
+        .route(
+            "/_matrix/client/v3/account/guest/upgrade",
+            post(upgrade_guest),
+        )
         .with_state(state)
 }

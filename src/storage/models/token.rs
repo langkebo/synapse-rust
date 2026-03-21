@@ -12,7 +12,6 @@ pub struct AccessToken {
     pub user_agent: Option<String>,
     pub ip_address: Option<String>,
     pub is_revoked: bool,
-    pub revoked_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -28,7 +27,6 @@ pub struct RefreshToken {
     pub last_used_ts: Option<i64>,
     pub use_count: i32,
     pub is_revoked: bool,
-    pub revoked_at: Option<i64>,
     pub revoked_reason: Option<String>,
     pub client_info: Option<serde_json::Value>,
     pub ip_address: Option<String>,
@@ -42,7 +40,7 @@ pub struct TokenBlacklistEntry {
     pub token: Option<String>,
     pub token_type: String,
     pub user_id: Option<String>,
-    pub revoked_at: i64,
+    pub is_revoked: bool,
     pub reason: Option<String>,
     pub expires_at: Option<i64>,
 }
@@ -112,7 +110,6 @@ mod tests {
             user_agent: None,
             ip_address: None,
             is_revoked: false,
-            revoked_at: None,
         };
 
         assert_eq!(token.id, 1);
@@ -136,7 +133,6 @@ mod tests {
             last_used_ts: None,
             use_count: 0,
             is_revoked: false,
-            revoked_at: None,
             revoked_reason: None,
             client_info: None,
             ip_address: None,
@@ -156,7 +152,7 @@ mod tests {
             token: Some("revoked_token".to_string()),
             token_type: "access".to_string(),
             user_id: Some("@alice:example.com".to_string()),
-            revoked_at: 1234567890000,
+            is_revoked: true,
             reason: Some("User logout".to_string()),
             expires_at: None,
         };

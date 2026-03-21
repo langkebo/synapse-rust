@@ -109,9 +109,7 @@ pub async fn start_qr_login(
         .ok_or_else(|| ApiError::bad_request("Transaction ID required".to_string()))?;
 
     let device_id = body.get("device_id").and_then(|v| v.as_str());
-    let initial_display_name = body
-        .get("initial_display_name")
-        .and_then(|v| v.as_str());
+    let initial_display_name = body.get("initial_display_name").and_then(|v| v.as_str());
 
     // Get transaction to verify it exists
     let transaction = state

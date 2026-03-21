@@ -57,7 +57,10 @@ pub struct CreateEventParams {
 
 impl EventStorage {
     pub fn new(pool: &Arc<Pool<Postgres>>, server_name: String) -> Self {
-        Self { pool: pool.clone(), server_name }
+        Self {
+            pool: pool.clone(),
+            server_name,
+        }
     }
 
     pub async fn create_event(
@@ -193,7 +196,10 @@ impl EventStorage {
             if let Some((content,)) = full_event {
                 let mut result = serde_json::Map::new();
                 result.insert("event_id".to_string(), serde_json::Value::String(event_id));
-                result.insert("origin_server_ts".to_string(), serde_json::Value::Number(origin_server_ts.into()));
+                result.insert(
+                    "origin_server_ts".to_string(),
+                    serde_json::Value::Number(origin_server_ts.into()),
+                );
                 // Merge content into result
                 if let serde_json::Value::Object(obj) = content {
                     for (k, v) in obj {

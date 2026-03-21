@@ -38,10 +38,10 @@ pub async fn get_ephemeral_events(
 ) -> Result<Json<EphemeralResponse>, ApiError> {
     // Verify user is in the room
     let user_id = &auth_user.user_id;
-    
+
     // Check if user is in the room
     let membership: Option<String> = sqlx::query_scalar(
-        "SELECT membership FROM room_memberships WHERE room_id = $1 AND user_id = $2"
+        "SELECT membership FROM room_memberships WHERE room_id = $1 AND user_id = $2",
     )
     .bind(&room_id)
     .bind(user_id)
@@ -54,7 +54,7 @@ pub async fn get_ephemeral_events(
     }
 
     let now = chrono::Utc::now().timestamp_millis();
-    
+
     // Get ephemeral events (typing, receipts, etc.)
     let rows = sqlx::query(
         r#"
@@ -74,13 +74,13 @@ pub async fn get_ephemeral_events(
     .map_err(|e| ApiError::internal(format!("Failed to get ephemeral events: {}", e)))?;
 
     let mut events: Vec<Value> = Vec::new();
-    
+
     for row in rows {
         use sqlx::Row;
         let event_type: String = row.get("event_type");
         let sender: String = row.get("user_id");
         let content: Value = row.get("content");
-        
+
         let event = json!({
             "type": event_type,
             "sender": sender,

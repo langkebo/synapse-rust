@@ -142,7 +142,11 @@ impl AuthService {
             .map_err(|e| ApiError::internal(format!("Hashing task panicked: {}", e)))??;
 
         // Use a transaction to ensure user and device are created atomically
-        let mut tx = self.user_storage.pool.begin().await
+        let mut tx = self
+            .user_storage
+            .pool
+            .begin()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to start transaction: {}", e)))?;
 
         let user = match self
@@ -171,11 +175,17 @@ impl AuthService {
             .await
         {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal(format!("Failed to create device: {}", e)));
+            return Err(ApiError::internal(format!(
+                "Failed to create device: {}",
+                e
+            )));
         }
 
         if let Err(e) = tx.commit().await {
-            return Err(ApiError::internal(format!("Failed to commit transaction: {}", e)));
+            return Err(ApiError::internal(format!(
+                "Failed to commit transaction: {}",
+                e
+            )));
         }
 
         let access_token = self
@@ -585,7 +595,11 @@ impl AuthService {
             if let Some(active) = self.cache.is_user_active(&cached_claims.sub).await {
                 ::tracing::debug!(target: "token_validation", "Cache hit for user active: {:?}", active);
                 return if active {
-                    Ok((cached_claims.user_id, cached_claims.device_id.clone(), cached_claims.admin))
+                    Ok((
+                        cached_claims.user_id,
+                        cached_claims.device_id.clone(),
+                        cached_claims.admin,
+                    ))
                 } else {
                     Err(ApiError::unauthorized(
                         "User not found or deactivated".to_string(),
@@ -605,16 +619,24 @@ impl AuthService {
                 let is_active = !u.is_deactivated;
                 ::tracing::debug!(target: "token_validation", "User found, is_deactivated: {:?}, is_active: {}", u.is_deactivated, is_active);
 
-                self.cache.set_user_active(&cached_claims.sub, is_active, 60).await;
+                self.cache
+                    .set_user_active(&cached_claims.sub, is_active, 60)
+                    .await;
 
                 if is_active {
-                    Ok((cached_claims.user_id, cached_claims.device_id.clone(), cached_claims.admin))
+                    Ok((
+                        cached_claims.user_id,
+                        cached_claims.device_id.clone(),
+                        cached_claims.admin,
+                    ))
                 } else {
                     Err(ApiError::unauthorized("User is deactivated".to_string()))
                 }
             } else {
                 ::tracing::debug!(target: "token_validation", "User not found in database");
-                self.cache.set_user_active(&cached_claims.sub, false, 60).await;
+                self.cache
+                    .set_user_active(&cached_claims.sub, false, 60)
+                    .await;
                 Err(ApiError::unauthorized("User not found".to_string()))
             };
         }
@@ -716,12 +738,21 @@ impl AuthService {
         let mut header = Header::new(Algorithm::HS256);
         header.typ = Some("JWT".to_string());
 
-        encode(
+        let token = encode(
             &header,
             &claims,
             &EncodingKey::from_secret(&self.jwt_secret),
         )
-        .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))
+        .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))?;
+
+        let expires_at = (now + Duration::seconds(self.token_expiry)).timestamp_millis();
+
+        self.token_storage
+            .create_token(&token, user_id, Some(device_id), Some(expires_at))
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to store token: {}", e)))?;
+
+        Ok(token)
     }
 
     async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String> {
@@ -849,13 +880,12 @@ impl AuthService {
             return Ok(-1);
         }
 
-        let room_creator: Option<String> = sqlx::query_scalar(
-            "SELECT creator FROM rooms WHERE room_id = $1",
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let room_creator: Option<String> =
+            sqlx::query_scalar("SELECT creator FROM rooms WHERE room_id = $1")
+                .bind(room_id)
+                .fetch_optional(&*self.user_storage.pool)
+                .await
+                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if let Some(creator) = room_creator {
             if creator == user_id {
@@ -940,13 +970,12 @@ impl AuthService {
             ));
         }
 
-        let room_creator: Option<String> = sqlx::query_scalar(
-            "SELECT creator FROM rooms WHERE room_id = $1",
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let room_creator: Option<String> =
+            sqlx::query_scalar("SELECT creator FROM rooms WHERE room_id = $1")
+                .bind(room_id)
+                .fetch_optional(&*self.user_storage.pool)
+                .await
+                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if let Some(creator) = room_creator {
             if creator == target_user_id {
@@ -1012,13 +1041,12 @@ impl AuthService {
             ));
         }
 
-        let room_creator: Option<String> = sqlx::query_scalar(
-            "SELECT creator FROM rooms WHERE room_id = $1",
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let room_creator: Option<String> =
+            sqlx::query_scalar("SELECT creator FROM rooms WHERE room_id = $1")
+                .bind(room_id)
+                .fetch_optional(&*self.user_storage.pool)
+                .await
+                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if let Some(creator) = room_creator {
             if creator == target_user_id {

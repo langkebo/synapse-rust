@@ -11,20 +11,62 @@ use sqlx::Row;
 
 pub fn create_federation_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_synapse/admin/v1/federation/destinations", get(get_destinations))
-        .route("/_synapse/admin/v1/federation/destinations/{destination}", get(get_destination))
-        .route("/_synapse/admin/v1/federation/destinations/{destination}/reset_connection", post(reset_connection))
-        .route("/_synapse/admin/v1/federation/destinations/{destination}/reset_connection", delete(delete_destination))
-        .route("/_synapse/admin/v1/federation/destinations/{destination}/rooms", get(get_destination_rooms))
-        .route("/_synapse/admin/v1/federation/rewrite", post(rewrite_federation))
-        .route("/_synapse/admin/v1/federation/resolve", post(resolve_federation))
-        .route("/_synapse/admin/v1/federation/confirm", post(confirm_federation))
-        .route("/_synapse/admin/v1/federation/blacklist", get(get_blacklist))
-        .route("/_synapse/admin/v1/federation/blacklist/{server_name}", post(add_to_blacklist))
-        .route("/_synapse/admin/v1/federation/blacklist/{server_name}", delete(remove_from_blacklist))
-        .route("/_synapse/admin/v1/federation/cache", get(get_federation_cache))
-        .route("/_synapse/admin/v1/federation/cache/{key}", delete(delete_federation_cache_entry))
-        .route("/_synapse/admin/v1/federation/cache/clear", post(clear_federation_cache))
+        .route(
+            "/_synapse/admin/v1/federation/destinations",
+            get(get_destinations),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/destinations/{destination}",
+            get(get_destination),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/destinations/{destination}/reset_connection",
+            post(reset_connection),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/destinations/{destination}/reset_connection",
+            delete(delete_destination),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/destinations/{destination}/rooms",
+            get(get_destination_rooms),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/rewrite",
+            post(rewrite_federation),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/resolve",
+            post(resolve_federation),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/confirm",
+            post(confirm_federation),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/blacklist",
+            get(get_blacklist),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/blacklist/{server_name}",
+            post(add_to_blacklist),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/blacklist/{server_name}",
+            delete(remove_from_blacklist),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/cache",
+            get(get_federation_cache),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/cache/{key}",
+            delete(delete_federation_cache_entry),
+        )
+        .route(
+            "/_synapse/admin/v1/federation/cache/clear",
+            post(clear_federation_cache),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,7 +111,9 @@ pub async fn get_destinations(
         })
         .collect();
 
-    Ok(Json(json!({ "destinations": dest_list, "total": dest_list.len() })))
+    Ok(Json(
+        json!({ "destinations": dest_list, "total": dest_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]
@@ -144,7 +188,9 @@ pub async fn get_destination_rooms(
 
     let room_list: Vec<String> = rooms.iter().map(|r| r.get("room_id")).collect();
 
-    Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
+    Ok(Json(
+        json!({ "rooms": room_list, "total": room_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]
@@ -189,10 +235,12 @@ pub async fn get_blacklist(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let blacklist = sqlx::query("SELECT server_name, added_at, reason FROM federation_blacklist ORDER BY added_at DESC")
-        .fetch_all(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let blacklist = sqlx::query(
+        "SELECT server_name, added_at, reason FROM federation_blacklist ORDER BY added_at DESC",
+    )
+    .fetch_all(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let list: Vec<Value> = blacklist
         .iter()

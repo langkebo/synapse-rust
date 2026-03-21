@@ -29,7 +29,7 @@ impl DeviceTrustStorage {
             "SELECT id, user_id, device_id, trust_level, verified_by_device_id, 
              verified_at, created_at, updated_at 
              FROM device_trust_status 
-             WHERE user_id = $1 AND device_id = $2"
+             WHERE user_id = $1 AND device_id = $2",
         )
         .bind(user_id)
         .bind(device_id)
@@ -41,10 +41,7 @@ impl DeviceTrustStorage {
     }
 
     /// Create or update device trust status
-    pub async fn upsert_device_trust(
-        &self,
-        status: &DeviceTrustStatus,
-    ) -> Result<(), ApiError> {
+    pub async fn upsert_device_trust(&self, status: &DeviceTrustStatus) -> Result<(), ApiError> {
         sqlx::query(
             "INSERT INTO device_trust_status (user_id, device_id, trust_level, 
              verified_by_device_id, verified_at, created_at, updated_at)
@@ -53,7 +50,7 @@ impl DeviceTrustStorage {
              trust_level = VALUES(trust_level),
              verified_by_device_id = VALUES(verified_by_device_id),
              verified_at = VALUES(verified_at),
-             updated_at = VALUES(updated_at)"
+             updated_at = VALUES(updated_at)",
         )
         .bind(&status.user_id)
         .bind(&status.device_id)
@@ -78,7 +75,7 @@ impl DeviceTrustStorage {
         verified_by: Option<&str>,
     ) -> Result<(), ApiError> {
         let now = chrono::Utc::now();
-        
+
         sqlx::query(
             "INSERT INTO device_trust_status (user_id, device_id, trust_level, 
              verified_by_device_id, verified_at, created_at, updated_at)
@@ -112,7 +109,7 @@ impl DeviceTrustStorage {
             "SELECT id, user_id, device_id, trust_level, verified_by_device_id,
              verified_at, created_at, updated_at 
              FROM device_trust_status 
-             WHERE user_id = $1"
+             WHERE user_id = $1",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -131,7 +128,7 @@ impl DeviceTrustStorage {
             "SELECT id, user_id, device_id, trust_level, verified_by_device_id,
              verified_at, created_at, updated_at 
              FROM device_trust_status 
-             WHERE user_id = $1 AND trust_level = 'verified'"
+             WHERE user_id = $1 AND trust_level = 'verified'",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -142,17 +139,14 @@ impl DeviceTrustStorage {
     }
 
     /// Count devices by trust level
-    pub async fn count_devices_by_trust(
-        &self,
-        user_id: &str,
-    ) -> Result<(i64, i64, i64), ApiError> {
+    pub async fn count_devices_by_trust(&self, user_id: &str) -> Result<(i64, i64, i64), ApiError> {
         let row = sqlx::query(
             "SELECT 
              COUNT(CASE WHEN trust_level = 'verified' THEN 1 END) as verified,
              COUNT(CASE WHEN trust_level = 'unverified' THEN 1 END) as unverified,
              COUNT(CASE WHEN trust_level = 'blocked' THEN 1 END) as blocked
              FROM device_trust_status 
-             WHERE user_id = $1"
+             WHERE user_id = $1",
         )
         .bind(user_id)
         .fetch_one(&*self.pool)
@@ -179,7 +173,7 @@ impl DeviceTrustStorage {
             "INSERT INTO device_verification_request 
              (user_id, new_device_id, requesting_device_id, verification_method, 
               status, request_token, commitment, pubkey, created_at, expires_at, completed_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(&request.user_id)
         .bind(&request.new_device_id)
@@ -208,7 +202,7 @@ impl DeviceTrustStorage {
             "SELECT id, user_id, new_device_id, requesting_device_id, verification_method,
              status, request_token, commitment, pubkey, created_at, expires_at, completed_at
              FROM device_verification_request 
-             WHERE request_token = $1"
+             WHERE request_token = $1",
         )
         .bind(token)
         .fetch_optional(&*self.pool)
@@ -246,11 +240,11 @@ impl DeviceTrustStorage {
         status: VerificationRequestStatus,
     ) -> Result<(), ApiError> {
         let now = chrono::Utc::now();
-        
+
         sqlx::query(
             "UPDATE device_verification_request 
              SET status = $1, completed_at = $2
-             WHERE request_token = $3"
+             WHERE request_token = $3",
         )
         .bind(status.to_string())
         .bind(now)
@@ -272,7 +266,7 @@ impl DeviceTrustStorage {
         sqlx::query(
             "UPDATE device_verification_request 
              SET commitment = $1, pubkey = $2
-             WHERE request_token = $3"
+             WHERE request_token = $3",
         )
         .bind(commitment)
         .bind(pubkey)
@@ -289,7 +283,7 @@ impl DeviceTrustStorage {
         let result = sqlx::query(
             "UPDATE device_verification_request 
              SET status = 'expired', completed_at = NOW()
-             WHERE status = 'pending' AND expires_at < NOW()"
+             WHERE status = 'pending' AND expires_at < NOW()",
         )
         .execute(&*self.pool)
         .await
@@ -333,7 +327,7 @@ impl DeviceTrustStorage {
         sqlx::query(
             "INSERT INTO e2ee_security_events 
              (user_id, device_id, event_type, event_data, ip_address, user_agent, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(&event.user_id)
         .bind(&event.device_id)
@@ -383,7 +377,7 @@ impl DeviceTrustStorage {
         is_trusted: bool,
     ) -> Result<(), ApiError> {
         let now = chrono::Utc::now();
-        
+
         sqlx::query(
             "INSERT INTO cross_signing_trust 
              (user_id, target_user_id, is_trusted, trusted_at, created_at, updated_at)
@@ -410,7 +404,7 @@ impl DeviceTrustStorage {
     pub async fn has_cross_signing_master_key(&self, user_id: &str) -> Result<bool, ApiError> {
         let result = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM cross_signing_keys 
-             WHERE user_id = $1 AND key_type = 'master'"
+             WHERE user_id = $1 AND key_type = 'master'",
         )
         .bind(user_id)
         .fetch_one(&*self.pool)

@@ -164,10 +164,14 @@ impl ExternalServiceIntegration {
         );
 
         let as_id = format!("{}_{}", config.service_type, config.service_id);
-        
-        if self.storage.get_by_id(&as_id).await.map_err(|e| {
-            ApiError::internal(format!("Failed to check existing service: {}", e))
-        })?.is_some() {
+
+        if self
+            .storage
+            .get_by_id(&as_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check existing service: {}", e)))?
+            .is_some()
+        {
             return Err(ApiError::bad_request(format!(
                 "External service '{}' already exists",
                 as_id
@@ -175,7 +179,7 @@ impl ExternalServiceIntegration {
         }
 
         let namespaces = self.generate_namespaces_for_service(&config);
-        
+
         let request = RegisterApplicationServiceRequest {
             as_id: as_id.clone(),
             url: config.webhook_url.clone().unwrap_or_default(),
@@ -206,7 +210,10 @@ impl ExternalServiceIntegration {
             },
         );
 
-        info!("External service registered successfully: {}", config.service_id);
+        info!(
+            "External service registered successfully: {}",
+            config.service_id
+        );
         Ok(service)
     }
 
@@ -279,9 +286,12 @@ impl ExternalServiceIntegration {
         );
 
         let as_id = format!("trendradar_{}", service_id);
-        let _service = self.storage.get_by_id(&as_id).await.map_err(|e| {
-            ApiError::internal(format!("Failed to get service: {}", e))
-        })?.ok_or_else(|| ApiError::not_found("Service not found"))?;
+        let _service = self
+            .storage
+            .get_by_id(&as_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get service: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
         let event_content = serde_json::json!({
             "msgtype": "m.text",
@@ -307,17 +317,18 @@ impl ExternalServiceIntegration {
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
         let room_id = format!("!trendradar_{}:{}", service_id, self.server_name);
 
-        self.storage.add_event(
-            &event_id,
-            &as_id,
-            &room_id,
-            "m.room.message",
-            &format!("@trendradar_{}:{}", service_id, self.server_name),
-            event_content,
-            None,
-        ).await.map_err(|e| {
-            ApiError::internal(format!("Failed to add event: {}", e))
-        })?;
+        self.storage
+            .add_event(
+                &event_id,
+                &as_id,
+                &room_id,
+                "m.room.message",
+                &format!("@trendradar_{}:{}", service_id, self.server_name),
+                event_content,
+                None,
+            )
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to add event: {}", e)))?;
 
         self.update_health_status(&as_id, true, None).await;
 
@@ -336,9 +347,12 @@ impl ExternalServiceIntegration {
         );
 
         let as_id = format!("openclaw_{}", service_id);
-        let _service = self.storage.get_by_id(&as_id).await.map_err(|e| {
-            ApiError::internal(format!("Failed to get service: {}", e))
-        })?.ok_or_else(|| ApiError::not_found("Service not found"))?;
+        let _service = self
+            .storage
+            .get_by_id(&as_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get service: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
         let event_content = match payload.action.as_str() {
             "message" => serde_json::json!({
@@ -368,17 +382,18 @@ impl ExternalServiceIntegration {
             "m.room.message"
         };
 
-        self.storage.add_event(
-            &event_id,
-            &as_id,
-            &payload.room_id,
-            event_type,
-            &format!("@openclaw_{}:{}", service_id, self.server_name),
-            event_content,
-            None,
-        ).await.map_err(|e| {
-            ApiError::internal(format!("Failed to add event: {}", e))
-        })?;
+        self.storage
+            .add_event(
+                &event_id,
+                &as_id,
+                &payload.room_id,
+                event_type,
+                &format!("@openclaw_{}:{}", service_id, self.server_name),
+                event_content,
+                None,
+            )
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to add event: {}", e)))?;
 
         self.update_health_status(&as_id, true, None).await;
 
@@ -397,40 +412,40 @@ impl ExternalServiceIntegration {
         );
 
         let as_id = format!("generic_{}", service_id);
-        
-        self.storage.get_by_id(&as_id).await.map_err(|e| {
-            ApiError::internal(format!("Failed to get service: {}", e))
-        })?.ok_or_else(|| ApiError::not_found("Service not found"))?;
+
+        self.storage
+            .get_by_id(&as_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get service: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
-        let room_id = payload.data.get("room_id")
+        let room_id = payload
+            .data
+            .get("room_id")
             .and_then(|r| r.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("!webhook_{}:{}", service_id, self.server_name));
 
-        self.storage.add_event(
-            &event_id,
-            &as_id,
-            &room_id,
-            &payload.event_type,
-            &format!("@webhook_{}:{}", service_id, self.server_name),
-            payload.data.clone(),
-            None,
-        ).await.map_err(|e| {
-            ApiError::internal(format!("Failed to add event: {}", e))
-        })?;
+        self.storage
+            .add_event(
+                &event_id,
+                &as_id,
+                &room_id,
+                &payload.event_type,
+                &format!("@webhook_{}:{}", service_id, self.server_name),
+                payload.data.clone(),
+                None,
+            )
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to add event: {}", e)))?;
 
         self.update_health_status(&as_id, true, None).await;
 
         Ok(())
     }
 
-    async fn update_health_status(
-        &self,
-        as_id: &str,
-        success: bool,
-        error: Option<String>,
-    ) {
+    async fn update_health_status(&self, as_id: &str, success: bool, error: Option<String>) {
         let mut status = self.health_status.write().await;
         if let Some(health) = status.get_mut(as_id) {
             health.last_check_ts = Utc::now().timestamp_millis();
@@ -463,17 +478,21 @@ impl ExternalServiceIntegration {
 
     #[instrument(skip(self))]
     pub async fn check_service_health(&self, as_id: &str) -> Result<bool, ApiError> {
-        let service = self.storage.get_by_id(as_id).await.map_err(|e| {
-            ApiError::internal(format!("Failed to get service: {}", e))
-        })?.ok_or_else(|| ApiError::not_found("Service not found"))?;
+        let service = self
+            .storage
+            .get_by_id(as_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get service: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
         if service.url.is_empty() {
             return Ok(true);
         }
 
         let health_url = format!("{}/health", service.url);
-        
-        match self.http_client
+
+        match self
+            .http_client
             .get(&health_url)
             .timeout(Duration::from_secs(10))
             .send()
@@ -485,12 +504,14 @@ impl ExternalServiceIntegration {
             }
             Ok(resp) => {
                 let error = format!("Health check failed: HTTP {}", resp.status());
-                self.update_health_status(as_id, false, Some(error.clone())).await;
+                self.update_health_status(as_id, false, Some(error.clone()))
+                    .await;
                 Ok(false)
             }
             Err(e) => {
                 let error = format!("Health check failed: {}", e);
-                self.update_health_status(as_id, false, Some(error.clone())).await;
+                self.update_health_status(as_id, false, Some(error.clone()))
+                    .await;
                 Ok(false)
             }
         }
@@ -500,9 +521,10 @@ impl ExternalServiceIntegration {
     pub async fn unregister_external_service(&self, service_id: &str) -> Result<(), ApiError> {
         info!("Unregistering external service: {}", service_id);
 
-        self.storage.unregister(service_id).await.map_err(|e| {
-            ApiError::internal(format!("Failed to unregister service: {}", e))
-        })?;
+        self.storage
+            .unregister(service_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to unregister service: {}", e)))?;
 
         self.health_status.write().await.remove(service_id);
 
@@ -514,13 +536,16 @@ impl ExternalServiceIntegration {
         &self,
         service_type: Option<ExternalServiceType>,
     ) -> Result<Vec<ApplicationService>, ApiError> {
-        let services = self.storage.get_all_active().await.map_err(|e| {
-            ApiError::internal(format!("Failed to get services: {}", e))
-        })?;
+        let services = self
+            .storage
+            .get_all_active()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get services: {}", e)))?;
 
         if let Some(stype) = service_type {
             let prefix = format!("{}_", stype);
-            Ok(services.into_iter()
+            Ok(services
+                .into_iter()
                 .filter(|s| s.as_id.starts_with(&prefix))
                 .collect())
         } else {
@@ -534,16 +559,20 @@ impl ExternalServiceIntegration {
         as_id: &str,
         event: serde_json::Value,
     ) -> Result<(), ApiError> {
-        let service = self.storage.get_by_id(as_id).await.map_err(|e| {
-            ApiError::internal(format!("Failed to get service: {}", e))
-        })?.ok_or_else(|| ApiError::not_found("Service not found"))?;
+        let service = self
+            .storage
+            .get_by_id(as_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get service: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
         if service.url.is_empty() {
             debug!("Service {} has no URL configured, skipping send", as_id);
             return Ok(());
         }
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&service.url)
             .header("Authorization", format!("Bearer {}", service.hs_token))
             .json(&event)
@@ -557,12 +586,14 @@ impl ExternalServiceIntegration {
             }
             Ok(resp) => {
                 let error = format!("External service returned HTTP {}", resp.status());
-                self.update_health_status(as_id, false, Some(error.clone())).await;
+                self.update_health_status(as_id, false, Some(error.clone()))
+                    .await;
                 Err(ApiError::internal(error))
             }
             Err(e) => {
                 let error = format!("Failed to send to external service: {}", e);
-                self.update_health_status(as_id, false, Some(error.clone())).await;
+                self.update_health_status(as_id, false, Some(error.clone()))
+                    .await;
                 Err(ApiError::internal(error))
             }
         }
@@ -577,7 +608,10 @@ mod tests {
     fn test_external_service_type_display() {
         assert_eq!(ExternalServiceType::TrendRadar.to_string(), "trendradar");
         assert_eq!(ExternalServiceType::OpenClaw.to_string(), "openclaw");
-        assert_eq!(ExternalServiceType::GenericWebhook.to_string(), "generic_webhook");
+        assert_eq!(
+            ExternalServiceType::GenericWebhook.to_string(),
+            "generic_webhook"
+        );
     }
 
     #[test]

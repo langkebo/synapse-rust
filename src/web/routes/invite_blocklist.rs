@@ -44,13 +44,19 @@ pub async fn set_invite_blocklist(
         .map_err(|e| ApiError::internal(format!("Failed to check admin: {}", e)))?;
 
     if !is_admin {
-        return Err(ApiError::forbidden("Only room admins can set invite blocklist".to_string()));
+        return Err(ApiError::forbidden(
+            "Only room admins can set invite blocklist".to_string(),
+        ));
     }
 
     let user_ids = body
         .get("user_ids")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     state
@@ -99,13 +105,19 @@ pub async fn set_invite_allowlist(
         .map_err(|e| ApiError::internal(format!("Failed to check admin: {}", e)))?;
 
     if !is_admin {
-        return Err(ApiError::forbidden("Only room admins can set invite allowlist".to_string()));
+        return Err(ApiError::forbidden(
+            "Only room admins can set invite allowlist".to_string(),
+        ));
     }
 
     let user_ids = body
         .get("user_ids")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     state

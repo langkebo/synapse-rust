@@ -104,7 +104,7 @@ impl CallSessionStorage {
         state: &str,
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             UPDATE call_sessions 
@@ -130,7 +130,7 @@ impl CallSessionStorage {
         answer_sdp: &str,
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             UPDATE call_sessions 
@@ -157,7 +157,7 @@ impl CallSessionStorage {
         candidate: serde_json::Value,
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             INSERT INTO call_candidates (call_id, room_id, sender_id, candidate, created_ts)
@@ -197,18 +197,14 @@ impl CallSessionStorage {
     }
 
     /// 结束会话
-    pub async fn end_session(
-        &self,
-        call_id: &str,
-        room_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn end_session(&self, call_id: &str, room_id: &str) -> Result<(), sqlx::Error> {
         self.update_state(call_id, room_id, "ended").await
     }
 
     /// 清理过期的呼叫会话
     pub async fn cleanup_expired(&self) -> Result<u64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         let result = sqlx::query(
             r#"
             UPDATE call_sessions 

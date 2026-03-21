@@ -10,7 +10,7 @@ fn test_federation_version_response() {
         "server": "synapse-rust",
         "version": "1.0.0"
     });
-    
+
     assert!(response.get("server").is_some());
     assert!(response.get("version").is_some());
 }
@@ -23,7 +23,7 @@ fn test_server_name_validation() {
     assert!(is_valid_server_name("example.com"));
     assert!(is_valid_server_name("matrix.org"));
     assert!(is_valid_server_name("server-name.com"));
-    
+
     // Invalid
     assert!(!is_valid_server_name(""));
     assert!(!is_valid_server_name("server:port"));
@@ -71,7 +71,7 @@ fn test_key_algorithm() {
     assert!(is_valid_algorithm("signed_curve25519"));
     assert!(is_valid_algorithm("signed_curve25519"));
     assert!(is_valid_algorithm("ed25519"));
-    
+
     // Invalid
     assert!(!is_valid_algorithm(""));
 }
@@ -87,7 +87,7 @@ fn test_federation_public_rooms() {
         "world_readable": false,
         "guest_can_join": false
     });
-    
+
     assert!(room.get("room_id").is_some());
     assert!(room.get("name").is_some());
     assert!(room.get("num_joined_members").is_some());
@@ -102,7 +102,7 @@ fn test_federation_state_response() {
         "auth_events": [],
         "depth": 10
     });
-    
+
     assert!(state.get("room_id").is_some());
     assert!(state.get("state").is_some());
     assert!(state.get("depth").is_some());
@@ -115,7 +115,7 @@ fn test_federation_transaction() {
         "transaction_id": "txn123",
         "org.matrix.msc3077.key": "value"
     });
-    
+
     assert!(txn.get("transaction_id").is_some());
 }
 
@@ -126,7 +126,7 @@ fn test_federation_event_auth() {
         "auth_events": [],
         "state": []
     });
-    
+
     assert!(auth.get("auth_events").is_some());
     assert!(auth.get("state").is_some());
 }
@@ -139,7 +139,7 @@ fn test_federation_join_request() {
         "user_id": "@user:localhost",
         "device_id": "DEVICE123"
     });
-    
+
     assert!(join.get("room_id").is_some());
     assert!(join.get("user_id").is_some());
 }
@@ -151,7 +151,7 @@ fn test_federation_leave_request() {
         "room_id": "!room:localhost",
         "user_id": "@user:localhost"
     });
-    
+
     assert!(leave.get("room_id").is_some());
     assert!(leave.get("user_id").is_some());
 }
@@ -165,7 +165,7 @@ fn test_federation_invite_request() {
         "auth_events": [],
         "event": {}
     });
-    
+
     assert!(invite.get("room_id").is_some());
     assert!(invite.get("sender").is_some());
 }
@@ -182,7 +182,7 @@ fn test_federation_key_claim() {
             }
         }
     });
-    
+
     assert!(claim.get("one_time_keys").is_some());
 }
 
@@ -195,7 +195,7 @@ fn test_federation_missing_events() {
         "latest_events": ["$event2:localhost"],
         "limit": 10
     });
-    
+
     assert!(missing.get("room_id").is_some());
     assert!(missing.get("earliest_events").is_some());
     assert!(missing.get("limit").is_some());
@@ -208,7 +208,7 @@ fn test_federation_query_auth() {
         "room_id": "!room:localhost",
         "event_id": "$event:localhost"
     });
-    
+
     assert!(query.get("room_id").is_some());
     assert!(query.get("event_id").is_some());
 }
@@ -221,7 +221,7 @@ fn test_federation_backfill() {
         "suggested_room_state": [],
         "limit": 10
     });
-    
+
     assert!(backfill.get("room_id").is_some());
     assert!(backfill.get("limit").is_some());
 }
