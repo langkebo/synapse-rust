@@ -24,7 +24,7 @@ impl MediaQuotaService {
         );
 
         let server_quota = self.storage.get_server_quota().await?;
-        
+
         if let Some(max_file_size) = server_quota.max_file_size_bytes {
             if file_size > max_file_size {
                 return Ok(QuotaCheckResult {
@@ -262,7 +262,7 @@ mod tests {
             max_files_count: 100,
             usage_percent: 10.0,
         };
-        
+
         assert_eq!(info.current_storage_bytes, 1000);
         assert_eq!(info.usage_percent, 10.0);
     }
@@ -277,7 +277,7 @@ mod tests {
             max_files_count: 100,
             usage_percent: 50.0,
         };
-        
+
         assert_eq!(info.usage_percent, 50.0);
     }
 
@@ -291,7 +291,7 @@ mod tests {
             max_files_count: 100,
             usage_percent: 100.0,
         };
-        
+
         assert_eq!(info.usage_percent, 100.0);
     }
 
@@ -305,7 +305,7 @@ mod tests {
             max_files_count: 0,
             usage_percent: 0.0,
         };
-        
+
         assert_eq!(info.usage_percent, 0.0);
     }
 
@@ -319,10 +319,11 @@ mod tests {
             max_files_count: 100,
             usage_percent: 10.0,
         };
-        
+
         let json = serde_json::to_string(&info).expect("Failed to serialize UserQuotaInfo");
-        let parsed: UserQuotaInfo = serde_json::from_str(&json).expect("Failed to deserialize UserQuotaInfo");
-        
+        let parsed: UserQuotaInfo =
+            serde_json::from_str(&json).expect("Failed to deserialize UserQuotaInfo");
+
         assert_eq!(parsed.current_storage_bytes, info.current_storage_bytes);
         assert_eq!(parsed.usage_percent, info.usage_percent);
     }

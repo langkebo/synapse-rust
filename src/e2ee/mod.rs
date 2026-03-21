@@ -3,31 +3,29 @@ pub mod backup;
 pub mod cross_signing;
 pub mod crypto;
 pub mod device_keys;
-pub mod device_trust;  // E2EE Phase 1: Device trust and verification
+pub mod device_trust; // E2EE Phase 1: Device trust and verification
 pub mod key_request;
 pub mod megolm;
 pub mod olm;
-pub mod secure_backup;  // E2EE Phase 3: Secure backup with passphrase
+pub mod secure_backup; // E2EE Phase 3: Secure backup with passphrase
 pub mod signature;
 pub mod ssss;
 pub mod to_device;
 
 // Explicit exports for backup module
 pub use backup::models::{
-    KeyBackup, BackupVersion, BackupUploadRequest, BackupKeyUploadRequest,
-    BackupUploadResponse, BackupKeyInfo, BackupKeyUpload,
-    RecoveryRequest, RecoveryResponse, RecoveryProgress, RecoverySession,
-    BackupVerificationRequest, BackupVerificationResponse,
-    BatchRecoveryRequest, BatchRecoveryResponse,
+    BackupKeyInfo, BackupKeyUpload, BackupKeyUploadRequest, BackupUploadRequest,
+    BackupUploadResponse, BackupVerificationRequest, BackupVerificationResponse, BackupVersion,
+    BatchRecoveryRequest, BatchRecoveryResponse, KeyBackup, RecoveryProgress, RecoveryRequest,
+    RecoveryResponse, RecoverySession,
 };
 pub use backup::service::KeyBackupService;
 
 // Explicit exports for secure_backup (Phase 3)
 pub use secure_backup::models::{
-    SecureBackupInfo, SecureBackupAuthData, SessionKeyData,
-    CreateSecureBackupRequest, RestoreSecureBackupRequest, VerifyPassphraseRequest,
-    SecureBackupResponse, RestoreResponse, VerifyPassphraseResponse,
-    KeyDerivationParams, BackupVersion as SecureBackupVersion,
+    BackupVersion as SecureBackupVersion, CreateSecureBackupRequest, KeyDerivationParams,
+    RestoreResponse, RestoreSecureBackupRequest, SecureBackupAuthData, SecureBackupInfo,
+    SecureBackupResponse, SessionKeyData, VerifyPassphraseRequest, VerifyPassphraseResponse,
 };
 pub use secure_backup::service::SecureBackupService;
 // Explicit exports to avoid ambiguous glob re-exports
@@ -44,9 +42,8 @@ pub use device_keys::models::*;
 pub use device_keys::service::DeviceKeyService;
 // Explicit exports for device_trust
 pub use device_trust::models::{
-    DeviceTrustLevel, DeviceTrustStatus, DeviceVerificationRequest, 
-    VerificationMethod, VerificationRequestStatus, SecuritySummary,
-    KeyRotationLog, E2eeSecurityEvent
+    DeviceTrustLevel, DeviceTrustStatus, DeviceVerificationRequest, E2eeSecurityEvent,
+    KeyRotationLog, SecuritySummary, VerificationMethod, VerificationRequestStatus,
 };
 pub use device_trust::service::DeviceTrustService;
 pub use device_trust::storage::DeviceTrustStorage;
@@ -58,7 +55,10 @@ pub use olm::OlmService;
 pub use signature::EventSignature;
 pub use signature::SignatureService;
 pub use ssss::SecretStorage;
-pub use verification::{VerificationMethod as VerifMethod, VerificationState, SasState, SasData, SasResult, SasRepresentation, QrCodeData, QrState};
 pub use ssss::SecretStorageService;
+pub use verification::{
+    QrCodeData, QrState, SasData, SasRepresentation, SasResult, SasState,
+    VerificationMethod as VerifMethod, VerificationState,
+};
 
 pub mod verification;

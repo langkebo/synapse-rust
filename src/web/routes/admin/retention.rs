@@ -11,12 +11,27 @@ use sqlx::Row;
 
 pub fn create_retention_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_synapse/admin/v1/retention/policy", get(get_retention_policy))
-        .route("/_synapse/admin/v1/retention/policy", post(set_retention_policy))
-        .route("/_synapse/admin/v1/retention/policy/{room_id}", get(get_room_retention_policy))
-        .route("/_synapse/admin/v1/retention/policy/{room_id}", post(set_room_retention_policy))
+        .route(
+            "/_synapse/admin/v1/retention/policy",
+            get(get_retention_policy),
+        )
+        .route(
+            "/_synapse/admin/v1/retention/policy",
+            post(set_retention_policy),
+        )
+        .route(
+            "/_synapse/admin/v1/retention/policy/{room_id}",
+            get(get_room_retention_policy),
+        )
+        .route(
+            "/_synapse/admin/v1/retention/policy/{room_id}",
+            post(set_room_retention_policy),
+        )
         .route("/_synapse/admin/v1/retention/run", post(run_retention))
-        .route("/_synapse/admin/v1/retention/status", get(get_retention_status))
+        .route(
+            "/_synapse/admin/v1/retention/status",
+            get(get_retention_status),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,10 +50,11 @@ pub async fn get_retention_policy(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let policy = sqlx::query("SELECT max_lifetime, min_lifetime FROM server_retention_policy LIMIT 1")
-        .fetch_optional(&*state.services.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let policy =
+        sqlx::query("SELECT max_lifetime, min_lifetime FROM server_retention_policy LIMIT 1")
+            .fetch_optional(&*state.services.room_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     match policy {
         Some(row) => Ok(Json(json!({
@@ -79,11 +95,13 @@ pub async fn get_room_retention_policy(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let policy = sqlx::query("SELECT max_lifetime, min_lifetime FROM room_retention_policy WHERE room_id = $1")
-        .bind(&room_id)
-        .fetch_optional(&*state.services.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let policy = sqlx::query(
+        "SELECT max_lifetime, min_lifetime FROM room_retention_policy WHERE room_id = $1",
+    )
+    .bind(&room_id)
+    .fetch_optional(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     match policy {
         Some(row) => Ok(Json(json!({
@@ -151,10 +169,11 @@ pub async fn get_retention_status(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let server_policy_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM server_retention_policy)")
-        .fetch_one(&*state.services.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let server_policy_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM server_retention_policy)")
+            .fetch_one(&*state.services.room_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({
         "server_policy_enabled": server_policy_exists,

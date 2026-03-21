@@ -48,8 +48,6 @@ impl KeyRotationManager {
         let init_result = manager.load_or_create_key().await;
         if let Err(e) = init_result {
             tracing::error!("Failed to initialize key rotation: {}", e);
-            let _ = sqlx::query("ROLLBACK").execute(&*manager.pool).await;
-            let _ = sqlx::query("SELECT 1").execute(&*manager.pool).await;
         }
 
         let mut interval = interval(TokioDuration::from_secs(3600));
@@ -62,8 +60,6 @@ impl KeyRotationManager {
                     tracing::info!("Auto-rotating federation signing keys");
                     if let Err(e) = manager.rotate_keys(None).await {
                         tracing::error!("Failed to auto-rotate keys: {}", e);
-                        let _ = sqlx::query("ROLLBACK").execute(&*manager.pool).await;
-                        let _ = sqlx::query("SELECT 1").execute(&*manager.pool).await;
                     }
                 }
             }
@@ -104,26 +100,20 @@ impl KeyRotationManager {
                 // No existing key, create new one
             }
             Err(e) => {
-                let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
-                let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
                 return Err(e.into());
             }
         }
 
         let key_id = format!("ed25519:{}", Utc::now().timestamp());
-        let secret_key = base64::engine::general_purpose::STANDARD_NO_PAD
-            .encode(rand::random::<[u8; 32]>());
+        let secret_key =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(rand::random::<[u8; 32]>());
 
         match self.initialize(&secret_key, &key_id).await {
             Ok(_) => {
                 tracing::info!("Created new signing key");
                 Ok(())
             }
-            Err(e) => {
-                let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
-                let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -307,7 +297,7 @@ impl KeyRotationManager {
         let key_record: Option<sqlx::postgres::PgRow> = sqlx::query(
             r#"
             SELECT public_key, expires_at FROM federation_signing_keys WHERE key_id = $1
-            "#
+            "#,
         )
         .bind(key_id)
         .fetch_optional(&*self.pool)

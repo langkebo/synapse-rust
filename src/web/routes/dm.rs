@@ -29,14 +29,20 @@ pub async fn create_dm_room(
     Json(body): Json<CreateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let invite_list = body.invite.unwrap_or_default();
-    
+
     if invite_list.is_empty() {
-        return Err(ApiError::bad_request("At least one user must be invited to create a DM"));
+        return Err(ApiError::bad_request(
+            "At least one user must be invited to create a DM",
+        ));
     }
 
     let config = CreateRoomConfig {
         name: body.name.clone(),
-        visibility: Some(body.visibility.clone().unwrap_or_else(|| "private".to_string())),
+        visibility: Some(
+            body.visibility
+                .clone()
+                .unwrap_or_else(|| "private".to_string()),
+        ),
         preset: Some("private_chat".to_string()),
         invite_list: Some(invite_list.clone()),
         is_direct: Some(true),
@@ -57,7 +63,12 @@ pub async fn create_dm_room(
 
     let mut dm_users: Vec<String> = Vec::new();
     for u in &invite_list {
-        let clean_user = u.replace("@", "").split(':').next().unwrap_or("").to_string();
+        let clean_user = u
+            .replace("@", "")
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .to_string();
         dm_users.push(format!("@{}:cjystx.top", clean_user));
     }
 
@@ -109,7 +120,7 @@ pub async fn get_dm_rooms(
             .get_room_members(&room_id, "join")
             .await
             .map_err(|e| ApiError::database(format!("Failed to get room join members: {}", e)))?;
-        
+
         let invited_members = state
             .services
             .member_storage
@@ -118,7 +129,7 @@ pub async fn get_dm_rooms(
             .map_err(|e| ApiError::database(format!("Failed to get room invite members: {}", e)))?;
 
         let total_members = join_members.len() + invited_members.len();
-        
+
         if total_members == 2 {
             let other_member = join_members
                 .iter()
@@ -272,6 +283,9 @@ pub fn create_dm_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/direct", get(get_dm_rooms))
         .route("/_matrix/client/v3/direct/{room_id}", put(update_dm_room))
         .route("/_matrix/client/v3/rooms/{room_id}/dm", get(check_room_dm))
-        .route("/_matrix/client/v3/rooms/{room_id}/dm/partner", get(get_dm_partner_route))
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/dm/partner",
+            get(get_dm_partner_route),
+        )
         .with_state(state)
 }

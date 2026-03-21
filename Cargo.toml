@@ -20,7 +20,7 @@ tower_governor = { version = "0.8", optional = true, features = ["axum", "tracin
 hyper = "1"
 http = "1"
 
-sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate"] }
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros"] }
 ipnetwork = "0.20"
 deadpool = "0.12"
 deadpool-postgres = "0.12"

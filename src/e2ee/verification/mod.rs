@@ -1,5 +1,5 @@
 //! Device Verification Module
-//! 
+//!
 //! Implements SAS (Short Authentication String) and QR code verification
 
 pub mod models;

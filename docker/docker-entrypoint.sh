@@ -114,12 +114,17 @@ run_migrations() {
     psql "$DATABASE_URL" -c "ABORT;" >/dev/null 2>&1 || true
     
     # 使用 db_migrate.sh 执行迁移
-    if [ -f "$PROJECT_ROOT/scripts/db_migrate.sh" ]; then
+    if [ -f "$PROJECT_ROOT/scripts/db_migrate.sh" ] || [ -f "$SCRIPT_DIR/db_migrate.sh" ]; then
         log_info "使用迁移脚本执行..."
+        
+        local migrate_script="$PROJECT_ROOT/scripts/db_migrate.sh"
+        if [ ! -f "$migrate_script" ]; then
+            migrate_script="$SCRIPT_DIR/db_migrate.sh"
+        fi
         
         # 设置单独的环境变量，避免 set -e 影响
         set +e
-        bash "$PROJECT_ROOT/scripts/db_migrate.sh" migrate 2>&1 | tee "$log_file"
+        bash "$migrate_script" migrate 2>&1 | tee "$log_file"
         local exit_code=${PIPESTATUS[0]}
         set -e
         

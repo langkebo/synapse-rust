@@ -151,11 +151,7 @@ impl MatrixRTCStorage {
         .await
     }
 
-    pub async fn end_session(
-        &self,
-        room_id: &str,
-        session_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn end_session(&self, room_id: &str, session_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -370,7 +366,9 @@ impl MatrixRTCStorage {
         let session = self.get_session(room_id, session_id).await?;
 
         if let Some(session) = session {
-            let memberships = self.get_memberships_for_session(room_id, session_id).await?;
+            let memberships = self
+                .get_memberships_for_session(room_id, session_id)
+                .await?;
             Ok(Some(SessionWithMemberships {
                 session,
                 memberships,

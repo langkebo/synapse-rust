@@ -3,5 +3,8 @@ pub mod room_cache;
 pub mod service;
 
 pub use models::*;
-pub use room_cache::{RoomSummaryCache, SyncOptimizationService, CacheStats, CachedRoomSummary, CachedRoomMember, CachedPresence};
+pub use room_cache::{
+    CacheStats, CachedPresence, CachedRoomMember, CachedRoomSummary, RoomSummaryCache,
+    SyncOptimizationService,
+};
 pub use service::CacheService;

@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use crate::cache::CacheManager;
 use crate::common::error::ApiError;
 use crate::storage::matrixrtc::{
-    MatrixRTCStorage, RTCSession, RTCMembership, RTCEncryptionKey,
-    CreateSessionParams, CreateMembershipParams, SessionWithMemberships,
+    CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, RTCEncryptionKey, RTCMembership,
+    RTCSession, SessionWithMemberships,
 };
-use crate::cache::CacheManager;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct MatrixRTCService {
@@ -35,7 +35,10 @@ impl MatrixRTCService {
             config,
         };
 
-        let session = self.storage.create_session(params).await
+        let session = self
+            .storage
+            .create_session(params)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to create RTC session: {}", e)))?;
 
         self.invalidate_room_cache(&session.room_id).await;
@@ -54,7 +57,10 @@ impl MatrixRTCService {
             return Ok(Some(session));
         }
 
-        let session = self.storage.get_session(room_id, session_id).await
+        let session = self
+            .storage
+            .get_session(room_id, session_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get RTC session: {}", e)))?;
 
         if let Some(ref s) = session {
@@ -74,7 +80,10 @@ impl MatrixRTCService {
             return Ok(sessions);
         }
 
-        let sessions = self.storage.get_active_sessions_for_room(room_id).await
+        let sessions = self
+            .storage
+            .get_active_sessions_for_room(room_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get active sessions: {}", e)))?;
 
         let _ = self.cache.set(&cache_key, &sessions, 30).await;
@@ -92,13 +101,17 @@ impl MatrixRTCService {
 
         match session {
             Some(s) if s.creator == user_id => {
-                self.storage.end_session(room_id, session_id).await
+                self.storage
+                    .end_session(room_id, session_id)
+                    .await
                     .map_err(|e| ApiError::internal(format!("Failed to end session: {}", e)))?;
 
                 self.invalidate_room_cache(room_id).await;
                 Ok(())
             }
-            Some(_) => Err(ApiError::forbidden("Only session creator can end the session")),
+            Some(_) => Err(ApiError::forbidden(
+                "Only session creator can end the session",
+            )),
             None => Err(ApiError::not_found("Session not found")),
         }
     }
@@ -135,10 +148,14 @@ impl MatrixRTCService {
             application_data,
         };
 
-        let membership = self.storage.create_membership(params).await
+        let membership = self
+            .storage
+            .create_membership(params)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to create membership: {}", e)))?;
 
-        self.invalidate_session_cache(&membership.room_id, &membership.session_id).await;
+        self.invalidate_session_cache(&membership.room_id, &membership.session_id)
+            .await;
 
         Ok(membership)
     }
@@ -154,7 +171,10 @@ impl MatrixRTCService {
             return Ok(memberships);
         }
 
-        let memberships = self.storage.get_memberships_for_session(room_id, session_id).await
+        let memberships = self
+            .storage
+            .get_memberships_for_session(room_id, session_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get memberships: {}", e)))?;
 
         let _ = self.cache.set(&cache_key, &memberships, 30).await;
@@ -169,7 +189,9 @@ impl MatrixRTCService {
         user_id: &str,
         device_id: &str,
     ) -> Result<(), ApiError> {
-        self.storage.end_membership(room_id, session_id, user_id, device_id).await
+        self.storage
+            .end_membership(room_id, session_id, user_id, device_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to end membership: {}", e)))?;
 
         self.invalidate_session_cache(room_id, session_id).await;
@@ -182,8 +204,13 @@ impl MatrixRTCService {
         room_id: &str,
         session_id: &str,
     ) -> Result<Option<SessionWithMemberships>, ApiError> {
-        let result = self.storage.get_session_with_memberships(room_id, session_id).await
-            .map_err(|e| ApiError::internal(format!("Failed to get session with memberships: {}", e)))?;
+        let result = self
+            .storage
+            .get_session_with_memberships(room_id, session_id)
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to get session with memberships: {}", e))
+            })?;
 
         Ok(result)
     }
@@ -197,14 +224,17 @@ impl MatrixRTCService {
         sender_user_id: &str,
         sender_device_id: &str,
     ) -> Result<RTCEncryptionKey, ApiError> {
-        let encryption_key = self.storage.store_encryption_key(
-            room_id,
-            session_id,
-            key_index,
-            key,
-            sender_user_id,
-            sender_device_id,
-        ).await
+        let encryption_key = self
+            .storage
+            .store_encryption_key(
+                room_id,
+                session_id,
+                key_index,
+                key,
+                sender_user_id,
+                sender_device_id,
+            )
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to store encryption key: {}", e)))?;
 
         self.invalidate_key_cache(room_id, session_id).await;
@@ -223,7 +253,10 @@ impl MatrixRTCService {
             return Ok(keys);
         }
 
-        let keys = self.storage.get_encryption_keys(room_id, session_id).await
+        let keys = self
+            .storage
+            .get_encryption_keys(room_id, session_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get encryption keys: {}", e)))?;
 
         let _ = self.cache.set(&cache_key, &keys, 60).await;
@@ -232,23 +265,40 @@ impl MatrixRTCService {
     }
 
     pub async fn cleanup_expired_memberships(&self) -> Result<u64, ApiError> {
-        let count = self.storage.cleanup_expired_memberships().await
-            .map_err(|e| ApiError::internal(format!("Failed to cleanup expired memberships: {}", e)))?;
+        let count = self
+            .storage
+            .cleanup_expired_memberships()
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to cleanup expired memberships: {}", e))
+            })?;
 
         Ok(count)
     }
 
     async fn invalidate_room_cache(&self, room_id: &str) {
-        let _ = self.cache.delete(&format!("matrixrtc:sessions:{}", room_id)).await;
+        let _ = self
+            .cache
+            .delete(&format!("matrixrtc:sessions:{}", room_id))
+            .await;
     }
 
     async fn invalidate_session_cache(&self, room_id: &str, session_id: &str) {
-        let _ = self.cache.delete(&format!("matrixrtc:session:{}:{}", room_id, session_id)).await;
-        let _ = self.cache.delete(&format!("matrixrtc:memberships:{}:{}", room_id, session_id)).await;
+        let _ = self
+            .cache
+            .delete(&format!("matrixrtc:session:{}:{}", room_id, session_id))
+            .await;
+        let _ = self
+            .cache
+            .delete(&format!("matrixrtc:memberships:{}:{}", room_id, session_id))
+            .await;
     }
 
     async fn invalidate_key_cache(&self, room_id: &str, session_id: &str) {
-        let _ = self.cache.delete(&format!("matrixrtc:keys:{}:{}", room_id, session_id)).await;
+        let _ = self
+            .cache
+            .delete(&format!("matrixrtc:keys:{}:{}", room_id, session_id))
+            .await;
     }
 }
 

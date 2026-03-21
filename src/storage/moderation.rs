@@ -357,8 +357,8 @@ impl ModerationLogStorage {
     }
 
     pub async fn cleanup_old_logs(&self, older_than_days: i32) -> Result<u64, sqlx::Error> {
-        let cutoff_ts = chrono::Utc::now().timestamp_millis()
-            - (older_than_days as i64 * 24 * 3600 * 1000);
+        let cutoff_ts =
+            chrono::Utc::now().timestamp_millis() - (older_than_days as i64 * 24 * 3600 * 1000);
 
         let result = sqlx::query(
             r#"

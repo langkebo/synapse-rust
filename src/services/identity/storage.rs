@@ -6,8 +6,8 @@ struct ThreePidRow {
     address: Option<String>,
     medium: Option<String>,
     user_id: Option<String>,
-    validated_at: Option<i64>,
-    added_at: Option<i64>,
+    validated_ts: Option<i64>,
+    added_ts: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -26,10 +26,10 @@ impl IdentityStorage {
     ) -> Result<Vec<ThirdPartyId>, sqlx::Error> {
         let rows = sqlx::query_as::<_, ThreePidRow>(
             r#"
-            SELECT address, medium, user_id, validated_at, added_at
+            SELECT address, medium, user_id, validated_ts, added_ts
             FROM user_threepids
             WHERE user_id = $1
-            ORDER BY added_at DESC
+            ORDER BY added_ts DESC
             "#,
         )
         .bind(user_id)
@@ -43,8 +43,8 @@ impl IdentityStorage {
                     address: r.address?,
                     medium: r.medium?,
                     user_id: r.user_id?,
-                    validated_at: r.validated_at?,
-                    added_at: r.added_at?,
+                    validated_ts: r.validated_ts?,
+                    added_ts: r.added_ts?,
                 })
             })
             .collect())
@@ -53,17 +53,17 @@ impl IdentityStorage {
     pub async fn add_three_pid(&self, three_pid: &ThirdPartyId) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            INSERT INTO user_threepids (address, medium, user_id, validated_at, added_at)
+            INSERT INTO user_threepids (address, medium, user_id, validated_ts, added_ts)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (address, medium, user_id) DO UPDATE SET
-                validated_at = EXCLUDED.validated_at
-            "#
+                validated_ts = EXCLUDED.validated_ts
+            "#,
         )
         .bind(&three_pid.address)
         .bind(&three_pid.medium)
         .bind(&three_pid.user_id)
-        .bind(three_pid.validated_at)
-        .bind(three_pid.added_at)
+        .bind(three_pid.validated_ts)
+        .bind(three_pid.added_ts)
         .execute(&self.pool)
         .await?;
 
@@ -80,7 +80,7 @@ impl IdentityStorage {
             r#"
             DELETE FROM user_threepids
             WHERE address = $1 AND medium = $2 AND user_id = $3
-            "#
+            "#,
         )
         .bind(address)
         .bind(medium)
@@ -100,7 +100,7 @@ impl IdentityStorage {
             r#"
             SELECT user_id FROM user_threepids
             WHERE address = $1 AND medium = $2
-            "#
+            "#,
         )
         .bind(address)
         .bind(medium)
@@ -123,7 +123,7 @@ impl IdentityStorage {
             UPDATE user_threepids
             SET validated_at = $4
             WHERE address = $1 AND medium = $2 AND user_id = $3
-            "#
+            "#,
         )
         .bind(address)
         .bind(medium)
@@ -145,7 +145,7 @@ impl IdentityStorage {
             WHERE validated_at < added_at
             ORDER BY added_at DESC
             LIMIT 100
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await?;

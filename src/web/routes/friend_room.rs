@@ -133,21 +133,63 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
         )
         // 好友分组
         .route("/_matrix/client/v1/friends/groups", get(get_friend_groups))
-        .route("/_matrix/client/v1/friends/groups", post(create_friend_group))
+        .route(
+            "/_matrix/client/v1/friends/groups",
+            post(create_friend_group),
+        )
         .route("/_matrix/client/r0/friends/groups", get(get_friend_groups))
-        .route("/_matrix/client/r0/friends/groups", post(create_friend_group))
-        .route("/_matrix/client/v1/friends/groups/{group_id}", delete(delete_friend_group))
-        .route("/_matrix/client/r0/friends/groups/{group_id}", delete(delete_friend_group))
-        .route("/_matrix/client/v1/friends/groups/{group_id}/name", put(rename_friend_group))
-        .route("/_matrix/client/r0/friends/groups/{group_id}/name", put(rename_friend_group))
-        .route("/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}", post(add_friend_to_group))
-        .route("/_matrix/client/r0/friends/groups/{group_id}/add/{user_id}", post(add_friend_to_group))
-        .route("/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}", delete(remove_friend_from_group))
-        .route("/_matrix/client/r0/friends/groups/{group_id}/remove/{user_id}", delete(remove_friend_from_group))
-        .route("/_matrix/client/v1/friends/groups/{group_id}/friends", get(get_friends_in_group))
-        .route("/_matrix/client/r0/friends/groups/{group_id}/friends", get(get_friends_in_group))
-        .route("/_matrix/client/v1/friends/{user_id}/groups", get(get_groups_for_user))
-        .route("/_matrix/client/r0/friends/{user_id}/groups", get(get_groups_for_user))
+        .route(
+            "/_matrix/client/r0/friends/groups",
+            post(create_friend_group),
+        )
+        .route(
+            "/_matrix/client/v1/friends/groups/{group_id}",
+            delete(delete_friend_group),
+        )
+        .route(
+            "/_matrix/client/r0/friends/groups/{group_id}",
+            delete(delete_friend_group),
+        )
+        .route(
+            "/_matrix/client/v1/friends/groups/{group_id}/name",
+            put(rename_friend_group),
+        )
+        .route(
+            "/_matrix/client/r0/friends/groups/{group_id}/name",
+            put(rename_friend_group),
+        )
+        .route(
+            "/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}",
+            post(add_friend_to_group),
+        )
+        .route(
+            "/_matrix/client/r0/friends/groups/{group_id}/add/{user_id}",
+            post(add_friend_to_group),
+        )
+        .route(
+            "/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}",
+            delete(remove_friend_from_group),
+        )
+        .route(
+            "/_matrix/client/r0/friends/groups/{group_id}/remove/{user_id}",
+            delete(remove_friend_from_group),
+        )
+        .route(
+            "/_matrix/client/v1/friends/groups/{group_id}/friends",
+            get(get_friends_in_group),
+        )
+        .route(
+            "/_matrix/client/r0/friends/groups/{group_id}/friends",
+            get(get_friends_in_group),
+        )
+        .route(
+            "/_matrix/client/v1/friends/{user_id}/groups",
+            get(get_groups_for_user),
+        )
+        .route(
+            "/_matrix/client/r0/friends/{user_id}/groups",
+            get(get_groups_for_user),
+        )
         .with_state(state)
 }
 

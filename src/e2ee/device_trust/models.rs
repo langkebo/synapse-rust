@@ -9,12 +9,11 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum DeviceTrustLevel {
-    Verified,   // Fully trusted - can decrypt messages and access history
+    Verified, // Fully trusted - can decrypt messages and access history
     #[default]
     Unverified, // New device - requires verification
-    Blocked,   // Blocked - cannot decrypt any messages
+    Blocked,  // Blocked - cannot decrypt any messages
 }
-
 
 impl std::fmt::Display for DeviceTrustLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -88,11 +87,10 @@ impl DeviceTrustStatus {
 #[derive(Default)]
 pub enum VerificationMethod {
     #[default]
-    Sas,   // Short Authentication String
+    Sas, // Short Authentication String
     Qr,    // QR Code
     Emoji, // Emoji verification (alias for SAS)
 }
-
 
 impl std::fmt::Display for VerificationMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -123,12 +121,11 @@ impl std::str::FromStr for VerificationMethod {
 #[derive(Default)]
 pub enum VerificationRequestStatus {
     #[default]
-    Pending,   // Waiting for verification
-    Approved,  // Verified successfully
-    Rejected,  // Verification rejected
-    Expired,   // Verification timeout
+    Pending, // Waiting for verification
+    Approved, // Verified successfully
+    Rejected, // Verification rejected
+    Expired,  // Verification timeout
 }
-
 
 impl std::fmt::Display for VerificationRequestStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -232,11 +229,7 @@ pub struct KeyRotationLog {
 }
 
 impl KeyRotationLog {
-    pub fn new(
-        user_id: &str,
-        device_id: &str,
-        rotation_type: &str,
-    ) -> Self {
+    pub fn new(user_id: &str, device_id: &str, rotation_type: &str) -> Self {
         Self {
             id: 0,
             user_id: user_id.to_string(),
@@ -340,12 +333,7 @@ pub struct SecuritySummary {
 }
 
 impl SecuritySummary {
-    pub fn calculate(
-        verified: i64,
-        unverified: i64,
-        blocked: i64,
-        has_master_key: bool,
-    ) -> Self {
+    pub fn calculate(verified: i64, unverified: i64, blocked: i64, has_master_key: bool) -> Self {
         let total = verified + unverified + blocked;
         let mut score = 100.0;
 
@@ -365,13 +353,17 @@ impl SecuritySummary {
         // Generate recommendations
         let mut recommendations = Vec::new();
         if unverified > 0 {
-            recommendations.push("Consider verifying your new devices from an existing trusted device".to_string());
+            recommendations.push(
+                "Consider verifying your new devices from an existing trusted device".to_string(),
+            );
         }
         if blocked > 0 {
-            recommendations.push("Review and unblock any devices that were mistakenly blocked".to_string());
+            recommendations
+                .push("Review and unblock any devices that were mistakenly blocked".to_string());
         }
         if !has_master_key {
-            recommendations.push("Set up cross-signing to automatically trust your devices".to_string());
+            recommendations
+                .push("Set up cross-signing to automatically trust your devices".to_string());
         }
 
         Self {
@@ -390,7 +382,7 @@ impl SecuritySummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerificationRequestRequest {
     pub new_device_id: String,
-    pub method: String,  // "sas", "qr", "emoji"
+    pub method: String, // "sas", "qr", "emoji"
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -451,7 +443,7 @@ mod tests {
     fn test_device_trust_status_verify() {
         let mut status = DeviceTrustStatus::new("@user:example.com", "DEVICE123");
         status.verify("DEVICE_OLD");
-        
+
         assert_eq!(status.trust_level, DeviceTrustLevel::Verified);
         assert_eq!(status.verified_by_device_id, Some("DEVICE_OLD".to_string()));
         assert!(status.verified_at.is_some());
@@ -461,7 +453,7 @@ mod tests {
     fn test_device_trust_status_block() {
         let mut status = DeviceTrustStatus::new("@user:example.com", "DEVICE123");
         status.block();
-        
+
         assert_eq!(status.trust_level, DeviceTrustLevel::Blocked);
     }
 
@@ -474,7 +466,7 @@ mod tests {
             "token123",
             5,
         );
-        
+
         assert_eq!(request.status, VerificationRequestStatus::Pending);
         assert!(!request.is_expired());
     }
@@ -485,7 +477,7 @@ mod tests {
             .with_room("!room:example.com")
             .with_keys("old_key", "new_key")
             .with_reason("scheduled");
-        
+
         assert_eq!(log.rotation_type, "megolm");
         assert_eq!(log.room_id, Some("!room:example.com".to_string()));
     }
@@ -493,7 +485,7 @@ mod tests {
     #[test]
     fn test_security_summary() {
         let summary = SecuritySummary::calculate(3, 1, 0, true);
-        
+
         assert_eq!(summary.verified_devices, 3);
         assert_eq!(summary.unverified_devices, 1);
         assert!(summary.security_score > 50.0);
@@ -503,7 +495,7 @@ mod tests {
     #[test]
     fn test_security_summary_low_score() {
         let summary = SecuritySummary::calculate(1, 3, 1, false);
-        
+
         assert_eq!(summary.verified_devices, 1);
         assert_eq!(summary.unverified_devices, 3);
         assert!(summary.security_score < 50.0);

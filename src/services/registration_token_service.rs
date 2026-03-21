@@ -530,7 +530,7 @@ mod tests {
     fn test_token_with_allowed_domains() {
         let mut token = create_test_token();
         token.allowed_email_domains = Some(vec!["example.com".to_string(), "test.com".to_string()]);
-        
+
         let domains = token.allowed_email_domains.unwrap();
         assert_eq!(domains.len(), 2);
         assert!(domains.contains(&"example.com".to_string()));
@@ -543,7 +543,7 @@ mod tests {
             "!room1:example.com".to_string(),
             "!room2:example.com".to_string(),
         ]);
-        
+
         let rooms = token.auto_join_rooms.unwrap();
         assert_eq!(rooms.len(), 2);
     }

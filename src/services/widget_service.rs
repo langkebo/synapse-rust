@@ -170,7 +170,8 @@ impl WidgetService {
         widget_id: &str,
         request: SetPermissionRequest,
     ) -> Result<WidgetPermission, ApiError> {
-        let permissions = serde_json::to_value(&request.permissions).unwrap_or(serde_json::json!([]));
+        let permissions =
+            serde_json::to_value(&request.permissions).unwrap_or(serde_json::json!([]));
 
         let permission = self
             .storage
@@ -207,7 +208,9 @@ impl WidgetService {
             .storage
             .get_user_widget_permission(widget_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get user widget permission: {}", e)))?;
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to get user widget permission: {}", e))
+            })?;
 
         Ok(permission)
     }
@@ -221,7 +224,9 @@ impl WidgetService {
             .storage
             .delete_widget_permission(widget_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete widget permission: {}", e)))?;
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to delete widget permission: {}", e))
+            })?;
 
         if deleted {
             info!(
@@ -293,7 +298,10 @@ impl WidgetService {
         Ok(terminated)
     }
 
-    pub async fn get_widget_sessions(&self, widget_id: &str) -> Result<Vec<WidgetSession>, ApiError> {
+    pub async fn get_widget_sessions(
+        &self,
+        widget_id: &str,
+    ) -> Result<Vec<WidgetSession>, ApiError> {
         let sessions = self
             .storage
             .get_widget_sessions(widget_id)
@@ -304,11 +312,9 @@ impl WidgetService {
     }
 
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
-        let count = self
-            .storage
-            .cleanup_expired_sessions()
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to cleanup expired sessions: {}", e)))?;
+        let count = self.storage.cleanup_expired_sessions().await.map_err(|e| {
+            ApiError::internal(format!("Failed to cleanup expired sessions: {}", e))
+        })?;
 
         if count > 0 {
             info!("Cleaned up {} expired widget sessions", count);

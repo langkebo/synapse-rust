@@ -11,7 +11,7 @@
 -- 配置
 -- ============================================================================
 SET statement_timeout = '30min';
-SET lock_timeout = '10s';
+SET lock_timeout = '120s';
 SET client_min_messages = 'notice';
 
 -- ============================================================================
@@ -52,6 +52,18 @@ $$ LANGUAGE plpgsql;
 BEGIN;
 
 -- ============================================================================
+-- 第零部分: 核心元数据表
+-- ============================================================================
+
+-- db_metadata 表 (核心配置和缓存表)
+CREATE TABLE IF NOT EXISTS db_metadata (
+    key TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL
+);
+
+-- ============================================================================
 -- 第一部分: 认证与安全表
 -- ============================================================================
 
@@ -66,8 +78,7 @@ CREATE TABLE IF NOT EXISTS access_tokens (
     last_used_ts BIGINT,
     user_agent TEXT,
     ip_address TEXT,
-    is_revoked BOOLEAN DEFAULT FALSE,
-    revoked_at BIGINT
+    is_revoked BOOLEAN DEFAULT FALSE
 );
 
 CREATE INDEX IF NOT EXISTS idx_access_tokens_user_id ON access_tokens(user_id);
@@ -87,7 +98,6 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     last_used_ts BIGINT,
     use_count INTEGER DEFAULT 0,
     is_revoked BOOLEAN DEFAULT FALSE,
-    revoked_at BIGINT,
     revoked_reason TEXT,
     client_info JSONB,
     ip_address TEXT,
@@ -103,7 +113,7 @@ CREATE TABLE IF NOT EXISTS token_blacklist (
     token_hash TEXT NOT NULL UNIQUE,
     token_type TEXT DEFAULT 'access',
     user_id TEXT,
-    revoked_at BIGINT NOT NULL,
+    is_revoked BOOLEAN DEFAULT TRUE,
     expires_at BIGINT,
     reason TEXT
 );
@@ -1097,9 +1107,11 @@ CREATE TABLE IF NOT EXISTS sliding_sync_rooms (
     avatar TEXT,
     timestamp BIGINT DEFAULT 0,
     created_ts BIGINT NOT NULL,
-    updated_ts BIGINT NOT NULL,
-    CONSTRAINT uq_sliding_sync_room UNIQUE (user_id, device_id, room_id, COALESCE(conn_id, ''))
+    updated_ts BIGINT NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_room_unique
+    ON sliding_sync_rooms(user_id, device_id, room_id, COALESCE(conn_id, ''));
 
 CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_user_device ON sliding_sync_rooms(user_id, device_id);
 CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_bump_stamp ON sliding_sync_rooms(bump_stamp DESC);
@@ -1376,16 +1388,28 @@ BEGIN
         ON users(is_password_change_required) WHERE is_password_change_required = TRUE;
 END $$;
 
--- 修复 user_threepids 字段
+-- 修复 user_threepids 字段 (规范化命名: _at -> _ts)
 DO $$
 BEGIN
-    IF column_exists('user_threepids', 'validated_ts') THEN
-        IF NOT column_exists('user_threepids', 'validated_at') THEN
-            ALTER TABLE user_threepids RENAME COLUMN validated_ts TO validated_at;
-            RAISE NOTICE 'Renamed validated_ts to validated_at in user_threepids';
+    -- validated_at -> validated_ts
+    IF column_exists('user_threepids', 'validated_at') THEN
+        IF NOT column_exists('user_threepids', 'validated_ts') THEN
+            ALTER TABLE user_threepids RENAME COLUMN validated_at TO validated_ts;
+            RAISE NOTICE 'Renamed validated_at to validated_ts in user_threepids';
         ELSE
-            ALTER TABLE user_threepids DROP COLUMN IF EXISTS validated_ts;
-            RAISE NOTICE 'Dropped redundant validated_ts column';
+            ALTER TABLE user_threepids DROP COLUMN IF EXISTS validated_at;
+            RAISE NOTICE 'Dropped redundant validated_at column';
+        END IF;
+    END IF;
+
+    -- verification_expires_at -> verification_expires_ts
+    IF column_exists('user_threepids', 'verification_expires_at') THEN
+        IF NOT column_exists('user_threepids', 'verification_expires_ts') THEN
+            ALTER TABLE user_threepids RENAME COLUMN verification_expires_at TO verification_expires_ts;
+            RAISE NOTICE 'Renamed verification_expires_at to verification_expires_ts in user_threepids';
+        ELSE
+            ALTER TABLE user_threepids DROP COLUMN IF EXISTS verification_expires_at;
+            RAISE NOTICE 'Dropped redundant verification_expires_at column';
         END IF;
     END IF;
 END $$;
@@ -1404,6 +1428,58 @@ BEGIN
     END IF;
 END $$;
 
+-- 修复 private_messages 字段 (规范化命名: _at -> _ts)
+DO $$
+BEGIN
+    IF column_exists('private_messages', 'read_at') THEN
+        IF NOT column_exists('private_messages', 'read_ts') THEN
+            ALTER TABLE private_messages RENAME COLUMN read_at TO read_ts;
+            RAISE NOTICE 'Renamed read_at to read_ts in private_messages';
+        ELSE
+            ALTER TABLE private_messages DROP COLUMN IF EXISTS read_at;
+            RAISE NOTICE 'Dropped redundant read_at column';
+        END IF;
+    END IF;
+END $$;
+
+-- 清理 revoked_at 冗余字段 (使用 is_revoked 替代)
+DO $$
+BEGIN
+    -- access_tokens 表
+    IF column_exists('access_tokens', 'revoked_at') THEN
+        IF column_exists('access_tokens', 'is_revoked') THEN
+            ALTER TABLE access_tokens DROP COLUMN IF EXISTS revoked_at;
+            RAISE NOTICE 'Dropped redundant access_tokens.revoked_at column';
+        END IF;
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    -- refresh_tokens 表
+    IF column_exists('refresh_tokens', 'revoked_at') THEN
+        IF column_exists('refresh_tokens', 'is_revoked') THEN
+            ALTER TABLE refresh_tokens DROP COLUMN IF EXISTS revoked_at;
+            RAISE NOTICE 'Dropped redundant refresh_tokens.revoked_at column';
+        END IF;
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    -- token_blacklist 表 - 添加 is_revoked 字段 (因为可能表已存在但缺少该字段)
+    IF NOT column_exists('token_blacklist', 'is_revoked') THEN
+        ALTER TABLE token_blacklist ADD COLUMN IF NOT EXISTS is_revoked BOOLEAN DEFAULT TRUE;
+        RAISE NOTICE 'Added is_revoked column to token_blacklist';
+    END IF;
+
+    -- 清理 revoked_at 冗余字段 (如果存在)
+    IF column_exists('token_blacklist', 'revoked_at') THEN
+        ALTER TABLE token_blacklist DROP COLUMN IF EXISTS revoked_at;
+        RAISE NOTICE 'Dropped redundant token_blacklist.revoked_at column';
+    END IF;
+END $$;
+
 -- ============================================================================
 -- 第十三部分: 数据验证
 -- ============================================================================
@@ -1412,15 +1488,16 @@ DO $$
 DECLARE
     error_count INTEGER := 0;
     warning_count INTEGER := 0;
+    tbl TEXT;
 BEGIN
     -- 检查必需表是否存在
-    FOR table_name IN SELECT unnest(ARRAY[
+    FOREACH tbl IN ARRAY ARRAY[
         'users', 'devices', 'rooms', 'events', 'room_memberships',
         'access_tokens', 'refresh_tokens', 'device_keys', 'key_backups',
         'pushers', 'space_children', 'account_data'
-    ]) LOOP
-        IF NOT table_exists(table_name) THEN
-            RAISE WARNING 'Missing required table: %', table_name;
+    ] LOOP
+        IF NOT table_exists(tbl) THEN
+            RAISE WARNING 'Missing required table: %', tbl;
             error_count := error_count + 1;
         END IF;
     END LOOP;
@@ -1455,15 +1532,15 @@ END $$;
 -- 第十四部分: 记录迁移
 -- ============================================================================
 
-INSERT INTO schema_migrations (version, name, description, applied_at, success)
+INSERT INTO schema_migrations (version, name, description, executed_at, success)
 VALUES (
     'UNIFIED_v1.0.0',
     'unified_migration',
     'Consolidated migration v1.0.0 - combines all incremental migrations',
-    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+    NOW(),
     TRUE
 ) ON CONFLICT (version) DO UPDATE SET
-    applied_at = (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+    executed_at = NOW(),
     success = TRUE,
     description = 'Consolidated migration v1.0.0 - combines all incremental migrations';
 

@@ -1465,36 +1465,36 @@ fn parse_forwarded_for(value: &str) -> Option<String> {
     None
 }
 
-pub async fn panic_catcher_middleware(
-    request: Request<Body>,
-    next: Next,
-) -> Response {
+pub async fn panic_catcher_middleware(request: Request<Body>, next: Next) -> Response {
     let method = request.method().to_string();
     let path = request.uri().path().to_string();
-    
+
     tracing::debug!("Processing request: {} {}", method, path);
-    
+
     let response = next.run(request).await;
-    
-    tracing::debug!("Completed request: {} {} - {}", method, path, response.status());
-    
+
+    tracing::debug!(
+        "Completed request: {} {} - {}",
+        method,
+        path,
+        response.status()
+    );
+
     response
 }
 
-pub async fn request_timeout_middleware(
-    request: Request<Body>,
-    next: Next,
-) -> Response {
+pub async fn request_timeout_middleware(request: Request<Body>, next: Next) -> Response {
     let timeout_secs: u64 = std::env::var("REQUEST_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(30);
-    
+
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
-        next.run(request)
-    ).await;
-    
+        next.run(request),
+    )
+    .await;
+
     match result {
         Ok(response) => response,
         Err(_) => {
@@ -1505,31 +1505,27 @@ pub async fn request_timeout_middleware(
                     "errcode": "M_LIMIT_EXCEEDED",
                     "error": "Request timeout",
                     "retry_after_ms": timeout_secs * 1000
-                }))
-            ).into_response()
+                })),
+            )
+                .into_response()
         }
     }
 }
 
-pub async fn request_id_middleware(
-    request: Request<Body>,
-    next: Next,
-) -> Response {
+pub async fn request_id_middleware(request: Request<Body>, next: Next) -> Response {
     let request_id = request
         .headers()
         .get("x-request-id")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            format!("req-{}", uuid::Uuid::new_v4())
-        });
-    
+        .unwrap_or_else(|| format!("req-{}", uuid::Uuid::new_v4()));
+
     let mut response = next.run(request).await;
-    
+
     if let Ok(v) = HeaderValue::from_str(&request_id) {
         response.headers_mut().insert("x-request-id", v);
     }
-    
+
     response
 }
 

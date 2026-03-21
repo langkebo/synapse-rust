@@ -326,9 +326,11 @@ impl BackgroundUpdateService {
                 if let Some(deps) = depends_on.as_array() {
                     for dep_value in deps {
                         if let Some(dep) = dep_value.as_str() {
-                            if let Some(dep_update) = self.storage.get_update(dep).await.map_err(|e| {
-                                ApiError::internal(format!("Failed to check dependency: {}", e))
-                            })? {
+                            if let Some(dep_update) =
+                                self.storage.get_update(dep).await.map_err(|e| {
+                                    ApiError::internal(format!("Failed to check dependency: {}", e))
+                                })?
+                            {
                                 if dep_update.status != "completed" {
                                     all_completed = false;
                                     break;

@@ -1,7 +1,9 @@
 //! Verification storage
 
+use crate::e2ee::verification::models::{
+    QrState, SasState, VerificationMethod as VMethod, VerificationRequest, VerificationState,
+};
 use crate::error::ApiError;
-use crate::e2ee::verification::models::{QrState, SasState, VerificationMethod as VMethod, VerificationRequest, VerificationState};
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -15,10 +17,7 @@ impl VerificationStorage {
     }
 
     /// Create a new verification request
-    pub async fn create_request(
-        &self,
-        request: &VerificationRequest,
-    ) -> Result<(), ApiError> {
+    pub async fn create_request(&self, request: &VerificationRequest) -> Result<(), ApiError> {
         sqlx::query(
             r#"
             INSERT INTO verification_requests 
@@ -59,7 +58,18 @@ impl VerificationStorage {
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get verification request: {}", e)))?;
 
-        if let Some((transaction_id, from_user, from_device, to_user, to_device, method, state, created_at, updated_at)) = row {
+        if let Some((
+            transaction_id,
+            from_user,
+            from_device,
+            to_user,
+            to_device,
+            method,
+            state,
+            created_at,
+            updated_at,
+        )) = row
+        {
             Ok(Some(VerificationRequest {
                 transaction_id,
                 from_user,
@@ -165,19 +175,34 @@ impl VerificationStorage {
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get pending verifications: {}", e)))?;
 
-        Ok(rows.into_iter().map(|(transaction_id, from_user, from_device, to_user, to_device, method, state, created_at, updated_at)| {
-            VerificationRequest {
-                transaction_id,
-                from_user,
-                from_device,
-                to_user,
-                to_device,
-                method: serde_json::from_str(&method).unwrap_or(VMethod::Sas),
-                state: serde_json::from_str(&state).unwrap_or(VerificationState::Requested),
-                created_at,
-                updated_at,
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    transaction_id,
+                    from_user,
+                    from_device,
+                    to_user,
+                    to_device,
+                    method,
+                    state,
+                    created_at,
+                    updated_at,
+                )| {
+                    VerificationRequest {
+                        transaction_id,
+                        from_user,
+                        from_device,
+                        to_user,
+                        to_device,
+                        method: serde_json::from_str(&method).unwrap_or(VMethod::Sas),
+                        state: serde_json::from_str(&state).unwrap_or(VerificationState::Requested),
+                        created_at,
+                        updated_at,
+                    }
+                },
+            )
+            .collect())
     }
 
     /// Delete verification request
@@ -186,7 +211,9 @@ impl VerificationStorage {
             .bind(transaction_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete verification request: {}", e)))?;
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to delete verification request: {}", e))
+            })?;
 
         Ok(())
     }

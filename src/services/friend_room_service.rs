@@ -67,7 +67,9 @@ impl FriendRoomService {
         message: Option<&str>,
     ) -> ApiResult<i64> {
         if receiver_id == sender_id {
-            return Err(ApiError::bad_request("Cannot send friend request to yourself"));
+            return Err(ApiError::bad_request(
+                "Cannot send friend request to yourself",
+            ));
         }
 
         let sender_friend_room = self.create_friend_list_room(sender_id).await?;
@@ -101,7 +103,11 @@ impl FriendRoomService {
             .map_err(|e| ApiError::database(format!("Failed to create friend request: {}", e)))?;
 
         if self.is_remote_user(receiver_id) {
-            tracing::info!("Sending remote friend request: {} -> {}", sender_id, receiver_id);
+            tracing::info!(
+                "Sending remote friend request: {} -> {}",
+                sender_id,
+                receiver_id
+            );
             let parts: Vec<&str> = receiver_id.split(':').collect();
             if parts.len() >= 2 {
                 let domain = parts[1];
@@ -142,13 +148,10 @@ impl FriendRoomService {
             })?;
 
         // 为接受者添加好友关系
-        let dm_room_id = self
-            .add_friend_internal(user_id, requester_id)
-            .await?;
+        let dm_room_id = self.add_friend_internal(user_id, requester_id).await?;
 
         // 为请求者添加好友关系（双向好友）
-        self.add_friend_internal(requester_id, user_id)
-            .await?;
+        self.add_friend_internal(requester_id, user_id).await?;
 
         self.friend_storage
             .update_friend_request_status(requester_id, user_id, "accepted")
@@ -566,9 +569,17 @@ impl FriendRoomService {
     }
 
     /// 创建好友分组
-    pub async fn create_friend_group(&self, user_id: &str, name: &str) -> ApiResult<serde_json::Value> {
+    pub async fn create_friend_group(
+        &self,
+        user_id: &str,
+        name: &str,
+    ) -> ApiResult<serde_json::Value> {
         let friend_room = self.create_friend_list_room(user_id).await?;
-        let group_id = format!("group_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4());
+        let group_id = format!(
+            "group_{}_{}",
+            chrono::Utc::now().timestamp_millis(),
+            uuid::Uuid::new_v4()
+        );
 
         let group = json!({
             "id": group_id,
@@ -622,7 +633,12 @@ impl FriendRoomService {
     }
 
     /// 重命名好友分组
-    pub async fn rename_friend_group(&self, user_id: &str, group_id: &str, new_name: &str) -> ApiResult<()> {
+    pub async fn rename_friend_group(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        new_name: &str,
+    ) -> ApiResult<()> {
         let friend_room = self.create_friend_list_room(user_id).await?;
         let mut groups = self
             .friend_storage
@@ -653,7 +669,12 @@ impl FriendRoomService {
     }
 
     /// 添加好友到分组
-    pub async fn add_friend_to_group(&self, user_id: &str, group_id: &str, friend_id: &str) -> ApiResult<()> {
+    pub async fn add_friend_to_group(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        friend_id: &str,
+    ) -> ApiResult<()> {
         let friend_room = self.create_friend_list_room(user_id).await?;
 
         // 检查好友关系
@@ -663,7 +684,10 @@ impl FriendRoomService {
             .await
             .map_err(|e| ApiError::database(format!("Failed to check friendship: {}", e)))?
         {
-            return Err(ApiError::not_found(format!("User {} is not your friend", friend_id)));
+            return Err(ApiError::not_found(format!(
+                "User {} is not your friend",
+                friend_id
+            )));
         }
 
         let mut groups = self
@@ -701,7 +725,12 @@ impl FriendRoomService {
     }
 
     /// 从分组中移除好友
-    pub async fn remove_friend_from_group(&self, user_id: &str, group_id: &str, friend_id: &str) -> ApiResult<()> {
+    pub async fn remove_friend_from_group(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        friend_id: &str,
+    ) -> ApiResult<()> {
         let friend_room = self.create_friend_list_room(user_id).await?;
         let mut groups = self
             .friend_storage
@@ -752,7 +781,11 @@ impl FriendRoomService {
     }
 
     /// 获取用户所在的分组
-    pub async fn get_groups_for_user(&self, user_id: &str, friend_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+    pub async fn get_groups_for_user(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+    ) -> ApiResult<Vec<serde_json::Value>> {
         let friend_room = self.create_friend_list_room(user_id).await?;
         let groups = self
             .friend_storage
@@ -792,13 +825,18 @@ impl FriendRoomService {
             .await
             .map_err(|e| ApiError::database(format!("Database error: {}", e)))?;
 
-        if let Some(group) = groups.iter().find(|g| g.get("id").and_then(|id| id.as_str()) == Some(group_id)) {
+        if let Some(group) = groups
+            .iter()
+            .find(|g| g.get("id").and_then(|id| id.as_str()) == Some(group_id))
+        {
             if let Some(members) = group.get("members").and_then(|m| m.as_array()) {
                 let friends = self.get_friends(user_id).await?;
                 return Ok(friends
                     .into_iter()
                     .filter(|f| {
-                        members.iter().any(|m| m.as_str() == f.get("user_id").and_then(|u| u.as_str()))
+                        members
+                            .iter()
+                            .any(|m| m.as_str() == f.get("user_id").and_then(|u| u.as_str()))
                     })
                     .collect());
             }

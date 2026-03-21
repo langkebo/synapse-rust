@@ -1,10 +1,10 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
 pub struct ConnectionStateMonitor {
@@ -19,13 +19,25 @@ impl Clone for ConnectionStateMonitor {
         Self {
             pool: self.pool.clone(),
             stats: Arc::new(ConnectionStats {
-                total_connections_created: AtomicU64::new(self.stats.total_connections_created.load(Ordering::SeqCst)),
-                total_connections_closed: AtomicU64::new(self.stats.total_connections_closed.load(Ordering::SeqCst)),
+                total_connections_created: AtomicU64::new(
+                    self.stats.total_connections_created.load(Ordering::SeqCst),
+                ),
+                total_connections_closed: AtomicU64::new(
+                    self.stats.total_connections_closed.load(Ordering::SeqCst),
+                ),
                 total_errors: AtomicU64::new(self.stats.total_errors.load(Ordering::SeqCst)),
                 total_timeouts: AtomicU64::new(self.stats.total_timeouts.load(Ordering::SeqCst)),
-                current_active_connections: AtomicU64::new(self.stats.current_active_connections.load(Ordering::SeqCst)),
-                peak_connections: AtomicU64::new(self.stats.peak_connections.load(Ordering::SeqCst)),
-                average_connection_duration: AtomicU64::new(self.stats.average_connection_duration.load(Ordering::SeqCst)),
+                current_active_connections: AtomicU64::new(
+                    self.stats.current_active_connections.load(Ordering::SeqCst),
+                ),
+                peak_connections: AtomicU64::new(
+                    self.stats.peak_connections.load(Ordering::SeqCst),
+                ),
+                average_connection_duration: AtomicU64::new(
+                    self.stats
+                        .average_connection_duration
+                        .load(Ordering::SeqCst),
+                ),
                 last_error_time: AtomicU64::new(self.stats.last_error_time.load(Ordering::SeqCst)),
             }),
             events: self.events.clone(),
@@ -93,9 +105,15 @@ impl ConnectionStateMonitor {
     }
 
     pub async fn record_connection_created(&self, connection_id: &str) {
-        self.stats.total_connections_created.fetch_add(1, Ordering::SeqCst);
-        let current = self.stats.current_active_connections.fetch_add(1, Ordering::SeqCst) + 1;
-        
+        self.stats
+            .total_connections_created
+            .fetch_add(1, Ordering::SeqCst);
+        let current = self
+            .stats
+            .current_active_connections
+            .fetch_add(1, Ordering::SeqCst)
+            + 1;
+
         let peak = self.stats.peak_connections.load(Ordering::SeqCst);
         if current > peak {
             self.stats.peak_connections.store(current, Ordering::SeqCst);
@@ -107,12 +125,17 @@ impl ConnectionStateMonitor {
             connection_id: Some(connection_id.to_string()),
             message: format!("Connection {} created", connection_id),
             metadata: None,
-        }).await;
+        })
+        .await;
     }
 
     pub async fn record_connection_closed(&self, connection_id: &str, duration: Duration) {
-        self.stats.total_connections_closed.fetch_add(1, Ordering::SeqCst);
-        self.stats.current_active_connections.fetch_sub(1, Ordering::SeqCst);
+        self.stats
+            .total_connections_closed
+            .fetch_add(1, Ordering::SeqCst);
+        self.stats
+            .current_active_connections
+            .fetch_sub(1, Ordering::SeqCst);
         self.update_average_duration(duration);
 
         self.add_event(ConnectionEvent {
@@ -121,12 +144,15 @@ impl ConnectionStateMonitor {
             connection_id: Some(connection_id.to_string()),
             message: format!("Connection {} closed after {:?}", connection_id, duration),
             metadata: None,
-        }).await;
+        })
+        .await;
     }
 
     pub async fn record_error(&self, connection_id: &str, error: &str) {
         self.stats.total_errors.fetch_add(1, Ordering::SeqCst);
-        self.stats.last_error_time.store(Utc::now().timestamp() as u64, Ordering::SeqCst);
+        self.stats
+            .last_error_time
+            .store(Utc::now().timestamp() as u64, Ordering::SeqCst);
 
         self.add_event(ConnectionEvent {
             timestamp: Utc::now(),
@@ -134,7 +160,8 @@ impl ConnectionStateMonitor {
             connection_id: Some(connection_id.to_string()),
             message: format!("Connection error: {}", error),
             metadata: None,
-        }).await;
+        })
+        .await;
     }
 
     pub async fn record_timeout(&self, operation: &str) {
@@ -146,7 +173,8 @@ impl ConnectionStateMonitor {
             connection_id: None,
             message: format!("Operation timeout: {}", operation),
             metadata: None,
-        }).await;
+        })
+        .await;
     }
 
     pub async fn record_reconnection(&self, connection_id: &str) {
@@ -156,7 +184,8 @@ impl ConnectionStateMonitor {
             connection_id: Some(connection_id.to_string()),
             message: format!("Reconnected after failure: {}", connection_id),
             metadata: None,
-        }).await;
+        })
+        .await;
     }
 
     pub async fn record_pool_resize(&self, old_size: u32, new_size: u32) {
@@ -169,7 +198,8 @@ impl ConnectionStateMonitor {
                 "old_size": old_size,
                 "new_size": new_size,
             })),
-        }).await;
+        })
+        .await;
     }
 
     fn update_average_duration(&self, duration: Duration) {
@@ -179,9 +209,14 @@ impl ConnectionStateMonitor {
         }
 
         let new_avg = duration.as_millis() as u64;
-        let current_avg = self.stats.average_connection_duration.load(Ordering::SeqCst);
+        let current_avg = self
+            .stats
+            .average_connection_duration
+            .load(Ordering::SeqCst);
         let avg = (current_avg * (total_closed - 1) + new_avg) / total_closed;
-        self.stats.average_connection_duration.store(avg, Ordering::SeqCst);
+        self.stats
+            .average_connection_duration
+            .store(avg, Ordering::SeqCst);
     }
 
     async fn add_event(&self, event: ConnectionEvent) {
@@ -200,7 +235,10 @@ impl ConnectionStateMonitor {
             total_timeouts: self.stats.total_timeouts.load(Ordering::SeqCst),
             current_active: self.stats.current_active_connections.load(Ordering::SeqCst),
             peak_connections: self.stats.peak_connections.load(Ordering::SeqCst),
-            average_connection_duration_ms: self.stats.average_connection_duration.load(Ordering::SeqCst),
+            average_connection_duration_ms: self
+                .stats
+                .average_connection_duration
+                .load(Ordering::SeqCst),
             last_error_time: self.stats.last_error_time.load(Ordering::SeqCst),
         }
     }
@@ -212,7 +250,8 @@ impl ConnectionStateMonitor {
 
     pub async fn get_error_events(&self, since: DateTime<Utc>) -> Vec<ConnectionEvent> {
         let events = self.events.read().await;
-        events.iter()
+        events
+            .iter()
             .filter(|e| e.event_type == ConnectionEventType::Error && e.timestamp >= since)
             .cloned()
             .collect()
@@ -223,11 +262,11 @@ impl ConnectionStateMonitor {
         let total_ops = stats.total_connections_created.max(1);
         let error_rate = stats.total_errors as f64 / total_ops as f64;
         let timeout_rate = stats.total_timeouts as f64 / total_ops as f64;
-        
+
         let base_score = 100.0;
         let error_penalty = error_rate * 30.0;
         let timeout_penalty = timeout_rate * 20.0;
-        
+
         (base_score - error_penalty - timeout_penalty).max(0.0)
     }
 
@@ -271,11 +310,11 @@ impl ConnectionStatsSnapshot {
         let total_ops = self.total_connections_created.max(1);
         let error_rate = self.total_errors as f64 / total_ops as f64;
         let timeout_rate = self.total_timeouts as f64 / total_ops as f64;
-        
+
         let base_score = 100.0;
         let error_penalty = error_rate * 30.0;
         let timeout_penalty = timeout_rate * 20.0;
-        
+
         (base_score - error_penalty - timeout_penalty).max(0.0)
     }
 }
@@ -299,9 +338,7 @@ impl ConnectionHealthChecker {
 
     pub async fn perform_check(&self) -> HealthCheckResult {
         let start = Instant::now();
-        let result = sqlx::query("SELECT 1")
-            .fetch_one(self.monitor.pool())
-            .await;
+        let result = sqlx::query("SELECT 1").fetch_one(self.monitor.pool()).await;
 
         let duration = start.elapsed();
 
@@ -317,8 +354,10 @@ impl ConnectionHealthChecker {
             }
             Err(e) => {
                 let failures = self.consecutive_failures.fetch_add(1, Ordering::SeqCst) + 1;
-                self.monitor.record_error("health_check", &e.to_string()).await;
-                
+                self.monitor
+                    .record_error("health_check", &e.to_string())
+                    .await;
+
                 HealthCheckResult {
                     is_healthy: failures < self.max_consecutive_failures,
                     latency_ms: duration.as_millis() as u64,
@@ -347,7 +386,7 @@ pub async fn run_periodic_health_checks(
     shutdown: Arc<AtomicU64>,
 ) {
     let mut interval = tokio::time::interval(checker.check_interval);
-    
+
     while shutdown.load(Ordering::SeqCst) == 0 {
         interval.tick().await;
         let _ = checker.perform_check().await;

@@ -9,8 +9,8 @@ use axum::{
     routing::{get, post, put},
     Router,
 };
-use serde_json::{json, Value};
 use chrono;
+use serde_json::{json, Value};
 
 pub fn create_media_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -107,12 +107,16 @@ pub async fn check_quota(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let quota_info = state.services.media_quota_service.get_user_quota(&auth_user.user_id).await?;
-    
+    let quota_info = state
+        .services
+        .media_quota_service
+        .get_user_quota(&auth_user.user_id)
+        .await?;
+
     let limit = quota_info.max_storage_bytes;
     let used = quota_info.current_storage_bytes;
     let remaining = if used >= limit { 0 } else { limit - used };
-    
+
     Ok(Json(json!({
         "limit": limit,
         "used": used,
@@ -125,9 +129,17 @@ pub async fn quota_stats(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let quota_info = state.services.media_quota_service.get_user_quota(&auth_user.user_id).await?;
-    let stats = state.services.media_quota_service.get_usage_stats(&auth_user.user_id).await?;
-    
+    let quota_info = state
+        .services
+        .media_quota_service
+        .get_user_quota(&auth_user.user_id)
+        .await?;
+    let stats = state
+        .services
+        .media_quota_service
+        .get_usage_stats(&auth_user.user_id)
+        .await?;
+
     Ok(Json(json!({
         "user_id": auth_user.user_id,
         "storage_bytes": quota_info.current_storage_bytes,
@@ -141,21 +153,28 @@ pub async fn quota_alerts(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let alerts = state.services.media_quota_service.get_user_alerts(&auth_user.user_id, false).await?;
-    
-    let alerts_list: Vec<Value> = alerts.into_iter().map(|alert| {
-        json!({
-            "alert_id": alert.id,
-            "alert_type": alert.alert_type,
-            "threshold_percent": alert.threshold_percent,
-            "current_usage_bytes": alert.current_usage_bytes,
-            "quota_limit_bytes": alert.quota_limit_bytes,
-            "message": alert.message,
-            "created_ts": alert.created_ts,
-            "is_read": alert.is_read
+    let alerts = state
+        .services
+        .media_quota_service
+        .get_user_alerts(&auth_user.user_id, false)
+        .await?;
+
+    let alerts_list: Vec<Value> = alerts
+        .into_iter()
+        .map(|alert| {
+            json!({
+                "alert_id": alert.id,
+                "alert_type": alert.alert_type,
+                "threshold_percent": alert.threshold_percent,
+                "current_usage_bytes": alert.current_usage_bytes,
+                "quota_limit_bytes": alert.quota_limit_bytes,
+                "message": alert.message,
+                "created_ts": alert.created_ts,
+                "is_read": alert.is_read
+            })
         })
-    }).collect();
-    
+        .collect();
+
     Ok(Json(json!({
         "alerts": alerts_list
     })))

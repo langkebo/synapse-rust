@@ -683,10 +683,12 @@ impl SamlStorage {
     }
 
     pub async fn process_logout_request(&self, request_id: &str) -> Result<(), ApiError> {
+        let now_ts = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            "UPDATE saml_logout_requests SET status = 'processed', processed_at = NOW() WHERE request_id = $1"
+            "UPDATE saml_logout_requests SET status = 'processed', processed_ts = $2 WHERE request_id = $1"
         )
         .bind(request_id)
+        .bind(now_ts)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to process logout request: {}", e)))?;

@@ -50,7 +50,18 @@ impl QrLoginStorage {
         &self,
         transaction_id: &str,
     ) -> Result<Option<QrTransaction>, sqlx::Error> {
-        let result = sqlx::query_as::<_, (String, String, Option<String>, String, i64, Option<i64>, i64)>(
+        let result = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                Option<String>,
+                String,
+                i64,
+                Option<i64>,
+                i64,
+            ),
+        >(
             r#"
             SELECT transaction_id, user_id, device_id, status, created_ts, updated_ts, expires_at 
             FROM qr_login_transactions 
@@ -62,14 +73,16 @@ impl QrLoginStorage {
         .await?;
 
         Ok(result.map(
-            |(transaction_id, user_id, device_id, status, created_ts, updated_ts, expires_at)| QrTransaction {
-                transaction_id,
-                user_id,
-                device_id,
-                status,
-                created_ts,
-                updated_ts,
-                expires_at,
+            |(transaction_id, user_id, device_id, status, created_ts, updated_ts, expires_at)| {
+                QrTransaction {
+                    transaction_id,
+                    user_id,
+                    device_id,
+                    status,
+                    created_ts,
+                    updated_ts,
+                    expires_at,
+                }
             },
         ))
     }
@@ -81,7 +94,7 @@ impl QrLoginStorage {
         status: &str,
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             UPDATE qr_login_transactions 
@@ -99,10 +112,7 @@ impl QrLoginStorage {
     }
 
     /// Delete QR login transaction (cleanup)
-    pub async fn delete_qr_transaction(
-        &self,
-        transaction_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn delete_qr_transaction(&self, transaction_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             DELETE FROM qr_login_transactions 
@@ -175,7 +185,7 @@ mod tests {
         let created_ts = 1700000000000i64;
         let expiry_ms = 5 * 60 * 1000; // 5 minutes
         let expires_at = created_ts + expiry_ms;
-        
+
         assert_eq!(expires_at, 1700000300000i64);
     }
 }

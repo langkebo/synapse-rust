@@ -47,19 +47,13 @@ impl PasswordPolicy {
         let mut score: u8 = 0;
 
         if password.len() < self.min_length as usize {
-            errors.push(format!(
-                "密码长度不能少于 {} 个字符",
-                self.min_length
-            ));
+            errors.push(format!("密码长度不能少于 {} 个字符", self.min_length));
         } else {
             score += 20;
         }
 
         if password.len() > self.max_length as usize {
-            errors.push(format!(
-                "密码长度不能超过 {} 个字符",
-                self.max_length
-            ));
+            errors.push(format!("密码长度不能超过 {} 个字符", self.max_length));
         }
 
         if self.require_uppercase && !password.chars().any(|c| c.is_uppercase()) {
@@ -80,7 +74,10 @@ impl PasswordPolicy {
             score += 20;
         }
 
-        let special_chars: &[char] = &['!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '-', '=', '[', ']', '{', '}', '|', ';', ':', ',', '.', '<', '>', '?'];
+        let special_chars: &[char] = &[
+            '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '-', '=', '[', ']', '{',
+            '}', '|', ';', ':', ',', '.', '<', '>', '?',
+        ];
         if self.require_special && !password.chars().any(|c| special_chars.contains(&c)) {
             errors.push("密码必须包含至少一个特殊字符 (!@#$%^&* 等)".to_string());
         } else if password.chars().any(|c| special_chars.contains(&c)) {
@@ -143,16 +140,14 @@ impl PasswordPolicyService {
     }
 
     pub async fn load_policy(&mut self) -> Result<(), sqlx::Error> {
-        let rows = sqlx::query(
-            "SELECT name, value FROM password_policy"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = sqlx::query("SELECT name, value FROM password_policy")
+            .fetch_all(&self.pool)
+            .await?;
 
         for row in rows {
             let name: String = row.try_get("name")?;
             let value: String = row.try_get("value")?;
-            
+
             match name.as_str() {
                 "min_length" => {
                     if let Ok(v) = value.parse() {
@@ -214,7 +209,7 @@ impl PasswordPolicyService {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
-            "INSERT INTO password_history (user_id, password_hash, created_ts) VALUES ($1, $2, $3)"
+            "INSERT INTO password_history (user_id, password_hash, created_ts) VALUES ($1, $2, $3)",
         )
         .bind(user_id)
         .bind(password_hash)
@@ -236,7 +231,7 @@ impl PasswordPolicyService {
                 ORDER BY created_ts DESC 
                 LIMIT $2
             )
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(self.policy.history_count as i64)

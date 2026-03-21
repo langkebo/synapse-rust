@@ -154,28 +154,28 @@ impl SyncService {
                 .get_room_events_since_batch(&room_ids, since_ts, limit)
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed to get batch events: {}", e)))?;
-            
+
             // If no new events, wait for new events up to timeout
             if events.values().all(|v| v.is_empty()) && timeout > 0 {
                 let timeout_duration = std::time::Duration::from_millis(timeout);
                 let start = std::time::Instant::now();
                 let poll_interval = std::time::Duration::from_millis(500);
-                
+
                 loop {
                     let events = self
                         .event_storage
                         .get_room_events_since_batch(&room_ids, since_ts, limit)
                         .await
                         .map_err(|e| ApiError::internal(format!("Failed to poll events: {}", e)))?;
-                    
+
                     if !events.values().all(|v| v.is_empty()) {
                         break events;
                     }
-                    
+
                     if start.elapsed() >= timeout_duration {
                         break events;
                     }
-                    
+
                     tokio::time::sleep(poll_interval).await;
                 }
             } else {
@@ -370,13 +370,11 @@ impl SyncService {
 
     async fn get_account_data_events(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         // Load user account_data from DB
-        let rows = sqlx::query(
-            "SELECT data_type, content FROM account_data WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_all(&*self.event_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get account data: {}", e)))?;
+        let rows = sqlx::query("SELECT data_type, content FROM account_data WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_all(&*self.event_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get account data: {}", e)))?;
 
         let mut events: Vec<serde_json::Value> = rows
             .iter()
@@ -441,7 +439,7 @@ impl SyncService {
         since: &Option<SyncToken>,
     ) -> ApiResult<Vec<serde_json::Value>> {
         let since_stream_id = since.as_ref().map(|t| t.stream_id).unwrap_or(0);
-        
+
         let rows = sqlx::query(
             r#"
             SELECT sender_user_id, sender_device_id, event_type, content, message_id
@@ -466,17 +464,17 @@ impl SyncService {
                 let event_type: String = row.get("event_type");
                 let content: serde_json::Value = row.get("content");
                 let message_id: Option<String> = row.get("message_id");
-                
+
                 let mut obj = json!({
                     "type": event_type,
                     "sender": sender,
                     "content": content,
                 });
-                
+
                 if let Some(mid) = message_id {
                     obj["message_id"] = json!(mid);
                 }
-                
+
                 obj
             })
             .collect();
@@ -490,7 +488,7 @@ impl SyncService {
         since: &Option<SyncToken>,
     ) -> ApiResult<serde_json::Value> {
         let since_stream_id = since.as_ref().map(|t| t.stream_id).unwrap_or(0);
-        
+
         // Get users whose devices have changed
         let changed_rows = sqlx::query(
             r#"
@@ -570,7 +568,7 @@ impl SyncService {
         _user_id: &str,
     ) -> ApiResult<Vec<serde_json::Value>> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         let rows = sqlx::query(
             r#"
             SELECT event_type, user_id, content
@@ -594,7 +592,7 @@ impl SyncService {
                 let event_type: String = row.get("event_type");
                 let user_id: String = row.get("user_id");
                 let content: serde_json::Value = row.get("content");
-                
+
                 json!({
                     "type": event_type,
                     "sender": user_id,

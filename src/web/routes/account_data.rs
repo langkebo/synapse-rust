@@ -226,7 +226,7 @@ async fn get_room_account_data(
     }
 
     let result = sqlx::query(
-        "SELECT data FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"
+        "SELECT data FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3",
     )
     .bind(&user_id)
     .bind(&room_id)

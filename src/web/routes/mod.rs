@@ -45,7 +45,6 @@ pub mod widget;
 pub mod worker;
 
 pub use account_data::create_account_data_router;
-pub use external_service::create_external_service_router;
 pub use admin::create_admin_module_router;
 pub use app_service::create_app_service_router;
 pub use background_update::create_background_update_router;
@@ -56,6 +55,7 @@ pub use device::create_device_router;
 pub use dm::create_dm_router;
 pub use e2ee_routes::create_e2ee_router;
 pub use event_report::create_event_report_router;
+pub use external_service::create_external_service_router;
 pub use federation::create_federation_router;
 pub use friend_room::create_friend_router;
 pub use guest::create_guest_router;
@@ -66,29 +66,29 @@ pub use module::create_module_router;
 pub use oidc::create_oidc_router;
 pub use push::create_push_router;
 pub use push_notification::create_push_notification_router;
+pub use reactions::create_reactions_router;
+pub use relations::create_relations_router;
 pub use rendezvous::create_rendezvous_router;
 pub use room_summary::create_room_summary_router;
 pub use saml::create_saml_router;
 pub use search::create_search_router;
 pub use sliding_sync::create_sliding_sync_router;
 pub use space::create_space_router;
-pub use telemetry::create_telemetry_router;
 pub use tags::create_tags_router;
+pub use telemetry::create_telemetry_router;
 pub use thirdparty::create_thirdparty_router;
 pub use thread::create_thread_routes;
 pub use verification_routes::create_verification_router;
-pub use relations::create_relations_router;
-pub use reactions::create_reactions_router;
 pub use voice::create_voice_router;
+pub use voip::call_answer;
+pub use voip::call_candidates;
+pub use voip::call_hangup;
+pub use voip::call_invite;
+pub use voip::get_call_session;
 pub use voip::get_turn_credentials_guest;
 pub use voip::get_turn_server;
 pub use voip::get_voip_config;
-pub use voip::call_invite;
-pub use voip::call_candidates;
 pub use widget::create_widget_router;
-pub use voip::call_answer;
-pub use voip::call_hangup;
-pub use voip::get_call_session;
 pub use worker::create_worker_router;
 
 use crate::cache::*;
@@ -105,7 +105,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::{Row, types::JsonValue};
+use sqlx::{types::JsonValue, Row};
 use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
 
@@ -332,7 +332,7 @@ pub fn create_router(state: AppState) -> Router {
             "/",
             get(|| async {
                 Json(json!({
-                    "msg": "Synapse Rust Matrix Server", 
+                    "msg": "Synapse Rust Matrix Server",
                     "version": "0.1.0"
                 }))
             }),
@@ -347,7 +347,10 @@ pub fn create_router(state: AppState) -> Router {
         // Push rules - return default rules (SDK requires this endpoint)
         // Push rules - handled by push router; add trailing-slash aliases
         .route("/_matrix/client/v3/pushrules/", get(get_push_rules_default))
-        .route("/_matrix/client/v3/pushrules/global/", get(get_push_rules_global_default))
+        .route(
+            "/_matrix/client/v3/pushrules/global/",
+            get(get_push_rules_global_default),
+        )
         .route("/.well-known/matrix/server", get(get_well_known_server))
         .route("/.well-known/matrix/client", get(get_well_known_client))
         .route("/.well-known/matrix/support", get(get_well_known_support))
@@ -562,8 +565,14 @@ fn create_account_router() -> Router<AppState> {
             "/_matrix/client/r0/account/profile/{user_id}/avatar_url",
             put(update_avatar),
         )
-        .route("/_matrix/client/r0/account/password", post(change_password_uia))
-        .route("/_matrix/client/v3/account/password", post(change_password_uia))
+        .route(
+            "/_matrix/client/r0/account/password",
+            post(change_password_uia),
+        )
+        .route(
+            "/_matrix/client/v3/account/password",
+            post(change_password_uia),
+        )
         .route(
             "/_matrix/client/r0/account/deactivate",
             post(deactivate_account),
@@ -644,8 +653,14 @@ fn create_directory_router(state: AppState) -> Router<AppState> {
                 .put(set_room_alias_direct)
                 .delete(delete_room_alias_direct),
         )
-        .route("/_matrix/client/r0/publicRooms", get(get_public_rooms).post(query_public_rooms))
-        .route("/_matrix/client/v3/publicRooms", get(get_public_rooms).post(query_public_rooms))
+        .route(
+            "/_matrix/client/r0/publicRooms",
+            get(get_public_rooms).post(query_public_rooms),
+        )
+        .route(
+            "/_matrix/client/v3/publicRooms",
+            get(get_public_rooms).post(query_public_rooms),
+        )
         .route(
             "/_matrix/client/r0/directory/room/{room_id}/alias",
             get(get_room_aliases),
@@ -660,14 +675,8 @@ fn create_directory_router(state: AppState) -> Router<AppState> {
 fn create_room_router() -> Router<AppState> {
     Router::new()
         // Room info endpoint
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}",
-            get(get_room_info),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}",
-            get(get_room_info),
-        )
+        .route("/_matrix/client/v3/rooms/{room_id}", get(get_room_info))
+        .route("/_matrix/client/r0/rooms/{room_id}", get(get_room_info))
         // Report events
         .route(
             "/_matrix/client/r0/rooms/{room_id}/report/{event_id}",
@@ -969,10 +978,7 @@ fn create_presence_router() -> Router<AppState> {
             get(get_presence).put(set_presence),
         )
         // Presence list endpoint (MSC2776)
-        .route(
-            "/_matrix/client/v3/presence/list",
-            post(presence_list),
-        )
+        .route("/_matrix/client/v3/presence/list", post(presence_list))
 }
 
 // ============================================================================
@@ -1230,7 +1236,9 @@ async fn register(
 
     if username.is_none() || password.is_none() {
         if auth_type == Some("m.login.dummy") || auth_type == Some("m.login.password") {
-            return Err(ApiError::bad_request("Username and password required".to_string()));
+            return Err(ApiError::bad_request(
+                "Username and password required".to_string(),
+            ));
         }
         return Ok(Json(json!({
             "flows": [
@@ -1242,8 +1250,10 @@ async fn register(
         })));
     }
 
-    let username = username.ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
-    let password = password.ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
+    let username =
+        username.ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
+    let password =
+        password.ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
 
     state
         .services
@@ -1574,7 +1584,9 @@ async fn get_single_event(
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
-        return Err(ApiError::not_found("Event not found in this room".to_string()));
+        return Err(ApiError::not_found(
+            "Event not found in this room".to_string(),
+        ));
     }
 
     Ok(Json(json!({
@@ -1747,7 +1759,13 @@ async fn get_profile(
 
     let token = extract_token_from_headers(&headers).ok();
     let requester_id = if let Some(t) = token {
-        state.services.auth_service.validate_token(&t).await.ok().map(|(id, _, _)| id)
+        state
+            .services
+            .auth_service
+            .validate_token(&t)
+            .await
+            .ok()
+            .map(|(id, _, _)| id)
     } else {
         None
     };
@@ -1764,9 +1782,7 @@ async fn get_profile(
         match visibility {
             "private" => {
                 if requester_id.as_deref() != Some(user_id.as_str()) {
-                    return Err(ApiError::forbidden(
-                        "Profile is private".to_string(),
-                    ));
+                    return Err(ApiError::forbidden("Profile is private".to_string()));
                 }
             }
             "contacts" => {
@@ -1970,9 +1986,14 @@ async fn change_password_uia(
         let password = auth
             .get("password")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ApiError::bad_request("Password required for m.login.password".to_string()))?;
+            .ok_or_else(|| {
+                ApiError::bad_request("Password required for m.login.password".to_string())
+            })?;
 
-        let user_identifier = auth.get("identifier").and_then(|i| i.get("user")).and_then(|u| u.as_str())
+        let user_identifier = auth
+            .get("identifier")
+            .and_then(|i| i.get("user"))
+            .and_then(|u| u.as_str())
             .or_else(|| auth.get("user").and_then(|u| u.as_str()));
 
         if let Some(username) = user_identifier {
@@ -1986,7 +2007,11 @@ async fn change_password_uia(
                 return Err(ApiError::forbidden("User mismatch".to_string()));
             }
 
-            state.services.auth_service.validator.validate_password(new_password)?;
+            state
+                .services
+                .auth_service
+                .validator
+                .validate_password(new_password)?;
 
             let user = state
                 .services
@@ -1996,7 +2021,8 @@ async fn change_password_uia(
                 .map_err(|e| ApiError::internal(format!("Failed to get user: {}", e)))?
                 .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-            let password_hash = user.password_hash
+            let password_hash = user
+                .password_hash
                 .ok_or_else(|| ApiError::forbidden("User has no password set".to_string()))?;
 
             let valid = crate::common::crypto::verify_password(password, &password_hash, false)
@@ -2014,10 +2040,14 @@ async fn change_password_uia(
 
             Ok(Json(json!({})))
         } else {
-            Err(ApiError::bad_request("User identifier required".to_string()))
+            Err(ApiError::bad_request(
+                "User identifier required".to_string(),
+            ))
         }
     } else {
-        Err(ApiError::unauthorized("Authentication required".to_string()))
+        Err(ApiError::unauthorized(
+            "Authentication required".to_string(),
+        ))
     }
 }
 
@@ -2058,7 +2088,7 @@ async fn get_threepids(
 
     let threepids = sqlx::query(
         r#"
-        SELECT medium, address, validated_at, added_ts
+        SELECT medium, address, validated_ts, added_ts
         FROM user_threepids
         WHERE user_id = $1
         "#,
@@ -2074,7 +2104,7 @@ async fn get_threepids(
             json!({
                 "medium": row.get::<String, _>("medium"),
                 "address": row.get::<String, _>("address"),
-                "validated_at": row.get::<Option<i64>, _>("validated_at").unwrap_or(0),
+                "validated_ts": row.get::<Option<i64>, _>("validated_ts").unwrap_or(0),
                 "added_at": row.get::<Option<i64>, _>("added_ts").unwrap_or(0)
             })
         })
@@ -2120,10 +2150,10 @@ async fn add_threepid(
 
     sqlx::query(
         r#"
-        INSERT INTO user_threepids (user_id, medium, address, validated_at, added_ts)
+        INSERT INTO user_threepids (user_id, medium, address, validated_ts, added_ts)
         VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (medium, address) DO UPDATE
-        SET validated_at = EXCLUDED.validated_at
+        SET validated_ts = EXCLUDED.validated_ts
         "#,
     )
     .bind(user_id)
@@ -2342,20 +2372,21 @@ async fn report_room(
     validate_room_id(&room_id)?;
 
     // Check if room exists by querying room members
-    let members = sqlx::query(
-        "SELECT room_id FROM room_members WHERE room_id = $1 LIMIT 1"
-    )
-    .bind(&room_id)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let members = sqlx::query("SELECT room_id FROM room_members WHERE room_id = $1 LIMIT 1")
+        .bind(&room_id)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     if members.is_none() {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     // Get reason and optional description from request body
-    let reason = body.get("reason").and_then(|v| v.as_str()).unwrap_or("No reason provided");
+    let reason = body
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("No reason provided");
     let description = body.get("description").and_then(|v| v.as_str());
 
     // Log the room report for moderation purposes
@@ -2478,8 +2509,12 @@ async fn sync(
 
     let sync_result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
-        state.services.sync_service.sync(&user_id, timeout, full_state, set_presence, since)
-    ).await;
+        state
+            .services
+            .sync_service
+            .sync(&user_id, timeout, full_state, set_presence, since),
+    )
+    .await;
 
     match sync_result {
         Ok(Ok(result)) => Ok(Json(result)),
@@ -2602,7 +2637,9 @@ async fn get_room_info(
     };
 
     if membership.is_none() {
-        return Err(ApiError::not_found("Room not found or not a member".to_string()));
+        return Err(ApiError::not_found(
+            "Room not found or not a member".to_string(),
+        ));
     }
 
     let room = state
@@ -2838,13 +2875,13 @@ async fn upgrade_room(
     Json(body): Json<UpgradeRoomRequest>,
 ) -> Result<Json<UpgradeRoomResponse>, ApiError> {
     validate_room_id(&room_id)?;
-    
+
     let new_room_id = state
         .services
         .room_service
         .upgrade_room(&room_id, &body.new_version, &auth_user.user_id)
         .await?;
-    
+
     Ok(Json(UpgradeRoomResponse {
         replacement_room: new_room_id,
     }))
@@ -2868,11 +2905,11 @@ async fn forget_room(
 /// Room Initial Sync
 /// GET /_matrix/client/r0/rooms/{room_id}/initialSync
 /// GET /_matrix/client/v3/rooms/{room_id}/initialSync
-/// 
+///
 /// Room Initial Sync
 /// GET /_matrix/client/r0/rooms/{room_id}/initialSync
 /// GET /_matrix/client/v3/rooms/{room_id}/initialSync
-/// 
+///
 /// Returns initial sync data for a room including:
 /// - Room state events
 /// - Timeline messages  
@@ -2885,7 +2922,7 @@ async fn room_initial_sync(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    
+
     // 检查房间是否存在
     let room = state
         .services
@@ -2893,18 +2930,18 @@ async fn room_initial_sync(
         .get_room(&room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Room not found"))?;
-    
+
     // 检查用户是否是房间成员
     let member = state
         .services
         .member_storage
         .get_member(&room_id, &auth_user.user_id)
         .await?;
-    
+
     if member.is_none() {
         return Err(ApiError::forbidden("You are not a member of this room"));
     }
-    
+
     // 获取成员列表
     let members = state
         .services
@@ -2912,7 +2949,7 @@ async fn room_initial_sync(
         .get_joined_members(&room_id)
         .await
         .unwrap_or_default();
-    
+
     // 构建完整响应
     let mut response = json!({
         "room_id": room_id,
@@ -2927,7 +2964,7 @@ async fn room_initial_sync(
         "members": members,
         "num_joined_members": members.len(),
     });
-    
+
     // 添加房间元数据
     if let Some(name) = room.name {
         response["name"] = serde_json::Value::String(name);
@@ -2938,11 +2975,11 @@ async fn room_initial_sync(
     if let Some(avatar_url) = room.avatar_url {
         response["avatar_url"] = serde_json::Value::String(avatar_url);
     }
-    
+
     // 添加创建信息
     response["created_by"] = serde_json::Value::String(room.creator_user_id.unwrap_or_default());
     response["created_ts"] = serde_json::Value::Number(serde_json::Number::from(room.created_ts));
-    
+
     Ok(Json(response))
 }
 
@@ -3106,12 +3143,12 @@ async fn knock_room(
             .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
     };
 
-    let reason = body.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let reason = body
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
-    ::tracing::info!(
-        "User {} knocking on room {}",
-        user_id, room_id
-    );
+    ::tracing::info!("User {} knocking on room {}", user_id, room_id);
 
     state
         .services
@@ -3142,10 +3179,7 @@ async fn invite_user_by_room(
 
     validate_user_id(invitee)?;
 
-    ::tracing::info!(
-        "User {} inviting {} to room {}",
-        user_id, invitee, room_id
-    );
+    ::tracing::info!("User {} inviting {} to room {}", user_id, invitee, room_id);
 
     state
         .services
@@ -3241,8 +3275,10 @@ async fn create_room(
     // Create room summary
     let room_id = result.get("room_id").and_then(|r| r.as_str()).unwrap_or("");
     if !room_id.is_empty() {
-        let _ = state.services.room_summary_storage.create_summary(
-            crate::storage::room_summary::CreateRoomSummaryRequest {
+        let _ = state
+            .services
+            .room_summary_storage
+            .create_summary(crate::storage::room_summary::CreateRoomSummaryRequest {
                 room_id: room_id.to_string(),
                 room_type: None,
                 name: name.map(|s| s.to_string()),
@@ -3254,8 +3290,8 @@ async fn create_room(
                 guest_access: None,
                 is_direct: None,
                 is_space: None,
-            },
-        ).await;
+            })
+            .await;
     }
 
     Ok(Json(result))
@@ -3645,13 +3681,13 @@ async fn presence_list(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
-    
+
     // Handle subscriptions (subscribe to users' presence)
     if let Some(subscribe) = body.get("subscribe").and_then(|v| v.as_array()) {
         for target in subscribe {
             if let Some(target_id) = target.as_str() {
                 validate_user_id(target_id)?;
-                
+
                 // Add subscription
                 if let Err(e) = state
                     .services
@@ -3664,13 +3700,13 @@ async fn presence_list(
             }
         }
     }
-    
+
     // Handle unsubscriptions (unsubscribe from users' presence)
     if let Some(unsubscribe) = body.get("unsubscribe").and_then(|v| v.as_array()) {
         for target in unsubscribe {
             if let Some(target_id) = target.as_str() {
                 validate_user_id(target_id)?;
-                
+
                 // Remove subscription
                 if let Err(e) = state
                     .services
@@ -3683,7 +3719,7 @@ async fn presence_list(
             }
         }
     }
-    
+
     // Get current subscriptions and their presence
     let subscriptions = state
         .services
@@ -3691,7 +3727,7 @@ async fn presence_list(
         .get_subscriptions(user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {}", e)))?;
-    
+
     // Batch fetch presence for all subscribed users
     let presence_batch = state
         .services
@@ -3699,10 +3735,10 @@ async fn presence_list(
         .get_presence_batch(&subscriptions)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get presence batch: {}", e)))?;
-    
+
     // Build response - presence_batch already contains all the presence info we need
     let mut presences = Vec::new();
-    
+
     for (target_id, presence, status_msg) in presence_batch {
         // Calculate last_active_ago - we don't have exact timestamp but use presence update time
         let last_active_ago = if presence != "offline" {
@@ -3710,7 +3746,7 @@ async fn presence_list(
         } else {
             None
         };
-        
+
         presences.push(json!({
             "user_id": target_id,
             "presence": presence,
@@ -3718,7 +3754,7 @@ async fn presence_list(
             "last_active_ago": last_active_ago
         }));
     }
-    
+
     // Also include any users that were just subscribed but not in the database yet
     for target_id in &subscriptions {
         if !presences.iter().any(|p| p["user_id"] == *target_id) {
@@ -3730,7 +3766,7 @@ async fn presence_list(
             }));
         }
     }
-    
+
     Ok(Json(json!({
         "presences": presences
     })))
@@ -3846,8 +3882,9 @@ async fn get_state_event(
     let event = events
         .iter()
         .find(|e| {
-            e.state_key.as_deref() == Some(state_key.as_str()) ||
-            (e.state_key.as_ref().map(|s| s.is_empty()) == Some(true) && state_key.is_empty())
+            e.state_key.as_deref() == Some(state_key.as_str())
+                || (e.state_key.as_ref().map(|s| s.is_empty()) == Some(true)
+                    && state_key.is_empty())
         })
         .ok_or_else(|| ApiError::not_found("State event not found".to_string()))?;
 
@@ -3975,9 +4012,7 @@ async fn get_state_event_empty_key(
 
     let event = events
         .iter()
-        .find(|e| {
-            e.state_key.as_ref().map(|s| s.is_empty()) == Some(true)
-        })
+        .find(|e| e.state_key.as_ref().map(|s| s.is_empty()) == Some(true))
         .ok_or_else(|| ApiError::not_found("State event not found".to_string()))?;
 
     let mut response = json!({
@@ -4204,9 +4239,16 @@ async fn set_read_markers(
                     state
                         .services
                         .room_storage
-                        .update_read_marker_with_type(&room_id, &auth_user.user_id, event_id, "m.marked_unread")
+                        .update_read_marker_with_type(
+                            &room_id,
+                            &auth_user.user_id,
+                            event_id,
+                            "m.marked_unread",
+                        )
                         .await
-                        .map_err(|e| ApiError::internal(format!("Failed to set marked_unread marker: {}", e)))?;
+                        .map_err(|e| {
+                            ApiError::internal(format!("Failed to set marked_unread marker: {}", e))
+                        })?;
                 }
             }
         }
@@ -4289,7 +4331,12 @@ async fn redact_event(
     state
         .services
         .auth_service
-        .can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id, auth_user.is_admin)
+        .can_redact_event(
+            &room_id,
+            &auth_user.user_id,
+            &original_event.user_id,
+            auth_user.is_admin,
+        )
         .await?;
 
     let reason = body.get("reason").and_then(|v| v.as_str());

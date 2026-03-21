@@ -1,9 +1,9 @@
+use crate::cache::CacheManager;
 use crate::common::error::ApiError;
 use crate::storage::dehydrated_device::{
-    CreateDehydratedDeviceParams, DehydratedDevice, DehydratedDeviceContent,
-    DehydratedDeviceEvent, DehydratedDeviceStorage,
+    CreateDehydratedDeviceParams, DehydratedDevice, DehydratedDeviceContent, DehydratedDeviceEvent,
+    DehydratedDeviceStorage,
 };
-use crate::cache::CacheManager;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -56,11 +56,9 @@ impl DehydratedDeviceService {
             expires_in_ms,
         };
 
-        let device = self
-            .storage
-            .create_device(params)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to create dehydrated device: {}", e)))?;
+        let device = self.storage.create_device(params).await.map_err(|e| {
+            ApiError::internal(format!("Failed to create dehydrated device: {}", e))
+        })?;
 
         self.invalidate_cache(user_id, device_id).await;
 
@@ -129,16 +127,14 @@ impl DehydratedDeviceService {
         Ok(device)
     }
 
-    pub async fn delete_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<bool, ApiError> {
+    pub async fn delete_device(&self, user_id: &str, device_id: &str) -> Result<bool, ApiError> {
         let deleted = self
             .storage
             .delete_device(user_id, device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete dehydrated device: {}", e)))?;
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to delete dehydrated device: {}", e))
+            })?;
 
         if deleted {
             self.invalidate_cache(user_id, device_id).await;
@@ -148,15 +144,14 @@ impl DehydratedDeviceService {
         Ok(deleted)
     }
 
-    pub async fn delete_devices_for_user(
-        &self,
-        user_id: &str,
-    ) -> Result<u64, ApiError> {
+    pub async fn delete_devices_for_user(&self, user_id: &str) -> Result<u64, ApiError> {
         let count = self
             .storage
             .delete_devices_for_user(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete dehydrated devices: {}", e)))?;
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to delete dehydrated devices: {}", e))
+            })?;
 
         self.invalidate_user_cache(user_id).await;
 
@@ -180,11 +175,10 @@ impl DehydratedDeviceService {
     }
 
     pub async fn cleanup_expired_devices(&self) -> Result<u64, ApiError> {
-        let count = self
-            .storage
-            .cleanup_expired_devices()
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to cleanup expired devices: {}", e)))?;
+        let count =
+            self.storage.cleanup_expired_devices().await.map_err(|e| {
+                ApiError::internal(format!("Failed to cleanup expired devices: {}", e))
+            })?;
 
         Ok(count)
     }

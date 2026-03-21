@@ -5,8 +5,8 @@ pub struct ThirdPartyId {
     pub address: String,
     pub medium: String,
     pub user_id: String,
-    pub validated_at: i64,
-    pub added_at: i64,
+    pub validated_ts: i64,
+    pub added_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,8 +104,8 @@ impl ThirdPartyId {
             address: address.to_string(),
             medium: medium.to_string(),
             user_id: user_id.to_string(),
-            validated_at: now,
-            added_at: now,
+            validated_ts: now,
+            added_ts: now,
         }
     }
 }

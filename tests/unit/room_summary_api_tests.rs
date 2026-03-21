@@ -13,7 +13,7 @@ fn test_room_summary_creation() {
         "num_joined_members": 10,
         "avatar_url": "mxc://avatar"
     });
-    
+
     assert!(summary.get("room_id").is_some());
     assert!(summary.get("topic").is_some());
 }
@@ -40,7 +40,7 @@ fn test_room_summary_response() {
         "world_readable": false,
         "guest_can_join": false
     });
-    
+
     assert!(summary.get("room_id").is_some());
     assert!(summary.get("name").is_some());
     assert!(summary.get("num_joined_members").is_some());
@@ -57,9 +57,9 @@ fn test_user_summaries_response() {
         json!({
             "room_id": "!room2:localhost",
             "membership": "leave"
-        })
+        }),
     ];
-    
+
     assert_eq!(summaries.len(), 2);
     assert!(summaries[0].get("membership").is_some());
 }
@@ -77,9 +77,9 @@ fn test_room_members_response() {
             "user_id": "@user2:localhost",
             "display_name": "User 2",
             "membership": "invite"
-        })
+        }),
     ];
-    
+
     assert_eq!(members.len(), 2);
     assert!(members[0].get("user_id").is_some());
     assert!(members[0].get("membership").is_some());
@@ -108,9 +108,9 @@ fn test_room_state_response() {
             "type": "m.room.member",
             "state_key": "@user:localhost",
             "sender": "@creator:localhost"
-        })
+        }),
     ];
-    
+
     assert_eq!(state.len(), 2);
     assert!(state[0].get("type").is_some());
     assert!(state[0].get("sender").is_some());
@@ -129,7 +129,7 @@ fn test_room_stats_response() {
         "state_events": 20,
         "message_events": 80
     });
-    
+
     assert!(stats.get("room_id").is_some());
     assert!(stats.get("joined_members").is_some());
     assert!(stats.get("total_events").is_some());
@@ -144,7 +144,7 @@ fn test_sync_room_summary() {
         "state": [],
         "ephemeral": []
     });
-    
+
     assert!(sync.get("room_id").is_some());
     assert!(sync.get("timeline").is_some());
     assert!(sync.get("state").is_some());
@@ -158,7 +158,7 @@ fn test_update_room_summary() {
         "topic": "New topic",
         "name": "New name"
     });
-    
+
     assert!(update.get("room_id").is_some());
     assert!(update.get("topic").is_some());
 }
@@ -170,7 +170,7 @@ fn test_delete_room_summary() {
         "deleted": true,
         "room_id": "!room:localhost"
     });
-    
+
     assert!(result.get("deleted").is_some());
     assert!(result["deleted"].as_bool().unwrap_or(false));
 }
@@ -182,7 +182,7 @@ fn test_add_room_member() {
         "user_id": "@user:localhost",
         "membership": "join"
     });
-    
+
     assert!(member.get("user_id").is_some());
     assert!(member.get("membership").is_some());
 }
@@ -195,7 +195,7 @@ fn test_update_room_member() {
         "membership": "invite",
         "display_name": "User"
     });
-    
+
     assert!(member.get("user_id").is_some());
     assert!(member.get("membership").is_some());
 }
@@ -208,7 +208,7 @@ fn test_remove_room_member() {
         "user_id": "@user:localhost",
         "room_id": "!room:localhost"
     });
-    
+
     assert!(result.get("removed").is_some());
     assert!(result.get("user_id").is_some());
 }
@@ -224,7 +224,7 @@ fn test_state_event_format() {
             "topic": "Room topic"
         }
     });
-    
+
     assert!(event.get("type").is_some());
     assert!(event.get("sender").is_some());
     assert!(event.get("content").is_some());
@@ -237,7 +237,7 @@ fn test_recalculate_stats_request() {
         "room_id": "!room:localhost",
         "force": false
     });
-    
+
     assert!(request.get("room_id").is_some());
 }
 
@@ -248,7 +248,7 @@ fn test_clear_unread_request() {
         "room_id": "!room:localhost",
         "user_id": "@user:localhost"
     });
-    
+
     assert!(request.get("room_id").is_some());
     assert!(request.get("user_id").is_some());
 }
@@ -260,7 +260,7 @@ fn test_recalculate_heroes_request() {
         "room_id": "!room:localhost",
         "limit": 5
     });
-    
+
     assert!(request.get("room_id").is_some());
     assert!(request.get("limit").is_some());
 }

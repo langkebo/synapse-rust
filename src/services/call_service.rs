@@ -149,7 +149,9 @@ impl CallService {
 
         // 验证发送者是呼叫的参与者
         if session.caller_id != sender_id && session.callee_id.as_deref() != Some(sender_id) {
-            return Err(ApiError::forbidden("Not authorized to send candidates for this call"));
+            return Err(ApiError::forbidden(
+                "Not authorized to send candidates for this call",
+            ));
         }
 
         // 添加所有候选人
@@ -159,8 +161,9 @@ impl CallService {
                     &content.call_id,
                     room_id,
                     sender_id,
-                    serde_json::to_value(candidate)
-                        .map_err(|e| ApiError::internal(format!("Failed to serialize candidate: {}", e)))?,
+                    serde_json::to_value(candidate).map_err(|e| {
+                        ApiError::internal(format!("Failed to serialize candidate: {}", e))
+                    })?,
                 )
                 .await
                 .map_err(|e| ApiError::database(format!("Failed to add candidate: {}", e)))?;
@@ -311,14 +314,12 @@ mod tests {
         let event = CallCandidatesEvent {
             call_id: "call123".to_string(),
             version: 1,
-            candidates: vec![
-                IceCandidate {
-                    candidate: "candidate:1".to_string(),
-                    sdp_mid: Some("0".to_string()),
-                    sdp_mline_index: Some(0),
-                    candidate_type: Some("host".to_string()),
-                },
-            ],
+            candidates: vec![IceCandidate {
+                candidate: "candidate:1".to_string(),
+                sdp_mid: Some("0".to_string()),
+                sdp_mline_index: Some(0),
+                candidate_type: Some("host".to_string()),
+            }],
         };
 
         let json = serde_json::to_string(&event).unwrap();

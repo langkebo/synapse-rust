@@ -11,14 +11,35 @@ use sqlx::Row;
 
 pub fn create_notification_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_synapse/admin/v1/send_server_notice", post(send_server_notice))
+        .route(
+            "/_synapse/admin/v1/send_server_notice",
+            post(send_server_notice),
+        )
         .route("/_synapse/admin/v1/server_notices", get(get_server_notices))
-        .route("/_synapse/admin/v1/server_notices/{notice_id}", get(get_server_notice))
-        .route("/_synapse/admin/v1/server_notices/{notice_id}", delete(delete_server_notice))
-        .route("/_synapse/admin/v1/users/{user_id}/notification", get(get_user_notification))
-        .route("/_synapse/admin/v1/users/{user_id}/notification", put(update_user_notification))
-        .route("/_synapse/admin/v1/users/{user_id}/pushers", get(get_user_pushers))
-        .route("/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}", delete(delete_user_pusher))
+        .route(
+            "/_synapse/admin/v1/server_notices/{notice_id}",
+            get(get_server_notice),
+        )
+        .route(
+            "/_synapse/admin/v1/server_notices/{notice_id}",
+            delete(delete_server_notice),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/notification",
+            get(get_user_notification),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/notification",
+            put(update_user_notification),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/pushers",
+            get(get_user_pushers),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}",
+            delete(delete_user_pusher),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,7 +66,11 @@ pub async fn send_server_notice(
     Json(body): Json<ServerNoticeRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let event_id = crate::common::crypto::generate_event_id(&state.services.config.server.name);
-    let room_id = format!("!server_notice_{}:{}", uuid::Uuid::new_v4(), state.services.config.server.name);
+    let room_id = format!(
+        "!server_notice_{}:{}",
+        uuid::Uuid::new_v4(),
+        state.services.config.server.name
+    );
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
@@ -95,7 +120,9 @@ pub async fn get_server_notices(
         })
         .collect();
 
-    Ok(Json(json!({ "notices": notice_list, "total": notice_list.len() })))
+    Ok(Json(
+        json!({ "notices": notice_list, "total": notice_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]
@@ -105,7 +132,7 @@ pub async fn get_server_notice(
     Path(notice_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
     let notice = sqlx::query(
-        "SELECT id, user_id, event_id, content, sent_ts FROM server_notices WHERE id = $1"
+        "SELECT id, user_id, event_id, content, sent_ts FROM server_notices WHERE id = $1",
     )
     .bind(notice_id)
     .fetch_optional(&*state.services.event_storage.pool)
@@ -149,13 +176,11 @@ pub async fn get_user_notification(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let setting = sqlx::query(
-        "SELECT enabled FROM user_notification_settings WHERE user_id = $1"
-    )
-    .bind(&user_id)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let setting = sqlx::query("SELECT enabled FROM user_notification_settings WHERE user_id = $1")
+        .bind(&user_id)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     match setting {
         Some(row) => Ok(Json(json!({
@@ -214,7 +239,9 @@ pub async fn get_user_pushers(
         })
         .collect();
 
-    Ok(Json(json!({ "pushers": pusher_list, "total": pusher_list.len() })))
+    Ok(Json(
+        json!({ "pushers": pusher_list, "total": pusher_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]

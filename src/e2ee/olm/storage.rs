@@ -283,9 +283,9 @@ impl OlmStorage {
             serialized_state: r.get("serialized_state"),
             message_index: r.get::<i32, _>("message_index") as u32,
             created_ts: r.get("created_ts"),
-                last_used_ts: r.get("last_used_ts"),
-                expires_at: r.get("expires_ts"),
-            }))
+            last_used_ts: r.get("last_used_ts"),
+            expires_at: r.get("expires_ts"),
+        }))
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {

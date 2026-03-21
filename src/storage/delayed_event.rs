@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
-use crate::common::error::ApiError;
 use crate::cache::CacheManager;
+use crate::common::error::ApiError;
 
 use crate::common::task_queue::RedisTaskQueue;
 
@@ -25,7 +25,7 @@ pub struct DelayedEvent {
     pub last_error: Option<String>,
 }
 
- #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateDelayedEventParams {
     pub room_id: String,
     pub user_id: String,
@@ -323,11 +323,10 @@ impl DelayedEventService {
             return Err(ApiError::bad_request("content is required"));
         }
 
-        let event = self
-            .storage
-            .create_event(params)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to create delayed event: {}", e)))?;
+        let event =
+            self.storage.create_event(params).await.map_err(|e| {
+                ApiError::internal(format!("Failed to create delayed event: {}", e))
+            })?;
 
         self.invalidate_cache(&event.room_id, &event.user_id).await;
 
@@ -365,8 +364,7 @@ impl DelayedEventService {
     }
 
     pub async fn get_pending_events(&self) -> Result<Vec<DelayedEvent>, ApiError> {
-        self
-            .storage
+        self.storage
             .get_pending_events()
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get pending events: {}", e)))
@@ -433,8 +431,7 @@ impl DelayedEventService {
             return Err(ApiError::bad_request("Can only update pending events"));
         }
 
-        self
-            .storage
+        self.storage
             .update_event(
                 event_id,
                 UpdateDelayedEventParams {
@@ -461,18 +458,15 @@ impl DelayedEventService {
             return Err(ApiError::bad_request("Event is not pending"));
         }
 
-        self
-            .storage
-            .mark_processing(event_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to mark event as processing: {}", e)))?;
+        self.storage.mark_processing(event_id).await.map_err(|e| {
+            ApiError::internal(format!("Failed to mark event as processing: {}", e))
+        })?;
 
         Ok(())
     }
 
     pub async fn complete_event(&self, event_id: &str) -> Result<(), ApiError> {
-        self
-            .storage
+        self.storage
             .mark_completed(event_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to mark event as completed: {}", e)))?;
@@ -482,11 +476,7 @@ impl DelayedEventService {
         Ok(())
     }
 
-    pub async fn fail_event(
-        &self,
-        event_id: &str,
-        error: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn fail_event(&self, event_id: &str, error: &str) -> Result<(), ApiError> {
         let event = self
             .get_event(event_id)
             .await?
@@ -494,8 +484,7 @@ impl DelayedEventService {
 
         let should_retry = event.retry_count < self.max_retries as i32;
 
-        self
-            .storage
+        self.storage
             .mark_failed(event_id, error, should_retry)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to mark event as failed: {}", e)))?;
@@ -523,7 +512,10 @@ impl DelayedEventService {
     }
 
     async fn invalidate_cache_for_event(&self, event_id: &str) {
-        let _ = self.cache.delete(&format!("delayed_event:{}", event_id)).await;
+        let _ = self
+            .cache
+            .delete(&format!("delayed_event:{}", event_id))
+            .await;
     }
 }
 

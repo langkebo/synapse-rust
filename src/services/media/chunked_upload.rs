@@ -67,7 +67,7 @@ impl ChunkedUploadService {
             pool,
             chunk_size_limit: 10 * 1024 * 1024, // 10MB per chunk
             max_file_size: 100 * 1024 * 1024,   // 100MB total
-            upload_expiry_seconds: 3600,         // 1 hour
+            upload_expiry_seconds: 3600,        // 1 hour
         }
     }
 
@@ -102,7 +102,10 @@ impl ChunkedUploadService {
         .await
         .map_err(|e| ApiError::internal(format!("Failed to start upload: {}", e)))?;
 
-        info!("Started chunked upload: {} for user: {}", upload_id, user_id);
+        info!(
+            "Started chunked upload: {} for user: {}",
+            upload_id, user_id
+        );
         Ok(upload_id)
     }
 
@@ -201,14 +204,12 @@ impl ChunkedUploadService {
     }
 
     pub async fn get_progress(&self, upload_id: &str) -> Result<UploadProgress, ApiError> {
-        sqlx::query_as::<_, UploadProgress>(
-            "SELECT * FROM upload_progress WHERE upload_id = $1",
-        )
-        .bind(upload_id)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get progress: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Upload not found".to_string()))
+        sqlx::query_as::<_, UploadProgress>("SELECT * FROM upload_progress WHERE upload_id = $1")
+            .bind(upload_id)
+            .fetch_optional(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get progress: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Upload not found".to_string()))
     }
 
     pub async fn complete_upload(
@@ -306,13 +307,14 @@ impl ChunkedUploadService {
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let expired: Vec<String> = sqlx::query_scalar(
-            "SELECT upload_id FROM upload_progress WHERE expires_at < $1",
-        )
-        .bind(now)
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to find expired uploads: {}", e)))?;
+        let expired: Vec<String> =
+            sqlx::query_scalar("SELECT upload_id FROM upload_progress WHERE expires_at < $1")
+                .bind(now)
+                .fetch_all(&*self.pool)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to find expired uploads: {}", e))
+                })?;
 
         let mut cleaned = 0u64;
         for upload_id in expired {

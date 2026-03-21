@@ -13,7 +13,6 @@ pub struct AccessToken {
     pub user_agent: Option<String>,
     pub ip_address: Option<String>,
     pub is_revoked: bool,
-    pub revoked_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -21,7 +20,7 @@ pub struct TokenBlacklistEntry {
     pub id: i64,
     pub token_hash: String,
     pub user_id: String,
-    pub revoked_at: i64,
+    pub is_revoked: bool,
     pub reason: Option<String>,
 }
 
@@ -47,7 +46,7 @@ impl AccessTokenStorage {
             r#"
             INSERT INTO access_tokens (token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked)
             VALUES ($1, $2, $3, $4, $5, NULL, NULL, NULL, FALSE)
-            RETURNING id, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked, revoked_at
+            RETURNING id, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked
             "#,
         )
         .bind(token)
@@ -63,7 +62,7 @@ impl AccessTokenStorage {
     pub async fn get_token(&self, token: &str) -> Result<Option<AccessToken>, sqlx::Error> {
         let row = sqlx::query_as::<_, AccessToken>(
             r#"
-            SELECT id, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked, revoked_at
+            SELECT id, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked
             FROM access_tokens WHERE token = $1 AND is_revoked = FALSE
             "#,
         )
@@ -76,7 +75,7 @@ impl AccessTokenStorage {
     pub async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<AccessToken>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccessToken>(
             r#"
-            SELECT id, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked, revoked_at
+            SELECT id, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked
             FROM access_tokens WHERE user_id = $1
             "#,
         )
@@ -87,81 +86,39 @@ impl AccessTokenStorage {
     }
 
     pub async fn delete_token(&self, token: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
-        let result = sqlx::query(
+        sqlx::query(
             r#"
-            UPDATE access_tokens SET is_revoked = TRUE, revoked_at = $2 WHERE token = $1
+            UPDATE access_tokens SET is_revoked = TRUE WHERE token = $1
             "#,
         )
         .bind(token)
-        .bind(now)
         .execute(&*self.pool)
-        .await;
-        
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("current transaction is aborted") {
-                    tracing::warn!("Connection in aborted transaction state in delete_token, attempting reset");
-                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
-                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
-                }
-                Err(e)
-            }
-        }
+        .await?;
+        Ok(())
     }
 
     pub async fn delete_user_tokens(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
-        let result = sqlx::query(
+        sqlx::query(
             r#"
-            UPDATE access_tokens SET is_revoked = TRUE, revoked_at = $2 WHERE user_id = $1 AND is_revoked = FALSE
+            UPDATE access_tokens SET is_revoked = TRUE WHERE user_id = $1 AND is_revoked = FALSE
             "#,
         )
         .bind(user_id)
-        .bind(now)
         .execute(&*self.pool)
-        .await;
-        
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("current transaction is aborted") {
-                    tracing::warn!("Connection in aborted transaction state in delete_user_tokens, attempting reset");
-                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
-                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
-                }
-                Err(e)
-            }
-        }
+        .await?;
+        Ok(())
     }
 
     pub async fn delete_device_tokens(&self, device_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
-        let result = sqlx::query(
+        sqlx::query(
             r#"
-            UPDATE access_tokens SET is_revoked = TRUE, revoked_at = $2 WHERE device_id = $1 AND is_revoked = FALSE
+            UPDATE access_tokens SET is_revoked = TRUE WHERE device_id = $1 AND is_revoked = FALSE
             "#,
         )
         .bind(device_id)
-        .bind(now)
         .execute(&*self.pool)
-        .await;
-        
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("current transaction is aborted") {
-                    tracing::warn!("Connection in aborted transaction state in delete_device_tokens, attempting reset");
-                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
-                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
-                }
-                Err(e)
-            }
-        }
+        .await?;
+        Ok(())
     }
 
     pub async fn token_exists(&self, token: &str) -> Result<bool, sqlx::Error> {
@@ -194,36 +151,22 @@ impl AccessTokenStorage {
         user_id: &str,
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
         let token_hash = Self::hash_token(token);
 
-        let result = sqlx::query(
+        sqlx::query(
             r#"
-            INSERT INTO token_blacklist (token_hash, token, token_type, user_id, revoked_at, reason)
-            VALUES ($1, $2, 'access', $3, $4, $5)
+            INSERT INTO token_blacklist (token_hash, token, token_type, user_id, is_revoked, reason)
+            VALUES ($1, $2, 'access', $3, TRUE, $4)
             ON CONFLICT (token_hash) DO NOTHING
             "#,
         )
         .bind(&token_hash)
         .bind(token)
         .bind(user_id)
-        .bind(now)
         .bind(reason)
         .execute(&*self.pool)
-        .await;
-        
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("current transaction is aborted") {
-                    tracing::warn!("Connection in aborted transaction state in add_to_blacklist, attempting reset");
-                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
-                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
-                }
-                Err(e)
-            }
-        }
+        .await?;
+        Ok(())
     }
 
     pub async fn is_in_blacklist(&self, token: &str) -> Result<bool, sqlx::Error> {
@@ -236,18 +179,10 @@ impl AccessTokenStorage {
         .bind(&token_hash)
         .fetch_optional(&*self.pool)
         .await;
-        
+
         match result {
             Ok(r) => Ok(r.is_some()),
-            Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("current transaction is aborted") {
-                    tracing::warn!("Connection in aborted transaction state, attempting reset");
-                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
-                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
-                }
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -258,7 +193,7 @@ impl AccessTokenStorage {
         let cutoff = chrono::Utc::now().timestamp_millis() - max_age_seconds * 1000;
         let result = sqlx::query(
             r#"
-            DELETE FROM token_blacklist WHERE revoked_at < $1
+            DELETE FROM token_blacklist WHERE expires_at > 0 AND expires_at < $1
             "#,
         )
         .bind(cutoff)
@@ -294,7 +229,6 @@ mod tests {
             user_agent: None,
             ip_address: None,
             is_revoked: false,
-            revoked_at: None,
         };
 
         assert_eq!(token.id, 1);
@@ -302,7 +236,6 @@ mod tests {
         assert_eq!(token.user_id, "@alice:example.com");
         assert!(token.device_id.is_some());
         assert!(!token.is_revoked);
-        assert!(token.revoked_at.is_none());
     }
 
     #[test]
@@ -318,7 +251,6 @@ mod tests {
             user_agent: Some("Mozilla/5.0".to_string()),
             ip_address: Some("192.168.1.1".to_string()),
             is_revoked: false,
-            revoked_at: None,
         };
 
         assert!(token.device_id.is_none());
@@ -340,11 +272,9 @@ mod tests {
             user_agent: None,
             ip_address: None,
             is_revoked: true,
-            revoked_at: Some(1234567900000),
         };
 
         assert!(token.is_revoked);
-        assert!(token.revoked_at.is_some());
     }
 
     #[test]
@@ -361,7 +291,6 @@ mod tests {
             user_agent: None,
             ip_address: None,
             is_revoked: false,
-            revoked_at: None,
         };
 
         assert!(token.expires_at.unwrap() > token.created_ts);
@@ -381,7 +310,6 @@ mod tests {
             user_agent: None,
             ip_address: None,
             is_revoked: false,
-            revoked_at: None,
         };
         assert_eq!(token.token, "test_token");
     }
@@ -413,7 +341,6 @@ mod tests {
             user_agent: Some("Mozilla/5.0".to_string()),
             ip_address: Some("10.0.0.1".to_string()),
             is_revoked: false,
-            revoked_at: None,
         };
 
         assert!(token.user_id.starts_with('@'));

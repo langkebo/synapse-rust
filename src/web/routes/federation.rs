@@ -1227,8 +1227,12 @@ async fn server_key(State(state): State<AppState>) -> Result<Json<Value>, ApiErr
                     ));
                 }
             };
-            
-            (key_id, verify_key, chrono::Utc::now().timestamp_millis() + 3600 * 1000)
+
+            (
+                key_id,
+                verify_key,
+                chrono::Utc::now().timestamp_millis() + 3600 * 1000,
+            )
         }
     };
 
@@ -1387,7 +1391,7 @@ async fn get_room_hierarchy(
     if !room_id.starts_with('!') || !room_id.contains(':') {
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
-    
+
     // 获取房间信息
     let room = state
         .services
@@ -1395,14 +1399,14 @@ async fn get_room_hierarchy(
         .get_room(&room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Room not found"))?;
-    
+
     // 构建响应
     let mut response = json!({
         "room_id": room_id,
         "children": [],
         "public": room.is_public,
     });
-    
+
     // 添加房间元数据
     if let Some(name) = room.name {
         response["name"] = serde_json::Value::String(name);
@@ -1413,7 +1417,7 @@ async fn get_room_hierarchy(
     if let Some(avatar_url) = room.avatar_url {
         response["avatar_url"] = serde_json::Value::String(avatar_url);
     }
-    
+
     // 获取成员数量
     let member_count = state
         .services
@@ -1421,8 +1425,9 @@ async fn get_room_hierarchy(
         .get_room_member_count(&room_id)
         .await
         .unwrap_or(0);
-    response["num_joined_members"] = serde_json::Value::Number(serde_json::Number::from(member_count));
-    
+    response["num_joined_members"] =
+        serde_json::Value::Number(serde_json::Number::from(member_count));
+
     Ok(Json(response))
 }
 
@@ -1437,12 +1442,13 @@ async fn timestamp_to_event(
     if !room_id.starts_with('!') || !room_id.contains(':') {
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
-    
+
     // 获取 timestamp 参数
-    let timestamp = params.get("ts")
+    let timestamp = params
+        .get("ts")
         .and_then(|v| v.as_i64())
         .ok_or_else(|| ApiError::bad_request("Missing 'ts' parameter"))?;
-    
+
     // 验证房间存在
     let _room = state
         .services
@@ -1450,19 +1456,22 @@ async fn timestamp_to_event(
         .get_room(&room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Room not found"))?;
-    
+
     // 查找最接近指定时间的事件
     let event = state
         .services
         .event_storage
         .find_event_by_timestamp(&room_id, timestamp)
         .await?;
-    
+
     // find_event_by_timestamp returns Option<serde_json::Value> which contains (event_id, ts)
     if let Some(evt) = event {
         // evt is a tuple (event_id, origin_server_ts) serialized as array
         if let Some(arr) = evt.as_array() {
-            if let (Some(event_id), Some(ts)) = (arr.first().and_then(|v| v.as_str()), arr.get(1).and_then(|v| v.as_i64())) {
+            if let (Some(event_id), Some(ts)) = (
+                arr.first().and_then(|v| v.as_str()),
+                arr.get(1).and_then(|v| v.as_i64()),
+            ) {
                 return Ok(Json(json!({
                     "event_id": event_id,
                     "origin_server_ts": ts
@@ -1470,7 +1479,7 @@ async fn timestamp_to_event(
             }
         }
     }
-    
+
     Ok(Json(json!({
         "event_id": null,
         "origin_server_ts": timestamp
@@ -1486,15 +1495,14 @@ async fn send_join_v2(
     if !room_id.starts_with('!') || !room_id.contains(':') {
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
-    
-    let origin = body.get("origin")
+
+    let origin = body
+        .get("origin")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
-    
-    let sender = body.get("sender")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    
+
+    let sender = body.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+
     if sender.is_empty() {
         return Err(ApiError::bad_request("Missing sender in join event"));
     }
@@ -1505,7 +1513,7 @@ async fn send_join_v2(
         .get_room(&room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Room not found"))?;
-    
+
     if !room.is_public {
         let is_member = state
             .services
@@ -1513,7 +1521,7 @@ async fn send_join_v2(
             .is_member(sender, &room_id)
             .await
             .unwrap_or(false);
-        
+
         if !is_member && !room.join_rules.is_empty() && room.join_rules != "public" {
             return Err(ApiError::forbidden("User is not allowed to join this room"));
         }
@@ -1525,12 +1533,15 @@ async fn send_join_v2(
         .get_room_member_count(&room_id)
         .await
         .unwrap_or(0);
-    
+
     let state_events: Vec<serde_json::Value> = Vec::new();
-    
-    println!("Federation send_join: origin={}, sender={}, room_id={}", origin, sender, room_id);
+
+    println!(
+        "Federation send_join: origin={}, sender={}, room_id={}",
+        origin, sender, room_id
+    );
     let _ = (origin, sender, room.is_public, room.join_rules.as_str());
-    
+
     Ok(Json(json!({
         "state": state_events,
         "members_joined": member_count,
@@ -1549,11 +1560,9 @@ async fn send_leave_v2(
     if !room_id.starts_with('!') || !room_id.contains(':') {
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
-    
-    let sender = body.get("sender")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    
+
+    let sender = body.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+
     if sender.is_empty() {
         return Err(ApiError::bad_request("Missing sender in leave event"));
     }
@@ -1597,8 +1606,11 @@ async fn send_leave_v2(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to update membership: {}", e)))?;
 
-    println!("Federation send_leave: sender={}, room_id={}", sender, room_id);
-    
+    println!(
+        "Federation send_leave: sender={}, room_id={}",
+        sender, room_id
+    );
+
     Ok(Json(json!({
         "room_id": room_id,
         "event_id": event_id
@@ -1614,7 +1626,7 @@ async fn post_public_rooms(
 ) -> Result<Json<Value>, ApiError> {
     // Get search parameters
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20);
-    
+
     // Get public rooms
     let rooms = state
         .services
@@ -1622,7 +1634,7 @@ async fn post_public_rooms(
         .get_public_rooms(limit)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    
+
     let mut room_list = Vec::new();
     for room in rooms {
         room_list.push(json!({
@@ -1635,7 +1647,7 @@ async fn post_public_rooms(
             "guest_can_join": false
         }));
     }
-    
+
     Ok(Json(json!({
         "chunk": room_list,
         "total_room_count_estimate": room_list.len()
@@ -1644,13 +1656,12 @@ async fn post_public_rooms(
 
 /// Query directory
 /// GET /_matrix/federation/v1/query/directory
-async fn query_directory(
-    Query(params): Query<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let room_alias = params.get("room_alias")
+async fn query_directory(Query(params): Query<Value>) -> Result<Json<Value>, ApiError> {
+    let room_alias = params
+        .get("room_alias")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing room_alias parameter"))?;
-    
+
     // Return room_id for the alias
     // Note: This would need the actual room_alias_storage to resolve
     Ok(Json(json!({
@@ -1665,10 +1676,11 @@ async fn openid_userinfo(
     State(_state): State<AppState>,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let _access_token = params.get("access_token")
+    let _access_token = params
+        .get("access_token")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing access_token parameter"))?;
-    
+
     // Validate access token and get user
     // This would need token validation
     Ok(Json(json!({
@@ -1686,11 +1698,11 @@ async fn media_download(
     if media_id.is_empty() {
         return Err(ApiError::bad_request("Missing media_id"));
     }
-    
+
     // Get media metadata - simplified response
     // Actual implementation would fetch from media_service
     println!("Processing media download: {}/{}", server_name, media_id);
-    
+
     Ok(Json(json!({
         "media_id": media_id,
         "server_name": server_name,
@@ -1710,11 +1722,17 @@ async fn media_thumbnail(
     // Get thumbnail parameters
     let width = params.get("width").and_then(|v| v.as_i64()).unwrap_or(100);
     let height = params.get("height").and_then(|v| v.as_i64()).unwrap_or(100);
-    let method = params.get("method").and_then(|v| v.as_str()).unwrap_or("scale");
-    
+    let method = params
+        .get("method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("scale");
+
     // Simplified response
-    println!("Processing media thumbnail: {}/{} {}x{}", server_name, media_id, width, height);
-    
+    println!(
+        "Processing media thumbnail: {}/{} {}x{}",
+        server_name, media_id, width, height
+    );
+
     Ok(Json(json!({
         "media_id": media_id,
         "server_name": server_name,
@@ -1737,16 +1755,17 @@ async fn exchange_third_party_invite(
     if !room_id.starts_with('!') || !room_id.contains(':') {
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
-    
+
     // Get invite data
-    let _invite_json = body.get("invite")
+    let _invite_json = body
+        .get("invite")
         .cloned()
         .ok_or_else(|| ApiError::bad_request("Missing invite field"))?;
-    
+
     // Process third-party invite
     // This would integrate with the 3pid invite system
     println!("Processing third-party invite for room: {}", room_id);
-    
+
     Ok(Json(json!({
         "room_id": room_id,
         "status": "processed"

@@ -13,7 +13,7 @@ fn test_create_thread_request() {
             "body": "Thread message"
         }
     });
-    
+
     assert!(thread.get("room_id").is_some());
     assert!(thread.get("event_id").is_some());
     assert!(thread.get("content").is_some());
@@ -30,7 +30,7 @@ fn test_thread_response() {
         "reply_count": 5,
         "participants": ["@user1:localhost", "@user2:localhost"]
     });
-    
+
     assert!(thread.get("room_id").is_some());
     assert!(thread.get("thread_id").is_some());
     assert!(thread.get("event_id").is_some());
@@ -42,7 +42,7 @@ fn test_thread_id_format() {
     // Valid thread IDs
     assert!(is_valid_thread_id("!thread:localhost"));
     assert!(is_valid_thread_id("$event:localhost"));
-    
+
     // Invalid
     assert!(!is_valid_thread_id("invalid"));
 }
@@ -55,20 +55,18 @@ fn test_list_threads_request() {
         "from": "0",
         "limit": 20
     });
-    
+
     assert!(request.get("room_id").is_some());
 }
 
 // Test 5: List threads response
 #[test]
 fn test_list_threads_response() {
-    let threads = vec![
-        json!({
-            "thread_id": "!thread1:localhost",
-            "reply_count": 5
-        })
-    ];
-    
+    let threads = vec![json!({
+        "thread_id": "!thread1:localhost",
+        "reply_count": 5
+    })];
+
     assert_eq!(threads.len(), 1);
     assert!(threads[0].get("thread_id").is_some());
 }
@@ -80,7 +78,7 @@ fn test_get_thread_request() {
         "room_id": "!room:localhost",
         "thread_id": "!thread:localhost"
     });
-    
+
     assert!(request.get("room_id").is_some());
     assert!(request.get("thread_id").is_some());
 }
@@ -100,7 +98,7 @@ fn test_thread_detail_response() {
         },
         "reply_count": 5
     });
-    
+
     assert!(detail.get("room_id").is_some());
     assert!(detail.get("thread_id").is_some());
     assert!(detail.get("events").is_some());
@@ -113,7 +111,7 @@ fn test_delete_thread_request() {
         "deleted": true,
         "thread_id": "!thread:localhost"
     });
-    
+
     assert!(result.get("deleted").is_some());
     assert!(result["deleted"].as_bool().unwrap_or(false));
 }
@@ -126,7 +124,7 @@ fn test_freeze_thread_request() {
         "thread_id": "!thread:localhost",
         "reason": "Off-topic discussion"
     });
-    
+
     assert!(freeze.get("room_id").is_some());
     assert!(freeze.get("thread_id").is_some());
 }
@@ -138,7 +136,7 @@ fn test_freeze_thread_response() {
         "frozen": true,
         "thread_id": "!thread:localhost"
     });
-    
+
     assert!(result.get("frozen").is_some());
     assert!(result.get("thread_id").is_some());
 }
@@ -150,7 +148,7 @@ fn test_unfreeze_thread_response() {
         "unfrozen": true,
         "thread_id": "!thread:localhost"
     });
-    
+
     assert!(result.get("unfrozen").is_some());
 }
 
@@ -165,7 +163,7 @@ fn test_add_reply_request() {
             "msgtype": "m.text"
         }
     });
-    
+
     assert!(reply.get("room_id").is_some());
     assert!(reply.get("thread_id").is_some());
     assert!(reply.get("content").is_some());
@@ -180,7 +178,7 @@ fn test_get_replies_request() {
         "from": "0",
         "limit": 10
     });
-    
+
     assert!(request.get("room_id").is_some());
     assert!(request.get("thread_id").is_some());
 }
@@ -197,7 +195,7 @@ fn test_replies_response() {
         ],
         "count": 1
     });
-    
+
     assert!(replies.get("chunk").is_some());
     assert!(replies.get("count").is_some());
 }
@@ -210,7 +208,7 @@ fn test_subscribe_thread_request() {
         "thread_id": "!thread:localhost",
         "notification_level": "all"
     });
-    
+
     assert!(subscribe.get("room_id").is_some());
     assert!(subscribe.get("thread_id").is_some());
 }
@@ -222,7 +220,7 @@ fn test_notification_level_validation() {
     assert!(is_valid_notification_level("all"));
     assert!(is_valid_notification_level("mentions_and_replies"));
     assert!(is_valid_notification_level("none"));
-    
+
     // Invalid
     assert!(!is_valid_notification_level("invalid"));
 }
@@ -234,7 +232,7 @@ fn test_unsubscribe_thread_request() {
         "room_id": "!room:localhost",
         "thread_id": "!thread:localhost"
     });
-    
+
     assert!(unsubscribe.get("room_id").is_some());
     assert!(unsubscribe.get("thread_id").is_some());
 }
@@ -247,7 +245,7 @@ fn test_mute_thread_request() {
         "thread_id": "!thread:localhost",
         "muted": true
     });
-    
+
     assert!(mute.get("room_id").is_some());
     assert!(mute.get("thread_id").is_some());
     assert!(mute.get("muted").is_some());
@@ -261,7 +259,7 @@ fn test_mark_read_request() {
         "thread_id": "!thread:localhost",
         "event_id": "$event:localhost"
     });
-    
+
     assert!(read.get("room_id").is_some());
     assert!(read.get("thread_id").is_some());
     assert!(read.get("event_id").is_some());
@@ -274,7 +272,7 @@ fn test_get_unread_threads_request() {
         "room_id": "!room:localhost",
         "limit": 20
     });
-    
+
     assert!(request.get("room_id").is_some());
 }
 
@@ -289,7 +287,7 @@ fn test_unread_threads_response() {
             }
         ]
     });
-    
+
     assert!(threads.get("threads").is_some());
 }
 
@@ -301,7 +299,7 @@ fn test_search_threads_request() {
         "query": "search term",
         "limit": 20
     });
-    
+
     assert!(search.get("room_id").is_some());
     assert!(search.get("query").is_some());
 }
@@ -315,7 +313,7 @@ fn test_thread_stats_response() {
         "participant_count": 5,
         "latest_reply_ts": 1700000000000_i64
     });
-    
+
     assert!(stats.get("thread_id").is_some());
     assert!(stats.get("reply_count").is_some());
 }
@@ -328,7 +326,7 @@ fn test_redact_reply_request() {
         "event_id": "$reply:localhost",
         "reason": "Violated rules"
     });
-    
+
     assert!(redact.get("room_id").is_some());
     assert!(redact.get("event_id").is_some());
 }
@@ -340,21 +338,19 @@ fn test_list_threads_global_request() {
         "from": "0",
         "limit": 20
     });
-    
+
     assert!(request.get("limit").is_some());
 }
 
 // Test 26: Subscribed threads response
 #[test]
 fn test_subscribed_threads_response() {
-    let subscriptions = vec![
-        json!({
-            "room_id": "!room:localhost",
-            "thread_id": "!thread:localhost",
-            "notification_level": "all"
-        })
-    ];
-    
+    let subscriptions = vec![json!({
+        "room_id": "!room:localhost",
+        "thread_id": "!thread:localhost",
+        "notification_level": "all"
+    })];
+
     assert_eq!(subscriptions.len(), 1);
     assert!(subscriptions[0].get("thread_id").is_some());
 }

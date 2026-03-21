@@ -33,7 +33,7 @@ pub struct SessionKeyData {
     pub first_message_index: i64,
     pub forwarded_count: i64,
     pub is_verified: bool,
-    pub session_key: String,  // Encrypted session key
+    pub session_key: String, // Encrypted session key
 }
 
 /// Request to create a secure backup
@@ -140,9 +140,10 @@ mod tests {
             backup_id: "backup123".to_string(),
             public_key: None,
         };
-        
-        let backup = SecureBackupInfo::new("@user:example.com", "m.megolm_backup.v1.secure", auth_data);
-        
+
+        let backup =
+            SecureBackupInfo::new("@user:example.com", "m.megolm_backup.v1.secure", auth_data);
+
         assert_eq!(backup.user_id, "@user:example.com");
         assert_eq!(backup.algorithm, "m.megolm_backup.v1.secure");
         assert_eq!(backup.key_count, 0);
@@ -151,7 +152,7 @@ mod tests {
     #[test]
     fn test_key_derivation_params_default() {
         let params = KeyDerivationParams::default();
-        
+
         assert_eq!(params.iterations, 500000);
         assert_eq!(params.memory_kb, 65536);
         assert_eq!(params.parallelism, 4);

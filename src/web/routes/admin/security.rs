@@ -11,14 +11,38 @@ use sqlx::Row;
 
 pub fn create_security_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_synapse/admin/v1/users/{user_id}/shadow_ban", post(shadow_ban_user))
-        .route("/_synapse/admin/v1/users/{user_id}/shadow_ban", delete(unshadow_ban_user))
-        .route("/_synapse/admin/v1/users/{user_id}/rate_limit", get(get_user_rate_limit))
-        .route("/_synapse/admin/v1/users/{user_id}/rate_limit", put(set_user_rate_limit))
-        .route("/_synapse/admin/v1/users/{user_id}/rate_limit", delete(delete_user_rate_limit))
-        .route("/_synapse/admin/v1/users/{user_id}/override_ratelimit", get(get_user_override_rate_limit))
-        .route("/_synapse/admin/v1/users/{user_id}/override_ratelimit", post(set_user_override_rate_limit))
-        .route("/_synapse/admin/v1/users/{user_id}/override_ratelimit", delete(delete_user_override_rate_limit))
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/shadow_ban",
+            post(shadow_ban_user),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/shadow_ban",
+            delete(unshadow_ban_user),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/rate_limit",
+            get(get_user_rate_limit),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/rate_limit",
+            put(set_user_rate_limit),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/rate_limit",
+            delete(delete_user_rate_limit),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
+            get(get_user_override_rate_limit),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
+            post(set_user_override_rate_limit),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
+            delete(delete_user_override_rate_limit),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,13 +92,12 @@ pub async fn get_user_rate_limit(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = sqlx::query(
-        "SELECT messages_per_second, burst_count FROM rate_limits WHERE user_id = $1"
-    )
-    .bind(&user_id)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let limit =
+        sqlx::query("SELECT messages_per_second, burst_count FROM rate_limits WHERE user_id = $1")
+            .bind(&user_id)
+            .fetch_optional(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     match limit {
         Some(row) => Ok(Json(json!({

@@ -1,8 +1,8 @@
 // Core API (mod.rs) Tests - API Endpoint Coverage
 // These tests cover the core API endpoints from src/web/routes/mod.rs
 
-use synapse_rust::ApiError;
 use serde_json::json;
+use synapse_rust::ApiError;
 
 // Test 1: Health check validation
 #[test]
@@ -28,7 +28,7 @@ fn test_validate_user_id() {
     assert!(validate_user_id("@test:example.com").is_ok());
     assert!(validate_user_id("@user123:matrix.org").is_ok());
     assert!(validate_user_id("@user").is_ok()); // Only checks for @ prefix
-    
+
     // Invalid user IDs
     assert!(validate_user_id("").is_err());
     assert!(validate_user_id("user:localhost").is_err()); // Missing @
@@ -117,7 +117,10 @@ fn test_room_topic_length_validation() {
 fn test_invite_list_validation() {
     assert!(is_valid_invite_list(&vec!["@user1:localhost".to_string()]));
     assert!(is_valid_invite_list(&vec![]));
-    assert!(!is_valid_invite_list(&vec!["@user:localhost".to_string(); 101]));
+    assert!(!is_valid_invite_list(&vec![
+        "@user:localhost".to_string();
+        101
+    ]));
 }
 
 // Test 14: Token expiry calculation
@@ -132,9 +135,18 @@ fn test_token_expiry_calculation() {
 // Test 15: API version detection
 #[test]
 fn test_api_version_detection() {
-    assert_eq!(detect_api_version("/_matrix/client/r0/sync"), Some("r0".to_string()));
-    assert_eq!(detect_api_version("/_matrix/client/v3/sync"), Some("v3".to_string()));
-    assert_eq!(detect_api_version("/_matrix/client/versions"), Some("v1".to_string()));
+    assert_eq!(
+        detect_api_version("/_matrix/client/r0/sync"),
+        Some("r0".to_string())
+    );
+    assert_eq!(
+        detect_api_version("/_matrix/client/v3/sync"),
+        Some("v3".to_string())
+    );
+    assert_eq!(
+        detect_api_version("/_matrix/client/versions"),
+        Some("v1".to_string())
+    );
     assert_eq!(detect_api_version("/health"), None);
 }
 
@@ -177,7 +189,9 @@ fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("user_id is required".to_string()));
     }
     if !user_id.starts_with('@') {
-        return Err(ApiError::bad_request("Invalid user_id format: must start with @".to_string()));
+        return Err(ApiError::bad_request(
+            "Invalid user_id format: must start with @".to_string(),
+        ));
     }
     if user_id.len() > 255 {
         return Err(ApiError::bad_request("user_id too long".to_string()));
@@ -190,7 +204,9 @@ fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("room_id is required".to_string()));
     }
     if !room_id.starts_with('!') {
-        return Err(ApiError::bad_request("Invalid room_id format: must start with !".to_string()));
+        return Err(ApiError::bad_request(
+            "Invalid room_id format: must start with !".to_string(),
+        ));
     }
     Ok(())
 }
@@ -200,7 +216,9 @@ fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("event_id is required".to_string()));
     }
     if !event_id.starts_with('$') {
-        return Err(ApiError::bad_request("Invalid event_id format: must start with $".to_string()));
+        return Err(ApiError::bad_request(
+            "Invalid event_id format: must start with $".to_string(),
+        ));
     }
     Ok(())
 }

@@ -69,7 +69,10 @@ fn parse_service_type(s: &str) -> Result<ExternalServiceType, ApiError> {
         "slack_bridge" | "slack" => Ok(ExternalServiceType::SlackBridge),
         "discord_bridge" | "discord" => Ok(ExternalServiceType::DiscordBridge),
         "custom" => Ok(ExternalServiceType::Custom),
-        _ => Err(ApiError::bad_request(format!("Unknown service type: {}", s))),
+        _ => Err(ApiError::bad_request(format!(
+            "Unknown service type: {}",
+            s
+        ))),
     }
 }
 
@@ -118,8 +121,10 @@ pub async fn list_external_services(
 
     let services = integration.list_external_services(stype).await?;
 
-    let response: Vec<ExternalServiceResponse> =
-        services.into_iter().map(ExternalServiceResponse::from).collect();
+    let response: Vec<ExternalServiceResponse> = services
+        .into_iter()
+        .map(ExternalServiceResponse::from)
+        .collect();
 
     Ok(Json(response))
 }
@@ -190,7 +195,9 @@ pub async fn handle_trendradar_webhook(
         state.services.server_name.clone(),
     );
 
-    integration.handle_trendradar_webhook(&service_id, payload).await?;
+    integration
+        .handle_trendradar_webhook(&service_id, payload)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "status": "success",
@@ -208,7 +215,9 @@ pub async fn handle_openclaw_webhook(
         state.services.server_name.clone(),
     );
 
-    integration.handle_openclaw_webhook(&service_id, payload).await?;
+    integration
+        .handle_openclaw_webhook(&service_id, payload)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "status": "success",
@@ -226,7 +235,9 @@ pub async fn handle_generic_webhook(
         state.services.server_name.clone(),
     );
 
-    integration.handle_generic_webhook(&service_id, payload).await?;
+    integration
+        .handle_generic_webhook(&service_id, payload)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "status": "success",
@@ -291,10 +302,22 @@ mod tests {
 
     #[test]
     fn test_parse_service_type() {
-        assert!(matches!(parse_service_type("trendradar"), Ok(ExternalServiceType::TrendRadar)));
-        assert!(matches!(parse_service_type("openclaw"), Ok(ExternalServiceType::OpenClaw)));
-        assert!(matches!(parse_service_type("webhook"), Ok(ExternalServiceType::GenericWebhook)));
-        assert!(matches!(parse_service_type("irc"), Ok(ExternalServiceType::IrcBridge)));
+        assert!(matches!(
+            parse_service_type("trendradar"),
+            Ok(ExternalServiceType::TrendRadar)
+        ));
+        assert!(matches!(
+            parse_service_type("openclaw"),
+            Ok(ExternalServiceType::OpenClaw)
+        ));
+        assert!(matches!(
+            parse_service_type("webhook"),
+            Ok(ExternalServiceType::GenericWebhook)
+        ));
+        assert!(matches!(
+            parse_service_type("irc"),
+            Ok(ExternalServiceType::IrcBridge)
+        ));
         assert!(parse_service_type("unknown").is_err());
     }
 

@@ -2,10 +2,8 @@
 // E2EE Phase 1: Device trust and verification endpoints
 
 use crate::e2ee::device_trust::{
-    DeviceTrustService,
-    VerificationMethod,
+    DeviceTrustListResponse, DeviceTrustService, SecuritySummaryResponse, VerificationMethod,
     VerificationRequestResponse, VerificationRespondResponse,
-    SecuritySummaryResponse, DeviceTrustListResponse,
 };
 use crate::error::ApiError;
 use axum::{
@@ -72,9 +70,7 @@ pub async fn get_verification_status(
     State(service): State<Arc<DeviceTrustService>>,
     Path((user_id, token)): Path<(String, String)>,
 ) -> Result<Json<Option<VerificationRequestResponse>>, ApiError> {
-    let response = service
-        .get_verification_status(&user_id, &token)
-        .await?;
+    let response = service.get_verification_status(&user_id, &token).await?;
 
     Ok(Json(response))
 }
@@ -84,9 +80,7 @@ pub async fn get_device_trust_list(
     State(service): State<Arc<DeviceTrustService>>,
     Path(user_id): Path<String>,
 ) -> Result<Json<DeviceTrustListResponse>, ApiError> {
-    let devices = service
-        .get_all_devices_with_trust(&user_id)
-        .await?;
+    let devices = service.get_all_devices_with_trust(&user_id).await?;
 
     Ok(Json(DeviceTrustListResponse { devices }))
 }
@@ -96,9 +90,7 @@ pub async fn get_security_summary(
     State(service): State<Arc<DeviceTrustService>>,
     Path(user_id): Path<String>,
 ) -> Result<Json<SecuritySummaryResponse>, ApiError> {
-    let response = service
-        .get_security_summary(&user_id)
-        .await?;
+    let response = service.get_security_summary(&user_id).await?;
 
     Ok(Json(response))
 }
@@ -108,9 +100,7 @@ pub async fn can_access_history(
     State(service): State<Arc<DeviceTrustService>>,
     Path((user_id, device_id)): Path<(String, String)>,
 ) -> Result<Json<bool>, ApiError> {
-    let can_access = service
-        .can_access_history(&user_id, &device_id)
-        .await?;
+    let can_access = service.can_access_history(&user_id, &device_id).await?;
 
     Ok(Json(can_access))
 }
@@ -120,9 +110,7 @@ pub async fn can_decrypt_messages(
     State(service): State<Arc<DeviceTrustService>>,
     Path((user_id, device_id)): Path<(String, String)>,
 ) -> Result<Json<bool>, ApiError> {
-    let can_decrypt = service
-        .can_decrypt_messages(&user_id, &device_id)
-        .await?;
+    let can_decrypt = service.can_decrypt_messages(&user_id, &device_id).await?;
 
     Ok(Json(can_decrypt))
 }

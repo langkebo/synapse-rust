@@ -16,25 +16,61 @@ pub fn create_user_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/users/{user_id}", get(get_user))
         .route("/_synapse/admin/v1/users/{user_id}", delete(delete_user))
         .route("/_synapse/admin/v1/users/{user_id}/admin", put(set_admin))
-        .route("/_synapse/admin/v1/users/{user_id}/deactivate", post(deactivate_user))
-        .route("/_synapse/admin/v1/users/{user_id}/password", post(reset_user_password))
-        .route("/_synapse/admin/v1/users/{user_id}/rooms", get(get_user_rooms_admin))
-        .route("/_synapse/admin/v1/users/{user_id}/login", post(login_as_user))
-        .route("/_synapse/admin/v1/users/{user_id}/logout", post(logout_user_devices))
-        .route("/_synapse/admin/v1/users/{user_id}/devices", get(get_user_devices_admin))
-        .route("/_synapse/admin/v1/users/{user_id}/devices/{device_id}", delete(delete_user_device_admin))
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/deactivate",
+            post(deactivate_user),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/password",
+            post(reset_user_password),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/rooms",
+            get(get_user_rooms_admin),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/login",
+            post(login_as_user),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/logout",
+            post(logout_user_devices),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/devices",
+            get(get_user_devices_admin),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/devices/{device_id}",
+            delete(delete_user_device_admin),
+        )
         .route("/_synapse/admin/v2/users", get(get_users_v2))
         .route("/_synapse/admin/v2/users/{user_id}", get(get_user_v2))
-        .route("/_synapse/admin/v2/users/{user_id}", put(create_or_update_user_v2))
+        .route(
+            "/_synapse/admin/v2/users/{user_id}",
+            put(create_or_update_user_v2),
+        )
         .route("/_synapse/admin/v1/user_stats", get(get_user_stats))
         // Batch operations
         .route("/_synapse/admin/v1/users/batch", post(batch_create_users))
-        .route("/_synapse/admin/v1/users/batch_deactivate", post(batch_deactivate_users))
+        .route(
+            "/_synapse/admin/v1/users/batch_deactivate",
+            post(batch_deactivate_users),
+        )
         // User sessions
-        .route("/_synapse/admin/v1/user_sessions/{user_id}", get(get_user_sessions))
-        .route("/_synapse/admin/v1/user_sessions/{user_id}/invalidate", post(invalidate_user_sessions))
+        .route(
+            "/_synapse/admin/v1/user_sessions/{user_id}",
+            get(get_user_sessions),
+        )
+        .route(
+            "/_synapse/admin/v1/user_sessions/{user_id}/invalidate",
+            post(invalidate_user_sessions),
+        )
         // Account details
-        .route("/_synapse/admin/v1/account/{user_id}", get(get_account_details))
+        .route(
+            "/_synapse/admin/v1/account/{user_id}",
+            get(get_account_details),
+        )
         .route("/_synapse/admin/v1/account/{user_id}", post(update_account))
 }
 
@@ -664,9 +700,12 @@ pub async fn batch_create_users(
     let now = chrono::Utc::now().timestamp_millis();
 
     for user in &body.users {
-        let password = user.password.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let password = user
+            .password
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let username = user.username.clone();
-        
+
         let result = sqlx::query(
             r#"
             INSERT INTO users (user_id, username, password_hash, displayname, is_admin, creation_ts, updated_ts)
@@ -711,14 +750,14 @@ pub async fn batch_deactivate_users(
     Json(body): Json<BatchDeactivateRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let mut deactivated = Vec::new();
-    
+
     for user_id in body.users {
         sqlx::query("UPDATE users SET deactivated = true WHERE user_id = $1")
             .bind(&user_id)
             .execute(&*state.services.user_storage.pool)
             .await
             .ok();
-        
+
         deactivated.push(user_id);
     }
 
@@ -799,16 +838,15 @@ pub async fn get_account_details(
 
     match user {
         Some(row) => {
-            let device_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM devices WHERE user_id = $1"
-            )
-            .bind(&user_id)
-            .fetch_one(&*state.services.device_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            let device_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM devices WHERE user_id = $1")
+                    .bind(&user_id)
+                    .fetch_one(&*state.services.device_storage.pool)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
             let room_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM room_memberships WHERE user_id = $1 AND membership = 'join'"
+                "SELECT COUNT(*) FROM room_memberships WHERE user_id = $1 AND membership = 'join'",
             )
             .bind(&user_id)
             .fetch_one(&*state.services.room_storage.pool)

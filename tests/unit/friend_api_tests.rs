@@ -9,7 +9,7 @@ fn test_friend_request_validation() {
     // Valid user ID format
     assert!(is_valid_user_id("@user:localhost"));
     assert!(is_valid_user_id("@friend:example.com"));
-    
+
     // Invalid user ID
     assert!(!is_valid_user_id(""));
     assert!(!is_valid_user_id("user"));
@@ -24,7 +24,7 @@ fn test_friend_status_types() {
     assert!(is_valid_friend_status("accepted"));
     assert!(is_valid_friend_status("rejected"));
     assert!(is_valid_friend_status("cancelled"));
-    
+
     // Invalid status
     assert!(!is_valid_friend_status("invalid"));
 }
@@ -36,7 +36,7 @@ fn test_friend_group_validation() {
     assert!(is_valid_group_name("Family"));
     assert!(is_valid_group_name("Work"));
     assert!(is_valid_group_name("Friends"));
-    
+
     // Invalid group names
     assert!(!is_valid_group_name(""));
     assert!(!is_valid_group_name(&"a".repeat(256)));
@@ -48,7 +48,7 @@ fn test_friend_note_length() {
     // Valid note length
     assert!(is_valid_note_length("Short note"));
     assert!(is_valid_note_length(&"a".repeat(1000)));
-    
+
     // Invalid note length
     assert!(!is_valid_note_length(&"a".repeat(1001)));
 }
@@ -59,7 +59,7 @@ fn test_friend_request_message() {
     // Valid message
     assert!(is_valid_message("Hello!"));
     assert!(is_valid_message(""));
-    
+
     // Invalid - too long
     assert!(!is_valid_message(&"a".repeat(5001)));
 }
@@ -71,7 +71,7 @@ fn test_friend_group_color() {
     assert!(is_valid_color("#000000"));
     assert!(is_valid_color("#FFFFFF"));
     assert!(is_valid_color("#123456"));
-    
+
     // Invalid
     assert!(!is_valid_color(""));
     assert!(!is_valid_color("red"));
@@ -83,7 +83,7 @@ fn test_friend_group_color() {
 fn test_friends_pagination() {
     let limit = 50;
     let from = 0;
-    
+
     assert!(limit > 0 && limit <= 100);
     assert!(from >= 0);
 }
@@ -92,7 +92,7 @@ fn test_friends_pagination() {
 #[test]
 fn test_friend_suggestion_score() {
     let score = 0.85;
-    
+
     assert!(score >= 0.0 && score <= 1.0);
 }
 
@@ -105,7 +105,7 @@ fn test_friend_info_response() {
         "avatar_url": "mxc://avatar",
         "status": "accepted"
     });
-    
+
     assert!(info.get("user_id").is_some());
     assert!(info.get("status").is_some());
 }
@@ -117,7 +117,7 @@ fn test_friends_list_response() {
         json!({"user_id": "@friend1:localhost", "created_ts": 1700000000000_i64 as i64}),
         json!({"user_id": "@friend2:localhost", "created_ts": 1700000000001_i64 as i64}),
     ];
-    
+
     assert_eq!(friends.len(), 2);
     assert!(friends[0].get("user_id").is_some());
 }
@@ -131,7 +131,7 @@ fn test_friend_request_response() {
         "status": "pending",
         "message": "Hi!"
     });
-    
+
     assert!(request.get("sender_id").is_some());
     assert!(request.get("receiver_id").is_some());
     assert!(request.get("status").is_some());
@@ -146,7 +146,7 @@ fn test_friend_group_response() {
         "color": "#FF0000",
         "created_ts": 1700000000000_i64 as i64
     });
-    
+
     assert!(group.get("group_id").is_some());
     assert!(group.get("name").is_some());
     assert!(group.get("color").is_some());
@@ -159,7 +159,7 @@ fn test_friendship_check_response() {
         "friends": true,
         "user_id": "@user:localhost"
     });
-    
+
     assert!(result.get("friends").is_some());
     assert!(result["friends"].as_bool().is_some());
 }
@@ -171,12 +171,13 @@ fn test_incoming_requests_filter() {
         json!({"sender_id": "@user1:localhost", "status": "pending"}),
         json!({"sender_id": "@user2:localhost", "status": "pending"}),
     ];
-    
+
     // Filter pending requests
-    let pending: Vec<_> = requests.iter()
+    let pending: Vec<_> = requests
+        .iter()
         .filter(|r| r["status"] == "pending")
         .collect();
-    
+
     assert_eq!(pending.len(), 2);
 }
 
@@ -187,12 +188,13 @@ fn test_outgoing_requests_filter() {
         json!({"receiver_id": "@user1:localhost", "status": "pending"}),
         json!({"receiver_id": "@user2:localhost", "status": "rejected"}),
     ];
-    
+
     // Filter pending requests
-    let pending: Vec<_> = requests.iter()
+    let pending: Vec<_> = requests
+        .iter()
         .filter(|r| r["status"] == "pending")
         .collect();
-    
+
     assert_eq!(pending.len(), 1);
 }
 
@@ -218,6 +220,5 @@ fn is_valid_message(message: &str) -> bool {
 }
 
 fn is_valid_color(color: &str) -> bool {
-    color.len() == 7 && color.starts_with('#') &&
-    color[1..].chars().all(|c| c.is_ascii_hexdigit())
+    color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit())
 }

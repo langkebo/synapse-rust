@@ -218,7 +218,11 @@ impl CaptchaService {
     }
 
     #[cfg(test)]
-    fn render_template_static(template: &CaptchaTemplate, code: &str, expiry_minutes: i32) -> String {
+    fn render_template_static(
+        template: &CaptchaTemplate,
+        code: &str,
+        expiry_minutes: i32,
+    ) -> String {
         let mut content = template.content.clone();
         content = content.replace("{{code}}", code);
         content = content.replace("{{expiry_minutes}}", &expiry_minutes.to_string());

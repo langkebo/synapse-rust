@@ -1,9 +1,10 @@
 //! Device Verification Routes
-//! 
+//!
 //! Implements SAS (Short Authentication String) and QR code verification
 
 use crate::common::*;
 use crate::web::routes::AppState;
+use crate::web::routes::AuthenticatedUser;
 use axum::{
     extract::State,
     routing::{get, post, put},
@@ -11,7 +12,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::web::routes::AuthenticatedUser;
 use serde_json::Value;
 
 pub fn create_verification_router(_state: AppState) -> Router<AppState> {
@@ -38,14 +38,8 @@ pub fn create_verification_router(_state: AppState) -> Router<AppState> {
             post(verification_done),
         )
         // QR verification
-        .route(
-            "/_matrix/client/v1/keys/qr_code/show",
-            get(show_qr_code),
-        )
-        .route(
-            "/_matrix/client/v1/keys/qr_code/scan",
-            post(scan_qr_code),
-        )
+        .route("/_matrix/client/v1/keys/qr_code/show", get(show_qr_code))
+        .route("/_matrix/client/v1/keys/qr_code/scan", post(scan_qr_code))
         // Legacy routes (Matrix v1)
         .route(
             "/_matrix/client/r0/keys/device_signing/verify_start",
@@ -67,14 +61,8 @@ pub fn create_verification_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/keys/device_signing/verify_done",
             post(verification_done),
         )
-        .route(
-            "/_matrix/client/r0/keys/qr_code/show",
-            get(show_qr_code),
-        )
-        .route(
-            "/_matrix/client/r0/keys/qr_code/scan",
-            post(scan_qr_code),
-        )
+        .route("/_matrix/client/r0/keys/qr_code/show", get(show_qr_code))
+        .route("/_matrix/client/r0/keys/qr_code/scan", post(scan_qr_code))
 }
 
 #[derive(Debug, Deserialize)]
@@ -103,7 +91,7 @@ async fn verification_start(
 ) -> Result<Json<Value>, ApiError> {
     let to_user = body.to_user;
     let to_device = body.to_device.unwrap_or_else(|| "".to_string());
-    
+
     // Start SAS verification
     let sas_data = state
         .services
@@ -112,7 +100,11 @@ async fn verification_start(
             &auth_user.user_id,
             &auth_user.device_id.unwrap_or_default(),
             &to_user,
-            if to_device.is_empty() { None } else { Some(to_device) },
+            if to_device.is_empty() {
+                None
+            } else {
+                Some(to_device)
+            },
         )
         .await?;
 
@@ -245,7 +237,8 @@ async fn verification_done(
     _auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let transaction_id = body.get("transaction_id")
+    let transaction_id = body
+        .get("transaction_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing transaction_id".to_string()))?;
 
@@ -266,11 +259,12 @@ async fn show_qr_code(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let device_id = auth_user.device_id
+    let device_id = auth_user
+        .device_id
         .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
 
     let server_name = state.services.config.federation.server_name.clone();
-    
+
     let qr_data = state
         .services
         .verification_service
@@ -303,7 +297,8 @@ async fn scan_qr_code(
     auth_user: AuthenticatedUser,
     Json(body): Json<ScanQrBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let device_id = auth_user.device_id
+    let device_id = auth_user
+        .device_id
         .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
 
     let qr_data = crate::e2ee::verification::QrCodeData {
@@ -342,12 +337,8 @@ fn generate_decimal_from_emoji(emojis: &[String]) -> u32 {
 
 // Emoji list for reference
 const SAS_EMOJIS: &[&str; 64] = &[
-    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼",
-    "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
-    "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺",
-    "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞",
-    "🐜", "🦟", "🦗", "🕷", "🦂", "🐢", "🐍", "🦎",
-    "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡",
-    "🐠", "🐟", "🐬", "🐳", "🦈", "🐊", "🐅", "🐆",
-    "🦓", "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫",
+    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
+    "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞",
+    "🐜", "🦟", "🦗", "🕷", "🦂", "🐢", "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡",
+    "🐠", "🐟", "🐬", "🐳", "🦈", "🐊", "🐅", "🐆", "🦓", "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫",
 ];

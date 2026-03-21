@@ -28,7 +28,7 @@ fn test_upload_keys_request() {
             }
         }
     });
-    
+
     assert!(keys.get("device_keys").is_some());
     assert!(keys.get("one_time_keys").is_some());
 }
@@ -47,7 +47,7 @@ fn test_device_keys_response() {
             }
         }
     });
-    
+
     assert!(response.get("device_keys").is_some());
 }
 
@@ -58,7 +58,7 @@ fn test_key_algorithms_validation() {
     assert!(is_valid_algorithm("curve25519"));
     assert!(is_valid_algorithm("ed25519"));
     assert!(is_valid_algorithm("rsa"));
-    
+
     // Invalid
     assert!(!is_valid_algorithm("invalid"));
 }
@@ -72,7 +72,7 @@ fn test_query_keys_request() {
         },
         "timeout": 10000
     });
-    
+
     assert!(query.get("device_keys").is_some());
 }
 
@@ -91,7 +91,7 @@ fn test_query_keys_response() {
         },
         "failures": {}
     });
-    
+
     assert!(response.get("device_keys").is_some());
 }
 
@@ -106,7 +106,7 @@ fn test_claim_keys_request() {
             }
         }
     });
-    
+
     assert!(claim.get("@user:localhost").is_some());
 }
 
@@ -122,7 +122,7 @@ fn test_claim_keys_response() {
             }
         }
     });
-    
+
     assert!(response.get("@user:localhost").is_some());
 }
 
@@ -133,7 +133,7 @@ fn test_key_changes_request() {
         "from": "s1000",
         "to": "s2000"
     });
-    
+
     assert!(request.get("from").is_some());
     assert!(request.get("to").is_some());
 }
@@ -145,7 +145,7 @@ fn test_key_changes_response() {
         "changed": ["@user1:localhost", "@user2:localhost"],
         "left": ["@user3:localhost"]
     });
-    
+
     assert!(changes.get("changed").is_some());
     assert!(changes.get("left").is_some());
 }
@@ -159,7 +159,7 @@ fn test_room_key_distribution_request() {
         "session_id": "session123",
         "session_key": "SessionKey"
     });
-    
+
     assert!(request.get("room_id").is_some());
     assert!(request.get("algorithm").is_some());
     assert!(request.get("session_id").is_some());
@@ -173,7 +173,7 @@ fn test_room_key_distribution_response() {
         "session_id": "session123",
         "success": true
     });
-    
+
     assert!(response.get("room_id").is_some());
     assert!(response.get("session_id").is_some());
 }
@@ -191,7 +191,7 @@ fn test_send_to_device_request() {
             }
         }
     });
-    
+
     assert!(message.get("messages").is_some());
 }
 
@@ -201,7 +201,7 @@ fn test_send_to_device_response() {
     let response = json!({
         "sent": true
     });
-    
+
     assert!(response.get("sent").is_some());
 }
 
@@ -215,7 +215,7 @@ fn test_upload_signatures_request() {
             }
         }
     });
-    
+
     assert!(signatures.get("@user:localhost").is_some());
 }
 
@@ -226,7 +226,7 @@ fn test_upload_signatures_response() {
         "signed_edges": [],
         "failures": {}
     });
-    
+
     assert!(response.get("signed_edges").is_some());
 }
 
@@ -245,7 +245,7 @@ fn test_upload_device_signing_request() {
             }
         }
     });
-    
+
     assert!(request.get("master_key").is_some());
 }
 
@@ -256,7 +256,7 @@ fn test_device_id_format() {
     assert!(is_valid_device_id("DEVICE1"));
     assert!(is_valid_device_id("ABC123"));
     assert!(is_valid_device_id(""));
-    
+
     // Device IDs should not be empty for actual use
     assert!(is_valid_device_id("valid_id"));
 }
@@ -267,7 +267,7 @@ fn test_key_id_format() {
     // Valid key IDs follow algorithm:keyname format
     assert!(is_valid_key_id("curve25519:DEVICE1"));
     assert!(is_valid_key_id("ed25519:MASTER"));
-    
+
     // Invalid
     assert!(!is_valid_key_id("invalid"));
 }
@@ -280,7 +280,7 @@ fn test_one_time_key_format() {
         "key": "PublicKeyData",
         "signature": "Signature"
     });
-    
+
     assert!(key.get("key_id").is_some());
     assert!(key.get("key").is_some());
 }
@@ -295,7 +295,7 @@ fn test_cross_signing_key_format() {
             "ed25519:MASTER": "PublicKey"
         }
     });
-    
+
     assert!(key.get("user_id").is_some());
     assert!(key.get("usage").is_some());
     assert!(key.get("keys").is_some());
@@ -308,7 +308,7 @@ fn test_cross_signing_usage_validation() {
     assert!(is_valid_usage("master"));
     assert!(is_valid_usage("self_signing"));
     assert!(is_valid_usage("user_signing"));
-    
+
     // Invalid
     assert!(!is_valid_usage("invalid"));
 }
@@ -321,7 +321,7 @@ fn test_signature_format() {
             "ed25519:DEVICE1": "Base64Signature"
         }
     });
-    
+
     assert!(signature.get("@user:localhost").is_some());
 }
 

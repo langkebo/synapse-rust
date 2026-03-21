@@ -13,7 +13,7 @@ fn test_sliding_sync_request() {
         },
         "list": {}
     });
-    
+
     assert!(sync.get("timeout").is_some());
     assert!(sync.get("filter").is_some());
     assert!(sync.get("list").is_some());
@@ -27,7 +27,7 @@ fn test_sliding_sync_response() {
         "rooms": {},
         "lists": {}
     });
-    
+
     assert!(response.get("next_batch").is_some());
     assert!(response.get("rooms").is_some());
     assert!(response.get("lists").is_some());
@@ -45,7 +45,7 @@ fn test_sliding_sync_room_subscriptions() {
             }
         }
     });
-    
+
     assert!(sync.get("room_subscriptions").is_some());
 }
 
@@ -60,7 +60,7 @@ fn test_sliding_sync_extensions_response() {
             }
         }
     });
-    
+
     assert!(response.get("extensions").is_some());
 }
 
@@ -75,7 +75,7 @@ fn test_sliding_sync_delta_token() {
             }
         }
     });
-    
+
     assert!(response.get("next_batch").is_some());
 }
 
@@ -86,7 +86,7 @@ fn test_unstable_sliding_sync_request() {
         "timeout": 30000,
         "list": {}
     });
-    
+
     assert!(sync.get("timeout").is_some());
 }
 
@@ -101,7 +101,7 @@ fn test_sliding_sync_list_filters() {
         "sort": ["by_updated_time"],
         "required_state": []
     });
-    
+
     assert!(list.get("filters").is_some());
     assert!(list.get("sort").is_some());
 }
@@ -113,7 +113,7 @@ fn test_sliding_sync_notification_counts() {
         "notification_count": 5,
         "highlight_count": 1
     });
-    
+
     assert!(room.get("notification_count").is_some());
     assert!(room.get("highlight_count").is_some());
 }

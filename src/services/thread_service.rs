@@ -221,7 +221,12 @@ impl ThreadService {
 
         let replies = if request.include_replies {
             self.storage
-                .get_thread_replies(&request.room_id, &request.thread_id, request.reply_limit, None)
+                .get_thread_replies(
+                    &request.room_id,
+                    &request.thread_id,
+                    request.reply_limit,
+                    None,
+                )
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed to get replies: {}", e)))?
         } else {
@@ -292,9 +297,11 @@ impl ThreadService {
             include_all: request.include_all,
         };
 
-        let roots = self.storage.list_thread_roots(params).await.map_err(|e| {
-            ApiError::internal(format!("Failed to list threads: {}", e))
-        })?;
+        let roots = self
+            .storage
+            .list_thread_roots(params)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to list threads: {}", e)))?;
 
         let mut summaries = Vec::new();
         for root in &roots {

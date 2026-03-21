@@ -673,10 +673,10 @@ mod tests {
     fn test_reputation_score_calculation() {
         let config = ReputationConfig::default();
         let initial = config.initial_score;
-        
+
         let after_report = (initial - config.report_penalty).max(config.min_score);
         assert_eq!(after_report, 40);
-        
+
         let after_positive = (initial + config.positive_feedback_bonus).min(config.max_score);
         assert_eq!(after_positive, 55);
     }
@@ -684,10 +684,10 @@ mod tests {
     #[test]
     fn test_reputation_threshold_trigger() {
         let config = ReputationConfig::default();
-        
+
         let score_triggers_warning = config.auto_warn_threshold;
         assert_eq!(score_triggers_warning, 20);
-        
+
         let score_triggers_ban = config.auto_ban_threshold;
         assert_eq!(score_triggers_ban, 0);
     }

@@ -682,8 +682,9 @@ impl IntoResponse for ApiError {
             return (
                 status_code,
                 Json(
-                    serde_json::from_str::<serde_json::Value>(&self.message())
-                        .unwrap_or_else(|_| json!({"errcode": "M_UNKNOWN", "error": self.message()})),
+                    serde_json::from_str::<serde_json::Value>(&self.message()).unwrap_or_else(
+                        |_| json!({"errcode": "M_UNKNOWN", "error": self.message()}),
+                    ),
                 ),
             )
                 .into_response();
@@ -783,9 +784,7 @@ macro_rules! safe_unwrap_ctx {
 #[macro_export]
 macro_rules! wrap_result {
     ($result:expr, $module:expr, $operation:expr) => {
-        $result.map_err(|e| {
-            ApiError::Internal(format!("[{}::{}] {}", $module, $operation, e))
-        })
+        $result.map_err(|e| ApiError::Internal(format!("[{}::{}] {}", $module, $operation, e)))
     };
 }
 

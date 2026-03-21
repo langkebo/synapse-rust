@@ -8,7 +8,7 @@ use serde_json::json;
 fn test_get_rate_limit_status_request() {
     // No parameters required
     let request = json!({});
-    
+
     assert!(request.get("user_id").is_none());
 }
 
@@ -20,7 +20,7 @@ fn test_rate_limit_status_response() {
         "default_limit": 100,
         "default_window": 60
     });
-    
+
     assert!(status.get("enabled").is_some());
     assert!(status.get("default_limit").is_some());
     assert!(status.get("default_window").is_some());
@@ -32,7 +32,7 @@ fn test_set_rate_limit_enabled_request() {
     let enable = json!({
         "enabled": true
     });
-    
+
     assert!(enable.get("enabled").is_some());
 }
 
@@ -43,7 +43,7 @@ fn test_set_rate_limit_enabled_response() {
         "success": true,
         "enabled": true
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
 }
@@ -56,7 +56,7 @@ fn test_update_default_rule_request() {
         "window": 60,
         "burst": 50
     });
-    
+
     assert!(rule.get("limit").is_some());
     assert!(rule.get("window").is_some());
 }
@@ -69,7 +69,7 @@ fn test_update_default_rule_response() {
         "limit": 200,
         "window": 60
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
 }
@@ -81,21 +81,19 @@ fn test_get_endpoint_rules_request() {
         "path": "/_matrix/client/v1",
         "limit": 50
     });
-    
+
     assert!(request.get("limit").is_some());
 }
 
 // Test 8: Endpoint rules response
 #[test]
 fn test_endpoint_rules_response() {
-    let rules = vec![
-        json!({
-            "path": "/_matrix/client/v1/login",
-            "limit": 10,
-            "window": 60
-        })
-    ];
-    
+    let rules = vec![json!({
+        "path": "/_matrix/client/v1/login",
+        "limit": 10,
+        "window": 60
+    })];
+
     assert_eq!(rules.len(), 1);
     assert!(rules[0].get("path").is_some());
     assert!(rules[0].get("limit").is_some());
@@ -110,7 +108,7 @@ fn test_add_endpoint_rule_request() {
         "window": 60,
         "burst": 5
     });
-    
+
     assert!(rule.get("path").is_some());
     assert!(rule.get("limit").is_some());
     assert!(rule.get("window").is_some());
@@ -123,7 +121,7 @@ fn test_add_endpoint_rule_response() {
         "success": true,
         "path": "/_matrix/client/v1/login"
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
 }
@@ -134,7 +132,7 @@ fn test_remove_endpoint_rule_request() {
     let remove = json!({
         "path": "/_matrix/client/v1/login"
     });
-    
+
     assert!(remove.get("path").is_some());
 }
 
@@ -145,7 +143,7 @@ fn test_remove_endpoint_rule_response() {
         "success": true,
         "path": "/_matrix/client/v1/login"
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
 }
@@ -156,20 +154,18 @@ fn test_get_exempt_paths_request() {
     let request = json!({
         "limit": 50
     });
-    
+
     assert!(request.get("limit").is_some());
 }
 
 // Test 14: Exempt paths response
 #[test]
 fn test_exempt_paths_response() {
-    let paths = vec![
-        json!({
-            "path": "/_health",
-            "reason": "Health check"
-        })
-    ];
-    
+    let paths = vec![json!({
+        "path": "/_health",
+        "reason": "Health check"
+    })];
+
     assert_eq!(paths.len(), 1);
     assert!(paths[0].get("path").is_some());
 }
@@ -181,7 +177,7 @@ fn test_add_exempt_path_request() {
         "path": "/_health",
         "reason": "Health check"
     });
-    
+
     assert!(exempt.get("path").is_some());
     assert!(exempt.get("reason").is_some());
 }
@@ -193,7 +189,7 @@ fn test_add_exempt_path_response() {
         "success": true,
         "path": "/_health"
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
 }
@@ -204,7 +200,7 @@ fn test_remove_exempt_path_request() {
     let remove = json!({
         "path": "/_health"
     });
-    
+
     assert!(remove.get("path").is_some());
 }
 
@@ -215,7 +211,7 @@ fn test_remove_exempt_path_response() {
         "success": true,
         "path": "/_health"
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
 }
@@ -226,7 +222,7 @@ fn test_reload_config_request() {
     let reload = json!({
         "dry_run": false
     });
-    
+
     assert!(reload.get("dry_run").is_some());
 }
 
@@ -237,7 +233,7 @@ fn test_reload_config_response() {
         "success": true,
         "reloaded_at": 1700000000000_i64
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
 }
@@ -249,7 +245,7 @@ fn test_rate_limit_validation() {
     assert!(is_valid_rate_limit(0));
     assert!(is_valid_rate_limit(100));
     assert!(is_valid_rate_limit(1000));
-    
+
     // Invalid limits
     assert!(!is_valid_rate_limit(-1));
 }
@@ -261,7 +257,7 @@ fn test_window_validation() {
     assert!(is_valid_window(1));
     assert!(is_valid_window(60));
     assert!(is_valid_window(3600));
-    
+
     // Invalid windows
     assert!(!is_valid_window(0));
     assert!(!is_valid_window(-1));

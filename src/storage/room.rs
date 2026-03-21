@@ -132,13 +132,17 @@ impl RoomStorage {
                 topic: row.topic,
                 avatar_url: row.avatar_url,
                 canonical_alias: row.canonical_alias,
-                join_rules: row.join_rules.unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                join_rules: row
+                    .join_rules
+                    .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator,
                 room_version: row.room_version.unwrap_or_else(|| "1".to_string()),
                 encryption: row.encryption,
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
-                history_visibility: row.history_visibility.unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
+                history_visibility: row
+                    .history_visibility
+                    .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                 created_ts: row.created_ts,
                 is_federatable: true,
                 is_spotlight: false,
@@ -174,13 +178,19 @@ impl RoomStorage {
                 topic: row.topic.clone(),
                 avatar_url: row.avatar_url.clone(),
                 canonical_alias: row.canonical_alias.clone(),
-                join_rules: row.join_rules.clone().unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                join_rules: row
+                    .join_rules
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator.clone(),
                 room_version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
                 encryption: row.encryption.clone(),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
-                history_visibility: row.history_visibility.clone().unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
+                history_visibility: row
+                    .history_visibility
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                 created_ts: row.created_ts,
                 is_federatable: true,
                 is_spotlight: false,

@@ -398,17 +398,23 @@ mod tests {
 
     #[test]
     fn test_is_protected_event_type_power_levels() {
-        assert!(RetentionService::is_protected_event_type("m.room.power_levels"));
+        assert!(RetentionService::is_protected_event_type(
+            "m.room.power_levels"
+        ));
     }
 
     #[test]
     fn test_is_protected_event_type_join_rules() {
-        assert!(RetentionService::is_protected_event_type("m.room.join_rules"));
+        assert!(RetentionService::is_protected_event_type(
+            "m.room.join_rules"
+        ));
     }
 
     #[test]
     fn test_is_protected_event_type_history_visibility() {
-        assert!(RetentionService::is_protected_event_type("m.room.history_visibility"));
+        assert!(RetentionService::is_protected_event_type(
+            "m.room.history_visibility"
+        ));
     }
 
     #[test]

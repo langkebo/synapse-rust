@@ -332,18 +332,10 @@ impl std::fmt::Display for SchemaConsistencyReport {
             write!(f, "Schema is consistent")
         } else {
             if !self.missing_tables.is_empty() {
-                writeln!(
-                    f,
-                    "Missing tables: {}",
-                    self.missing_tables.join(", ")
-                )?;
+                writeln!(f, "Missing tables: {}", self.missing_tables.join(", "))?;
             }
             if !self.missing_columns.is_empty() {
-                writeln!(
-                    f,
-                    "Missing columns: {}",
-                    self.missing_columns.join(", ")
-                )?;
+                writeln!(f, "Missing columns: {}", self.missing_columns.join(", "))?;
             }
             Ok(())
         }

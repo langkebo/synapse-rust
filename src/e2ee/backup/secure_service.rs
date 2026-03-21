@@ -58,9 +58,7 @@ pub struct KdfInfo {
 
 impl SecureBackupService {
     pub fn new(pool: &Arc<PgPool>) -> Self {
-        Self {
-            pool: pool.clone(),
-        }
+        Self { pool: pool.clone() }
     }
 
     /// Create a secure backup with passphrase
@@ -154,11 +152,13 @@ impl SecureBackupService {
             .map_err(|e| ApiError::internal(format!("Invalid auth data: {}", e)))?;
 
         // 2. Extract salt and derive key
-        let salt = auth_data.get("salt")
+        let salt = auth_data
+            .get("salt")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ApiError::bad_request("Missing salt in backup".to_string()))?;
 
-        let salt_bytes = BASE64.decode(salt)
+        let salt_bytes = BASE64
+            .decode(salt)
             .map_err(|e| ApiError::internal(format!("Invalid salt: {}", e)))?;
 
         let _key = self.derive_key(passphrase, &salt_bytes, 500000)?;
@@ -185,9 +185,14 @@ impl SecureBackupService {
         passphrase: &str,
     ) -> Result<bool, ApiError> {
         // Try to restore - if successful, passphrase is valid
-        match self.restore_with_passphrase(user_id, backup_id, passphrase).await {
+        match self
+            .restore_with_passphrase(user_id, backup_id, passphrase)
+            .await
+        {
             Ok(_) => Ok(true),
-            Err(e) if e.message().contains("not found") || e.message().contains("passphrase") => Ok(false),
+            Err(e) if e.message().contains("not found") || e.message().contains("passphrase") => {
+                Ok(false)
+            }
             Err(_) => Ok(false),
         }
     }
@@ -309,21 +314,20 @@ impl SecureBackupService {
         let nonce = Nonce::from_slice(&ciphertext[..12]);
         let encrypted = &ciphertext[12..];
 
-        cipher
-            .decrypt(nonce, encrypted)
-            .map_err(|_| ApiError::unauthorized("Decryption failed - invalid passphrase".to_string()))
+        cipher.decrypt(nonce, encrypted).map_err(|_| {
+            ApiError::unauthorized("Decryption failed - invalid passphrase".to_string())
+        })
     }
 
     /// Get all session keys for a user
     async fn get_all_session_keys(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
         // Get all backup keys for the user
-        let keys = sqlx::query(
-            "SELECT session_id, backup_data FROM backup_keys WHERE user_id = $1"
-        )
-        .bind(user_id)
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let keys =
+            sqlx::query("SELECT session_id, backup_data FROM backup_keys WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_all(&*self.pool)
+                .await
+                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         let mut session_keys = Vec::new();
         for row in keys {
@@ -356,7 +360,7 @@ mod tests {
             Ok(p) => Arc::new(p),
             Err(_) => return, // Skip test if no database
         };
-        
+
         let service = SecureBackupService::new(&pool);
 
         let passphrase = "test_passphrase";
@@ -374,7 +378,7 @@ mod tests {
             Ok(p) => Arc::new(p),
             Err(_) => return, // Skip test if no database
         };
-        
+
         let service = SecureBackupService::new(&pool);
 
         let key = [0u8; 32];

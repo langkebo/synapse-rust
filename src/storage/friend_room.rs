@@ -265,7 +265,8 @@ impl FriendRoomStorage {
             "updated_ts": now
         });
 
-        self.save_friend_groups(room_id, user_id, &updated_groups).await
+        self.save_friend_groups(room_id, user_id, &updated_groups)
+            .await
     }
 
     /// 删除好友分组
@@ -305,7 +306,8 @@ impl FriendRoomStorage {
             "updated_ts": now
         });
 
-        self.save_friend_groups(room_id, user_id, &updated_groups).await?;
+        self.save_friend_groups(room_id, user_id, &updated_groups)
+            .await?;
         Ok(true)
     }
 
@@ -346,7 +348,8 @@ impl FriendRoomStorage {
             "updated_ts": now
         });
 
-        self.save_friend_groups(room_id, user_id, &updated_groups).await?;
+        self.save_friend_groups(room_id, user_id, &updated_groups)
+            .await?;
         Ok(true)
     }
 
@@ -398,7 +401,8 @@ impl FriendRoomStorage {
             "updated_ts": now
         });
 
-        self.save_friend_groups(room_id, user_id, &updated_groups).await?;
+        self.save_friend_groups(room_id, user_id, &updated_groups)
+            .await?;
         Ok(true)
     }
 
@@ -454,7 +458,8 @@ impl FriendRoomStorage {
             "updated_ts": now
         });
 
-        self.save_friend_groups(room_id, user_id, &updated_groups).await?;
+        self.save_friend_groups(room_id, user_id, &updated_groups)
+            .await?;
         Ok(true)
     }
 

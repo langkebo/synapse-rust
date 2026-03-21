@@ -15,39 +15,105 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/rooms", get(get_rooms))
         .route("/_synapse/admin/v1/rooms/{room_id}", get(get_room))
         .route("/_synapse/admin/v1/rooms/{room_id}", delete(delete_room))
-        .route("/_synapse/admin/v1/rooms/{room_id}/delete", post(delete_room))
-        .route("/_synapse/admin/v1/rooms/{room_id}/members", get(get_room_members_admin))
-        .route("/_synapse/admin/v1/rooms/{room_id}/state", get(get_room_state_admin))
-        .route("/_synapse/admin/v1/rooms/{room_id}/messages", get(get_room_messages_admin))
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/delete",
+            post(delete_room),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/members",
+            get(get_room_members_admin),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/state",
+            get(get_room_state_admin),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/messages",
+            get(get_room_messages_admin),
+        )
         .route("/_synapse/admin/v1/rooms/{room_id}/block", post(block_room))
-        .route("/_synapse/admin/v1/rooms/{room_id}/block", get(get_room_block_status))
-        .route("/_synapse/admin/v1/rooms/{room_id}/unblock", post(unblock_room))
-        .route("/_synapse/admin/v1/rooms/{room_id}/make_admin", post(make_room_admin))
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/block",
+            get(get_room_block_status),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/unblock",
+            post(unblock_room),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/make_admin",
+            post(make_room_admin),
+        )
         .route("/_synapse/admin/v1/purge_history", post(purge_history))
         .route("/_synapse/admin/v1/shutdown_room", post(shutdown_room))
         .route("/_synapse/admin/v1/spaces", get(get_spaces))
         .route("/_synapse/admin/v1/spaces/{space_id}", get(get_space))
         .route("/_synapse/admin/v1/spaces/{space_id}", delete(delete_space))
-        .route("/_synapse/admin/v1/spaces/{space_id}/users", get(get_space_users))
-        .route("/_synapse/admin/v1/spaces/{space_id}/rooms", get(get_space_rooms))
-        .route("/_synapse/admin/v1/spaces/{space_id}/stats", get(get_space_stats))
+        .route(
+            "/_synapse/admin/v1/spaces/{space_id}/users",
+            get(get_space_users),
+        )
+        .route(
+            "/_synapse/admin/v1/spaces/{space_id}/rooms",
+            get(get_space_rooms),
+        )
+        .route(
+            "/_synapse/admin/v1/spaces/{space_id}/stats",
+            get(get_space_stats),
+        )
         // Room statistics
         .route("/_synapse/admin/v1/room_stats", get(get_room_stats))
-        .route("/_synapse/admin/v1/room_stats/{room_id}", get(get_single_room_stats))
+        .route(
+            "/_synapse/admin/v1/room_stats/{room_id}",
+            get(get_single_room_stats),
+        )
         // Room membership management
-        .route("/_synapse/admin/v1/rooms/{room_id}/members/{user_id}", put(join_room_member))
-        .route("/_synapse/admin/v1/rooms/{room_id}/members/{user_id}", delete(remove_room_member))
-        .route("/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}", post(ban_user))
-        .route("/_synapse/admin/v1/rooms/{room_id}/unban/{user_id}", post(unban_user))
-        .route("/_synapse/admin/v1/rooms/{room_id}/kick/{user_id}", post(kick_user))
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/members/{user_id}",
+            put(join_room_member),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/members/{user_id}",
+            delete(remove_room_member),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}",
+            post(ban_user),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/unban/{user_id}",
+            post(unban_user),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/kick/{user_id}",
+            post(kick_user),
+        )
         // Room listing
-        .route("/_synapse/admin/v1/rooms/{room_id}/listings", get(get_room_listings))
-        .route("/_synapse/admin/v1/rooms/{room_id}/listings/public", put(set_room_public))
-        .route("/_synapse/admin/v1/rooms/{room_id}/listings/public", delete(set_room_private))
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/listings",
+            get(get_room_listings),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/listings/public",
+            put(set_room_public),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/listings/public",
+            delete(set_room_private),
+        )
         // Additional room APIs for 100% coverage
-        .route("/_synapse/admin/v1/rooms/{room_id}/event_context/{event_id}", get(get_event_context_admin))
-        .route("/_synapse/admin/v1/rooms/{room_id}/search", post(search_room_messages_admin))
-        .route("/_synapse/admin/v1/rooms/{room_id}/forward_extremities", get(get_room_forward_extremities))
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/event_context/{event_id}",
+            get(get_event_context_admin),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/search",
+            post(search_room_messages_admin),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/forward_extremities",
+            get(get_room_forward_extremities),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -381,9 +447,7 @@ pub async fn purge_history(
     let timestamp = body
         .get("purge_up_to_ts")
         .and_then(|v| v.as_i64())
-        .unwrap_or_else(|| {
-            chrono::Utc::now().timestamp_millis() - (30 * 24 * 60 * 60 * 1000)
-        });
+        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
 
     let deleted_count = state
         .services
@@ -465,7 +529,9 @@ pub async fn get_spaces(
         })
         .collect();
 
-    Ok(Json(json!({ "spaces": space_list, "total": space_list.len() })))
+    Ok(Json(
+        json!({ "spaces": space_list, "total": space_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]
@@ -527,7 +593,9 @@ pub async fn get_space_users(
 
     let user_list: Vec<String> = users.iter().map(|r| r.get("user_id")).collect();
 
-    Ok(Json(json!({ "users": user_list, "total": user_list.len() })))
+    Ok(Json(
+        json!({ "users": user_list, "total": user_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]
@@ -544,7 +612,9 @@ pub async fn get_space_rooms(
 
     let room_list: Vec<String> = rooms.iter().map(|r| r.get("room_id")).collect();
 
-    Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
+    Ok(Json(
+        json!({ "rooms": room_list, "total": room_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]
@@ -581,13 +651,13 @@ pub async fn get_room_stats(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
     let pool = &*state.services.room_storage.pool;
-    
+
     // Total rooms
     let total_rooms: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rooms")
         .fetch_one(pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    
+
     // Encrypted rooms
     let encrypted_rooms: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM room_state_events WHERE room_id IN (SELECT room_id FROM rooms) AND type = 'm.room.encryption'"
@@ -595,30 +665,29 @@ pub async fn get_room_stats(
     .fetch_one(pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    
+
     // Public rooms
-    let public_rooms: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM rooms WHERE is_public = true"
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    
-    // Total messages
-    let total_messages: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE type = 'm.room.message'")
+    let public_rooms: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rooms WHERE is_public = true")
         .fetch_one(pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    
+
+    // Total messages
+    let total_messages: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE type = 'm.room.message'")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
     // Total members
     let total_members: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_memberships")
         .fetch_one(pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    
+
     // Active rooms (rooms with messages in last 7 days)
     let active_rooms: i64 = sqlx::query_scalar(
-        "SELECT COUNT(DISTINCT room_id) FROM events WHERE origin_server_ts > $1"
+        "SELECT COUNT(DISTINCT room_id) FROM events WHERE origin_server_ts > $1",
     )
     .bind(chrono::Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000)
     .fetch_one(pool)
@@ -644,45 +713,45 @@ pub async fn get_single_room_stats(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let pool = &*state.services.room_storage.pool;
-    
+
     // Check if room exists
-    let room_exists: Option<String> = sqlx::query_scalar("SELECT room_id FROM rooms WHERE room_id = $1")
-        .bind(&room_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    
+    let room_exists: Option<String> =
+        sqlx::query_scalar("SELECT room_id FROM rooms WHERE room_id = $1")
+            .bind(&room_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
     if room_exists.is_none() {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-    
+
     // Member count
     let member_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'"
+        "SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'",
     )
     .bind(&room_id)
     .fetch_one(pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    
+
     // Message count
     let message_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM events WHERE room_id = $1 AND type = 'm.room.message'"
+        "SELECT COUNT(*) FROM events WHERE room_id = $1 AND type = 'm.room.message'",
     )
     .bind(&room_id)
     .fetch_one(pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    
+
     // Last message timestamp
-    let last_message_ts: Option<i64> = sqlx::query_scalar(
-        "SELECT MAX(origin_server_ts) FROM events WHERE room_id = $1"
-    )
-    .bind(&room_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    
+    let last_message_ts: Option<i64> =
+        sqlx::query_scalar("SELECT MAX(origin_server_ts) FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
     // Room state
     let is_encrypted: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM room_state_events WHERE room_id = $1 AND type = 'm.room.encryption')"
@@ -691,7 +760,7 @@ pub async fn get_single_room_stats(
     .fetch_one(pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    
+
     // Admin count
     let admin_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join' AND user_id IN (SELECT user_id FROM users WHERE is_admin = true)"
@@ -719,13 +788,13 @@ pub async fn join_room_member(
     Path((room_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     let now = chrono::Utc::now().timestamp_millis();
-    
+
     sqlx::query(
         r#"
         INSERT INTO room_memberships (user_id, room_id, membership, joined_ts)
         VALUES ($1, $2, 'join', $3)
         ON CONFLICT (user_id, room_id) DO UPDATE SET membership = 'join'
-        "#
+        "#,
     )
     .bind(&user_id)
     .bind(&room_id)
@@ -776,7 +845,7 @@ pub async fn ban_user(
     Json(body): Json<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let now = chrono::Utc::now().timestamp_millis();
-    
+
     // First remove from room if joined
     sqlx::query("DELETE FROM room_memberships WHERE user_id = $1 AND room_id = $2")
         .bind(&user_id)
@@ -791,7 +860,7 @@ pub async fn ban_user(
         INSERT INTO room_memberships (user_id, room_id, membership, joined_ts, ban_reason)
         VALUES ($1, $2, 'ban', $3, $4)
         ON CONFLICT (user_id, room_id) DO UPDATE SET membership = 'ban', ban_reason = $4
-        "#
+        "#,
     )
     .bind(&user_id)
     .bind(&room_id)
@@ -815,12 +884,14 @@ pub async fn unban_user(
     State(state): State<AppState>,
     Path((room_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    sqlx::query("DELETE FROM room_memberships WHERE user_id = $1 AND room_id = $2 AND membership = 'ban'")
-        .bind(&user_id)
-        .bind(&room_id)
-        .execute(&*state.services.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    sqlx::query(
+        "DELETE FROM room_memberships WHERE user_id = $1 AND room_id = $2 AND membership = 'ban'",
+    )
+    .bind(&user_id)
+    .bind(&room_id)
+    .execute(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({
         "user_id": user_id,
@@ -860,21 +931,18 @@ pub async fn get_room_listings(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let is_public: bool = sqlx::query_scalar(
-        "SELECT is_public FROM rooms WHERE room_id = $1"
-    )
-    .bind(&room_id)
-    .fetch_one(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let is_public: bool = sqlx::query_scalar("SELECT is_public FROM rooms WHERE room_id = $1")
+        .bind(&room_id)
+        .fetch_one(&*state.services.room_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let in_directory: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)"
-    )
-    .bind(&room_id)
-    .fetch_one(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let in_directory: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)")
+            .bind(&room_id)
+            .fetch_one(&*state.services.room_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -1040,7 +1108,7 @@ pub async fn search_room_messages_admin(
         WHERE room_id = $1 AND type = 'm.room.message' AND LOWER(content::text) LIKE $2
         ORDER BY origin_server_ts DESC
         LIMIT $3
-        "#
+        "#,
     )
     .bind(&room_id)
     .bind(&search_pattern)

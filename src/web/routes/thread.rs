@@ -134,8 +134,14 @@ pub fn create_thread_routes(state: AppState) -> Router<AppState> {
         // Global threads endpoints (v1)
         .route("/_matrix/client/v1/threads", get(list_threads_global))
         .route("/_matrix/client/v1/threads", post(create_thread_global))
-        .route("/_matrix/client/v1/threads/subscribed", get(get_subscribed_threads))
-        .route("/_matrix/client/v1/threads/unread", get(get_unread_threads_global))
+        .route(
+            "/_matrix/client/v1/threads/subscribed",
+            get(get_subscribed_threads),
+        )
+        .route(
+            "/_matrix/client/v1/threads/unread",
+            get(get_unread_threads_global),
+        )
         // Room-level threads (v1)
         .route(
             "/_matrix/client/v1/rooms/{room_id}/threads",
@@ -518,7 +524,9 @@ async fn list_threads_global(
     _auth_user: AuthenticatedUser,
     _query: Query<ListQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_found("Global threads not implemented yet. Use room-specific endpoints.".to_string()))
+    Err(ApiError::not_found(
+        "Global threads not implemented yet. Use room-specific endpoints.".to_string(),
+    ))
 }
 
 async fn create_thread_global(
@@ -526,7 +534,9 @@ async fn create_thread_global(
     _auth_user: AuthenticatedUser,
     Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_found("Global thread creation not implemented yet. Use room-specific endpoints.".to_string()))
+    Err(ApiError::not_found(
+        "Global thread creation not implemented yet. Use room-specific endpoints.".to_string(),
+    ))
 }
 
 async fn get_subscribed_threads(

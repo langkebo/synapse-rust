@@ -78,8 +78,6 @@ impl DatabaseMaintenance {
                     let err_str = e.to_string();
                     if err_str.contains("VACUUM cannot run inside a transaction block") {
                         debug!("VACUUM {} 跳过: 需要独立连接", table);
-                        let _ = sqlx::query("ROLLBACK").execute(&self.pool).await;
-                        let _ = sqlx::query("SELECT 1").execute(&self.pool).await;
                     } else {
                         warn!("VACUUM {} 失败: {}", table, e);
                     }

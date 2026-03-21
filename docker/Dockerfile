@@ -92,7 +92,6 @@ COPY --from=builder /build/target/release/synapse-rust /app/synapse-rust
 COPY --chown=synapse:synapse migrations/ /app/migrations/
 COPY --chown=synapse:synapse docker/docker-entrypoint.sh /app/scripts/
 COPY --chown=synapse:synapse docker/db_migrate.sh /app/scripts/
-COPY --chown=synapse:synapse docker/verify_migration.sh /app/scripts/
 COPY --chown=synapse:synapse docker/healthcheck.sh /app/scripts/
 
 # 设置权限

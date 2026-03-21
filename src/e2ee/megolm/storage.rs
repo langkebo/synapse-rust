@@ -44,7 +44,7 @@ impl MegolmSessionStorage {
                    created_ts, last_used_ts, expires_at
             FROM megolm_sessions
             WHERE session_id = $1
-            "#
+            "#,
         )
         .bind(session_id)
         .fetch_optional(&*self.pool)
@@ -55,7 +55,8 @@ impl MegolmSessionStorage {
             let last_used_ts: Option<i64> = row.get("last_used_ts");
             let expires_at: Option<i64> = row.get("expires_at");
 
-            let created_ts_dt = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
+            let created_ts_dt =
+                chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
             let last_used_ts_dt = last_used_ts
                 .and_then(chrono::DateTime::from_timestamp_millis)
                 .unwrap_or(created_ts_dt);
@@ -83,7 +84,7 @@ impl MegolmSessionStorage {
                    created_ts, last_used_ts, expires_at
             FROM megolm_sessions
             WHERE room_id = $1
-            "#
+            "#,
         )
         .bind(room_id)
         .fetch_all(&*self.pool)
@@ -96,7 +97,8 @@ impl MegolmSessionStorage {
                 let last_used_ts: Option<i64> = row.get("last_used_ts");
                 let expires_at: Option<i64> = row.get("expires_at");
 
-                let created_ts_dt = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
+                let created_ts_dt =
+                    chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
                 let last_used_ts_dt = last_used_ts
                     .and_then(chrono::DateTime::from_timestamp_millis)
                     .unwrap_or(created_ts_dt);

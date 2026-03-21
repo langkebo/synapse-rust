@@ -283,7 +283,10 @@ impl WidgetStorage {
         Ok(row)
     }
 
-    pub async fn get_session(&self, session_id: &str) -> Result<Option<WidgetSession>, sqlx::Error> {
+    pub async fn get_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<WidgetSession>, sqlx::Error> {
         let row = sqlx::query_as::<_, WidgetSession>(
             r#"
             SELECT * FROM widget_sessions WHERE session_id = $1 AND is_active = TRUE
@@ -325,7 +328,10 @@ impl WidgetStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn get_widget_sessions(&self, widget_id: &str) -> Result<Vec<WidgetSession>, sqlx::Error> {
+    pub async fn get_widget_sessions(
+        &self,
+        widget_id: &str,
+    ) -> Result<Vec<WidgetSession>, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         let rows = sqlx::query_as::<_, WidgetSession>(

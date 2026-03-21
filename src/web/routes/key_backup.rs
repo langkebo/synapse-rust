@@ -86,35 +86,23 @@ pub fn create_key_backup_router(_state: AppState) -> Router<AppState> {
             get(get_room_keys).put(put_room_keys),
         )
         // Key Export/Import (E2EE 100%)
-        .route(
-            "/_matrix/client/r0/room_keys/export",
-            get(export_keys),
-        )
+        .route("/_matrix/client/r0/room_keys/export", get(export_keys))
         .route(
             "/_matrix/client/r0/room_keys/export/{version}",
             get(export_keys_by_version),
         )
-        .route(
-            "/_matrix/client/r0/room_keys/import",
-            post(import_keys),
-        )
+        .route("/_matrix/client/r0/room_keys/import", post(import_keys))
         .route(
             "/_matrix/client/r0/room_keys/import/{version}",
             post(import_keys_by_version),
         )
         // v3 routes
-        .route(
-            "/_matrix/client/v3/room_keys/export",
-            get(export_keys),
-        )
+        .route("/_matrix/client/v3/room_keys/export", get(export_keys))
         .route(
             "/_matrix/client/v3/room_keys/export/{version}",
             get(export_keys_by_version),
         )
-        .route(
-            "/_matrix/client/v3/room_keys/import",
-            post(import_keys),
-        )
+        .route("/_matrix/client/v3/room_keys/import", post(import_keys))
         .route(
             "/matrix/client/v3/room_keys/import/{version}",
             post(import_keys_by_version),
@@ -662,7 +650,11 @@ async fn export_keys(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup_keys = state.services.backup_service.get_all_backup_keys(&auth_user.user_id).await?;
+    let backup_keys = state
+        .services
+        .backup_service
+        .get_all_backup_keys(&auth_user.user_id)
+        .await?;
 
     let mut room_keys = Vec::new();
     for key in backup_keys {
@@ -692,7 +684,11 @@ async fn export_keys_by_version(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup_keys = state.services.backup_service.get_all_backup_keys(&auth_user.user_id).await?;
+    let backup_keys = state
+        .services
+        .backup_service
+        .get_all_backup_keys(&auth_user.user_id)
+        .await?;
 
     let mut room_keys = Vec::new();
     for key in backup_keys {
@@ -722,25 +718,27 @@ async fn import_keys(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let room_keys = body.get("room_keys")
+    let room_keys = body
+        .get("room_keys")
         .and_then(|v| v.as_array())
         .ok_or_else(|| crate::error::ApiError::bad_request("Missing room_keys".to_string()))?;
-    
-    let version = body.get("version")
-        .and_then(|v| v.as_str())
-        .unwrap_or("1");
+
+    let version = body.get("version").and_then(|v| v.as_str()).unwrap_or("1");
 
     let mut imported_count = 0;
     let mut failed_count = 0;
 
     for key_data in room_keys.iter() {
-        let room_id = key_data.get("room_id")
+        let room_id = key_data
+            .get("room_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let session_id = key_data.get("session_id")
+        let session_id = key_data
+            .get("session_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let session_data = key_data.get("session_data")
+        let session_data = key_data
+            .get("session_data")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
@@ -752,15 +750,23 @@ async fn import_keys(
                 session_data: session_data.to_string(),
                 version: version.to_string(),
                 is_verified: true,
-                first_message_index: key_data.get("first_message_index")
+                first_message_index: key_data
+                    .get("first_message_index")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0),
-                forwarded_count: key_data.get("forwarded_count")
+                forwarded_count: key_data
+                    .get("forwarded_count")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0),
             };
 
-            if state.services.backup_service.upload_backup_key(params).await.is_ok() {
+            if state
+                .services
+                .backup_service
+                .upload_backup_key(params)
+                .await
+                .is_ok()
+            {
                 imported_count += 1;
             } else {
                 failed_count += 1;
@@ -786,7 +792,8 @@ async fn import_keys_by_version(
     Path(version): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let room_keys = body.get("room_keys")
+    let room_keys = body
+        .get("room_keys")
         .and_then(|v| v.as_array())
         .ok_or_else(|| crate::error::ApiError::bad_request("Missing room_keys".to_string()))?;
 
@@ -794,13 +801,16 @@ async fn import_keys_by_version(
     let mut failed_count = 0;
 
     for key_data in room_keys.iter() {
-        let room_id = key_data.get("room_id")
+        let room_id = key_data
+            .get("room_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let session_id = key_data.get("session_id")
+        let session_id = key_data
+            .get("session_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let session_data = key_data.get("session_data")
+        let session_data = key_data
+            .get("session_data")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
@@ -812,15 +822,23 @@ async fn import_keys_by_version(
                 session_data: session_data.to_string(),
                 version: version.clone(),
                 is_verified: true,
-                first_message_index: key_data.get("first_message_index")
+                first_message_index: key_data
+                    .get("first_message_index")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0),
-                forwarded_count: key_data.get("forwarded_count")
+                forwarded_count: key_data
+                    .get("forwarded_count")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0),
             };
 
-            if state.services.backup_service.upload_backup_key(params).await.is_ok() {
+            if state
+                .services
+                .backup_service
+                .upload_backup_key(params)
+                .await
+                .is_ok()
+            {
                 imported_count += 1;
             } else {
                 failed_count += 1;

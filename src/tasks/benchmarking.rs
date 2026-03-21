@@ -185,7 +185,10 @@ impl PerformanceAnalyzer {
 
         let mut sorted: Vec<f64> = values.to_vec();
         // f64 比较在非 NaN 值时不会失败
-        sorted.sort_by(|a, b| a.partial_cmp(b).expect("f64 comparison should not fail for non-NaN values"));
+        sorted.sort_by(|a, b| {
+            a.partial_cmp(b)
+                .expect("f64 comparison should not fail for non-NaN values")
+        });
 
         let index = (p / 100.0) * (sorted.len() - 1) as f64;
         let lower = index.floor() as usize;

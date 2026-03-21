@@ -553,7 +553,7 @@ mod tests {
         let report = create_test_report();
         let initial_score = report.score;
         let escalated_score = initial_score + 10;
-        
+
         assert_eq!(initial_score, 10);
         assert_eq!(escalated_score, 20);
     }

@@ -8,7 +8,7 @@ mod tests {
     // Test utilities
     mod test_utils {
         use serde_json::{json, Value};
-        
+
         pub fn create_test_user() -> Value {
             json!({
                 "user_id": "@testuser:localhost",
@@ -16,7 +16,7 @@ mod tests {
                 "password": "testpassword"
             })
         }
-        
+
         pub fn create_test_room() -> Value {
             json!({
                 "room_id": "!testroom:localhost",
@@ -24,7 +24,7 @@ mod tests {
                 "topic": "Test Topic"
             })
         }
-        
+
         pub fn create_test_event() -> Value {
             json!({
                 "event_id": "$testevent:localhost",
@@ -444,10 +444,10 @@ mod tests {
         fn test_error_codes() {
             let codes = vec![
                 "M_NOT_FOUND",
-                "M_UNAUTHORIZED", 
+                "M_UNAUTHORIZED",
                 "M_FORBIDDEN",
                 "M_INVALID_PARAM",
-                "M_UNKNOWN"
+                "M_UNKNOWN",
             ];
             assert_eq!(codes.len(), 5);
         }

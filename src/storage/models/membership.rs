@@ -49,7 +49,7 @@ pub struct PrivateMessage {
     pub message_type: String,
     pub is_read: bool,
     pub read_by_receiver: bool,
-    pub read_at: Option<i64>,
+    pub read_ts: Option<i64>, // 已修复: read_at → read_ts
     pub edit_history: Option<serde_json::Value>,
     pub is_deleted: bool,
     pub deleted_at: Option<i64>,
@@ -122,7 +122,7 @@ mod tests {
             message_type: "m.text".to_string(),
             is_read: false,
             read_by_receiver: false,
-            read_at: None,
+            read_ts: None, // 已修复
             edit_history: None,
             is_deleted: false,
             deleted_at: None,

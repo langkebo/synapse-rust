@@ -9,7 +9,7 @@ fn test_get_cache_stats_request() {
     let request = json!({
         "origin": "example.com"
     });
-    
+
     assert!(request.get("origin").is_some());
 }
 
@@ -23,7 +23,7 @@ fn test_cache_stats_response() {
         "miss_count": 100,
         "eviction_count": 10
     });
-    
+
     assert!(stats.get("total_entries").is_some());
     assert!(stats.get("memory_used").is_some());
     assert!(stats.get("hit_count").is_some());
@@ -36,7 +36,7 @@ fn test_clear_cache_request() {
     let clear = json!({
         "dry_run": false
     });
-    
+
     assert!(clear.get("dry_run").is_some());
 }
 
@@ -48,7 +48,7 @@ fn test_clear_cache_response() {
         "cleared_entries": 500,
         "memory_freed": 26214400_i64
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
     assert!(response.get("cleared_entries").is_some());
@@ -60,7 +60,7 @@ fn test_clear_cache_for_origin_request() {
     let clear = json!({
         "origin": "example.com"
     });
-    
+
     assert!(clear.get("origin").is_some());
 }
 
@@ -72,7 +72,7 @@ fn test_clear_cache_for_origin_response() {
         "origin": "example.com",
         "cleared_entries": 100
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
     assert!(response.get("origin").is_some());
@@ -85,7 +85,7 @@ fn test_clear_cache_for_key_request() {
         "origin": "example.com",
         "key_id": "ed25519:1"
     });
-    
+
     assert!(clear.get("origin").is_some());
     assert!(clear.get("key_id").is_some());
 }
@@ -99,7 +99,7 @@ fn test_clear_cache_for_key_response() {
         "key_id": "ed25519:1",
         "cleared": true
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
     assert!(response.get("key_id").is_some());
@@ -113,7 +113,7 @@ fn test_notify_key_rotation_request() {
         "new_key_id": "ed25519:2",
         "validity_ts": 1700000000000_i64
     });
-    
+
     assert!(notify.get("old_key_id").is_some());
     assert!(notify.get("new_key_id").is_some());
     assert!(notify.get("validity_ts").is_some());
@@ -127,7 +127,7 @@ fn test_notify_key_rotation_response() {
         "old_key_id": "ed25519:1",
         "new_key_id": "ed25519:2"
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
 }
@@ -137,7 +137,7 @@ fn test_notify_key_rotation_response() {
 fn test_get_cache_config_request() {
     // No parameters required
     let request = json!({});
-    
+
     assert!(request.get("origin").is_none());
 }
 
@@ -150,7 +150,7 @@ fn test_cache_config_response() {
         "ttl_seconds": 3600,
         "eviction_policy": "lru"
     });
-    
+
     assert!(config.get("max_entries").is_some());
     assert!(config.get("max_memory").is_some());
     assert!(config.get("ttl_seconds").is_some());
@@ -164,7 +164,7 @@ fn test_cache_entry_validation() {
     assert!(is_valid_cache_entry("server_key"));
     assert!(is_valid_cache_entry("device_keys"));
     assert!(is_valid_cache_entry("group_users"));
-    
+
     // Invalid
     assert!(!is_valid_cache_entry(""));
 }

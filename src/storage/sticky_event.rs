@@ -68,14 +68,16 @@ impl StickyEventStorage {
         .await?;
 
         Ok(result.map(
-            |(room_id, user_id, event_id, event_type, sticky, created_ts, updated_ts)| StickyEvent {
-                room_id,
-                user_id,
-                event_id,
-                event_type,
-                sticky,
-                created_ts,
-                updated_ts,
+            |(room_id, user_id, event_id, event_type, sticky, created_ts, updated_ts)| {
+                StickyEvent {
+                    room_id,
+                    user_id,
+                    event_id,
+                    event_type,
+                    sticky,
+                    created_ts,
+                    updated_ts,
+                }
             },
         ))
     }
@@ -102,14 +104,16 @@ impl StickyEventStorage {
         Ok(rows
             .into_iter()
             .map(
-                |(room_id, user_id, event_id, event_type, sticky, created_ts, updated_ts)| StickyEvent {
-                    room_id,
-                    user_id,
-                    event_id,
-                    event_type,
-                    sticky,
-                    created_ts,
-                    updated_ts,
+                |(room_id, user_id, event_id, event_type, sticky, created_ts, updated_ts)| {
+                    StickyEvent {
+                        room_id,
+                        user_id,
+                        event_id,
+                        event_type,
+                        sticky,
+                        created_ts,
+                        updated_ts,
+                    }
                 },
             )
             .collect())
@@ -123,7 +127,7 @@ impl StickyEventStorage {
         event_type: &str,
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             UPDATE room_sticky_events 
@@ -196,11 +200,7 @@ mod tests {
 
     #[test]
     fn test_event_type_validation() {
-        let valid_types = vec![
-            "m.room.message",
-            "m.room.topic",
-            "m.room.avatar",
-        ];
+        let valid_types = vec!["m.room.message", "m.room.topic", "m.room.avatar"];
 
         for event_type in valid_types {
             assert!(event_type.starts_with("m.") || event_type.starts_with("com."));

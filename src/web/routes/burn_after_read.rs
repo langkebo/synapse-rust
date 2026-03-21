@@ -6,20 +6,31 @@ use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::Path,
     extract::State,
-    Json,
-    Router,
     routing::{get, post, put},
+    Json, Router,
 };
-use serde_json::{json, Value};
 use chrono::Utc;
+use serde_json::{json, Value};
 use tracing::warn;
 
 pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/v1/rooms/{room_id}/burn", put(enable_burn).get(get_burn_settings))
-        .route("/_matrix/client/v1/rooms/{room_id}/burn/pending", get(get_pending_burns))
-        .route("/_matrix/client/v1/rooms/{room_id}/burn/{event_id}", post(mark_burn_read).delete(cancel_burn))
-        .route("/_matrix/client/v1/user/burn/config", put(set_global_burn_config))
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/burn",
+            put(enable_burn).get(get_burn_settings),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/burn/pending",
+            get(get_pending_burns),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}",
+            post(mark_burn_read).delete(cancel_burn),
+        )
+        .route(
+            "/_matrix/client/v1/user/burn/config",
+            put(set_global_burn_config),
+        )
         .route("/_matrix/client/v1/user/burn/stats", get(get_burn_stats))
         .with_state(state)
 }
@@ -97,11 +108,17 @@ pub async fn mark_burn_read(
 
     let (enabled, burn_after_ms) = match settings {
         Some(s) => (s.enabled, s.burn_after_ms),
-        None => return Err(ApiError::bad_request("Burn not enabled for this room".to_string())),
+        None => {
+            return Err(ApiError::bad_request(
+                "Burn not enabled for this room".to_string(),
+            ))
+        }
     };
 
     if !enabled {
-        return Err(ApiError::bad_request("Burn not enabled for this room".to_string()));
+        return Err(ApiError::bad_request(
+            "Burn not enabled for this room".to_string(),
+        ));
     }
 
     // Schedule message deletion
@@ -112,7 +129,7 @@ pub async fn mark_burn_read(
 
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_millis(burn_after_ms as u64)).await;
-        
+
         if let Err(e) = state_clone
             .services
             .burn_after_read
@@ -145,11 +162,13 @@ pub async fn get_pending_burns(
 
     let events: Vec<Value> = pending
         .into_iter()
-        .map(|p| json!({
-            "event_id": p.event_id,
-            "created_at": p.created_at,
-            "delete_at": p.delete_at,
-        }))
+        .map(|p| {
+            json!({
+                "event_id": p.event_id,
+                "created_at": p.created_at,
+                "delete_at": p.delete_at,
+            })
+        })
         .collect();
 
     Ok(Json(json!({

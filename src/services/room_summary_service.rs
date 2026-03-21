@@ -714,10 +714,18 @@ mod tests {
     fn test_event_priority_calculation() {
         let state_event_type = "m.room.name";
         let message_event_type = "m.room.message";
-        
-        let state_priority = if state_event_type.starts_with("m.room.") { 10 } else { 0 };
-        let message_priority = if message_event_type.starts_with("m.room.") { 10 } else { 0 };
-        
+
+        let state_priority = if state_event_type.starts_with("m.room.") {
+            10
+        } else {
+            0
+        };
+        let message_priority = if message_event_type.starts_with("m.room.") {
+            10
+        } else {
+            0
+        };
+
         assert_eq!(state_priority, 10);
         assert_eq!(message_priority, 10);
     }

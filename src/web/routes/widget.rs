@@ -1,7 +1,7 @@
 use crate::common::error::ApiError;
 use crate::services::widget_service::{
-    CreateSessionRequest, CreateWidgetRequest, SetPermissionRequest, SessionResponse,
-    SessionListResponse, UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
+    CreateSessionRequest, CreateWidgetRequest, SessionListResponse, SessionResponse,
+    SetPermissionRequest, UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
 };
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
@@ -75,10 +75,7 @@ pub fn create_widget_router() -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v1/widgets", post(create_widget))
         .route("/_matrix/client/v1/widgets/{widget_id}", get(get_widget))
-        .route(
-            "/_matrix/client/v1/widgets/{widget_id}",
-            put(update_widget),
-        )
+        .route("/_matrix/client/v1/widgets/{widget_id}", put(update_widget))
         .route(
             "/_matrix/client/v1/widgets/{widget_id}",
             delete(delete_widget),
@@ -223,7 +220,9 @@ async fn set_widget_permission(
         .set_permission(&widget_id, request)
         .await?;
 
-    Ok(Json(json!({"success": true, "permission_id": permission.id})))
+    Ok(Json(
+        json!({"success": true, "permission_id": permission.id}),
+    ))
 }
 
 async fn get_widget_permissions(

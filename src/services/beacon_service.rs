@@ -1,7 +1,7 @@
 use crate::cache::CacheManager;
 use crate::storage::beacon::{
-    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage,
-    CreateBeaconInfoParams, CreateBeaconLocationParams,
+    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage, CreateBeaconInfoParams,
+    CreateBeaconLocationParams,
 };
 use std::sync::Arc;
 
@@ -77,7 +77,10 @@ impl BeaconService {
         is_live: bool,
         timeout: Option<i64>,
     ) -> Result<Option<BeaconInfo>, Box<dyn std::error::Error + Send + Sync>> {
-        let beacon = self.storage.update_beacon_info(room_id, event_id, is_live, timeout).await?;
+        let beacon = self
+            .storage
+            .update_beacon_info(room_id, event_id, is_live, timeout)
+            .await?;
 
         if let Some(ref b) = beacon {
             let cache_key = format!("beacon:info:{}", event_id);
@@ -128,13 +131,20 @@ impl BeaconService {
         beacon_info_id: &str,
         limit: Option<i64>,
     ) -> Result<Vec<BeaconLocation>, Box<dyn std::error::Error + Send + Sync>> {
-        let cache_key = format!("beacon:locations:{}:{}", beacon_info_id, limit.unwrap_or(100));
+        let cache_key = format!(
+            "beacon:locations:{}:{}",
+            beacon_info_id,
+            limit.unwrap_or(100)
+        );
 
         if let Some(cached) = self.cache.get::<Vec<BeaconLocation>>(&cache_key).await? {
             return Ok(cached);
         }
 
-        let locations = self.storage.get_beacon_locations(beacon_info_id, limit).await?;
+        let locations = self
+            .storage
+            .get_beacon_locations(beacon_info_id, limit)
+            .await?;
 
         let _ = self.cache.set(&cache_key, &locations, 30).await;
 
@@ -165,7 +175,10 @@ impl BeaconService {
         room_id: &str,
         event_id: &str,
     ) -> Result<Option<BeaconInfoWithLocations>, Box<dyn std::error::Error + Send + Sync>> {
-        let beacon_with_locations = self.storage.get_beacon_with_locations(room_id, event_id).await?;
+        let beacon_with_locations = self
+            .storage
+            .get_beacon_with_locations(room_id, event_id)
+            .await?;
         Ok(beacon_with_locations)
     }
 
@@ -174,11 +187,16 @@ impl BeaconService {
         room_id: &str,
         include_expired: bool,
     ) -> Result<Vec<BeaconInfoWithLocations>, Box<dyn std::error::Error + Send + Sync>> {
-        let beacons = self.storage.get_room_beacons(room_id, include_expired).await?;
+        let beacons = self
+            .storage
+            .get_room_beacons(room_id, include_expired)
+            .await?;
         Ok(beacons)
     }
 
-    pub async fn cleanup_expired_beacons(&self) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn cleanup_expired_beacons(
+        &self,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
         let count = self.storage.cleanup_expired_beacons().await?;
         Ok(count)
     }
@@ -190,7 +208,7 @@ impl BeaconService {
 
         let coords_part = uri.strip_prefix("geo:")?;
         let parts: Vec<&str> = coords_part.split(';').collect();
-        
+
         if parts.is_empty() {
             return None;
         }
@@ -203,14 +221,13 @@ impl BeaconService {
         let lat = coords[0].parse::<f64>().ok()?;
         let lon = coords[1].parse::<f64>().ok()?;
 
-        let accuracy = parts.iter()
-            .find_map(|p| {
-                if p.starts_with("u=") {
-                    p.strip_prefix("u=")?.parse::<f64>().ok()
-                } else {
-                    None
-                }
-            });
+        let accuracy = parts.iter().find_map(|p| {
+            if p.starts_with("u=") {
+                p.strip_prefix("u=")?.parse::<f64>().ok()
+            } else {
+                None
+            }
+        });
 
         Some((lat, lon, accuracy))
     }
@@ -222,12 +239,7 @@ impl BeaconService {
         }
     }
 
-    pub fn calculate_distance(
-        lat1: f64,
-        lon1: f64,
-        lat2: f64,
-        lon2: f64,
-    ) -> f64 {
+    pub fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
         let lat1_rad = lat1.to_radians();
         let lat2_rad = lat2.to_radians();
         let delta_lat = (lat2 - lat1).to_radians();
@@ -246,7 +258,8 @@ impl BeaconService {
         lat: f64,
         lon: f64,
         radius_meters: f64,
-    ) -> Result<Vec<(BeaconInfo, BeaconLocation, f64)>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Vec<(BeaconInfo, BeaconLocation, f64)>, Box<dyn std::error::Error + Send + Sync>>
+    {
         let beacons = self.storage.get_active_beacons(room_id).await?;
         let mut result = Vec::new();
 
@@ -272,7 +285,10 @@ impl BeaconService {
         start_ts: i64,
         end_ts: i64,
     ) -> Result<Vec<BeaconLocation>, Box<dyn std::error::Error + Send + Sync>> {
-        let all_locations = self.storage.get_beacon_locations(beacon_info_id, None).await?;
+        let all_locations = self
+            .storage
+            .get_beacon_locations(beacon_info_id, None)
+            .await?;
 
         let filtered: Vec<BeaconLocation> = all_locations
             .into_iter()
@@ -286,7 +302,10 @@ impl BeaconService {
         &self,
         beacon_info_id: &str,
     ) -> Result<LocationStatistics, Box<dyn std::error::Error + Send + Sync>> {
-        let locations = self.storage.get_beacon_locations(beacon_info_id, None).await?;
+        let locations = self
+            .storage
+            .get_beacon_locations(beacon_info_id, None)
+            .await?;
 
         if locations.is_empty() {
             return Ok(LocationStatistics {

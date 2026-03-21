@@ -40,11 +40,11 @@ pub struct UserThreepid {
     pub user_id: String,
     pub medium: String,
     pub address: String,
-    pub validated_at: Option<i64>,
+    pub validated_ts: Option<i64>, // 已修复: validated_at → validated_ts
     pub added_ts: i64,
     pub is_verified: bool,
     pub verification_token: Option<String>,
-    pub verification_expires_at: Option<i64>,
+    pub verification_expires_ts: Option<i64>, // 已修复: verification_expires_at → verification_expires_ts
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -131,6 +131,7 @@ pub struct UserDirectory {
     pub visibility: String,
     pub added_by: Option<String>,
     pub created_ts: i64,
+    pub updated_ts: Option<i64>,
 }
 
 #[cfg(test)]
@@ -182,11 +183,11 @@ mod tests {
             user_id: "@alice:example.com".to_string(),
             medium: "email".to_string(),
             address: "alice@example.com".to_string(),
-            validated_at: Some(1234567890),
+            validated_ts: Some(1234567890), // 已修复
             added_ts: 1234567800,
             is_verified: true,
             verification_token: None,
-            verification_expires_at: None,
+            verification_expires_ts: None, // 已修复
         };
 
         assert_eq!(threepid.medium, "email");

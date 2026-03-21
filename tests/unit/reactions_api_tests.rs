@@ -12,7 +12,7 @@ fn test_add_reaction_request() {
         "key": "👍",
         "rel_type": "m.annotation"
     });
-    
+
     assert!(reaction.get("room_id").is_some());
     assert!(reaction.get("event_id").is_some());
     assert!(reaction.get("key").is_some());
@@ -25,7 +25,7 @@ fn test_add_reaction_response() {
         "event_id": "$reaction:localhost",
         "room_id": "!room:localhost"
     });
-    
+
     assert!(response.get("event_id").is_some());
     assert!(response.get("room_id").is_some());
 }
@@ -39,7 +39,7 @@ fn test_get_relations_request() {
         "from": 0,
         "limit": 10
     });
-    
+
     assert!(request.get("room_id").is_some());
     assert!(request.get("event_id").is_some());
     assert!(request.get("limit").is_some());
@@ -53,7 +53,7 @@ fn test_get_relations_response() {
         "next_batch": "next_token",
         "relations": []
     });
-    
+
     assert!(response.get("chunk").is_some());
     assert!(response.get("relations").is_some());
 }
@@ -66,7 +66,7 @@ fn test_get_annotations_request() {
         "event_id": "$event:localhost",
         "limit": 10
     });
-    
+
     assert!(request.get("room_id").is_some());
     assert!(request.get("event_id").is_some());
 }
@@ -74,14 +74,12 @@ fn test_get_annotations_request() {
 // Test 6: Get annotations response
 #[test]
 fn test_get_annotations_response() {
-    let annotations = vec![
-        json!({
-            "event_id": "$reaction:localhost",
-            "sender": "@user:localhost",
-            "key": "👍"
-        })
-    ];
-    
+    let annotations = vec![json!({
+        "event_id": "$reaction:localhost",
+        "sender": "@user:localhost",
+        "key": "👍"
+    })];
+
     assert!(!annotations.is_empty());
     assert!(annotations[0].get("key").is_some());
 }
@@ -94,7 +92,7 @@ fn test_get_references_request() {
         "event_id": "$event:localhost",
         "limit": 10
     });
-    
+
     assert!(request.get("room_id").is_some());
     assert!(request.get("event_id").is_some());
 }
@@ -106,7 +104,7 @@ fn test_get_references_response() {
         "chunk": [],
         "references": []
     });
-    
+
     assert!(response.get("chunk").is_some());
     assert!(response.get("references").is_some());
 }
@@ -118,7 +116,7 @@ fn test_reaction_key_validation() {
     assert!(is_valid_reaction_key("👍"));
     assert!(is_valid_reaction_key("❤️"));
     assert!(is_valid_reaction_key("😂"));
-    
+
     // Invalid
     assert!(!is_valid_reaction_key(""));
 }
