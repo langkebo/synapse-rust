@@ -318,7 +318,9 @@ impl CrossSigningService {
         };
 
         let message = format!("{}:{}", request.user_id, request.key_id);
-        let valid = verifying_key.verify(message.as_bytes(), &ed25519_sig).is_ok();
+        let valid = verifying_key
+            .verify(message.as_bytes(), &ed25519_sig)
+            .is_ok();
 
         Ok(SignatureVerificationResponse {
             valid,
@@ -458,7 +460,9 @@ impl CrossSigningService {
             .get_device_signatures(user_id, device_id)
             .await?;
 
-        let ssk_sig = signatures.iter().find(|s| s.signing_key_id == "self_signing");
+        let ssk_sig = signatures
+            .iter()
+            .find(|s| s.signing_key_id == "self_signing");
 
         if let Some(sig) = ssk_sig {
             let public_key = match Ed25519PublicKey::from_base64(&ssk.public_key) {
@@ -512,21 +516,23 @@ impl CrossSigningService {
                 }
             };
 
-            let verifying_key =
-                match ed25519_dalek::VerifyingKey::from_bytes(public_key.as_bytes()) {
-                    Ok(vk) => vk,
-                    Err(_) => {
-                        return Ok(DeviceVerificationStatus {
-                            device_id: device_id.to_string(),
-                            is_verified: false,
-                            verified_by: None,
-                            verified_at: None,
-                        });
-                    }
-                };
+            let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(public_key.as_bytes())
+            {
+                Ok(vk) => vk,
+                Err(_) => {
+                    return Ok(DeviceVerificationStatus {
+                        device_id: device_id.to_string(),
+                        is_verified: false,
+                        verified_by: None,
+                        verified_at: None,
+                    });
+                }
+            };
 
             let message = format!("{}:{}", user_id, device_id);
-            let is_valid = verifying_key.verify(message.as_bytes(), &ed25519_sig).is_ok();
+            let is_valid = verifying_key
+                .verify(message.as_bytes(), &ed25519_sig)
+                .is_ok();
 
             Ok(DeviceVerificationStatus {
                 device_id: device_id.to_string(),
@@ -552,7 +558,10 @@ impl CrossSigningService {
         &self,
         user_id: &str,
     ) -> Result<UserVerificationStatus, ApiError> {
-        let master_key = self.storage.get_cross_signing_key(user_id, "master").await?;
+        let master_key = self
+            .storage
+            .get_cross_signing_key(user_id, "master")
+            .await?;
         let self_signing_key = self
             .storage
             .get_cross_signing_key(user_id, "self_signing")

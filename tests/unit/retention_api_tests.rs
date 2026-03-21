@@ -10,22 +10,20 @@ fn test_get_rooms_with_policies_request() {
         "from": 0,
         "limit": 50
     });
-    
+
     assert!(request.get("limit").is_some());
 }
 
 // Test 2: Rooms with policies response
 #[test]
 fn test_rooms_with_policies_response() {
-    let rooms = vec![
-        json!({
-            "room_id": "!room:localhost",
-            "has_policy": true,
-            "min_lifetime": 90,
-            "max_lifetime": 365
-        })
-    ];
-    
+    let rooms = vec![json!({
+        "room_id": "!room:localhost",
+        "has_policy": true,
+        "min_lifetime": 90,
+        "max_lifetime": 365
+    })];
+
     assert_eq!(rooms.len(), 1);
     assert!(rooms[0].get("room_id").is_some());
 }
@@ -36,7 +34,7 @@ fn test_get_room_policy_request() {
     let request = json!({
         "room_id": "!room:localhost"
     });
-    
+
     assert!(request.get("room_id").is_some());
 }
 
@@ -48,7 +46,7 @@ fn test_room_policy_response() {
         "max_lifetime": 365,
         "is_default": false
     });
-    
+
     assert!(policy.get("min_lifetime").is_some());
     assert!(policy.get("max_lifetime").is_some());
 }
@@ -61,7 +59,7 @@ fn test_lifetime_validation() {
     assert!(is_valid_lifetime(1));
     assert!(is_valid_lifetime(365));
     assert!(is_valid_lifetime(1000));
-    
+
     // Invalid lifetimes
     assert!(!is_valid_lifetime(-1));
 }
@@ -73,7 +71,7 @@ fn test_set_room_policy_request() {
         "min_lifetime": 30,
         "max_lifetime": 180
     });
-    
+
     assert!(policy.get("min_lifetime").is_some());
     assert!(policy.get("max_lifetime").is_some());
 }
@@ -85,7 +83,7 @@ fn test_set_room_policy_response() {
         "success": true,
         "room_id": "!room:localhost"
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
 }
@@ -97,7 +95,7 @@ fn test_update_room_policy_request() {
         "min_lifetime": 60,
         "max_lifetime": 200
     });
-    
+
     assert!(update.get("min_lifetime").is_some());
     assert!(update.get("max_lifetime").is_some());
 }
@@ -108,7 +106,7 @@ fn test_delete_room_policy_request() {
     let delete = json!({
         "room_id": "!room:localhost"
     });
-    
+
     assert!(delete.get("room_id").is_some());
 }
 
@@ -119,7 +117,7 @@ fn test_delete_room_policy_response() {
         "deleted": true,
         "room_id": "!room:localhost"
     });
-    
+
     assert!(response.get("deleted").is_some());
     assert!(response["deleted"].as_bool().unwrap_or(false));
 }
@@ -130,7 +128,7 @@ fn test_get_effective_policy_request() {
     let request = json!({
         "room_id": "!room:localhost"
     });
-    
+
     assert!(request.get("room_id").is_some());
 }
 
@@ -143,7 +141,7 @@ fn test_effective_policy_response() {
         "is_default": true,
         "inherited": true
     });
-    
+
     assert!(policy.get("min_lifetime").is_some());
     assert!(policy.get("inherited").is_some());
 }
@@ -153,7 +151,7 @@ fn test_effective_policy_response() {
 fn test_get_server_policy_request() {
     // No parameters required
     let request = json!({});
-    
+
     assert!(request.get("room_id").is_none());
 }
 
@@ -166,7 +164,7 @@ fn test_server_policy_response() {
         "allow_per_room_override": true,
         "is_default": true
     });
-    
+
     assert!(policy.get("min_lifetime").is_some());
     assert!(policy.get("allow_per_room_override").is_some());
 }
@@ -179,7 +177,7 @@ fn test_update_server_policy_request() {
         "max_lifetime": 300,
         "allow_per_room_override": false
     });
-    
+
     assert!(policy.get("min_lifetime").is_some());
     assert!(policy.get("max_lifetime").is_some());
     assert!(policy.get("allow_per_room_override").is_some());
@@ -192,7 +190,7 @@ fn test_run_cleanup_request() {
         "room_id": "!room:localhost",
         "dry_run": false
     });
-    
+
     assert!(cleanup.get("room_id").is_some());
 }
 
@@ -204,7 +202,7 @@ fn test_cleanup_response() {
         "deleted": 50,
         "failed": 0
     });
-    
+
     assert!(response.get("processed").is_some());
     assert!(response.get("deleted").is_some());
 }
@@ -216,7 +214,7 @@ fn test_schedule_cleanup_request() {
         "room_id": "!room:localhost",
         "scheduled_ts": 1700100000000_i64
     });
-    
+
     assert!(schedule.get("room_id").is_some());
     assert!(schedule.get("scheduled_ts").is_some());
 }
@@ -228,7 +226,7 @@ fn test_schedule_cleanup_response() {
         "scheduled": true,
         "scheduled_ts": 1700100000000_i64
     });
-    
+
     assert!(response.get("scheduled").is_some());
     assert!(response["scheduled"].as_bool().unwrap_or(false));
 }
@@ -239,7 +237,7 @@ fn test_process_pending_cleanups_request() {
     let request = json!({
         "limit": 100
     });
-    
+
     assert!(request.get("limit").is_some());
 }
 
@@ -250,7 +248,7 @@ fn test_pending_cleanups_response() {
         "processed": 10,
         "deleted": 5
     });
-    
+
     assert!(response.get("processed").is_some());
     assert!(response.get("deleted").is_some());
 }
@@ -261,7 +259,7 @@ fn test_get_stats_request() {
     let request = json!({
         "room_id": "!room:localhost"
     });
-    
+
     assert!(request.get("room_id").is_some());
 }
 
@@ -274,7 +272,7 @@ fn test_stats_response() {
         "deleted_events": 200,
         "expired_events": 300
     });
-    
+
     assert!(stats.get("total_events").is_some());
     assert!(stats.get("deleted_events").is_some());
 }
@@ -287,7 +285,7 @@ fn test_get_cleanup_logs_request() {
         "from": 0,
         "limit": 50
     });
-    
+
     assert!(request.get("room_id").is_some());
     assert!(request.get("limit").is_some());
 }
@@ -295,15 +293,13 @@ fn test_get_cleanup_logs_request() {
 // Test 25: Cleanup logs response
 #[test]
 fn test_cleanup_logs_response() {
-    let logs = vec![
-        json!({
-            "ts": 1700000000000_i64,
-            "room_id": "!room:localhost",
-            "deleted": 10,
-            "failed": 0
-        })
-    ];
-    
+    let logs = vec![json!({
+        "ts": 1700000000000_i64,
+        "room_id": "!room:localhost",
+        "deleted": 10,
+        "failed": 0
+    })];
+
     assert_eq!(logs.len(), 1);
     assert!(logs[0].get("ts").is_some());
 }
@@ -316,7 +312,7 @@ fn test_get_deleted_events_request() {
         "from": 0,
         "limit": 50
     });
-    
+
     assert!(request.get("room_id").is_some());
 }
 
@@ -327,7 +323,7 @@ fn test_deleted_events_response() {
         "chunk": [],
         "count": 0
     });
-    
+
     assert!(events.get("chunk").is_some());
     assert!(events.get("count").is_some());
 }
@@ -338,7 +334,7 @@ fn test_get_pending_cleanup_count_request() {
     let request = json!({
         "room_id": "!room:localhost"
     });
-    
+
     assert!(request.get("room_id").is_some());
 }
 
@@ -348,7 +344,7 @@ fn test_pending_cleanup_count_response() {
     let response = json!({
         "count": 5
     });
-    
+
     assert!(response.get("count").is_some());
 }
 
@@ -358,7 +354,7 @@ fn test_run_scheduled_cleanups_request() {
     let request = json!({
         "limit": 100
     });
-    
+
     assert!(request.get("limit").is_some());
 }
 
@@ -368,7 +364,7 @@ fn test_get_room_retention_config_request() {
     let request = json!({
         "room_id": "!room:localhost"
     });
-    
+
     assert!(request.get("room_id").is_some());
 }
 
@@ -380,7 +376,7 @@ fn test_room_retention_config_response() {
         "min_lifetime": 30,
         "max_lifetime": 180
     });
-    
+
     assert!(config.get("room_id").is_some());
     assert!(config.get("min_lifetime").is_some());
 }

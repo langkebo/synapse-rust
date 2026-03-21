@@ -13,7 +13,7 @@ fn test_create_backup_version() {
             "signatures": {}
         }
     });
-    
+
     assert!(backup.get("algorithm").is_some());
     assert!(backup.get("auth_data").is_some());
 }
@@ -24,7 +24,7 @@ fn test_algorithm_validation() {
     // Valid algorithms
     assert!(is_valid_algorithm("m.megolm_backup.v1.curve25519-aes-sha2"));
     assert!(is_valid_algorithm("m.megolm_backup.v1.aes-sha2"));
-    
+
     // Invalid
     assert!(!is_valid_algorithm("invalid"));
     assert!(!is_valid_algorithm(""));
@@ -41,7 +41,7 @@ fn test_backup_version_response() {
         },
         "created_ts": 1700000000000_i64
     });
-    
+
     assert!(version.get("version").is_some());
     assert!(version.get("algorithm").is_some());
     assert!(version.get("auth_data").is_some());
@@ -56,7 +56,7 @@ fn test_update_backup_version() {
             "public_key": "NewPublicKey"
         }
     });
-    
+
     assert!(update.get("algorithm").is_some());
     assert!(update.get("auth_data").is_some());
 }
@@ -74,9 +74,9 @@ fn test_all_backup_versions_response() {
             "version": "2",
             "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
             "created_ts": 1700010000000_i64
-        })
+        }),
     ];
-    
+
     assert_eq!(versions.len(), 2);
     assert!(versions[0].get("version").is_some());
 }
@@ -84,13 +84,11 @@ fn test_all_backup_versions_response() {
 // Test 6: Room keys response
 #[test]
 fn test_room_keys_response() {
-    let keys = vec![
-        json!({
-            "room_id": "!room:localhost",
-            "sessions": {}
-        })
-    ];
-    
+    let keys = vec![json!({
+        "room_id": "!room:localhost",
+        "sessions": {}
+    })];
+
     assert_eq!(keys.len(), 1);
     assert!(keys[0].get("room_id").is_some());
 }
@@ -103,7 +101,7 @@ fn test_room_key_format() {
         "session_id": "session123",
         "session_data": "Base64Data"
     });
-    
+
     assert!(key.get("room_id").is_some());
     assert!(key.get("session_id").is_some());
     assert!(key.get("session_data").is_some());
@@ -115,7 +113,7 @@ fn test_session_data_validation() {
     // Valid base64 data
     assert!(is_valid_session_data("SGVsbG8gV29ybGQ="));
     assert!(is_valid_session_data(""));
-    
+
     // This is basic - real implementation would validate base64
     assert!(is_valid_session_data("valid_data"));
 }
@@ -134,7 +132,7 @@ fn test_get_room_keys_by_version() {
             }
         }
     });
-    
+
     assert!(result.get("room_id").is_some());
     assert!(result.get("sessions").is_some());
 }
@@ -156,7 +154,7 @@ fn test_put_room_keys_request() {
             }
         }
     });
-    
+
     assert!(keys.get("rooms").is_some());
 }
 
@@ -171,7 +169,7 @@ fn test_get_room_key_by_id() {
         "is_verified": true,
         "session_data": "Base64Data"
     });
-    
+
     assert!(key.get("room_id").is_some());
     assert!(key.get("session_id").is_some());
     assert!(key.get("session_data").is_some());
@@ -184,7 +182,7 @@ fn test_delete_backup_version() {
         "deleted": true,
         "version": "1"
     });
-    
+
     assert!(result.get("deleted").is_some());
     assert!(result["deleted"].as_bool().unwrap_or(false));
 }
@@ -196,7 +194,7 @@ fn test_recover_keys_request() {
         "recovery_key": "MegolmRecoveryKey",
         "room_id": "!room:localhost"
     });
-    
+
     assert!(recovery.get("recovery_key").is_some());
 }
 
@@ -217,7 +215,7 @@ fn test_recovery_progress_response() {
         "total": 10,
         "completed": 5
     });
-    
+
     assert!(progress.get("stage").is_some());
     assert!(progress.get("total").is_some());
     assert!(progress.get("completed").is_some());
@@ -229,7 +227,7 @@ fn test_verify_backup_request() {
     let verify = json!({
         "recovery_key": "MegolmRecoveryKey"
     });
-    
+
     assert!(verify.get("recovery_key").is_some());
 }
 
@@ -240,7 +238,7 @@ fn test_verify_backup_response() {
         "valid": true,
         "backup_version": "1"
     });
-    
+
     assert!(result.get("valid").is_some());
     assert!(result.get("backup_version").is_some());
 }
@@ -252,7 +250,7 @@ fn test_batch_recover_keys() {
         "room_ids": ["!room1:localhost", "!room2:localhost"],
         "recovery_key": "MegolmRecoveryKey"
     });
-    
+
     assert!(batch.get("room_ids").is_some());
     assert!(batch.get("recovery_key").is_some());
 }
@@ -265,7 +263,7 @@ fn test_recover_room_keys() {
         "session_ids": ["session1", "session2"],
         "recovery_key": "MegolmRecoveryKey"
     });
-    
+
     assert!(recovery.get("room_id").is_some());
     assert!(recovery.get("session_ids").is_some());
 }
@@ -278,7 +276,7 @@ fn test_recover_session_key() {
         "session_id": "session123",
         "recovery_key": "MegolmRecoveryKey"
     });
-    
+
     assert!(recovery.get("room_id").is_some());
     assert!(recovery.get("session_id").is_some());
     assert!(recovery.get("recovery_key").is_some());

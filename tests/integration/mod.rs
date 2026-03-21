@@ -19,6 +19,9 @@ mod voice_routes_tests;
 #[cfg(test)]
 mod coverage_tests;
 
+#[cfg(test)]
+mod schema_validation_tests;
+
 use std::sync::Arc;
 use synapse_rust::services::DatabaseInitService;
 

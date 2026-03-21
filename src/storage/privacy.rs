@@ -83,7 +83,10 @@ impl PrivacyStorage {
         Ok(())
     }
 
-    pub async fn get_settings(&self, user_id: &str) -> Result<Option<UserPrivacySettings>, sqlx::Error> {
+    pub async fn get_settings(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<UserPrivacySettings>, sqlx::Error> {
         let row = sqlx::query_as::<_, UserPrivacySettings>(
             r#"
             SELECT * FROM user_privacy_settings WHERE user_id = $1
@@ -96,7 +99,10 @@ impl PrivacyStorage {
         Ok(row)
     }
 
-    pub async fn get_or_create_settings(&self, user_id: &str) -> Result<UserPrivacySettings, sqlx::Error> {
+    pub async fn get_or_create_settings(
+        &self,
+        user_id: &str,
+    ) -> Result<UserPrivacySettings, sqlx::Error> {
         if let Some(settings) = self.get_settings(user_id).await? {
             return Ok(settings);
         }
@@ -152,11 +158,31 @@ impl PrivacyStorage {
             "#,
         )
         .bind(user_id)
-        .bind(update.profile_visibility.unwrap_or(current.profile_visibility))
-        .bind(update.avatar_visibility.unwrap_or(current.avatar_visibility))
-        .bind(update.displayname_visibility.unwrap_or(current.displayname_visibility))
-        .bind(update.presence_visibility.unwrap_or(current.presence_visibility))
-        .bind(update.room_membership_visibility.unwrap_or(current.room_membership_visibility))
+        .bind(
+            update
+                .profile_visibility
+                .unwrap_or(current.profile_visibility),
+        )
+        .bind(
+            update
+                .avatar_visibility
+                .unwrap_or(current.avatar_visibility),
+        )
+        .bind(
+            update
+                .displayname_visibility
+                .unwrap_or(current.displayname_visibility),
+        )
+        .bind(
+            update
+                .presence_visibility
+                .unwrap_or(current.presence_visibility),
+        )
+        .bind(
+            update
+                .room_membership_visibility
+                .unwrap_or(current.room_membership_visibility),
+        )
         .bind(now)
         .fetch_one(&*self.pool)
         .await?;

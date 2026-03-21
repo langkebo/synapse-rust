@@ -23,7 +23,7 @@ impl SecretStorage {
                 encrypted_key = EXCLUDED.encrypted_key,
                 public_key = EXCLUDED.public_key,
                 signatures = EXCLUDED.signatures
-            "#
+            "#,
         )
         .bind(&key.key_id)
         .bind(&key.user_id)
@@ -49,7 +49,7 @@ impl SecretStorage {
             SELECT key_id, user_id, algorithm, encrypted_key, public_key, signatures, created_ts
             FROM e2ee_secret_storage_keys
             WHERE user_id = $1 AND key_id = $2
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(key_id)
@@ -63,7 +63,9 @@ impl SecretStorage {
             algorithm: r.get("algorithm"),
             encrypted_key: r.get("encrypted_key"),
             public_key: r.get("public_key"),
-            signatures: r.get::<Option<serde_json::Value>, _>("signatures").unwrap_or(serde_json::json!({})),
+            signatures: r
+                .get::<Option<serde_json::Value>, _>("signatures")
+                .unwrap_or(serde_json::json!({})),
             created_ts: r.get("created_ts"),
         }))
     }
@@ -74,7 +76,7 @@ impl SecretStorage {
             SELECT key_id, user_id, algorithm, encrypted_key, public_key, signatures, created_ts
             FROM e2ee_secret_storage_keys
             WHERE user_id = $1
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -89,7 +91,9 @@ impl SecretStorage {
                 algorithm: r.get("algorithm"),
                 encrypted_key: r.get("encrypted_key"),
                 public_key: r.get("public_key"),
-                signatures: r.get::<Option<serde_json::Value>, _>("signatures").unwrap_or(serde_json::json!({})),
+                signatures: r
+                    .get::<Option<serde_json::Value>, _>("signatures")
+                    .unwrap_or(serde_json::json!({})),
                 created_ts: r.get("created_ts"),
             })
             .collect())
@@ -100,7 +104,7 @@ impl SecretStorage {
             r#"
             DELETE FROM e2ee_secret_storage_keys
             WHERE user_id = $1 AND key_id = $2
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(key_id)
@@ -120,7 +124,7 @@ impl SecretStorage {
             ON CONFLICT (user_id, secret_name) DO UPDATE SET
                 encrypted_secret = EXCLUDED.encrypted_secret,
                 key_id = EXCLUDED.key_id
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(&secret.secret_name)
@@ -143,7 +147,7 @@ impl SecretStorage {
             SELECT user_id, secret_name, encrypted_secret, key_id
             FROM e2ee_stored_secrets
             WHERE user_id = $1 AND secret_name = $2
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(secret_name)
@@ -172,7 +176,7 @@ impl SecretStorage {
             SELECT user_id, secret_name, encrypted_secret, key_id
             FROM e2ee_stored_secrets
             WHERE user_id = $1 AND secret_name = ANY($2)
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(secret_names)
@@ -195,7 +199,7 @@ impl SecretStorage {
             r#"
             DELETE FROM e2ee_stored_secrets
             WHERE user_id = $1 AND secret_name = $2
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(secret_name)
@@ -219,7 +223,7 @@ impl SecretStorage {
             r#"
             DELETE FROM e2ee_stored_secrets
             WHERE user_id = $1 AND secret_name = ANY($2)
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(secret_names)
@@ -234,7 +238,7 @@ impl SecretStorage {
         let row = sqlx::query(
             r#"
             SELECT COUNT(*) as count FROM e2ee_secret_storage_keys WHERE user_id = $1
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_one(&self.pool)

@@ -13,14 +13,10 @@ use x25519_dalek::{PublicKey, StaticSecret};
 type HmacSha256 = Hmac<Sha256>;
 
 const SAS_EMOJIS: &[&str; 64] = &[
-    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼",
-    "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
-    "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺",
-    "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞",
-    "🐜", "🦟", "🦗", "🕷", "🦂", "🐢", "🐍", "🦎",
-    "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡",
-    "🐠", "🐟", "🐬", "🐳", "🦈", "🐊", "🐅", "🐆",
-    "🦓", "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫",
+    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
+    "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞",
+    "🐜", "🦟", "🦗", "🕷", "🦂", "🐢", "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡",
+    "🐠", "🐟", "🐬", "🐳", "🦈", "🐊", "🐅", "🐆", "🦓", "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫",
 ];
 
 pub struct VerificationService {
@@ -45,10 +41,10 @@ impl VerificationService {
         let mut rng = rand::thread_rng();
         let secret = StaticSecret::random_from_rng(&mut rng);
         let public = PublicKey::from(&secret);
-        
+
         let secret_bytes = secret.as_bytes();
         let public_bytes = public.as_bytes();
-        
+
         (
             base64::engine::general_purpose::STANDARD.encode(secret_bytes),
             base64::engine::general_purpose::STANDARD.encode(public_bytes),
@@ -56,27 +52,31 @@ impl VerificationService {
     }
 
     /// Compute shared secret from our secret and their public key
-    pub fn compute_shared_secret(&self, our_secret: &str, their_public: &str) -> Result<[u8; 32], ApiError> {
+    pub fn compute_shared_secret(
+        &self,
+        our_secret: &str,
+        their_public: &str,
+    ) -> Result<[u8; 32], ApiError> {
         let secret_bytes = base64::engine::general_purpose::STANDARD
             .decode(our_secret)
             .map_err(|e| ApiError::internal(format!("Invalid secret key: {}", e)))?;
-        
+
         let public_bytes = base64::engine::general_purpose::STANDARD
             .decode(their_public)
             .map_err(|e| ApiError::internal(format!("Invalid public key: {}", e)))?;
-        
+
         if secret_bytes.len() != 32 || public_bytes.len() != 32 {
             return Err(ApiError::internal("Invalid key length".to_string()));
         }
-        
+
         let mut secret_array = [0u8; 32];
         secret_array.copy_from_slice(&secret_bytes);
         let our_secret = StaticSecret::from(secret_array);
-        
+
         let mut public_array = [0u8; 32];
         public_array.copy_from_slice(&public_bytes);
         let their_public = PublicKey::from(public_array);
-        
+
         let shared_secret = our_secret.diffie_hellman(&their_public);
         Ok(*shared_secret.as_bytes())
     }
@@ -84,27 +84,32 @@ impl VerificationService {
     /// Derive SAS bytes from shared secret
     pub fn derive_sas(&self, shared_secret: &[u8; 32], info: &str) -> [u8; 6] {
         use sha2::{Digest, Sha256};
-        
+
         let mut hasher = Sha256::new();
         hasher.update(shared_secret);
         hasher.update(info.as_bytes());
         let result = hasher.finalize();
-        
+
         let mut sas_bytes = [0u8; 6];
         sas_bytes.copy_from_slice(&result[..6]);
         sas_bytes
     }
 
     /// Compute MAC for device keys
-    pub fn compute_mac(&self, keys: &[String], shared_secret: &[u8; 32], info: &str) -> Result<String, ApiError> {
+    pub fn compute_mac(
+        &self,
+        keys: &[String],
+        shared_secret: &[u8; 32],
+        info: &str,
+    ) -> Result<String, ApiError> {
         let mut mac = HmacSha256::new_from_slice(shared_secret)
             .map_err(|e| ApiError::internal(format!("MAC error: {}", e)))?;
-        
+
         for key in keys {
             mac.update(key.as_bytes());
         }
         mac.update(info.as_bytes());
-        
+
         let result = mac.finalize();
         Ok(base64::engine::general_purpose::STANDARD.encode(result.into_bytes()))
     }
@@ -173,7 +178,7 @@ impl VerificationService {
     ) -> Result<SasData, ApiError> {
         // Generate a random key for now
         let pubkey = generate_transaction_id();
-        
+
         let sas_data = SasData {
             transaction_id: transaction_id.to_string(),
             method: "m.sas.v1".to_string(),
@@ -198,9 +203,8 @@ impl VerificationService {
         rng.fill(&mut sas_bytes);
 
         // Calculate decimal (6 digits)
-        let decimal = ((sas_bytes[0] as u32) << 16) 
-            | ((sas_bytes[1] as u32) << 8) 
-            | (sas_bytes[2] as u32);
+        let decimal =
+            ((sas_bytes[0] as u32) << 16) | ((sas_bytes[1] as u32) << 8) | (sas_bytes[2] as u32);
         let _decimal = (decimal % 900000) + 100000;
 
         // Generate emoji list (7 emojis)
@@ -219,11 +223,7 @@ impl VerificationService {
     }
 
     /// Confirm SAS verification
-    pub async fn confirm_sas(
-        &self,
-        _transaction_id: &str,
-        _mac: &str,
-    ) -> Result<bool, ApiError> {
+    pub async fn confirm_sas(&self, _transaction_id: &str, _mac: &str) -> Result<bool, ApiError> {
         // Simplified confirmation
         Ok(true)
     }
@@ -236,7 +236,12 @@ impl VerificationService {
         reason: &str,
     ) -> Result<(), ApiError> {
         self.storage.delete_request(transaction_id).await?;
-        tracing::info!("Verification {} cancelled: {} - {}", transaction_id, code, reason);
+        tracing::info!(
+            "Verification {} cancelled: {} - {}",
+            transaction_id,
+            code,
+            reason
+        );
         Ok(())
     }
 

@@ -933,8 +933,7 @@ mod tests {
         };
 
         assert!(
-            unlimited_token.max_uses == 0
-                || unlimited_token.uses_count < unlimited_token.max_uses
+            unlimited_token.max_uses == 0 || unlimited_token.uses_count < unlimited_token.max_uses
         );
         assert!(limited_token_available.uses_count < limited_token_available.max_uses);
         assert!(limited_token_exhausted.uses_count >= limited_token_exhausted.max_uses);

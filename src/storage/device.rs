@@ -139,18 +139,10 @@ impl DeviceStorage {
         .bind(device_id)
         .execute(&*self.pool)
         .await;
-        
+
         match result {
             Ok(_) => Ok(()),
-            Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("current transaction is aborted") {
-                    tracing::warn!("Connection in aborted transaction state in delete_device, attempting reset");
-                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
-                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
-                }
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -163,18 +155,10 @@ impl DeviceStorage {
         .bind(user_id)
         .execute(&*self.pool)
         .await;
-        
+
         match result {
             Ok(_) => Ok(()),
-            Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("current transaction is aborted") {
-                    tracing::warn!("Connection in aborted transaction state in delete_user_devices, attempting reset");
-                    let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
-                    let _ = sqlx::query("SELECT 1").execute(&*self.pool).await;
-                }
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 

@@ -22,18 +22,18 @@ server:
   warmup_pool: true
 
 database:
-  host: "synapse-postgres"
+  host: "db"
   port: 5432
   username: "synapse"
   password: "synapse"
   name: "synapse"
-  pool_size: 20
-  max_size: 50
-  min_idle: 5
-  connection_timeout: 30
+  pool_size: 10
+  max_size: 20
+  min_idle: 2
+  connection_timeout: 60
 
 redis:
-  host: "synapse-redis"
+  host: "redis"
   port: 6379
   key_prefix: "synapse:"
   pool_size: 10

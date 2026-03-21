@@ -10,7 +10,7 @@ fn test_get_user_notifications_request() {
         "from": 0,
         "limit": 20
     });
-    
+
     assert!(request.get("limit").is_some());
 }
 
@@ -26,7 +26,7 @@ fn test_notification_response() {
         "notification_type": "message",
         "is_read": false
     });
-    
+
     assert!(notification.get("notification_id").is_some());
     assert!(notification.get("user_id").is_some());
     assert!(notification.get("is_read").is_some());
@@ -40,7 +40,7 @@ fn test_notification_type_validation() {
     assert!(is_valid_notification_type("invite"));
     assert!(is_valid_notification_type("member"));
     assert!(is_valid_notification_type("reaction"));
-    
+
     // Invalid
     assert!(!is_valid_notification_type("invalid"));
 }
@@ -53,7 +53,7 @@ fn test_mark_as_read_request() {
         "room_id": "!room:localhost",
         "event_id": "$event:localhost"
     });
-    
+
     assert!(read.get("notification_id").is_some());
     assert!(read.get("room_id").is_some());
 }
@@ -65,7 +65,7 @@ fn test_mark_as_read_response() {
         "success": true,
         "notification_id": 1
     });
-    
+
     assert!(response.get("success").is_some());
     assert!(response["success"].as_bool().unwrap_or(false));
 }
@@ -76,7 +76,7 @@ fn test_dismiss_notification_request() {
     let dismiss = json!({
         "notification_id": 1
     });
-    
+
     assert!(dismiss.get("notification_id").is_some());
 }
 
@@ -87,7 +87,7 @@ fn test_dismiss_notification_response() {
         "dismissed": true,
         "notification_id": 1
     });
-    
+
     assert!(response.get("dismissed").is_some());
     assert!(response["dismissed"].as_bool().unwrap_or(false));
 }
@@ -98,7 +98,7 @@ fn test_mark_all_read_request() {
     let mark = json!({
         "room_id": "!room:localhost"
     });
-    
+
     assert!(mark.get("room_id").is_some());
 }
 
@@ -108,7 +108,7 @@ fn test_mark_all_read_response() {
     let response = json!({
         "updated": 5
     });
-    
+
     assert!(response.get("updated").is_some());
 }
 
@@ -121,7 +121,7 @@ fn test_list_all_notifications_request() {
         "from": 0,
         "limit": 50
     });
-    
+
     assert!(request.get("user_id").is_some());
     assert!(request.get("limit").is_some());
 }
@@ -138,7 +138,7 @@ fn test_create_notification_request() {
             "body": "New message"
         }
     });
-    
+
     assert!(notification.get("user_id").is_some());
     assert!(notification.get("room_id").is_some());
     assert!(notification.get("notification_type").is_some());
@@ -151,7 +151,7 @@ fn test_create_notification_response() {
         "notification_id": 1,
         "created": true
     });
-    
+
     assert!(response.get("notification_id").is_some());
     assert!(response.get("created").is_some());
 }
@@ -162,7 +162,7 @@ fn test_get_notification_request() {
     let request = json!({
         "notification_id": 1
     });
-    
+
     assert!(request.get("notification_id").is_some());
 }
 
@@ -174,7 +174,7 @@ fn test_update_notification_request() {
         "is_read": true,
         "notification_type": "mention"
     });
-    
+
     assert!(update.get("notification_id").is_some());
     assert!(update.get("is_read").is_some());
 }
@@ -185,7 +185,7 @@ fn test_delete_notification_request() {
     let delete = json!({
         "notification_id": 1
     });
-    
+
     assert!(delete.get("notification_id").is_some());
 }
 
@@ -196,7 +196,7 @@ fn test_delete_notification_response() {
         "deleted": true,
         "notification_id": 1
     });
-    
+
     assert!(response.get("deleted").is_some());
     assert!(response["deleted"].as_bool().unwrap_or(false));
 }
@@ -208,7 +208,7 @@ fn test_deactivate_notification_request() {
         "notification_id": 1,
         "reason": "User request"
     });
-    
+
     assert!(deactivate.get("notification_id").is_some());
 }
 
@@ -220,7 +220,7 @@ fn test_schedule_notification_request() {
         "scheduled_ts": 1700100000000_i64,
         "recurring": false
     });
-    
+
     assert!(schedule.get("notification_id").is_some());
     assert!(schedule.get("scheduled_ts").is_some());
 }
@@ -235,7 +235,7 @@ fn test_broadcast_notification_request() {
         },
         "notification_type": "alert"
     });
-    
+
     assert!(broadcast.get("room_id").is_some());
     assert!(broadcast.get("content").is_some());
 }
@@ -246,21 +246,19 @@ fn test_list_templates_request() {
     let request = json!({
         "template_type": "alert"
     });
-    
+
     assert!(request.get("template_type").is_some());
 }
 
 // Test 21: Templates response
 #[test]
 fn test_templates_response() {
-    let templates = vec![
-        json!({
-            "name": "welcome",
-            "template_type": "message",
-            "content": {}
-        })
-    ];
-    
+    let templates = vec![json!({
+        "name": "welcome",
+        "template_type": "message",
+        "content": {}
+    })];
+
     assert_eq!(templates.len(), 1);
     assert!(templates[0].get("name").is_some());
 }
@@ -275,7 +273,7 @@ fn test_create_template_request() {
             "body": "Welcome {{user}}"
         }
     });
-    
+
     assert!(template.get("name").is_some());
     assert!(template.get("template_type").is_some());
     assert!(template.get("content").is_some());
@@ -287,7 +285,7 @@ fn test_get_template_request() {
     let request = json!({
         "name": "welcome"
     });
-    
+
     assert!(request.get("name").is_some());
 }
 
@@ -297,7 +295,7 @@ fn test_delete_template_request() {
     let delete = json!({
         "name": "welcome"
     });
-    
+
     assert!(delete.get("name").is_some());
 }
 
@@ -311,12 +309,15 @@ fn test_create_from_template_request() {
             "user": "@user:localhost"
         }
     });
-    
+
     assert!(create.get("template_name").is_some());
     assert!(create.get("user_id").is_some());
 }
 
 // Helper functions
 fn is_valid_notification_type(notification_type: &str) -> bool {
-    matches!(notification_type, "message" | "invite" | "member" | "reaction" | "mention" | "alert" | "call")
+    matches!(
+        notification_type,
+        "message" | "invite" | "member" | "reaction" | "mention" | "alert" | "call"
+    )
 }

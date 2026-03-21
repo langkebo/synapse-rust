@@ -13,7 +13,7 @@ fn test_create_token_request() {
         "display_name": "Test Token",
         "expires_ts": 1700100000000_i64
     });
-    
+
     assert!(token.get("token").is_some());
     assert!(token.get("token_type").is_some());
     assert!(token.get("max_uses").is_some());
@@ -26,7 +26,7 @@ fn test_token_type_validation() {
     assert!(is_valid_token_type("single_use"));
     assert!(is_valid_token_type("recurring"));
     assert!(is_valid_token_type("one_time"));
-    
+
     // Invalid
     assert!(!is_valid_token_type("invalid"));
 }
@@ -39,7 +39,7 @@ fn test_create_token_response() {
         "token": "test_token_123",
         "created": true
     });
-    
+
     assert!(response.get("token_id").is_some());
     assert!(response.get("token").is_some());
 }
@@ -50,7 +50,7 @@ fn test_get_token_request() {
     let request = json!({
         "token": "test_token_123"
     });
-    
+
     assert!(request.get("token").is_some());
 }
 
@@ -60,7 +60,7 @@ fn test_get_token_by_id_request() {
     let request = json!({
         "id": 1
     });
-    
+
     assert!(request.get("id").is_some());
 }
 
@@ -77,7 +77,7 @@ fn test_token_response() {
         "is_enabled": true,
         "display_name": "Test Token"
     });
-    
+
     assert!(token.get("id").is_some());
     assert!(token.get("token").is_some());
     assert!(token.get("is_enabled").is_some());
@@ -91,7 +91,7 @@ fn test_update_token_request() {
         "is_enabled": true,
         "display_name": "Updated Token"
     });
-    
+
     assert!(update.get("max_uses").is_some());
     assert!(update.get("is_enabled").is_some());
 }
@@ -103,7 +103,7 @@ fn test_update_token_response() {
         "updated": true,
         "token_id": 1
     });
-    
+
     assert!(response.get("updated").is_some());
     assert!(response["updated"].as_bool().unwrap_or(false));
 }
@@ -114,7 +114,7 @@ fn test_delete_token_request() {
     let delete = json!({
         "token": "test_token_123"
     });
-    
+
     assert!(delete.get("token").is_some());
 }
 
@@ -125,7 +125,7 @@ fn test_delete_token_response() {
         "deleted": true,
         "token_id": 1
     });
-    
+
     assert!(response.get("deleted").is_some());
     assert!(response["deleted"].as_bool().unwrap_or(false));
 }
@@ -136,7 +136,7 @@ fn test_deactivate_token_request() {
     let deactivate = json!({
         "token": "test_token_123"
     });
-    
+
     assert!(deactivate.get("token").is_some());
 }
 
@@ -147,7 +147,7 @@ fn test_deactivate_token_response() {
         "deactivated": true,
         "token_id": 1
     });
-    
+
     assert!(response.get("deactivated").is_some());
 }
 
@@ -159,21 +159,19 @@ fn test_get_all_tokens_request() {
         "limit": 50,
         "is_enabled": true
     });
-    
+
     assert!(request.get("limit").is_some());
 }
 
 // Test 14: Get all tokens response
 #[test]
 fn test_get_all_tokens_response() {
-    let tokens = vec![
-        json!({
-            "id": 1,
-            "token": "test_token_123",
-            "is_enabled": true
-        })
-    ];
-    
+    let tokens = vec![json!({
+        "id": 1,
+        "token": "test_token_123",
+        "is_enabled": true
+    })];
+
     assert_eq!(tokens.len(), 1);
     assert!(tokens[0].get("token").is_some());
 }
@@ -185,20 +183,18 @@ fn test_get_active_tokens_request() {
         "from": 0,
         "limit": 20
     });
-    
+
     assert!(request.get("limit").is_some());
 }
 
 // Test 16: Get active tokens response
 #[test]
 fn test_get_active_tokens_response() {
-    let tokens = vec![
-        json!({
-            "token": "active_token",
-            "is_enabled": true
-        })
-    ];
-    
+    let tokens = vec![json!({
+        "token": "active_token",
+        "is_enabled": true
+    })];
+
     assert!(!tokens.is_empty());
 }
 
@@ -208,7 +204,7 @@ fn test_get_token_usage_request() {
     let request = json!({
         "token": "test_token_123"
     });
-    
+
     assert!(request.get("token").is_some());
 }
 
@@ -218,7 +214,7 @@ fn test_get_token_usage_by_id_request() {
     let request = json!({
         "id": 1
     });
-    
+
     assert!(request.get("id").is_some());
 }
 
@@ -235,7 +231,7 @@ fn test_token_usage_response() {
             }
         ]
     });
-    
+
     assert!(usage.get("uses_count").is_some());
     assert!(usage.get("usage_history").is_some());
 }
@@ -246,7 +242,7 @@ fn test_validate_token_request() {
     let validate = json!({
         "token": "test_token_123"
     });
-    
+
     assert!(validate.get("token").is_some());
 }
 
@@ -258,7 +254,7 @@ fn test_validate_token_response() {
         "token_id": 1,
         "allowed_user_ids": ["@user:localhost"]
     });
-    
+
     assert!(response.get("valid").is_some());
     assert!(response["valid"].as_bool().unwrap_or(false));
 }
@@ -270,7 +266,7 @@ fn test_invalid_token_response() {
         "valid": false,
         "error": "Token expired or used"
     });
-    
+
     assert!(response.get("valid").is_some());
     assert!(!response["valid"].as_bool().unwrap_or(true));
 }
@@ -284,7 +280,7 @@ fn test_create_batch_request() {
         "token_type": "single_use",
         "max_uses": 1
     });
-    
+
     assert!(batch.get("count").is_some());
     assert!(batch.get("prefix").is_some());
 }
@@ -296,7 +292,7 @@ fn test_create_batch_response() {
         "created": 10,
         "tokens": ["token_001", "token_002"]
     });
-    
+
     assert!(response.get("created").is_some());
     assert!(response.get("tokens").is_some());
 }
@@ -307,7 +303,7 @@ fn test_cleanup_expired_request() {
     let cleanup = json!({
         "dry_run": false
     });
-    
+
     assert!(cleanup.get("dry_run").is_some());
 }
 
@@ -318,7 +314,7 @@ fn test_cleanup_expired_response() {
         "cleaned": 5,
         "failed": 0
     });
-    
+
     assert!(response.get("cleaned").is_some());
     assert!(response.get("failed").is_some());
 }
@@ -331,7 +327,7 @@ fn test_create_room_invite_request() {
         "invite_code": "invite_code",
         "max_uses": 5
     });
-    
+
     assert!(invite.get("room_id").is_some());
     assert!(invite.get("invite_code").is_some());
 }
@@ -342,7 +338,7 @@ fn test_get_room_invite_request() {
     let request = json!({
         "invite_code": "invite_code"
     });
-    
+
     assert!(request.get("invite_code").is_some());
 }
 
@@ -355,7 +351,7 @@ fn test_room_invite_response() {
         "uses_count": 0,
         "max_uses": 5
     });
-    
+
     assert!(invite.get("invite_code").is_some());
     assert!(invite.get("room_id").is_some());
 }
@@ -366,7 +362,7 @@ fn test_use_room_invite_request() {
     let use_invite = json!({
         "invite_code": "invite_code"
     });
-    
+
     assert!(use_invite.get("invite_code").is_some());
 }
 
@@ -377,7 +373,7 @@ fn test_use_room_invite_response() {
         "used": true,
         "room_id": "!room:localhost"
     });
-    
+
     assert!(response.get("used").is_some());
     assert!(response["used"].as_bool().unwrap_or(false));
 }
@@ -388,7 +384,7 @@ fn test_revoke_room_invite_request() {
     let revoke = json!({
         "invite_code": "invite_code"
     });
-    
+
     assert!(revoke.get("invite_code").is_some());
 }
 
@@ -399,7 +395,7 @@ fn test_revoke_room_invite_response() {
         "revoked": true,
         "invite_code": "invite_code"
     });
-    
+
     assert!(response.get("revoked").is_some());
     assert!(response["revoked"].as_bool().unwrap_or(false));
 }

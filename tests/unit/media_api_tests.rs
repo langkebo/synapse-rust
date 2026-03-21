@@ -11,7 +11,7 @@ fn test_upload_media_request() {
         "content_type": "image/png",
         "size": 1024
     });
-    
+
     assert!(upload.get("filename").is_some());
     assert!(upload.get("content_type").is_some());
     assert!(upload.get("size").is_some());
@@ -27,7 +27,7 @@ fn test_content_type_validation() {
     assert!(is_valid_content_type("video/mp4"));
     assert!(is_valid_content_type("audio/ogg"));
     assert!(is_valid_content_type("application/octet-stream"));
-    
+
     // Invalid
     assert!(!is_valid_content_type("invalid"));
 }
@@ -39,7 +39,7 @@ fn test_upload_media_response() {
         "content_uri": "mxc://localhost/abc123",
         "media_id": "abc123"
     });
-    
+
     assert!(response.get("content_uri").is_some());
     assert!(response.get("media_id").is_some());
 }
@@ -52,7 +52,7 @@ fn test_media_config_response() {
         "max_image_pixels": 10000000,
         "max_video像素": 100000000
     });
-    
+
     assert!(config.get("m.upload.size").is_some());
 }
 
@@ -63,7 +63,7 @@ fn test_download_media_request() {
         "server_name": "localhost",
         "media_id": "abc123"
     });
-    
+
     assert!(request.get("server_name").is_some());
     assert!(request.get("media_id").is_some());
 }
@@ -74,7 +74,7 @@ fn test_mxc_uri_format() {
     // Valid MXC URIs
     assert!(is_valid_mxc_uri("mxc://localhost/abc123"));
     assert!(is_valid_mxc_uri("mxc://example.com/xyz789"));
-    
+
     // Invalid
     assert!(!is_valid_mxc_uri("http://localhost/image.png"));
     assert!(!is_valid_mxc_uri("invalid"));
@@ -88,7 +88,7 @@ fn test_download_media_with_filename_request() {
         "media_id": "abc123",
         "filename": "image.png"
     });
-    
+
     assert!(request.get("server_name").is_some());
     assert!(request.get("media_id").is_some());
     assert!(request.get("filename").is_some());
@@ -104,7 +104,7 @@ fn test_thumbnail_request() {
         "height": 100,
         "method": "scale"
     });
-    
+
     assert!(thumb.get("server_name").is_some());
     assert!(thumb.get("media_id").is_some());
     assert!(thumb.get("width").is_some());
@@ -117,7 +117,7 @@ fn test_thumbnail_method_validation() {
     // Valid methods
     assert!(is_valid_thumbnail_method("scale"));
     assert!(is_valid_thumbnail_method("crop"));
-    
+
     // Invalid
     assert!(!is_valid_thumbnail_method("invalid"));
 }
@@ -129,7 +129,7 @@ fn test_preview_url_request() {
         "url": "https://example.com",
         "ts": 1700000000000_i64
     });
-    
+
     assert!(preview.get("url").is_some());
 }
 
@@ -139,7 +139,7 @@ fn test_url_format_validation() {
     // Valid URLs
     assert!(is_valid_url("https://example.com"));
     assert!(is_valid_url("http://localhost:8080"));
-    
+
     // Invalid
     assert!(!is_valid_url("not-a-url"));
 }
@@ -154,7 +154,7 @@ fn test_preview_url_response() {
             "url": "https://example.com/image.png"
         }
     });
-    
+
     assert!(response.get("og:title").is_some());
 }
 
@@ -165,7 +165,7 @@ fn test_delete_media_request() {
         "server_name": "localhost",
         "media_id": "abc123"
     });
-    
+
     assert!(delete.get("server_name").is_some());
     assert!(delete.get("media_id").is_some());
 }
@@ -177,7 +177,7 @@ fn test_delete_media_response() {
         "deleted": true,
         "media_id": "abc123"
     });
-    
+
     assert!(response.get("deleted").is_some());
     assert!(response["deleted"].as_bool().unwrap_or(false));
 }
@@ -189,7 +189,7 @@ fn test_media_id_format() {
     assert!(is_valid_media_id("abc123"));
     assert!(is_valid_media_id("ABCDEF123456"));
     assert!(is_valid_media_id(""));
-    
+
     // Empty is allowed for query
     assert!(is_valid_media_id("valid_id"));
 }
@@ -201,7 +201,7 @@ fn test_server_name_format() {
     assert!(is_valid_server_name("localhost"));
     assert!(is_valid_server_name("example.com"));
     assert!(is_valid_server_name("matrix.org"));
-    
+
     // Invalid
     assert!(!is_valid_server_name(""));
 }
@@ -214,7 +214,7 @@ fn test_upload_with_id_request() {
         "media_id": "custom_id",
         "filename": "image.png"
     });
-    
+
     assert!(upload.get("server_name").is_some());
     assert!(upload.get("media_id").is_some());
 }
@@ -226,18 +226,18 @@ fn test_media_size_validation() {
     assert!(is_valid_media_size(0));
     assert!(is_valid_media_size(50000000));
     assert!(is_valid_media_size(100000000));
-    
+
     // Invalid sizes
     assert!(!is_valid_media_size(-1));
 }
 
 // Helper functions
 fn is_valid_content_type(content_type: &str) -> bool {
-    content_type.starts_with("image/") || 
-    content_type.starts_with("video/") || 
-    content_type.starts_with("audio/") ||
-    content_type == "application/octet-stream" ||
-    content_type == "application/json"
+    content_type.starts_with("image/")
+        || content_type.starts_with("video/")
+        || content_type.starts_with("audio/")
+        || content_type == "application/octet-stream"
+        || content_type == "application/json"
 }
 
 fn is_valid_mxc_uri(uri: &str) -> bool {

@@ -122,7 +122,7 @@ impl SlidingSyncStorage {
         let expires_at = now + 7 * 24 * 3600 * 1000;
 
         let token = uuid::Uuid::new_v4().to_string();
-        
+
         sqlx::query_as::<_, SlidingSyncToken>(
             r#"
             INSERT INTO sliding_sync_tokens (user_id, device_id, token, conn_id, pos, created_ts, expires_at)
@@ -199,7 +199,8 @@ impl SlidingSyncStorage {
     ) -> Result<SlidingSyncList, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let sort_json = serde_json::to_value(sort).unwrap_or(serde_json::json!([]));
-        let filters_json = filters.map(|f| serde_json::to_value(f).unwrap_or(serde_json::json!({})));
+        let filters_json =
+            filters.map(|f| serde_json::to_value(f).unwrap_or(serde_json::json!({})));
         let ranges_json = serde_json::to_value(ranges).unwrap_or(serde_json::json!([]));
 
         sqlx::query_as::<_, SlidingSyncList>(

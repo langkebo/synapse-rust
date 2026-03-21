@@ -46,7 +46,7 @@ impl KeyRequestStorage {
                    action, created_ts, is_fulfilled, fulfilled_by_device, fulfilled_ts
             FROM e2ee_key_requests
             WHERE request_id = $1
-            "#
+            "#,
         )
         .bind(request_id)
         .fetch_optional(&self.pool)
@@ -80,7 +80,7 @@ impl KeyRequestStorage {
             WHERE user_id = $1 AND is_fulfilled = FALSE
             ORDER BY created_ts DESC
             LIMIT 100
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -114,7 +114,7 @@ impl KeyRequestStorage {
             WHERE is_fulfilled = FALSE
             ORDER BY created_ts DESC
             LIMIT 100
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await
@@ -146,7 +146,7 @@ impl KeyRequestStorage {
             UPDATE e2ee_key_requests 
             SET is_fulfilled = TRUE, fulfilled_by_device = $2, fulfilled_ts = $3
             WHERE request_id = $1
-            "#
+            "#,
         )
         .bind(request_id)
         .bind(device_id)
@@ -164,7 +164,7 @@ impl KeyRequestStorage {
             UPDATE e2ee_key_requests 
             SET action = 'cancellation', is_fulfilled = TRUE
             WHERE request_id = $1
-            "#
+            "#,
         )
         .bind(request_id)
         .execute(&self.pool)
@@ -178,7 +178,7 @@ impl KeyRequestStorage {
         sqlx::query(
             r#"
             DELETE FROM e2ee_key_requests WHERE request_id = $1
-            "#
+            "#,
         )
         .bind(request_id)
         .execute(&self.pool)
@@ -193,7 +193,7 @@ impl KeyRequestStorage {
             r#"
             DELETE FROM e2ee_key_requests 
             WHERE is_fulfilled = TRUE AND fulfilled_ts < $1
-            "#
+            "#,
         )
         .bind(older_than_ts)
         .execute(&self.pool)

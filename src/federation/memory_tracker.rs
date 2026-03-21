@@ -40,7 +40,9 @@ impl MemoryStats {
         let new_current = self.current_size.fetch_add(size, Ordering::SeqCst) + size;
         self.operation_count.fetch_add(1, Ordering::SeqCst);
 
-        let mut last_time = self.last_operation_time.write()
+        let mut last_time = self
+            .last_operation_time
+            .write()
             .expect("RwLock should not be poisoned");
         *last_time = Instant::now();
         drop(last_time);

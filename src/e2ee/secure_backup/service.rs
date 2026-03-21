@@ -3,11 +3,11 @@
 
 use crate::e2ee::secure_backup::models::*;
 use crate::error::ApiError;
-use argon2::{Argon2, Params, Version};
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Nonce,
 };
+use argon2::{Argon2, Params, Version};
 use base64::Engine;
 use rand::RngCore;
 use sqlx::PgPool;
@@ -88,7 +88,7 @@ impl SecureBackupService {
     ) -> Result<i64, ApiError> {
         // 1. Get backup auth data
         let auth_data_str: Option<String> = sqlx::query_scalar(
-            "SELECT auth_data FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2"
+            "SELECT auth_data FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
         )
         .bind(user_id)
         .bind(backup_id)
@@ -97,19 +97,21 @@ impl SecureBackupService {
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
-        let auth_data_str = auth_data_str.ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
+        let auth_data_str =
+            auth_data_str.ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
         let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str)
             .map_err(|e| ApiError::internal(format!("Invalid auth data: {}", e)))?;
 
         // 2. Derive key
-        let salt_bytes = base64::engine::general_purpose::STANDARD.decode(&auth_data.salt)
+        let salt_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&auth_data.salt)
             .map_err(|e| ApiError::internal(format!("Invalid salt: {}", e)))?;
-        
+
         let key = self.derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
 
         // 3. Encrypt and store each session key
         let mut key_count = 0i64;
-        
+
         for session_key in session_keys {
             // Encrypt session key
             let encrypted = self.encrypt_aes_gcm(&key, session_key.session_key.as_bytes())?;
@@ -174,15 +176,16 @@ impl SecureBackupService {
             .map_err(|e| ApiError::internal(format!("Invalid auth data: {}", e)))?;
 
         // 2. Derive key
-        let salt_bytes = base64::engine::general_purpose::STANDARD.decode(&auth_data.salt)
+        let salt_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&auth_data.salt)
             .map_err(|e| ApiError::internal(format!("Invalid salt: {}", e)))?;
-        
+
         let key = self.derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
 
         // 3. Get all encrypted session keys
         let encrypted_keys: Vec<(String, String)> = sqlx::query_as(
             "SELECT session_id, encrypted_key FROM secure_backup_session_keys 
-             WHERE user_id = $1 AND backup_id = $2"
+             WHERE user_id = $1 AND backup_id = $2",
         )
         .bind(user_id)
         .bind(backup_id)
@@ -236,7 +239,7 @@ impl SecureBackupService {
     ) -> Result<Option<SecureBackupResponse>, ApiError> {
         let result = sqlx::query_as::<_, SqlxSecureBackup>(
             "SELECT backup_id, version, algorithm, auth_data, key_count 
-             FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2"
+             FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
         )
         .bind(user_id)
         .bind(backup_id)
@@ -262,13 +265,10 @@ impl SecureBackupService {
     }
 
     /// List all backups for user
-    pub async fn list_backups(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<SecureBackupResponse>, ApiError> {
+    pub async fn list_backups(&self, user_id: &str) -> Result<Vec<SecureBackupResponse>, ApiError> {
         let results = sqlx::query_as::<_, SqlxSecureBackup>(
             "SELECT backup_id, version, algorithm, auth_data, key_count 
-             FROM secure_key_backups WHERE user_id = $1 ORDER BY created_at DESC"
+             FROM secure_key_backups WHERE user_id = $1 ORDER BY created_at DESC",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -293,11 +293,7 @@ impl SecureBackupService {
     }
 
     /// Delete backup
-    pub async fn delete_backup(
-        &self,
-        user_id: &str,
-        backup_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_backup(&self, user_id: &str, backup_id: &str) -> Result<(), ApiError> {
         // Delete session keys first
         sqlx::query("DELETE FROM secure_backup_session_keys WHERE user_id = $1 AND backup_id = $2")
             .bind(user_id)
@@ -330,9 +326,9 @@ impl SecureBackupService {
     ) -> Result<[u8; 32], ApiError> {
         let params = Params::new(65536, 3, 4, Some(32))
             .map_err(|e| ApiError::internal(format!("Argon2 params error: {}", e)))?;
-        
+
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
-        
+
         let mut key = [0u8; 32];
         argon2
             .hash_password_into(passphrase.as_bytes(), salt, &mut key)
@@ -375,9 +371,9 @@ impl SecureBackupService {
         let nonce = Nonce::from_slice(&ciphertext[..12]);
         let encrypted = &ciphertext[12..];
 
-        cipher
-            .decrypt(nonce, encrypted)
-            .map_err(|_| ApiError::unauthorized("Decryption failed - invalid passphrase".to_string()))
+        cipher.decrypt(nonce, encrypted).map_err(|_| {
+            ApiError::unauthorized("Decryption failed - invalid passphrase".to_string())
+        })
     }
 }
 

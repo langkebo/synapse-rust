@@ -33,8 +33,7 @@ impl EventAuthChain {
                     .expect("AUTH_CHAIN_CACHE_SIZE is non-zero"),
             ))),
             depth_cache: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(DEPTH_CACHE_SIZE)
-                    .expect("DEPTH_CACHE_SIZE is non-zero"),
+                NonZeroUsize::new(DEPTH_CACHE_SIZE).expect("DEPTH_CACHE_SIZE is non-zero"),
             ))),
         }
     }

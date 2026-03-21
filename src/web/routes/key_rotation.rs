@@ -12,7 +12,7 @@ pub async fn get_key_rotation_status(
     _auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let config = &state.services.config.federation;
-    
+
     Ok(Json(json!({
         "enabled": true,
         "interval_ms": config.key_rotation_grace_period_ms,
@@ -135,8 +135,14 @@ pub async fn configure_key_rotation(
     _auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let enabled = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
-    let interval_days = body.get("interval_days").and_then(|v| v.as_i64()).unwrap_or(30);
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let interval_days = body
+        .get("interval_days")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(30);
 
     Ok(Json(json!({
         "enabled": enabled,
@@ -160,8 +166,12 @@ pub async fn check_needs_rotation(
     .map_err(|e| ApiError::internal(format!("Failed: {}", e)))?;
 
     let now = Utc::now().timestamp_millis();
-    let interval_ms = state.services.config.federation.key_rotation_grace_period_ms;
-    
+    let interval_ms = state
+        .services
+        .config
+        .federation
+        .key_rotation_grace_period_ms;
+
     let needs_rotation = match last_rotation {
         Some(last) => now - last > interval_ms as i64,
         None => true,
@@ -176,11 +186,26 @@ pub async fn check_needs_rotation(
 
 pub fn create_key_rotation_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/v1/keys/rotation/status", get(get_key_rotation_status))
+        .route(
+            "/_matrix/client/v1/keys/rotation/status",
+            get(get_key_rotation_status),
+        )
         .route("/_matrix/client/v1/keys/rotation/rotate", post(rotate_keys))
-        .route("/_matrix/client/v1/keys/rotation/history/{device_id}", get(get_rotation_history))
-        .route("/_matrix/client/v1/keys/rotation/revoke", post(revoke_old_keys))
-        .route("/_matrix/client/v1/keys/rotation/config", put(configure_key_rotation))
-        .route("/_matrix/client/v1/keys/rotation/check", get(check_needs_rotation))
+        .route(
+            "/_matrix/client/v1/keys/rotation/history/{device_id}",
+            get(get_rotation_history),
+        )
+        .route(
+            "/_matrix/client/v1/keys/rotation/revoke",
+            post(revoke_old_keys),
+        )
+        .route(
+            "/_matrix/client/v1/keys/rotation/config",
+            put(configure_key_rotation),
+        )
+        .route(
+            "/_matrix/client/v1/keys/rotation/check",
+            get(check_needs_rotation),
+        )
         .with_state(state)
 }

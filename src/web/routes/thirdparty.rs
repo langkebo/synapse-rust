@@ -60,10 +60,7 @@ pub fn create_thirdparty_router(state: AppState) -> Router<AppState> {
             "/_matrix/client/v3/thirdparty/user/{protocol}",
             get(get_user),
         )
-        .route(
-            "/_matrix/client/v3/thirdparty/user",
-            get(get_user_by_id),
-        )
+        .route("/_matrix/client/v3/thirdparty/user", get(get_user_by_id))
         .route(
             "/_matrix/client/r0/thirdparty/protocols",
             get(get_protocols),

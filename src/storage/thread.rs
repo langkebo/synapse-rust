@@ -538,7 +538,7 @@ impl ThreadStorage {
         user_id: &str,
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         sqlx::query(
             r#"
             INSERT INTO thread_read_receipts (

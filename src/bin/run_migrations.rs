@@ -37,8 +37,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        print!("[{}/{}] 执行: {:.60}... ", i + 1, total, 
-            trimmed.lines().next().unwrap_or("").trim());
+        print!(
+            "[{}/{}] 执行: {:.60}... ",
+            i + 1,
+            total,
+            trimmed.lines().next().unwrap_or("").trim()
+        );
 
         match sqlx::query(trimmed).execute(&pool).await {
             Ok(_) => {
@@ -47,9 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(e) => {
                 let error_msg = e.to_string();
-                if error_msg.contains("already exists") 
+                if error_msg.contains("already exists")
                     || error_msg.contains("duplicate key")
-                    || error_msg.contains("relation") && error_msg.contains("already exists") {
+                    || error_msg.contains("relation") && error_msg.contains("already exists")
+                {
                     println!("⚠️  (已存在)");
                     success += 1;
                 } else {

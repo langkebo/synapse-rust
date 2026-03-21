@@ -13,7 +13,7 @@ fn test_worker_registration() {
         "host": "localhost",
         "port": 8080
     });
-    
+
     assert!(worker.get("worker_id").is_some());
     assert!(worker.get("worker_name").is_some());
     assert!(worker.get("worker_type").is_some());
@@ -29,7 +29,7 @@ fn test_worker_type_validation() {
     assert!(is_valid_worker_type("event_persister"));
     assert!(is_valid_worker_type("presence"));
     assert!(is_valid_worker_type("typing"));
-    
+
     // Invalid
     assert!(!is_valid_worker_type("invalid"));
     assert!(!is_valid_worker_type(""));
@@ -48,7 +48,7 @@ fn test_worker_response() {
         "last_heartbeat_ts": 1700000000000_i64,
         "started_ts": 1699900000000_i64
     });
-    
+
     assert!(worker.get("worker_id").is_some());
     assert!(worker.get("worker_name").is_some());
     assert!(worker.get("worker_type").is_some());
@@ -64,7 +64,7 @@ fn test_worker_status_validation() {
     assert!(is_valid_status("stopping"));
     assert!(is_valid_status("stopped"));
     assert!(is_valid_status("error"));
-    
+
     // Invalid
     assert!(!is_valid_status("invalid"));
 }
@@ -80,9 +80,9 @@ fn test_worker_list_response() {
         json!({
             "worker_id": "worker2",
             "status": "stopped"
-        })
+        }),
     ];
-    
+
     assert_eq!(workers.len(), 2);
 }
 
@@ -93,7 +93,7 @@ fn test_worker_heartbeat() {
         "worker_id": "worker1",
         "status": "running"
     });
-    
+
     assert!(heartbeat.get("worker_id").is_some());
     assert!(heartbeat.get("status").is_some());
 }
@@ -105,7 +105,7 @@ fn test_worker_heartbeat_response() {
         "received": true,
         "timestamp": 1700000000000_i64
     });
-    
+
     assert!(response.get("received").is_some());
     assert!(response.get("timestamp").is_some());
 }
@@ -117,7 +117,7 @@ fn test_worker_unregistration() {
         "unregistered": true,
         "worker_id": "worker1"
     });
-    
+
     assert!(result.get("unregistered").is_some());
     assert!(result["unregistered"].as_bool().unwrap_or(false));
 }
@@ -131,7 +131,7 @@ fn test_worker_command_request() {
             "room_id": "!room:localhost"
         }
     });
-    
+
     assert!(command.get("command_type").is_some());
     assert!(command.get("payload").is_some());
 }
@@ -144,7 +144,7 @@ fn test_command_type_validation() {
     assert!(is_valid_command_type("fetch"));
     assert!(is_valid_command_type("send"));
     assert!(is_valid_command_type("drain"));
-    
+
     // Invalid
     assert!(!is_valid_command_type("invalid"));
 }
@@ -158,7 +158,7 @@ fn test_command_response() {
         "worker_id": "worker1",
         "status": "pending"
     });
-    
+
     assert!(command.get("command_id").is_some());
     assert!(command.get("command_type").is_some());
     assert!(command.get("status").is_some());
@@ -167,14 +167,12 @@ fn test_command_response() {
 // Test 12: Pending commands response
 #[test]
 fn test_pending_commands_response() {
-    let commands = vec![
-        json!({
-            "command_id": "cmd1",
-            "command_type": "sync",
-            "status": "pending"
-        })
-    ];
-    
+    let commands = vec![json!({
+        "command_id": "cmd1",
+        "command_type": "sync",
+        "status": "pending"
+    })];
+
     assert_eq!(commands.len(), 1);
     assert!(commands[0].get("status").is_some());
 }
@@ -188,7 +186,7 @@ fn test_complete_command_request() {
             "success": true
         }
     });
-    
+
     assert!(complete.get("command_id").is_some());
     assert!(complete.get("result").is_some());
 }
@@ -200,7 +198,7 @@ fn test_fail_command_request() {
         "command_id": "cmd123",
         "error": "Command failed"
     });
-    
+
     assert!(fail.get("command_id").is_some());
     assert!(fail.get("error").is_some());
 }
@@ -214,7 +212,7 @@ fn test_task_assignment() {
             "event_id": "$event:localhost"
         }
     });
-    
+
     assert!(task.get("task_type").is_some());
     assert!(task.get("payload").is_some());
 }
@@ -227,7 +225,7 @@ fn test_task_type_validation() {
     assert!(is_valid_task_type("sync"));
     assert!(is_valid_task_type("federation"));
     assert!(is_valid_task_type("presence"));
-    
+
     // Invalid
     assert!(!is_valid_task_type("invalid"));
 }
@@ -235,14 +233,12 @@ fn test_task_type_validation() {
 // Test 17: Pending tasks response
 #[test]
 fn test_pending_tasks_response() {
-    let tasks = vec![
-        json!({
-            "task_id": "task1",
-            "task_type": "event_processing",
-            "status": "pending"
-        })
-    ];
-    
+    let tasks = vec![json!({
+        "task_id": "task1",
+        "task_type": "event_processing",
+        "status": "pending"
+    })];
+
     assert_eq!(tasks.len(), 1);
     assert!(tasks[0].get("task_type").is_some());
 }
@@ -254,7 +250,7 @@ fn test_claim_task_request() {
         "task_id": "task1",
         "worker_id": "worker1"
     });
-    
+
     assert!(claim.get("task_id").is_some());
     assert!(claim.get("worker_id").is_some());
 }
@@ -268,7 +264,7 @@ fn test_complete_task_request() {
             "processed": 10
         }
     });
-    
+
     assert!(complete.get("task_id").is_some());
     assert!(complete.get("result").is_some());
 }
@@ -280,7 +276,7 @@ fn test_worker_connect_request() {
         "worker_id": "worker1",
         "endpoint": "ws://localhost:8080"
     });
-    
+
     assert!(connect.get("worker_id").is_some());
     assert!(connect.get("endpoint").is_some());
 }
@@ -292,7 +288,7 @@ fn test_worker_disconnect_request() {
         "worker_id": "worker1",
         "reason": "Maintenance"
     });
-    
+
     assert!(disconnect.get("worker_id").is_some());
 }
 
@@ -304,7 +300,7 @@ fn test_replication_position_response() {
         "worker_id": "worker1",
         "timestamp": 1700000000000_i64
     });
-    
+
     assert!(position.get("stream_id").is_some());
     assert!(position.get("worker_id").is_some());
 }
@@ -323,7 +319,7 @@ fn test_worker_statistics() {
             "client": 2
         }
     });
-    
+
     assert!(stats.get("total_workers").is_some());
     assert!(stats.get("running").is_some());
     assert!(stats.get("by_type").is_some());
@@ -338,18 +334,24 @@ fn test_worker_type_statistics() {
         "running": 4,
         "stopped": 1
     });
-    
+
     assert!(stats.get("worker_type").is_some());
     assert!(stats.get("count").is_some());
 }
 
 // Helper functions
 fn is_valid_worker_type(worker_type: &str) -> bool {
-    matches!(worker_type, "synapse" | "federation" | "client" | "event_persister" | "presence" | "typing")
+    matches!(
+        worker_type,
+        "synapse" | "federation" | "client" | "event_persister" | "presence" | "typing"
+    )
 }
 
 fn is_valid_status(status: &str) -> bool {
-    matches!(status, "starting" | "running" | "stopping" | "stopped" | "error")
+    matches!(
+        status,
+        "starting" | "running" | "stopping" | "stopped" | "error"
+    )
 }
 
 fn is_valid_command_type(command_type: &str) -> bool {
@@ -357,5 +359,8 @@ fn is_valid_command_type(command_type: &str) -> bool {
 }
 
 fn is_valid_task_type(task_type: &str) -> bool {
-    matches!(task_type, "event_processing" | "sync" | "federation" | "presence")
+    matches!(
+        task_type,
+        "event_processing" | "sync" | "federation" | "presence"
+    )
 }

@@ -11,15 +11,42 @@ use sqlx::Row;
 
 pub fn create_token_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_synapse/admin/v1/registration_tokens", get(get_registration_tokens))
-        .route("/_synapse/admin/v1/registration_tokens", post(create_registration_token))
-        .route("/_synapse/admin/v1/registration_tokens/{token}", get(get_registration_token))
-        .route("/_synapse/admin/v1/registration_tokens/{token}", delete(delete_registration_token))
-        .route("/_synapse/admin/v1/registration_tokens/{token}", post(update_registration_token))
-        .route("/_synapse/admin/v1/users/{user_id}/tokens", get(get_user_tokens))
-        .route("/_synapse/admin/v1/users/{user_id}/tokens/{token_id}", delete(delete_user_token))
-        .route("/_synapse/admin/v1/users/{user_id}/refresh_tokens", get(get_user_refresh_tokens))
-        .route("/_synapse/admin/v1/users/{user_id}/refresh_tokens/{token_id}", delete(delete_refresh_token))
+        .route(
+            "/_synapse/admin/v1/registration_tokens",
+            get(get_registration_tokens),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens",
+            post(create_registration_token),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/{token}",
+            get(get_registration_token),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/{token}",
+            delete(delete_registration_token),
+        )
+        .route(
+            "/_synapse/admin/v1/registration_tokens/{token}",
+            post(update_registration_token),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/tokens",
+            get(get_user_tokens),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/tokens/{token_id}",
+            delete(delete_user_token),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/refresh_tokens",
+            get(get_user_refresh_tokens),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/refresh_tokens/{token_id}",
+            delete(delete_refresh_token),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,9 +99,9 @@ pub async fn create_registration_token(
     Json(body): Json<CreateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let now = chrono::Utc::now().timestamp_millis();
-    let token = body.token.unwrap_or_else(|| {
-        crate::common::random_string(body.length.unwrap_or(16))
-    });
+    let token = body
+        .token
+        .unwrap_or_else(|| crate::common::random_string(body.length.unwrap_or(16)));
 
     sqlx::query(
         "INSERT INTO registration_tokens (token, uses_allowed, pending, completed, expiry_time, created_ts) VALUES ($1, $2, 0, 0, $3, $4)"
@@ -200,7 +227,9 @@ pub async fn get_user_tokens(
         })
         .collect();
 
-    Ok(Json(json!({ "tokens": token_list, "total": token_list.len() })))
+    Ok(Json(
+        json!({ "tokens": token_list, "total": token_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]
@@ -250,7 +279,9 @@ pub async fn get_user_refresh_tokens(
         })
         .collect();
 
-    Ok(Json(json!({ "refresh_tokens": token_list, "total": token_list.len() })))
+    Ok(Json(
+        json!({ "refresh_tokens": token_list, "total": token_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]

@@ -16,12 +16,11 @@ use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
 static TEST_POOL: Lazy<Option<Arc<sqlx::PgPool>>> = Lazy::new(|| {
-    let database_url = match std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-    {
-        Ok(url) => url,
-        Err(_) => return None,
-    };
+    let database_url =
+        match std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL")) {
+            Ok(url) => url,
+            Err(_) => return None,
+        };
 
     let rt = tokio::runtime::Runtime::new().ok()?;
     let pool = rt.block_on(async {
@@ -192,8 +191,10 @@ async fn test_trusted_private_chat_transaction() {
         eprintln!("Skipping test: database not available");
         return;
     };
-    
-    let Some(alice_token) = register_user(&app, &format!("alice_tx_{}", rand::random::<u32>())).await else {
+
+    let Some(alice_token) =
+        register_user(&app, &format!("alice_tx_{}", rand::random::<u32>())).await
+    else {
         eprintln!("Skipping test: failed to register alice");
         return;
     };

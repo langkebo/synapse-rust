@@ -399,7 +399,10 @@ mod tests {
     fn test_valid_block_types() {
         let valid_types = vec!["blacklist", "whitelist", "quarantine"];
         for block_type in valid_types {
-            assert!(matches!(block_type, "blacklist" | "whitelist" | "quarantine"));
+            assert!(matches!(
+                block_type,
+                "blacklist" | "whitelist" | "quarantine"
+            ));
         }
     }
 
@@ -407,7 +410,10 @@ mod tests {
     fn test_valid_rule_types() {
         let valid_types = vec!["domain", "regex", "wildcard", "cidr"];
         for rule_type in valid_types {
-            assert!(matches!(rule_type, "domain" | "regex" | "wildcard" | "cidr"));
+            assert!(matches!(
+                rule_type,
+                "domain" | "regex" | "wildcard" | "cidr"
+            ));
         }
     }
 
@@ -415,7 +421,10 @@ mod tests {
     fn test_valid_actions() {
         let valid_actions = vec!["block", "allow", "quarantine", "rate_limit"];
         for action in valid_actions {
-            assert!(matches!(action, "block" | "allow" | "quarantine" | "rate_limit"));
+            assert!(matches!(
+                action,
+                "block" | "allow" | "quarantine" | "rate_limit"
+            ));
         }
     }
 

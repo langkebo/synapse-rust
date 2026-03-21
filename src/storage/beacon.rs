@@ -260,12 +260,11 @@ impl BeaconStorage {
         beacon_info_id: &str,
         location_ts: i64,
     ) -> Result<(), sqlx::Error> {
-        let beacon_info = sqlx::query_as::<_, BeaconInfo>(
-            "SELECT * FROM beacon_info WHERE event_id = $1",
-        )
-        .bind(beacon_info_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let beacon_info =
+            sqlx::query_as::<_, BeaconInfo>("SELECT * FROM beacon_info WHERE event_id = $1")
+                .bind(beacon_info_id)
+                .fetch_optional(&*self.pool)
+                .await?;
 
         if let Some(info) = beacon_info {
             if info.timeout > 0 {

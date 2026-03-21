@@ -16,7 +16,6 @@ pub struct RefreshToken {
     pub last_used_ts: Option<i64>,
     pub use_count: i32,
     pub is_revoked: bool,
-    pub revoked_at: Option<i64>,
     pub revoked_reason: Option<String>,
     pub client_info: Option<serde_json::Value>,
     pub ip_address: Option<String>,
@@ -66,7 +65,7 @@ pub struct TokenBlacklistEntry {
     pub token_hash: String,
     pub token_type: String,
     pub user_id: String,
-    pub revoked_at: i64,
+    pub is_revoked: bool,
     pub expires_at: Option<i64>,
     pub reason: Option<String>,
 }
@@ -248,19 +247,15 @@ impl RefreshTokenStorage {
     }
 
     pub async fn revoke_token(&self, token_hash: &str, reason: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
-
         sqlx::query(
             r#"
             UPDATE refresh_tokens SET
                 is_revoked = TRUE,
-                revoked_at = $2,
-                revoked_reason = $3
+                revoked_reason = $2
             WHERE token_hash = $1
             "#,
         )
         .bind(token_hash)
-        .bind(now)
         .bind(reason)
         .execute(&*self.pool)
         .await?;
@@ -269,19 +264,15 @@ impl RefreshTokenStorage {
     }
 
     pub async fn revoke_token_by_id(&self, id: i64, reason: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
-
         sqlx::query(
             r#"
             UPDATE refresh_tokens SET
                 is_revoked = TRUE,
-                revoked_at = $2,
-                revoked_reason = $3
+                revoked_reason = $2
             WHERE id = $1
             "#,
         )
         .bind(id)
-        .bind(now)
         .bind(reason)
         .execute(&*self.pool)
         .await?;
@@ -298,7 +289,6 @@ impl RefreshTokenStorage {
             r#"
             UPDATE refresh_tokens SET
                 is_revoked = TRUE,
-                revoked_at = EXTRACT(EPOCH FROM NOW()) * 1000,
                 revoked_reason = $2
             WHERE user_id = $1 AND is_revoked = FALSE
             "#,
@@ -482,19 +472,16 @@ impl RefreshTokenStorage {
         expires_at: i64,
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
-
         sqlx::query(
             r#"
-            INSERT INTO token_blacklist (token_hash, token_type, user_id, revoked_at, expires_at, reason)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO token_blacklist (token_hash, token_type, user_id, is_revoked, expires_at, reason)
+            VALUES ($1, $2, $3, TRUE, $4, $5)
             ON CONFLICT (token_hash) DO NOTHING
             "#,
         )
         .bind(token_hash)
         .bind(token_type)
         .bind(user_id)
-        .bind(now)
         .bind(expires_at)
         .bind(reason)
         .execute(&*self.pool)

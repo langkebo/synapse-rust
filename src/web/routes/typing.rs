@@ -4,7 +4,7 @@
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
-    routing::{get, put, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde_json::{json, Value};
@@ -19,7 +19,9 @@ pub async fn set_typing(
 ) -> Result<Json<Value>, ApiError> {
     // Verify user is the auth user or has permission
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden("Cannot set typing for other users".to_string()));
+        return Err(ApiError::forbidden(
+            "Cannot set typing for other users".to_string(),
+        ));
     }
 
     let _timeout = body
@@ -27,10 +29,7 @@ pub async fn set_typing(
         .and_then(|v| v.as_i64())
         .unwrap_or(30000);
 
-    let _is_typing = body
-        .get("typing")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+    let _is_typing = body.get("typing").and_then(|v| v.as_bool()).unwrap_or(true);
 
     Ok(Json(json!({})))
 }
@@ -70,8 +69,14 @@ pub async fn bulk_get_typing(
 
 pub fn create_typing_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/v3/rooms/{room_id}/typing/{user_id}", put(set_typing).get(get_user_typing))
-        .route("/_matrix/client/v3/rooms/{room_id}/typing", get(get_typing_users))
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
+            put(set_typing).get(get_user_typing),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/typing",
+            get(get_typing_users),
+        )
         .route("/_matrix/client/v3/rooms/typing", post(bulk_get_typing))
         .with_state(state)
 }

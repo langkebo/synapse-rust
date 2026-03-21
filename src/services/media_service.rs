@@ -53,7 +53,11 @@ pub struct MediaService {
 }
 
 impl MediaService {
-    pub fn new(media_path: &str, task_queue: Option<Arc<RedisTaskQueue>>, server_name: &str) -> Self {
+    pub fn new(
+        media_path: &str,
+        task_queue: Option<Arc<RedisTaskQueue>>,
+        server_name: &str,
+    ) -> Self {
         let path = PathBuf::from(media_path);
         let thumbnail_path = path.join("thumbnails");
 

@@ -12,7 +12,7 @@ fn test_event_report_creation() {
         "reason": "Spam",
         "description": "This is spam content"
     });
-    
+
     assert!(report.get("event_id").is_some());
     assert!(report.get("room_id").is_some());
     assert!(report.get("reason").is_some());
@@ -28,7 +28,7 @@ fn test_report_status_validation() {
     assert!(is_valid_report_status("resolved"));
     assert!(is_valid_report_status("dismissed"));
     assert!(is_valid_report_status("escalated"));
-    
+
     // Invalid
     assert!(!is_valid_report_status("invalid"));
 }
@@ -73,7 +73,7 @@ fn test_event_report_response() {
         "score": -100,
         "received_ts": 1700000000000_i64
     });
-    
+
     assert!(report.get("id").is_some());
     assert!(report.get("event_id").is_some());
     assert!(report.get("room_id").is_some());
@@ -93,23 +93,21 @@ fn test_event_report_list_response() {
             "id": 2,
             "reason": "Harassment",
             "status": "resolved"
-        })
+        }),
     ];
-    
+
     assert_eq!(reports.len(), 2);
 }
 
 // Test 8: Report by event response
 #[test]
 fn test_reports_by_event_response() {
-    let reports = vec![
-        json!({
-            "event_id": "$event:localhost",
-            "reason": "Spam",
-            "status": "open"
-        })
-    ];
-    
+    let reports = vec![json!({
+        "event_id": "$event:localhost",
+        "reason": "Spam",
+        "status": "open"
+    })];
+
     assert_eq!(reports.len(), 1);
     assert!(reports[0].get("event_id").is_some());
 }
@@ -117,14 +115,12 @@ fn test_reports_by_event_response() {
 // Test 9: Report by room response
 #[test]
 fn test_reports_by_room_response() {
-    let reports = vec![
-        json!({
-            "room_id": "!room:localhost",
-            "reason": "Spam",
-            "status": "open"
-        })
-    ];
-    
+    let reports = vec![json!({
+        "room_id": "!room:localhost",
+        "reason": "Spam",
+        "status": "open"
+    })];
+
     assert_eq!(reports.len(), 1);
     assert!(reports[0].get("room_id").is_some());
 }
@@ -138,7 +134,7 @@ fn test_report_resolution() {
         "resolved_by": "@admin:localhost",
         "resolution_reason": "False positive"
     });
-    
+
     assert!(resolution.get("status").is_some());
     assert!(resolution.get("resolved_at").is_some());
     assert!(resolution.get("resolved_by").is_some());
@@ -151,7 +147,7 @@ fn test_report_score_validation() {
     assert!(is_valid_score(-100));
     assert!(is_valid_score(-50));
     assert!(is_valid_score(0));
-    
+
     // Invalid
     assert!(!is_valid_score(-101));
     assert!(!is_valid_score(1));
@@ -160,16 +156,14 @@ fn test_report_score_validation() {
 // Test 12: Report history response
 #[test]
 fn test_report_history_response() {
-    let history = vec![
-        json!({
-            "report_id": 1,
-            "action": "status_change",
-            "old_status": "open",
-            "new_status": "investigating",
-            "timestamp": 1700000000000_i64
-        })
-    ];
-    
+    let history = vec![json!({
+        "report_id": 1,
+        "action": "status_change",
+        "old_status": "open",
+        "new_status": "investigating",
+        "timestamp": 1700000000000_i64
+    })];
+
     assert_eq!(history.len(), 1);
     assert!(history[0].get("action").is_some());
 }
@@ -184,7 +178,7 @@ fn test_report_statistics() {
         "resolved": 70,
         "dismissed": 5
     });
-    
+
     assert!(stats.get("total_reports").is_some());
     assert!(stats.get("open").is_some());
     assert!(stats.get("resolved").is_some());
@@ -198,7 +192,7 @@ fn test_report_rate_limit() {
         "remaining": 9,
         "reset_ts": 1700003600000_i64
     });
-    
+
     assert!(rate_limit.get("allowed").is_some());
     assert!(rate_limit.get("remaining").is_some());
 }
@@ -213,7 +207,7 @@ fn test_report_count_by_status() {
         "resolved": 70,
         "dismissed": 2
     });
-    
+
     assert!(counts.get("open").is_some());
     assert!(counts.get("resolved").is_some());
 }
@@ -226,14 +220,17 @@ fn test_report_dismissal() {
         "dismissed_by": "@moderator:localhost",
         "reason": "No violation found"
     });
-    
+
     assert!(dismissal.get("status").is_some());
     assert!(dismissal.get("dismissed_by").is_some());
 }
 
 // Helper functions
 fn is_valid_report_status(status: &str) -> bool {
-    matches!(status, "open" | "pending" | "investigating" | "resolved" | "dismissed" | "escalated")
+    matches!(
+        status,
+        "open" | "pending" | "investigating" | "resolved" | "dismissed" | "escalated"
+    )
 }
 
 fn is_valid_event_id(event_id: &str) -> bool {

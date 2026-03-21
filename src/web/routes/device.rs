@@ -10,18 +10,23 @@ pub async fn get_devices(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let devices = state.services.device_storage.get_user_devices(&auth_user.user_id)
+    let devices = state
+        .services
+        .device_storage
+        .get_user_devices(&auth_user.user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get devices: {}", e)))?;
 
     let device_list: Vec<Value> = devices
         .into_iter()
-        .map(|d| json!({
-            "device_id": d.device_id,
-            "display_name": d.display_name,
-            "last_seen_ts": d.last_seen_ts,
-            "last_seen_ip": d.last_seen_ip,
-        }))
+        .map(|d| {
+            json!({
+                "device_id": d.device_id,
+                "display_name": d.display_name,
+                "last_seen_ts": d.last_seen_ts,
+                "last_seen_ip": d.last_seen_ip,
+            })
+        })
         .collect();
 
     Ok(Json(json!({
@@ -34,7 +39,10 @@ pub async fn get_device(
     _auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let device = state.services.device_storage.get_device(&device_id)
+    let device = state
+        .services
+        .device_storage
+        .get_device(&device_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get device: {}", e)))?;
 
@@ -60,7 +68,10 @@ pub async fn update_device(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing display_name".to_string()))?;
 
-    state.services.device_storage.update_device_display_name(&device_id, display_name)
+    state
+        .services
+        .device_storage
+        .update_device_display_name(&device_id, display_name)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to update device: {}", e)))?;
 
@@ -72,7 +83,10 @@ pub async fn delete_device(
     _auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.device_storage.delete_device(&device_id)
+    state
+        .services
+        .device_storage
+        .delete_device(&device_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to delete device: {}", e)))?;
 
@@ -116,7 +130,11 @@ pub async fn get_device_list_updates(
     let mut left: Vec<String> = Vec::new();
 
     for user_id in &users {
-        let devices = state.services.device_storage.get_user_devices(user_id).await
+        let devices = state
+            .services
+            .device_storage
+            .get_user_devices(user_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to get devices: {}", e)))?;
 
         if devices.is_empty() {
@@ -148,8 +166,20 @@ pub fn create_device_router() -> Router<AppState> {
         .route("/_matrix/client/v3/devices", get(get_devices))
         .route("/_matrix/client/r0/delete_devices", post(delete_devices))
         .route("/_matrix/client/v3/delete_devices", post(delete_devices))
-        .route("/_matrix/client/r0/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
-        .route("/_matrix/client/v3/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
-        .route("/_matrix/client/r0/keys/device_list_updates", post(get_device_list_updates))
-        .route("/_matrix/client/v3/keys/device_list_updates", post(get_device_list_updates))
+        .route(
+            "/_matrix/client/r0/devices/{device_id}",
+            get(get_device).put(update_device).delete(delete_device),
+        )
+        .route(
+            "/_matrix/client/v3/devices/{device_id}",
+            get(get_device).put(update_device).delete(delete_device),
+        )
+        .route(
+            "/_matrix/client/r0/keys/device_list_updates",
+            post(get_device_list_updates),
+        )
+        .route(
+            "/_matrix/client/v3/keys/device_list_updates",
+            post(get_device_list_updates),
+        )
 }

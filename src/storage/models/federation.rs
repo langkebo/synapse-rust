@@ -120,7 +120,9 @@ mod tests {
             is_enabled: true,
             rate_limited: true,
             protocols: Some(vec!["irc".to_string()]),
-            namespaces: Some(serde_json::json!({"users": [{"exclusive": true, "regex": "@irc_.*"}]})),
+            namespaces: Some(
+                serde_json::json!({"users": [{"exclusive": true, "regex": "@irc_.*"}]}),
+            ),
             created_ts: 1234567890000,
             updated_ts: None,
             description: Some("IRC Bridge".to_string()),

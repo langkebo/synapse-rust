@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use crate::cache::CacheManager;
 use crate::common::error::ApiError;
 use crate::storage::sliding_sync::{
-    SlidingSyncStorage, SlidingSyncRoom,
-    SlidingSyncRequest, SlidingSyncResponse, SlidingSyncListRequest,
+    SlidingSyncListRequest, SlidingSyncRequest, SlidingSyncResponse, SlidingSyncRoom,
+    SlidingSyncStorage,
 };
-use crate::cache::CacheManager;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct SlidingSyncService {
@@ -26,7 +26,10 @@ impl SlidingSyncService {
         let conn_id = request.conn_id.as_deref();
 
         if let Some(pos_str) = &request.pos {
-            if !self.storage.validate_pos(user_id, device_id, conn_id, pos_str).await
+            if !self
+                .storage
+                .validate_pos(user_id, device_id, conn_id, pos_str)
+                .await
                 .map_err(|e| ApiError::internal(format!("Failed to validate pos: {}", e)))?
             {
                 return Err(ApiError::bad_request("Invalid position token"));
@@ -34,32 +37,46 @@ impl SlidingSyncService {
         }
 
         for list_req in &request.lists {
-            self.storage.save_list(
-                user_id,
-                device_id,
-                conn_id,
-                &list_req.list_key,
-                &list_req.sort,
-                list_req.filters.as_ref(),
-                list_req.room_subscription.as_ref(),
-                &list_req.ranges,
-            ).await.map_err(|e| ApiError::internal(format!("Failed to save list: {}", e)))?;
+            self.storage
+                .save_list(
+                    user_id,
+                    device_id,
+                    conn_id,
+                    &list_req.list_key,
+                    &list_req.sort,
+                    list_req.filters.as_ref(),
+                    list_req.room_subscription.as_ref(),
+                    &list_req.ranges,
+                )
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to save list: {}", e)))?;
         }
 
         if let Some(unsubs) = &request.room_unsubscriptions {
             for room_id in unsubs {
-                self.storage.delete_room(user_id, device_id, room_id, conn_id).await
-                    .map_err(|e| ApiError::internal(format!("Failed to unsubscribe room: {}", e)))?;
+                self.storage
+                    .delete_room(user_id, device_id, room_id, conn_id)
+                    .await
+                    .map_err(|e| {
+                        ApiError::internal(format!("Failed to unsubscribe room: {}", e))
+                    })?;
             }
         }
 
-        let lists_response = self.build_lists_response(user_id, device_id, conn_id, &request.lists).await
+        let lists_response = self
+            .build_lists_response(user_id, device_id, conn_id, &request.lists)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to build lists response: {}", e)))?;
 
-        let rooms_response = self.build_rooms_response(user_id, device_id, conn_id, &request).await
+        let rooms_response = self
+            .build_rooms_response(user_id, device_id, conn_id, &request)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to build rooms response: {}", e)))?;
 
-        let new_token = self.storage.create_or_update_token(user_id, device_id, conn_id).await
+        let new_token = self
+            .storage
+            .create_or_update_token(user_id, device_id, conn_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to update token: {}", e)))?;
 
         Ok(SlidingSyncResponse {
@@ -82,23 +99,28 @@ impl SlidingSyncService {
 
         for list_req in lists {
             let mut rooms = Vec::new();
-            
+
             for (start, end) in &list_req.ranges {
-                let range_rooms = self.storage.get_rooms_for_list(
-                    user_id,
-                    device_id,
-                    conn_id,
-                    &list_req.list_key,
-                    *start,
-                    *end,
-                ).await?;
-                
+                let range_rooms = self
+                    .storage
+                    .get_rooms_for_list(
+                        user_id,
+                        device_id,
+                        conn_id,
+                        &list_req.list_key,
+                        *start,
+                        *end,
+                    )
+                    .await?;
+
                 for room in range_rooms {
                     rooms.push(self.room_to_json(&room));
                 }
             }
 
-            let count = self.count_rooms_for_list(user_id, device_id, conn_id, &list_req.list_key).await?;
+            let count = self
+                .count_rooms_for_list(user_id, device_id, conn_id, &list_req.list_key)
+                .await?;
 
             lists_json.insert(
                 list_req.list_key.clone(),
@@ -119,7 +141,10 @@ impl SlidingSyncService {
         conn_id: Option<&str>,
         list_key: &str,
     ) -> Result<u32, sqlx::Error> {
-        let rooms = self.storage.get_rooms_for_list(user_id, device_id, conn_id, list_key, 0, 10000).await?;
+        let rooms = self
+            .storage
+            .get_rooms_for_list(user_id, device_id, conn_id, list_key, 0, 10000)
+            .await?;
         Ok(rooms.len() as u32)
     }
 
@@ -147,7 +172,11 @@ impl SlidingSyncService {
         if let Some(subscriptions) = &request.room_subscriptions {
             if let Some(subs_obj) = subscriptions.as_object() {
                 for room_id in subs_obj.keys() {
-                    if let Some(room) = self.storage.get_room(user_id, device_id, room_id, conn_id).await? {
+                    if let Some(room) = self
+                        .storage
+                        .get_room(user_id, device_id, room_id, conn_id)
+                        .await?
+                    {
                         rooms_json.insert(room_id.clone(), self.room_to_json(&room));
                     }
                 }
@@ -156,14 +185,17 @@ impl SlidingSyncService {
 
         for list_req in &request.lists {
             for (start, end) in &list_req.ranges {
-                let rooms = self.storage.get_rooms_for_list(
-                    user_id,
-                    device_id,
-                    conn_id,
-                    &list_req.list_key,
-                    *start,
-                    *end,
-                ).await?;
+                let rooms = self
+                    .storage
+                    .get_rooms_for_list(
+                        user_id,
+                        device_id,
+                        conn_id,
+                        &list_req.list_key,
+                        *start,
+                        *end,
+                    )
+                    .await?;
 
                 for room in rooms {
                     if !rooms_json.contains_key(&room.room_id) {
@@ -206,25 +238,29 @@ impl SlidingSyncService {
         name: Option<&str>,
         avatar: Option<&str>,
     ) -> Result<(), ApiError> {
-        self.storage.upsert_room(
-            user_id,
-            device_id,
-            room_id,
-            conn_id,
-            None,
-            bump_stamp,
-            highlight_count,
-            notification_count,
-            is_dm,
-            is_encrypted,
-            false,
-            false,
-            name,
-            avatar,
-            bump_stamp,
-        ).await.map_err(|e| ApiError::internal(format!("Failed to update room state: {}", e)))?;
+        self.storage
+            .upsert_room(
+                user_id,
+                device_id,
+                room_id,
+                conn_id,
+                None,
+                bump_stamp,
+                highlight_count,
+                notification_count,
+                is_dm,
+                is_encrypted,
+                false,
+                false,
+                name,
+                avatar,
+                bump_stamp,
+            )
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to update room state: {}", e)))?;
 
-        self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
+        self.invalidate_room_cache(user_id, device_id, room_id, conn_id)
+            .await;
 
         Ok(())
     }
@@ -237,10 +273,13 @@ impl SlidingSyncService {
         conn_id: Option<&str>,
         bump_stamp: i64,
     ) -> Result<(), ApiError> {
-        self.storage.bump_room(user_id, device_id, room_id, conn_id, bump_stamp).await
+        self.storage
+            .bump_room(user_id, device_id, room_id, conn_id, bump_stamp)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to bump room: {}", e)))?;
 
-        self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
+        self.invalidate_room_cache(user_id, device_id, room_id, conn_id)
+            .await;
 
         Ok(())
     }
@@ -254,16 +293,20 @@ impl SlidingSyncService {
         highlight_count: i32,
         notification_count: i32,
     ) -> Result<(), ApiError> {
-        self.storage.update_notification_counts(
-            user_id,
-            device_id,
-            room_id,
-            conn_id,
-            highlight_count,
-            notification_count,
-        ).await.map_err(|e| ApiError::internal(format!("Failed to update notifications: {}", e)))?;
+        self.storage
+            .update_notification_counts(
+                user_id,
+                device_id,
+                room_id,
+                conn_id,
+                highlight_count,
+                notification_count,
+            )
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to update notifications: {}", e)))?;
 
-        self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
+        self.invalidate_room_cache(user_id, device_id, room_id, conn_id)
+            .await;
 
         Ok(())
     }
@@ -275,24 +318,39 @@ impl SlidingSyncService {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<(), ApiError> {
-        self.storage.delete_room(user_id, device_id, room_id, conn_id).await
+        self.storage
+            .delete_room(user_id, device_id, room_id, conn_id)
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to remove room: {}", e)))?;
 
-        self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
+        self.invalidate_room_cache(user_id, device_id, room_id, conn_id)
+            .await;
 
         Ok(())
     }
 
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError> {
-        let count = self.storage.cleanup_expired_tokens().await
+        let count = self
+            .storage
+            .cleanup_expired_tokens()
+            .await
             .map_err(|e| ApiError::internal(format!("Failed to cleanup tokens: {}", e)))?;
 
         Ok(count)
     }
 
-    async fn invalidate_room_cache(&self, user_id: &str, device_id: &str, room_id: &str, conn_id: Option<&str>) {
+    async fn invalidate_room_cache(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+        conn_id: Option<&str>,
+    ) {
         let cache_key = if let Some(cid) = conn_id {
-            format!("sliding_sync:room:{}:{}:{}:{}", user_id, device_id, cid, room_id)
+            format!(
+                "sliding_sync:room:{}:{}:{}:{}",
+                user_id, device_id, cid, room_id
+            )
         } else {
             format!("sliding_sync:room:{}:{}::{}", user_id, device_id, room_id)
         };
@@ -361,7 +419,10 @@ mod tests {
     fn create_test_service() -> SlidingSyncService {
         SlidingSyncService {
             storage: SlidingSyncStorage::new(std::sync::Arc::new(
-                sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy("postgres://localhost/test").unwrap()
+                sqlx::postgres::PgPoolOptions::new()
+                    .max_connections(1)
+                    .connect_lazy("postgres://localhost/test")
+                    .unwrap(),
             )),
             cache: Arc::new(CacheManager::new(crate::cache::CacheConfig::default())),
         }
@@ -380,6 +441,9 @@ mod tests {
 
         assert!(json.get("is_invite").is_some());
         assert!(json.get("is_tombstoned").is_none());
-        assert_eq!(json.get("room_name_like").unwrap().as_str().unwrap(), "test");
+        assert_eq!(
+            json.get("room_name_like").unwrap().as_str().unwrap(),
+            "test"
+        );
     }
 }

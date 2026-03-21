@@ -13,9 +13,18 @@ pub fn create_report_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/reports", get(get_all_reports))
         .route("/_synapse/admin/v1/reports/{report_id}", get(get_report))
-        .route("/_synapse/admin/v1/reports/{report_id}", delete(delete_report))
-        .route("/_synapse/admin/v1/rooms/{room_id}/reports", get(get_room_reports))
-        .route("/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}", get(get_room_report))
+        .route(
+            "/_synapse/admin/v1/reports/{report_id}",
+            delete(delete_report),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/reports",
+            get(get_room_reports),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}",
+            get(get_room_report),
+        )
 }
 
 #[axum::debug_handler]
@@ -58,7 +67,9 @@ pub async fn get_all_reports(
         })
         .collect();
 
-    Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
+    Ok(Json(
+        json!({ "reports": report_list, "total": report_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]
@@ -137,7 +148,9 @@ pub async fn get_room_reports(
         })
         .collect();
 
-    Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
+    Ok(Json(
+        json!({ "reports": report_list, "total": report_list.len() }),
+    ))
 }
 
 #[axum::debug_handler]

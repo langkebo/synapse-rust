@@ -14,7 +14,7 @@ fn test_create_module() {
         },
         "priority": 10
     });
-    
+
     assert!(module.get("module_name").is_some());
     assert!(module.get("module_type").is_some());
     assert!(module.get("config").is_some());
@@ -30,7 +30,7 @@ fn test_module_type_validation() {
     assert!(is_valid_module_type("rate_limiter"));
     assert!(is_valid_module_type("account_data"));
     assert!(is_valid_module_type("media"));
-    
+
     // Invalid
     assert!(!is_valid_module_type("invalid"));
     assert!(!is_valid_module_type(""));
@@ -48,7 +48,7 @@ fn test_module_response() {
         "priority": 10,
         "created_ts": 1700000000000_i64
     });
-    
+
     assert!(module.get("id").is_some());
     assert!(module.get("module_name").is_some());
     assert!(module.get("module_type").is_some());
@@ -63,7 +63,7 @@ fn test_get_module() {
         "module_type": "spam_checker",
         "is_enabled": true
     });
-    
+
     assert!(result.get("module_name").is_some());
     assert!(result.get("is_enabled").is_some());
 }
@@ -79,22 +79,20 @@ fn test_get_all_modules_response() {
         json!({
             "module_name": "rate_limiter",
             "is_enabled": false
-        })
+        }),
     ];
-    
+
     assert_eq!(modules.len(), 2);
 }
 
 // Test 6: Get modules by type
 #[test]
 fn test_get_modules_by_type() {
-    let modules = vec![
-        json!({
-            "module_name": "spam_checker1",
-            "module_type": "spam_checker"
-        })
-    ];
-    
+    let modules = vec![json!({
+        "module_name": "spam_checker1",
+        "module_type": "spam_checker"
+    })];
+
     assert_eq!(modules.len(), 1);
     assert!(modules[0].get("module_type").is_some());
 }
@@ -108,7 +106,7 @@ fn test_update_module_config() {
             "threshold": 200
         }
     });
-    
+
     assert!(config.get("module_name").is_some());
     assert!(config.get("config").is_some());
 }
@@ -120,7 +118,7 @@ fn test_enable_module() {
         "module_name": "spam_checker",
         "enabled": true
     });
-    
+
     assert!(enable.get("module_name").is_some());
     assert!(enable.get("enabled").is_some());
 }
@@ -132,7 +130,7 @@ fn test_enable_module_response() {
         "module_name": "spam_checker",
         "is_enabled": true
     });
-    
+
     assert!(result.get("module_name").is_some());
     assert!(result.get("is_enabled").is_some());
 }
@@ -144,7 +142,7 @@ fn test_delete_module() {
         "deleted": true,
         "module_name": "spam_checker"
     });
-    
+
     assert!(result.get("deleted").is_some());
     assert!(result["deleted"].as_bool().unwrap_or(false));
 }
@@ -159,7 +157,7 @@ fn test_check_spam_request() {
             "sender": "@user:localhost"
         }
     });
-    
+
     assert!(check.get("event").is_some());
 }
 
@@ -170,7 +168,7 @@ fn test_check_spam_response() {
         "spam": false,
         "module_name": "spam_checker"
     });
-    
+
     assert!(result.get("spam").is_some());
     assert!(result.get("module_name").is_some());
 }
@@ -185,7 +183,7 @@ fn test_check_third_party_rule_request() {
         },
         "room_id": "!room:localhost"
     });
-    
+
     assert!(rule.get("event").is_some());
     assert!(rule.get("room_id").is_some());
 }
@@ -197,7 +195,7 @@ fn test_third_party_rule_response() {
         "action": "allow",
         "module_name": "third_party_rule"
     });
-    
+
     assert!(result.get("action").is_some());
 }
 
@@ -209,7 +207,7 @@ fn test_spam_check_by_event() {
         "spam": false,
         "checks": 2
     });
-    
+
     assert!(result.get("event_id").is_some());
     assert!(result.get("spam").is_some());
 }
@@ -222,7 +220,7 @@ fn test_spam_check_by_sender() {
         "spam": false,
         "total_reports": 0
     });
-    
+
     assert!(result.get("sender").is_some());
     assert!(result.get("spam").is_some());
 }
@@ -230,15 +228,13 @@ fn test_spam_check_by_sender() {
 // Test 17: Execution logs response
 #[test]
 fn test_execution_logs_response() {
-    let logs = vec![
-        json!({
-            "module_name": "spam_checker",
-            "timestamp": 1700000000000_i64,
-            "action": "check",
-            "result": "allow"
-        })
-    ];
-    
+    let logs = vec![json!({
+        "module_name": "spam_checker",
+        "timestamp": 1700000000000_i64,
+        "action": "check",
+        "result": "allow"
+    })];
+
     assert_eq!(logs.len(), 1);
     assert!(logs[0].get("module_name").is_some());
 }
@@ -251,7 +247,7 @@ fn test_account_validity_request() {
         "expires_at": 1705000000000_i64,
         "renewable": true
     });
-    
+
     assert!(validity.get("user_id").is_some());
     assert!(validity.get("expires_at").is_some());
 }
@@ -265,7 +261,7 @@ fn test_account_validity_response() {
         "is_valid": true,
         "renewable": true
     });
-    
+
     assert!(validity.get("user_id").is_some());
     assert!(validity.get("expires_at").is_some());
     assert!(validity.get("is_valid").is_some());
@@ -278,7 +274,7 @@ fn test_renew_account_request() {
         "user_id": "@user:localhost",
         "extend_by": 86400
     });
-    
+
     assert!(renew.get("user_id").is_some());
 }
 
@@ -292,7 +288,7 @@ fn test_password_auth_provider_request() {
             "url": "ldap://localhost"
         }
     });
-    
+
     assert!(provider.get("provider_name").is_some());
     assert!(provider.get("enabled").is_some());
 }
@@ -300,13 +296,11 @@ fn test_password_auth_provider_request() {
 // Test 22: Password auth providers response
 #[test]
 fn test_password_auth_providers_response() {
-    let providers = vec![
-        json!({
-            "provider_name": "ldap",
-            "enabled": true
-        })
-    ];
-    
+    let providers = vec![json!({
+        "provider_name": "ldap",
+        "enabled": true
+    })];
+
     assert_eq!(providers.len(), 1);
     assert!(providers[0].get("provider_name").is_some());
 }
@@ -319,7 +313,7 @@ fn test_presence_route_request() {
         "method": "POST",
         "enabled": true
     });
-    
+
     assert!(route.get("path").is_some());
     assert!(route.get("method").is_some());
 }
@@ -327,13 +321,11 @@ fn test_presence_route_request() {
 // Test 24: Presence routes response
 #[test]
 fn test_presence_routes_response() {
-    let routes = vec![
-        json!({
-            "path": "/presence",
-            "method": "POST"
-        })
-    ];
-    
+    let routes = vec![json!({
+        "path": "/presence",
+        "method": "POST"
+    })];
+
     assert_eq!(routes.len(), 1);
     assert!(routes[0].get("path").is_some());
 }
@@ -346,7 +338,7 @@ fn test_media_callback_request() {
         "module_name": "media_module",
         "enabled": true
     });
-    
+
     assert!(callback.get("callback_name").is_some());
     assert!(callback.get("module_name").is_some());
 }
@@ -354,13 +346,11 @@ fn test_media_callback_request() {
 // Test 26: Media callbacks response
 #[test]
 fn test_media_callbacks_response() {
-    let callbacks = vec![
-        json!({
-            "callback_name": "on_upload",
-            "module_name": "media_module"
-        })
-    ];
-    
+    let callbacks = vec![json!({
+        "callback_name": "on_upload",
+        "module_name": "media_module"
+    })];
+
     assert_eq!(callbacks.len(), 1);
     assert!(callbacks[0].get("callback_name").is_some());
 }
@@ -375,7 +365,7 @@ fn test_rate_limit_callback_request() {
             "rate": 100
         }
     });
-    
+
     assert!(callback.get("callback_name").is_some());
     assert!(callback.get("module_name").is_some());
 }
@@ -387,7 +377,7 @@ fn test_account_data_callback_request() {
         "callback_name": "on_account_data",
         "module_name": "account_module"
     });
-    
+
     assert!(callback.get("callback_name").is_some());
     assert!(callback.get("module_name").is_some());
 }
@@ -402,7 +392,15 @@ fn test_priority_validation() {
 
 // Helper functions
 fn is_valid_module_type(module_type: &str) -> bool {
-    matches!(module_type, "spam_checker" | "third_party_rule" | "presence" | "rate_limiter" | "account_data" | "media")
+    matches!(
+        module_type,
+        "spam_checker"
+            | "third_party_rule"
+            | "presence"
+            | "rate_limiter"
+            | "account_data"
+            | "media"
+    )
 }
 
 fn is_valid_priority(priority: i32) -> bool {

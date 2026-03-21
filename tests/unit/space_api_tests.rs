@@ -9,7 +9,7 @@ fn test_space_id_validation() {
     // Valid space IDs
     assert!(is_valid_space_id("!space:localhost"));
     assert!(is_valid_space_id("!abc123:example.com"));
-    
+
     // Invalid
     assert!(!is_valid_space_id(""));
     assert!(!is_valid_space_id("space:localhost"));
@@ -22,7 +22,7 @@ fn test_space_name_validation() {
     assert!(is_valid_space_name("My Space"));
     assert!(is_valid_space_name("Work Team"));
     assert!(is_valid_space_name(&"a".repeat(255)));
-    
+
     // Invalid
     assert!(!is_valid_space_name(""));
     assert!(!is_valid_space_name(&"a".repeat(256)));
@@ -74,7 +74,7 @@ fn test_space_creation_request() {
         "room_alias_name": "my-space",
         "invite": []
     });
-    
+
     assert!(request.get("name").is_some());
     assert!(request.get("visibility").is_some());
 }
@@ -90,7 +90,7 @@ fn test_space_response() {
         "is_public": false,
         "created_ts": 1700000000000_i64
     });
-    
+
     assert!(space.get("space_id").is_some());
     assert!(space.get("name").is_some());
     assert!(space.get("creator").is_some());
@@ -106,12 +106,12 @@ fn test_space_children_response() {
             "order": "1"
         }),
         json!({
-            "room_id": "!room2:localhost", 
+            "room_id": "!room2:localhost",
             "name": "Child Room 2",
             "order": "2"
-        })
+        }),
     ];
-    
+
     assert_eq!(children.len(), 2);
     assert!(children[0].get("room_id").is_some());
 }
@@ -124,7 +124,7 @@ fn test_space_hierarchy_response() {
         "children": [],
         "subspaces": []
     });
-    
+
     assert!(hierarchy.get("room_id").is_some());
     assert!(hierarchy.get("children").is_some());
 }
@@ -137,7 +137,7 @@ fn test_add_child_request() {
         "via": ["localhost"],
         "order": "1"
     });
-    
+
     assert!(request.get("room_id").is_some());
     assert!(request.get("via").is_some());
 }
@@ -150,7 +150,7 @@ fn test_space_membership() {
         "membership": "join",
         "joined_ts": 1700000000000_i64
     });
-    
+
     assert!(membership.get("user_id").is_some());
     assert!(membership.get("membership").is_some());
 }
@@ -158,14 +158,12 @@ fn test_space_membership() {
 // Test 13: Public spaces response
 #[test]
 fn test_public_spaces_response() {
-    let spaces = vec![
-        json!({
-            "space_id": "!space1:localhost",
-            "name": "Public Space",
-            "member_count": 10
-        })
-    ];
-    
+    let spaces = vec![json!({
+        "space_id": "!space1:localhost",
+        "name": "Public Space",
+        "member_count": 10
+    })];
+
     assert_eq!(spaces.len(), 1);
     assert!(spaces[0].get("space_id").is_some());
 }
@@ -178,7 +176,7 @@ fn test_space_search_request() {
         "limit": 10,
         "max_depth": 3
     });
-    
+
     assert!(search.get("search_term").is_some());
 }
 
@@ -191,7 +189,7 @@ fn test_space_statistics() {
         "total_members": 100,
         "public_spaces": 2
     });
-    
+
     assert!(stats.get("total_spaces").is_some());
     assert!(stats.get("total_rooms").is_some());
 }
@@ -201,7 +199,7 @@ fn test_space_statistics() {
 fn test_space_pagination() {
     let limit = 50;
     let from = 0;
-    
+
     assert!(limit > 0 && limit <= 100);
     assert!(from >= 0);
 }
@@ -215,7 +213,7 @@ fn test_space_tree_path() {
             {"space_id": "!child:localhost", "name": "Child"}
         ]
     });
-    
+
     assert!(path.get("path").is_some());
     assert!(path["path"].as_array().is_some());
 }
@@ -242,5 +240,8 @@ fn is_valid_join_rule(rule: &str) -> bool {
 }
 
 fn is_valid_history_visibility(visibility: &str) -> bool {
-    matches!(visibility, "shared" | "joined_only" | "invited_only" | "world_readable")
+    matches!(
+        visibility,
+        "shared" | "joined_only" | "invited_only" | "world_readable"
+    )
 }

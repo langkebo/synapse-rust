@@ -49,9 +49,7 @@ async fn create_session(
         .ok_or_else(|| ApiError::bad_request("transport required".to_string()))?;
 
     let transport_data = body.get("transport_data").cloned();
-    let expires_in_ms = body
-        .get("expires_in_ms")
-        .and_then(|v| v.as_i64());
+    let expires_in_ms = body.get("expires_in_ms").and_then(|v| v.as_i64());
 
     let intent_enum = match intent {
         "login.reciprocate" => RendezvousIntent::LoginReciprocate,
@@ -62,7 +60,12 @@ async fn create_session(
     let transport_enum = match transport {
         "http.v1" => RendezvousTransport::HttpV1,
         "http.v2" => RendezvousTransport::HttpV2,
-        _ => return Err(ApiError::bad_request(format!("Invalid transport: {}", transport))),
+        _ => {
+            return Err(ApiError::bad_request(format!(
+                "Invalid transport: {}",
+                transport
+            )))
+        }
     };
 
     let params = CreateRendezvousSessionParams {
@@ -133,7 +136,10 @@ async fn update_session(
         .map_err(|e| ApiError::internal(format!("Failed to update session: {}", e)))?;
 
     if status == "connected" {
-        let device_id = auth_user.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());
+        let device_id = auth_user
+            .device_id
+            .clone()
+            .unwrap_or_else(|| "RENDEZVOUS".to_string());
         state
             .services
             .rendezvous_storage
@@ -152,8 +158,11 @@ async fn update_session(
             .ok_or_else(|| ApiError::not_found("Session not found".to_string()))?;
 
         if let Some(user_id) = &session.user_id {
-            let device_id = session.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());
-            
+            let device_id = session
+                .device_id
+                .clone()
+                .unwrap_or_else(|| "RENDEZVOUS".to_string());
+
             let token = state
                 .services
                 .auth_service
@@ -211,7 +220,7 @@ async fn send_message(
     };
 
     let msg_storage = RendezvousMessageStorage::new(state.services.rendezvous_storage.pool.clone());
-    
+
     msg_storage
         .store_message(&session_id, "outbound", &message)
         .await
@@ -225,7 +234,7 @@ async fn get_messages(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let msg_storage = RendezvousMessageStorage::new(state.services.rendezvous_storage.pool.clone());
-    
+
     let messages = msg_storage
         .get_messages(&session_id, None)
         .await

@@ -23,8 +23,14 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v3/search", post(search))
         .route("/_matrix/client/r0/search", post(search))
-        .route("/_matrix/client/v3/search_recipients", post(search_recipients))
-        .route("/_matrix/client/r0/search_recipients", post(search_recipients))
+        .route(
+            "/_matrix/client/v3/search_recipients",
+            post(search_recipients),
+        )
+        .route(
+            "/_matrix/client/r0/search_recipients",
+            post(search_recipients),
+        )
         .route("/_matrix/client/v3/search_rooms", post(search_rooms))
         .route("/_matrix/client/r0/search_rooms", post(search_rooms))
         .route(
@@ -851,7 +857,9 @@ async fn search_recipients(
     let search_term = body.search_term.trim();
 
     if search_term.is_empty() {
-        return Err(ApiError::bad_request("Search term cannot be empty".to_string()));
+        return Err(ApiError::bad_request(
+            "Search term cannot be empty".to_string(),
+        ));
     }
 
     let search_pattern = format!("%{}%", search_term.to_lowercase());
@@ -905,7 +913,9 @@ async fn search_rooms(
     let search_term = body.search_term.trim();
 
     if search_term.is_empty() {
-        return Err(ApiError::bad_request("Search term cannot be empty".to_string()));
+        return Err(ApiError::bad_request(
+            "Search term cannot be empty".to_string(),
+        ));
     }
 
     let search_pattern = format!("%{}%", search_term.to_lowercase());

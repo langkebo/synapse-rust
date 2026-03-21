@@ -143,7 +143,8 @@ impl E2eeAuditService {
     }
 
     pub async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError> {
-        let cutoff_ts = chrono::Utc::now().timestamp_millis() - (days_to_keep * 24 * 60 * 60 * 1000);
+        let cutoff_ts =
+            chrono::Utc::now().timestamp_millis() - (days_to_keep * 24 * 60 * 60 * 1000);
 
         let result = sqlx::query("DELETE FROM e2ee_audit_log WHERE created_ts < $1")
             .bind(cutoff_ts)
@@ -185,7 +186,7 @@ impl CrossSigningVerificationService {
 
         for device in &devices {
             let status = self.verify_device(device).await?;
-            
+
             if status.is_verified {
                 report.verified_count += 1;
             } else {

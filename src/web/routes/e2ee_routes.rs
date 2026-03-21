@@ -340,10 +340,7 @@ async fn request_device_verification(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("new_device_id required".to_string()))?;
 
-    let method = body
-        .get("method")
-        .and_then(|v| v.as_str())
-        .unwrap_or("sas");
+    let method = body.get("method").and_then(|v| v.as_str()).unwrap_or("sas");
 
     let verification_method = match method {
         "qr" => crate::e2ee::device_trust::VerificationMethod::Qr,
@@ -572,7 +569,10 @@ async fn store_secure_backup_keys(
                         session_id: k.get("session_id")?.as_str()?.to_string(),
                         first_message_index: k.get("first_message_index")?.as_i64().unwrap_or(0),
                         forwarded_count: k.get("forwarded_count")?.as_i64().unwrap_or(0),
-                        is_verified: k.get("is_verified").and_then(|v| v.as_bool()).unwrap_or(false),
+                        is_verified: k
+                            .get("is_verified")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
                         session_key: k.get("session_key")?.as_str()?.to_string(),
                     })
                 })

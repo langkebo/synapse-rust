@@ -1,13 +1,13 @@
 use axum::{
-    extract::{Path, State, Query},
+    extract::{Path, Query, State},
     routing::{get, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::web::routes::{AppState, AuthenticatedUser};
 use crate::common::error::ApiError;
+use crate::web::routes::{AppState, AuthenticatedUser};
 
 pub fn create_reactions_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -73,13 +73,16 @@ async fn add_reaction(
     }
 
     // 提取 relates_to 信息
-    let relates_to = body.get("relates_to")
+    let relates_to = body
+        .get("relates_to")
         .and_then(|v| serde_json::from_value::<RelatesTo>(v.clone()).ok())
         .ok_or_else(|| ApiError::bad_request("Missing relates_to".to_string()))?;
 
     // 验证 rel_type 是 annotation (reaction)
     if relates_to.rel_type != "m.annotation" {
-        return Err(ApiError::bad_request("rel_type must be m.annotation for reactions".to_string()));
+        return Err(ApiError::bad_request(
+            "rel_type must be m.annotation for reactions".to_string(),
+        ));
     }
 
     // 生成事件 ID
@@ -89,14 +92,15 @@ async fn add_reaction(
     );
 
     // 提取 reaction 内容 (emoji)
-    let annotation = body.get("body")
+    let annotation = body
+        .get("body")
         .and_then(|v| v.as_str())
         .unwrap_or("👍")
         .to_string();
 
     // 保存 reaction
     let pool = &*state.services.user_storage.pool;
-    
+
     sqlx::query(
         "INSERT INTO reaction_aggregations (event_id, relates_to_event_id, sender, room_id, reaction_key, count) VALUES ($1, $2, $3, $4, $5, 1)"
     )
@@ -228,7 +232,7 @@ async fn get_references(
             let event_id: String = sqlx::Row::get(&row, "event_id");
             let sender: String = sqlx::Row::get(&row, "sender");
             let origin_ts: i64 = sqlx::Row::get(&row, "origin_server_ts");
-            
+
             json!({
                 "type": "m.room.message",
                 "event_id": event_id,
@@ -270,7 +274,8 @@ mod tests {
             "event_id": "$test_event",
             "rel_type": "m.annotation"
         }"#;
-        let relates: RelatesTo = serde_json::from_str(json).expect("Failed to parse RelatesTo JSON");
+        let relates: RelatesTo =
+            serde_json::from_str(json).expect("Failed to parse RelatesTo JSON");
         assert_eq!(relates.event_id, "$test_event");
         assert_eq!(relates.rel_type, "m.annotation");
     }

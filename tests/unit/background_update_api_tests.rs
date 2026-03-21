@@ -13,7 +13,7 @@ fn test_background_update_creation() {
         "table_name": "users",
         "batch_size": 100
     });
-    
+
     assert!(update.get("update_name").is_some());
     assert!(update.get("job_type").is_some());
 }
@@ -27,7 +27,7 @@ fn test_update_status_validation() {
     assert!(is_valid_status("completed"));
     assert!(is_valid_status("failed"));
     assert!(is_valid_status("cancelled"));
-    
+
     // Invalid
     assert!(!is_valid_status("invalid"));
 }
@@ -52,7 +52,7 @@ fn test_background_update_response() {
         "processed_items": 500,
         "created_ts": 1700000000000_i64
     });
-    
+
     assert!(update.get("id").is_some());
     assert!(update.get("update_name").is_some());
     assert!(update.get("status").is_some());
@@ -66,7 +66,7 @@ fn test_update_progress() {
         "total_items": 1000,
         "percentage": 50.0
     });
-    
+
     assert!(progress.get("processed_items").is_some());
     assert!(progress.get("total_items").is_some());
 }
@@ -84,22 +84,20 @@ fn test_update_list_response() {
             "id": 2,
             "update_name": "update2",
             "status": "running"
-        })
+        }),
     ];
-    
+
     assert_eq!(updates.len(), 2);
 }
 
 // Test 7: Pending updates response
 #[test]
 fn test_pending_updates_response() {
-    let updates = vec![
-        json!({
-            "update_name": "pending_update",
-            "status": "pending"
-        })
-    ];
-    
+    let updates = vec![json!({
+        "update_name": "pending_update",
+        "status": "pending"
+    })];
+
     assert_eq!(updates.len(), 1);
     assert!(updates[0].get("status").is_some());
 }
@@ -107,14 +105,12 @@ fn test_pending_updates_response() {
 // Test 8: Running updates response
 #[test]
 fn test_running_updates_response() {
-    let updates = vec![
-        json!({
-            "update_name": "running_update",
-            "status": "running",
-            "started_ts": 1700000000000_i64
-        })
-    ];
-    
+    let updates = vec![json!({
+        "update_name": "running_update",
+        "status": "running",
+        "started_ts": 1700000000000_i64
+    })];
+
     assert_eq!(updates.len(), 1);
     assert!(updates[0].get("started_ts").is_some());
 }
@@ -122,14 +118,12 @@ fn test_running_updates_response() {
 // Test 9: Update history response
 #[test]
 fn test_update_history_response() {
-    let history = vec![
-        json!({
-            "update_name": "completed_update",
-            "status": "completed",
-            "completed_ts": 1700000000000_i64
-        })
-    ];
-    
+    let history = vec![json!({
+        "update_name": "completed_update",
+        "status": "completed",
+        "completed_ts": 1700000000000_i64
+    })];
+
     assert_eq!(history.len(), 1);
     assert!(history[0].get("completed_ts").is_some());
 }
@@ -144,7 +138,7 @@ fn test_update_statistics() {
         "completed": 5,
         "failed": 2
     });
-    
+
     assert!(stats.get("total_updates").is_some());
     assert!(stats.get("pending").is_some());
     assert!(stats.get("completed").is_some());
@@ -158,7 +152,7 @@ fn test_update_error_message() {
         "error_message": "Connection timeout",
         "retry_count": 3
     });
-    
+
     assert!(update.get("error_message").is_some());
     assert!(update.get("retry_count").is_some());
 }
@@ -171,7 +165,7 @@ fn test_update_retry_config() {
         "max_retries": 3,
         "batch_size": 100
     });
-    
+
     assert!(config.get("retry_count").is_some());
     assert!(config.get("max_retries").is_some());
     assert!(config.get("batch_size").is_some());
@@ -185,7 +179,7 @@ fn test_update_progress_json() {
         "last_processed_id": 1000,
         "estimated_remaining": 900
     });
-    
+
     assert!(progress.get("current_key").is_some());
     assert!(progress.get("last_processed_id").is_some());
 }
@@ -197,7 +191,7 @@ fn test_update_cancellation() {
         "cancelled": true,
         "update_name": "cancelled_update"
     });
-    
+
     assert!(result.get("cancelled").is_some());
 }
 
@@ -210,14 +204,17 @@ fn test_update_completion() {
         "total_items": 1000,
         "completed_ts": 1700000000000_i64
     });
-    
+
     assert!(completion.get("status").is_some());
     assert!(completion.get("completed_ts").is_some());
 }
 
 // Helper functions
 fn is_valid_status(status: &str) -> bool {
-    matches!(status, "pending" | "running" | "completed" | "failed" | "cancelled")
+    matches!(
+        status,
+        "pending" | "running" | "completed" | "failed" | "cancelled"
+    )
 }
 
 fn is_valid_job_type(job_type: &str) -> bool {
