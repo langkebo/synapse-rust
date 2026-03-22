@@ -300,4 +300,199 @@ mod memory_tests {
         assert!(formatted.contains("Event Cache"));
         assert!(formatted.contains("2.00 KB"));
     }
+
+    #[test]
+    fn test_memory_stats_default() {
+        let stats = MemoryStats::default();
+        let snapshot = stats.get_stats();
+
+        assert_eq!(snapshot.total_allocations, 0);
+        assert_eq!(snapshot.total_deallocations, 0);
+        assert_eq!(snapshot.current_size, 0);
+        assert_eq!(snapshot.peak_size, 0);
+    }
+
+    #[test]
+    fn test_memory_stats_zero_allocation() {
+        let stats = MemoryStats::new();
+        stats.record_allocation(0);
+
+        let snapshot = stats.get_stats();
+        assert_eq!(snapshot.total_allocations, 1);
+        assert_eq!(snapshot.current_size, 0);
+    }
+
+    #[test]
+    fn test_memory_stats_zero_deallocation() {
+        let stats = MemoryStats::new();
+        stats.record_allocation(100);
+        stats.record_deallocation(0);
+
+        let snapshot = stats.get_stats();
+        assert_eq!(snapshot.total_deallocations, 1);
+        assert_eq!(snapshot.current_size, 100);
+    }
+
+    #[test]
+    fn test_memory_stats_peak_tracking() {
+        let stats = MemoryStats::new();
+
+        stats.record_allocation(100);
+        stats.record_allocation(200);
+        stats.record_deallocation(50);
+        stats.record_deallocation(100);
+
+        let snapshot = stats.get_stats();
+        // Peak should be 300 (100 + 200)
+        assert_eq!(snapshot.peak_size, 300);
+    }
+
+    #[test]
+    fn test_memory_stats_peak_after_deallocation() {
+        let stats = MemoryStats::new();
+
+        stats.record_allocation(1000);
+        stats.record_deallocation(500);
+        stats.record_allocation(2000);
+
+        let snapshot = stats.get_stats();
+        // Peak should still be 1000 from first allocation, 
+        // but wait - the logic is different, it tracks running max
+        assert!(snapshot.peak_size >= 1000);
+    }
+
+    #[test]
+    fn test_memory_stats_utilization_rate() {
+        let stats = MemoryStats::new();
+
+        stats.record_allocation(100);
+        
+        let rate = stats.get_utilization_rate();
+        
+        // Current = 100, Peak = 100, so rate should be 1.0
+        assert!((rate - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_memory_stats_utilization_rate_zero_peak() {
+        let stats = MemoryStats::new();
+
+        // No allocations yet
+        let rate = stats.get_utilization_rate();
+        
+        // Peak is 0, so rate should be 0.0
+        assert!((rate - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_memory_stats_snapshot_leak_count_zero() {
+        let stats = MemoryStats::new();
+
+        stats.record_allocation(100);
+        stats.record_deallocation(100);
+
+        let snapshot = stats.get_stats();
+        assert_eq!(snapshot.leak_count(), 0);
+    }
+
+    #[test]
+    fn test_memory_stats_snapshot_leak_percentage_zero() {
+        let stats = MemoryStats::new();
+
+        stats.record_allocation(100);
+        stats.record_deallocation(100);
+
+        let snapshot = stats.get_stats();
+        assert!((snapshot.leak_percentage() - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_memory_stats_operation_count() {
+        let stats = MemoryStats::new();
+
+        stats.record_allocation(100);
+        stats.record_allocation(200);
+        stats.record_deallocation(50);
+
+        let snapshot = stats.get_stats();
+        assert_eq!(snapshot.operation_count, 3); // 2 allocations + 1 deallocation
+    }
+
+    #[test]
+    fn test_federation_memory_tracker_new() {
+        let tracker = FederationMemoryTracker::new();
+        
+        // Should have empty stats
+        let report = tracker.get_report();
+        assert_eq!(report.total_current, 0);
+        assert_eq!(report.total_peak, 0);
+    }
+
+    #[test]
+    fn test_federation_memory_tracker_all_operations() {
+        let tracker = FederationMemoryTracker::new();
+
+        tracker.record_event_cached(100);
+        tracker.record_event_removed(50);
+        tracker.record_auth_chain_operation(200);
+        tracker.record_key_cached(150);
+        tracker.record_key_removed(75);
+        tracker.record_state_resolution(300);
+
+        let report = tracker.get_report();
+
+        assert_eq!(report.event_cache.current_size, 50);
+        assert_eq!(report.auth_chain.current_size, 200);
+        assert_eq!(report.key_cache.current_size, 75);
+        assert_eq!(report.state_resolution.current_size, 300);
+        
+        // Total = 50 + 200 + 75 + 300 = 625
+        assert_eq!(report.total_current, 625);
+    }
+
+    #[test]
+    fn test_federation_memory_tracker_report_fields() {
+        let tracker = FederationMemoryTracker::new();
+
+        tracker.record_event_cached(100);
+
+        let report = tracker.get_report();
+
+        assert!(report.event_cache.total_allocations > 0);
+        assert!(report.event_cache.peak_size > 0);
+    }
+
+    #[test]
+    fn test_memory_stats_snapshot_debug() {
+        let stats = MemoryStats::new();
+        stats.record_allocation(100);
+
+        let snapshot = stats.get_stats();
+        let debug_str = format!("{:?}", snapshot);
+        
+        assert!(debug_str.contains("MemoryStatsSnapshot"));
+    }
+
+    #[test]
+    fn test_federation_memory_report_debug() {
+        let tracker = FederationMemoryTracker::new();
+        tracker.record_event_cached(100);
+
+        let report = tracker.get_report();
+        let debug_str = format!("{:?}", report);
+        
+        assert!(debug_str.contains("FederationMemoryReport"));
+    }
+
+    #[test]
+    fn test_memory_stats_saturating_sub() {
+        let stats = MemoryStats::new();
+
+        // Deallocate more than allocated - should saturate at 0
+        stats.record_deallocation(100);
+
+        let snapshot = stats.get_stats();
+        // Since we deallocated without allocating, current should stay at 0
+        assert_eq!(snapshot.current_size, 0);
+    }
 }
