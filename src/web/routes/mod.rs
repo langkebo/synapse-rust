@@ -473,6 +473,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/v3/createRoom", post(create_room))
         .route("/_matrix/client/v3/joined_rooms", get(get_joined_rooms))
         // Media config - client API
+        .route("/_matrix/client/v1/media/config", get(media::media_config))
         .route("/_matrix/client/v3/media/config", get(media::media_config))
         .route("/_matrix/client/r0/media/config", get(media::media_config))
         .layer(axum::middleware::from_fn(cors_middleware))
@@ -1729,7 +1730,9 @@ fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
 }
 
 fn validate_presence_status(presence: &str) -> Result<(), ApiError> {
-    let valid_statuses = ["online", "offline", "unavailable"];
+    // Matrix spec allows: online, offline, unavailable, and optionally away
+    // See: https://spec.matrix.org/v1.9/client-server-api/#presence
+    let valid_statuses = ["online", "offline", "unavailable", "away"];
     if !valid_statuses.contains(&presence) {
         return Err(ApiError::bad_request(format!(
             "Invalid presence status. Must be one of: {}",

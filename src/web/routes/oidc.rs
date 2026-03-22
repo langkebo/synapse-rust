@@ -2,6 +2,7 @@
 // Matrix Spec: https://matrix.org/docs/spec/openid.html
 
 use crate::common::error::ApiError;
+use crate::services::oidc_service::OidcService;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::State,
@@ -9,6 +10,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use validator::Validate;
 
 pub fn create_oidc_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -18,12 +20,14 @@ pub fn create_oidc_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/oidc/logout", post(oidc_logout))
         .route("/_matrix/client/v3/oidc/authorize", get(oidc_authorize))
         .route("/_matrix/client/v3/oidc/register", post(oidc_register))
+        .route("/_matrix/client/v3/oidc/callback", get(oidc_callback))
         // r0 路径兼容
         .route("/_matrix/client/r0/oidc/userinfo", get(oidc_userinfo))
         .route("/_matrix/client/r0/oidc/token", post(oidc_token))
         .route("/_matrix/client/r0/oidc/logout", post(oidc_logout))
         .route("/_matrix/client/r0/oidc/authorize", get(oidc_authorize))
         .route("/_matrix/client/r0/oidc/register", post(oidc_register))
+        .route("/_matrix/client/r0/oidc/callback", get(oidc_callback))
         // OIDC 发现
         .route("/.well-known/openid-configuration", get(openid_discovery))
         .with_state(state)
@@ -44,6 +48,10 @@ async fn oidc_userinfo(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<OidcUserInfoResponse>, ApiError> {
     let user_id = &auth_user.user_id;
+
+    // 尝试从 OIDC 服务获取用户信息（如果有 OIDC 访问令牌）
+    // 注意：这里需要从认证中获取 OIDC access token
+    // 目前先使用 registration_service 获取本地 profile
 
     // 获取用户 profile 信息
     let profile = state
@@ -66,21 +74,28 @@ async fn oidc_userinfo(
         }
     });
 
+    let email = profile.get("email").and_then(|v| v.as_str()).map(String::from);
+
     Ok(Json(OidcUserInfoResponse {
         sub: user_id.clone(),
         name,
         picture,
-        email: None, // 需要额外查询
+        email,
     }))
 }
 
 /// OIDC Token Request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct OidcTokenRequest {
+    #[validate(length(min = 1, max = 100))]
     pub grant_type: String,
+    #[validate(length(min = 1, max = 2048))]
     pub code: Option<String>,
+    #[validate(length(max = 2048))]
     pub redirect_uri: Option<String>,
+    #[validate(length(max = 2048))]
     pub refresh_token: Option<String>,
+    #[validate(length(max = 1024))]
     pub scope: Option<String>,
 }
 
@@ -95,16 +110,83 @@ pub struct OidcTokenResponse {
 }
 
 /// OIDC Token 端点
-/// 注意: 这个端点通常由授权服务器处理，这里提供 Matrix 兼容的令牌验证
+/// 处理授权码兑换和刷新令牌
 async fn oidc_token(
-    State(_state): State<AppState>,
-    Json(_body): Json<OidcTokenRequest>,
+    State(state): State<AppState>,
+    Json(body): Json<OidcTokenRequest>,
 ) -> Result<Json<OidcTokenResponse>, ApiError> {
-    // OIDC token 端点通常由外部 OIDC 提供商处理
-    // 这里返回错误，引导用户使用正确的 OIDC 流程
-    Err(ApiError::bad_request(
-        "OIDC token endpoint not available. Please use /login with OIDC provider.".to_string(),
-    ))
+    // Validate input
+    body.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
+
+    // 检查 OIDC 服务是否启用
+    let oidc_service = state
+        .services
+        .oidc_service
+        .as_ref()
+        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+
+    let OidcTokenRequest {
+        grant_type,
+        code,
+        redirect_uri,
+        refresh_token,
+        scope,
+    } = body;
+
+    match grant_type.as_str() {
+        "authorization_code" => {
+            // 授权码模式
+            let code = code.ok_or_else(|| {
+                ApiError::bad_request("Missing 'code' parameter".to_string())
+            })?;
+            let redirect_uri = redirect_uri.unwrap_or_default();
+
+            // 使用 OIDC 服务兑换令牌
+            let token_response = oidc_service
+                .exchange_code(&code, &redirect_uri)
+                .await
+                .map_err(|e| ApiError::internal(format!("Token exchange failed: {}", e)))?;
+
+            // 获取用户信息
+            let user_info = oidc_service
+                .get_user_info(&token_response.access_token)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get user info: {}", e)))?;
+
+            // 映射到 Matrix 用户
+            let oidc_user = oidc_service.map_user(&user_info);
+
+            // TODO: 创建或更新 Matrix 用户会话
+            // 这里应该调用 registration_service 创建用户
+
+            tracing::info!(
+                "OIDC token exchange successful for sub: {}, localpart: {}",
+                oidc_user.subject,
+                oidc_user.localpart
+            );
+
+            Ok(Json(OidcTokenResponse {
+                access_token: token_response.access_token,
+                token_type: token_response.token_type,
+                expires_in: token_response.expires_in.unwrap_or(3600),
+                refresh_token: token_response.refresh_token,
+                scope: scope.unwrap_or_else(|| "openid profile email".to_string()),
+            }))
+        }
+        "refresh_token" => {
+            // 刷新令牌模式 - 需要实现
+            let _refresh_token = refresh_token.ok_or_else(|| {
+                ApiError::bad_request("Missing 'refresh_token' parameter".to_string())
+            })?;
+            Err(ApiError::bad_request(
+                "Refresh token grant not yet implemented".to_string(),
+            ))
+        }
+        _ => Err(ApiError::bad_request(format!(
+            "Unsupported grant_type: {}. Supported: authorization_code, refresh_token",
+            grant_type
+        ))),
+    }
 }
 
 /// OIDC Logout Request
@@ -115,26 +197,71 @@ pub struct OidcLogoutRequest {
 }
 
 /// OIDC Authorize Request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct OidcAuthorizeRequest {
+    #[validate(length(min = 1, max = 50))]
     pub response_type: String,
+    #[validate(length(min = 1, max = 255))]
     pub client_id: String,
+    #[validate(length(min = 1, max = 2048))]
     pub redirect_uri: String,
+    #[validate(length(max = 1024))]
     pub scope: Option<String>,
+    #[validate(length(max = 512))]
     pub state: Option<String>,
+    #[validate(length(max = 512))]
     pub nonce: Option<String>,
 }
 
 /// OIDC Authorization handler
 async fn oidc_authorize(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    _query: axum::extract::Query<OidcAuthorizeRequest>,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    query: axum::extract::Query<OidcAuthorizeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::bad_request(
-        "OIDC authorization endpoint not available. Please use SAML or CAS authentication."
-            .to_string(),
-    ))
+    // 检查 OIDC 服务是否启用
+    let oidc_service = state
+        .services
+        .oidc_service
+        .as_ref()
+        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+
+    let OidcAuthorizeRequest {
+        response_type,
+        client_id: _,
+        redirect_uri,
+        scope: _,
+        state: auth_state,
+        nonce,
+    } = query.0;
+
+    // 验证 response_type
+    if response_type != "code" {
+        return Err(ApiError::bad_request(
+            "Only 'code' response type is supported".to_string(),
+        ));
+    }
+
+    // 生成 state 和 nonce
+    let state = auth_state.unwrap_or_else(OidcService::generate_state);
+    let nonce = nonce.unwrap_or_else(OidcService::generate_state);
+
+    // 生成授权 URL
+    let authorization_url = oidc_service
+        .get_authorization_url(&state, &redirect_uri)
+        .map_err(|e| ApiError::internal(format!("Failed to generate authorization URL: {}", e)))?;
+
+    tracing::info!(
+        "OIDC authorization for user: {}, redirect_uri: {}",
+        auth_user.user_id,
+        redirect_uri
+    );
+
+    Ok(Json(serde_json::json!({
+        "authorization_url": authorization_url,
+        "state": state,
+        "nonce": nonce,
+    })))
 }
 
 /// OIDC Registration Request
@@ -260,6 +387,92 @@ pub async fn openid_discovery(
         ],
         ui_locales_supported: vec!["en".to_string()],
     }))
+}
+
+/// OIDC Callback Request - 处理 OIDC 授权回调
+#[derive(Debug, Deserialize)]
+pub struct OidcCallbackRequest {
+    pub code: Option<String>,
+    pub state: Option<String>,
+    pub error: Option<String>,
+    pub error_description: Option<String>,
+}
+
+/// OIDC Callback handler - 处理用户授权后从 OIDC 提供商返回的回调
+async fn oidc_callback(
+    State(state): State<AppState>,
+    query: axum::extract::Query<OidcCallbackRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // 检查 OIDC 服务是否启用
+    let oidc_service = state
+        .services
+        .oidc_service
+        .as_ref()
+        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+
+    let OidcCallbackRequest {
+        code,
+        state: _callback_state,
+        error,
+        error_description,
+    } = query.0;
+
+    // 检查错误
+    if let Some(err) = error {
+        return Err(ApiError::bad_request(format!(
+            "OIDC authorization failed: {} - {}",
+            err,
+            error_description.unwrap_or_default()
+        )));
+    }
+
+    // 需要授权码
+    let code = code.ok_or_else(|| {
+        ApiError::bad_request("Missing 'code' parameter in OIDC callback".to_string())
+    })?;
+
+    // 获取配置的回调 URL
+    let callback_url = oidc_service
+        .get_config()
+        .callback_url
+        .clone()
+        .unwrap_or_else(|| format!("https://{}/_matrix/client/v3/oidc/callback", state.services.server_name));
+
+    // 兑换令牌
+    let token_response = oidc_service
+        .exchange_code(&code, &callback_url)
+        .await
+        .map_err(|e| ApiError::internal(format!("Token exchange failed: {}", e)))?;
+
+    // 获取用户信息
+    let user_info = oidc_service
+        .get_user_info(&token_response.access_token)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get user info: {}", e)))?;
+
+    // 映射到 Matrix 用户
+    let oidc_user = oidc_service.map_user(&user_info);
+
+    tracing::info!(
+        "OIDC callback successful for sub: {}, localpart: {}, email: {:?}",
+        oidc_user.subject,
+        oidc_user.localpart,
+        oidc_user.email
+    );
+
+    // TODO: 创建或登录 Matrix 用户
+    // 这里应该调用 registration_service 来创建用户或关联现有用户
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "sub": oidc_user.subject,
+        "localpart": oidc_user.localpart,
+        "displayname": oidc_user.displayname,
+        "email": oidc_user.email,
+        "access_token": token_response.access_token,
+        "token_type": token_response.token_type,
+        "expires_in": token_response.expires_in,
+    })))
 }
 
 #[cfg(test)]

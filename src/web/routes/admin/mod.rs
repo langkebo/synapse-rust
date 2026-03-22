@@ -1,6 +1,7 @@
 pub mod federation;
 pub mod media;
 pub mod notification;
+pub mod register;
 pub mod report;
 pub mod retention;
 pub mod room;
@@ -15,6 +16,7 @@ use axum::Router;
 pub use federation::create_federation_router;
 pub use media::create_media_router;
 pub use notification::create_notification_router;
+pub use register::create_register_router;
 pub use report::create_report_router;
 pub use retention::create_retention_router;
 pub use room::create_room_router;
@@ -35,4 +37,5 @@ pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
         .merge(create_media_router(state.clone()))
         .merge(create_report_router(state.clone()))
         .merge(create_retention_router(state.clone()))
+        .merge(create_register_router(state.clone()))
 }

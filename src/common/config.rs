@@ -1291,19 +1291,19 @@ fn default_circuit_breaker_enabled() -> bool {
 }
 
 fn default_failure_threshold() -> u32 {
-    5
+    10  // 10 failures (was 5) - more tolerance for transient failures
 }
 
 fn default_success_threshold() -> u32 {
-    3
+    3  // Keep as is
 }
 
 fn default_timeout_ms() -> u64 {
-    30000
+    60000  // 60 seconds (was 30s) - give more time before half-open
 }
 
 fn default_window_size_seconds() -> u64 {
-    60
+    120  // 2 minutes (was 1 min) - larger window for better accuracy
 }
 
 impl Default for CircuitBreakerConfig {

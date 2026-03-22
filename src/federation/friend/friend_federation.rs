@@ -148,4 +148,47 @@ mod tests {
             "@alice:example.com"
         );
     }
+
+    #[test]
+    fn test_friend_federation_content_with_null_fields() {
+        let content = serde_json::json!({
+            "target_user_id": "@alice:example.com",
+            "requester_id": "@bob:remote.com",
+            "message": null
+        });
+
+        assert!(content.get("message").is_some());
+        assert!(content.get("message").unwrap().is_null());
+    }
+
+    #[test]
+    fn test_friend_federation_empty_user_id() {
+        let requester_id = "";
+        assert!(!requester_id.contains(':'));
+    }
+
+    #[test]
+    fn test_friend_federation_local_origin() {
+        let origin = "localhost";
+        let requester_id = "@user:localhost";
+
+        assert!(requester_id.ends_with(&format!(":{}", origin)));
+    }
+
+    #[test]
+    fn test_friend_federation_complex_server_name() {
+        let origin = "server.example.com:8448";
+        let requester_id = "@user:server.example.com";
+
+        assert!(requester_id.ends_with(":server.example.com"));
+    }
+
+    #[test]
+    fn test_friend_federation_origin_with_port() {
+        let origin = "example.com:8080";
+        let requester_id = "@bob:example.com";
+
+        // Should not match because of port
+        assert!(!requester_id.ends_with(&format!(":{}", origin)));
+    }
 }

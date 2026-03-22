@@ -207,6 +207,8 @@ pub struct ServiceContainer {
     pub widget_service: Arc<crate::services::widget_service::WidgetService>,
     /// 阅后即焚服务
     pub burn_after_read: Arc<BurnAfterReadServiceImpl>,
+    /// OIDC 服务
+    pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
 }
 
 impl ServiceContainer {
@@ -500,6 +502,15 @@ impl ServiceContainer {
         // 阅后即焚服务
         let burn_after_read = Arc::new(BurnAfterReadServiceImpl::new());
 
+        // OIDC 服务
+        let oidc_service = if config.oidc.is_enabled() {
+            Some(Arc::new(crate::services::oidc_service::OidcService::new(Arc::new(
+                config.oidc.clone(),
+            ))))
+        } else {
+            None
+        };
+
         Self {
             user_storage,
             device_storage: DeviceStorage::new(pool),
@@ -587,6 +598,7 @@ impl ServiceContainer {
             widget_storage,
             widget_service,
             burn_after_read,
+            oidc_service,
         }
     }
 

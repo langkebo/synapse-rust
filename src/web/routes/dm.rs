@@ -8,17 +8,22 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
+use validator::Validate;
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct CreateDmRequest {
+    #[validate(length(max = 100))]
     pub invite: Option<Vec<String>>,
     pub is_direct: Option<bool>,
+    #[validate(length(max = 255))]
     pub name: Option<String>,
+    #[validate(length(max = 50))]
     pub visibility: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct UpdateDmRequest {
     pub users: Option<Value>,
 }
@@ -28,6 +33,9 @@ pub async fn create_dm_room(
     auth_user: AuthenticatedUser,
     Json(body): Json<CreateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    // Validate input
+    body.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
+
     let invite_list = body.invite.unwrap_or_default();
 
     if invite_list.is_empty() {

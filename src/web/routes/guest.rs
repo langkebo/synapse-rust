@@ -8,7 +8,9 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
+use serde::Deserialize;
 use serde_json::{json, Value};
+use validator::Validate;
 
 pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     if !state.services.config.server.enable_registration {
@@ -78,20 +80,24 @@ pub async fn get_guest_info(
     }
 }
 
+#[derive(Debug, Deserialize, Validate)]
+pub struct UpgradeGuestRequest {
+    #[validate(length(min = 1, max = 255))]
+    username: String,
+    #[validate(length(min = 8, max = 512))]
+    password: String,
+}
+
 pub async fn upgrade_guest(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    Json(body): Json<UpgradeGuestRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let username = body
-        .get("username")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing username".to_string()))?;
+    // Validate input
+    body.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
-    let _password = body
-        .get("password")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing password".to_string()))?;
+    let username = &body.username;
+    let _password = &body.password;
 
     let user = UserStorage::get_user_by_id(&state.services.user_storage, &auth_user.user_id)
         .await

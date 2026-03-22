@@ -9,6 +9,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
+use validator::Validate;
 
 pub fn create_user_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -74,19 +75,24 @@ pub fn create_user_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/account/{user_id}", post(update_account))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct ResetPasswordBody {
+    #[validate(length(min = 8, max = 512))]
     #[serde(alias = "newPassword", alias = "new_password")]
     pub new_password: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct CreateUpdateUserRequest {
+    #[validate(length(max = 255))]
     pub displayname: Option<String>,
+    #[validate(length(max = 2048))]
     pub avatar_url: Option<String>,
     pub admin: Option<bool>,
     pub deactivated: Option<bool>,
+    #[validate(length(max = 255))]
     pub user_type: Option<String>,
+    #[validate(length(min = 8, max = 512))]
     pub password: Option<String>,
 }
 

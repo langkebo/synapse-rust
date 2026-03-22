@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS users (
     invalid_update_at BIGINT,
     migration_state TEXT,
     password_changed_ts BIGINT,
+    is_password_change_required BOOLEAN DEFAULT FALSE,
     must_change_password BOOLEAN DEFAULT FALSE,
     password_expires_at BIGINT,
     failed_login_attempts INTEGER DEFAULT 0,
@@ -85,11 +86,11 @@ CREATE TABLE IF NOT EXISTS user_threepids (
     user_id TEXT NOT NULL,
     medium TEXT NOT NULL,
     address TEXT NOT NULL,
-    validated_at BIGINT,
+    validated_ts BIGINT,
     added_ts BIGINT NOT NULL,
     is_verified BOOLEAN DEFAULT FALSE,
     verification_token TEXT,
-    verification_expires_at BIGINT,
+    verification_expires_ts BIGINT,
     CONSTRAINT pk_user_threepids PRIMARY KEY (id),
     CONSTRAINT uq_user_threepids_medium_address UNIQUE (medium, address),
     CONSTRAINT fk_user_threepids_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
@@ -1865,7 +1866,7 @@ CREATE TABLE IF NOT EXISTS private_messages (
     message_type VARCHAR(50) DEFAULT 'm.text',
     is_read BOOLEAN DEFAULT FALSE,
     read_by_receiver BOOLEAN DEFAULT FALSE,
-    read_at BIGINT,
+    read_ts BIGINT,
     edit_history JSONB,
     is_deleted BOOLEAN DEFAULT FALSE,
     deleted_at BIGINT,
@@ -2195,7 +2196,8 @@ CREATE TABLE IF NOT EXISTS room_ephemeral (
     content JSONB NOT NULL DEFAULT '{}',
     stream_id BIGINT NOT NULL,
     created_ts BIGINT NOT NULL,
-    expires_ts BIGINT
+    expires_ts BIGINT,
+    expires_at BIGINT GENERATED ALWAYS AS (expires_ts) STORED
 );
 
 CREATE INDEX IF NOT EXISTS idx_room_ephemeral_room ON room_ephemeral(room_id);
