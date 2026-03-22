@@ -52,15 +52,15 @@ pub struct CacheConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
-            room_ttl: Duration::from_secs(300),
-            user_ttl: Duration::from_secs(600),
-            event_ttl: Duration::from_secs(60),
-            membership_ttl: Duration::from_secs(120),
-            device_ttl: Duration::from_secs(300),
+            room_ttl: Duration::from_secs(1800),       // 30 min - rooms change infrequently
+            user_ttl: Duration::from_secs(1800),       // 30 min - user profiles stable
+            event_ttl: Duration::from_secs(600),      // 10 min - events are immutable once created
+            membership_ttl: Duration::from_secs(900),  // 15 min - membership changes are rare
+            device_ttl: Duration::from_secs(1800),      // 30 min - devices don't change often
             token_ttl: Duration::from_secs(3600),
-            max_entries: 10000,
+            max_entries: 50000,                        // Increased for better capacity
             max_memory_mb: 100,
-            eviction_threshold: 0.9,
+            eviction_threshold: 0.85,
             warm_on_startup: false,
         }
     }

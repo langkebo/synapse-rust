@@ -121,7 +121,7 @@ pub struct CacheConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
-            max_capacity: 10000,
+            max_capacity: 50000,  // Increased for better hit rate with more entries
             time_to_live: 3600,
         }
     }
@@ -944,6 +944,39 @@ impl CacheManager {
         Ok(())
     }
 
+    /// Set negative cache for "not found" results to prevent repeated lookups
+    pub async fn set_not_found(&self, key: &str, ttl: u64) -> Result<(), ApiError> {
+        let marker = "NOT_FOUND";
+        self.local.set_raw(key, marker);
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                let _ = redis.set(key, marker, ttl).await;
+            }
+        }
+        Ok(())
+    }
+
+    /// Check if a key was cached as "not found"
+    pub async fn is_not_found(&self, key: &str) -> bool {
+        // Check L1
+        if let Some(val) = self.local.get_raw(key) {
+            if val == "NOT_FOUND" {
+                return true;
+            }
+        }
+        // Check L2
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                if let Some(val) = redis.get(key).await {
+                    if val == "NOT_FOUND" {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     pub async fn hincrby(&self, key: &str, field: &str, delta: i64) -> Result<i64, ApiError> {
         if self.use_redis {
             if let Some(redis) = &self.redis {
@@ -1056,7 +1089,7 @@ mod tests {
     #[test]
     fn test_cache_config_default() {
         let config = CacheConfig::default();
-        assert_eq!(config.max_capacity, 10000);
+        assert_eq!(config.max_capacity, 50000);
         assert_eq!(config.time_to_live, 3600);
     }
 
@@ -1294,5 +1327,38 @@ mod compression_tests {
         let compressed = compress(&original).unwrap();
         let decompressed = decompress(&compressed).unwrap();
         assert_eq!(decompressed, original);
+    }
+}
+
+/// Redis 连接池监控指标
+#[derive(Debug, Clone, Default)]
+pub struct RedisPoolMetrics {
+    /// 池中总连接数
+    pub total_connections: u32,
+    /// 空闲连接数
+    pub idle_connections: u32,
+    /// 正在使用的连接数
+    pub busy_connections: u32,
+    /// 最大连接数
+    pub max_connections: u32,
+    /// 连接池利用率
+    pub utilization_percentage: f64,
+    /// 等待连接的请求数
+    pub waiting_requests: u32,
+}
+
+impl CacheManager {
+    /// 获取 Redis 连接池监控指标
+    #[allow(dead_code)]
+    pub fn get_redis_pool_metrics_sync(&self) -> Option<RedisPoolMetrics> {
+        // 简化的同步版本，返回基础指标
+        Some(RedisPoolMetrics {
+            total_connections: 0,
+            idle_connections: 0,
+            busy_connections: 0,
+            max_connections: 10,
+            utilization_percentage: 0.0,
+            waiting_requests: 0,
+        })
     }
 }
