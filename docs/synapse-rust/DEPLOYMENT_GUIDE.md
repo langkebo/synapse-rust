@@ -413,6 +413,242 @@ gzip_min_length 1000;
 
 ---
 
+## OIDC 单点登录配置 (Keycloak/Auth0)
+
+### 概述
+
+synapse-rust 支持通过 OpenID Connect (OIDC) 协议与企业身份提供商集成，支持 Keycloak、Auth0、Okta、Azure AD 等主流 OIDC Provider。
+
+### 配置要求
+
+| 组件 | 状态 | 说明 |
+|------|------|------|
+| OIDC Service | ✅ 完整实现 | `src/services/oidc_service.rs` |
+| OIDC 路由 | ⚠️ 需完善 | 当前为存根，需连接 Service 层 |
+| OIDC 配置 | ✅ 完整实现 | `src/common/config.rs` |
+
+### Keycloak 配置步骤
+
+#### 1. 创建 Keycloak Realm
+
+1. 登录 Keycloak 管理控制台 (http://your-keycloak:8080)
+2. 点击左上角 Realm 列表，选择 "Create realm"
+3. 设置 Realm Name: `matrix`
+4. 点击 "Create"
+
+#### 2. 创建 OIDC Client
+
+1. 进入 `matrix` Realm
+2. 点击左侧 "Clients" → "Create client"
+3. 配置如下：
+
+| 配置项 | 值 |
+|--------|-----|
+| Client ID | `synapse` |
+| Client Protocol | `openid-connect` |
+| Consent Required | `OFF` |
+| Standard Flow Enabled | `ON` |
+| Implicit Flow Enabled | `OFF` |
+| Direct Access Grants Enabled | `ON` |
+
+4. 点击 "Next" → "Save"
+
+#### 3. 配置 Client Settings
+
+在 Client Details 中设置：
+
+```
+Valid Redirect URIs:
+  - https://matrix.cjystx.top/_matrix/client/r0/login/sso/redirect
+  - https://matrix.cjystx.top/_matrix/client/v3/login/sso/redirect
+  - https://cjystx.top/_matrix/client/r0/login/sso/redirect
+  - https://cjystx.top/_matrix/client/v3/login/sso/redirect
+
+Web Origins:
+  - https://matrix.cjystx.top
+  - https://cjystx.top
+```
+
+#### 4. 获取 Client Secret
+
+1. 进入 "Credentials" 标签页
+2. 复制 `Client Secret` 的值
+
+#### 5. 获取 Keycloak 发现文档
+
+```
+http://your-keycloak:8080/realms/matrix/.well-known/openid-configuration
+```
+
+记录以下值：
+- `issuer`
+- `authorization_endpoint`
+- `token_endpoint`
+- `userinfo_endpoint`
+
+---
+
+### synapse-rust OIDC 配置
+
+#### homeserver.yaml 配置
+
+```yaml
+oidc:
+  enabled: true
+  issuer: "http://your-keycloak:8080/realms/matrix"
+  client_id: "synapse"
+  client_secret: "your-client-secret-here"
+  
+  scopes:
+    - "openid"
+    - "profile"
+    - "email"
+  
+  attribute_mapping:
+    localpart: "preferred_username"  # 用户名的来源字段
+    displayname: "name"              # 显示名称的来源字段
+    email: "email"                   # 邮箱的来源字段
+  
+  callback_url: "https://matrix.cjystx.top/_matrix/client/r0/login/sso/redirect"
+  
+  # 用户控制
+  allow_existing_users: true   # 允许已有用户通过 OIDC 登录
+  block_unknown_users: false   # 不阻止未知用户（自动创建）
+  
+  # 端点覆盖（可选，从发现文档自动获取）
+  # authorization_endpoint: "http://your-keycloak:8080/realms/matrix/protocol/openid-connect/auth"
+  # token_endpoint: "http://your-keycloak:8080/realms/matrix/protocol/openid-connect/token"
+  # userinfo_endpoint: "http://your-keycloak:8080/realms/matrix/protocol/openid-connect/userinfo"
+  
+  timeout: 10
+```
+
+#### Auth0 配置模板
+
+```yaml
+oidc:
+  enabled: true
+  issuer: "https://your-tenant.auth0.com/"
+  client_id: "your-auth0-client-id"
+  client_secret: "your-auth0-client-secret"
+  
+  scopes:
+    - "openid"
+    - "profile"
+    - "email"
+    - "openid connect"
+  
+  attribute_mapping:
+    localpart: "nickname"
+    displayname: "name"
+    email: "email"
+  
+  callback_url: "https://matrix.cjystx.top/_matrix/client/r0/login/sso/redirect"
+  allow_existing_users: true
+  block_unknown_users: false
+  timeout: 10
+```
+
+#### Azure AD 配置模板
+
+```yaml
+oidc:
+  enabled: true
+  issuer: "https://login.microsoftonline.com/{your-tenant-id}/v2.0"
+  client_id: "your-azure-client-id"
+  client_secret: "your-azure-client-secret"
+  
+  scopes:
+    - "openid"
+    - "profile"
+    - "email"
+  
+  attribute_mapping:
+    localpart: "preferred_username"  # 或 email 的 localpart
+    displayname: "name"
+    email: "email"
+  
+  callback_url: "https://matrix.cjystx.top/_matrix/client/r0/login/sso/redirect"
+  allow_existing_users: true
+  block_unknown_users: false
+  timeout: 10
+```
+
+---
+
+### OIDC 认证流程
+
+```
+1. 用户访问 Matrix 客户端，选择 "使用企业账号登录"
+
+2. 客户端重定向到:
+   GET /_matrix/client/v3/oidc/authorize?
+     response_type=code&
+     client_id=synapse&
+     redirect_uri=https://matrix.cjystx.top/_matrix/client/r0/login/sso/redirect&
+     scope=openid profile email&
+     state=xxx
+
+3. synapse-rust 返回重定向到 Keycloak:
+   302 -> https://keycloak/realms/matrix/protocol/openid-connect/auth?...
+
+4. 用户在 Keycloak 完成认证
+
+5. Keycloak 回调到:
+   https://matrix.cjystx.top/_matrix/client/r0/login/sso/redirect?code=xxx&state=xxx
+
+6. synapse-rust 使用 code 向 Keycloak 兑换 token
+
+7. synapse-rust 使用 token 获取用户信息
+
+8. synapse-rust 根据 attribute_mapping 创建/更新用户
+
+9. synapse-rust 返回 access_token 给客户端
+```
+
+---
+
+### 故障排除
+
+#### 1. 回调 URL 不匹配
+
+```
+错误: Invalid parameter: redirect_uri
+解决: 检查 Keycloak Client 的 Valid Redirect URIs 配置
+```
+
+#### 2. CORS 问题
+
+```
+错误: CORS policy blocked
+解决: 检查 Keycloak Client 的 Web Origins 配置
+```
+
+#### 3. Scope 不足
+
+```
+错误: Insufficient scope
+解决: 确保配置中包含所有必需的 scopes
+```
+
+#### 4. 属性映射错误
+
+```
+错误: User creation failed
+解决: 检查 attribute_mapping 配置，确保字段存在
+```
+
+---
+
+### 注意事项
+
+1. **生产环境务必使用 HTTPS**
+2. **Client Secret 必须保密存储**
+3. **建议配置 Keycloak 的 Token 过期时间**
+4. **首次登录会自动创建用户**
+
+---
+
 ## 安全加固
 
 ### 1. TLS 配置

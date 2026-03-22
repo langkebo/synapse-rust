@@ -6,61 +6,82 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use validator::Validate;
 
 use crate::common::ApiError;
 use crate::storage::space::{AddChildRequest, CreateSpaceRequest, UpdateSpaceRequest};
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct CreateSpaceBody {
+    #[validate(length(min = 1, max = 255))]
     pub room_id: String,
+    #[validate(length(max = 255))]
     pub name: Option<String>,
+    #[validate(length(max = 1000))]
     pub topic: Option<String>,
+    #[validate(length(max = 2048))]
     pub avatar_url: Option<String>,
+    #[validate(length(max = 50))]
     pub join_rule: Option<String>,
+    #[validate(length(max = 50))]
     pub visibility: Option<String>,
     pub is_public: Option<bool>,
+    #[validate(length(max = 255))]
     pub parent_space_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct AddChildBody {
+    #[validate(length(min = 1, max = 255))]
     pub room_id: String,
+    #[validate(length(max = 100))]
     pub via_servers: Vec<String>,
+    #[validate(length(max = 1000))]
     pub order: Option<String>,
     pub suggested: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct UpdateSpaceBody {
+    #[validate(length(max = 255))]
     pub name: Option<String>,
+    #[validate(length(max = 1000))]
     pub topic: Option<String>,
+    #[validate(length(max = 2048))]
     pub avatar_url: Option<String>,
+    #[validate(length(max = 50))]
     pub join_rule: Option<String>,
+    #[validate(length(max = 50))]
     pub visibility: Option<String>,
     pub is_public: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct InviteUserBody {
+    #[validate(length(min = 1, max = 255))]
     pub user_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct PaginationQuery {
+    #[validate(range(min = 0, max = 1000))]
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct SearchQuery {
+    #[validate(length(min = 1, max = 500))]
     pub query: String,
+    #[validate(range(min = 0, max = 100))]
     pub limit: Option<i64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct HierarchyQuery {
+    #[validate(range(min = 1, max = 20))]
     pub max_depth: Option<i32>,
 }
 

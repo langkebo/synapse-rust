@@ -46,11 +46,11 @@
 
 ## 实施步骤
 
-1. [ ] 修复 Media Config 路由注册
-2. [ ] 修复 getJoinedRoomMembers 实现
-3. [ ] 修复 User Tags 实现  
-4. [ ] 添加 "away" presence 状态支持
-5. [ ] 修复 roomState 返回格式
+1. [x] 修复 Media Config 路由注册 (添加 v1/media/config)
+2. [ ] 修复 getJoinedRoomMembers 实现 (代码正确，可能是数据问题)
+3. [ ] 修复 User Tags 实现 (代码正确，可能是数据问题)
+4. [x] 添加 "away" presence 状态支持
+5. [x] 修复 roomState 返回格式 (代码已正确，直接返回数组)
 6. [ ] 运行测试验证
 
 ## 参考实现

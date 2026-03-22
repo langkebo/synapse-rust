@@ -427,4 +427,274 @@ mod tests {
 
         assert!(manager.is_within_grace_period(&expired_key).await);
     }
+
+    #[test]
+    fn test_key_rotation_constants() {
+        assert_eq!(KEY_ROTATION_INTERVAL_DAYS, 7);
+        assert_eq!(KEY_GRACE_PERIOD_MINUTES, 5);
+    }
+
+    #[test]
+    fn test_signing_key_creation() {
+        let key = SigningKey {
+            key_id: "ed25519:test".to_string(),
+            secret_key: "secret123".to_string(),
+            public_key: "public456".to_string(),
+            created_ts: 1000,
+            expires_at: 2000,
+        };
+
+        assert_eq!(key.key_id, "ed25519:test");
+        assert_eq!(key.secret_key, "secret123");
+        assert_eq!(key.public_key, "public456");
+        assert_eq!(key.created_ts, 1000);
+        assert_eq!(key.expires_at, 2000);
+    }
+
+    #[test]
+    fn test_signing_key_clone() {
+        let key = SigningKey {
+            key_id: "ed25519:test".to_string(),
+            secret_key: "secret123".to_string(),
+            public_key: "public456".to_string(),
+            created_ts: 1000,
+            expires_at: 2000,
+        };
+
+        let cloned = key.clone();
+        assert_eq!(key.key_id, cloned.key_id);
+        assert_eq!(key.secret_key, cloned.secret_key);
+    }
+
+    #[tokio::test]
+    async fn test_key_rotation_manager_new() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        // Should have empty current key initially
+        let current = manager.get_current_key().await.unwrap();
+        assert!(current.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_should_rotate_keys_no_key() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        // Should rotate when no key exists
+        let should_rotate = manager.should_rotate_keys().await;
+        assert!(should_rotate);
+    }
+
+    #[tokio::test]
+    async fn test_should_rotate_keys_with_fresh_key() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        // Create a key that expires in the future
+        let future_expires = (Utc::now() + Duration::days(30)).timestamp_millis();
+        
+        {
+            let mut current = manager.current_key.write().await;
+            *current = Some(SigningKey {
+                key_id: "ed25519:test".to_string(),
+                secret_key: "test".to_string(),
+                public_key: "test".to_string(),
+                created_ts: Utc::now().timestamp_millis(),
+                expires_at: future_expires,
+            });
+        }
+
+        let should_rotate = manager.should_rotate_keys().await;
+        // Should not rotate if key expires in more than 7 days
+        assert!(!should_rotate);
+    }
+
+    #[tokio::test]
+    async fn test_should_rotate_keys_expiring_soon() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        // Create a key that expires in 5 days (less than 7 days threshold)
+        let soon_expires = (Utc::now() + Duration::days(5)).timestamp_millis();
+        
+        {
+            let mut current = manager.current_key.write().await;
+            *current = Some(SigningKey {
+                key_id: "ed25519:test".to_string(),
+                secret_key: "test".to_string(),
+                public_key: "test".to_string(),
+                created_ts: Utc::now().timestamp_millis(),
+                expires_at: soon_expires,
+            });
+        }
+
+        let should_rotate = manager.should_rotate_keys().await;
+        assert!(should_rotate);
+    }
+
+    #[tokio::test]
+    async fn test_cache_historical_key() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        manager
+            .cache_historical_key("example.com", "ed25519:old", "public_key_data".to_string())
+            .await;
+
+        let cache = manager.memory_cache.read().await;
+        let key = format!("federation:historical_key:example.com:ed25519:old");
+        assert!(cache.contains_key(&key));
+    }
+
+    #[tokio::test]
+    async fn test_get_server_keys_response_no_key() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        let result = manager.get_server_keys_response().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_server_keys_response_with_key() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        // Set a current key
+        {
+            let mut current = manager.current_key.write().await;
+            *current = Some(SigningKey {
+                key_id: "ed25519:test".to_string(),
+                secret_key: "test".to_string(),
+                public_key: "test_public_key".to_string(),
+                created_ts: Utc::now().timestamp_millis(),
+                expires_at: (Utc::now() + Duration::days(7)).timestamp_millis(),
+            });
+        }
+
+        let result = manager.get_server_keys_response().await.unwrap();
+        assert_eq!(result["server_name"], "test.example.com");
+        assert!(result["verify_keys"].is_object());
+        assert!(result["valid_until_ts"].is_number());
+    }
+
+    #[tokio::test]
+    async fn test_get_server_keys_response_with_historical_keys() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        // Set current key
+        {
+            let mut current = manager.current_key.write().await;
+            *current = Some(SigningKey {
+                key_id: "ed25519:current".to_string(),
+                secret_key: "test".to_string(),
+                public_key: "current_public".to_string(),
+                created_ts: Utc::now().timestamp_millis(),
+                expires_at: (Utc::now() + Duration::days(7)).timestamp_millis(),
+            });
+        }
+
+        // Add historical key
+        {
+            let mut historical = manager.historical_keys.write().await;
+            historical.insert(
+                "ed25519:old".to_string(),
+                SigningKey {
+                    key_id: "ed25519:old".to_string(),
+                    secret_key: "old_secret".to_string(),
+                    public_key: "old_public".to_string(),
+                    created_ts: 0,
+                    expires_at: Utc::now().timestamp_millis() - 1000,
+                },
+            );
+        }
+
+        let result = manager.get_server_keys_response().await.unwrap();
+        assert!(result["old_verify_keys"].is_object());
+    }
+
+    #[tokio::test]
+    async fn test_set_rotation_enabled() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        // Disable rotation
+        manager.set_rotation_enabled(false).await;
+        
+        let status = manager.get_rotation_status().await;
+        assert_eq!(status["rotation_enabled"], false);
+
+        // Enable rotation
+        manager.set_rotation_enabled(true).await;
+        
+        let status = manager.get_rotation_status().await;
+        assert_eq!(status["rotation_enabled"], true);
+    }
+
+    #[tokio::test]
+    async fn test_get_rotation_status_no_key() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        let status = manager.get_rotation_status().await;
+        assert_eq!(status["has_current_key"], false);
+        assert_eq!(status["should_rotate"], true);
+        assert_eq!(status["server_name"], "test.example.com");
+    }
+
+    #[tokio::test]
+    async fn test_get_rotation_status_with_key() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        // Set a key
+        {
+            let mut current = manager.current_key.write().await;
+            *current = Some(SigningKey {
+                key_id: "ed25519:test".to_string(),
+                secret_key: "test".to_string(),
+                public_key: "test".to_string(),
+                created_ts: Utc::now().timestamp_millis(),
+                expires_at: (Utc::now() + Duration::days(30)).timestamp_millis(),
+            });
+        }
+
+        let status = manager.get_rotation_status().await;
+        assert_eq!(status["has_current_key"], true);
+        assert_eq!(status["should_rotate"], false);
+    }
+
+    #[tokio::test]
+    async fn test_derive_public_key_invalid_base64() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        let result = manager.derive_public_key("not-valid-base64!!!").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_derive_public_key_wrong_length() {
+        let pool = create_test_pool().await;
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+
+        // 16 bytes instead of 32
+        let short_key = base64::engine::general_purpose::STANDARD_NO_PAD.encode(b"short_key");
+        let result = manager.derive_public_key(&short_key).await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_key_rotation_manager_clone() {
+        let pool = std::sync::Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .unwrap(),
+        );
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+        let _cloned = manager.clone();
+        // Should compile - Verify clone works
+    }
 }

@@ -7,17 +7,26 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use validator::Validate;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct PublicRoomsQuery {
+    #[validate(range(min = 0, max = 100))]
     #[serde(default = "default_limit")]
     pub limit: i32,
+    #[validate(length(max = 256))]
     #[serde(default)]
     pub since: Option<String>,
 }
 
 fn default_limit() -> i32 {
     20
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct SetRoomAliasBody {
+    #[validate(length(min = 1, max = 255))]
+    pub room_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,12 +64,14 @@ pub async fn set_room_alias_handler(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
     Path(room_alias): Path<String>,
-    Json(body): Json<Value>,
+    Json(body): Json<SetRoomAliasBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_id = body
-        .get("room_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing room_id".to_string()))?;
+    // Validate room_alias path parameter
+    if room_alias.len() > 255 {
+        return Err(ApiError::bad_request("Room alias too long".to_string()));
+    }
+
+    let room_id = &body.room_id;
 
     state
         .services

@@ -613,13 +613,13 @@ pub struct EventData {
     pub content: Option<Value>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EventInfo {
     pub event_id: String,
     pub prev_events: Option<Value>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConflictInfo {
     pub state_key: String,
     pub winning_event: String,
@@ -813,5 +813,641 @@ mod tests {
         let result = EventAuthChain::new().verify_auth_chain(&events, "!room:test", &[]);
 
         assert!(!result);
+    }
+
+    #[test]
+    fn test_event_auth_chain_constants() {
+        assert_eq!(AUTH_CHAIN_CACHE_SIZE, 1000);
+        assert_eq!(DEPTH_CACHE_SIZE, 2000);
+        assert_eq!(STATE_RESOLUTION_MAX_HOPS, 100);
+    }
+
+    #[test]
+    fn test_event_auth_chain_new() {
+        let chain = EventAuthChain::new();
+        assert!(chain.auth_chain_cache.try_read().is_ok());
+        assert!(chain.depth_cache.try_read().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_cache_auth_chain() {
+        let chain = EventAuthChain::new();
+        
+        // Test cache miss
+        let result = chain.get_cached_auth_chain("$test").await;
+        assert!(result.is_none());
+        
+        // Test cache set and hit
+        chain.cache_auth_chain_result("$test", true).await;
+        let result = chain.get_cached_auth_chain("$test").await;
+        assert_eq!(result, Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_cache_depth() {
+        let chain = EventAuthChain::new();
+        
+        // Test cache miss
+        let result = chain.get_cached_depth("$test").await;
+        assert!(result.is_none());
+        
+        // Test cache set and hit
+        chain.cache_depth("$test", 42).await;
+        let result = chain.get_cached_depth("$test").await;
+        assert_eq!(result, Some(42));
+    }
+
+    #[test]
+    fn test_build_auth_chain_with_non_auth_events() {
+        let mut events = HashMap::new();
+        events.insert(
+            "$msg1".to_string(),
+            EventData {
+                event_id: "$msg1".to_string(),
+                room_id: "!room:test".to_string(),
+                event_type: "m.room.message".to_string(),
+                auth_events: vec!["$create".to_string()],
+                prev_events: vec![],
+                state_key: None,
+                content: None,
+            },
+        );
+        events.insert(
+            "$create".to_string(),
+            EventData {
+                event_id: "$create".to_string(),
+                room_id: "!room:test".to_string(),
+                event_type: "m.room.create".to_string(),
+                auth_events: vec![],
+                prev_events: vec![],
+                state_key: None,
+                content: None,
+            },
+        );
+
+        let auth_chain = EventAuthChain::new().build_auth_chain_from_events(&events, "$msg1");
+        
+        // Should include m.room.create but not m.room.message
+        assert!(auth_chain.contains(&"$create".to_string()));
+        assert!(!auth_chain.contains(&"$msg1".to_string()));
+    }
+
+    #[test]
+    fn test_build_auth_chain_empty() {
+        let events: HashMap<String, EventData> = HashMap::new();
+        let auth_chain = EventAuthChain::new().build_auth_chain_from_events(&events, "$nonexistent");
+        assert!(auth_chain.is_empty());
+    }
+
+    #[test]
+    fn test_build_auth_chain_circular_refs() {
+        let mut events = HashMap::new();
+        events.insert(
+            "$a".to_string(),
+            EventData {
+                event_id: "$a".to_string(),
+                room_id: "!room:test".to_string(),
+                event_type: "m.room.create".to_string(),
+                auth_events: vec!["$b".to_string()],
+                prev_events: vec![],
+                state_key: None,
+                content: None,
+            },
+        );
+        events.insert(
+            "$b".to_string(),
+            EventData {
+                event_id: "$b".to_string(),
+                room_id: "!room:test".to_string(),
+                event_type: "m.room.member".to_string(),
+                auth_events: vec!["$a".to_string()],
+                prev_events: vec![],
+                state_key: Some(json!("@user:test")),
+                content: None,
+            },
+        );
+
+        let auth_chain = EventAuthChain::new().build_auth_chain_from_events(&events, "$a");
+        
+        // Should handle circular references without infinite loop
+        assert!(!auth_chain.is_empty());
+    }
+
+    #[test]
+    fn test_verify_auth_chain_first_event_not_in_map() {
+        let events: HashMap<String, EventData> = HashMap::new();
+        
+        // First event in chain not in events map - should still work
+        let result = EventAuthChain::new().verify_auth_chain(
+            &events,
+            "!room:test",
+            &["$create".to_string()],
+        );
+        assert!(result);
+    }
+
+    #[test]
+    fn test_calculate_event_depth_multiple_roots() {
+        let events = vec![
+            EventInfo {
+                event_id: "$1".to_string(),
+                prev_events: None,
+            },
+            EventInfo {
+                event_id: "$2".to_string(),
+                prev_events: None,
+            },
+            EventInfo {
+                event_id: "$3".to_string(),
+                prev_events: Some(serde_json::json!([["$1", null], ["$2", null]])),
+            },
+        ];
+
+        let depth_map = EventAuthChain::new().calculate_event_depth(&events);
+
+        assert_eq!(depth_map.get("$1"), Some(&1));
+        assert_eq!(depth_map.get("$2"), Some(&1));
+        assert_eq!(depth_map.get("$3"), Some(&2));
+    }
+
+    #[test]
+    fn test_calculate_event_depth_invalid_prev_format() {
+        let events = vec![
+            EventInfo {
+                event_id: "$1".to_string(),
+                prev_events: Some(serde_json::json!({"invalid": "format"})),
+            },
+        ];
+
+        let depth_map = EventAuthChain::new().calculate_event_depth(&events);
+        
+        // Should handle invalid format gracefully
+        assert!(depth_map.contains_key("$1"));
+    }
+
+    #[test]
+    fn test_detect_conflicts_no_state_key() {
+        let state_events = vec![
+            json!({
+                "event_id": "$1",
+                "type": "m.room.message",
+                "state_key": "",
+                "origin_server_ts": 1000
+            }),
+        ];
+
+        let conflicts = EventAuthChain::new().detect_conflicts(&state_events);
+        
+        // Empty state_key should be skipped
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn test_detect_conflicts_three_events() {
+        let state_events = vec![
+            json!({
+                "event_id": "$1",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 1000
+            }),
+            json!({
+                "event_id": "$2",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 2000
+            }),
+            json!({
+                "event_id": "$3",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 3000
+            }),
+        ];
+
+        let conflicts = EventAuthChain::new().detect_conflicts(&state_events);
+
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].winning_event, "$3");
+        assert_eq!(conflicts[0].losing_events, vec!["$1", "$2"]);
+    }
+
+    #[test]
+    fn test_detect_conflicts_different_types() {
+        let state_events = vec![
+            json!({
+                "event_id": "$1",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 1000
+            }),
+            json!({
+                "event_id": "$2",
+                "type": "m.room.topic",
+                "state_key": "!room:test",
+                "origin_server_ts": 2000
+            }),
+        ];
+
+        let conflicts = EventAuthChain::new().detect_conflicts(&state_events);
+        
+        // Different event types with same state_key should not conflict
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_conflicts_power_based() {
+        let state_events = vec![
+            json!({
+                "event_id": "$1",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 1000,
+                "sender": "@alice:test"
+            }),
+            json!({
+                "event_id": "$2",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 2000,
+                "sender": "@bob:test"
+            }),
+        ];
+
+        let mut power_levels = HashMap::new();
+        power_levels.insert("@alice:test".to_string(), 100);
+        power_levels.insert("@bob:test".to_string(), 50);
+
+        let conflicts = EventAuthChain::new().resolve_conflicts_power_based(&state_events, &power_levels);
+
+        assert_eq!(conflicts.len(), 1);
+        // Alice has higher power, should win despite lower timestamp
+        assert_eq!(conflicts[0].winning_event, "$1");
+    }
+
+    #[test]
+    fn test_resolve_conflicts_power_equal_timestamps() {
+        let state_events = vec![
+            json!({
+                "event_id": "$1",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 1000,
+                "sender": "@alice:test"
+            }),
+            json!({
+                "event_id": "$2",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 2000,
+                "sender": "@bob:test"
+            }),
+        ];
+
+        let mut power_levels = HashMap::new();
+        power_levels.insert("@alice:test".to_string(), 50);
+        power_levels.insert("@bob:test".to_string(), 50);
+
+        let conflicts = EventAuthChain::new().resolve_conflicts_power_based(&state_events, &power_levels);
+
+        assert_eq!(conflicts.len(), 1);
+        // Equal power, higher timestamp should win
+        assert_eq!(conflicts[0].winning_event, "$2");
+    }
+
+    #[test]
+    fn test_resolve_conflicts_power_no_power_levels() {
+        let state_events = vec![
+            json!({
+                "event_id": "$1",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 1000,
+                "sender": "@alice:test"
+            }),
+            json!({
+                "event_id": "$2",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 2000,
+                "sender": "@bob:test"
+            }),
+        ];
+
+        let power_levels: HashMap<String, i64> = HashMap::new();
+
+        let conflicts = EventAuthChain::new().resolve_conflicts_power_based(&state_events, &power_levels);
+
+        assert_eq!(conflicts.len(), 1);
+        // No power levels, should use timestamp
+        assert_eq!(conflicts[0].winning_event, "$2");
+    }
+
+    #[test]
+    fn test_event_data_clone() {
+        let data = EventData {
+            event_id: "$1".to_string(),
+            room_id: "!room:test".to_string(),
+            event_type: "m.room.create".to_string(),
+            auth_events: vec![],
+            prev_events: vec![],
+            state_key: None,
+            content: None,
+        };
+
+        let cloned = data.clone();
+        assert_eq!(data.event_id, cloned.event_id);
+    }
+
+    #[test]
+    fn test_event_info_clone() {
+        let info = EventInfo {
+            event_id: "$1".to_string(),
+            prev_events: None,
+        };
+
+        let cloned = info.clone();
+        assert_eq!(info.event_id, cloned.event_id);
+    }
+
+    #[test]
+    fn test_conflict_info_clone() {
+        let info = ConflictInfo {
+            state_key: "m.room.name:!".to_string(),
+            winning_event: "$1".to_string(),
+            losing_events: vec!["$2".to_string()],
+            resolution_reason: "test".to_string(),
+        };
+
+        let cloned = info.clone();
+        assert_eq!(info.state_key, cloned.state_key);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_event_depth_with_cache() {
+        let chain = EventAuthChain::new();
+        
+        let events = vec![
+            EventInfo {
+                event_id: "$1".to_string(),
+                prev_events: None,
+            },
+        ];
+
+        let result = chain.calculate_event_depth_with_cache(&events, "$1").await;
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_event_depth_with_cache_miss() {
+        let chain = EventAuthChain::new();
+        
+        let events: Vec<EventInfo> = vec![];
+
+        let result = chain.calculate_event_depth_with_cache(&events, "$nonexistent").await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_build_auth_chain_with_cache() {
+        let chain = EventAuthChain::new();
+        
+        let mut events = HashMap::new();
+        events.insert(
+            "$create".to_string(),
+            EventData {
+                event_id: "$create".to_string(),
+                room_id: "!room:test".to_string(),
+                event_type: "m.room.create".to_string(),
+                auth_events: vec![],
+                prev_events: vec![],
+                state_key: None,
+                content: None,
+            },
+        );
+
+        let result = chain.build_auth_chain_with_cache(&events, "$create").await;
+        
+        // Should return auth chain (includes $create as it's auth event)
+        assert!(result.len() >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_verify_event_auth_chain_complete_empty_chain() {
+        let chain = EventAuthChain::new();
+        let events: HashMap<String, EventData> = HashMap::new();
+
+        let result = chain.verify_event_auth_chain_complete(&events, "!room:test", "$1", &[]).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_verify_event_auth_chain_complete_event_not_found() {
+        let chain = EventAuthChain::new();
+        let events: HashMap<String, EventData> = HashMap::new();
+
+        let result = chain.verify_event_auth_chain_complete(&events, "!room:test", "$1", &["$1".to_string()]).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_verify_event_auth_chain_complete_room_mismatch() {
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events.insert(
+            "$1".to_string(),
+            EventData {
+                event_id: "$1".to_string(),
+                room_id: "!room:other".to_string(),
+                event_type: "m.room.create".to_string(),
+                auth_events: vec![],
+                prev_events: vec![],
+                state_key: None,
+                content: None,
+            },
+        );
+
+        let result = chain.verify_event_auth_chain_complete(&events, "!room:test", "$1", &["$1".to_string()]).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_verify_event_auth_chain_complete_success() {
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events.insert(
+            "$create".to_string(),
+            EventData {
+                event_id: "$create".to_string(),
+                room_id: "!room:test".to_string(),
+                event_type: "m.room.create".to_string(),
+                auth_events: vec![],
+                prev_events: vec![],
+                state_key: None,
+                content: None,
+            },
+        );
+        events.insert(
+            "$member".to_string(),
+            EventData {
+                event_id: "$member".to_string(),
+                room_id: "!room:test".to_string(),
+                event_type: "m.room.member".to_string(),
+                auth_events: vec!["$create".to_string()],
+                prev_events: vec!["$create".to_string()],
+                state_key: Some(json!("@user:test")),
+                content: None,
+            },
+        );
+
+        let result = chain.verify_event_auth_chain_complete(
+            &events, 
+            "!room:test", 
+            "$member", 
+            &["$create".to_string(), "$member".to_string()]
+        ).await;
+        
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_resolve_state_with_auth_chain() {
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events.insert(
+            "$1".to_string(),
+            EventData {
+                event_id: "$1".to_string(),
+                room_id: "!room:test".to_string(),
+                event_type: "m.room.name".to_string(),
+                auth_events: vec![],
+                prev_events: vec![],
+                state_key: Some(json!("")),
+                content: Some(json!({"name": "Test Room"})),
+            },
+        );
+
+        let state = chain.resolve_state_with_auth_chain(&events, &["$1"]);
+        
+        assert!(state.contains_key("m.room.name:"));
+    }
+
+    #[test]
+    fn test_resolve_state_with_auth_chain_empty_state_key() {
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events.insert(
+            "$1".to_string(),
+            EventData {
+                event_id: "$1".to_string(),
+                room_id: "!room:test".to_string(),
+                event_type: "m.room.message".to_string(),
+                auth_events: vec![],
+                prev_events: vec![],
+                state_key: None,
+                content: Some(json!({"body": "hello"})),
+            },
+        );
+
+        let state = chain.resolve_state_with_auth_chain(&events, &["$1"]);
+        
+        // No state_key means no state entry
+        assert!(state.is_empty());
+    }
+
+    #[test]
+    fn test_calculate_state_id() {
+        let chain = EventAuthChain::new();
+        let mut state: HashMap<String, &Value> = HashMap::new();
+        let value = json!("value1");
+        state.insert("key1".to_string(), &value);
+
+        let id = chain.calculate_state_id("!room:test", &state);
+        
+        assert!(!id.is_empty());
+    }
+
+    #[test]
+    fn test_calculate_state_id_empty() {
+        let chain = EventAuthChain::new();
+        let state: HashMap<String, &Value> = HashMap::new();
+
+        let id = chain.calculate_state_id("!room:test", &state);
+        
+        assert!(!id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_detect_state_conflicts_advanced_no_power_levels() {
+        let chain = EventAuthChain::new();
+        let state_events = vec![
+            json!({
+                "event_id": "$1",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 1000,
+                "sender": "@alice:test"
+            }),
+            json!({
+                "event_id": "$2",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 2000,
+                "sender": "@bob:test"
+            }),
+        ];
+
+        let conflicts = chain.detect_state_conflicts_advanced(&state_events, None).await;
+        
+        assert_eq!(conflicts.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_detect_state_conflicts_advanced_with_power_levels() {
+        let chain = EventAuthChain::new();
+        let state_events = vec![
+            json!({
+                "event_id": "$1",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 1000,
+                "sender": "@alice:test"
+            }),
+            json!({
+                "event_id": "$2",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 2000,
+                "sender": "@bob:test"
+            }),
+        ];
+
+        let mut power_levels = HashMap::new();
+        power_levels.insert("@alice:test".to_string(), 100);
+        power_levels.insert("@bob:test".to_string(), 50);
+
+        let conflicts = chain.detect_state_conflicts_advanced(&state_events, Some(&power_levels)).await;
+        
+        assert_eq!(conflicts.len(), 1);
+        // Alice has higher power
+        assert_eq!(conflicts[0].winning_event, "$1");
+    }
+
+    #[tokio::test]
+    async fn test_detect_state_conflicts_advanced_no_conflicts() {
+        let chain = EventAuthChain::new();
+        let state_events = vec![
+            json!({
+                "event_id": "$1",
+                "type": "m.room.name",
+                "state_key": "!room:test",
+                "origin_server_ts": 1000
+            }),
+        ];
+
+        let conflicts = chain.detect_state_conflicts_advanced(&state_events, None).await;
+        
+        assert!(conflicts.is_empty());
     }
 }
