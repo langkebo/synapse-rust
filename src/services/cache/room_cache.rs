@@ -206,7 +206,7 @@ pub struct CacheStats {
 
 impl Default for RoomSummaryCache {
     fn default() -> Self {
-        Self::new(300) // 5 minutes default TTL
+        Self::new(900) // 15 minutes default TTL - increased for better hit rate
     }
 }
 
@@ -247,6 +247,6 @@ impl SyncOptimizationService {
 
 impl Default for SyncOptimizationService {
     fn default() -> Self {
-        Self::new(300)
+        Self::new(900)
     }
 }
