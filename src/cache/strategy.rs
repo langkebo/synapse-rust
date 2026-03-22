@@ -62,53 +62,79 @@ impl CacheKeyBuilder {
     pub fn room_not_found(room_id: &str) -> String {
         format!("room:{}:not_found", room_id)
     }
+
+    // Negative cache keys - cache "not found" results to prevent repeated lookups
+    pub fn user_not_found_v2(user_id: &str) -> String {
+        format!("user:{}:nf:v2", user_id)
+    }
+
+    pub fn room_not_found_v2(room_id: &str) -> String {
+        format!("room:{}:nf:v2", room_id)
+    }
+
+    pub fn event_not_found(event_id: &str) -> String {
+        format!("event:{}:not_found", event_id)
+    }
+
+    // Batch keys for multi-fetch operations
+    pub fn room_batch(room_ids: &[String]) -> String {
+        let mut ids = room_ids.to_vec();
+        ids.sort();
+        format!("room:batch:{}:info", ids.join(","))
+    }
+
+    pub fn user_batch(user_ids: &[String]) -> String {
+        let mut ids = user_ids.to_vec();
+        ids.sort();
+        format!("user:batch:{}:profile", ids.join(","))
+    }
 }
 
 pub struct CacheTtl;
 
 impl CacheTtl {
     pub fn user_profile() -> Duration {
-        Duration::from_secs(3600)
+        Duration::from_secs(3600)  // 1 hour - profiles rarely change
     }
 
     pub fn user_presence() -> Duration {
-        Duration::from_secs(30)
+        Duration::from_secs(60)  // 1 min - balance freshness and hit rate
     }
 
     pub fn user_devices() -> Duration {
-        Duration::from_secs(300)
+        Duration::from_secs(1800)  // 30 min - devices are stable
     }
 
     pub fn room_info() -> Duration {
-        Duration::from_secs(600)
+        Duration::from_secs(1800)  // 30 min - room metadata is stable
     }
 
     pub fn room_members() -> Duration {
-        Duration::from_secs(120)
+        Duration::from_secs(900)  // 15 min - membership changes are rare
     }
 
     pub fn room_state() -> Duration {
-        Duration::from_secs(300)
+        Duration::from_secs(1200)  // 20 min - room state is relatively stable
     }
 
     pub fn room_events() -> Duration {
-        Duration::from_secs(60)
+        Duration::from_secs(900)  // 15 min - events rarely change once created
     }
 
     pub fn room_messages() -> Duration {
-        Duration::from_secs(180)
+        Duration::from_secs(900)  // 15 min - messages are immutable
     }
 
     pub fn token() -> Duration {
-        Duration::from_secs(86400)
+        Duration::from_secs(86400)  // 24 hours
     }
 
     pub fn public_rooms() -> Duration {
-        Duration::from_secs(300)
+        Duration::from_secs(900)  // 15 min - public room list is stable
     }
 
     pub fn user_rooms() -> Duration {
-        Duration::from_secs(180)
+        Duration::from_secs(600)  // 10 min - user's room list changes occasionally
     }
 
     pub fn rate_limit() -> Duration {
@@ -116,7 +142,7 @@ impl CacheTtl {
     }
 
     pub fn not_found() -> Duration {
-        Duration::from_secs(30)
+        Duration::from_secs(300)  // 5 min - prevent rapid re-fetching of missing data
     }
 }
 
@@ -193,13 +219,13 @@ mod tests {
     #[test]
     fn test_cache_ttl_user_presence() {
         let ttl = CacheTtl::user_presence();
-        assert_eq!(ttl, Duration::from_secs(30));
+        assert_eq!(ttl, Duration::from_secs(60));
     }
 
     #[test]
     fn test_cache_ttl_room_info() {
         let ttl = CacheTtl::room_info();
-        assert_eq!(ttl, Duration::from_secs(600));
+        assert_eq!(ttl, Duration::from_secs(1800));
     }
 
     #[test]
@@ -211,6 +237,6 @@ mod tests {
     #[test]
     fn test_cache_ttl_not_found() {
         let ttl = CacheTtl::not_found();
-        assert_eq!(ttl, Duration::from_secs(30));
+        assert_eq!(ttl, Duration::from_secs(300));
     }
 }
