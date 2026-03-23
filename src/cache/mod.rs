@@ -121,8 +121,8 @@ pub struct CacheConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
-            max_capacity: 50000,  // Increased for better hit rate with more entries
-            time_to_live: 3600,
+            max_capacity: 100_000,  // Increased from 50_000 for better hit rate
+            time_to_live: 7200,     // Increased from 3600 (2 hours) for better cache efficiency
         }
     }
 }
@@ -1089,8 +1089,8 @@ mod tests {
     #[test]
     fn test_cache_config_default() {
         let config = CacheConfig::default();
-        assert_eq!(config.max_capacity, 50000);
-        assert_eq!(config.time_to_live, 3600);
+        assert_eq!(config.max_capacity, 100_000);
+        assert_eq!(config.time_to_live, 7200);
     }
 
     #[test]

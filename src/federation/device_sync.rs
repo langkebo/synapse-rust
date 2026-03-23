@@ -761,8 +761,8 @@ mod tests {
         assert!(!result.unwrap());
     }
 
-    #[test]
-    fn test_device_sync_manager_new() {
+    #[tokio::test]
+    async fn test_device_sync_manager_new() {
         let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
         let manager = DeviceSyncManager::new(&pool, None, None);
@@ -771,8 +771,8 @@ mod tests {
         assert!(manager.local_cache.try_read().is_ok());
     }
 
-    #[test]
-    fn test_device_sync_manager_with_cache_manager() {
+    #[tokio::test]
+    async fn test_device_sync_manager_with_cache_manager() {
         let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
         
@@ -781,8 +781,8 @@ mod tests {
         assert!(manager.local_cache.try_read().is_ok());
     }
 
-    #[test]
-    fn test_device_sync_manager_with_task_queue() {
+    #[tokio::test]
+    async fn test_device_sync_manager_with_task_queue() {
         let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
         

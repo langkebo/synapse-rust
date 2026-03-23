@@ -2343,10 +2343,10 @@ mod tests {
         let config = CircuitBreakerConfig::default();
 
         assert!(config.enabled);
-        assert_eq!(config.failure_threshold, 5);
+        assert_eq!(config.failure_threshold, 10);
         assert_eq!(config.success_threshold, 3);
-        assert_eq!(config.timeout_ms, 30000);
-        assert_eq!(config.window_size_seconds, 60);
+        assert_eq!(config.timeout_ms, 60000);
+        assert_eq!(config.window_size_seconds, 120);
     }
 
     #[test]
