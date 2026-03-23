@@ -1,6 +1,8 @@
 use crate::common::config::OidcConfig;
 use crate::common::error::ApiError;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
@@ -120,6 +122,8 @@ impl OidcService {
         &self,
         state: &str,
         redirect_uri: &str,
+        code_challenge: Option<&str>,
+        code_challenge_method: Option<&str>,
     ) -> Result<String, ApiError> {
         let scope = self.config.scopes.join(" ");
 
@@ -142,9 +146,54 @@ impl OidcService {
             query.append_pair("scope", &scope);
             query.append_pair("redirect_uri", redirect_uri);
             query.append_pair("state", state);
+            
+            // PKCE support
+            if let Some(challenge) = code_challenge {
+                query.append_pair("code_challenge", challenge);
+                query.append_pair("code_challenge_method", code_challenge_method.unwrap_or("S256"));
+            }
         }
 
         Ok(url.to_string())
+    }
+
+    /// Generate PKCE code verifier and challenge
+    pub fn generate_pkce() -> (String, String) {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        
+        // PKCE charset as bytes for indexing
+        const PKCE_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+        
+        // Generate code_verifier (43-128 characters)
+        let verifier_len = rng.gen_range(43..=128);
+        let code_verifier: String = (0..verifier_len)
+            .map(|_| {
+                let idx = rng.gen_range(0.. PKCE_CHARSET.len());
+                PKCE_CHARSET[idx] as char
+            })
+            .collect();
+        
+        // Generate code_challenge (SHA256 hash base64url encoded)
+        let mut hasher = Sha256::new();
+        hasher.update(code_verifier.as_bytes());
+        let hash = hasher.finalize();
+        let code_challenge = Self::base64url_encode(&hash);
+        
+        (code_verifier, code_challenge)
+    }
+
+    fn base64url_encode(data: &[u8]) -> String {
+        URL_SAFE_NO_PAD.encode(data)
+    }
+
+    /// Verify PKCE code verifier
+    pub fn verify_pkce(code_verifier: &str, code_challenge: &str) -> bool {
+        let mut hasher = Sha256::new();
+        hasher.update(code_verifier.as_bytes());
+        let hash = hasher.finalize();
+        let computed = Self::base64url_encode(&hash);
+        computed == code_challenge
     }
 
     pub async fn exchange_code(
@@ -183,6 +232,50 @@ impl OidcService {
             let body = response.text().await.unwrap_or_default();
             return Err(ApiError::internal(format!(
                 "Token exchange failed: {}",
+                body
+            )));
+        }
+
+        response
+            .json()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to parse token response: {}", e)))
+    }
+
+    pub async fn refresh_token(
+        &self,
+        refresh_token: &str,
+    ) -> Result<OidcTokenResponse, ApiError> {
+        let default_token = format!("{}/token", self.config.issuer);
+        let token_endpoint = self
+            .config
+            .token_endpoint
+            .as_ref()
+            .or_else(|| self.discovery.as_ref().map(|d| &d.token_endpoint))
+            .map(|s| s.as_str())
+            .unwrap_or(&default_token);
+
+        let params = [
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", &self.config.client_id),
+        ];
+
+        let mut request = self.http_client.post(token_endpoint).form(&params);
+
+        if let Some(ref secret) = self.config.client_secret {
+            request = request.basic_auth(&self.config.client_id, Some(secret));
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiError::internal(format!("Token refresh failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ApiError::internal(format!(
+                "Token refresh failed: {}",
                 body
             )));
         }

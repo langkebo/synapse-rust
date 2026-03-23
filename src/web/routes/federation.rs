@@ -124,6 +124,7 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         )
         .route("/_matrix/federation/v1/backfill/{room_id}", get(backfill))
         .route("/_matrix/federation/v1/keys/claim", post(keys_claim))
+        .route("/_matrix/federation/v1/keys/query", post(keys_query))
         .route("/_matrix/federation/v1/keys/upload", post(keys_upload))
         .route("/_matrix/federation/v2/key/clone", post(key_clone))
         .route(
@@ -1163,6 +1164,25 @@ async fn keys_claim(
 
     Ok(Json(json!({
         "one_time_keys": response.one_time_keys,
+        "failures": response.failures
+    })))
+}
+
+async fn keys_query(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body)
+        .map_err(|e| ApiError::bad_request(format!("Invalid query request: {}", e)))?;
+
+    let response = state
+        .services
+        .device_keys_service
+        .query_keys(request)
+        .await?;
+
+    Ok(Json(json!({
+        "device_keys": response.device_keys,
         "failures": response.failures
     })))
 }

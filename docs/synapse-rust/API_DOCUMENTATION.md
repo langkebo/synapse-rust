@@ -9,10 +9,12 @@
 3. [消息 API](#消息-api)
 4. [用户 API](#用户-api)
 5. [设备 API](#设备-api)
-6. [媒体 API](#媒体-api)
-7. [联邦 API](#联邦-api)
-8. [Admin API](#admin-api)
-9. [E2EE API](#e2ee-api)
+6. [推送与通知 API](#推送与通知-api)
+7. [OIDC API](#oidc-api)
+8. [媒体 API](#媒体-api)
+9. [联邦 API](#联邦-api)
+10. [Admin API](#admin-api)
+11. [E2EE API](#e2ee-api)
 
 ---
 
@@ -336,6 +338,38 @@
 
 ---
 
+## 推送与通知 API
+
+### 获取推送器
+
+**端点**: `GET /_matrix/client/v3/pushers`
+
+### 设置推送器
+
+**端点**: `POST /_matrix/client/v3/pushers/set`
+
+### 获取推送规则
+
+**端点**: `GET /_matrix/client/v3/pushrules`
+
+### 获取通知列表
+
+**端点**: `GET /_matrix/client/v3/notifications`
+
+---
+
+## OIDC API
+
+### 获取用户信息
+
+**端点**: `GET /_matrix/client/v3/oidc/userinfo`
+
+### OIDC 授权
+
+**端点**: `GET /_matrix/client/v3/oidc/authorize`
+
+---
+
 ## 媒体 API
 
 ### 上传媒体
@@ -378,7 +412,7 @@
 
 ### 获取公钥
 
-**端点**: `GET /_matrix/federation/v1/key/{server_name}`
+**端点**: `GET /_matrix/key/v2/server`
 
 ### 声明密钥
 
@@ -424,66 +458,127 @@
 
 ## Admin API
 
+### 服务器通知与公告
+
+#### 发送服务器公告
+**端点**: `POST /_synapse/admin/v1/send_server_notice`
+
+#### 获取服务器公告
+**端点**: `GET /_synapse/admin/v1/server_notices`
+
+### 保留策略 (Retention)
+
+#### 获取保留策略列表
+**端点**: `GET /_synapse/admin/v1/retention/policies`
+
+#### 管理特定保留策略
+**端点**: `GET|PUT|DELETE /_synapse/admin/v1/retention/policies/{policy_id}`
+
+### 举报管理 (Report)
+
+#### 获取事件举报列表
+**端点**: `GET /_synapse/admin/v1/event_reports`
+
+#### 获取举报详情
+**端点**: `GET /_synapse/admin/v1/event_reports/{report_id}`
+
+### 联邦管理
+
+#### 获取目标列表
+**端点**: `GET /_synapse/admin/v1/federation/destinations`
+
+#### 获取目标详情
+**端点**: `GET /_synapse/admin/v1/federation/destinations/{destination}`
+
+#### 删除目标
+**端点**: `DELETE /_synapse/admin/v1/federation/destinations/{destination}`
+
+#### 重置连接
+**端点**: `POST /_synapse/admin/v1/federation/destinations/{destination}/reset_connection`
+
+#### 获取目标所在房间
+**端点**: `GET /_synapse/admin/v1/federation/destinations/{destination}/rooms`
+
+#### 获取黑名单
+**端点**: `GET /_synapse/admin/v1/federation/blacklist`
+
+#### 添加至黑名单
+**端点**: `POST /_synapse/admin/v1/federation/blacklist/{server_name}`
+
+#### 从黑名单移除
+**端点**: `DELETE /_synapse/admin/v1/federation/blacklist/{server_name}`
+
+#### 重写联邦规则
+**端点**: `POST /_synapse/admin/v1/federation/rewrite`
+
+#### 解析联邦
+**端点**: `POST /_synapse/admin/v1/federation/resolve`
+
+#### 确认联邦
+**端点**: `POST /_synapse/admin/v1/federation/confirm`
+
+#### 获取缓存
+**端点**: `GET /_synapse/admin/v1/federation/cache`
+
+#### 清除缓存
+**端点**: `POST /_synapse/admin/v1/federation/cache/clear`
+
+#### 删除特定缓存条目
+**端点**: `DELETE /_synapse/admin/v1/federation/cache/{key}`
+
 ### 用户管理
 
 #### 获取用户列表
-
 **端点**: `GET /_synapse/admin/v1/users`
+**新版端点**: `GET /_synapse/admin/v2/users`
 
 #### 获取用户
-
 **端点**: `GET /_synapse/admin/v1/users/{user_id}`
+**新版端点**: `GET /_synapse/admin/v2/users/{user_id}`
 
-#### 创建用户
-
+#### 创建或更新用户
 **端点**: `PUT /_synapse/admin/v2/users/{user_id}`
 
 #### 删除用户
-
 **端点**: `DELETE /_synapse/admin/v1/users/{user_id}`
 
 #### 设置管理员
-
 **端点**: `PUT /_synapse/admin/v1/users/{user_id}/admin`
 
 #### 停用用户
-
 **端点**: `POST /_synapse/admin/v1/users/{user_id}/deactivate`
 
 #### 重置密码
-
 **端点**: `POST /_synapse/admin/v1/users/{user_id}/password`
 
-#### 批量创建用户
+#### 查询用户所在房间
+**端点**: `GET /_synapse/admin/v1/users/{user_id}/rooms`
 
+#### 登录为指定用户
+**端点**: `POST /_synapse/admin/v1/users/{user_id}/login`
+
+#### 登出指定用户设备
+**端点**: `POST /_synapse/admin/v1/users/{user_id}/logout`
+
+#### 获取用户设备
+**端点**: `GET /_synapse/admin/v1/users/{user_id}/devices`
+
+#### 批量创建用户
 **端点**: `POST /_synapse/admin/v1/users/batch`
 
-**请求体**:
-```json
-{
-    "users": [
-        {
-            "username": "user1",
-            "password": "password"
-        }
-    ]
-}
-```
+#### 批量停用用户
+**端点**: `POST /_synapse/admin/v1/users/batch_deactivate`
 
 #### 获取用户会话
-
 **端点**: `GET /_synapse/admin/v1/user_sessions/{user_id}`
 
 #### 使会话失效
-
 **端点**: `POST /_synapse/admin/v1/user_sessions/{user_id}/invalidate`
 
 #### 获取账户详情
-
 **端点**: `GET /_synapse/admin/v1/account/{user_id}`
 
 #### 更新账户
-
 **端点**: `POST /_synapse/admin/v1/account/{user_id}`
 
 ### 房间管理
@@ -555,6 +650,10 @@
 #### 关闭房间
 
 **端点**: `POST /_synapse/admin/v1/shutdown_room`
+
+#### 清理房间
+
+**端点**: `POST /_synapse/admin/v1/purge_room`
 
 #### 清理历史
 
@@ -641,19 +740,19 @@
 
 ### Key Backup
 
-#### 获取备份
+#### 获取所有备份版本
 
 **端点**: `GET /_matrix/client/v3/room_keys/version`
 
-#### 上传备份
+#### 创建备份版本
 
 **端点**: `POST /_matrix/client/v3/room_keys/version`
 
 #### 获取房间密钥
 
-**端点**: `GET /_matrix/client/v3/room_keys/{room_id}/{session_id}`
+**端点**: `GET /_matrix/client/v3/room_keys/keys/{version}/{room_id}/{session_id}`
 
 ---
 
-*文档版本: 1.0*
-*最后更新: 2026-03-19*
+*文档版本: 1.1*
+*最后更新: 2026-03-22*

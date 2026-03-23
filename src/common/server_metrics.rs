@@ -35,8 +35,11 @@ pub struct ServerMetrics {
     pub security_origin_validation_errors: Counter,
     pub security_timestamp_validation_errors: Counter,
     
-    pub pool_health_status: Gauge,
     pub pool_utilization: Gauge,
+    
+    // Admin / Global Stats
+    pub total_users: Gauge,
+    pub total_rooms: Gauge,
     
     collector: Arc<MetricsCollector>,
 }
@@ -127,8 +130,10 @@ impl ServerMetrics {
                 "security_timestamp_validation_errors".to_string(),
             ),
 
-            pool_health_status: collector.register_gauge("pool_health_status".to_string()),
             pool_utilization: collector.register_gauge("pool_utilization".to_string()),
+            
+            total_users: collector.register_gauge("synapse_total_users".to_string()),
+            total_rooms: collector.register_gauge("synapse_total_rooms".to_string()),
 
             collector,
         }

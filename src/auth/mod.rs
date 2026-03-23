@@ -755,7 +755,7 @@ impl AuthService {
         Ok(token)
     }
 
-    async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String> {
+    pub async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String> {
         let token = generate_token(32);
         let token_hash = Self::hash_token(&token);
         let expiry_ts = Utc::now().timestamp_millis() + (self.refresh_token_expiry * 1000);
