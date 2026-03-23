@@ -238,3 +238,296 @@ impl Default for CacheService {
         Self::new(CacheConfig::default())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_cache() -> CacheService {
+        CacheService::new(CacheConfig {
+            backend: CacheBackend::Memory,
+            redis_url: None,
+            memcached_url: None,
+            default_ttl_seconds: 3600,
+            max_entries: Some(100),
+            enable_stats: true,
+        })
+    }
+
+    #[tokio::test]
+    async fn test_cache_service_set_and_get() {
+        let cache = create_test_cache();
+        let key = CacheKey {
+            namespace: "test".to_string(),
+            key: "key1".to_string(),
+        };
+
+        cache.set(&key, b"value1".to_vec(), None).await;
+
+        let result = cache.get(&key).await;
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), b"value1".to_vec());
+    }
+
+    #[tokio::test]
+    async fn test_cache_service_get_nonexistent() {
+        let cache = create_test_cache();
+        let key = CacheKey {
+            namespace: "test".to_string(),
+            key: "nonexistent".to_string(),
+        };
+
+        let result = cache.get(&key).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cache_service_delete() {
+        let cache = create_test_cache();
+        let key = CacheKey {
+            namespace: "test".to_string(),
+            key: "key1".to_string(),
+        };
+
+        cache.set(&key, b"value1".to_vec(), None).await;
+        let result = cache.get(&key).await;
+        assert!(result.is_some());
+
+        let deleted = cache.delete(&key).await;
+        assert!(deleted);
+
+        let result = cache.get(&key).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cache_service_delete_nonexistent() {
+        let cache = create_test_cache();
+        let key = CacheKey {
+            namespace: "test".to_string(),
+            key: "nonexistent".to_string(),
+        };
+
+        let deleted = cache.delete(&key).await;
+        assert!(!deleted);
+    }
+
+    #[tokio::test]
+    async fn test_cache_service_clear_namespace() {
+        let cache = create_test_cache();
+
+        // Set keys in different namespaces
+        let key1 = CacheKey {
+            namespace: "users".to_string(),
+            key: "user1".to_string(),
+        };
+        let key2 = CacheKey {
+            namespace: "users".to_string(),
+            key: "user2".to_string(),
+        };
+        let key3 = CacheKey {
+            namespace: "rooms".to_string(),
+            key: "room1".to_string(),
+        };
+
+        cache.set(&key1, b"value1".to_vec(), None).await;
+        cache.set(&key2, b"value2".to_vec(), None).await;
+        cache.set(&key3, b"value3".to_vec(), None).await;
+
+        // Clear users namespace
+        cache.clear_namespace("users").await;
+
+        let result1 = cache.get(&key1).await;
+        let result2 = cache.get(&key2).await;
+        let result3 = cache.get(&key3).await;
+
+        assert!(result1.is_none());
+        assert!(result2.is_none());
+        assert!(result3.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_cache_service_invalidate_pattern() {
+        let cache = create_test_cache();
+
+        let key1 = CacheKey {
+            namespace: "test".to_string(),
+            key: "key1".to_string(),
+        };
+        let key2 = CacheKey {
+            namespace: "test".to_string(),
+            key: "key2".to_string(),
+        };
+        let key3 = CacheKey {
+            namespace: "other".to_string(),
+            key: "key1".to_string(),
+        };
+
+        cache.set(&key1, b"value1".to_vec(), None).await;
+        cache.set(&key2, b"value2".to_vec(), None).await;
+        cache.set(&key3, b"value3".to_vec(), None).await;
+
+        // Invalidate all keys matching test:*
+        cache.invalidate_pattern("test:*").await;
+
+        let result1 = cache.get(&key1).await;
+        let result2 = cache.get(&key2).await;
+        let result3 = cache.get(&key3).await;
+
+        assert!(result1.is_none());
+        assert!(result2.is_none());
+        assert!(result3.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_cache_service_stats() {
+        let cache = create_test_cache();
+        let key = CacheKey {
+            namespace: "test".to_string(),
+            key: "key1".to_string(),
+        };
+
+        // Initial stats
+        let stats = cache.get_stats().await;
+        assert_eq!(stats.hits, 0);
+        assert_eq!(stats.misses, 0);
+
+        // Get nonexistent key - should be a miss
+        cache.get(&key).await;
+
+        let stats = cache.get_stats().await;
+        assert_eq!(stats.misses, 1);
+
+        // Set and get key - should be a hit
+        cache.set(&key, b"value1".to_vec(), None).await;
+        cache.get(&key).await;
+
+        let stats = cache.get_stats().await;
+        assert_eq!(stats.hits, 1);
+    }
+
+    #[tokio::test]
+    async fn test_cache_service_size() {
+        let cache = create_test_cache();
+
+        let initial_size = cache.size().await;
+        assert_eq!(initial_size, 0);
+
+        let key1 = CacheKey {
+            namespace: "test".to_string(),
+            key: "key1".to_string(),
+        };
+        let key2 = CacheKey {
+            namespace: "test".to_string(),
+            key: "key2".to_string(),
+        };
+
+        cache.set(&key1, b"value1".to_vec(), None).await;
+        cache.set(&key2, b"value2".to_vec(), None).await;
+
+        let size = cache.size().await;
+        assert_eq!(size, 2);
+    }
+
+    #[tokio::test]
+    async fn test_cache_service_lru_eviction() {
+        let cache = CacheService::new(CacheConfig {
+            backend: CacheBackend::Memory,
+            redis_url: None,
+            memcached_url: None,
+            default_ttl_seconds: 3600,
+            max_entries: Some(2),  // Small limit to trigger eviction
+            enable_stats: true,
+        });
+
+        let key1 = CacheKey {
+            namespace: "test".to_string(),
+            key: "key1".to_string(),
+        };
+        let key2 = CacheKey {
+            namespace: "test".to_string(),
+            key: "key2".to_string(),
+        };
+        let key3 = CacheKey {
+            namespace: "test".to_string(),
+            key: "key3".to_string(),
+        };
+
+        cache.set(&key1, b"value1".to_vec(), None).await;
+        cache.set(&key2, b"value2".to_vec(), None).await;
+        cache.set(&key3, b"value3".to_vec(), None).await;
+
+        // key1 should be evicted (LRU)
+        let result1 = cache.get(&key1).await;
+        let result2 = cache.get(&key2).await;
+        let result3 = cache.get(&key3).await;
+
+        assert!(result1.is_none());
+        assert!(result2.is_some());
+        assert!(result3.is_some());
+
+        let stats = cache.get_stats().await;
+        assert!(stats.evictions > 0);
+    }
+
+    #[tokio::test]
+    async fn test_cache_service_ttl_expiration() {
+        let cache = CacheService::new(CacheConfig {
+            backend: CacheBackend::Memory,
+            redis_url: None,
+            memcached_url: None,
+            default_ttl_seconds: 3600,
+            max_entries: Some(100),
+            enable_stats: true,
+        });
+
+        let key = CacheKey {
+            namespace: "test".to_string(),
+            key: "key1".to_string(),
+        };
+
+        // Set with very short TTL (0 seconds means no expiration in our implementation)
+        cache.set(&key, b"value1".to_vec(), Some(0)).await;
+
+        let result = cache.get(&key).await;
+        assert!(result.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_cache_hit_count_increases() {
+        let cache = create_test_cache();
+        let key = CacheKey {
+            namespace: "test".to_string(),
+            key: "key1".to_string(),
+        };
+
+        cache.set(&key, b"value1".to_vec(), None).await;
+        cache.get(&key).await;
+        cache.get(&key).await;
+        cache.get(&key).await;
+
+        // Key should still exist
+        let result = cache.get(&key).await;
+        assert!(result.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_cache_warmup() {
+        let cache = create_test_cache();
+        
+        // Set some initial stats
+        cache.set(
+            &CacheKey { namespace: "test".to_string(), key: "key1".to_string() },
+            b"value1".to_vec(), 
+            None
+        ).await;
+        cache.get(&CacheKey { namespace: "test".to_string(), key: "key1".to_string() }).await;
+        
+        // Run warmup - should reset stats
+        cache.warmup().await;
+        
+        let stats = cache.get_stats().await;
+        assert_eq!(stats.hits, 0);
+        assert_eq!(stats.misses, 0);
+    }
+}

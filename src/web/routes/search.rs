@@ -42,6 +42,10 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
             get(get_room_hierarchy),
         )
         .route(
+            "/_matrix/client/v3/rooms/{room_id}/hierarchy",
+            get(get_room_hierarchy_v3),
+        )
+        .route(
             "/_matrix/client/v1/rooms/{room_id}/timestamp_to_event",
             get(timestamp_to_event),
         )
@@ -511,6 +515,180 @@ async fn get_room_hierarchy(
     Ok(Json(json!({
         "rooms": rooms_list,
         "max_depth": max_depth
+    })))
+}
+
+/// GET /_matrix/client/v3/rooms/{room_id}/hierarchy
+/// Returns a list of child rooms and spaces of a given room
+async fn get_room_hierarchy_v3(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50);
+
+    let max_depth = params
+        .get("max_depth")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+
+    let suggested_only = params
+        .get("suggested_only")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    // Get the parent room info first
+    let parent_room = sqlx::query(
+        r#"
+        SELECT room_id, name, topic, avatar_url, join_rules, guest_access, history_visibility, is_space
+        FROM rooms
+        WHERE room_id = $1
+        "#,
+    )
+    .bind(&room_id)
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    // Get child rooms
+    let mut query_builder = String::from(
+        r#"
+        SELECT r.room_id, r.name, r.topic, r.avatar_url, r.join_rules, r.guest_access, r.history_visibility, r.is_space,
+               rc.state_key as child_state_key, rc.content as child_content
+        FROM rooms r
+        JOIN room_children rc ON r.room_id = rc.child_room_id
+        WHERE rc.parent_room_id = $1
+        "#,
+    );
+
+    if suggested_only {
+        query_builder.push_str(" AND rc.suggested = true");
+    }
+
+    query_builder.push_str(&format!(" LIMIT {}", limit));
+
+    let rooms = sqlx::query(&query_builder)
+        .bind(&room_id)
+        .fetch_all(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let mut rooms_list: Vec<Value> = Vec::new();
+
+    // If the parent room exists, add it first
+    if let Some(row) = parent_room {
+        let history_visibility = row
+            .get::<Option<String>, _>("history_visibility")
+            .unwrap_or_else(|| "shared".to_string());
+        let world_readable = history_visibility == "world_readable" || history_visibility == "world_readable";
+
+        // Get member count
+        let member_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'"
+        )
+        .bind(&room_id)
+        .fetch_one(&*state.services.user_storage.pool)
+        .await
+        .unwrap_or(0);
+
+        let avatar_url: Option<String> = row.get("avatar_url");
+        let topic: Option<String> = row.get("topic");
+        let name: Option<String> = row.get("name");
+        let join_rules: Option<String> = row.get("join_rules");
+
+        rooms_list.push(json!({
+            "room_id": row.get::<Option<String>, _>("room_id"),
+            "name": name,
+            "topic": topic,
+            "avatar_url": avatar_url,
+            "join_rule": join_rules.clone().unwrap_or_else(|| "public".to_string()),
+            "world_readable": world_readable,
+            "num_joined_members": member_count,
+            "children": [],
+            "hero_room": null,
+            "via": [],
+            "required_state_info": []
+        }));
+    }
+
+    // Add child rooms
+    for row in rooms {
+        let history_visibility = row
+            .get::<Option<String>, _>("history_visibility")
+            .unwrap_or_else(|| "shared".to_string());
+        let world_readable = history_visibility == "world_readable";
+        let is_space: bool = row.get::<Option<bool>, _>("is_space").unwrap_or(false);
+
+        // Get member count for child room
+        let child_room_id: String = row.get::<Option<String>, _>("room_id").unwrap_or_default();
+        let member_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'"
+        )
+        .bind(&child_room_id)
+        .fetch_one(&*state.services.user_storage.pool)
+        .await
+        .unwrap_or(0);
+
+        let avatar_url: Option<String> = row.get("avatar_url");
+        let topic: Option<String> = row.get("topic");
+        let name: Option<String> = row.get("name");
+        let join_rules: Option<String> = row.get("join_rules");
+
+        let mut children: Vec<Value> = Vec::new();
+        if is_space {
+            // For spaces, get their children
+            let child_rooms = sqlx::query(
+                r#"
+                SELECT r.room_id, r.name, r.is_space
+                FROM rooms r
+                JOIN room_children rc ON r.room_id = rc.child_room_id
+                WHERE rc.parent_room_id = $1
+                LIMIT 5
+                "#
+            )
+            .bind(&child_room_id)
+            .fetch_all(&*state.services.user_storage.pool)
+            .await
+            .unwrap_or_default();
+
+            for child in child_rooms {
+                let child_is_space: bool = child.get::<Option<bool>, _>("is_space").unwrap_or(false);
+                let child_room_type = if child_is_space { serde_json::Value::String("m.space".to_string()) } else { serde_json::Value::Null };
+                children.push(json!({
+                    "room_id": child.get::<Option<String>, _>("room_id"),
+                    "name": child.get::<Option<String>, _>("name"),
+                    "topic": serde_json::Value::Null,
+                    "avatar_url": serde_json::Value::Null,
+                    "room_type": child_room_type
+                }));
+            }
+        }
+
+        let room_type = if is_space { serde_json::Value::String("m.space".to_string()) } else { serde_json::Value::Null };
+
+        rooms_list.push(json!({
+            "room_id": child_room_id,
+            "name": name,
+            "topic": topic,
+            "avatar_url": avatar_url,
+            "join_rule": join_rules.clone().unwrap_or_else(|| "public".to_string()),
+            "world_readable": world_readable,
+            "num_joined_members": member_count,
+            "children": children,
+            "room_type": room_type,
+            "children_state": [],
+            "required_state_info": []
+        }));
+    }
+
+    Ok(Json(json!({
+        "rooms": rooms_list,
+        "max_depth": max_depth,
+        "next_batch": null
     })))
 }
 

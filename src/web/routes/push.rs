@@ -81,6 +81,14 @@ pub fn create_push_router(state: AppState) -> Router<AppState> {
         )
         .route("/_matrix/client/v3/notifications", get(get_notifications))
         .route("/_matrix/client/r0/notifications", get(get_notifications))
+        .route(
+            "/_matrix/client/v3/notifications/{notification_id}/ack",
+            post(ack_notification),
+        )
+        .route(
+            "/_matrix/client/r0/notifications/{notification_id}/ack",
+            post(ack_notification),
+        )
         .with_state(state)
 }
 
@@ -560,6 +568,28 @@ async fn get_notifications(
         "notifications": notifications_list,
         "next_token": None::<String>
     })))
+}
+
+async fn ack_notification(
+    Path(notification_id): Path<i64>,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    // Mark notification as read
+    let result = sqlx::query(
+        "UPDATE notifications SET is_read = true, updated_ts = $3 WHERE id = $1 AND user_id = $2 RETURNING id"
+    )
+    .bind(notification_id)
+    .bind(&auth_user.user_id)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to ack notification: {}", e)))?;
+
+    match result {
+        Some(_) => Ok(Json(json!({}))),
+        None => Err(ApiError::not_found("Notification not found".to_string())),
+    }
 }
 
 async fn get_user_push_rules(

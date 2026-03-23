@@ -719,6 +719,7 @@ fn create_room_router() -> Router<AppState> {
             get(get_room_notifications),
         )
         // Sync & Events
+        .route("/_matrix/client/v1/sync", get(sync))
         .route("/_matrix/client/r0/sync", get(sync))
         .route("/_matrix/client/r0/events", get(get_events))
         .route("/_matrix/client/v3/events", get(get_events))
@@ -1464,13 +1465,25 @@ async fn submit_email_token(
     })))
 }
 
-async fn get_login_flows() -> Json<Value> {
-    Json(json!({
-        "flows": [
-            {"type": "m.login.password"},
-            {"type": "m.login.token"}
-        ]
-    }))
+async fn get_login_flows(State(state): State<AppState>) -> Json<Value> {
+    let mut flows = vec![
+        json!({"type": "m.login.password"}),
+        json!({"type": "m.login.token"}),
+    ];
+
+    // Add OIDC login flow if enabled
+    if let Some(oidc_service) = state.services.oidc_service.as_ref() {
+        if oidc_service.is_enabled() {
+            flows.push(json!({
+                "type": "m.login.oauth2",
+                "steps": [
+                    {"stage": "m.login.oidc"}
+                ]
+            }));
+        }
+    }
+
+    Json(json!({ "flows": flows }))
 }
 
 async fn get_register_flows() -> Json<Value> {
