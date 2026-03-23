@@ -316,6 +316,39 @@ impl ReplicationCommand {
                     position,
                 })
             }
+            "USER_SYNC" => {
+                let user_id = parts
+                    .get(1)
+                    .ok_or_else(|| ReplicationError::MissingField("user_id".to_string()))?
+                    .to_string();
+                let state_str = parts
+                    .get(2)
+                    .ok_or_else(|| ReplicationError::MissingField("state".to_string()))?;
+                let state = match *state_str {
+                    "Online" => UserSyncState::Online,
+                    "Offline" => UserSyncState::Offline,
+                    _ => return Err(ReplicationError::ParseError(format!("Unknown state: {}", state_str))),
+                };
+                Ok(ReplicationCommand::UserSync { user_id, state })
+            }
+            "FEDERATION_ACK" => {
+                let origin = parts
+                    .get(1)
+                    .ok_or_else(|| ReplicationError::MissingField("origin".to_string()))?
+                    .to_string();
+                Ok(ReplicationCommand::FederationAck { origin })
+            }
+            "REMOVE_PUSHERS" => {
+                let app_id = parts
+                    .get(1)
+                    .ok_or_else(|| ReplicationError::MissingField("app_id".to_string()))?
+                    .to_string();
+                let push_key = parts
+                    .get(2)
+                    .ok_or_else(|| ReplicationError::MissingField("push_key".to_string()))?
+                    .to_string();
+                Ok(ReplicationCommand::RemovePushers { app_id, push_key })
+            }
             _ => Err(ReplicationError::UnknownCommand(parts[0].to_string())),
         }
     }

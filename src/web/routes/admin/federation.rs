@@ -24,7 +24,7 @@ pub fn create_federation_router(_state: AppState) -> Router<AppState> {
             post(reset_connection),
         )
         .route(
-            "/_synapse/admin/v1/federation/destinations/{destination}/reset_connection",
+            "/_synapse/admin/v1/federation/destinations/{destination}",
             delete(delete_destination),
         )
         .route(

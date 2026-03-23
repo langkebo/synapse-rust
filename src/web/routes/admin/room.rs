@@ -45,6 +45,7 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
             post(make_room_admin),
         )
         .route("/_synapse/admin/v1/purge_history", post(purge_history))
+        .route("/_synapse/admin/v1/purge_room", post(purge_room))
         .route("/_synapse/admin/v1/shutdown_room", post(shutdown_room))
         .route("/_synapse/admin/v1/spaces", get(get_spaces))
         .route("/_synapse/admin/v1/spaces/{space_id}", get(get_space))
@@ -459,6 +460,40 @@ pub async fn purge_history(
     Ok(Json(json!({
         "success": true,
         "deleted_events": deleted_count
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn purge_room(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let room_id = body
+        .get("room_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
+
+    if !state
+        .services
+        .room_storage
+        .room_exists(room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    state
+        .services
+        .room_storage
+        .delete_room(room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to purge room: {}", e)))?;
+
+    Ok(Json(json!({
+        "purge_id": uuid::Uuid::new_v4().to_string(),
+        "success": true
     })))
 }
 

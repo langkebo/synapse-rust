@@ -340,13 +340,87 @@ mod tests {
     fn test_warmup_config_default() {
         let config = WarmupConfig::default();
         assert!(config.enabled);
-        assert_eq!(config.startup_delay_secs, 5);
-        assert_eq!(config.interval_secs, 300);
+        assert_eq!(config.startup_delay_secs, 10);
+        assert_eq!(config.interval_secs, 900);
+        assert_eq!(config.max_users, 500);
+        assert_eq!(config.max_rooms, 200);
     }
 
     #[test]
     fn test_warmup_task_name() {
         assert_eq!(WarmupTask::PopularUsers.name(), "popular_users");
         assert_eq!(WarmupTask::PopularRooms.name(), "popular_rooms");
+        assert_eq!(WarmupTask::RoomMembers.name(), "room_members");
+        assert_eq!(WarmupTask::RoomState.name(), "room_state");
+        assert_eq!(WarmupTask::UserSettings.name(), "user_settings");
+    }
+
+    #[test]
+    fn test_warmup_status_default() {
+        let status = WarmupStatus::default();
+        assert!(status.last_run.is_none());
+        assert!(status.next_run.is_none());
+        assert_eq!(status.tasks_completed, 0);
+        assert_eq!(status.tasks_failed, 0);
+        assert_eq!(status.items_warmed, 0);
+    }
+
+    #[test]
+    fn test_warmup_config_disabled() {
+        let config = WarmupConfig {
+            enabled: false,
+            startup_delay_secs: 5,
+            interval_secs: 300,
+            max_users: 100,
+            max_rooms: 50,
+        };
+        assert!(!config.enabled);
+    }
+
+    #[test]
+    fn test_warmup_config_custom_values() {
+        let config = WarmupConfig {
+            enabled: true,
+            startup_delay_secs: 30,
+            interval_secs: 1800,
+            max_users: 1000,
+            max_rooms: 500,
+        };
+        assert_eq!(config.startup_delay_secs, 30);
+        assert_eq!(config.interval_secs, 1800);
+        assert_eq!(config.max_users, 1000);
+        assert_eq!(config.max_rooms, 500);
+    }
+
+    #[test]
+    fn test_warmup_task_all_variants() {
+        let tasks = vec![
+            WarmupTask::PopularUsers,
+            WarmupTask::PopularRooms,
+            WarmupTask::RoomMembers,
+            WarmupTask::RoomState,
+            WarmupTask::UserSettings,
+        ];
+        
+        for task in tasks {
+            assert!(!task.name().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_warmup_status_update() {
+        let mut status = WarmupStatus::default();
+        
+        status.last_run = Some(1234567890);
+        status.next_run = Some(1234567890 + 3600);
+        status.tasks_completed = 5;
+        status.tasks_failed = 1;
+        status.items_warmed = 100;
+        
+        assert_eq!(status.last_run, Some(1234567890));
+        assert_eq!(status.next_run, Some(1234567890 + 3600));
+        assert_eq!(status.tasks_completed, 5);
+        assert_eq!(status.tasks_failed, 1);
+        assert_eq!(status.items_warmed, 100);
     }
 }

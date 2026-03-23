@@ -12,21 +12,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    tracing::info!("Starting Synapse Worker...");
+    println!("[DEBUG] Starting Synapse Worker...");
 
     // Load config (simplified for worker)
     // In a real scenario, we'd reuse the same config loading logic as the main server
+    println!("[DEBUG] Loading config...");
     let config = Config::load().await?;
+    println!("[DEBUG] Config loaded successfully!");
+    
     let redis_url = config.redis_url();
+    println!("[DEBUG] Redis URL: {}", redis_url);
 
+    println!("[DEBUG] Connecting to Redis...");
     tracing::info!("Connecting to Redis at {}", redis_url);
     // RedisTaskQueue::new now accepts &RedisConfig, not &str
     let queue = Arc::new(RedisTaskQueue::new(&config.redis).await?);
+    println!("[DEBUG] Redis connected!");
 
     // Connect to Database
     let db_url = config.database_url();
+    println!("[DEBUG] Database URL: {}", db_url);
     tracing::info!("Connecting to Database...");
     let pool = sqlx::PgPool::connect(&db_url).await?;
+    println!("[DEBUG] Database connected!");
     let event_storage = Arc::new(EventStorage::new(&Arc::new(pool), "cjystx.top".to_string()));
 
     let worker_id = uuid::Uuid::new_v4().to_string();
@@ -143,8 +151,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Start Metrics Server
-    // Default port 9090 for metrics
-    let metrics_addr = SocketAddr::from(([0, 0, 0, 0], 9090));
+    // Default port 9091 for worker metrics to avoid conflict with main server
+    let metrics_addr = SocketAddr::from(([0, 0, 0, 0], 9091));
     let metrics_queue = queue.clone();
     let metrics_app = Router::new()
         .route("/metrics", get(get_metrics))

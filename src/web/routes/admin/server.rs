@@ -30,6 +30,17 @@ pub fn create_server_router(_state: AppState) -> Router<AppState> {
             "/_synapse/admin/v1/experimental_features",
             get(get_experimental_features),
         )
+        .route("/_synapse/admin/v1/backups", get(get_backups))
+}
+
+#[axum::debug_handler]
+pub async fn get_backups(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "backups": []
+    })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +100,14 @@ pub async fn get_statistics(
         .get_room_count()
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    // Update Prometheus metrics directly using the collector
+    if let Some(gauge) = state.services.metrics.get_gauge("synapse_total_users") {
+        gauge.set(total_users as f64);
+    }
+    if let Some(gauge) = state.services.metrics.get_gauge("synapse_total_rooms") {
+        gauge.set(total_rooms as f64);
+    }
 
     Ok(Json(json!({
         "total_users": total_users,

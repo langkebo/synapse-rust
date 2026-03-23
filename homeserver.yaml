@@ -26,7 +26,7 @@ server:
   warmup_pool: true
 
 database:
-  host: "db"
+  host: "192.168.139.3"
   port: 5432
   username: "synapse"
   password: "synapse"
@@ -37,7 +37,7 @@ database:
   connection_timeout: 30
 
 redis:
-  host: "redis"
+  host: "localhost"
   port: 6379
   key_prefix: "synapse:"
   pool_size: 10
@@ -107,10 +107,21 @@ url_preview:
   enabled: false
 
 oidc:
-  enabled: false
-  issuer: "https://localhost"
+  enabled: true
+  issuer: "http://localhost:8180/realms/matrix"
   client_id: "synapse"
-  scopes: ["openid", "profile", "email"]
+  client_secret: "synapse-secret"
+  scopes:
+    - "openid"
+    - "profile"
+    - "email"
+  attribute_mapping:
+    localpart: "preferred_username"
+    displayname: "name"
+    email: "email"
+  callback_url: "http://localhost:8008/_matrix/client/v3/oidc/callback"
+  allow_existing_users: true
+  block_unknown_users: false
 
 saml:
   enabled: false

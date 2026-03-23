@@ -37,3 +37,6 @@ mod typing_service_tests;
 
 #[cfg(test)]
 mod coverage_tests;
+
+#[cfg(test)]
+mod worker_coverage_tests;

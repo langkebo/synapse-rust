@@ -156,14 +156,40 @@ async fn oidc_token(
             // 映射到 Matrix 用户
             let oidc_user = oidc_service.map_user(&user_info);
 
-            // TODO: 创建或更新 Matrix 用户会话
-            // 这里应该调用 registration_service 创建用户
+            let localpart = oidc_user.localpart.clone();
+            let server_name = state.services.config.server.server_name.clone().unwrap_or_else(|| "localhost".to_string());
+            let matrix_user_id = format!("@{}:{}", localpart, server_name);
+            let displayname = oidc_user.displayname.clone().unwrap_or(localpart.clone());
 
+            // 检查用户是否存在，如果不存在则注册
+            if state.services.user_storage.get_user_by_id(&matrix_user_id).await.unwrap_or(None).is_none() {
+                tracing::info!("Creating new Matrix user from OIDC: {}", matrix_user_id);
+                
+                // 为了注册，我们需要创建一个随机的、长且安全的占位密码
+                let random_password = uuid::Uuid::new_v4().to_string();
+                
+                state.services.registration_service.register_user(
+                    &localpart,
+                    &random_password,
+                    false,
+                    Some(&displayname)
+                ).await.map_err(|e| ApiError::internal(format!("Failed to register OIDC user: {}", e)))?;
+            }
+
+            // TODO: 生成设备ID和Matrix Access Token
+            // 由于目前的 OidcTokenResponse 结构不支持直接返回 Matrix token，
+            // 真实生产中，Matrix 客户端期望在 /login 之后获得 Matrix token。
+            // 现阶段，保留原始 OIDC 响应以供调试和过渡
+            
+            // 记录成功事件
             tracing::info!(
-                "OIDC token exchange successful for sub: {}, localpart: {}",
+                "OIDC token exchange successful for sub: {}, mapped to Matrix user: {}",
                 oidc_user.subject,
-                oidc_user.localpart
+                matrix_user_id
             );
+
+            // 这里后续需要完成用户自动创建、Token分配等逻辑
+            // 目前先返回标准的 OIDC 成功响应
 
             Ok(Json(OidcTokenResponse {
                 access_token: token_response.access_token,
@@ -174,13 +200,26 @@ async fn oidc_token(
             }))
         }
         "refresh_token" => {
-            // 刷新令牌模式 - 需要实现
-            let _refresh_token = refresh_token.ok_or_else(|| {
+            // 刷新令牌模式
+            let refresh_token = refresh_token.ok_or_else(|| {
                 ApiError::bad_request("Missing 'refresh_token' parameter".to_string())
             })?;
-            Err(ApiError::bad_request(
-                "Refresh token grant not yet implemented".to_string(),
-            ))
+
+            // 使用 OIDC 服务刷新令牌
+            let token_response = oidc_service
+                .refresh_token(&refresh_token)
+                .await
+                .map_err(|e| ApiError::internal(format!("Token refresh failed: {}", e)))?;
+
+            tracing::info!("OIDC token refresh successful");
+
+            Ok(Json(OidcTokenResponse {
+                access_token: token_response.access_token,
+                token_type: token_response.token_type,
+                expires_in: token_response.expires_in.unwrap_or(3600),
+                refresh_token: token_response.refresh_token,
+                scope: scope.unwrap_or_else(|| "openid profile email".to_string()),
+            }))
         }
         _ => Err(ApiError::bad_request(format!(
             "Unsupported grant_type: {}. Supported: authorization_code, refresh_token",
@@ -214,9 +253,9 @@ pub struct OidcAuthorizeRequest {
 }
 
 /// OIDC Authorization handler
+/// Note: This endpoint does NOT require authentication - it's the first step in OIDC login
 async fn oidc_authorize(
     State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
     query: axum::extract::Query<OidcAuthorizeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
@@ -243,24 +282,27 @@ async fn oidc_authorize(
     }
 
     // 生成 state 和 nonce
-    let state = auth_state.unwrap_or_else(OidcService::generate_state);
-    let nonce = nonce.unwrap_or_else(OidcService::generate_state);
+    let state_value = auth_state.unwrap_or_else(OidcService::generate_state);
+    let nonce_value = nonce.unwrap_or_else(OidcService::generate_state);
 
-    // 生成授权 URL
+    // 生成 PKCE code_verifier 和 code_challenge
+    let (code_verifier, code_challenge) = OidcService::generate_pkce();
+
+    // 生成授权 URL (包含 PKCE)
     let authorization_url = oidc_service
-        .get_authorization_url(&state, &redirect_uri)
+        .get_authorization_url(&state_value, &redirect_uri, Some(&code_challenge), Some("S256"))
         .map_err(|e| ApiError::internal(format!("Failed to generate authorization URL: {}", e)))?;
 
     tracing::info!(
-        "OIDC authorization for user: {}, redirect_uri: {}",
-        auth_user.user_id,
+        "OIDC authorization redirect_uri: {}, using PKCE",
         redirect_uri
     );
 
     Ok(Json(serde_json::json!({
         "authorization_url": authorization_url,
-        "state": state,
-        "nonce": nonce,
+        "state": state_value,
+        "nonce": nonce_value,
+        "code_verifier": code_verifier,  // 返回给客户端，后续验证需要
     })))
 }
 
@@ -460,18 +502,95 @@ async fn oidc_callback(
         oidc_user.email
     );
 
-    // TODO: 创建或登录 Matrix 用户
-    // 这里应该调用 registration_service 来创建用户或关联现有用户
+    // 创建或登录 Matrix 用户
+    // First check if user exists by localpart
+    let user_id = format!("@{}:{}", oidc_user.localpart, state.services.server_name);
+    
+    let existing_user = state
+        .services
+        .user_storage
+        .get_user_by_username(&oidc_user.localpart)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let (user, access_token, refresh_token, device_id) = if let Some(existing) = existing_user {
+        // User exists, generate tokens for them using a simple token generation
+        // Use the existing user's admin status
+        let device_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
+        let access_token = state
+            .services
+            .auth_service
+            .generate_access_token(&user_id, &device_id, existing.is_admin)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to generate access token: {}", e)))?;
+        let refresh_token = state
+            .services
+            .auth_service
+            .generate_refresh_token(&user_id, &device_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to generate refresh token: {}", e)))?;
+        (existing, access_token, refresh_token, device_id)
+    } else {
+        // Create new user - use a random password since authentication is done by OIDC provider
+        let random_password = OidcService::generate_state();
+        
+        // Get displayname from OIDC user info
+        let displayname = oidc_user.displayname.as_deref();
+        
+        match state
+            .services
+            .auth_service
+            .register(&oidc_user.localpart, &random_password, false, displayname)
+            .await
+        {
+            Ok(result) => result,
+            Err(e) => {
+                // Check if user was created by another request (race condition)
+                let error_msg = e.to_string();
+                if error_msg.contains("already taken") || error_msg.contains("in use") || error_msg.contains("conflict") {
+                    // User was created by another request, try to get them
+                    let existing = state
+                        .services
+                        .user_storage
+                        .get_user_by_username(&oidc_user.localpart)
+                        .await
+                        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+                        .ok_or_else(|| ApiError::internal("User creation failed".to_string()))?;
+                    
+                    let device_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
+                    let access_token = state
+                        .services
+                        .auth_service
+                        .generate_access_token(&user_id, &device_id, existing.is_admin)
+                        .await
+                        .map_err(|e| ApiError::internal(format!("Failed to generate access token: {}", e)))?;
+                    let refresh_token = state
+                        .services
+                        .auth_service
+                        .generate_refresh_token(&user_id, &device_id)
+                        .await
+                        .map_err(|e| ApiError::internal(format!("Failed to generate refresh token: {}", e)))?;
+                    (existing, access_token, refresh_token, device_id)
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    };
+
+    let user_id_for_log = user.user_id();
+    tracing::info!(
+        "OIDC user logged in: {}, device_id: {}",
+        user_id_for_log,
+        device_id
+    );
 
     Ok(Json(serde_json::json!({
-        "success": true,
-        "sub": oidc_user.subject,
-        "localpart": oidc_user.localpart,
-        "displayname": oidc_user.displayname,
-        "email": oidc_user.email,
-        "access_token": token_response.access_token,
-        "token_type": token_response.token_type,
-        "expires_in": token_response.expires_in,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "expires_in": state.services.auth_service.token_expiry,
+        "device_id": device_id,
+        "user_id": user_id_for_log,
     })))
 }
 
