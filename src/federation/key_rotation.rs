@@ -686,8 +686,8 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_key_rotation_manager_clone() {
+    #[tokio::test]
+    async fn test_key_rotation_manager_clone() {
         let pool = std::sync::Arc::new(
             sqlx::postgres::PgPoolOptions::new()
                 .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")

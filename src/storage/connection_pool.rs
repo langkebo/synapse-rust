@@ -11,6 +11,8 @@ pub struct ConnectionPoolConfig {
     pub max_lifetime: Duration,
     pub acquire_timeout: Duration,
     pub test_before_acquire: bool,
+    /// Query timeout for all database queries
+    pub query_timeout: Duration,
 }
 
 impl Default for ConnectionPoolConfig {
@@ -23,6 +25,7 @@ impl Default for ConnectionPoolConfig {
             max_lifetime: Duration::from_secs(1800),
             acquire_timeout: Duration::from_secs(30),
             test_before_acquire: true,
+            query_timeout: Duration::from_secs(30),
         }
     }
 }
@@ -37,6 +40,7 @@ impl ConnectionPoolConfig {
             max_lifetime: Duration::from_secs(900),
             acquire_timeout: Duration::from_secs(10),
             test_before_acquire: true,
+            query_timeout: Duration::from_secs(10),
         }
     }
 
@@ -49,6 +53,7 @@ impl ConnectionPoolConfig {
             max_lifetime: Duration::from_secs(1800),
             acquire_timeout: Duration::from_secs(30),
             test_before_acquire: true,
+            query_timeout: Duration::from_secs(30),
         }
     }
 
@@ -61,6 +66,7 @@ impl ConnectionPoolConfig {
             max_lifetime: Duration::from_secs(1200),
             acquire_timeout: Duration::from_secs(60),
             test_before_acquire: true,
+            query_timeout: Duration::from_secs(60),
         }
     }
 
@@ -106,6 +112,9 @@ impl ConnectionPoolManager {
             .acquire_timeout(config.acquire_timeout)
             .idle_timeout(config.idle_timeout)
             .max_lifetime(config.max_lifetime)
+            .set_option(sqlx::postgres::PgPoolOptions::default_statement_timeout(
+                Some(config.query_timeout),
+            ))
             .connect(database_url)
             .await?;
 

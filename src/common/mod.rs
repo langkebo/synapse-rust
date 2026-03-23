@@ -26,7 +26,11 @@ pub mod tracing;
 pub mod transaction;
 pub mod types;
 pub mod validation;
+pub mod sanitizer;
 pub mod xml_parser;
+
+#[allow(ambiguous_glob_reexports)]
+pub use sanitizer::*;
 
 #[allow(ambiguous_glob_reexports)]
 pub use argon2_config::*;

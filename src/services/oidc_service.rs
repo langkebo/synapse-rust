@@ -441,7 +441,12 @@ mod tests {
     fn test_get_authorization_url() {
         let service = create_test_service();
         let url = service
-            .get_authorization_url("test-state", "https://matrix.example.com/callback")
+            .get_authorization_url(
+                "test-state",
+                "https://matrix.example.com/callback",
+                None,
+                None,
+            )
             .unwrap();
 
         assert!(url.contains("client_id=test-client-id"));

@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn test_friend_federation_complex_server_name() {
-        let origin = "server.example.com:8448";
+        let _origin = "server.example.com:8448";
         let requester_id = "@user:server.example.com";
 
         assert!(requester_id.ends_with(":server.example.com"));
