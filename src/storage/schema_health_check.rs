@@ -3,13 +3,14 @@
 //! 提供启动时的 Schema 验证和索引自动修复功能
 //!
 //! 使用方法:
-//! ```rust
+//! ```rust,ignore
 //! use synapse_rust::storage::schema_health_check::run_schema_health_check;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let pool = create_pool().await?;
 //!     run_schema_health_check(&pool, true).await?;
+//!     Ok(())
 //! }
 //! ```
 

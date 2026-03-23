@@ -4,7 +4,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
 use axum::response::IntoResponse;
 use axum::{body::Body, middleware::Next, response::Response, Json};
-use base64::Engine;
+use base64::Engine; // Required for decode in module-level functions
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::json;
@@ -27,6 +27,52 @@ static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
 });
 
 const FEDERATION_SIGNATURE_TTL_MS: u64 = 300 * 1000;
+
+// ============================================================================
+// CSRF Protection Middleware
+// ============================================================================
+
+/// CSRF token manager for generating and validating tokens
+/// 
+/// In production, this should be used with axum's middleware system
+pub struct CsrfTokenManager {
+    secret: String,
+    #[allow(dead_code)]
+    token_ttl: std::time::Duration,
+}
+
+impl CsrfTokenManager {
+    pub fn new(secret: String) -> Self {
+        Self {
+            secret,
+            token_ttl: std::time::Duration::from_secs(24 * 3600), // 24 hours
+        }
+    }
+
+    /// Generate a CSRF token for a session
+    #[allow(dead_code)]
+    pub fn generate_token(&self, session_id: &str) -> String {
+        let payload = format!("{}:{}", session_id, std::time::Instant::now().elapsed().as_secs());
+        let signature = crate::common::crypto::compute_hash(&format!("{}{}", payload, self.secret));
+        format!("{}:{}", payload, &signature[..16])
+    }
+
+    /// Validate a CSRF token
+    #[allow(dead_code)]
+    pub fn validate_token(&self, token: &str, session_id: &str) -> bool {
+        let parts: Vec<&str> = token.split(':').collect();
+        if parts.len() != 3 {
+            return false;
+        }
+        
+        let expected_signature = crate::common::crypto::compute_hash(&format!(
+            "{}:{}:{}",
+            session_id, parts[1], self.secret
+        ));
+        
+        expected_signature.starts_with(parts[2])
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct CorsSecurityReport {

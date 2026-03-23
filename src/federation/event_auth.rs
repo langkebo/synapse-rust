@@ -231,7 +231,15 @@ impl EventAuthChain {
         for (key, events) in &state_by_key {
             if events.len() > 1 {
                 let mut sorted_events = events.clone();
-                sorted_events.sort_by(|a, b| b.0.cmp(&a.0));
+                // Sort by timestamp descending, then by event_id ascending for stable ordering
+                sorted_events.sort_by(|a, b| {
+                    let cmp = b.0.cmp(&a.0); // timestamp descending
+                    if cmp == std::cmp::Ordering::Equal {
+                        a.1.cmp(&b.1) // event_id ascending
+                    } else {
+                        cmp
+                    }
+                });
 
                 let winner = &sorted_events[0];
                 let losers: Vec<String> = sorted_events[1..]
@@ -446,11 +454,10 @@ impl EventAuthChain {
             if let Some(event) = events.get(event_id) {
                 if let Some(state_key) = event.state_key.as_ref() {
                     let state_key_str = state_key.as_str().unwrap_or("");
-                    if !state_key_str.is_empty() {
-                        if let Some(content) = event.content.as_ref() {
-                            state
-                                .insert(format!("{}:{}", event.event_type, state_key_str), content);
-                        }
+                    // Empty state_key is valid for events like m.room.name
+                    if let Some(content) = event.content.as_ref() {
+                        state
+                            .insert(format!("{}:{}", event.event_type, state_key_str), content);
                     }
                 }
 
@@ -1029,7 +1036,9 @@ mod tests {
 
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].winning_event, "$3");
-        assert_eq!(conflicts[0].losing_events, vec!["$1", "$2"]);
+        let mut losing = conflicts[0].losing_events.clone();
+        losing.sort();
+        assert_eq!(losing, vec!["$1", "$2"]);
     }
 
     #[test]

@@ -63,7 +63,17 @@ impl MemoryStats {
 
     pub fn record_deallocation(&self, size: usize) {
         self.deallocations.fetch_add(1, Ordering::SeqCst);
-        self.current_size.fetch_sub(size, Ordering::SeqCst);
+        self.operation_count.fetch_add(1, Ordering::SeqCst);
+        
+        // Use saturating sub to prevent underflow
+        loop {
+            let current = self.current_size.load(Ordering::SeqCst);
+            let new_size = current.saturating_sub(size);
+            match self.current_size.compare_exchange(current, new_size, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => break,
+                Err(_) => continue,
+            }
+        }
     }
 
     pub fn get_stats(&self) -> MemoryStatsSnapshot {
