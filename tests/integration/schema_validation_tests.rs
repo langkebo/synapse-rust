@@ -4,9 +4,9 @@
 #[cfg(test)]
 mod compile_time_validation_tests {
     use synapse_rust::storage::compile_time_validation::{
-        User, Device, Room, Event, Membership, UserThreepid,
+        Device, Event, Membership, Room, User, UserThreepid,
     };
-    
+
     #[test]
     fn test_user_model_fields() {
         let user = User {
@@ -15,13 +15,13 @@ mod compile_time_validation_tests {
             created_ts: 1234567890,
             is_deactivated: false,
         };
-        
+
         assert_eq!(user.user_id, "@test:example.com");
         assert_eq!(user.username, "testuser");
         assert_eq!(user.created_ts, 1234567890);
         assert!(!user.is_deactivated);
     }
-    
+
     #[test]
     fn test_device_model_fields() {
         let device = Device {
@@ -30,12 +30,12 @@ mod compile_time_validation_tests {
             last_seen_ts: Some(1234567890),
             display_name: Some("My Device".to_string()),
         };
-        
+
         assert_eq!(device.device_id, "DEVICE123");
         assert!(device.last_seen_ts.is_some());
         assert!(device.display_name.is_some());
     }
-    
+
     #[test]
     fn test_room_model_fields() {
         let room = Room {
@@ -44,12 +44,12 @@ mod compile_time_validation_tests {
             created_ts: 1234567890,
             is_public: true,
         };
-        
+
         assert_eq!(room.room_id, "!room:example.com");
         assert!(room.creator.is_some());
         assert!(room.is_public);
     }
-    
+
     #[test]
     fn test_event_model_fields() {
         let event = Event {
@@ -59,12 +59,12 @@ mod compile_time_validation_tests {
             origin_server_ts: 1234567890,
             event_type: "m.room.message".to_string(),
         };
-        
+
         assert_eq!(event.event_id, "$event:example.com");
         assert_eq!(event.room_id, "!room:example.com");
         assert_eq!(event.event_type, "m.room.message");
     }
-    
+
     #[test]
     fn test_membership_model_fields() {
         let membership = Membership {
@@ -75,12 +75,12 @@ mod compile_time_validation_tests {
             invited_ts: None,
             left_ts: None,
         };
-        
+
         assert_eq!(membership.membership, "join");
         assert!(membership.joined_ts.is_some());
         assert!(membership.invited_ts.is_none());
     }
-    
+
     #[test]
     fn test_user_threepid_model_fields() {
         let threepid = UserThreepid {
@@ -92,13 +92,13 @@ mod compile_time_validation_tests {
             added_ts: 1234567800,
             is_verified: true,
         };
-        
+
         assert_eq!(threepid.medium, "email");
         assert_eq!(threepid.address, "test@example.com");
         assert!(threepid.is_verified);
         assert!(threepid.validated_ts.is_some());
     }
-    
+
     // Test edge cases
     #[test]
     fn test_user_deactivated() {
@@ -108,10 +108,10 @@ mod compile_time_validation_tests {
             created_ts: 0,
             is_deactivated: true,
         };
-        
+
         assert!(user.is_deactivated);
     }
-    
+
     #[test]
     fn test_user_with_minimal_data() {
         let user = User {
@@ -120,11 +120,11 @@ mod compile_time_validation_tests {
             created_ts: 0,
             is_deactivated: false,
         };
-        
+
         assert_eq!(user.created_ts, 0);
         assert!(!user.is_deactivated);
     }
-    
+
     #[test]
     fn test_device_no_display_name() {
         let device = Device {
@@ -133,11 +133,11 @@ mod compile_time_validation_tests {
             last_seen_ts: None,
             display_name: None,
         };
-        
+
         assert!(device.last_seen_ts.is_none());
         assert!(device.display_name.is_none());
     }
-    
+
     #[test]
     fn test_device_with_all_fields() {
         let device = Device {
@@ -146,11 +146,11 @@ mod compile_time_validation_tests {
             last_seen_ts: Some(1234567890),
             display_name: Some("Test Device".to_string()),
         };
-        
+
         assert!(device.last_seen_ts.is_some());
         assert!(device.display_name.is_some());
     }
-    
+
     #[test]
     fn test_room_private() {
         let room = Room {
@@ -159,10 +159,10 @@ mod compile_time_validation_tests {
             created_ts: 1234567890,
             is_public: false,
         };
-        
+
         assert!(!room.is_public);
     }
-    
+
     #[test]
     fn test_room_no_creator() {
         let room = Room {
@@ -171,10 +171,10 @@ mod compile_time_validation_tests {
             created_ts: 1234567890,
             is_public: true,
         };
-        
+
         assert!(room.creator.is_none());
     }
-    
+
     #[test]
     fn test_event_different_types() {
         // Test message event
@@ -186,7 +186,7 @@ mod compile_time_validation_tests {
             event_type: "m.room.message".to_string(),
         };
         assert_eq!(msg_event.event_type, "m.room.message");
-        
+
         // Test member event
         let member_event = Event {
             event_id: "$member:example.com".to_string(),
@@ -196,7 +196,7 @@ mod compile_time_validation_tests {
             event_type: "m.room.member".to_string(),
         };
         assert_eq!(member_event.event_type, "m.room.member");
-        
+
         // Test state event
         let state_event = Event {
             event_id: "$state:example.com".to_string(),
@@ -207,7 +207,7 @@ mod compile_time_validation_tests {
         };
         assert_eq!(state_event.event_type, "m.room.create");
     }
-    
+
     #[test]
     fn test_membership_join() {
         let membership = Membership {
@@ -218,11 +218,11 @@ mod compile_time_validation_tests {
             invited_ts: None,
             left_ts: None,
         };
-        
+
         assert_eq!(membership.membership, "join");
         assert!(membership.joined_ts.is_some());
     }
-    
+
     #[test]
     fn test_membership_invite() {
         let membership = Membership {
@@ -233,11 +233,11 @@ mod compile_time_validation_tests {
             invited_ts: Some(1234567000),
             left_ts: None,
         };
-        
+
         assert_eq!(membership.membership, "invite");
         assert!(membership.invited_ts.is_some());
     }
-    
+
     #[test]
     fn test_membership_left() {
         let membership = Membership {
@@ -248,11 +248,11 @@ mod compile_time_validation_tests {
             invited_ts: None,
             left_ts: Some(1234567890),
         };
-        
+
         assert_eq!(membership.membership, "leave");
         assert!(membership.left_ts.is_some());
     }
-    
+
     #[test]
     fn test_membership_ban() {
         let membership = Membership {
@@ -263,10 +263,10 @@ mod compile_time_validation_tests {
             invited_ts: None,
             left_ts: Some(1234567890),
         };
-        
+
         assert_eq!(membership.membership, "ban");
     }
-    
+
     #[test]
     fn test_threepid_email() {
         let threepid = UserThreepid {
@@ -278,11 +278,11 @@ mod compile_time_validation_tests {
             added_ts: 1234567800,
             is_verified: true,
         };
-        
+
         assert_eq!(threepid.medium, "email");
         assert!(threepid.is_verified);
     }
-    
+
     #[test]
     fn test_threepid_msisdn() {
         let threepid = UserThreepid {
@@ -294,12 +294,12 @@ mod compile_time_validation_tests {
             added_ts: 1234567800,
             is_verified: false,
         };
-        
+
         assert_eq!(threepid.medium, "msisdn");
         assert!(!threepid.is_verified);
         assert!(threepid.validated_ts.is_none());
     }
-    
+
     #[test]
     fn test_threepid_not_verified() {
         let threepid = UserThreepid {
@@ -311,11 +311,11 @@ mod compile_time_validation_tests {
             added_ts: 1234567800,
             is_verified: false,
         };
-        
+
         assert!(!threepid.is_verified);
         assert!(threepid.validated_ts.is_none());
     }
-    
+
     #[test]
     fn test_threepid_validation_expired() {
         let threepid = UserThreepid {
@@ -323,11 +323,11 @@ mod compile_time_validation_tests {
             user_id: "@test:example.com".to_string(),
             medium: "email".to_string(),
             address: "expired@example.com".to_string(),
-            validated_ts: None,  // Validation expired
+            validated_ts: None, // Validation expired
             added_ts: 1234567800,
             is_verified: false,
         };
-        
+
         assert!(!threepid.is_verified);
     }
 }

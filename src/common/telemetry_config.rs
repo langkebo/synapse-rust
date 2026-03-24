@@ -77,27 +77,6 @@ impl OpenTelemetryConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JaegerConfig {
-    pub enabled: bool,
-    pub agent_endpoint: Option<String>,
-    pub collector_endpoint: Option<String>,
-    pub service_name: String,
-    pub sampling_rate: f64,
-}
-
-impl Default for JaegerConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            agent_endpoint: Some("127.0.0.1:6831".to_string()),
-            collector_endpoint: None,
-            service_name: "synapse-rust".to_string(),
-            sampling_rate: 1.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrometheusConfig {
     pub enabled: bool,
     pub port: u16,

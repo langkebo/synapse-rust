@@ -94,7 +94,8 @@ pub async fn upgrade_guest(
     Json(body): Json<UpgradeGuestRequest>,
 ) -> Result<Json<Value>, ApiError> {
     // Validate input
-    body.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
+    body.validate()
+        .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
     let username = &body.username;
     let _password = &body.password;

@@ -128,71 +128,102 @@ impl SyncService {
         set_presence: &str,
         since: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
+        self.update_presence(user_id, set_presence).await?;
+
+        let since_token = since.and_then(SyncToken::parse);
+        let is_incremental = since_token.is_some() && !full_state;
+
+        let room_ids = self.member_storage.get_joined_rooms(user_id).await?;
+        let since_ts = since_token.as_ref().map(|t| t.stream_id).unwrap_or(0);
+
+        let room_events = self
+            .fetch_events(&room_ids, since_ts, timeout, is_incremental)
+            .await?;
+
+        self.build_sync_response(
+            user_id,
+            &room_ids,
+            room_events,
+            &since_token,
+            is_incremental,
+        )
+        .await
+    }
+
+    async fn update_presence(&self, user_id: &str, set_presence: &str) -> ApiResult<()> {
         if set_presence != "offline" {
             self.presence_storage
                 .set_presence(user_id, set_presence, None)
                 .await
                 .ok();
         }
+        Ok(())
+    }
 
-        let since_token = since.and_then(SyncToken::parse);
-        let is_incremental = since_token.is_some() && !full_state;
-
-        let room_ids = self
-            .member_storage
-            .get_joined_rooms(user_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get rooms: {}", e)))?;
-
+    async fn fetch_events(
+        &self,
+        room_ids: &[String],
+        since_ts: i64,
+        timeout: u64,
+        is_incremental: bool,
+    ) -> ApiResult<HashMap<String, Vec<RoomEvent>>> {
         let limit = 50i64;
-        let since_ts = since_token.as_ref().map(|t| t.stream_id).unwrap_or(0);
 
-        // Long Polling: wait for new events if none available
-        let room_events = if is_incremental {
+        if is_incremental {
             let events = self
                 .event_storage
-                .get_room_events_since_batch(&room_ids, since_ts, limit)
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to get batch events: {}", e)))?;
+                .get_room_events_since_batch(room_ids, since_ts, limit)
+                .await?;
 
-            // If no new events, wait for new events up to timeout
             if events.values().all(|v| v.is_empty()) && timeout > 0 {
-                let timeout_duration = std::time::Duration::from_millis(timeout);
-                let start = std::time::Instant::now();
-                let poll_interval = std::time::Duration::from_millis(500);
-
-                loop {
-                    let events = self
-                        .event_storage
-                        .get_room_events_since_batch(&room_ids, since_ts, limit)
-                        .await
-                        .map_err(|e| ApiError::internal(format!("Failed to poll events: {}", e)))?;
-
-                    if !events.values().all(|v| v.is_empty()) {
-                        break events;
-                    }
-
-                    if start.elapsed() >= timeout_duration {
-                        break events;
-                    }
-
-                    tokio::time::sleep(poll_interval).await;
-                }
+                self.poll_for_events(room_ids, since_ts, limit, timeout)
+                    .await
             } else {
-                events
+                Ok(events)
             }
         } else {
             self.event_storage
-                .get_room_events_batch(&room_ids, limit)
+                .get_room_events_batch(room_ids, limit)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get batch events: {}", e)))?
-        };
+                .map_err(Into::into)
+        }
+    }
 
+    async fn poll_for_events(
+        &self,
+        room_ids: &[String],
+        since_ts: i64,
+        limit: i64,
+        timeout: u64,
+    ) -> ApiResult<HashMap<String, Vec<RoomEvent>>> {
+        let timeout_duration = std::time::Duration::from_millis(timeout);
+        let start = std::time::Instant::now();
+        let poll_interval = std::time::Duration::from_millis(500);
+
+        loop {
+            let events = self
+                .event_storage
+                .get_room_events_since_batch(room_ids, since_ts, limit)
+                .await?;
+
+            if !events.values().all(|v| v.is_empty()) || start.elapsed() >= timeout_duration {
+                return Ok(events);
+            }
+
+            tokio::time::sleep(poll_interval).await;
+        }
+    }
+
+    async fn build_sync_response(
+        &self,
+        user_id: &str,
+        room_ids: &[String],
+        room_events: HashMap<String, Vec<RoomEvent>>,
+        since_token: &Option<SyncToken>,
+        is_incremental: bool,
+    ) -> ApiResult<serde_json::Value> {
         let mut rooms = serde_json::Map::new();
-        let invites = serde_json::Map::new();
-        let leaves = serde_json::Map::new();
-
-        for room_id in &room_ids {
+        for room_id in room_ids {
             let events = room_events.get(room_id).cloned().unwrap_or_default();
             let room_sync = self
                 .build_room_sync(room_id, user_id, events, is_incremental)
@@ -203,41 +234,24 @@ impl SyncService {
             }
         }
 
-        let presence_events = self.get_presence_events(user_id, &since_token).await?;
-
+        let presence_events = self.get_presence_events(user_id, since_token).await?;
         let account_data_events = self.get_account_data_events(user_id).await?;
-
-        let to_device_events = self.get_to_device_events(user_id, &since_token).await?;
-
-        let device_lists = self.get_device_lists(user_id, &since_token).await?;
-
-        // Generate stream ID from database sequence
+        let to_device_events = self.get_to_device_events(user_id, since_token).await?;
+        let device_lists = self.get_device_lists(user_id, since_token).await?;
         let stream_id = self.get_next_stream_id().await?;
 
-        let next_batch = SyncToken {
-            stream_id,
-            room_id: None,
-            event_type: None,
-        };
-
         Ok(json!({
-            "next_batch": next_batch.encode(),
+            "next_batch": SyncToken { stream_id, room_id: None, event_type: None }.encode(),
             "rooms": {
                 "join": rooms,
-                "invite": invites,
-                "leave": leaves
+                "invite": {},
+                "leave": {}
             },
-            "presence": json!({
-                "events": presence_events
-            }),
-            "account_data": json!({
-                "events": account_data_events
-            }),
-            "to_device": json!({
-                "events": to_device_events
-            }),
+            "presence": { "events": presence_events },
+            "account_data": { "events": account_data_events },
+            "to_device": { "events": to_device_events },
             "device_lists": device_lists,
-            "device_one_time_keys_count": json!({})
+            "device_one_time_keys_count": {}
         }))
     }
 

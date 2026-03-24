@@ -20,8 +20,14 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
                 .put(update_backup_version)
                 .delete(delete_backup_version),
         )
-        .route("/room_keys/keys", get(get_room_keys_all).put(put_room_keys_all))
-        .route("/room_keys/keys/{version}", get(get_room_keys).put(put_room_keys))
+        .route(
+            "/room_keys/keys",
+            get(get_room_keys_all).put(put_room_keys_all),
+        )
+        .route(
+            "/room_keys/keys/{version}",
+            get(get_room_keys).put(put_room_keys),
+        )
         .route(
             "/room_keys/keys/{version}/{room_id}",
             get(get_room_key_by_id),
@@ -30,11 +36,11 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
             "/room_keys/keys/{version}/{room_id}/{session_id}",
             get(get_room_key),
         )
-        .route("/room_keys/{version}", get(get_room_keys).put(put_room_keys))
         .route(
-            "/room_keys/{version}/keys",
-            post(put_room_keys_multi),
+            "/room_keys/{version}",
+            get(get_room_keys).put(put_room_keys),
         )
+        .route("/room_keys/{version}/keys", post(put_room_keys_multi))
         .route(
             "/room_keys/{version}/keys/{room_id}",
             get(get_room_key_by_id),
@@ -48,14 +54,8 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
             "/room_keys/recovery/{version}/progress",
             get(get_recovery_progress),
         )
-        .route(
-            "/room_keys/verify/{version}",
-            get(verify_backup),
-        )
-        .route(
-            "/room_keys/batch_recover",
-            post(batch_recover_keys),
-        )
+        .route("/room_keys/verify/{version}", get(verify_backup))
+        .route("/room_keys/batch_recover", post(batch_recover_keys))
         .route(
             "/room_keys/recover/{version}/{room_id}",
             get(recover_room_keys),
@@ -66,15 +66,9 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
         )
         // Key Export/Import (E2EE 100%)
         .route("/room_keys/export", get(export_keys))
-        .route(
-            "/room_keys/export/{version}",
-            get(export_keys_by_version),
-        )
+        .route("/room_keys/export/{version}", get(export_keys_by_version))
         .route("/room_keys/import", post(import_keys))
-        .route(
-            "/room_keys/import/{version}",
-            post(import_keys_by_version),
-        );
+        .route("/room_keys/import/{version}", post(import_keys_by_version));
 
     Router::new()
         .nest("/_matrix/client/r0", router.clone())

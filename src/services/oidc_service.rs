@@ -1,6 +1,6 @@
 use crate::common::config::OidcConfig;
 use crate::common::error::ApiError;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -146,11 +146,14 @@ impl OidcService {
             query.append_pair("scope", &scope);
             query.append_pair("redirect_uri", redirect_uri);
             query.append_pair("state", state);
-            
+
             // PKCE support
             if let Some(challenge) = code_challenge {
                 query.append_pair("code_challenge", challenge);
-                query.append_pair("code_challenge_method", code_challenge_method.unwrap_or("S256"));
+                query.append_pair(
+                    "code_challenge_method",
+                    code_challenge_method.unwrap_or("S256"),
+                );
             }
         }
 
@@ -161,25 +164,26 @@ impl OidcService {
     pub fn generate_pkce() -> (String, String) {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        
+
         // PKCE charset as bytes for indexing
-        const PKCE_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-        
+        const PKCE_CHARSET: &[u8] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+
         // Generate code_verifier (43-128 characters)
         let verifier_len = rng.gen_range(43..=128);
         let code_verifier: String = (0..verifier_len)
             .map(|_| {
-                let idx = rng.gen_range(0.. PKCE_CHARSET.len());
+                let idx = rng.gen_range(0..PKCE_CHARSET.len());
                 PKCE_CHARSET[idx] as char
             })
             .collect();
-        
+
         // Generate code_challenge (SHA256 hash base64url encoded)
         let mut hasher = Sha256::new();
         hasher.update(code_verifier.as_bytes());
         let hash = hasher.finalize();
         let code_challenge = Self::base64url_encode(&hash);
-        
+
         (code_verifier, code_challenge)
     }
 
@@ -242,10 +246,7 @@ impl OidcService {
             .map_err(|e| ApiError::internal(format!("Failed to parse token response: {}", e)))
     }
 
-    pub async fn refresh_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<OidcTokenResponse, ApiError> {
+    pub async fn refresh_token(&self, refresh_token: &str) -> Result<OidcTokenResponse, ApiError> {
         let default_token = format!("{}/token", self.config.issuer);
         let token_endpoint = self
             .config

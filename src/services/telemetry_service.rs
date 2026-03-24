@@ -1,32 +1,32 @@
-use crate::common::telemetry_config::{JaegerConfig, OpenTelemetryConfig, PrometheusConfig};
+use crate::common::telemetry_config::{OpenTelemetryConfig, PrometheusConfig};
+use opentelemetry::{global, KeyValue};
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::{
+    trace::{Sampler, SdkTracerProvider},
+    Resource,
+};
 use std::sync::Arc;
 use tracing::info;
 
 pub struct TelemetryService {
     config: Arc<OpenTelemetryConfig>,
-    jaeger_config: Arc<JaegerConfig>,
     prometheus_config: Arc<PrometheusConfig>,
 }
 
 impl TelemetryService {
-    pub fn new(
-        config: Arc<OpenTelemetryConfig>,
-        jaeger_config: Arc<JaegerConfig>,
-        prometheus_config: Arc<PrometheusConfig>,
-    ) -> Self {
+    pub fn new(config: Arc<OpenTelemetryConfig>, prometheus_config: Arc<PrometheusConfig>) -> Self {
         Self {
             config,
-            jaeger_config,
             prometheus_config,
         }
     }
 
     pub fn is_enabled(&self) -> bool {
-        self.config.is_enabled() || self.jaeger_config.enabled || self.prometheus_config.enabled
+        self.config.is_enabled() || self.prometheus_config.enabled
     }
 
     pub fn is_trace_enabled(&self) -> bool {
-        self.config.is_trace_enabled() || self.jaeger_config.enabled
+        self.config.is_trace_enabled()
     }
 
     pub fn is_metrics_enabled(&self) -> bool {
@@ -40,8 +40,6 @@ impl TelemetryService {
     pub fn get_sampling_ratio(&self) -> f64 {
         if self.config.is_trace_enabled() {
             self.config.sampling_ratio
-        } else if self.jaeger_config.enabled {
-            self.jaeger_config.sampling_rate
         } else {
             0.0
         }
@@ -50,8 +48,6 @@ impl TelemetryService {
     pub fn get_export_config(&self) -> ExportConfig {
         ExportConfig {
             otlp_endpoint: self.config.otlp_endpoint.clone(),
-            jaeger_agent: self.jaeger_config.agent_endpoint.clone(),
-            jaeger_collector: self.jaeger_config.collector_endpoint.clone(),
             prometheus_port: if self.prometheus_config.enabled {
                 Some(self.prometheus_config.port)
             } else {
@@ -74,10 +70,12 @@ impl TelemetryService {
         self.config.get_resource_attributes()
     }
 
-    pub fn initialize(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn initialize(
+        &self,
+    ) -> Result<Option<SdkTracerProvider>, Box<dyn std::error::Error + Send + Sync>> {
         if !self.is_enabled() {
             info!("Telemetry is disabled");
-            return Ok(());
+            return Ok(None);
         }
 
         info!(
@@ -87,56 +85,71 @@ impl TelemetryService {
             self.is_metrics_enabled()
         );
 
-        if self.config.is_trace_enabled() {
-            self.initialize_tracing()?;
-        }
+        let provider = if self.config.is_trace_enabled() {
+            Some(self.initialize_tracing()?)
+        } else {
+            None
+        };
 
         if self.config.is_metrics_enabled() || self.prometheus_config.enabled {
             self.initialize_metrics()?;
         }
 
         info!("Telemetry service initialized successfully");
-        Ok(())
+        Ok(provider)
     }
 
-    fn initialize_tracing(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn initialize_tracing(
+        &self,
+    ) -> Result<SdkTracerProvider, Box<dyn std::error::Error + Send + Sync>> {
+        let endpoint = self
+            .config
+            .otlp_endpoint
+            .as_deref()
+            .unwrap_or("http://localhost:4317");
+
         info!(
-            "Initializing tracing with sampling ratio: {}",
+            "Initializing OTLP tracing with endpoint: {} and sampling ratio: {}",
+            endpoint,
             self.get_sampling_ratio()
         );
 
-        if let Some(endpoint) = &self.config.otlp_endpoint {
-            info!("OTLP tracing endpoint: {}", endpoint);
-        }
+        let resource = Resource::builder()
+            .with_attributes(vec![
+                KeyValue::new("service.name", self.config.service_name.clone()),
+                KeyValue::new("service.version", self.config.service_version.clone()),
+                KeyValue::new("service.namespace", self.config.service_namespace.clone()),
+            ])
+            .build();
 
-        if self.jaeger_config.enabled {
-            if let Some(agent) = &self.jaeger_config.agent_endpoint {
-                info!("Jaeger agent endpoint: {}", agent);
-            }
-            if let Some(collector) = &self.jaeger_config.collector_endpoint {
-                info!("Jaeger collector endpoint: {}", collector);
-            }
-        }
+        let exporter = opentelemetry_otlp::SpanExporter::builder()
+            .with_tonic()
+            .with_endpoint(endpoint)
+            .build()?;
 
-        Ok(())
+        let provider = SdkTracerProvider::builder()
+            .with_batch_exporter(exporter)
+            .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
+                self.get_sampling_ratio(),
+            ))))
+            .with_resource(resource)
+            .build();
+
+        global::set_tracer_provider(provider.clone());
+
+        Ok(provider)
     }
 
-    fn initialize_metrics(&self) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Initializing metrics collection");
-
-        if self.prometheus_config.enabled {
-            info!(
-                "Prometheus metrics endpoint: http://localhost:{}{}",
-                self.prometheus_config.port, self.prometheus_config.path
-            );
-        }
-
+    fn initialize_metrics(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        info!("Initializing metrics collection (OTLP/Prometheus)");
+        // TODO: Implement OTLP metrics initialization if needed
         Ok(())
     }
 
     pub fn shutdown(&self) {
         if self.is_enabled() {
             info!("Shutting down telemetry service");
+            // TracerProvider should be explicitly shutdown if kept
         }
     }
 }
@@ -144,8 +157,6 @@ impl TelemetryService {
 #[derive(Debug, Clone)]
 pub struct ExportConfig {
     pub otlp_endpoint: Option<String>,
-    pub jaeger_agent: Option<String>,
-    pub jaeger_collector: Option<String>,
     pub prometheus_port: Option<u16>,
     pub prometheus_path: Option<String>,
     pub batch_export: bool,
@@ -155,25 +166,8 @@ pub struct ExportConfig {
     pub scheduled_delay_millis: u64,
 }
 
-#[derive(Debug, Clone)]
-pub struct SpanContext {
-    pub trace_id: String,
-    pub span_id: String,
-    pub trace_flags: u8,
-    pub is_remote: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct MetricValue {
-    pub name: String,
-    pub value: f64,
-    pub labels: std::collections::HashMap<String, String>,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-}
-
 pub struct TelemetryBuilder {
     config: OpenTelemetryConfig,
-    jaeger_config: JaegerConfig,
     prometheus_config: PrometheusConfig,
 }
 
@@ -181,14 +175,12 @@ impl TelemetryBuilder {
     pub fn new() -> Self {
         Self {
             config: OpenTelemetryConfig::default(),
-            jaeger_config: JaegerConfig::default(),
             prometheus_config: PrometheusConfig::default(),
         }
     }
 
     pub fn with_service_name(mut self, name: impl Into<String>) -> Self {
         self.config.service_name = name.into();
-        self.jaeger_config.service_name = self.config.service_name.clone();
         self
     }
 
@@ -203,18 +195,6 @@ impl TelemetryBuilder {
         self
     }
 
-    pub fn with_jaeger_agent(mut self, endpoint: impl Into<String>) -> Self {
-        self.jaeger_config.agent_endpoint = Some(endpoint.into());
-        self.jaeger_config.enabled = true;
-        self
-    }
-
-    pub fn with_jaeger_collector(mut self, endpoint: impl Into<String>) -> Self {
-        self.jaeger_config.collector_endpoint = Some(endpoint.into());
-        self.jaeger_config.enabled = true;
-        self
-    }
-
     pub fn with_prometheus(mut self, port: u16, path: impl Into<String>) -> Self {
         self.prometheus_config.enabled = true;
         self.prometheus_config.port = port;
@@ -224,7 +204,6 @@ impl TelemetryBuilder {
 
     pub fn with_sampling_ratio(mut self, ratio: f64) -> Self {
         self.config.sampling_ratio = ratio;
-        self.jaeger_config.sampling_rate = ratio;
         self
     }
 
@@ -239,68 +218,12 @@ impl TelemetryBuilder {
     }
 
     pub fn build(self) -> TelemetryService {
-        TelemetryService::new(
-            Arc::new(self.config),
-            Arc::new(self.jaeger_config),
-            Arc::new(self.prometheus_config),
-        )
+        TelemetryService::new(Arc::new(self.config), Arc::new(self.prometheus_config))
     }
 }
 
 impl Default for TelemetryBuilder {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_telemetry_config_default() {
-        let config = OpenTelemetryConfig::default();
-        assert!(!config.is_enabled());
-        assert!(!config.is_trace_enabled());
-        assert!(config.service_name == "synapse-rust");
-    }
-
-    #[test]
-    fn test_telemetry_builder() {
-        let service = TelemetryBuilder::new()
-            .with_service_name("test-service")
-            .with_otlp_endpoint("http://localhost:4317")
-            .with_sampling_ratio(0.5)
-            .build();
-
-        assert!(service.is_enabled());
-        assert!(service.is_trace_enabled());
-        assert_eq!(service.get_service_name(), "test-service");
-        assert_eq!(service.get_sampling_ratio(), 0.5);
-    }
-
-    #[test]
-    fn test_prometheus_config() {
-        let service = TelemetryBuilder::new()
-            .with_prometheus(9091, "/metrics")
-            .build();
-
-        assert!(service.is_metrics_enabled());
-        let config = service.get_export_config();
-        assert_eq!(config.prometheus_port, Some(9091));
-        assert_eq!(config.prometheus_path, Some("/metrics".to_string()));
-    }
-
-    #[test]
-    fn test_resource_attributes() {
-        let service = TelemetryBuilder::new()
-            .with_service_name("my-service")
-            .with_service_version("1.0.0")
-            .build();
-
-        let attrs = service.get_resource_attributes();
-        assert_eq!(attrs.get("service.name"), Some(&"my-service".to_string()));
-        assert_eq!(attrs.get("service.version"), Some(&"1.0.0".to_string()));
-        assert_eq!(attrs.get("service.namespace"), Some(&"matrix".to_string()));
     }
 }

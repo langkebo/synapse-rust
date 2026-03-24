@@ -327,7 +327,12 @@ impl ReplicationCommand {
                 let state = match *state_str {
                     "Online" => UserSyncState::Online,
                     "Offline" => UserSyncState::Offline,
-                    _ => return Err(ReplicationError::ParseError(format!("Unknown state: {}", state_str))),
+                    _ => {
+                        return Err(ReplicationError::ParseError(format!(
+                            "Unknown state: {}",
+                            state_str
+                        )))
+                    }
                 };
                 Ok(ReplicationCommand::UserSync { user_id, state })
             }

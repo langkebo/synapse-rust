@@ -64,12 +64,17 @@ impl MemoryStats {
     pub fn record_deallocation(&self, size: usize) {
         self.deallocations.fetch_add(1, Ordering::SeqCst);
         self.operation_count.fetch_add(1, Ordering::SeqCst);
-        
+
         // Use saturating sub to prevent underflow
         loop {
             let current = self.current_size.load(Ordering::SeqCst);
             let new_size = current.saturating_sub(size);
-            match self.current_size.compare_exchange(current, new_size, Ordering::SeqCst, Ordering::SeqCst) {
+            match self.current_size.compare_exchange(
+                current,
+                new_size,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
                 Ok(_) => break,
                 Err(_) => continue,
             }
@@ -366,7 +371,7 @@ mod memory_tests {
         stats.record_allocation(2000);
 
         let snapshot = stats.get_stats();
-        // Peak should still be 1000 from first allocation, 
+        // Peak should still be 1000 from first allocation,
         // but wait - the logic is different, it tracks running max
         assert!(snapshot.peak_size >= 1000);
     }
@@ -376,9 +381,9 @@ mod memory_tests {
         let stats = MemoryStats::new();
 
         stats.record_allocation(100);
-        
+
         let rate = stats.get_utilization_rate();
-        
+
         // Current = 100, Peak = 100, so rate should be 1.0
         assert!((rate - 1.0).abs() < 0.01);
     }
@@ -389,7 +394,7 @@ mod memory_tests {
 
         // No allocations yet
         let rate = stats.get_utilization_rate();
-        
+
         // Peak is 0, so rate should be 0.0
         assert!((rate - 0.0).abs() < 0.01);
     }
@@ -431,7 +436,7 @@ mod memory_tests {
     #[test]
     fn test_federation_memory_tracker_new() {
         let tracker = FederationMemoryTracker::new();
-        
+
         // Should have empty stats
         let report = tracker.get_report();
         assert_eq!(report.total_current, 0);
@@ -455,7 +460,7 @@ mod memory_tests {
         assert_eq!(report.auth_chain.current_size, 200);
         assert_eq!(report.key_cache.current_size, 75);
         assert_eq!(report.state_resolution.current_size, 300);
-        
+
         // Total = 50 + 200 + 75 + 300 = 625
         assert_eq!(report.total_current, 625);
     }
@@ -479,7 +484,7 @@ mod memory_tests {
 
         let snapshot = stats.get_stats();
         let debug_str = format!("{:?}", snapshot);
-        
+
         assert!(debug_str.contains("MemoryStatsSnapshot"));
     }
 
@@ -490,7 +495,7 @@ mod memory_tests {
 
         let report = tracker.get_report();
         let debug_str = format!("{:?}", report);
-        
+
         assert!(debug_str.contains("FederationMemoryReport"));
     }
 

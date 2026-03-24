@@ -584,11 +584,11 @@ async fn get_room_hierarchy_v3(
         let history_visibility = row
             .get::<Option<String>, _>("history_visibility")
             .unwrap_or_else(|| "shared".to_string());
-        let world_readable = history_visibility == "world_readable" || history_visibility == "world_readable";
+        let world_readable = history_visibility == "world_readable";
 
         // Get member count
         let member_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'"
+            "SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'",
         )
         .bind(&room_id)
         .fetch_one(&*state.services.user_storage.pool)
@@ -626,7 +626,7 @@ async fn get_room_hierarchy_v3(
         // Get member count for child room
         let child_room_id: String = row.get::<Option<String>, _>("room_id").unwrap_or_default();
         let member_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'"
+            "SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'",
         )
         .bind(&child_room_id)
         .fetch_one(&*state.services.user_storage.pool)
@@ -648,7 +648,7 @@ async fn get_room_hierarchy_v3(
                 JOIN room_children rc ON r.room_id = rc.child_room_id
                 WHERE rc.parent_room_id = $1
                 LIMIT 5
-                "#
+                "#,
             )
             .bind(&child_room_id)
             .fetch_all(&*state.services.user_storage.pool)
@@ -656,8 +656,13 @@ async fn get_room_hierarchy_v3(
             .unwrap_or_default();
 
             for child in child_rooms {
-                let child_is_space: bool = child.get::<Option<bool>, _>("is_space").unwrap_or(false);
-                let child_room_type = if child_is_space { serde_json::Value::String("m.space".to_string()) } else { serde_json::Value::Null };
+                let child_is_space: bool =
+                    child.get::<Option<bool>, _>("is_space").unwrap_or(false);
+                let child_room_type = if child_is_space {
+                    serde_json::Value::String("m.space".to_string())
+                } else {
+                    serde_json::Value::Null
+                };
                 children.push(json!({
                     "room_id": child.get::<Option<String>, _>("room_id"),
                     "name": child.get::<Option<String>, _>("name"),
@@ -668,7 +673,11 @@ async fn get_room_hierarchy_v3(
             }
         }
 
-        let room_type = if is_space { serde_json::Value::String("m.space".to_string()) } else { serde_json::Value::Null };
+        let room_type = if is_space {
+            serde_json::Value::String("m.space".to_string())
+        } else {
+            serde_json::Value::Null
+        };
 
         rooms_list.push(json!({
             "room_id": child_room_id,

@@ -121,8 +121,8 @@ pub struct CacheConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
-            max_capacity: 100_000,  // Increased from 50_000 for better hit rate
-            time_to_live: 7200,     // Increased from 3600 (2 hours) for better cache efficiency
+            max_capacity: 100_000, // Increased from 50_000 for better hit rate
+            time_to_live: 7200,    // Increased from 3600 (2 hours) for better cache efficiency
         }
     }
 }

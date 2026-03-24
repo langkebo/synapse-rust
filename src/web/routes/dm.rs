@@ -34,7 +34,8 @@ pub async fn create_dm_room(
     Json(body): Json<CreateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
     // Validate input
-    body.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
+    body.validate()
+        .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
     let invite_list = body.invite.unwrap_or_default();
 

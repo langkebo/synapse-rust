@@ -1,29 +1,24 @@
 //! 内容净化模块 - 防止 XSS 攻击
-//! 
+//!
 //! 提供 Matrix 事件内容的净化功能，移除危险的 HTML 和 JavaScript
 
-use regex::Regex;
 use once_cell::sync::Lazy;
+use regex::Regex;
 
 /// 危险的 HTML 标签模式
 static DANGEROUS_TAGS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)<(script|iframe|object|embed|form|input|button|meta|link|style)[^>]*>").unwrap()
+    Regex::new(r"(?i)<(script|iframe|object|embed|form|input|button|meta|link|style)[^>]*>")
+        .unwrap()
 });
 
 /// 危险的事件处理器模式
-static DANGEROUS_EVENTS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)on\w+\s*=").unwrap()
-});
+static DANGEROUS_EVENTS: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)on\w+\s*=").unwrap());
 
 /// JavaScript URL 模式
-static JAVASCRIPT_URLS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)javascript\s*:").unwrap()
-});
+static JAVASCRIPT_URLS: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)javascript\s*:").unwrap());
 
 /// 数据 URL 模式（可能包含恶意内容）
-static DATA_URLS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)data\s*:").unwrap()
-});
+static DATA_URLS: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)data\s*:").unwrap());
 
 /// 内容净化器配置
 #[derive(Debug, Clone)]
@@ -77,16 +72,16 @@ impl ContentSanitizer {
 
         // 移除危险的 HTML 标签
         let mut result = DANGEROUS_TAGS.replace_all(text, "").to_string();
-        
+
         // 移除事件处理器
         result = DANGEROUS_EVENTS.replace_all(&result, "").to_string();
-        
+
         // 移除 JavaScript URL
         result = JAVASCRIPT_URLS.replace_all(&result, "blocked:").to_string();
-        
+
         // 移除 data URL
         result = DATA_URLS.replace_all(&result, "blocked:").to_string();
-        
+
         result
     }
 

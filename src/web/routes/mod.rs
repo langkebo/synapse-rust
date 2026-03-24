@@ -1,5 +1,6 @@
 pub mod account_data;
 pub mod admin;
+pub mod ai_connection;
 pub mod app_service;
 pub mod background_update;
 pub mod burn_after_read;
@@ -46,6 +47,7 @@ pub mod worker;
 
 pub use account_data::create_account_data_router;
 pub use admin::create_admin_module_router;
+pub use ai_connection::create_ai_connection_router;
 pub use app_service::create_app_service_router;
 pub use background_update::create_background_update_router;
 pub use burn_after_read::create_burn_after_read_router;
@@ -145,6 +147,8 @@ pub struct AppState {
     pub federation_signature_cache: Arc<crate::cache::FederationSignatureCache>,
     pub rate_limit_config_manager:
         Option<Arc<crate::common::rate_limit_config::RateLimitConfigManager>>,
+    pub ai_connection_storage: Arc<crate::storage::ai_connection::AiConnectionStorage>,
+    pub mcp_proxy_service: Arc<crate::services::mcp_proxy::McpProxyService>,
 }
 
 impl AppState {
@@ -169,12 +173,20 @@ impl AppState {
             ),
         ));
 
+        let pool = services.user_storage.pool.clone();
+
         Self {
             services,
-            cache,
+            cache: cache.clone(),
             health_checker: Arc::new(health_checker),
             federation_signature_cache,
             rate_limit_config_manager: None,
+            ai_connection_storage: Arc::new(
+                crate::storage::ai_connection::AiConnectionStorage::new(pool),
+            ),
+            mcp_proxy_service: Arc::new(crate::services::mcp_proxy::McpProxyService::new(
+                cache.clone(),
+            )),
         }
     }
 
@@ -398,6 +410,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_thread_routes(state.clone()))
         .merge(create_widget_router())
         .merge(create_rendezvous_router(state.clone()))
+        .merge(create_ai_connection_router())
         .route("/_matrix/client/r0/voip/turnServer", get(get_turn_server))
         .route("/_matrix/client/r0/voip/turnServer", post(get_turn_server))
         .route("/_matrix/client/v3/voip/turnServer", get(get_turn_server))

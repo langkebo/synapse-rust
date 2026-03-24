@@ -493,7 +493,7 @@ mod tests {
 
         // Create a key that expires in the future
         let future_expires = (Utc::now() + Duration::days(30)).timestamp_millis();
-        
+
         {
             let mut current = manager.current_key.write().await;
             *current = Some(SigningKey {
@@ -517,7 +517,7 @@ mod tests {
 
         // Create a key that expires in 5 days (less than 7 days threshold)
         let soon_expires = (Utc::now() + Duration::days(5)).timestamp_millis();
-        
+
         {
             let mut current = manager.current_key.write().await;
             *current = Some(SigningKey {
@@ -622,13 +622,13 @@ mod tests {
 
         // Disable rotation
         manager.set_rotation_enabled(false).await;
-        
+
         let status = manager.get_rotation_status().await;
         assert_eq!(status["rotation_enabled"], false);
 
         // Enable rotation
         manager.set_rotation_enabled(true).await;
-        
+
         let status = manager.get_rotation_status().await;
         assert_eq!(status["rotation_enabled"], true);
     }

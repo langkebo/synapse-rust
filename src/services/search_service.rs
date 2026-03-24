@@ -1,6 +1,7 @@
 use crate::common::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sqlx::{Postgres, Row};
 
 #[derive(Debug, Clone, Default)]
 pub struct SearchFilters {
@@ -73,10 +74,24 @@ pub struct SearchService {
     enabled: bool,
     base_url: String,
     index_name: String,
+    /// PostgreSQL 连接池（用于本地全文搜索）
+    postgres_pool: Option<sqlx::Pool<Postgres>>,
+    /// 搜索服务提供商: "elasticsearch" | "postgres"
+    provider: String,
 }
 
 impl SearchService {
     pub fn new(url: &str, enabled: bool, index_name: &str) -> Self {
+        Self::with_postgres(url, enabled, index_name, None, "postgres".to_string())
+    }
+
+    pub fn with_postgres(
+        url: &str,
+        enabled: bool,
+        index_name: &str,
+        postgres_pool: Option<sqlx::Pool<Postgres>>,
+        provider: String,
+    ) -> Self {
         let base_url = url.trim_end_matches('/').to_string();
 
         Self {
@@ -84,7 +99,129 @@ impl SearchService {
             enabled,
             base_url,
             index_name: index_name.to_string(),
+            postgres_pool,
+            provider,
         }
+    }
+
+    /// 使用 PostgreSQL 全文搜索搜索消息
+    pub async fn search_postgres(
+        &self,
+        user_id: &str,
+        query: &str,
+        limit: i64,
+        next_batch: Option<&str>,
+    ) -> ApiResult<SearchResult> {
+        let pool = self
+            .postgres_pool
+            .as_ref()
+            .ok_or_else(|| ApiError::internal("PostgreSQL search not configured".to_string()))?;
+
+        // 解析 next_batch 作为 offset
+        let offset: i64 = next_batch.and_then(|s| s.parse().ok()).unwrap_or(0);
+
+        // 构建 FTS 查询
+        let search_query = format!("{}:*", query.replace(' ', " & "));
+
+        let sql = r#"
+            SELECT 
+                e.event_id,
+                e.room_id,
+                e.sender,
+                e.event_type,
+                e.message_type,
+                e.content,
+                e.origin_server_ts,
+                e.indexed_at,
+                ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) as rank
+            FROM events e
+            INNER JOIN room_members rm ON e.room_id = rm.room_id AND rm.user_id = $1
+            WHERE e.event_type = 'm.room.message'
+                AND e.stream_ordering > 0
+                AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $3)
+            ORDER BY rank DESC, e.origin_server_ts DESC
+            LIMIT $4 OFFSET $5
+        "#;
+
+        let rows = sqlx::query(sql)
+            .bind(user_id)
+            .bind(&search_query)
+            .bind(query)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let content: serde_json::Value = row
+                .try_get::<serde_json::Value, _>("content")
+                .unwrap_or(serde_json::Value::Null);
+
+            results.push(SearchResultItem {
+                event_id: row
+                    .try_get::<String, _>("event_id")
+                    .map_err(|e| ApiError::internal(e.to_string()))?,
+                room_id: row
+                    .try_get::<String, _>("room_id")
+                    .map_err(|e| ApiError::internal(e.to_string()))?,
+                sender: row
+                    .try_get::<String, _>("sender")
+                    .map_err(|e| ApiError::internal(e.to_string()))?,
+                event_type: row
+                    .try_get::<String, _>("event_type")
+                    .map_err(|e| ApiError::internal(e.to_string()))?,
+                content: content.as_str().unwrap_or("").to_string(),
+                origin_server_ts: row
+                    .try_get::<i64, _>("origin_server_ts")
+                    .map_err(|e| ApiError::internal(e.to_string()))?,
+                highlights: None,
+                room_name: None,
+            });
+        }
+
+        let total_count = results.len();
+        let next_batch = if total_count == limit as usize {
+            Some((offset + limit).to_string())
+        } else {
+            None
+        };
+
+        Ok(SearchResult {
+            results,
+            total_count,
+            next_batch,
+        })
+    }
+
+    /// 创建 PostgreSQL 全文搜索索引
+    pub async fn create_fts_index(&self) -> ApiResult<()> {
+        let pool = self
+            .postgres_pool
+            .as_ref()
+            .ok_or_else(|| ApiError::internal("PostgreSQL not configured".to_string()))?;
+
+        // 创建 GIN 索引（如果不存在）
+        let sql = r#"
+            CREATE INDEX IF NOT EXISTS events_fts_idx 
+            ON events 
+            USING GIN (to_tsvector('english', content))
+            WHERE event_type = 'm.room.message' AND stream_ordering > 0
+        "#;
+
+        sqlx::query(sql)
+            .execute(pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to create FTS index: {}", e)))?;
+
+        ::tracing::info!("PostgreSQL FTS index created successfully");
+        Ok(())
+    }
+
+    /// 检查是否为 PostgreSQL 搜索
+    pub fn is_postgres_enabled(&self) -> bool {
+        self.provider == "postgres" && self.postgres_pool.is_some()
     }
 
     pub async fn init_indices(&self) -> ApiResult<()> {
@@ -269,11 +406,19 @@ impl SearchService {
 
     pub async fn search_messages(
         &self,
-        _user_id: &str,
+        user_id: &str,
         query: &str,
         limit: i64,
         next_batch: Option<&str>,
     ) -> ApiResult<SearchResult> {
+        // 优先使用 PostgreSQL 全文搜索
+        if self.is_postgres_enabled() {
+            return self
+                .search_postgres(user_id, query, limit, next_batch)
+                .await;
+        }
+
+        // 回退到 Elasticsearch
         let options = AdvancedSearchOptions {
             query: query.to_string(),
             filters: SearchFilters::default(),

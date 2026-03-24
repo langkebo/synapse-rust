@@ -94,47 +94,47 @@ pub struct CacheTtl;
 
 impl CacheTtl {
     pub fn user_profile() -> Duration {
-        Duration::from_secs(3600)  // 1 hour - profiles rarely change
+        Duration::from_secs(3600) // 1 hour - profiles rarely change
     }
 
     pub fn user_presence() -> Duration {
-        Duration::from_secs(60)  // 1 min - balance freshness and hit rate
+        Duration::from_secs(60) // 1 min - balance freshness and hit rate
     }
 
     pub fn user_devices() -> Duration {
-        Duration::from_secs(1800)  // 30 min - devices are stable
+        Duration::from_secs(1800) // 30 min - devices are stable
     }
 
     pub fn room_info() -> Duration {
-        Duration::from_secs(1800)  // 30 min - room metadata is stable
+        Duration::from_secs(1800) // 30 min - room metadata is stable
     }
 
     pub fn room_members() -> Duration {
-        Duration::from_secs(900)  // 15 min - membership changes are rare
+        Duration::from_secs(900) // 15 min - membership changes are rare
     }
 
     pub fn room_state() -> Duration {
-        Duration::from_secs(1200)  // 20 min - room state is relatively stable
+        Duration::from_secs(1200) // 20 min - room state is relatively stable
     }
 
     pub fn room_events() -> Duration {
-        Duration::from_secs(900)  // 15 min - events rarely change once created
+        Duration::from_secs(900) // 15 min - events rarely change once created
     }
 
     pub fn room_messages() -> Duration {
-        Duration::from_secs(900)  // 15 min - messages are immutable
+        Duration::from_secs(900) // 15 min - messages are immutable
     }
 
     pub fn token() -> Duration {
-        Duration::from_secs(86400)  // 24 hours
+        Duration::from_secs(86400) // 24 hours
     }
 
     pub fn public_rooms() -> Duration {
-        Duration::from_secs(900)  // 15 min - public room list is stable
+        Duration::from_secs(900) // 15 min - public room list is stable
     }
 
     pub fn user_rooms() -> Duration {
-        Duration::from_secs(600)  // 10 min - user's room list changes occasionally
+        Duration::from_secs(600) // 10 min - user's room list changes occasionally
     }
 
     pub fn rate_limit() -> Duration {
@@ -142,7 +142,7 @@ impl CacheTtl {
     }
 
     pub fn not_found() -> Duration {
-        Duration::from_secs(300)  // 5 min - prevent rapid re-fetching of missing data
+        Duration::from_secs(300) // 5 min - prevent rapid re-fetching of missing data
     }
 }
 

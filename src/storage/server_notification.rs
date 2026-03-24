@@ -105,7 +105,7 @@ pub struct NotificationWithStatus {
 
 #[derive(Clone)]
 pub struct ServerNotificationStorage {
-    pool: PgPool,
+    pub pool: PgPool,
 }
 
 impl ServerNotificationStorage {

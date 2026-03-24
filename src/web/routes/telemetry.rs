@@ -20,8 +20,6 @@ pub struct TelemetryStatusResponse {
 #[derive(Debug, Serialize)]
 pub struct ExportConfigResponse {
     pub otlp_endpoint: Option<String>,
-    pub jaeger_agent: Option<String>,
-    pub jaeger_collector: Option<String>,
     pub prometheus_port: Option<u16>,
     pub prometheus_path: Option<String>,
     pub batch_export: bool,
@@ -31,8 +29,6 @@ impl From<ExportConfig> for ExportConfigResponse {
     fn from(config: ExportConfig) -> Self {
         Self {
             otlp_endpoint: config.otlp_endpoint,
-            jaeger_agent: config.jaeger_agent,
-            jaeger_collector: config.jaeger_collector,
             prometheus_port: config.prometheus_port,
             prometheus_path: config.prometheus_path,
             batch_export: config.batch_export,
@@ -68,14 +64,10 @@ pub async fn get_status(
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let config = &state.services.config.telemetry;
-    let jaeger = &state.services.config.jaeger;
     let prometheus = &state.services.config.prometheus;
 
-    let telemetry_service = TelemetryService::new(
-        Arc::new(config.clone()),
-        Arc::new(jaeger.clone()),
-        Arc::new(prometheus.clone()),
-    );
+    let telemetry_service =
+        TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
     let response = TelemetryStatusResponse {
         enabled: telemetry_service.is_enabled(),
@@ -95,14 +87,10 @@ pub async fn get_resource_attributes(
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let config = &state.services.config.telemetry;
-    let jaeger = &state.services.config.jaeger;
     let prometheus = &state.services.config.prometheus;
 
-    let telemetry_service = TelemetryService::new(
-        Arc::new(config.clone()),
-        Arc::new(jaeger.clone()),
-        Arc::new(prometheus.clone()),
-    );
+    let telemetry_service =
+        TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
     let response = ResourceAttributesResponse {
         attributes: telemetry_service.get_resource_attributes(),
@@ -130,14 +118,10 @@ pub async fn get_metrics_summary(
 
 pub async fn health_check(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let config = &state.services.config.telemetry;
-    let jaeger = &state.services.config.jaeger;
     let prometheus = &state.services.config.prometheus;
 
-    let telemetry_service = TelemetryService::new(
-        Arc::new(config.clone()),
-        Arc::new(jaeger.clone()),
-        Arc::new(prometheus.clone()),
-    );
+    let telemetry_service =
+        TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
     let status = if telemetry_service.is_enabled() {
         "healthy"
