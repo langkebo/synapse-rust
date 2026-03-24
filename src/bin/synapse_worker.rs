@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[DEBUG] Loading config...");
     let config = Config::load().await?;
     println!("[DEBUG] Config loaded successfully!");
-    
+
     let redis_url = config.redis_url();
     println!("[DEBUG] Redis URL: {}", redis_url);
 

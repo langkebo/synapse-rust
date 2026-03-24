@@ -4,6 +4,7 @@ use tokio::sync::RwLock;
 
 pub mod models;
 
+pub mod ai_connection;
 pub mod application_service;
 pub mod background_update;
 pub mod beacon;
@@ -60,6 +61,7 @@ pub mod widget;
 
 pub use self::models::user::*;
 
+pub use self::ai_connection::*;
 pub use self::application_service::*;
 pub use self::beacon::*;
 pub use self::call_session::*;

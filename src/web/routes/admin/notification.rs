@@ -1,7 +1,8 @@
 use crate::common::ApiError;
+use crate::storage::server_notification::{CreateNotificationRequest, ServerNotification};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -11,6 +12,31 @@ use sqlx::Row;
 
 pub fn create_notification_router(_state: AppState) -> Router<AppState> {
     Router::new()
+        .route(
+            "/_synapse/admin/v1/notifications",
+            post(create_notification),
+        )
+        .route("/_synapse/admin/v1/notifications", get(list_notifications))
+        .route(
+            "/_synapse/admin/v1/notifications/{notification_id}",
+            get(get_notification),
+        )
+        .route(
+            "/_synapse/admin/v1/notifications/{notification_id}",
+            put(update_notification),
+        )
+        .route(
+            "/_synapse/admin/v1/notifications/{notification_id}",
+            delete(delete_notification),
+        )
+        .route(
+            "/_synapse/admin/v1/notifications/{notification_id}/deactivate",
+            put(deactivate_notification),
+        )
+        .route(
+            "/_synapse/admin/v1/notifications/active",
+            get(list_active_notifications),
+        )
         .route(
             "/_synapse/admin/v1/send_server_notice",
             post(send_server_notice),
@@ -57,6 +83,246 @@ pub struct NoticeContent {
 #[derive(Debug, Deserialize)]
 pub struct UserNotificationRequest {
     pub enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateNotificationRequest {
+    pub title: Option<String>,
+    pub content: Option<String>,
+    pub notification_type: Option<String>,
+    pub priority: Option<i32>,
+    pub target_audience: Option<String>,
+    pub target_user_ids: Option<Vec<String>>,
+    pub starts_at: Option<i64>,
+    pub expires_at: Option<i64>,
+    pub is_dismissable: Option<bool>,
+    pub action_url: Option<String>,
+    pub action_text: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NotificationQuery {
+    pub audience: Option<String>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[axum::debug_handler]
+pub async fn create_notification(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Json(body): Json<CreateNotificationRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let target_user_ids = serde_json::to_value(body.target_user_ids.unwrap_or_default())
+        .unwrap_or(serde_json::json!([]));
+
+    let notification = sqlx::query_as::<_, ServerNotification>(
+        r#"
+        INSERT INTO server_notifications (
+            title, content, notification_type, priority, target_audience,
+            target_user_ids, starts_at, expires_at, is_dismissable,
+            action_url, action_text, created_by
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
+        "#,
+    )
+    .bind(&body.title)
+    .bind(&body.content)
+    .bind(body.notification_type.unwrap_or_else(|| "info".to_string()))
+    .bind(body.priority.unwrap_or(0))
+    .bind(body.target_audience.unwrap_or_else(|| "all".to_string()))
+    .bind(&target_user_ids)
+    .bind(body.starts_at)
+    .bind(body.expires_at)
+    .bind(body.is_dismissable.unwrap_or(true))
+    .bind(&body.action_url)
+    .bind(&body.action_text)
+    .bind(&body.created_by)
+    .fetch_one(&state.services.server_notification_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to create notification: {}", e)))?;
+
+    Ok(Json(json!(notification)))
+}
+
+#[axum::debug_handler]
+pub async fn list_notifications(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Query(query): Query<NotificationQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = (query.limit.unwrap_or(50).min(100)) as i64;
+    let offset = (query.offset.unwrap_or(0)) as i64;
+
+    let notifications = sqlx::query_as::<_, ServerNotification>(
+        r#"
+        SELECT id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
+        FROM server_notifications
+        WHERE ($1::text IS NULL OR target_audience = $1)
+        ORDER BY created_ts DESC
+        LIMIT $2 OFFSET $3
+        "#,
+    )
+    .bind(&query.audience)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.services.server_notification_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to list notifications: {}", e)))?;
+
+    Ok(Json(json!(notifications)))
+}
+
+#[axum::debug_handler]
+pub async fn get_notification(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(notification_id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    let notification = sqlx::query_as::<_, ServerNotification>(
+        r#"
+        SELECT id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
+        FROM server_notifications
+        WHERE id = $1
+        "#,
+    )
+    .bind(notification_id)
+    .fetch_optional(&state.services.server_notification_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get notification: {}", e)))?;
+
+    match notification {
+        Some(n) => Ok(Json(json!(n))),
+        None => Err(ApiError::not_found("Notification not found".to_string())),
+    }
+}
+
+#[axum::debug_handler]
+pub async fn update_notification(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(notification_id): Path<i64>,
+    Json(body): Json<UpdateNotificationRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let existing = sqlx::query_as::<_, (String, String)>(
+        "SELECT title, content FROM server_notifications WHERE id = $1",
+    )
+    .bind(notification_id)
+    .fetch_optional(&state.services.server_notification_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let (current_title, current_content) = match existing {
+        Some(row) => (row.0, row.1),
+        None => return Err(ApiError::not_found("Notification not found".to_string())),
+    };
+
+    let title = body.title.unwrap_or(current_title);
+    let content = body.content.unwrap_or(current_content);
+    let notification_type = body.notification_type.unwrap_or_else(|| "info".to_string());
+    let priority = body.priority.unwrap_or(0);
+    let target_audience = body.target_audience.unwrap_or_else(|| "all".to_string());
+    let target_user_ids = serde_json::to_value(body.target_user_ids.unwrap_or_default())
+        .unwrap_or(serde_json::json!([]));
+    let now = chrono::Utc::now().timestamp_millis();
+
+    let notification = sqlx::query_as::<_, ServerNotification>(
+        r#"
+        UPDATE server_notifications
+        SET title = $2, content = $3, notification_type = $4, priority = $5,
+            target_audience = $6, target_user_ids = $7, starts_at = $8, expires_at = $9,
+            is_dismissable = $10, action_url = $11, action_text = $12, updated_ts = $13
+        WHERE id = $1
+        RETURNING id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
+        "#,
+    )
+    .bind(notification_id)
+    .bind(&title)
+    .bind(&content)
+    .bind(&notification_type)
+    .bind(priority)
+    .bind(&target_audience)
+    .bind(&target_user_ids)
+    .bind(body.starts_at)
+    .bind(body.expires_at)
+    .bind(body.is_dismissable.unwrap_or(true))
+    .bind(&body.action_url)
+    .bind(&body.action_text)
+    .bind(now)
+    .fetch_one(&state.services.server_notification_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to update notification: {}", e)))?;
+
+    Ok(Json(json!(notification)))
+}
+
+#[axum::debug_handler]
+pub async fn delete_notification(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(notification_id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    let result = sqlx::query("DELETE FROM server_notifications WHERE id = $1")
+        .bind(notification_id)
+        .execute(&state.services.server_notification_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Notification not found".to_string()));
+    }
+
+    Ok(Json(json!({})))
+}
+
+#[axum::debug_handler]
+pub async fn deactivate_notification(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(notification_id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    let now = chrono::Utc::now().timestamp_millis();
+
+    let result = sqlx::query(
+        "UPDATE server_notifications SET is_enabled = FALSE, updated_ts = $2 WHERE id = $1",
+    )
+    .bind(notification_id)
+    .bind(now)
+    .execute(&state.services.server_notification_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to disable notification: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Notification not found".to_string()));
+    }
+
+    Ok(Json(json!({ "is_enabled": false })))
+}
+
+#[axum::debug_handler]
+pub async fn list_active_notifications(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    let now = chrono::Utc::now().timestamp_millis();
+
+    let notifications = sqlx::query_as::<_, ServerNotification>(
+        r#"
+        SELECT id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
+        FROM server_notifications
+        WHERE is_enabled = TRUE
+        AND (starts_at IS NULL OR starts_at <= $1)
+        AND (expires_at IS NULL OR expires_at >= $1)
+        ORDER BY priority DESC, created_ts DESC
+        "#,
+    )
+    .bind(now)
+    .fetch_all(&state.services.server_notification_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to list active notifications: {}", e)))?;
+
+    Ok(Json(json!(notifications)))
 }
 
 #[axum::debug_handler]

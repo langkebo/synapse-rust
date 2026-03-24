@@ -17,8 +17,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("✅ 数据库连接成功\n");
 
-    let migration_sql = fs::read_to_string("migrations/20260308000005_fix_test_failures.sql")
-        .expect("无法读取迁移文件");
+    let migration_sql =
+        fs::read_to_string("migrations/00000000_unified_schema_v6.sql").expect("无法读取迁移文件");
 
     println!("📄 执行迁移脚本...\n");
 

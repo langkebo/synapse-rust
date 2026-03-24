@@ -207,8 +207,11 @@ pub struct ServiceContainer {
     pub widget_service: Arc<crate::services::widget_service::WidgetService>,
     /// 阅后即焚服务
     pub burn_after_read: Arc<BurnAfterReadServiceImpl>,
-    /// OIDC 服务
+    /// OIDC 服务（外部 Provider）
     pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
+    /// 内置 OIDC Provider 服务
+    pub builtin_oidc_provider:
+        Option<Arc<crate::services::builtin_oidc_provider::BuiltinOidcProvider>>,
 }
 
 impl ServiceContainer {
@@ -276,11 +279,26 @@ impl ServiceContainer {
 
         let presence_service = PresenceStorage::new(presence_pool.clone(), cache.clone());
         let voice_service = VoiceService::new(pool, cache.clone(), "/app/data/media/voice");
-        let search_service = Arc::new(crate::services::search_service::SearchService::new(
-            &config.search.elasticsearch_url,
-            config.search.enabled,
-            "synapse_messages",
-        ));
+        // 搜索服务 - 支持 Elasticsearch 和 PostgreSQL FTS
+        let search_service = Arc::new(
+            crate::services::search_service::SearchService::with_postgres(
+                &config.search.elasticsearch_url,
+                config.search.enabled,
+                "synapse_messages",
+                Some(pool.as_ref().clone()),
+                config.search.provider.clone(),
+            ),
+        );
+
+        // 创建 PostgreSQL FTS 索引（如果启用）
+        if config.search.provider == "postgres" && config.search.enabled {
+            let search_service_clone = search_service.clone();
+            tokio::spawn(async move {
+                if let Err(e) = search_service_clone.create_fts_index().await {
+                    ::tracing::warn!("Failed to create FTS index: {}", e);
+                }
+            });
+        }
 
         let server_name_for_storage = config.server.get_server_name().to_string();
         let member_storage = RoomMemberStorage::new(pool, &server_name_for_storage);
@@ -502,11 +520,22 @@ impl ServiceContainer {
         // 阅后即焚服务
         let burn_after_read = Arc::new(BurnAfterReadServiceImpl::new());
 
-        // OIDC 服务
+        // OIDC 服务（外部 Provider）
         let oidc_service = if config.oidc.is_enabled() {
-            Some(Arc::new(crate::services::oidc_service::OidcService::new(Arc::new(
-                config.oidc.clone(),
-            ))))
+            Some(Arc::new(crate::services::oidc_service::OidcService::new(
+                Arc::new(config.oidc.clone()),
+            )))
+        } else {
+            None
+        };
+
+        // 内置 OIDC Provider 服务
+        let builtin_oidc_provider = if config.builtin_oidc.is_enabled() {
+            Some(Arc::new(
+                crate::services::builtin_oidc_provider::BuiltinOidcProvider::new(Arc::new(
+                    config.builtin_oidc.clone(),
+                )),
+            ))
         } else {
             None
         };
@@ -599,6 +628,7 @@ impl ServiceContainer {
             widget_service,
             burn_after_read,
             oidc_service,
+            builtin_oidc_provider,
         }
     }
 
@@ -715,8 +745,13 @@ impl ServiceContainer {
                 login_lockout_duration_seconds: 900,
             },
             search: SearchConfig {
-                elasticsearch_url: "http://localhost:9200".to_string(),
                 enabled: false,
+                elasticsearch_url: "http://localhost:9200".to_string(),
+                postgres_fts: PostgresFtsConfig {
+                    enabled: true,
+                    weights: Default::default(),
+                },
+                provider: "postgres".to_string(),
             },
             rate_limit: RateLimitConfig::default(),
             admin_registration: AdminRegistrationConfig {
@@ -724,6 +759,7 @@ impl ServiceContainer {
                 shared_secret: "test_shared_secret".to_string(),
                 nonce_timeout_seconds: 60,
             },
+            builtin_oidc: crate::common::config::BuiltinOidcConfig::default(),
             worker: WorkerConfig::default(),
             cors: CorsConfig::default(),
             smtp: SmtpConfig::default(),
@@ -734,7 +770,6 @@ impl ServiceContainer {
             saml: crate::common::config::SamlConfig::default(),
             retention: crate::common::config::RetentionConfig::default(),
             telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
-            jaeger: crate::common::telemetry_config::JaegerConfig::default(),
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
         };
         Self::new(&pool, cache, config, None)
@@ -944,6 +979,7 @@ pub mod application_service;
 pub mod auth;
 pub mod background_update_service;
 pub mod beacon_service;
+pub mod builtin_oidc_provider;
 pub mod cache;
 pub mod call_service;
 pub mod captcha_service;
@@ -993,6 +1029,9 @@ pub mod widget_service;
 pub use admin_registration_service::*;
 pub use application_service::*;
 pub use beacon_service::*;
+pub use builtin_oidc_provider::{
+    AuthSession, BuiltinOidcProvider, RefreshToken as BuiltinRefreshToken,
+};
 pub use database_initializer::*;
 pub use dehydrated_device_service::*;
 pub use friend_room_service::*;
@@ -1000,7 +1039,7 @@ pub use livekit_client::*;
 pub use matrixrtc_service::*;
 pub use media_service::*;
 pub use moderation_service::*;
-pub use oidc_service::*;
+pub use oidc_service::{OidcDiscoveryDocument, OidcService, OidcTokenResponse, OidcUserInfo};
 pub use push_service::*;
 pub use read_receipt_service::*;
 pub use registration_service::*;
@@ -1019,6 +1058,7 @@ pub mod key_rotation_service;
 pub mod directory_service;
 pub mod dm_service;
 pub mod external_service_integration;
+pub mod mcp_proxy;
 pub mod typing_service;
 
 pub use directory_service::*;

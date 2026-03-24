@@ -436,7 +436,7 @@ mod tests {
             redis_url: None,
             memcached_url: None,
             default_ttl_seconds: 3600,
-            max_entries: Some(2),  // Small limit to trigger eviction
+            max_entries: Some(2), // Small limit to trigger eviction
             enable_stats: true,
         });
 
@@ -514,18 +514,28 @@ mod tests {
     #[tokio::test]
     async fn test_cache_warmup() {
         let cache = create_test_cache();
-        
+
         // Set some initial stats
-        cache.set(
-            &CacheKey { namespace: "test".to_string(), key: "key1".to_string() },
-            b"value1".to_vec(), 
-            None
-        ).await;
-        cache.get(&CacheKey { namespace: "test".to_string(), key: "key1".to_string() }).await;
-        
+        cache
+            .set(
+                &CacheKey {
+                    namespace: "test".to_string(),
+                    key: "key1".to_string(),
+                },
+                b"value1".to_vec(),
+                None,
+            )
+            .await;
+        cache
+            .get(&CacheKey {
+                namespace: "test".to_string(),
+                key: "key1".to_string(),
+            })
+            .await;
+
         // Run warmup - should reset stats
         cache.warmup().await;
-        
+
         let stats = cache.get_stats().await;
         assert_eq!(stats.hits, 0);
         assert_eq!(stats.misses, 0);

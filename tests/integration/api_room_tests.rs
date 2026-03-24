@@ -122,8 +122,10 @@ fn create_test_config() -> Config {
             login_lockout_duration_seconds: 900,
         },
         search: SearchConfig {
-            elasticsearch_url: "http://localhost:9200".to_string(),
             enabled: false,
+            elasticsearch_url: "http://localhost:9200".to_string(),
+            postgres_fts: synapse_rust::common::config::PostgresFtsConfig::default(),
+            provider: "elasticsearch".to_string(),
         },
         rate_limit: RateLimitConfig::default(),
         admin_registration: AdminRegistrationConfig {
@@ -138,10 +140,10 @@ fn create_test_config() -> Config {
         push: synapse_rust::common::config::PushConfig::default(),
         url_preview: synapse_rust::common::config::UrlPreviewConfig::default(),
         oidc: synapse_rust::common::config::OidcConfig::default(),
+        builtin_oidc: synapse_rust::common::config::BuiltinOidcConfig::default(),
         saml: synapse_rust::common::config::SamlConfig::default(),
         retention: synapse_rust::common::config::RetentionConfig::default(),
         telemetry: synapse_rust::common::telemetry_config::OpenTelemetryConfig::default(),
-        jaeger: synapse_rust::common::telemetry_config::JaegerConfig::default(),
         prometheus: synapse_rust::common::telemetry_config::PrometheusConfig::default(),
     }
 }

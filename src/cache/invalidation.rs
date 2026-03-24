@@ -9,7 +9,7 @@ use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 pub const CACHE_INVALIDATION_CHANNEL: &str = "synapse:cache:invalidation";
-pub const DEFAULT_LOCAL_CACHE_TTL_SECS: u64 = 300;   // 5 min - increased for better hit rate
+pub const DEFAULT_LOCAL_CACHE_TTL_SECS: u64 = 300; // 5 min - increased for better hit rate
 pub const DEFAULT_REDIS_CACHE_TTL_SECS: u64 = 3600; // 1 hour - keep as is
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]

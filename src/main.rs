@@ -1,6 +1,5 @@
+use std::sync::Arc;
 use synapse_rust::common::config::Config;
-use tracing_subscriber::fmt;
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,20 +19,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Backtrace: {:?}", std::backtrace::Backtrace::capture());
     }));
 
-    let env_filter = EnvFilter::builder()
-        .parse(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "info,synapse_rust=debug,tower_http=debug".to_string()),
-        )
-        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+    // 1. 预加载配置
+    let config = match Config::load().await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to load configuration: {}", e);
+            std::process::exit(1);
+        }
+    };
 
-    tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .with_timer(fmt::time::uptime())
-        .init();
+    // 2. 初始化遥测服务 (OpenTelemetry)
+    let telemetry_service = Arc::new(
+        synapse_rust::services::telemetry_service::TelemetryService::new(
+            Arc::new(config.telemetry.clone()),
+            Arc::new(config.prometheus.clone()),
+        ),
+    );
 
-    tracing::info!("Loading configuration from homeserver.yaml...");
-    let config = Config::load().await?;
+    let tracer_provider = match telemetry_service.initialize() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to initialize telemetry: {}", e);
+            None
+        }
+    };
+
+    // 3. 初始化全局日志与追踪
+    if let Err(e) = synapse_rust::common::logging::init_logging(
+        &config.logging,
+        Some(telemetry_service.clone()),
+        tracer_provider,
+    ) {
+        eprintln!("Failed to initialize logging: {}", e);
+        std::process::exit(1);
+    }
 
     tracing::info!("Starting Synapse Rust Matrix Server...");
     tracing::info!("Server name: {}", config.server.name);
@@ -46,6 +65,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = synapse_rust::SynapseServer::new(config).await?;
 
     server.run().await?;
+
+    // 4. 优雅停机
+    telemetry_service.shutdown();
 
     Ok(())
 }

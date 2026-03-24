@@ -18,6 +18,7 @@ pub mod password_hash_pool;
 pub mod rate_limit;
 pub mod rate_limit_config;
 pub mod regex_cache;
+pub mod sanitizer;
 pub mod security;
 pub mod task_queue;
 pub mod telemetry_config;
@@ -26,7 +27,6 @@ pub mod tracing;
 pub mod transaction;
 pub mod types;
 pub mod validation;
-pub mod sanitizer;
 pub mod xml_parser;
 
 #[allow(ambiguous_glob_reexports)]
