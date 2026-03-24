@@ -11,7 +11,29 @@ use tokio::sync::RwLock;
 use vodozemac::olm::{Account, SessionConfig};
 use vodozemac::KeyId;
 
-const PICKLE_KEY: [u8; 32] = [0u8; 32];
+use std::env;
+use std::sync::OnceLock;
+
+static PICKLE_KEY: OnceLock<[u8; 32]> = OnceLock::new();
+
+pub fn get_pickle_key() -> &'static [u8; 32] {
+    PICKLE_KEY.get_or_init(|| {
+        let key_str = env::var("OLM_PICKLE_KEY")
+            .expect("OLM_PICKLE_KEY environment variable must be set for E2EE security");
+        
+        // Validate hex format and length
+        let decoded = hex::decode(&key_str)
+            .expect("OLM_PICKLE_KEY must be a valid 64-character hex string");
+        
+        if decoded.len() != 32 {
+            panic!("OLM_PICKLE_KEY must be exactly 32 bytes (64 hex characters)");
+        }
+        
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&decoded[..32]);
+        key
+    })
+}
 
 pub struct OlmService {
     account: RwLock<Option<Account>>,
@@ -48,7 +70,7 @@ impl OlmService {
         if let Some(account_data) = self.storage.load_account(user_id, device_id).await? {
             let pickle = vodozemac::olm::AccountPickle::from_encrypted(
                 &account_data.serialized_account,
-                &PICKLE_KEY,
+                get_pickle_key(),
             )
             .map_err(|e| ApiError::internal(format!("Failed to decode account pickle: {}", e)))?;
             let account = Account::from_pickle(pickle);
@@ -88,7 +110,7 @@ impl OlmService {
         if let Some(ref account) = *account {
             let identity_keys = account.identity_keys();
             let pickle = account.pickle();
-            let serialized = pickle.encrypt(&PICKLE_KEY);
+            let serialized = pickle.encrypt(get_pickle_key());
 
             let account_data =
                 OlmAccountData::new(uid, did, identity_keys.curve25519.to_base64(), serialized);

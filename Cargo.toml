@@ -2,6 +2,7 @@
 name = "synapse-rust"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.93.0"
 authors = ["Synapse Rust Team"]
 description = "Matrix Homeserver implemented in Rust"
 
@@ -56,17 +57,22 @@ config = "0.14"
 
 jsonwebtoken = "9"
 
+metrics = "0.23"
+metrics-exporter-prometheus = "0.15"
+
 tracing = "0.1"
+tracing-opentelemetry = "0.32"
+opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics", "logs"] }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+opentelemetry-semantic-conventions = "0.31"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 tracing-appender = "0.2"
-tracing-opentelemetry = "0.22"
-opentelemetry = "0.21"
-opentelemetry-jaeger = "0.20"
 
 chrono = { version = "0.4", features = ["serde"] }
 time = "0.3.47"
 
-thiserror = "1.0"
+thiserror = "2.0"
 anyhow = "1.0"
 uuid = { version = "1", features = ["v4", "serde"] }
 once_cell = "1"
@@ -92,6 +98,7 @@ infer = "0.19.0"
 textwrap = "0.16"
 
 image = "0.25"
+hex = "0.4.3"
 
 [dev-dependencies]
 criterion = "0.5"
