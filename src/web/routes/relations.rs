@@ -197,7 +197,10 @@ async fn send_relation(
         }
         "m.replace" => {
             // Handle edits
-            let _content = body.get("content").cloned().unwrap_or(Value::Object(serde_json::Map::new()));
+            let _content = body
+                .get("content")
+                .cloned()
+                .unwrap_or(Value::Object(serde_json::Map::new()));
             // services.relations_service.replace_event(...).await?;
             tracing::debug!("Replacing event content");
         }

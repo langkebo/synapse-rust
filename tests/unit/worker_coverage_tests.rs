@@ -1,22 +1,26 @@
 // Worker Module Additional Coverage Tests
 // Purpose: Increase test coverage for worker module components
 
-use synapse_rust::worker::types::*;
-use synapse_rust::worker::protocol::*;
-use synapse_rust::worker::bus::{BusMessage, RedisConfig, WorkerBus, parse_bus_message, parse_replication_command};
-use synapse_rust::worker::health::{HealthChecker, HealthCheckConfig, HealthStatus};
-use synapse_rust::worker::load_balancer::{WorkerLoadBalancer, LoadBalanceStrategy};
-use synapse_rust::worker::load_balancer::WorkerLoadStats as LoadBalancerStats;
-use synapse_rust::worker::stream::{StreamWriterManager, StreamWriters};
-use std::sync::Arc;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
+use synapse_rust::worker::bus::{
+    parse_bus_message, parse_replication_command, BusMessage, RedisConfig, WorkerBus,
+};
+use synapse_rust::worker::health::{HealthCheckConfig, HealthChecker, HealthStatus};
+use synapse_rust::worker::load_balancer::WorkerLoadStats as LoadBalancerStats;
+use synapse_rust::worker::load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer};
+use synapse_rust::worker::protocol::*;
+use synapse_rust::worker::stream::{StreamWriterManager, StreamWriters};
+use synapse_rust::worker::types::*;
 
 // ============== Protocol Tests ==============
 
 #[test]
 fn test_replication_command_name() {
-    let cmd = ReplicationCommand::Name { name: "worker1".to_string() };
+    let cmd = ReplicationCommand::Name {
+        name: "worker1".to_string(),
+    };
     assert_eq!(cmd.to_string(), "NAME worker1");
 }
 
@@ -87,7 +91,12 @@ fn test_replication_command_remove_pushers() {
 #[test]
 fn test_parse_name() {
     let cmd = ReplicationCommand::parse("NAME worker1").unwrap();
-    assert_eq!(cmd, ReplicationCommand::Name { name: "worker1".to_string() });
+    assert_eq!(
+        cmd,
+        ReplicationCommand::Name {
+            name: "worker1".to_string()
+        }
+    );
 }
 
 #[test]
@@ -195,7 +204,7 @@ fn test_replication_event_events() {
             origin_server_ts: 1234567890,
         }],
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("events"));
 }
@@ -207,7 +216,7 @@ fn test_replication_event_federation() {
         origin: "example.com".to_string(),
         events: vec![],
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("federation"));
 }
@@ -220,7 +229,7 @@ fn test_replication_event_presence() {
         state: PresenceState::Online,
         last_active_ts: 1234567890,
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("presence"));
 }
@@ -235,7 +244,7 @@ fn test_replication_event_receipts() {
         event_id: "$event:example.com".to_string(),
         data: serde_json::json!({}),
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("receipts"));
 }
@@ -247,7 +256,7 @@ fn test_replication_event_typing() {
         room_id: "!room:example.com".to_string(),
         user_ids: vec!["@user1:example.com".to_string()],
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("typing"));
 }
@@ -263,7 +272,7 @@ fn test_replication_event_pushers() {
         data: None,
         deleted: false,
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("pushers"));
 }
@@ -276,7 +285,7 @@ fn test_replication_event_caches() {
         cache_key: "key1".to_string(),
         invalidation_ts: 1234567890,
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("caches"));
 }
@@ -288,7 +297,7 @@ fn test_replication_event_public_rooms() {
         room_id: "!room:example.com".to_string(),
         visibility: "public".to_string(),
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("public_rooms"));
 }
@@ -300,7 +309,7 @@ fn test_replication_event_device_lists() {
         user_id: "@user:example.com".to_string(),
         device_id: Some("DEVICE123".to_string()),
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("device_lists"));
 }
@@ -313,7 +322,7 @@ fn test_replication_event_to_device() {
         device_id: "DEVICE123".to_string(),
         message: serde_json::json!({"type": "m.room.message"}),
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("to_device"));
 }
@@ -326,7 +335,7 @@ fn test_replication_event_account_data() {
         room_id: None,
         data_type: "m.direct".to_string(),
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("account_data"));
 }
@@ -338,7 +347,7 @@ fn test_replication_event_tags() {
         user_id: "@user:example.com".to_string(),
         room_id: "!room:example.com".to_string(),
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("tags"));
 }
@@ -350,7 +359,7 @@ fn test_replication_event_backfill() {
         room_id: "!room:example.com".to_string(),
         events: vec![],
     };
-    
+
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("backfill"));
 }
@@ -365,7 +374,7 @@ fn test_presence_state_serialization() {
         PresenceState::Offline,
         PresenceState::Busy,
     ];
-    
+
     for state in states {
         let json = serde_json::to_string(&state).unwrap();
         assert!(!json.is_empty());
@@ -388,7 +397,7 @@ fn test_worker_type_all_variants() {
         WorkerType::Pusher,
         WorkerType::AppService,
     ];
-    
+
     for wt in types {
         assert!(!wt.as_str().is_empty());
         let _ = wt.can_handle_http();
@@ -411,11 +420,11 @@ fn test_worker_type_from_str_all() {
         ("pusher", WorkerType::Pusher),
         ("appservice", WorkerType::AppService),
     ];
-    
+
     for (s, expected) in tests {
         assert_eq!(WorkerType::from_str(s), Ok(expected));
     }
-    
+
     assert!(WorkerType::from_str("invalid_type").is_err());
 }
 
@@ -428,7 +437,7 @@ fn test_worker_status_all_variants() {
         WorkerStatus::Stopped,
         WorkerStatus::Error,
     ];
-    
+
     for status in statuses {
         assert!(!status.as_str().is_empty());
     }
@@ -450,7 +459,7 @@ fn test_worker_capabilities_all_types() {
         WorkerType::Pusher,
         WorkerType::AppService,
     ];
-    
+
     for wt in types {
         let caps = WorkerCapabilities::for_type(&wt);
         assert!(!caps.supported_protocols.is_empty() || caps.supported_protocols.is_empty());
@@ -491,7 +500,7 @@ fn test_worker_config_custom() {
         command_timeout_ms: Some(60000),
         extra_config: HashMap::from([("key".to_string(), serde_json::json!("value"))]),
     };
-    
+
     assert_eq!(config.worker_id, "test-worker");
     assert_eq!(config.port, 9000);
     assert_eq!(config.master_port, Some(8000));
@@ -516,7 +525,7 @@ fn test_worker_info() {
         metadata: serde_json::json!({}),
         version: Some("1.0.0".to_string()),
     };
-    
+
     assert_eq!(info.worker_id, "worker1");
     assert_eq!(info.status, "running");
 }
@@ -536,7 +545,7 @@ fn test_worker_event() {
         created_ts: 1234567890,
         processed_by: Some(vec!["worker1".to_string()]),
     };
-    
+
     assert_eq!(event.event_id, "$event:example.com");
     assert_eq!(event.stream_id, 100);
 }
@@ -561,7 +570,7 @@ fn test_worker_command() {
         retry_count: 0,
         max_retries: 3,
     };
-    
+
     assert_eq!(cmd.command_id, "cmd123");
     assert_eq!(cmd.status, "pending");
 }
@@ -584,7 +593,7 @@ fn test_worker_task_assignment() {
         result: None,
         error_message: None,
     };
-    
+
     assert_eq!(task.task_id, "task1");
     assert_eq!(task.status, "assigned");
 }
@@ -597,7 +606,7 @@ fn test_stream_position() {
         stream_name: "events".to_string(),
         position: 1000,
     };
-    
+
     assert_eq!(pos.stream_name, "events");
     assert_eq!(pos.position, 1000);
 }
@@ -616,7 +625,7 @@ fn test_rdata_event() {
         content: serde_json::json!({"body": "hello"}),
         origin_server_ts: 1234567890,
     };
-    
+
     assert_eq!(event.event_id, "$event:example.com");
     assert!(event.state_key.is_some());
 }
@@ -629,7 +638,7 @@ fn test_rdata_position() {
         stream_name: "events".to_string(),
         position: 1000,
     };
-    
+
     assert_eq!(pos.stream_name, "events");
     assert_eq!(pos.position, 1000);
 }
@@ -646,7 +655,7 @@ fn test_worker_load_stats_update() {
         average_latency_ms: Some(10.5),
         queue_depth: Some(5),
     };
-    
+
     assert_eq!(stats.cpu_usage, Some(50.5));
     assert_eq!(stats.memory_usage, Some(1024000));
 }
@@ -665,7 +674,7 @@ fn test_register_worker_request() {
         metadata: Some(serde_json::json!({"meta": "data"})),
         version: Some("1.0.0".to_string()),
     };
-    
+
     assert_eq!(req.worker_id, "worker1");
     assert!(req.config.is_some());
 }
@@ -681,7 +690,7 @@ fn test_send_command_request() {
         priority: Some(5),
         max_retries: Some(3),
     };
-    
+
     assert_eq!(req.target_worker_id, "worker1");
     assert_eq!(req.priority, Some(5));
 }
@@ -696,7 +705,7 @@ fn test_assign_task_request() {
         priority: Some(10),
         preferred_worker_id: Some("worker1".to_string()),
     };
-    
+
     assert_eq!(req.task_type, "event_processing");
     assert_eq!(req.preferred_worker_id, Some("worker1".to_string()));
 }
@@ -717,7 +726,7 @@ fn test_heartbeat_request() {
             queue_depth: Some(2),
         }),
     };
-    
+
     assert_eq!(req.worker_id, "worker1");
     assert_eq!(req.status, WorkerStatus::Running);
     assert!(req.load_stats.is_some());
@@ -740,7 +749,7 @@ fn test_worker_connection() {
         messages_sent: 10,
         messages_received: 20,
     };
-    
+
     assert_eq!(conn.source_worker_id, "worker1");
     assert_eq!(conn.status, "connected");
 }
@@ -756,7 +765,7 @@ fn test_replication_position() {
         stream_position: 1000,
         updated_ts: 1234567890,
     };
-    
+
     assert_eq!(pos.stream_name, "events");
     assert_eq!(pos.stream_position, 1000);
 }
@@ -776,7 +785,7 @@ fn test_worker_load_stats() {
         queue_depth: Some(5i32),
         recorded_ts: 1234567890,
     };
-    
+
     assert_eq!(stats.worker_id, "worker1");
     assert_eq!(stats.cpu_usage, Some(50.0));
 }
@@ -791,7 +800,7 @@ fn test_worker_load_stats_load_balancer() {
         memory_usage: 1024.0,
         last_update_ts: 1234567890,
     };
-    
+
     assert_eq!(stats.worker_id, "worker1");
     assert_eq!(stats.active_connections, 50);
 }
@@ -806,7 +815,7 @@ fn test_bus_message_full() {
         timestamp: 1234567890,
         payload: vec![1, 2, 3, 4, 5],
     };
-    
+
     assert_eq!(msg.channel, "test_channel");
     assert_eq!(msg.payload.len(), 5);
 }
@@ -821,7 +830,7 @@ fn test_health_status_all() {
         HealthStatus::Degraded,
         HealthStatus::Unknown,
     ];
-    
+
     for status in statuses {
         let json = serde_json::to_string(&status).unwrap();
         assert!(!json.is_empty());
@@ -831,7 +840,7 @@ fn test_health_status_all() {
 #[test]
 fn test_health_check_result() {
     use synapse_rust::worker::health::HealthCheckResult;
-    
+
     let result = HealthCheckResult {
         worker_id: "worker1".to_string(),
         status: HealthStatus::Healthy,
@@ -840,7 +849,7 @@ fn test_health_check_result() {
         consecutive_failures: 0,
         error_message: None,
     };
-    
+
     assert_eq!(result.worker_id, "worker1");
     assert_eq!(result.status, HealthStatus::Healthy);
 }
@@ -854,7 +863,7 @@ fn test_health_check_config_custom() {
         recovery_threshold: 3,
         degraded_latency_ms: 2000,
     };
-    
+
     assert_eq!(config.check_interval_secs, 60);
     assert_eq!(config.max_consecutive_failures, 5);
 }
@@ -869,7 +878,7 @@ fn test_load_balance_strategy_all() {
         LoadBalanceStrategy::WeightedRoundRobin,
         LoadBalanceStrategy::Random,
     ];
-    
+
     for strategy in strategies {
         let json = serde_json::to_string(&strategy).unwrap();
         assert!(!json.is_empty());
@@ -892,11 +901,11 @@ fn test_stream_writers_full() {
         pushers: None,
         caches: Some("worker3".to_string()),
     };
-    
+
     assert_eq!(writers.get_writer("events"), Some("worker1"));
     assert_eq!(writers.get_writer("to_device"), Some("worker2"));
     assert_eq!(writers.get_writer("account_data"), None);
-    
+
     let all = writers.all_writers();
     assert!(all.len() > 0);
 }
@@ -915,7 +924,7 @@ fn test_replication_row() {
         stream_id: 100,
         data: serde_json::json!({"key": "value"}),
     };
-    
+
     assert_eq!(row.stream_id, 100);
     assert!(row.data.get("key").is_some());
 }
@@ -926,7 +935,10 @@ fn test_replication_row() {
 fn test_create_sync_command() {
     let cmd = ReplicationProtocol::create_sync("events", 100);
     match cmd {
-        ReplicationCommand::Sync { stream_name, position } => {
+        ReplicationCommand::Sync {
+            stream_name,
+            position,
+        } => {
             assert_eq!(stream_name, "events");
             assert_eq!(position, 100);
         }
@@ -947,7 +959,7 @@ fn test_event_data() {
         content: serde_json::json!({"body": "test"}),
         origin_server_ts: 1234567890,
     };
-    
+
     assert_eq!(event.event_id, "$event:example.com");
     assert!(event.state_key.is_some());
 }
@@ -958,13 +970,13 @@ fn test_event_data() {
 async fn test_worker_bus_publish_after_connect() {
     let config = RedisConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
-    
+
     bus.connect().await.unwrap();
-    
+
     let result = bus.publish("test", b"hello").await;
     // May fail due to no actual Redis, but tests the flow
     assert!(result.is_ok() || result.is_err());
-    
+
     bus.disconnect().await;
 }
 
@@ -972,13 +984,13 @@ async fn test_worker_bus_publish_after_connect() {
 async fn test_worker_bus_subscribe_after_connect() {
     let config = RedisConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
-    
+
     bus.connect().await.unwrap();
-    
+
     let result = bus.subscribe(&["test_channel"]).await;
     // May fail due to no actual Redis, but tests the flow
     assert!(result.is_ok() || result.is_err());
-    
+
     bus.disconnect().await;
 }
 
@@ -986,15 +998,15 @@ async fn test_worker_bus_subscribe_after_connect() {
 async fn test_worker_bus_broadcast_command() {
     let config = RedisConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
-    
+
     bus.connect().await.unwrap();
-    
+
     let cmd = ReplicationCommand::Ping { timestamp: 12345 };
     let result = bus.broadcast_command(&cmd).await;
-    
+
     // May fail due to no actual Redis, but tests the flow
     assert!(result.is_ok() || result.is_err());
-    
+
     bus.disconnect().await;
 }
 
@@ -1002,15 +1014,15 @@ async fn test_worker_bus_broadcast_command() {
 async fn test_worker_bus_send_to_worker() {
     let config = RedisConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
-    
+
     bus.connect().await.unwrap();
-    
+
     let cmd = ReplicationCommand::Ping { timestamp: 12345 };
     let result = bus.send_to_worker("worker2", &cmd).await;
-    
+
     // May fail due to no actual Redis, but tests the flow
     assert!(result.is_ok() || result.is_err());
-    
+
     bus.disconnect().await;
 }
 
@@ -1018,18 +1030,18 @@ async fn test_worker_bus_send_to_worker() {
 async fn test_worker_bus_send_to_stream_writer() {
     let config = RedisConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
-    
+
     bus.connect().await.unwrap();
-    
+
     let cmd = ReplicationCommand::Position {
         stream_name: "events".to_string(),
         position: 100,
     };
     let result = bus.send_to_stream_writer("events", &cmd).await;
-    
+
     // May fail due to no actual Redis, but tests the flow
     assert!(result.is_ok() || result.is_err());
-    
+
     bus.disconnect().await;
 }
 
@@ -1037,13 +1049,13 @@ async fn test_worker_bus_send_to_stream_writer() {
 async fn test_worker_bus_get_stats() {
     let config = RedisConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
-    
+
     bus.connect().await.unwrap();
     let stats = bus.get_stats().await;
-    
+
     assert!(stats.connected);
     assert_eq!(stats.server_name, "test.com");
-    
+
     bus.disconnect().await;
 }
 
@@ -1051,14 +1063,14 @@ async fn test_worker_bus_get_stats() {
 async fn test_worker_bus_publish_stream_position() {
     let config = RedisConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
-    
+
     bus.connect().await.unwrap();
-    
+
     let result = bus.publish_stream_position("events", 100).await;
-    
+
     // May fail due to no actual Redis, but tests the flow
     assert!(result.is_ok() || result.is_err());
-    
+
     bus.disconnect().await;
 }
 
@@ -1066,14 +1078,14 @@ async fn test_worker_bus_publish_stream_position() {
 async fn test_worker_bus_publish_user_sync() {
     let config = RedisConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
-    
+
     bus.connect().await.unwrap();
-    
+
     let result = bus.publish_user_sync("@user:example.com", true).await;
-    
+
     // May fail due to no actual Redis, but tests the flow
     assert!(result.is_ok() || result.is_err());
-    
+
     bus.disconnect().await;
 }
 
@@ -1081,14 +1093,14 @@ async fn test_worker_bus_publish_user_sync() {
 async fn test_worker_bus_publish_federation_ack() {
     let config = RedisConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
-    
+
     bus.connect().await.unwrap();
-    
+
     let result = bus.publish_federation_ack("example.com").await;
-    
+
     // May fail due to no actual Redis, but tests the flow
     assert!(result.is_ok() || result.is_err());
-    
+
     bus.disconnect().await;
 }
 
@@ -1096,14 +1108,14 @@ async fn test_worker_bus_publish_federation_ack() {
 async fn test_worker_bus_publish_remove_pushers() {
     let config = RedisConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
-    
+
     bus.connect().await.unwrap();
-    
+
     let result = bus.publish_remove_pushers("app_id", "push_key").await;
-    
+
     // May fail due to no actual Redis, but tests the flow
     assert!(result.is_ok() || result.is_err());
-    
+
     bus.disconnect().await;
 }
 
@@ -1112,13 +1124,13 @@ async fn test_worker_bus_publish_remove_pushers() {
 #[tokio::test]
 async fn test_health_checker_get_unhealthy_workers() {
     let checker = HealthChecker::new(HealthCheckConfig::default());
-    
+
     checker.register_worker("worker1").await;
     checker.register_worker("worker2").await;
-    
+
     checker.check_health("worker1").await;
     checker.check_health("worker2").await;
-    
+
     let unhealthy = checker.get_unhealthy_workers().await;
     assert!(unhealthy.is_empty() || !unhealthy.is_empty()); // Either is valid
 }
@@ -1126,10 +1138,10 @@ async fn test_health_checker_get_unhealthy_workers() {
 #[tokio::test]
 async fn test_health_checker_get_all_health() {
     let checker = HealthChecker::new(HealthCheckConfig::default());
-    
+
     checker.register_worker("worker1").await;
     checker.check_health("worker1").await;
-    
+
     let all = checker.get_all_health().await;
     assert!(all.contains_key("worker1"));
 }
@@ -1137,13 +1149,13 @@ async fn test_health_checker_get_all_health() {
 #[tokio::test]
 async fn test_health_checker_is_healthy() {
     let checker = HealthChecker::new(HealthCheckConfig::default());
-    
+
     checker.register_worker("worker1").await;
     checker.check_health("worker1").await;
-    
+
     let healthy = checker.is_healthy("worker1").await;
     assert!(healthy || !healthy); // Either is valid
-    
+
     // Unknown worker should return false
     let unknown = checker.is_healthy("nonexistent").await;
     assert!(!unknown);
@@ -1154,10 +1166,10 @@ async fn test_health_checker_is_healthy() {
 #[tokio::test]
 async fn test_load_balancer_update_worker_load() {
     use synapse_rust::worker::types::WorkerInfo;
-    
+
     let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
     let now = chrono::Utc::now().timestamp_millis();
-    
+
     let worker = WorkerInfo {
         id: 1,
         worker_id: "worker1".to_string(),
@@ -1173,9 +1185,9 @@ async fn test_load_balancer_update_worker_load() {
         metadata: serde_json::json!({}),
         version: Some("1.0.0".to_string()),
     };
-    
+
     balancer.register_worker(worker).await;
-    
+
     let stats = LoadBalancerStats {
         worker_id: "worker1".to_string(),
         active_connections: 50,
@@ -1184,9 +1196,9 @@ async fn test_load_balancer_update_worker_load() {
         memory_usage: 1024.0,
         last_update_ts: now,
     };
-    
+
     balancer.update_worker_load("worker1", stats).await;
-    
+
     let retrieved = balancer.get_worker_stats("worker1").await;
     assert!(retrieved.is_some());
 }
@@ -1194,10 +1206,10 @@ async fn test_load_balancer_update_worker_load() {
 #[tokio::test]
 async fn test_load_balancer_get_all_stats() {
     use synapse_rust::worker::types::WorkerInfo;
-    
+
     let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
     let now = chrono::Utc::now().timestamp_millis();
-    
+
     let worker = WorkerInfo {
         id: 1,
         worker_id: "worker1".to_string(),
@@ -1213,9 +1225,9 @@ async fn test_load_balancer_get_all_stats() {
         metadata: serde_json::json!({}),
         version: Some("1.0.0".to_string()),
     };
-    
+
     balancer.register_worker(worker).await;
-    
+
     let all_stats = balancer.get_all_stats().await;
     assert!(all_stats.contains_key("worker1"));
 }
@@ -1223,10 +1235,10 @@ async fn test_load_balancer_get_all_stats() {
 #[tokio::test]
 async fn test_load_balancer_get_active_worker_count() {
     use synapse_rust::worker::types::WorkerInfo;
-    
+
     let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
     let now = chrono::Utc::now().timestamp_millis();
-    
+
     let worker = WorkerInfo {
         id: 1,
         worker_id: "worker1".to_string(),
@@ -1242,9 +1254,9 @@ async fn test_load_balancer_get_active_worker_count() {
         metadata: serde_json::json!({}),
         version: Some("1.0.0".to_string()),
     };
-    
+
     balancer.register_worker(worker).await;
-    
+
     let count = balancer.get_active_worker_count().await;
     assert_eq!(count, 1);
 }
@@ -1252,9 +1264,9 @@ async fn test_load_balancer_get_active_worker_count() {
 #[tokio::test]
 async fn test_load_balancer_set_strategy() {
     let mut balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
-    
+
     balancer.set_strategy(LoadBalanceStrategy::LeastConnections);
-    
+
     // Strategy change should be handled without panic
     let count = balancer.get_worker_count().await;
     assert_eq!(count, 0);
@@ -1269,14 +1281,14 @@ async fn test_stream_writer_manager_forward_to_writer_not_local() {
         "test.com".to_string(),
         "worker1".to_string(),
     ));
-    
+
     let config = StreamWriters {
         events: Some("worker2".to_string()),
         ..Default::default()
     };
-    
+
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
-    
+
     // worker1 is not the writer for events (worker2 is)
     let is_local = manager.is_local_writer("events");
     assert!(!is_local);
@@ -1289,13 +1301,13 @@ async fn test_stream_writer_manager_get_all_positions() {
         "test.com".to_string(),
         "worker1".to_string(),
     ));
-    
+
     let config = StreamWriters::default();
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
-    
+
     manager.update_position("events", 100).await.ok();
     manager.update_position("typing", 50).await.ok();
-    
+
     let positions = manager.get_all_stream_positions().await;
     assert!(positions.len() >= 1);
 }
@@ -1307,16 +1319,16 @@ async fn test_stream_writer_manager_update_positions_bulk() {
         "test.com".to_string(),
         "worker1".to_string(),
     ));
-    
+
     let config = StreamWriters::default();
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
-    
+
     let mut updates = std::collections::HashMap::new();
     updates.insert("events".to_string(), 100i64);
     updates.insert("typing".to_string(), 50i64);
-    
+
     manager.update_positions_bulk(updates).await.ok();
-    
+
     let pos = manager.get_position("events").await;
     assert_eq!(pos, Some(100));
 }
@@ -1328,13 +1340,13 @@ async fn test_stream_writer_manager_reset_position() {
         "test.com".to_string(),
         "worker1".to_string(),
     ));
-    
+
     let config = StreamWriters::default();
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
-    
+
     manager.update_position("events", 100).await.ok();
     manager.reset_position("events").await.ok();
-    
+
     let pos = manager.get_position("events").await;
     assert_eq!(pos, Some(0));
 }
@@ -1346,10 +1358,10 @@ async fn test_stream_writer_manager_advance_position_if_greater() {
         "test.com".to_string(),
         "worker1".to_string(),
     ));
-    
+
     let config = StreamWriters::default();
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
-    
+
     // Advance to 100
     let result = manager.advance_position_if_greater("events", 100).await;
     assert!(result.is_ok() || result.is_err()); // Just check it doesn't panic
@@ -1362,10 +1374,10 @@ async fn test_stream_writer_manager_can_write() {
         "test.com".to_string(),
         "worker1".to_string(),
     ));
-    
+
     let config = StreamWriters::default();
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
-    
+
     // Default instance is local writer for all streams
     let can_write = manager.can_write("events").await;
     assert!(can_write);
@@ -1378,18 +1390,18 @@ async fn test_stream_writer_manager_validate_writer() {
         "test.com".to_string(),
         "worker1".to_string(),
     ));
-    
+
     let config = StreamWriters {
         events: Some("worker1".to_string()),
         ..Default::default()
     };
-    
+
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
-    
+
     // Valid writer
     let result = manager.validate_writer("events", "worker1").await;
     assert!(result.is_ok());
-    
+
     // Invalid writer
     let result = manager.validate_writer("events", "worker2").await;
     assert!(result.is_err());
@@ -1402,15 +1414,15 @@ async fn test_stream_writer_manager_get_stream_config() {
         "test.com".to_string(),
         "worker1".to_string(),
     ));
-    
+
     let config = StreamWriters {
         events: Some("worker1".to_string()),
         typing: Some("worker2".to_string()),
         ..Default::default()
     };
-    
+
     let manager = StreamWriterManager::new(config.clone(), bus.clone(), "worker1".to_string());
-    
+
     let retrieved_config = manager.get_stream_config().await;
     assert_eq!(retrieved_config.events, Some("worker1".to_string()));
 }
@@ -1422,18 +1434,18 @@ async fn test_stream_writer_manager_sync_positions() {
         "test.com".to_string(),
         "worker1".to_string(),
     ));
-    
+
     bus.connect().await.unwrap();
-    
+
     let config = StreamWriters::default();
     let manager = StreamWriterManager::new(config, bus.clone(), "worker1".to_string());
-    
+
     manager.update_position("events", 100).await.ok();
-    
+
     // Sync should work (may fail due to no Redis, but tests the code path)
     let result = manager.sync_positions().await;
     assert!(result.is_ok() || result.is_err());
-    
+
     bus.disconnect().await;
 }
 
@@ -1449,7 +1461,7 @@ fn test_replication_error_display() {
         ReplicationError::IoError("io error".to_string()),
         ReplicationError::ConnectionClosed,
     ];
-    
+
     for err in errors {
         let msg = err.to_string();
         assert!(!msg.is_empty());

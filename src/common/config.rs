@@ -697,9 +697,57 @@ impl Default for RetentionConfig {
 
 /// 服务器配置结构。
 ///
+/// 内置 OIDC Provider 配置
+#[derive(Debug, Clone, Deserialize)]
+pub struct BuiltinOidcConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub issuer: String,
+    #[serde(default = "default_builtin_oidc_client_id")]
+    pub client_id: String,
+    #[serde(default)]
+    pub allow_redirect_uris: Vec<String>,
+    #[serde(default)]
+    pub allow_client_ids: Vec<String>,
+    #[serde(default)]
+    pub users: Vec<BuiltinOidcUser>,
+}
+
+fn default_builtin_oidc_client_id() -> String {
+    "builtin-oidc-client".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BuiltinOidcUser {
+    pub id: String,
+    pub username: String,
+    pub password: String,
+    pub email: String,
+    pub displayname: Option<String>,
+}
+
+impl Default for BuiltinOidcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            issuer: String::new(),
+            client_id: default_builtin_oidc_client_id(),
+            allow_redirect_uris: vec![],
+            allow_client_ids: vec![],
+            users: vec![],
+        }
+    }
+}
+
+impl BuiltinOidcConfig {
+    pub fn is_enabled(&self) -> bool {
+        self.enabled && !self.issuer.is_empty() && !self.users.is_empty()
+    }
+}
+
 /// Matrix Homeserver 的主配置类，包含所有配置子项。
 /// 通过环境变量或配置文件加载。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
     /// 服务器配置
     pub server: ServerConfig,
@@ -739,9 +787,12 @@ pub struct Config {
     /// URL 预览配置
     #[serde(default)]
     pub url_preview: UrlPreviewConfig,
-    /// OIDC 单点登录配置
+    /// OIDC 单点登录配置（外部 Provider）
     #[serde(default)]
     pub oidc: OidcConfig,
+    /// 内置 OIDC Provider 配置
+    #[serde(default)]
+    pub builtin_oidc: BuiltinOidcConfig,
     /// SAML 单点登录配置
     #[serde(default)]
     pub saml: SamlConfig,
@@ -751,9 +802,6 @@ pub struct Config {
     /// OpenTelemetry 配置
     #[serde(default)]
     pub telemetry: crate::common::telemetry_config::OpenTelemetryConfig,
-    /// Jaeger 配置
-    #[serde(default)]
-    pub jaeger: crate::common::telemetry_config::JaegerConfig,
     /// Prometheus 配置
     #[serde(default)]
     pub prometheus: crate::common::telemetry_config::PrometheusConfig,
@@ -766,6 +814,45 @@ pub struct SearchConfig {
     pub elasticsearch_url: String,
     /// 是否启用搜索功能
     pub enabled: bool,
+    /// 搜索服务类型: "elasticsearch" | "postgres"
+    #[serde(default = "default_search_provider")]
+    pub provider: String,
+    /// PostgreSQL 全文搜索配置
+    #[serde(default)]
+    pub postgres_fts: PostgresFtsConfig,
+}
+
+fn default_search_provider() -> String {
+    "postgres".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct PostgresFtsConfig {
+    /// 是否启用 PostgreSQL 全文搜索
+    pub enabled: bool,
+    /// 搜索权重配置
+    pub weights: PostgresFtsWeights,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct PostgresFtsWeights {
+    /// 标题权重
+    pub title: f32,
+    /// 内容权重
+    pub body: f32,
+    /// 发送者权重
+    pub sender: f32,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            elasticsearch_url: String::new(),
+            enabled: false,
+            provider: default_search_provider(),
+            postgres_fts: PostgresFtsConfig::default(),
+        }
+    }
 }
 
 /// 限流配置。
@@ -1022,7 +1109,7 @@ impl Clone for ConfigManager {
 ///
 /// 官方 Synapse 对应配置: `server_name`, `public_baseurl`, `signing_key_path` 等
 /// 文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#server
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ServerConfig {
     /// 服务器名称（域名）
     /// Matrix 规范要求的唯一标识符，格式如 "example.com"
@@ -1212,7 +1299,7 @@ fn default_warmup_pool() -> bool {
 }
 
 /// 数据库连接配置。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct DatabaseConfig {
     /// 数据库主机地址
     pub host: String,
@@ -1235,7 +1322,7 @@ pub struct DatabaseConfig {
 }
 
 /// Redis 缓存配置。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct RedisConfig {
     /// Redis 主机地址
     pub host: String,
@@ -1278,6 +1365,18 @@ pub struct CircuitBreakerConfig {
     pub window_size_seconds: u64,
 }
 
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_circuit_breaker_enabled(),
+            failure_threshold: default_failure_threshold(),
+            success_threshold: default_success_threshold(),
+            timeout_ms: default_timeout_ms(),
+            window_size_seconds: default_window_size_seconds(),
+        }
+    }
+}
+
 fn default_redis_connection_timeout() -> u64 {
     500
 }
@@ -1291,35 +1390,23 @@ fn default_circuit_breaker_enabled() -> bool {
 }
 
 fn default_failure_threshold() -> u32 {
-    10  // 10 failures (was 5) - more tolerance for transient failures
+    10 // 10 failures (was 5) - more tolerance for transient failures
 }
 
 fn default_success_threshold() -> u32 {
-    3  // Keep as is
+    3 // Keep as is
 }
 
 fn default_timeout_ms() -> u64 {
-    60000  // 60 seconds (was 30s) - give more time before half-open
+    60000 // 60 seconds (was 30s) - give more time before half-open
 }
 
 fn default_window_size_seconds() -> u64 {
-    120  // 2 minutes (was 1 min) - larger window for better accuracy
-}
-
-impl Default for CircuitBreakerConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_circuit_breaker_enabled(),
-            failure_threshold: default_failure_threshold(),
-            success_threshold: default_success_threshold(),
-            timeout_ms: default_timeout_ms(),
-            window_size_seconds: default_window_size_seconds(),
-        }
-    }
+    120 // 2 minutes (was 1 min) - larger window for better accuracy
 }
 
 /// 日志配置。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct LoggingConfig {
     /// 日志级别
     pub level: String,
@@ -1334,7 +1421,7 @@ pub struct LoggingConfig {
 /// 联邦配置。
 ///
 /// 配置与其他 Matrix 服务器的联邦通信参数。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct FederationConfig {
     /// 是否启用联邦功能
     pub enabled: bool,
@@ -1415,7 +1502,7 @@ fn default_key_rotation_grace_period_ms() -> u64 {
 /// 安全配置。
 ///
 /// 配置认证、加密和密码哈希参数。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct SecurityConfig {
     /// 密钥字符串
     pub secret: String,
@@ -2117,6 +2204,8 @@ mod tests {
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
                 enabled: false,
+                postgres_fts: PostgresFtsConfig::default(),
+                provider: "elasticsearch".to_string(),
             },
             rate_limit: RateLimitConfig::default(),
             admin_registration: AdminRegistrationConfig::default(),
@@ -2133,11 +2222,12 @@ mod tests {
             push: PushConfig::default(),
             url_preview: UrlPreviewConfig::default(),
             oidc: OidcConfig::default(),
+            builtin_oidc: BuiltinOidcConfig::default(),
             saml: SamlConfig::default(),
             retention: RetentionConfig::default(),
             telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
-            jaeger: crate::common::telemetry_config::JaegerConfig::default(),
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
+            ..Config::default()
         };
 
         let url = config.database_url();
@@ -2234,6 +2324,8 @@ mod tests {
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
                 enabled: false,
+                postgres_fts: PostgresFtsConfig::default(),
+                provider: "elasticsearch".to_string(),
             },
             rate_limit: RateLimitConfig::default(),
             admin_registration: AdminRegistrationConfig::default(),
@@ -2253,8 +2345,8 @@ mod tests {
             saml: SamlConfig::default(),
             retention: RetentionConfig::default(),
             telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
-            jaeger: crate::common::telemetry_config::JaegerConfig::default(),
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
+            ..Config::default()
         };
 
         let url = config.redis_url();

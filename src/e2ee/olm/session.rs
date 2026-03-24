@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use tokio::sync::RwLock;
 use vodozemac::olm::{Account, Session, SessionConfig};
 
-const PICKLE_KEY: [u8; 32] = [0u8; 32];
+use super::service::get_pickle_key;
 
 pub struct OlmSessionManager {
     storage: OlmStorage,
@@ -45,8 +45,10 @@ impl OlmSessionManager {
                 continue;
             }
 
-            match vodozemac::olm::SessionPickle::from_encrypted(&data.serialized_state, &PICKLE_KEY)
-            {
+            match vodozemac::olm::SessionPickle::from_encrypted(
+                &data.serialized_state,
+                get_pickle_key(),
+            ) {
                 Ok(pickle) => {
                     let session = Session::from_pickle(pickle);
                     let session_id = session.session_id();
@@ -78,7 +80,7 @@ impl OlmSessionManager {
         for (session_id, entry) in sessions.iter() {
             if entry.dirty {
                 let pickle = entry.session.pickle();
-                let serialized = pickle.encrypt(&PICKLE_KEY);
+                let serialized = pickle.encrypt(get_pickle_key());
                 let mut session_data = OlmSessionData::new(
                     session_id.clone(),
                     self.user_id.clone(),

@@ -20,15 +20,15 @@ pub fn get_pickle_key() -> &'static [u8; 32] {
     PICKLE_KEY.get_or_init(|| {
         let key_str = env::var("OLM_PICKLE_KEY")
             .expect("OLM_PICKLE_KEY environment variable must be set for E2EE security");
-        
+
         // Validate hex format and length
-        let decoded = hex::decode(&key_str)
-            .expect("OLM_PICKLE_KEY must be a valid 64-character hex string");
-        
+        let decoded =
+            hex::decode(&key_str).expect("OLM_PICKLE_KEY must be a valid 64-character hex string");
+
         if decoded.len() != 32 {
             panic!("OLM_PICKLE_KEY must be exactly 32 bytes (64 hex characters)");
         }
-        
+
         let mut key = [0u8; 32];
         key.copy_from_slice(&decoded[..32]);
         key

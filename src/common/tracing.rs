@@ -14,7 +14,8 @@ impl DistributedTracer {
     }
 
     pub fn init_tracer(&self) -> Result<(), Box<dyn std::error::Error>> {
-        global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
+        use opentelemetry_sdk::propagation::TraceContextPropagator;
+        global::set_text_map_propagator(TraceContextPropagator::new());
         Ok(())
     }
 

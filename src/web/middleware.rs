@@ -33,7 +33,7 @@ const FEDERATION_SIGNATURE_TTL_MS: u64 = 300 * 1000;
 // ============================================================================
 
 /// CSRF token manager for generating and validating tokens
-/// 
+///
 /// In production, this should be used with axum's middleware system
 pub struct CsrfTokenManager {
     secret: String,
@@ -52,8 +52,12 @@ impl CsrfTokenManager {
     /// Generate a CSRF token for a session
     #[allow(dead_code)]
     pub fn generate_token(&self, session_id: &str) -> String {
-        let payload = format!("{}:{}", session_id, std::time::Instant::now().elapsed().as_secs());
-        let signature = crate::common::crypto::compute_hash(&format!("{}{}", payload, self.secret));
+        let payload = format!(
+            "{}:{}",
+            session_id,
+            std::time::Instant::now().elapsed().as_secs()
+        );
+        let signature = crate::common::crypto::compute_hash(format!("{}{}", payload, self.secret));
         format!("{}:{}", payload, &signature[..16])
     }
 
@@ -64,12 +68,12 @@ impl CsrfTokenManager {
         if parts.len() != 3 {
             return false;
         }
-        
-        let expected_signature = crate::common::crypto::compute_hash(&format!(
+
+        let expected_signature = crate::common::crypto::compute_hash(format!(
             "{}:{}:{}",
             session_id, parts[1], self.secret
         ));
-        
+
         expected_signature.starts_with(parts[2])
     }
 }

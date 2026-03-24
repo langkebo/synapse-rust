@@ -600,8 +600,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_device_key_expired_with_last_seen() {
-        let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .unwrap(),
+        );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
         // Device seen recently (within expiry period)
@@ -622,8 +625,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_device_key_expired_old_device() {
-        let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .unwrap(),
+        );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
         // Device seen long ago (beyond expiry period)
@@ -644,8 +650,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_device_key_expired_no_last_seen() {
-        let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .unwrap(),
+        );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
         // Device with no last_seen_ts should be considered expired
@@ -665,8 +674,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_device_keys_signature_valid() {
-        let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .unwrap(),
+        );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
         let device = DeviceInfo {
@@ -686,14 +698,19 @@ mod tests {
             verified: false,
         };
 
-        let result = manager.verify_device_keys_signature("example.com", &device).await;
+        let result = manager
+            .verify_device_keys_signature("example.com", &device)
+            .await;
         assert!(result.unwrap());
     }
 
     #[tokio::test]
     async fn test_verify_device_keys_signature_no_keys() {
-        let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .unwrap(),
+        );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
         let device = DeviceInfo {
@@ -707,14 +724,19 @@ mod tests {
             verified: false,
         };
 
-        let result = manager.verify_device_keys_signature("example.com", &device).await;
+        let result = manager
+            .verify_device_keys_signature("example.com", &device)
+            .await;
         assert!(!result.unwrap());
     }
 
     #[tokio::test]
     async fn test_verify_device_keys_signature_wrong_origin() {
-        let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .unwrap(),
+        );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
         let device = DeviceInfo {
@@ -734,14 +756,19 @@ mod tests {
             verified: false,
         };
 
-        let result = manager.verify_device_keys_signature("example.com", &device).await;
+        let result = manager
+            .verify_device_keys_signature("example.com", &device)
+            .await;
         assert!(!result.unwrap());
     }
 
     #[tokio::test]
     async fn test_verify_device_keys_signature_no_user_signatures() {
-        let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .unwrap(),
+        );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
         let device = DeviceInfo {
@@ -757,14 +784,19 @@ mod tests {
             verified: false,
         };
 
-        let result = manager.verify_device_keys_signature("example.com", &device).await;
+        let result = manager
+            .verify_device_keys_signature("example.com", &device)
+            .await;
         assert!(!result.unwrap());
     }
 
     #[tokio::test]
     async fn test_device_sync_manager_new() {
-        let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .unwrap(),
+        );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
         // Verify manager is created with empty cache
@@ -773,9 +805,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_device_sync_manager_with_cache_manager() {
-        let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
-        
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .unwrap(),
+        );
+
         // Should not panic when creating with None cache manager
         let manager = DeviceSyncManager::new(&pool, None, None);
         assert!(manager.local_cache.try_read().is_ok());
@@ -783,9 +818,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_device_sync_manager_with_task_queue() {
-        let pool = Arc::new(sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap());
-        
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .unwrap(),
+        );
+
         // Should not panic when creating with None task queue
         let manager = DeviceSyncManager::new(&pool, None, None);
         assert!(manager.local_cache.try_read().is_ok());

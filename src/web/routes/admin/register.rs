@@ -5,8 +5,8 @@
 // 安全说明：此 API 默认仅允许从 localhost (127.0.0.1) 调用
 // 如需从外部调用，请修改 allow_external_access 配置
 
-use crate::web::routes::AppState;
 use crate::auth::AuthService;
+use crate::web::routes::AppState;
 use axum::{
     body::Body,
     extract::State,
@@ -26,7 +26,7 @@ type HmacSha256 = Hmac<Sha256>;
 
 // nonce 存储 (内存中，生产环境应该用 Redis)
 lazy_static::lazy_static! {
-    static ref NONCES: std::sync::Mutex<std::collections::HashMap<String, NonceData>> = 
+    static ref NONCES: std::sync::Mutex<std::collections::HashMap<String, NonceData>> =
         std::sync::Mutex::new(std::collections::HashMap::new());
 }
 
@@ -119,7 +119,8 @@ fn verify_mac(
         message.extend(ut.as_bytes());
     }
 
-    let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes()).expect("HMAC can take key of any size");
+    let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes())
+        .expect("HMAC can take key of any size");
     mac.update(&message);
     let result = mac.finalize();
 
@@ -296,24 +297,24 @@ async fn register(
         &config.server.name,
     );
 
-    let register_result = auth_service.register(
-        &payload.username,
-        &payload.password,
-        payload.admin,
-        Some(&display_name),
-    ).await;
+    let register_result = auth_service
+        .register(
+            &payload.username,
+            &payload.password,
+            payload.admin,
+            Some(&display_name),
+        )
+        .await;
 
     match register_result {
-        Ok((_user, access_token, refresh_token, device_id)) => {
-            Ok(Json(RegisterResponse {
-                access_token,
-                refresh_token,
-                expires_in: 3600,
-                device_id,
-                user_id: user_id.clone(),
-                home_server: config.server.name.clone(),
-            }))
-        }
+        Ok((_user, access_token, refresh_token, device_id)) => Ok(Json(RegisterResponse {
+            access_token,
+            refresh_token,
+            expires_in: 3600,
+            device_id,
+            user_id: user_id.clone(),
+            home_server: config.server.name.clone(),
+        })),
         Err(e) => {
             let error_msg = e.to_string();
             if error_msg.contains("already exists") {

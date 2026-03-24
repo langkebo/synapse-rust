@@ -166,7 +166,7 @@ mod tests {
         stats.record_hit();
         stats.record_hit();
         stats.record_miss();
-        
+
         assert_eq!(stats.hits, 2);
         assert_eq!(stats.misses, 1);
         assert_eq!(stats.hit_rate, 2.0 / 3.0);
@@ -219,8 +219,14 @@ mod tests {
     fn test_preload_request() {
         let request = PreloadRequest {
             keys: vec![
-                CacheKey { namespace: "test".to_string(), key: "key1".to_string() },
-                CacheKey { namespace: "test".to_string(), key: "key2".to_string() },
+                CacheKey {
+                    namespace: "test".to_string(),
+                    key: "key1".to_string(),
+                },
+                CacheKey {
+                    namespace: "test".to_string(),
+                    key: "key2".to_string(),
+                },
             ],
             ttl_seconds: Some(3600),
         };

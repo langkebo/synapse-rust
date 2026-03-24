@@ -1,38 +1,21 @@
 -- ============================================================================
 -- synapse-rust 统一数据库架构 v6.0.4
 -- 创建日期: 2026-03-09
+-- 最后更新: 2026-03-24
 --
--- v6.0.4 优化说明 (2026-03-14):
---   - 修复字段命名一致性:
---     * users.password_expires_at (索引修复)
---     * user_threepids.validated_at (字段名修复)
---     * registration_tokens.last_used_ts (字段名修复)
---   - 代码与数据库完全一致
+-- 版本历史:
+--   v6.0.4 (2026-03-14): 修复字段命名一致性
+--   v6.0.3 (2026-03-13): 修复字段命名规范，nullable timestamps 统一使用 _at 后缀
+--   v6.0.2 (2026-03-12): 添加缺失表和字段，修复字段命名
 --
--- v6.0.3 优化说明 (2026-03-13):
---   - 修复字段命名规范: nullable timestamps 统一使用 _at 后缀
---   - 修复 private_sessions.last_activity_at → last_activity_ts (NOT NULL)
---   - 修复 pushers/background_updates/spaces 等表的 updated_at → updated_ts
---   - 修复 access_tokens/refresh_tokens 的 last_used_ts (保持不变，符合规范)
---   - 修复 megolm_sessions 的 last_used_at (保持不变，符合规范)
---   - 统一所有 updated_ts 字段的 nullable 状态
---   - 所有 updated_at 已统一改为 updated_ts (2026-03-13)
---
--- v6.0.2 优化说明 (基于测试发现问题修复):
---   - 添加缺失表: server_retention_policy, ip_reputation, user_media_quota, media_quota_config
---   - 添加缺失表: one_time_keys, backup_keys, rendezvous_session
---   - 添加缺失字段: spaces.room_type, thread_roots.participants
---   - 添加应用服务相关表
---   - 统一字段命名: enabled → is_enabled
---
--- v6.0.3 优化说明 (2026-03-13):
---   - 修复字段命名规范: nullable timestamps 统一使用 _at 后缀
---   - 修复 private_sessions.last_activity_at → last_activity_ts (NOT NULL)
---   - 修复 pushers/background_updates/spaces 等表的 updated_at → updated_ts
---   - 修复 access_tokens/refresh_tokens 的 last_used_ts (保持不变，符合规范)
---   - 修复 megolm_sessions 的 last_used_at (保持不变，符合规范)
---   - 统一所有 updated_ts 字段的 nullable 状态
---   - 所有 updated_at 已统一改为 updated_ts (2026-03-13)
+-- 主要功能:
+--   - 用户与认证: users, devices, access_tokens, refresh_tokens 等
+--   - 房间与消息: rooms, events, room_memberships 等
+--   - 端到端加密: device_keys, olm_sessions, megolm_sessions 等
+--   - 联邦协议: federation_servers, federation_queue 等
+--   - 推送通知: pushers, push_rules, notifications 等
+--   - 媒体存储: media_metadata, thumbnails 等
+--   - 安全策略: ip_blocks, password_policy 等
 -- ============================================================================
 
 SET TIME ZONE 'UTC';
@@ -2330,6 +2313,17 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 CREATE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version);
 
+-- 数据库元数据表
+CREATE TABLE IF NOT EXISTS db_metadata (
+    id BIGSERIAL PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    value TEXT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_db_metadata_key ON db_metadata(key);
+
 -- ============================================================================
 -- 第十五部分：测试发现修复的表 (v6.0.2)
 -- ============================================================================
@@ -2690,25 +2684,36 @@ CREATE INDEX IF NOT EXISTS idx_account_data_content_gin
 -- ============================================================================
 
 DO $$
+DECLARE
+    table_count INTEGER;
+    index_count INTEGER;
 BEGIN
+    SELECT COUNT(*) INTO table_count FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
+
+    SELECT COUNT(*) INTO index_count FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname LIKE 'idx_%';
+
     RAISE NOTICE '==========================================';
-    RAISE NOTICE 'synapse-rust 统一数据库架构 v6.0.0 初始化完成';
-    RAISE NOTICE '创建时间: %', NOW();
-    RAISE NOTICE '表数量: 112+';
+    RAISE NOTICE 'synapse-rust 统一数据库架构 v6.0.4 初始化完成';
+    RAISE NOTICE '完成时间: %', NOW();
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE '表数量: %', table_count;
+    RAISE NOTICE '索引数量: %', index_count;
+    RAISE NOTICE '----------------------------------------';
     RAISE NOTICE '主要变更:';
     RAISE NOTICE '  - 布尔字段统一使用 is_/has_ 前缀';
     RAISE NOTICE '  - NOT NULL 时间戳使用 _ts 后缀';
     RAISE NOTICE '  - 可空时间戳使用 _at 后缀';
-    RAISE NOTICE '  - 添加 thread_roots, room_parents 表';
-    RAISE NOTICE '  - 添加 pushers, application_services 表';
-    RAISE NOTICE '  - 添加 push_rules.kind, key_backups.auth_key 字段';
-    RAISE NOTICE '  - 添加 15 个动态创建表到 Schema 基线';
     RAISE NOTICE '  - 统一索引命名规范';
-    RAISE NOTICE '  - 添加 9 个外键约束保障数据一致性';
-    RAISE NOTICE '  - 添加 9 个性能优化索引';
-    RAISE NOTICE '  - 添加密码安全字段 (password_changed_at, must_change_password 等)';
-    RAISE NOTICE '  - 添加 password_history, password_policy 表';
-    RAISE NOTICE '表数量: 114+';
-    RAISE NOTICE '默认管理员: admin (请通过环境变量 ADMIN_PASSWORD 设置密码!)';
+    RAISE NOTICE '  - 添加外键约束保障数据一致性';
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE '默认管理员: admin';
+    RAISE NOTICE '(请通过环境变量 ADMIN_PASSWORD 设置密码!)';
     RAISE NOTICE '==========================================';
+
+    -- 记录迁移执行
+    INSERT INTO schema_migrations (version, name, success, applied_ts, execution_time_ms, description)
+    VALUES ('00000000', 'unified_schema_v6', true, FLOOR(EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT, 0, 'synapse-rust v6.0.4 统一基础架构')
+    ON CONFLICT (version) DO NOTHING;
 END $$;
