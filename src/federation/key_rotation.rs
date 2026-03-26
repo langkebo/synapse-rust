@@ -543,7 +543,7 @@ mod tests {
             .await;
 
         let cache = manager.memory_cache.read().await;
-        let key = format!("federation:historical_key:example.com:ed25519:old");
+        let key = "federation:historical_key:example.com:ed25519:old".to_string();
         assert!(cache.contains_key(&key));
     }
 

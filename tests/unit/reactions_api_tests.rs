@@ -74,7 +74,7 @@ fn test_get_annotations_request() {
 // Test 6: Get annotations response
 #[test]
 fn test_get_annotations_response() {
-    let annotations = vec![json!({
+    let annotations = [json!({
         "event_id": "$reaction:localhost",
         "sender": "@user:localhost",
         "key": "👍"

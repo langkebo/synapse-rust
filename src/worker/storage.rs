@@ -568,15 +568,49 @@ impl WorkerStorage {
         Ok(rows)
     }
 
+    pub async fn claim_next_pending_task(
+        &self,
+        worker_id: &str,
+    ) -> Result<Option<WorkerTaskAssignment>, sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+
+        sqlx::query_as::<_, WorkerTaskAssignment>(
+            r#"
+            UPDATE worker_task_assignments
+            SET assigned_worker_id = $1, assigned_ts = $2, status = 'running'
+            WHERE id = (
+                SELECT id
+                FROM worker_task_assignments
+                WHERE status = 'pending'
+                  AND assigned_worker_id IS NULL
+                ORDER BY priority DESC, created_ts ASC
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING *
+            "#,
+        )
+        .bind(worker_id)
+        .bind(now)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
     pub async fn assign_task_to_worker(
         &self,
         task_id: &str,
         worker_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<bool, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r#"UPDATE worker_task_assignments SET assigned_worker_id = $2, assigned_ts = $3, status = 'running' WHERE task_id = $1"#
+        let result = sqlx::query(
+            r#"
+            UPDATE worker_task_assignments
+            SET assigned_worker_id = $2, assigned_ts = $3, status = 'running'
+            WHERE task_id = $1
+              AND status = 'pending'
+              AND assigned_worker_id IS NULL
+            "#,
         )
         .bind(task_id)
         .bind(worker_id)
@@ -584,7 +618,7 @@ impl WorkerStorage {
         .execute(&*self.pool)
         .await?;
 
-        Ok(())
+        Ok(result.rows_affected() == 1)
     }
 
     pub async fn complete_task(

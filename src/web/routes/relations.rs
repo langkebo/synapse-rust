@@ -5,7 +5,7 @@
 //! Spec: https://spec.matrix.org/v1.8/client-server-api/#relationship-types
 
 use crate::common::error::ApiError;
-use crate::web::routes::AppState;
+use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     routing::{get, put},
@@ -114,8 +114,8 @@ async fn get_relations(
         )));
     }
 
-    let _limit = query.limit.unwrap_or(50).min(100) as i32;
-    let _direction = query.direction.as_deref().unwrap_or("f");
+    let limit = query.limit.unwrap_or(50).min(100) as i32;
+    let direction = query.direction.clone();
 
     tracing::debug!(
         "Getting relations for event {} in room {} with rel_type {}",
@@ -124,20 +124,23 @@ async fn get_relations(
         rel_type
     );
 
-    // TODO: Query relations from the database using state.services
-    // This would query the event_relations table
-    // For now, return empty results as placeholder
-    let _services = &state.services;
-
-    // Placeholder: Query event relations from database
-    // let relations = services.relations_service.get_relations(...)
-    // For now, return empty chunk
-    let chunk: Vec<Value> = Vec::new();
+    let response = state
+        .services
+        .relations_service
+        .get_relations(
+            &room_id,
+            &event_id,
+            Some(&rel_type),
+            Some(limit),
+            query.from,
+            direction,
+        )
+        .await?;
 
     Ok(Json(RelationsResponse {
-        chunk,
-        next_batch: None,
-        prev_batch: None,
+        chunk: response.chunk,
+        next_batch: response.next_batch,
+        prev_batch: response.prev_batch,
         origin_server_ts: None,
     }))
 }
@@ -145,15 +148,14 @@ async fn get_relations(
 /// Send a relation (annotation/reference/replace)
 async fn send_relation(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Path((room_id, event_id, rel_type, target_event_id)): Path<(String, String, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<RelationSendResponse>, ApiError> {
-    // Validate input
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
     validate_event_id(&target_event_id)?;
 
-    // Validate rel_type
     let valid_send_rel_types = ["m.reference", "m.replace", "m.annotation"];
     if !valid_send_rel_types.contains(&rel_type.as_str()) {
         return Err(ApiError::bad_request(format!(
@@ -163,59 +165,79 @@ async fn send_relation(
         )));
     }
 
-    let _services = &state.services;
+    if !state.services.room_service.room_exists(&room_id).await? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
 
-    // Get sender from body or use authenticated user
-    let _sender = body
-        .get("sender")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let sender = auth_user.user_id.clone();
+    let origin_server_ts = chrono::Utc::now().timestamp_millis();
 
-    tracing::debug!(
-        "Sending relation: {} -> {} (rel_type: {})",
-        event_id,
-        target_event_id,
-        rel_type
-    );
-
-    // TODO: Implement actual relation sending based on rel_type
-    // For m.annotation (reactions):
-    //   - Store the reaction in event_relations table
-    // For m.replace (edits):
-    //   - Replace the original event content
-    // For m.reference:
-    //   - Store the reference
-
-    // Placeholder implementation
-    match rel_type.as_str() {
+    let result_event_id = match rel_type.as_str() {
         "m.annotation" => {
-            // Handle reactions
-            let _key = body.get("key").and_then(|v| v.as_str()).unwrap_or("");
-            // services.relations_service.add_annotation(...).await?;
-            tracing::debug!("Adding annotation/reaction");
+            let key = body
+                .get("key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("👍")
+                .to_string();
+
+            state
+                .services
+                .relations_service
+                .send_annotation(crate::services::relations_service::SendAnnotationRequest {
+                    room_id: room_id.clone(),
+                    relates_to_event_id: target_event_id.clone(),
+                    sender,
+                    key,
+                    origin_server_ts,
+                })
+                .await?
+                .event_id
         }
-        "m.replace" => {
-            // Handle edits
-            let _content = body
+        "m.reference" => {
+            let content = body
                 .get("content")
                 .cloned()
                 .unwrap_or(Value::Object(serde_json::Map::new()));
-            // services.relations_service.replace_event(...).await?;
-            tracing::debug!("Replacing event content");
-        }
-        "m.reference" => {
-            // Handle references
-            // services.relations_service.add_reference(...).await?;
-            tracing::debug!("Adding reference");
-        }
-        _ => {}
-    }
 
-    // For now, just return success response
+            state
+                .services
+                .relations_service
+                .send_reference(crate::services::relations_service::SendReferenceRequest {
+                    room_id: room_id.clone(),
+                    relates_to_event_id: target_event_id.clone(),
+                    sender,
+                    content,
+                    origin_server_ts,
+                })
+                .await?
+                .event_id
+        }
+        "m.replace" => {
+            let new_content = body
+                .get("content")
+                .cloned()
+                .or_else(|| body.get("m.new_content").cloned())
+                .unwrap_or(Value::Object(serde_json::Map::new()));
+
+            state
+                .services
+                .relations_service
+                .send_replacement(crate::services::relations_service::SendReplacementRequest {
+                    room_id: room_id.clone(),
+                    relates_to_event_id: target_event_id.clone(),
+                    sender,
+                    new_content,
+                    origin_server_ts,
+                })
+                .await?
+                .event_id
+        }
+        _ => event_id.clone(),
+    };
+
     Ok(Json(RelationSendResponse {
-        event_id: event_id.clone(),
-        room_id: room_id.clone(),
+        event_id: result_event_id,
+        room_id,
         relates_to: RelationTarget {
             event_id: target_event_id,
             rel_type,
@@ -223,34 +245,15 @@ async fn send_relation(
     }))
 }
 
-/// Aggregation response for relations (e.g., reactions)
-#[derive(Debug, Serialize)]
-pub struct AggregationResponse {
-    pub chunk: Vec<AggregationItem>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AggregationItem {
-    #[serde(rename = "type")]
-    pub event_type: String,
-    pub origin_server_ts: i64,
-    pub sender: String,
-    pub count: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub key: Option<String>,
-}
-
 /// Get aggregations for relations
 /// This endpoint is used to get aggregated data about relations (e.g., reaction counts)
 async fn get_aggregations(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path((room_id, event_id, rel_type)): Path<(String, String, String)>,
-) -> Result<Json<AggregationResponse>, ApiError> {
-    // Validate input
+) -> Result<Json<crate::services::relations_service::AggregationResponse>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
-    // Only m.annotation (reactions) supports aggregation currently
     if rel_type != "m.annotation" {
         return Err(ApiError::bad_request(
             "Aggregation is only supported for m.annotation rel_type".to_string(),
@@ -263,14 +266,11 @@ async fn get_aggregations(
         room_id
     );
 
-    // TODO: Query aggregated reaction data from database
-    // This would typically query something like:
-    // SELECT event_type, COUNT(*) as count, key FROM event_relations
-    // WHERE room_id = ? AND event_id = ? AND rel_type = 'm.annotation'
-    // GROUP BY event_type, key
+    let response = state
+        .services
+        .relations_service
+        .get_aggregations(&room_id, &event_id)
+        .await?;
 
-    // Placeholder: Return empty aggregation
-    let items: Vec<AggregationItem> = Vec::new();
-
-    Ok(Json(AggregationResponse { chunk: items }))
+    Ok(Json(response))
 }

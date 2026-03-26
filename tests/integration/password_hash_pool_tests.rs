@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod password_hash_pool_tests {
+mod tests {
     use std::sync::Arc;
     use std::time::Instant;
 

@@ -88,7 +88,7 @@ fn test_get_endpoint_rules_request() {
 // Test 8: Endpoint rules response
 #[test]
 fn test_endpoint_rules_response() {
-    let rules = vec![json!({
+    let rules = [json!({
         "path": "/_matrix/client/v1/login",
         "limit": 10,
         "window": 60
@@ -161,7 +161,7 @@ fn test_get_exempt_paths_request() {
 // Test 14: Exempt paths response
 #[test]
 fn test_exempt_paths_response() {
-    let paths = vec![json!({
+    let paths = [json!({
         "path": "/_health",
         "reason": "Health check"
     })];

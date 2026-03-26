@@ -150,7 +150,7 @@ fn test_get_push_rules_scope() {
 // Test 11: Get push rules by kind
 #[test]
 fn test_get_push_rules_kind() {
-    let kind_rules = vec![json!({
+    let kind_rules = [json!({
         "rule_id": "rule1",
         "enabled": true
     })];
@@ -213,7 +213,7 @@ fn test_delete_push_rule() {
 // Test 16: Push rule actions validation
 #[test]
 fn test_push_rule_actions() {
-    let actions = vec![
+    let actions = [
         json!("notify"),
         json!("dont_notify"),
         json!("coalesce"),

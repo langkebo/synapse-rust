@@ -72,7 +72,7 @@ fn test_worker_status_validation() {
 // Test 5: Worker list response
 #[test]
 fn test_worker_list_response() {
-    let workers = vec![
+    let workers = [
         json!({
             "worker_id": "worker1",
             "status": "running"
@@ -167,7 +167,7 @@ fn test_command_response() {
 // Test 12: Pending commands response
 #[test]
 fn test_pending_commands_response() {
-    let commands = vec![json!({
+    let commands = [json!({
         "command_id": "cmd1",
         "command_type": "sync",
         "status": "pending"
@@ -233,7 +233,7 @@ fn test_task_type_validation() {
 // Test 17: Pending tasks response
 #[test]
 fn test_pending_tasks_response() {
-    let tasks = vec![json!({
+    let tasks = [json!({
         "task_id": "task1",
         "task_type": "event_processing",
         "status": "pending"
@@ -253,6 +253,30 @@ fn test_claim_task_request() {
 
     assert!(claim.get("task_id").is_some());
     assert!(claim.get("worker_id").is_some());
+}
+
+#[test]
+fn test_claim_next_task_response() {
+    let task = json!({
+        "task_id": "task1",
+        "task_type": "event_processing",
+        "assigned_worker_id": "worker1",
+        "status": "running"
+    });
+
+    assert_eq!(task["assigned_worker_id"], "worker1");
+    assert_eq!(task["status"], "running");
+}
+
+#[test]
+fn test_claim_task_conflict_response() {
+    let response = json!({
+        "errcode": "M_CONFLICT",
+        "error": "Task is already claimed or unavailable"
+    });
+
+    assert_eq!(response["errcode"], "M_CONFLICT");
+    assert_eq!(response["error"], "Task is already claimed or unavailable");
 }
 
 // Test 19: Complete task request

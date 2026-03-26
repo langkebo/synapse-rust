@@ -4,9 +4,7 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use synapse_rust::worker::bus::{
-    parse_bus_message, parse_replication_command, BusMessage, RedisConfig, WorkerBus,
-};
+use synapse_rust::worker::bus::{BusMessage, RedisConfig, WorkerBus};
 use synapse_rust::worker::health::{HealthCheckConfig, HealthChecker, HealthStatus};
 use synapse_rust::worker::load_balancer::WorkerLoadStats as LoadBalancerStats;
 use synapse_rust::worker::load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer};
@@ -907,7 +905,7 @@ fn test_stream_writers_full() {
     assert_eq!(writers.get_writer("account_data"), None);
 
     let all = writers.all_writers();
-    assert!(all.len() > 0);
+    assert!(!all.is_empty());
 }
 
 #[test]
@@ -1154,9 +1152,8 @@ async fn test_health_checker_is_healthy() {
     checker.check_health("worker1").await;
 
     let healthy = checker.is_healthy("worker1").await;
-    assert!(healthy || !healthy); // Either is valid
+    assert!(healthy);
 
-    // Unknown worker should return false
     let unknown = checker.is_healthy("nonexistent").await;
     assert!(!unknown);
 }
@@ -1309,7 +1306,7 @@ async fn test_stream_writer_manager_get_all_positions() {
     manager.update_position("typing", 50).await.ok();
 
     let positions = manager.get_all_stream_positions().await;
-    assert!(positions.len() >= 1);
+    assert!(!positions.is_empty());
 }
 
 #[tokio::test]

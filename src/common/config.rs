@@ -2227,7 +2227,6 @@ mod tests {
             retention: RetentionConfig::default(),
             telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
-            ..Config::default()
         };
 
         let url = config.database_url();

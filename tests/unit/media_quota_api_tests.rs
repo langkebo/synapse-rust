@@ -120,7 +120,7 @@ fn test_get_alerts_request() {
 // Test 10: Alerts response
 #[test]
 fn test_alerts_response() {
-    let alerts = vec![json!({
+    let alerts = [json!({
         "alert_id": 1,
         "user_id": "@user:localhost",
         "alert_type": "quota_exceeded",
@@ -182,7 +182,7 @@ fn test_list_configs_request() {
 // Test 15: List configs response
 #[test]
 fn test_list_configs_response() {
-    let configs = vec![json!({
+    let configs = [json!({
         "id": 1,
         "config_name": "default",
         "max_file_size": 10485760_i64,

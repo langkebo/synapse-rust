@@ -97,7 +97,9 @@ use crate::cache::*;
 use crate::common::*;
 use crate::services::*;
 use crate::storage::CreateEventParams;
-use crate::web::middleware::{cors_middleware, rate_limit_middleware, security_headers_middleware};
+use crate::web::middleware::{
+    cors_middleware, csrf_middleware, rate_limit_middleware, security_headers_middleware,
+};
 use axum::extract::rejection::JsonRejection;
 use axum::{
     extract::{FromRequestParts, Json, Path, Query, State},
@@ -492,6 +494,10 @@ pub fn create_router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(cors_middleware))
         .layer(axum::middleware::from_fn(security_headers_middleware))
         .layer(CompressionLayer::new())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            csrf_middleware,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             rate_limit_middleware,

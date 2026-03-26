@@ -32,7 +32,7 @@ fn test_admin_server_stats_response() {
 // Test 3: User list response format
 #[test]
 fn test_admin_user_list_response() {
-    let users = vec![
+    let users = [
         json!({"user_id": "@user1:localhost", "admin": false}),
         json!({"user_id": "@user2:localhost", "admin": true}),
     ];
@@ -44,7 +44,7 @@ fn test_admin_user_list_response() {
 // Test 4: Room list response format
 #[test]
 fn test_admin_room_list_response() {
-    let rooms = vec![json!({"room_id": "!room1:localhost", "name": "Test Room"})];
+    let rooms = [json!({"room_id": "!room1:localhost", "name": "Test Room"})];
 
     assert_eq!(rooms.len(), 1);
     assert!(rooms[0].get("room_id").is_some());
@@ -172,7 +172,7 @@ fn test_shutdown_room_options() {
 // Test 15: Worker status check
 #[test]
 fn test_worker_status_check() {
-    let workers = vec![json!({"worker_id": "synapse-worker-1", "status": "running"})];
+    let workers = [json!({"worker_id": "synapse-worker-1", "status": "running"})];
 
     assert_eq!(workers.len(), 1);
     assert_eq!(workers[0]["status"], "running");

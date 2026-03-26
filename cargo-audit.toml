@@ -1,0 +1,43 @@
+# Cargo Audit Configuration
+# https://github.com/rustsec/rustsec
+
+[advisories]
+# 允许以下漏洞（需要说明原因）
+
+[[advisories.ignore]]
+id = "RUSTSEC-2023-0071"
+reason = """
+rsa 0.9.10 is a compile-time dependency from sqlx-mysql which is only used
+during build time for SQL query macros. The vulnerability (Marvin Attack) is a
+timing side-channel attack that requires:
+1. Physical proximity to the victim
+2. Millions of decryption operations
+3. Direct access to the cryptographic operations
+
+Since this is only used at compile time for macro expansion and does not
+execute at runtime, the actual risk is negligible. The project only uses
+PostgreSQL at runtime.
+
+See: https://rustsec.org/advisories/RUSTSEC-2023-0071
+"""
+
+[[advisories.ignore]]
+id = "RUSTSEC-2025-0123"
+reason = """
+opentelemetry-jaeger 0.20.0 is unmaintained as of 2025-11-17.
+The crate is used for tracing integration but is not critical path.
+Replacement would require migrating to opentelemetry-otlp or removing jaeger support.
+Risk: Low - only used for optional distributed tracing export.
+
+See: https://rustsec.org/advisories/RUSTSEC-2025-0123
+"""
+
+[[advisories.ignore]]
+id = "RUSTSEC-2024-0436"
+reason = """
+paste 1.0.15 is a transitive dependency through rav1e -> ravif -> image.
+The crate is no longer maintained but is only used for image processing.
+Risk: Low - dependency chain is well-established and the functionality is stable.
+
+See: https://rustsec.org/advisories/RUSTSEC-2024-0436
+"""

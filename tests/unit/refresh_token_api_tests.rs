@@ -56,7 +56,7 @@ fn test_get_user_tokens_request() {
 // Test 5: User tokens response
 #[test]
 fn test_user_tokens_response() {
-    let tokens = vec![json!({
+    let tokens = [json!({
         "id": 1,
         "user_id": "@user:localhost",
         "device_id": "DEVICE_ID",
@@ -83,7 +83,7 @@ fn test_get_active_tokens_request() {
 // Test 7: Active tokens response
 #[test]
 fn test_active_tokens_response() {
-    let tokens = vec![json!({
+    let tokens = [json!({
         "id": 1,
         "device_id": "DEVICE_ID",
         "created_ts": 1700000000000_i64
@@ -182,7 +182,7 @@ fn test_get_usage_history_request() {
 // Test 15: Usage history response
 #[test]
 fn test_usage_history_response() {
-    let history = vec![json!({
+    let history = [json!({
         "id": 1,
         "token_id": 1,
         "user_id": "@user:localhost",

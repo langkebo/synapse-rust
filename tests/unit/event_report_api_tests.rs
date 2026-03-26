@@ -83,7 +83,7 @@ fn test_event_report_response() {
 // Test 7: Report list response
 #[test]
 fn test_event_report_list_response() {
-    let reports = vec![
+    let reports = [
         json!({
             "id": 1,
             "reason": "Spam",
@@ -102,7 +102,7 @@ fn test_event_report_list_response() {
 // Test 8: Report by event response
 #[test]
 fn test_reports_by_event_response() {
-    let reports = vec![json!({
+    let reports = [json!({
         "event_id": "$event:localhost",
         "reason": "Spam",
         "status": "open"
@@ -115,7 +115,7 @@ fn test_reports_by_event_response() {
 // Test 9: Report by room response
 #[test]
 fn test_reports_by_room_response() {
-    let reports = vec![json!({
+    let reports = [json!({
         "room_id": "!room:localhost",
         "reason": "Spam",
         "status": "open"
@@ -156,7 +156,7 @@ fn test_report_score_validation() {
 // Test 12: Report history response
 #[test]
 fn test_report_history_response() {
-    let history = vec![json!({
+    let history = [json!({
         "report_id": 1,
         "action": "status_change",
         "old_status": "open",
@@ -246,5 +246,5 @@ fn is_valid_user_id(user_id: &str) -> bool {
 }
 
 fn is_valid_score(score: i32) -> bool {
-    score >= -100 && score <= 0
+    (-100..=0).contains(&score)
 }

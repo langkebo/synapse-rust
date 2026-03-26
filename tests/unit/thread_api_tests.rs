@@ -62,7 +62,7 @@ fn test_list_threads_request() {
 // Test 5: List threads response
 #[test]
 fn test_list_threads_response() {
-    let threads = vec![json!({
+    let threads = [json!({
         "thread_id": "!thread1:localhost",
         "reply_count": 5
     })];
@@ -345,7 +345,7 @@ fn test_list_threads_global_request() {
 // Test 26: Subscribed threads response
 #[test]
 fn test_subscribed_threads_response() {
-    let subscriptions = vec![json!({
+    let subscriptions = [json!({
         "room_id": "!room:localhost",
         "thread_id": "!thread:localhost",
         "notification_level": "all"

@@ -403,12 +403,19 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal(format!("Failed to assign task: {}", e)))?;
 
         if let Some(preferred_worker_id) = request.preferred_worker_id {
-            self.storage
+            let claimed = self
+                .storage
                 .assign_task_to_worker(&task.task_id, &preferred_worker_id)
                 .await
                 .map_err(|e| {
                     ApiError::internal(format!("Failed to assign task to worker: {}", e))
                 })?;
+
+            if !claimed {
+                return Err(ApiError::conflict(
+                    "Task was already claimed before preferred assignment".to_string(),
+                ));
+            }
         }
 
         info!("Task created: {}", task.task_id);
@@ -428,15 +435,40 @@ impl WorkerManager {
 
     #[instrument(skip(self))]
     pub async fn claim_task(&self, task_id: &str, worker_id: &str) -> Result<(), ApiError> {
-        self.storage
+        let claimed = self
+            .storage
             .assign_task_to_worker(task_id, worker_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to claim task: {}", e)))?;
+
+        if !claimed {
+            return Err(ApiError::conflict(
+                "Task is already claimed or unavailable".to_string(),
+            ));
+        }
 
         info!("Task {} claimed by worker {}", task_id, worker_id);
         Ok(())
     }
 
+    #[instrument(skip(self))]
+    pub async fn claim_next_pending_task(
+        &self,
+        worker_id: &str,
+    ) -> Result<WorkerTaskAssignment, ApiError> {
+        let task = self
+            .storage
+            .claim_next_pending_task(worker_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to claim next pending task: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("No pending tasks available"))?;
+
+        info!(
+            "Task {} claimed atomically by worker {}",
+            task.task_id, worker_id
+        );
+        Ok(task)
+    }
     #[instrument(skip(self, result))]
     pub async fn complete_task(
         &self,

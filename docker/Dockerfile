@@ -7,7 +7,7 @@
 # ========================================
 # 阶段 1: 构建阶段
 # ========================================
-ARG RUST_VERSION=1.88
+ARG RUST_VERSION=1.93
 FROM rust:${RUST_VERSION}-bookworm AS builder
 
 WORKDIR /build

@@ -93,7 +93,7 @@ fn test_friends_pagination() {
 fn test_friend_suggestion_score() {
     let score = 0.85;
 
-    assert!(score >= 0.0 && score <= 1.0);
+    assert!((0.0..=1.0).contains(&score));
 }
 
 // Test 9: Friend info response format
@@ -113,9 +113,9 @@ fn test_friend_info_response() {
 // Test 10: Friend list response format
 #[test]
 fn test_friends_list_response() {
-    let friends = vec![
-        json!({"user_id": "@friend1:localhost", "created_ts": 1700000000000_i64 as i64}),
-        json!({"user_id": "@friend2:localhost", "created_ts": 1700000000001_i64 as i64}),
+    let friends = [
+        json!({"user_id": "@friend1:localhost", "created_ts": 1700000000000_i64}),
+        json!({"user_id": "@friend2:localhost", "created_ts": 1700000000001_i64}),
     ];
 
     assert_eq!(friends.len(), 2);
@@ -144,7 +144,7 @@ fn test_friend_group_response() {
         "group_id": "group_1",
         "name": "Family",
         "color": "#FF0000",
-        "created_ts": 1700000000000_i64 as i64
+        "created_ts": 1700000000000_i64
     });
 
     assert!(group.get("group_id").is_some());
@@ -167,7 +167,7 @@ fn test_friendship_check_response() {
 // Test 14: Incoming requests filter
 #[test]
 fn test_incoming_requests_filter() {
-    let requests = vec![
+    let requests = [
         json!({"sender_id": "@user1:localhost", "status": "pending"}),
         json!({"sender_id": "@user2:localhost", "status": "pending"}),
     ];
@@ -184,7 +184,7 @@ fn test_incoming_requests_filter() {
 // Test 15: Outgoing requests filter
 #[test]
 fn test_outgoing_requests_filter() {
-    let requests = vec![
+    let requests = [
         json!({"receiver_id": "@user1:localhost", "status": "pending"}),
         json!({"receiver_id": "@user2:localhost", "status": "rejected"}),
     ];

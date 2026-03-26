@@ -40,6 +40,7 @@ pub mod push_notification;
 pub mod qr_login;
 pub mod refresh_token;
 pub mod registration_token;
+pub mod relations;
 pub mod rendezvous;
 pub mod retention;
 pub mod room;

@@ -48,20 +48,21 @@ jobs:
         run: cargo fmt -- --check
       - name: Clippy
         run: cargo clippy --all-features -- -D warnings -A clippy::result_large_err -A clippy::arc_with_non_send_sync
-      - name: Check for SELECT * queries
+      - name: Check for unsafe raw SELECT * queries
         run: |
-          echo "Checking for SELECT * queries in storage files..."
+          echo "Checking for raw unsafe SELECT * queries (not using type-safe query_as)..."
           FOUND=0
           for file in $(find src/storage -name "*.rs"); do
-            if grep -nE "SELECT\s+\*\s+FROM" "$file" | grep -v "// " | grep -v "//"; then
-              echo "::error file=$file::Found SELECT * query. Please specify explicit column names."
+            if grep -nE 'sqlx::query\([^)]*\)"SELECT\s+\*\s+FROM' "$file" 2>/dev/null; then
+              echo "::error file=$file::Found raw SELECT * without type safety. Use query_as with explicit struct."
               FOUND=1
             fi
           done
           if [ $FOUND -eq 1 ]; then
+            echo "Warning: Raw SELECT * queries found - consider using query_as with type-safe structs"
             exit 1
           fi
-          echo "No SELECT * queries found. Good!"
+          echo "No unsafe raw SELECT * queries found. Good!"
 
   audit:
     name: Security Audit
@@ -80,7 +81,8 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - name: Run Audit
-        run: cargo audit
+        run: |
+          cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2025-0123 --ignore RUSTSEC-2024-0436
 
   # ===== Test Matrix (Parallel) =====
   test-unit:

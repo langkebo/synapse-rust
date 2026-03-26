@@ -17,7 +17,7 @@ fn test_get_rooms_with_policies_request() {
 // Test 2: Rooms with policies response
 #[test]
 fn test_rooms_with_policies_response() {
-    let rooms = vec![json!({
+    let rooms = [json!({
         "room_id": "!room:localhost",
         "has_policy": true,
         "min_lifetime": 90,
@@ -293,7 +293,7 @@ fn test_get_cleanup_logs_request() {
 // Test 25: Cleanup logs response
 #[test]
 fn test_cleanup_logs_response() {
-    let logs = vec![json!({
+    let logs = [json!({
         "ts": 1700000000000_i64,
         "room_id": "!room:localhost",
         "deleted": 10,

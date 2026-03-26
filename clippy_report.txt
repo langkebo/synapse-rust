@@ -1,0 +1,111 @@
+    Blocking waiting for file lock on build directory
+    Checking synapse-rust v0.1.0 (/Users/ljf/Desktop/hu/synapse-rust)
+error: ambiguous glob re-exports
+    --> src/services/mod.rs:1018:9
+     |
+1016 | pub use builtin_oidc_provider::*;
+     |         ------------------------ but the name `OidcDiscoveryDocument` in the type namespace is also re-exported here
+1017 | pub use moderation_service::*;
+1018 | pub use oidc_service::*;
+     |         ^^^^^^^^^^^^^^^ the name `OidcDiscoveryDocument` in the type namespace is first re-exported here
+     |
+     = note: `-D ambiguous-glob-reexports` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(ambiguous_glob_reexports)]`
+
+error: ambiguous glob re-exports
+    --> src/services/mod.rs:1018:9
+     |
+1016 | pub use builtin_oidc_provider::*;
+     |         ------------------------ but the name `OidcTokenResponse` in the type namespace is also re-exported here
+1017 | pub use moderation_service::*;
+1018 | pub use oidc_service::*;
+     |         ^^^^^^^^^^^^^^^ the name `OidcTokenResponse` in the type namespace is first re-exported here
+
+error: ambiguous glob re-exports
+    --> src/services/mod.rs:1018:9
+     |
+1016 | pub use builtin_oidc_provider::*;
+     |         ------------------------ but the name `OidcUserInfo` in the type namespace is also re-exported here
+1017 | pub use moderation_service::*;
+1018 | pub use oidc_service::*;
+     |         ^^^^^^^^^^^^^^^ the name `OidcUserInfo` in the type namespace is first re-exported here
+
+error: this `impl` can be derived
+   --> src/common/config.rs:813:1
+    |
+813 | / impl Default for Config {
+814 | |     fn default() -> Self {
+815 | |         Self {
+816 | |             server: ServerConfig::default(),
+...   |
+840 | | }
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#derivable_impls
+    = note: `-D clippy::derivable-impls` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::derivable_impls)]`
+help: replace the manual implementation with a derive attribute
+    |
+751 + #[derive(Default)]
+752 | pub struct Config {
+    |
+
+error: this function has too many arguments (9/7)
+   --> src/services/builtin_oidc_provider.rs:220:5
+    |
+220 | /     pub fn authorize(
+221 | |         &self,
+222 | |         client_id: &str,
+223 | |         redirect_uri: &str,
+...   |
+229 | |         password: &str,
+230 | |     ) -> Result<String, ApiError> {
+    | |_________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#too_many_arguments
+    = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+   --> src/services/builtin_oidc_provider.rs:325:55
+    |
+325 | ...ate_access_token(&user, &session.scope)?;
+    |                     ^^^^^ help: change this to: `user`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_borrow
+    = note: `-D clippy::needless-borrow` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::needless_borrow)]`
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+   --> src/services/builtin_oidc_provider.rs:326:47
+    |
+326 | ...enerate_id_token(&user, client_id, session.nonce.as_deref())?;
+    |                     ^^^^^ help: change this to: `user`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+   --> src/services/builtin_oidc_provider.rs:327:57
+    |
+327 | ...te_refresh_token(&user, &session.scope);
+    |                     ^^^^^ help: change this to: `user`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+   --> src/services/builtin_oidc_provider.rs:361:55
+    |
+361 | ...ate_access_token(&user, &token_data.scope)?;
+    |                     ^^^^^ help: change this to: `user`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+   --> src/services/builtin_oidc_provider.rs:362:47
+    |
+362 | ...enerate_id_token(&user, &token_data.client_id, None)?;
+    |                     ^^^^^ help: change this to: `user`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_borrow
+
+error: could not compile `synapse-rust` (lib) due to 10 previous errors

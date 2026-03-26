@@ -71,7 +71,7 @@ fn test_get_module() {
 // Test 5: Get all modules response
 #[test]
 fn test_get_all_modules_response() {
-    let modules = vec![
+    let modules = [
         json!({
             "module_name": "spam_checker",
             "is_enabled": true
@@ -88,7 +88,7 @@ fn test_get_all_modules_response() {
 // Test 6: Get modules by type
 #[test]
 fn test_get_modules_by_type() {
-    let modules = vec![json!({
+    let modules = [json!({
         "module_name": "spam_checker1",
         "module_type": "spam_checker"
     })];
@@ -228,7 +228,7 @@ fn test_spam_check_by_sender() {
 // Test 17: Execution logs response
 #[test]
 fn test_execution_logs_response() {
-    let logs = vec![json!({
+    let logs = [json!({
         "module_name": "spam_checker",
         "timestamp": 1700000000000_i64,
         "action": "check",
@@ -296,7 +296,7 @@ fn test_password_auth_provider_request() {
 // Test 22: Password auth providers response
 #[test]
 fn test_password_auth_providers_response() {
-    let providers = vec![json!({
+    let providers = [json!({
         "provider_name": "ldap",
         "enabled": true
     })];
@@ -321,7 +321,7 @@ fn test_presence_route_request() {
 // Test 24: Presence routes response
 #[test]
 fn test_presence_routes_response() {
-    let routes = vec![json!({
+    let routes = [json!({
         "path": "/presence",
         "method": "POST"
     })];
@@ -346,7 +346,7 @@ fn test_media_callback_request() {
 // Test 26: Media callbacks response
 #[test]
 fn test_media_callbacks_response() {
-    let callbacks = vec![json!({
+    let callbacks = [json!({
         "callback_name": "on_upload",
         "module_name": "media_module"
     })];
@@ -404,5 +404,5 @@ fn is_valid_module_type(module_type: &str) -> bool {
 }
 
 fn is_valid_priority(priority: i32) -> bool {
-    priority >= -100 && priority <= 100
+    (-100..=100).contains(&priority)
 }

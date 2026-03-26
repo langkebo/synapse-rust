@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 use crate::common::ApiError;
-use crate::web::routes::AppState;
-use crate::web::routes::AuthenticatedUser;
+use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use crate::worker::types::*;
 
 #[derive(Debug, Deserialize)]
@@ -148,7 +147,7 @@ impl From<WorkerTaskAssignment> for WorkerTaskResponse {
 
 pub async fn register_worker(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _admin_user: AdminUser,
     Json(body): Json<RegisterWorkerBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let worker_type = WorkerType::from_str(&body.worker_type).map_err(ApiError::bad_request)?;
@@ -172,6 +171,7 @@ pub async fn register_worker(
 pub async fn get_worker(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
+    _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let worker = state
         .services
@@ -183,7 +183,10 @@ pub async fn get_worker(
     Ok(Json(WorkerResponse::from(worker)))
 }
 
-pub async fn list_workers(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+pub async fn list_workers(
+    State(state): State<AppState>,
+    _admin_user: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
     let workers = state.services.worker_manager.get_active().await?;
 
     let response: Vec<WorkerResponse> = workers.into_iter().map(WorkerResponse::from).collect();
@@ -194,6 +197,7 @@ pub async fn list_workers(State(state): State<AppState>) -> Result<impl IntoResp
 pub async fn list_workers_by_type(
     State(state): State<AppState>,
     Path(worker_type): Path<String>,
+    _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let wtype = WorkerType::from_str(&worker_type).map_err(ApiError::bad_request)?;
 
@@ -207,6 +211,7 @@ pub async fn list_workers_by_type(
 pub async fn heartbeat(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
+    _auth_user: AuthenticatedUser,
     Json(body): Json<HeartbeatBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let status = WorkerStatus::from_str(&body.status).map_err(ApiError::bad_request)?;
@@ -223,7 +228,7 @@ pub async fn heartbeat(
 pub async fn unregister_worker(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
-    _auth_user: AuthenticatedUser,
+    _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state.services.worker_manager.unregister(&worker_id).await?;
 
@@ -233,7 +238,7 @@ pub async fn unregister_worker(
 pub async fn send_command(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
-    _auth_user: AuthenticatedUser,
+    _admin_user: AdminUser,
     Json(body): Json<SendCommandBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = SendCommandRequest {
@@ -255,6 +260,7 @@ pub async fn send_command(
 pub async fn get_pending_commands(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
+    _auth_user: AuthenticatedUser,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -275,6 +281,7 @@ pub async fn get_pending_commands(
 pub async fn complete_command(
     State(state): State<AppState>,
     Path(command_id): Path<String>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state
         .services
@@ -288,6 +295,7 @@ pub async fn complete_command(
 pub async fn fail_command(
     State(state): State<AppState>,
     Path(command_id): Path<String>,
+    _auth_user: AuthenticatedUser,
     Json(body): Json<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -301,7 +309,7 @@ pub async fn fail_command(
 
 pub async fn assign_task(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _admin_user: AdminUser,
     Json(body): Json<AssignTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = AssignTaskRequest {
@@ -318,6 +326,7 @@ pub async fn assign_task(
 
 pub async fn get_pending_tasks(
     State(state): State<AppState>,
+    _admin_user: AdminUser,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -333,9 +342,24 @@ pub async fn get_pending_tasks(
     Ok(Json(response))
 }
 
+pub async fn claim_next_task(
+    State(state): State<AppState>,
+    Path(worker_id): Path<String>,
+    _auth_user: AuthenticatedUser,
+) -> Result<impl IntoResponse, ApiError> {
+    let task = state
+        .services
+        .worker_manager
+        .claim_next_pending_task(&worker_id)
+        .await?;
+
+    Ok(Json(WorkerTaskResponse::from(task)))
+}
+
 pub async fn claim_task(
     State(state): State<AppState>,
     Path((task_id, worker_id)): Path<(String, String)>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state
         .services
@@ -349,6 +373,7 @@ pub async fn claim_task(
 pub async fn complete_task(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
+    _auth_user: AuthenticatedUser,
     Json(body): Json<CompleteTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -363,6 +388,7 @@ pub async fn complete_task(
 pub async fn fail_task(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
+    _auth_user: AuthenticatedUser,
     Json(body): Json<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -377,6 +403,7 @@ pub async fn fail_task(
 pub async fn connect_worker(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
+    _auth_user: AuthenticatedUser,
     Json(body): Json<ConnectWorkerBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -391,6 +418,7 @@ pub async fn connect_worker(
 pub async fn disconnect_worker(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state
         .services
@@ -404,6 +432,7 @@ pub async fn disconnect_worker(
 pub async fn get_replication_position(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
+    _auth_user: AuthenticatedUser,
     Query(query): Query<QueryPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
     let position = state
@@ -422,6 +451,7 @@ pub async fn get_replication_position(
 pub async fn update_replication_position(
     State(state): State<AppState>,
     Path((worker_id, stream_name)): Path<(String, String)>,
+    _auth_user: AuthenticatedUser,
     Json(body): Json<StreamPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -435,6 +465,7 @@ pub async fn update_replication_position(
 
 pub async fn get_events(
     State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
     Query(query): Query<QueryStream>,
 ) -> Result<impl IntoResponse, ApiError> {
     let stream_id = query.stream_id.unwrap_or(0);
@@ -448,7 +479,10 @@ pub async fn get_events(
     Ok(Json(events))
 }
 
-pub async fn get_statistics(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+pub async fn get_statistics(
+    State(state): State<AppState>,
+    _admin_user: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
     let stats = state.services.worker_manager.get_statistics().await?;
 
     Ok(Json(stats))
@@ -456,6 +490,7 @@ pub async fn get_statistics(State(state): State<AppState>) -> Result<impl IntoRe
 
 pub async fn get_type_statistics(
     State(state): State<AppState>,
+    _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let stats = state.services.worker_manager.get_type_statistics().await?;
 
@@ -465,6 +500,7 @@ pub async fn get_type_statistics(
 pub async fn select_worker(
     State(state): State<AppState>,
     Path(task_type): Path<String>,
+    _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let worker_id = state
         .services
@@ -521,6 +557,10 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
         )
         .route("/_synapse/worker/v1/tasks", post(assign_task))
         .route("/_synapse/worker/v1/tasks", get(get_pending_tasks))
+        .route(
+            "/_synapse/worker/v1/tasks/claim/{worker_id}",
+            post(claim_next_task),
+        )
         .route(
             "/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}",
             post(claim_task),
