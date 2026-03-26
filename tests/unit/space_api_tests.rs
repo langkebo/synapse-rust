@@ -99,7 +99,7 @@ fn test_space_response() {
 // Test 9: Space children response
 #[test]
 fn test_space_children_response() {
-    let children = vec![
+    let children = [
         json!({
             "room_id": "!room1:localhost",
             "name": "Child Room 1",
@@ -158,7 +158,7 @@ fn test_space_membership() {
 // Test 13: Public spaces response
 #[test]
 fn test_public_spaces_response() {
-    let spaces = vec![json!({
+    let spaces = [json!({
         "space_id": "!space1:localhost",
         "name": "Public Space",
         "member_count": 10

@@ -64,7 +64,7 @@ fn test_update_backup_version() {
 // Test 5: Get all backup versions response
 #[test]
 fn test_all_backup_versions_response() {
-    let versions = vec![
+    let versions = [
         json!({
             "version": "1",
             "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
@@ -84,7 +84,7 @@ fn test_all_backup_versions_response() {
 // Test 6: Room keys response
 #[test]
 fn test_room_keys_response() {
-    let keys = vec![json!({
+    let keys = [json!({
         "room_id": "!room:localhost",
         "sessions": {}
     })];

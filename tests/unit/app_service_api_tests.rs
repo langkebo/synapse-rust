@@ -83,7 +83,7 @@ fn test_app_service_ping_response() {
 // Test 7: App service list response
 #[test]
 fn test_app_service_list_response() {
-    let services = vec![json!({
+    let services = [json!({
         "id": "appservice1",
         "url": "https://app1.example.com",
         "is_enabled": true

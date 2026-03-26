@@ -199,7 +199,6 @@ pub async fn device_exists(pool: &PgPool, device_id: &str) -> Result<bool, sqlx:
 }
 
 /// ============ 测试 ============
-
 #[cfg(test)]
 mod tests {
     use super::*;

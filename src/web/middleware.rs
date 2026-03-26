@@ -1,7 +1,7 @@
 use crate::cache::*;
 use crate::common::ApiError;
 use axum::extract::State;
-use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode};
 use axum::response::IntoResponse;
 use axum::{body::Body, middleware::Next, response::Response, Json};
 use base64::Engine; // Required for decode in module-level functions
@@ -12,7 +12,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use url::Url;
 
 static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
     std::env::var("CORS_ORIGIN_PATTERN")
@@ -52,11 +53,11 @@ impl CsrfTokenManager {
     /// Generate a CSRF token for a session
     #[allow(dead_code)]
     pub fn generate_token(&self, session_id: &str) -> String {
-        let payload = format!(
-            "{}:{}",
-            session_id,
-            std::time::Instant::now().elapsed().as_secs()
-        );
+        let issued_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or_default();
+        let payload = format!("{}:{}", session_id, issued_at);
         let signature = crate::common::crypto::compute_hash(format!("{}{}", payload, self.secret));
         format!("{}:{}", payload, &signature[..16])
     }
@@ -69,9 +70,25 @@ impl CsrfTokenManager {
             return false;
         }
 
+        if parts[0] != session_id {
+            return false;
+        }
+
+        let issued_at = match parts[1].parse::<u64>() {
+            Ok(issued_at) => issued_at,
+            Err(_) => return false,
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or_default();
+        if now.saturating_sub(issued_at) > self.token_ttl.as_secs() {
+            return false;
+        }
+
         let expected_signature = crate::common::crypto::compute_hash(format!(
-            "{}:{}:{}",
-            session_id, parts[1], self.secret
+            "{}:{}{}",
+            parts[0], parts[1], self.secret
         ));
 
         expected_signature.starts_with(parts[2])
@@ -525,6 +542,112 @@ fn normalize_origin(origin: &str) -> String {
     }
 }
 
+fn is_safe_http_method(method: &Method) -> bool {
+    matches!(
+        *method,
+        Method::GET | Method::HEAD | Method::OPTIONS | Method::TRACE
+    )
+}
+
+fn extract_session_id_for_csrf(headers: &HeaderMap) -> Option<String> {
+    extract_token(headers).or_else(|| {
+        headers
+            .get("cookie")
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.to_string())
+    })
+}
+
+fn extract_origin_candidate(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("origin")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string())
+        .or_else(|| {
+            headers
+                .get("referer")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| Url::parse(value).ok())
+                .map(|value| value.origin().ascii_serialization())
+        })
+}
+
+fn extract_request_origin(headers: &HeaderMap) -> Option<String> {
+    let host = headers
+        .get("x-forwarded-host")
+        .or_else(|| headers.get("host"))
+        .and_then(|value| value.to_str().ok())?;
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("https");
+
+    Some(normalize_origin(&format!("{scheme}://{host}")))
+}
+
+fn same_origin(request_origin: &str, headers: &HeaderMap) -> bool {
+    extract_request_origin(headers)
+        .map(|server_origin| normalize_origin(request_origin) == server_origin)
+        .unwrap_or(false)
+}
+
+fn csrf_forbidden_response(message: &str) -> Response {
+    let mut response = Response::new(Body::from(
+        json!({
+            "errcode": "M_FORBIDDEN",
+            "error": message
+        })
+        .to_string(),
+    ));
+    *response.status_mut() = StatusCode::FORBIDDEN;
+    response
+        .headers_mut()
+        .insert("content-type", HeaderValue::from_static("application/json"));
+    response
+}
+
+pub async fn csrf_middleware(
+    State(state): State<crate::web::routes::AppState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let csrf_manager = CsrfTokenManager::new(state.services.server_name.clone());
+    let method = request.method().clone();
+    let headers = request.headers().clone();
+    let session_id = extract_session_id_for_csrf(&headers);
+    let request_origin = extract_origin_candidate(&headers);
+    let browser_authenticated_request = session_id.is_some() && request_origin.is_some();
+
+    if !is_safe_http_method(&method) && browser_authenticated_request {
+        let origin = request_origin.unwrap_or_default();
+        if !same_origin(&origin, &headers) && !is_origin_allowed(&origin) {
+            tracing::warn!("CSRF origin rejected: {}", origin);
+            return csrf_forbidden_response("Cross-site requests are not allowed");
+        }
+
+        let csrf_token = headers
+            .get("x-csrf-token")
+            .and_then(|value| value.to_str().ok());
+
+        match (session_id.as_deref(), csrf_token) {
+            (Some(session), Some(token)) if csrf_manager.validate_token(token, session) => {}
+            _ => return csrf_forbidden_response("Missing or invalid CSRF token"),
+        }
+    }
+
+    let mut response = next.run(request).await;
+
+    if is_safe_http_method(&method) {
+        if let Some(session_id) = session_id {
+            if let Ok(value) = HeaderValue::from_str(&csrf_manager.generate_token(&session_id)) {
+                response.headers_mut().insert("x-csrf-token", value);
+            }
+        }
+    }
+
+    response
+}
+
 pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let origin = request
         .headers()
@@ -564,12 +687,14 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
 
     response.headers_mut().insert(
         "Access-Control-Allow-Headers",
-        HeaderValue::from_static("Content-Type, Authorization, X-Requested-With, X-Request-ID"),
+        HeaderValue::from_static(
+            "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token",
+        ),
     );
 
     response.headers_mut().insert(
         "Access-Control-Expose-Headers",
-        HeaderValue::from_static("X-Request-ID"),
+        HeaderValue::from_static("X-Request-ID, X-CSRF-Token"),
     );
 
     response.headers_mut().insert(
@@ -1585,6 +1710,7 @@ mod tests {
     use crate::common::config::{
         RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule,
     };
+    use std::time::Duration;
 
     #[test]
     fn test_extract_client_ip() {
@@ -1849,6 +1975,105 @@ mod tests {
 
         std::env::remove_var("RUST_ENV");
         std::env::remove_var("ALLOWED_ORIGINS");
+    }
+
+    #[test]
+    fn test_csrf_token_round_trip() {
+        let manager = CsrfTokenManager::new("secret".to_string());
+        let token = manager.generate_token("session-123");
+
+        assert!(manager.validate_token(&token, "session-123"));
+        assert!(!manager.validate_token(&token, "other-session"));
+    }
+
+    #[test]
+    fn test_csrf_token_expiration_is_enforced() {
+        let manager = CsrfTokenManager {
+            secret: "secret".to_string(),
+            token_ttl: Duration::from_secs(1),
+        };
+        let old_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_secs()
+            .saturating_sub(10);
+        let payload = format!("session-123:{}", old_timestamp);
+        let signature =
+            crate::common::crypto::compute_hash(format!("{}{}", payload, manager.secret));
+        let token = format!("{}:{}", payload, &signature[..16]);
+
+        assert!(!manager.validate_token(&token, "session-123"));
+    }
+
+    #[test]
+    fn test_extract_session_id_for_csrf_uses_authorization_then_cookie() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            "Bearer access-token".parse().expect("valid auth header"),
+        );
+        headers.insert(
+            "cookie",
+            "sid=session-cookie".parse().expect("valid cookie header"),
+        );
+
+        assert_eq!(
+            extract_session_id_for_csrf(&headers),
+            Some("access-token".to_string())
+        );
+
+        let mut cookie_only_headers = HeaderMap::new();
+        cookie_only_headers.insert(
+            "cookie",
+            "sid=session-cookie".parse().expect("valid cookie header"),
+        );
+        assert_eq!(
+            extract_session_id_for_csrf(&cookie_only_headers),
+            Some("sid=session-cookie".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_origin_candidate_uses_origin_or_referer() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "origin",
+            "https://app.example.com"
+                .parse()
+                .expect("valid origin header"),
+        );
+        assert_eq!(
+            extract_origin_candidate(&headers),
+            Some("https://app.example.com".to_string())
+        );
+
+        let mut referer_headers = HeaderMap::new();
+        referer_headers.insert(
+            "referer",
+            "https://app.example.com/path?query=1"
+                .parse()
+                .expect("valid referer header"),
+        );
+        assert_eq!(
+            extract_origin_candidate(&referer_headers),
+            Some("https://app.example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_same_origin_uses_forwarded_host_and_proto() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-host",
+            "matrix.example.com".parse().expect("valid host header"),
+        );
+        headers.insert(
+            "x-forwarded-proto",
+            "https".parse().expect("valid proto header"),
+        );
+
+        assert!(same_origin("https://matrix.example.com", &headers));
+        assert!(!same_origin("https://other.example.com", &headers));
     }
 
     #[test]

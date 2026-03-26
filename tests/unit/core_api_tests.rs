@@ -115,8 +115,8 @@ fn test_room_topic_length_validation() {
 // Test 13: Invite list validation
 #[test]
 fn test_invite_list_validation() {
-    assert!(is_valid_invite_list(&vec!["@user1:localhost".to_string()]));
-    assert!(is_valid_invite_list(&vec![]));
+    assert!(is_valid_invite_list(&["@user1:localhost".to_string()]));
+    assert!(is_valid_invite_list(&[]));
     assert!(!is_valid_invite_list(&vec![
         "@user:localhost".to_string();
         101

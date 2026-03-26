@@ -87,7 +87,7 @@ fn test_federation_cache_response() {
 // Test 7: Federation blacklist response
 #[test]
 fn test_federation_blacklist_response() {
-    let blacklist = vec![json!({
+    let blacklist = [json!({
         "server_name": "evil.example.com",
         "reason": "malicious",
         "blocked_at": 1700000000000_i64
@@ -100,7 +100,7 @@ fn test_federation_blacklist_response() {
 // Test 8: Refresh tokens list response
 #[test]
 fn test_refresh_tokens_list_response() {
-    let tokens = vec![json!({
+    let tokens = [json!({
         "user_id": "@user:localhost",
         "device_id": "DEVICE123",
         "expires_at": 1700000000000_i64,
@@ -115,7 +115,7 @@ fn test_refresh_tokens_list_response() {
 // Test 9: Push notifications list response
 #[test]
 fn test_push_notifications_list_response() {
-    let notifications = vec![json!({
+    let notifications = [json!({
         "user_id": "@user:localhost",
         "device_id": "DEVICE123",
         "event_id": "$event:localhost",
@@ -149,7 +149,7 @@ fn test_rate_limits_config_response() {
 // Test 11: Server notifications response
 #[test]
 fn test_server_notifications_response() {
-    let notifications = vec![json!({
+    let notifications = [json!({
         "event_id": "$event:localhost",
         "room_id": "!room:localhost",
         "type": "m.room.message"

@@ -1,0 +1,337 @@
+    Checking synapse-rust v0.1.0 (/Users/ljf/Desktop/hu/synapse-rust)
+error[E0255]: the name `OidcTokenRequest` is defined multiple times
+  --> src/web/routes/oidc.rs:94:1
+   |
+ 6 |     BuiltinOidcProvider, OidcTokenRequest, OidcTokenResponse, OidcUserInfo,
+   |                          ---------------- previous import of the type `OidcTokenRequest` here
+...
+94 | pub struct OidcTokenRequest {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ `OidcTokenRequest` redefined here
+   |
+   = note: `OidcTokenRequest` must be defined only once in the type namespace of this module
+help: you can use `as` to change the binding name of the import
+   |
+ 6 |     BuiltinOidcProvider, OidcTokenRequest as OtherOidcTokenRequest, OidcTokenResponse, OidcUserInfo,
+   |                                           ++++++++++++++++++++++++
+
+error[E0255]: the name `OidcTokenResponse` is defined multiple times
+   --> src/web/routes/oidc.rs:113:1
+    |
+  6 |     BuiltinOidcProvider, OidcTokenRequest, OidcTokenResponse, OidcUserI...
+    |                                            ----------------- previous import of the type `OidcTokenResponse` here
+...
+113 | pub struct OidcTokenResponse {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `OidcTokenResponse` redefined here
+    |
+    = note: `OidcTokenResponse` must be defined only once in the type namespace of this module
+help: you can use `as` to change the binding name of the import
+    |
+  6 |     BuiltinOidcProvider, OidcTokenRequest, OidcTokenResponse as OtherOidcTokenResponse, OidcUserInfo,
+    |                                                              +++++++++++++++++++++++++
+
+error[E0432]: unresolved import `crate::common::config::BuiltinOidcConfig`
+ --> src/services/builtin_oidc_provider.rs:5:5
+  |
+5 | use crate::common::config::BuiltinOidcConfig;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `BuiltinOidcConfig` in `common::config`
+
+error[E0425]: cannot find type `BuiltinOidcConfig` in this scope
+   --> src/common/config.rs:747:23
+    |
+747 |     pub builtin_oidc: BuiltinOidcConfig,
+    |                       ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `BuiltinOidcUser` in this scope
+   --> src/services/builtin_oidc_provider.rs:396:70
+    |
+396 | ...r) -> Result<&BuiltinOidcUser, ApiError> {
+    |                  ^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+143 | impl<BuiltinOidcUser> BuiltinOidcProvider {
+    |     +++++++++++++++++
+
+error[E0425]: cannot find type `BuiltinOidcUser` in this scope
+   --> src/services/builtin_oidc_provider.rs:407:16
+    |
+407 |         user: &BuiltinOidcUser,
+    |                ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `BuiltinOidcUser` in this scope
+   --> src/services/builtin_oidc_provider.rs:448:44
+    |
+448 | ...&self, user: &BuiltinOidcUser, scope: &str) -> Result<String, ApiErr...
+    |                  ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `BuiltinOidcUser` in this scope
+   --> src/services/builtin_oidc_provider.rs:475:45
+    |
+475 | ...&self, user: &BuiltinOidcUser, scope: &str) -> String {
+    |                  ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `builtin_oidc_login` in this scope
+  --> src/web/routes/oidc.rs:35:54
+   |
+35 |         .route("/_matrix/client/v3/oidc/login", post(builtin_oidc_login))
+   |                                                      ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `jwks` in this scope
+  --> src/web/routes/oidc.rs:37:46
+   |
+37 |         .route("/.well-known/jwks.json", get(jwks))
+   |                                              ^^^^ not found in this scope
+
+warning: unused import: `debug`
+  --> src/services/builtin_oidc_provider.rs:13:15
+   |
+13 | use tracing::{debug, info};
+   |               ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: ambiguous glob re-exports
+    --> src/services/mod.rs:1017:9
+     |
+1015 | pub use builtin_oidc_provider::*;
+     |         ------------------------ but the name `OidcDiscoveryDocument` in the type namespace is also re-exported here
+1016 | pub use moderation_service::*;
+1017 | pub use oidc_service::*;
+     |         ^^^^^^^^^^^^^^^ the name `OidcDiscoveryDocument` in the type namespace is first re-exported here
+     |
+     = note: `#[warn(ambiguous_glob_reexports)]` on by default
+
+warning: ambiguous glob re-exports
+    --> src/services/mod.rs:1017:9
+     |
+1015 | pub use builtin_oidc_provider::*;
+     |         ------------------------ but the name `OidcTokenResponse` in the type namespace is also re-exported here
+1016 | pub use moderation_service::*;
+1017 | pub use oidc_service::*;
+     |         ^^^^^^^^^^^^^^^ the name `OidcTokenResponse` in the type namespace is first re-exported here
+
+warning: ambiguous glob re-exports
+    --> src/services/mod.rs:1017:9
+     |
+1015 | pub use builtin_oidc_provider::*;
+     |         ------------------------ but the name `OidcUserInfo` in the type namespace is also re-exported here
+1016 | pub use moderation_service::*;
+1017 | pub use oidc_service::*;
+     |         ^^^^^^^^^^^^^^^ the name `OidcUserInfo` in the type namespace is first re-exported here
+
+warning: unused imports: `BuiltinOidcProvider`, `OidcTokenRequest`, `OidcTokenResponse`, and `OidcUserInfo`
+ --> src/web/routes/oidc.rs:6:5
+  |
+6 |     BuiltinOidcProvider, OidcTokenRequest, OidcTokenResponse, OidcUserInfo,
+  |     ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^
+
+warning: unused import: `delete`
+  --> src/web/routes/oidc.rs:12:15
+   |
+12 |     routing::{delete, get, post},
+   |               ^^^^^^
+
+error[E0616]: field `pool` of struct `server_notification::ServerNotificationStorage` is private
+   --> src/web/routes/admin/notification.rs:160:61
+    |
+160 |     .fetch_one(&*state.services.server_notification_storage.pool)
+    |                                                             ^^^^ private field
+
+error[E0282]: type annotations needed
+   --> src/web/routes/admin/notification.rs:137:24
+    |
+137 |       let notification = sqlx::query_as::<_, (i64, String, String, Stri...
+    |  ________________________^
+138 | |         r#"
+139 | |         INSERT INTO server_notifications (
+140 | |             title, content, notification_type, priority, target_audie...
+...   |
+160 | |     .fetch_one(&*state.services.server_notification_storage.pool)
+161 | |     .await
+    | |__________^ cannot infer type
+
+error[E0616]: field `pool` of struct `server_notification::ServerNotificationStorage` is private
+   --> src/web/routes/admin/notification.rs:205:61
+    |
+205 |     .fetch_all(&*state.services.server_notification_storage.pool)
+    |                                                             ^^^^ private field
+
+error[E0282]: type annotations needed
+   --> src/web/routes/admin/notification.rs:193:25
+    |
+193 |       let notifications = sqlx::query_as::<_, (i64, String, String, Str...
+    |  _________________________^
+194 | |         r#"
+195 | |         SELECT id, title, content, notification_type, priority, targe...
+196 | |         FROM server_notifications
+...   |
+205 | |     .fetch_all(&*state.services.server_notification_storage.pool)
+206 | |     .await
+    | |__________^ cannot infer type
+
+error[E0616]: field `pool` of struct `server_notification::ServerNotificationStorage` is private
+   --> src/web/routes/admin/notification.rs:255:66
+    |
+255 |     .fetch_optional(&*state.services.server_notification_storage.pool)
+    |                                                                  ^^^^ private field
+
+error[E0282]: type annotations needed
+   --> src/web/routes/admin/notification.rs:247:24
+    |
+247 |       let notification = sqlx::query_as::<_, (i64, String, String, Stri...
+    |  ________________________^
+248 | |         r#"
+249 | |         SELECT id, title, content, notification_type, priority, targe...
+250 | |         FROM server_notifications
+...   |
+255 | |     .fetch_optional(&*state.services.server_notification_storage.pool)
+256 | |     .await
+    | |__________^ cannot infer type
+
+error[E0616]: field `pool` of struct `server_notification::ServerNotificationStorage` is private
+   --> src/web/routes/admin/notification.rs:293:66
+    |
+293 |     .fetch_optional(&*state.services.server_notification_storage.pool)
+    |                                                                  ^^^^ private field
+
+error[E0282]: type annotations needed
+   --> src/web/routes/admin/notification.rs:289:20
+    |
+289 |       let existing = sqlx::query_as::<_, (String, String)>(
+    |  ____________________^
+290 | |         "SELECT title, content FROM server_notifications WHERE id = $1",
+291 | |     )
+292 | |     .bind(notification_id)
+293 | |     .fetch_optional(&*state.services.server_notification_storage.pool)
+294 | |     .await
+    | |__________^ cannot infer type
+
+error[E0616]: field `pool` of struct `server_notification::ServerNotificationStorage` is private
+   --> src/web/routes/admin/notification.rs:334:61
+    |
+334 |     .fetch_one(&*state.services.server_notification_storage.pool)
+    |                                                             ^^^^ private field
+
+error[E0282]: type annotations needed
+   --> src/web/routes/admin/notification.rs:311:24
+    |
+311 |       let notification = sqlx::query_as::<_, (i64, String, String, Stri...
+    |  ________________________^
+312 | |         r#"
+313 | |         UPDATE server_notifications
+314 | |         SET title = $2, content = $3, notification_type = $4, priorit...
+...   |
+334 | |     .fetch_one(&*state.services.server_notification_storage.pool)
+335 | |     .await
+    | |__________^ cannot infer type
+
+error[E0616]: field `pool` of struct `server_notification::ServerNotificationStorage` is private
+   --> src/web/routes/admin/notification.rs:366:63
+    |
+366 |         .execute(&*state.services.server_notification_storage.pool)
+    |                                                               ^^^^ private field
+
+error[E0282]: type annotations needed
+   --> src/web/routes/admin/notification.rs:364:18
+    |
+364 |       let result = sqlx::query("DELETE FROM server_notifications WHERE ...
+    |  __________________^
+365 | |         .bind(notification_id)
+366 | |         .execute(&*state.services.server_notification_storage.pool)
+367 | |         .await
+    | |______________^ cannot infer type
+
+error[E0616]: field `pool` of struct `server_notification::ServerNotificationStorage` is private
+   --> src/web/routes/admin/notification.rs:390:59
+    |
+390 |     .execute(&*state.services.server_notification_storage.pool)
+    |                                                           ^^^^ private field
+
+error[E0282]: type annotations needed
+   --> src/web/routes/admin/notification.rs:385:18
+    |
+385 |       let result = sqlx::query(
+    |  __________________^
+386 | |         "UPDATE server_notifications SET is_enabled = FALSE, updated_...
+387 | |     )
+388 | |     .bind(notification_id)
+389 | |     .bind(now)
+390 | |     .execute(&*state.services.server_notification_storage.pool)
+391 | |     .await
+    | |__________^ cannot infer type
+
+error[E0616]: field `pool` of struct `server_notification::ServerNotificationStorage` is private
+   --> src/web/routes/admin/notification.rs:420:61
+    |
+420 |     .fetch_all(&*state.services.server_notification_storage.pool)
+    |                                                             ^^^^ private field
+
+error[E0282]: type annotations needed
+   --> src/web/routes/admin/notification.rs:408:25
+    |
+408 |       let notifications = sqlx::query_as::<_, (i64, String, String, Str...
+    |  _________________________^
+409 | |         r#"
+410 | |         SELECT id, title, content, notification_type, priority, targe...
+411 | |         FROM server_notifications
+...   |
+420 | |     .fetch_all(&*state.services.server_notification_storage.pool)
+421 | |     .await
+    | |__________^ cannot infer type
+
+error[E0308]: mismatched types
+   --> src/web/routes/oidc.rs:143:20
+    |
+143 |             .token(request)
+    |              ----- ^^^^^^^ expected `builtin_oidc_provider::OidcTokenRequest`, found `oidc::OidcTokenRequest`
+    |              |
+    |              arguments to this method are incorrect
+    |
+    = note: `oidc::OidcTokenRequest` and `builtin_oidc_provider::OidcTokenRequest` have similar names, but are actually distinct types
+note: `oidc::OidcTokenRequest` is defined in module `crate::web::routes::oidc` of the current crate
+   --> src/web/routes/oidc.rs:94:1
+    |
+ 94 | pub struct OidcTokenRequest {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: `builtin_oidc_provider::OidcTokenRequest` is defined in module `crate::services::builtin_oidc_provider` of the current crate
+   --> src/services/builtin_oidc_provider.rs:36:1
+    |
+ 36 | pub struct OidcTokenRequest {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: method defined here
+   --> src/services/builtin_oidc_provider.rs:272:12
+    |
+272 |     pub fn token(&self, request: OidcTokenRequest) -> Result<OidcTokenR...
+    |            ^^^^^        -------------------------
+
+error[E0560]: struct `oidc::OidcTokenResponse` has no field named `id_token`
+   --> src/web/routes/oidc.rs:150:13
+    |
+150 |             id_token: token_response.id_token,
+    |             ^^^^^^^^ `oidc::OidcTokenResponse` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0308]: mismatched types
+   --> src/web/routes/oidc.rs:152:20
+    |
+152 |             scope: token_response.scope,
+    |                    ^^^^^^^^^^^^^^^^^^^^ expected `String`, found `Option<String>`
+    |
+    = note: expected struct `std::string::String`
+                 found enum `std::option::Option<std::string::String>`
+help: consider using `Option::expect` to unwrap the `std::option::Option<std::string::String>` value, panicking if the value is an `Option::None`
+    |
+152 |             scope: token_response.scope.expect("REASON"),
+    |                                        +++++++++++++++++
+
+error[E0063]: missing field `builtin_oidc` in initializer of `common::config::Config`
+   --> src/services/mod.rs:644:22
+    |
+644 |         let config = Config {
+    |                      ^^^^^^ missing `builtin_oidc`
+
+Some errors have detailed explanations: E0063, E0255, E0282, E0308, E0425, E0432, E0560, E0616.
+For more information about an error, try `rustc --explain E0063`.
+warning: `synapse-rust` (lib) generated 6 warnings
+error: could not compile `synapse-rust` (lib) due to 62 previous errors; 6 warnings emitted

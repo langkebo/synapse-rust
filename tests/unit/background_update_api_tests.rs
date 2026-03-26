@@ -74,7 +74,7 @@ fn test_update_progress() {
 // Test 6: Background update list response
 #[test]
 fn test_update_list_response() {
-    let updates = vec![
+    let updates = [
         json!({
             "id": 1,
             "update_name": "update1",
@@ -93,7 +93,7 @@ fn test_update_list_response() {
 // Test 7: Pending updates response
 #[test]
 fn test_pending_updates_response() {
-    let updates = vec![json!({
+    let updates = [json!({
         "update_name": "pending_update",
         "status": "pending"
     })];
@@ -105,7 +105,7 @@ fn test_pending_updates_response() {
 // Test 8: Running updates response
 #[test]
 fn test_running_updates_response() {
-    let updates = vec![json!({
+    let updates = [json!({
         "update_name": "running_update",
         "status": "running",
         "started_ts": 1700000000000_i64
@@ -118,7 +118,7 @@ fn test_running_updates_response() {
 // Test 9: Update history response
 #[test]
 fn test_update_history_response() {
-    let history = vec![json!({
+    let history = [json!({
         "update_name": "completed_update",
         "status": "completed",
         "completed_ts": 1700000000000_i64

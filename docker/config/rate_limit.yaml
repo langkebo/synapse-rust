@@ -1,0 +1,2 @@
+enabled: false
+fail_open_on_error: true

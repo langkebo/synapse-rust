@@ -442,7 +442,7 @@ mod tests {
 
         #[test]
         fn test_error_codes() {
-            let codes = vec![
+            let codes = [
                 "M_NOT_FOUND",
                 "M_UNAUTHORIZED",
                 "M_FORBIDDEN",

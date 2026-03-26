@@ -166,7 +166,7 @@ fn test_get_all_tokens_request() {
 // Test 14: Get all tokens response
 #[test]
 fn test_get_all_tokens_response() {
-    let tokens = vec![json!({
+    let tokens = [json!({
         "id": 1,
         "token": "test_token_123",
         "is_enabled": true
@@ -190,7 +190,7 @@ fn test_get_active_tokens_request() {
 // Test 16: Get active tokens response
 #[test]
 fn test_get_active_tokens_response() {
-    let tokens = vec![json!({
+    let tokens = [json!({
         "token": "active_token",
         "is_enabled": true
     })];

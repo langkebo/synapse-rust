@@ -178,13 +178,21 @@ impl DehydratedDeviceStorage {
         user_id: &str,
         device_id: &str,
     ) -> Result<Option<DehydratedDevice>, sqlx::Error> {
-        let device = self.get_device(user_id, device_id).await?;
+        let now = chrono::Utc::now().timestamp_millis();
 
-        if device.is_some() {
-            self.delete_device(user_id, device_id).await?;
-        }
-
-        Ok(device)
+        sqlx::query_as::<_, DehydratedDevice>(
+            r#"
+            DELETE FROM dehydrated_devices
+            WHERE user_id = $1 AND device_id = $2
+              AND (expires_at IS NULL OR expires_at > $3)
+            RETURNING *
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(now)
+        .fetch_optional(&*self.pool)
+        .await
     }
 
     pub async fn cleanup_expired_devices(&self) -> Result<u64, sqlx::Error> {

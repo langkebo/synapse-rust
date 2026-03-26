@@ -253,7 +253,7 @@ fn test_list_templates_request() {
 // Test 21: Templates response
 #[test]
 fn test_templates_response() {
-    let templates = vec![json!({
+    let templates = [json!({
         "name": "welcome",
         "template_type": "message",
         "content": {}
