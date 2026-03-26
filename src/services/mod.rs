@@ -1052,7 +1052,7 @@ pub use livekit_client::*;
 pub use matrixrtc_service::*;
 pub use media_service::*;
 pub use moderation_service::*;
-pub use oidc_service::{OidcDiscoveryDocument, OidcService, OidcTokenResponse, OidcUserInfo};
+pub use oidc_service::{OidcService};
 pub use push_service::*;
 pub use read_receipt_service::*;
 pub use registration_service::*;

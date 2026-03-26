@@ -345,9 +345,9 @@ impl BuiltinOidcProvider {
             .ok_or(ApiError::not_found("User not found".to_string()))?;
 
         // 生成令牌
-        let access_token = self.generate_access_token(user, &session.scope)?;
+        let access_token = self.generate_access_token(user, session.scope.as_str())?;
         let id_token = self.generate_id_token(user, client_id, session.nonce.as_deref())?;
-        let refresh_token = self.generate_refresh_token(user, &session.scope);
+        let refresh_token = self.generate_refresh_token(user, session.scope.as_str());
 
         Ok(OidcTokenResponse {
             access_token,
@@ -386,7 +386,7 @@ impl BuiltinOidcProvider {
             .ok_or(ApiError::not_found("User not found".to_string()))?;
 
         // 生成新令牌
-        let access_token = self.generate_access_token(user, &token_data.scope)?;
+        let access_token = self.generate_access_token(user, token_data.scope.as_str())?;
         let id_token = self.generate_id_token(user, &token_data.client_id, None)?;
 
         Ok(OidcTokenResponse {
