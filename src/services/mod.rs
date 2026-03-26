@@ -184,6 +184,10 @@ pub struct ServiceContainer {
     pub thread_storage: crate::storage::thread::ThreadStorage,
     /// 线程服务
     pub thread_service: Arc<crate::services::thread_service::ThreadService>,
+    /// Relations 存储
+    pub relations_storage: crate::storage::relations::RelationsStorage,
+    /// Relations 服务
+    pub relations_service: Arc<crate::services::relations_service::RelationsService>,
     /// CAS 存储
     pub cas_storage: crate::storage::cas::CasStorage,
     /// CAS 服务
@@ -488,6 +492,12 @@ impl ServiceContainer {
             Arc::new(thread_storage.clone()),
         ));
 
+        let relations_storage = crate::storage::relations::RelationsStorage::new(pool);
+        let relations_service =
+            Arc::new(crate::services::relations_service::RelationsService::new(
+                Arc::new(relations_storage.clone()),
+            ));
+
         let cas_storage = crate::storage::cas::CasStorage::new(pool);
         let cas_service = Arc::new(crate::services::cas_service::CasService::new(
             Arc::new(cas_storage.clone()),
@@ -616,6 +626,8 @@ impl ServiceContainer {
             push_notification_service,
             thread_storage,
             thread_service,
+            relations_storage,
+            relations_service,
             cas_storage,
             cas_service,
             media_quota_storage,
@@ -1009,6 +1021,7 @@ pub mod read_receipt_service;
 pub mod refresh_token_service;
 pub mod registration_service;
 pub mod registration_token_service;
+pub mod relations_service;
 pub mod retention_service;
 pub mod room_service;
 pub mod room_summary_service;

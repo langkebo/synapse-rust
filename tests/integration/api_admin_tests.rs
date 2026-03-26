@@ -90,6 +90,68 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
     (json["access_token"].as_str().unwrap().to_string(), username)
 }
 
+async fn create_test_user(app: &axum::Router) -> String {
+    let username = format!("user_{}", rand::random::<u32>());
+    let password = "Password123!";
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": password,
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 10240)
+        .await
+        .unwrap();
+
+    if status != StatusCode::OK {
+        panic!(
+            "Registration failed with status {}: {:?}",
+            status,
+            String::from_utf8_lossy(&body)
+        );
+    }
+
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["access_token"].as_str().unwrap().to_string()
+}
+
+async fn get_csrf_token(app: &axum::Router, access_token: &str) -> String {
+    let request = Request::builder()
+        .uri("/_synapse/admin/v1/telemetry/status")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Origin", "https://localhost")
+        .header("X-Forwarded-Host", "localhost")
+        .header("X-Forwarded-Proto", "https")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    response
+        .headers()
+        .get("x-csrf-token")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_string()
+}
+
 #[tokio::test]
 async fn test_admin_flow() {
     let Some(app) = setup_test_app().await else {
@@ -193,4 +255,292 @@ async fn test_admin_flow() {
         println!("Rooms list failed: {:?}", String::from_utf8_lossy(&body));
         panic!("Rooms list failed with status {:?}", status);
     }
+}
+
+#[tokio::test]
+async fn test_worker_admin_routes_reject_regular_user_but_allow_authenticated_claim() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let user_token = create_test_user(&app).await;
+    let worker_id = format!("worker-{}", rand::random::<u32>());
+
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/worker/v1/register")
+        .header("Authorization", format!("Bearer {}", user_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "worker_id": worker_id,
+                "worker_name": "HTTP Test Worker",
+                "worker_type": "frontend",
+                "host": "127.0.0.1",
+                "port": 9001
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 10240)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(json["error"], "Admin access required");
+
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/worker/v1/register")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "worker_id": worker_id,
+                "worker_name": "HTTP Test Worker",
+                "worker_type": "frontend",
+                "host": "127.0.0.1",
+                "port": 9001
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let assign_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/worker/v1/tasks")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "task_type": "sync",
+                "task_data": { "job": "http-claim" },
+                "preferred_worker_id": Value::Null
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), assign_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let claim_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/worker/v1/tasks/claim/{}", worker_id))
+        .header("Authorization", format!("Bearer {}", user_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), claim_request)
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 10240)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["assigned_worker_id"], worker_id);
+    assert_eq!(json["status"], "running");
+}
+
+#[tokio::test]
+async fn test_worker_claim_route_is_atomic_over_http() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let user_token = create_test_user(&app).await;
+    let worker_one = format!("worker-a-{}", rand::random::<u32>());
+    let worker_two = format!("worker-b-{}", rand::random::<u32>());
+
+    for worker_id in [&worker_one, &worker_two] {
+        let register_request = Request::builder()
+            .method("POST")
+            .uri("/_synapse/worker/v1/register")
+            .header("Authorization", format!("Bearer {}", admin_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "worker_id": worker_id,
+                    "worker_name": format!("Worker {}", worker_id),
+                    "worker_type": "frontend",
+                    "host": "127.0.0.1",
+                    "port": 9001
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    let assign_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/worker/v1/tasks")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "task_type": "sync",
+                "task_data": { "job": "atomic-http-claim" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), assign_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = axum::body::to_bytes(response.into_body(), 10240)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let task_id = json["task_id"].as_str().unwrap().to_string();
+
+    let request_one = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_synapse/worker/v1/tasks/{}/claim/{}",
+            task_id, worker_one
+        ))
+        .header("Authorization", format!("Bearer {}", user_token))
+        .body(Body::empty())
+        .unwrap();
+    let request_two = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_synapse/worker/v1/tasks/{}/claim/{}",
+            task_id, worker_two
+        ))
+        .header("Authorization", format!("Bearer {}", user_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let (response_one, response_two) = tokio::join!(
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), request_one),
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), request_two),
+    );
+
+    let response_one = response_one.unwrap();
+    let response_two = response_two.unwrap();
+    let statuses = [response_one.status(), response_two.status()];
+
+    assert!(statuses.contains(&StatusCode::OK));
+    assert!(statuses.contains(&StatusCode::CONFLICT));
+}
+
+#[tokio::test]
+async fn test_telemetry_routes_require_admin_permissions() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let user_token = create_test_user(&app).await;
+
+    let request = Request::builder()
+        .uri("/_synapse/admin/v1/telemetry/status")
+        .header("Authorization", format!("Bearer {}", user_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let request = Request::builder()
+        .uri("/_synapse/admin/v1/telemetry/status")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_csrf_protects_admin_post_routes() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let worker_id = format!("csrf-worker-{}", rand::random::<u32>());
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/worker/v1/register")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .header("Origin", "https://localhost")
+        .header("X-Forwarded-Host", "localhost")
+        .header("X-Forwarded-Proto", "https")
+        .body(Body::from(
+            json!({
+                "worker_id": worker_id,
+                "worker_name": "CSRF Worker",
+                "worker_type": "frontend",
+                "host": "127.0.0.1",
+                "port": 9101
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 10240)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(json["error"], "Missing or invalid CSRF token");
+
+    let csrf_token = get_csrf_token(&app, &admin_token).await;
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/worker/v1/register")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .header("Origin", "https://localhost")
+        .header("X-Forwarded-Host", "localhost")
+        .header("X-Forwarded-Proto", "https")
+        .header("X-CSRF-Token", csrf_token)
+        .body(Body::from(
+            json!({
+                "worker_id": worker_id,
+                "worker_name": "CSRF Worker",
+                "worker_type": "frontend",
+                "host": "127.0.0.1",
+                "port": 9101
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
 }

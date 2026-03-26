@@ -49,7 +49,7 @@ fn test_room_summary_response() {
 // Test 4: User summaries response
 #[test]
 fn test_user_summaries_response() {
-    let summaries = vec![
+    let summaries = [
         json!({
             "room_id": "!room1:localhost",
             "membership": "join"
@@ -67,7 +67,7 @@ fn test_user_summaries_response() {
 // Test 5: Room members response
 #[test]
 fn test_room_members_response() {
-    let members = vec![
+    let members = [
         json!({
             "user_id": "@user1:localhost",
             "display_name": "User 1",
@@ -98,7 +98,7 @@ fn test_membership_validation() {
 // Test 7: Room state response
 #[test]
 fn test_room_state_response() {
-    let state = vec![
+    let state = [
         json!({
             "type": "m.room.create",
             "state_key": "",

@@ -34,7 +34,7 @@ api_smoke_test:
 deploy_production:
   stage: deploy
   script:
-    - ansible-playbook - i inventory.ini deploy.yml -e "nginx_image=$NGINX_IMAGE:$CI_COMMIT_SHA"
+    - ansible-playbook -i inventory.ini deploy.yml -e "nginx_image=$NGINX_IMAGE:$CI_COMMIT_SHA"
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
 

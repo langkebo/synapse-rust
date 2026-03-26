@@ -1,7 +1,6 @@
 use crate::common::error::ApiError;
 use crate::services::telemetry_service::{ExportConfig, TelemetryService};
-use crate::web::routes::AppState;
-use crate::web::routes::AuthenticatedUser;
+use crate::web::routes::{AdminUser, AppState};
 use axum::{extract::State, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -61,7 +60,7 @@ pub struct MetricsSummaryResponse {
 
 pub async fn get_status(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let config = &state.services.config.telemetry;
     let prometheus = &state.services.config.prometheus;
@@ -84,7 +83,7 @@ pub async fn get_status(
 
 pub async fn get_resource_attributes(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let config = &state.services.config.telemetry;
     let prometheus = &state.services.config.prometheus;
@@ -101,7 +100,7 @@ pub async fn get_resource_attributes(
 
 pub async fn get_metrics_summary(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let _config = &state.services.config.telemetry;
 
@@ -116,7 +115,10 @@ pub async fn get_metrics_summary(
     Ok(Json(response))
 }
 
-pub async fn health_check(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+pub async fn health_check(
+    State(state): State<AppState>,
+    _admin_user: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
     let config = &state.services.config.telemetry;
     let prometheus = &state.services.config.prometheus;
 

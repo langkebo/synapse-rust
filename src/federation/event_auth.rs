@@ -1238,7 +1238,7 @@ mod tests {
         let result = chain.build_auth_chain_with_cache(&events, "$create").await;
 
         // Should return auth chain (includes $create as it's auth event)
-        assert!(result.len() >= 1);
+        assert!(!result.is_empty());
     }
 
     #[tokio::test]
