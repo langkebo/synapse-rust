@@ -74,6 +74,9 @@ pub struct CircuitBreaker {
     successful_requests: AtomicU64,
     failed_requests: AtomicU64,
     rejected_requests: AtomicU64,
+    last_open_log: RwLock<Option<Instant>>,
+    last_half_open_log: RwLock<Option<Instant>>,
+    last_close_log: RwLock<Option<Instant>>,
 }
 
 impl std::fmt::Debug for CircuitBreaker {
@@ -117,6 +120,9 @@ impl CircuitBreaker {
             failed_requests: AtomicU64::new(0),
             rejected_requests: AtomicU64::new(0),
             config,
+            last_open_log: RwLock::new(None),
+            last_half_open_log: RwLock::new(None),
+            last_close_log: RwLock::new(None),
         }
     }
 
@@ -214,10 +220,28 @@ impl CircuitBreaker {
             metrics.state_transitions += 1;
             metrics.last_state_change = Some(Instant::now());
 
-            tracing::warn!(
-                target: "circuit_breaker",
-                "Circuit breaker opened due to failure threshold reached"
-            );
+            let should_log = {
+                let mut last_log = self.last_open_log.write();
+                let now = Instant::now();
+                if let Some(last) = *last_log {
+                    if now.duration_since(last) < Duration::from_secs(60) {
+                        false
+                    } else {
+                        *last_log = Some(now);
+                        true
+                    }
+                } else {
+                    *last_log = Some(now);
+                    true
+                }
+            };
+
+            if should_log {
+                tracing::warn!(
+                    target: "circuit_breaker",
+                    "Circuit breaker opened due to failure threshold reached"
+                );
+            }
         }
     }
 
@@ -234,10 +258,28 @@ impl CircuitBreaker {
             metrics.state_transitions += 1;
             metrics.last_state_change = Some(Instant::now());
 
-            tracing::info!(
-                target: "circuit_breaker",
-                "Circuit breaker transitioned to half-open state"
-            );
+            let should_log = {
+                let mut last_log = self.last_half_open_log.write();
+                let now = Instant::now();
+                if let Some(last) = *last_log {
+                    if now.duration_since(last) < Duration::from_secs(60) {
+                        false
+                    } else {
+                        *last_log = Some(now);
+                        true
+                    }
+                } else {
+                    *last_log = Some(now);
+                    true
+                }
+            };
+
+            if should_log {
+                tracing::info!(
+                    target: "circuit_breaker",
+                    "Circuit breaker transitioned to half-open state"
+                );
+            }
         }
     }
 
@@ -254,10 +296,28 @@ impl CircuitBreaker {
             metrics.state_transitions += 1;
             metrics.last_state_change = Some(Instant::now());
 
-            tracing::info!(
-                target: "circuit_breaker",
-                "Circuit breaker closed - service recovered"
-            );
+            let should_log = {
+                let mut last_log = self.last_close_log.write();
+                let now = Instant::now();
+                if let Some(last) = *last_log {
+                    if now.duration_since(last) < Duration::from_secs(60) {
+                        false
+                    } else {
+                        *last_log = Some(now);
+                        true
+                    }
+                } else {
+                    *last_log = Some(now);
+                    true
+                }
+            };
+
+            if should_log {
+                tracing::info!(
+                    target: "circuit_breaker",
+                    "Circuit breaker closed - service recovered"
+                );
+            }
         }
     }
 
