@@ -1,22 +1,23 @@
 # PostgreSQL 数据库审查报告
 
-> **审查日期**: 2026-03-21
+> **审查日期**: 2026-03-26
 > **数据库**: synapse
-> **数据库大小**: 17 MB
-> **表数量**: 154
+> **数据库大小**: ~17 MB
+> **表数量**: 137 (基础 Schema)
 
 ---
 
 ## 一、执行摘要
 
-本次审查使用 `postgres-expert` 技能中的诊断方法，对 synapse-rust 项目数据库进行全面检查。
+本次审查对 synapse-rust 项目数据库进行全面检查，包括表结构、字段命名、代码与 Schema 一致性等。
 
 ### 问题统计
 
 | 严重程度 | 数量 | 说明 |
 |----------|------|------|
-| 🟢 良好 | - | 数据库命名规范正确 |
-| 🟡 建议 | 1 | 性能优化建议 |
+| 🔴 关键 | 4 | 表结构与代码不一致 |
+| 🟡 建议 | 3 | 性能优化建议 |
+| 🟢 良好 | - | 其他检查项正常 |
 
 ---
 
@@ -36,14 +37,25 @@
 ### 2.2 验证结果
 
 ✅ **以下命名正确**:
-- `expires_at` - 过期时间（11 处）
+- `expires_at` - 过期时间
 - `created_ts` - 创建时间
 - `updated_ts` - 更新时间
-- `is_revoked` - 布尔标志（access_tokens, refresh_tokens, token_blacklist）
+- `is_revoked` - 布尔标志
 
 ---
 
 ## 三、已修复的问题 ✅
+
+### 3.1 2026-03-26 修复
+
+| 问题 | 严重程度 | 修复日期 | 状态 |
+|------|----------|----------|------|
+| `blocked_rooms` 表缺失 | 🔴 关键 | 2026-03-26 | ✅ 已修复 |
+| `typing.is_typing` → `typing.typing` | 🔴 关键 | 2026-03-26 | ✅ 已修复 |
+| `room_directory.added_ts` 未设置 | 🔴 关键 | 2026-03-26 | ✅ 已修复 |
+| `admin/room.rs` INSERT 语句错误 | 🔴 关键 | 2026-03-26 | ✅ 已修复 |
+
+### 3.2 历史修复
 
 | 问题 | 修复日期 | 状态 |
 |------|----------|------|
@@ -78,28 +90,74 @@
 | push_notification_queue | processed_at | ✅ (时间戳) |
 | voice_messages | processed_at | ✅ (时间戳) |
 
-### 4.2 时间戳字段验证
+### 4.2 关键表定义验证
 
-以下 `_at` 后缀字段表示时间点，符合规范：
-
-| 表名 | 字段 | 说明 |
-|------|------|------|
-| push_notification_queue | processed_at | 处理完成时间点 |
-| voice_messages | processed_at | 处理完成时间点 |
-
-### 4.3 布尔标志字段验证
-
-| 表名 | 字段 | 状态 |
-|------|------|------|
-| access_tokens | is_revoked | ✅ |
-| refresh_tokens | is_revoked | ✅ |
-| token_blacklist | is_revoked | ✅ |
+| 表名 | 关键字段 | 状态 |
+|------|----------|------|
+| db_metadata | created_ts, updated_ts | ✅ |
+| room_directory | room_id, is_public, added_ts | ✅ |
+| blocked_rooms | room_id, blocked_at, blocked_by, reason | ✅ |
+| typing | user_id, room_id, typing, last_active_ts | ✅ |
+| presence | user_id, presence, status_msg, created_ts, updated_ts | ✅ |
+| room_memberships | user_id, room_id, membership, joined_ts | ✅ |
 
 ---
 
-## 五、优化建议 🟡
+## 五、代码与 Schema 一致性检查 ✅
 
-### 5.1 性能优化
+### 5.1 INSERT 语句验证
+
+| 表名 | 代码位置 | 字段匹配 | 状态 |
+|------|----------|----------|------|
+| rooms | storage/room.rs:85 | ✅ 完整 | ✅ |
+| room_aliases | storage/room.rs:450 | ✅ 完整 | ✅ |
+| room_directory | storage/room.rs:600 | ✅ 已修复 added_ts | ✅ |
+| room_directory | admin/room.rs:1005 | ✅ 已修复 | ✅ |
+| room_account_data | storage/room.rs:635 | ✅ 完整 | ✅ |
+| read_markers | storage/room.rs:658,684 | ✅ 完整 | ✅ |
+| event_receipts | storage/room.rs:753 | ✅ 完整 | ✅ |
+| blocked_rooms | admin/room.rs:349 | ✅ 完整 | ✅ |
+| user_threepids | mod.rs:2183 | ✅ 完整 | ✅ |
+| presence | services/mod.rs:823 | ✅ 完整 | ✅ |
+| typing | services/mod.rs:866 | ✅ 已修复 typing 列名 | ✅ |
+| event_relations | storage/relations.rs:66 | ✅ 完整 | ✅ |
+| reaction_aggregations | reactions.rs:105 | ✅ 完整 | ✅ |
+| pushers | push.rs:191 | ✅ 完整 | ✅ |
+| push_rules | push.rs:358,406 | ✅ 完整 | ✅ |
+
+### 5.2 迁移脚本索引
+
+| 检查项 | 状态 |
+|--------|------|
+| 主 Schema 表定义完整 | ✅ 137 表 |
+| blocked_rooms 表已添加 | ✅ |
+| 索引定义正确 | ✅ |
+| IF NOT EXISTS 幂等性 | ✅ |
+
+---
+
+## 六、关键代码变更记录 🟡
+
+### 6.1 双端口监听支持
+
+| 文件 | 变更 |
+|------|------|
+| `server.rs` | 新增 `federation_address` 字段，使用 `tokio::spawn` 并行启动 Client API (8008) 和 Federation API (8448) |
+
+### 6.2 数据库 INSERT 修复
+
+| 文件 | 行号 | 修复内容 |
+|------|------|----------|
+| `admin/room.rs` | 1003-1010 | 修复 room_directory INSERT 添加 added_ts，修正列名 visibility → is_public |
+| `storage/room.rs` | 592-609 | 修复 room_directory INSERT 添加 added_ts |
+| `services/mod.rs` | 864-876 | 修复 typing INSERT 列名 is_typing → typing |
+| `00000000_unified_schema_v6.sql` | 1816-1827 | 添加 blocked_rooms 表定义 |
+
+---
+
+## 七、优化建议 🟡
+
+### 7.1 性能优化
 
 1. **定期 VACUUM**
    ```sql
@@ -116,54 +174,67 @@
 
 ---
 
-## 六、数据库健康状态 🟢
+## 八、数据库健康状态 🟢
 
 | 指标 | 值 | 状态 |
 |------|------|------|
-| 数据库大小 | 17 MB | ✅ 正常 |
-| 表数量 | 154 | ✅ 正常 |
-| 索引数量 | 474 | ✅ 正常 |
+| 数据库大小 | ~17 MB | ✅ 正常 |
+| 表数量 | 137 | ✅ 正常 |
+| 索引数量 | 474+ | ✅ 正常 |
 | 命名规范 | 正确 | ✅ 符合 SKILL.md |
+| 代码一致性 | 正确 | ✅ 已修复 |
 
 ---
 
-## 七、迁移脚本整合 ✅
+## 九、迁移脚本整合 ✅
 
 为简化部署流程，已将所有增量迁移整合到统一脚本中：
 
 | 脚本 | 描述 |
 |------|------|
-| `00000000_unified_schema_v6.sql` | 基础数据库 Schema |
-| `UNIFIED_MIGRATION_v1.sql` | 综合迁移（整合所有增量迁移） |
+| `00000000_unified_schema_v6.sql` | 基础数据库 Schema (包含 blocked_rooms 表) |
+| `99999999_unified_incremental_migration.sql` | 综合增量迁移 |
 
 ### 部署命令
 
 ```bash
 # 新环境
 psql -U synapse -d synapse -f migrations/00000000_unified_schema_v6.sql
-psql -U synapse -d synapse -f migrations/UNIFIED_MIGRATION_v1.sql
+psql -U synapse -d synapse -f migrations/99999999_unified_incremental_migration.sql
 
 # 现有环境升级
-psql -U synapse -d synapse -f migrations/UNIFIED_MIGRATION_v1.sql
+psql -U synapse -d synapse -f migrations/99999999_unified_incremental_migration.sql
 ```
 
 ---
 
-## 八、结论
+## 十、结论
 
 数据库审查结果：**通过 ✅**
 
 1. 命名规范符合 SKILL.md
 2. 之前发现的关键问题已全部修复
 3. 表结构完整，索引正常
-4. 数据库健康状态良好
+4. 代码与 Schema 一致性检查通过
 5. 迁移脚本已整合，部署更简便
-
-无需进行大规模迁移或修复。
+6. 双端口监听架构已实现
 
 ---
 
-*报告生成时间: 2026-03-21*
-*最后更新: 2026-03-21 (revoked_at → is_revoked 优化完成)*
+## 附录：相关文档
+
+| 文档 | 说明 |
+|------|------|
+| `sql_table_inventory.md` | SQL 表清单 (137 表) |
+| `rust_table_inventory.md` | Rust 动态创建表清单 (21 表) |
+| `rust_model_inventory.md` | Rust 模型清单 (51 模型) |
+| `FIELD_MAPPING_REPORT.md` | 字段映射报告 |
+| `COMPLETION_REPORT.md` | 完成报告 |
+| `VERIFICATION_CHECKLIST.md` | 验收清单 |
+
+---
+
+*报告生成时间: 2026-03-26*
+*最后更新: 2026-03-26 (blocked_rooms 表缺失、typing 列名不一致、room_directory.added_ts 未设置、双端口监听 已修复)*
 *使用工具: postgres-expert SKILL.md*
 *维护者: HuLa Team*

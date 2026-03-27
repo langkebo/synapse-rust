@@ -316,6 +316,95 @@ impl MetricsCollector {
 
         metrics
     }
+
+    pub fn to_prometheus_format(&self) -> String {
+        let mut output = String::new();
+
+        let counters = self.counters.lock();
+        for counter in counters.values() {
+            output.push_str(&format!("# HELP {} {}\n", counter.name, counter.name));
+            output.push_str(&format!("# TYPE {} counter\n", counter.name));
+            if counter.labels.is_empty() {
+                output.push_str(&format!("{} {}\n", counter.name, counter.get()));
+            } else {
+                let labels: Vec<String> = counter
+                    .labels
+                    .iter()
+                    .map(|(k, v)| format!("{}=\"{}\"", k, v))
+                    .collect();
+                output.push_str(&format!(
+                    "{}{{{}}} {}\n",
+                    counter.name,
+                    labels.join(","),
+                    counter.get()
+                ));
+            }
+        }
+
+        let gauges = self.gauges.lock();
+        for gauge in gauges.values() {
+            output.push_str(&format!("# HELP {} {}\n", gauge.name, gauge.name));
+            output.push_str(&format!("# TYPE {} gauge\n", gauge.name));
+            if gauge.labels.is_empty() {
+                output.push_str(&format!("{} {}\n", gauge.name, gauge.get()));
+            } else {
+                let labels: Vec<String> = gauge
+                    .labels
+                    .iter()
+                    .map(|(k, v)| format!("{}=\"{}\"", k, v))
+                    .collect();
+                output.push_str(&format!(
+                    "{}{{{}}} {}\n",
+                    gauge.name,
+                    labels.join(","),
+                    gauge.get()
+                ));
+            }
+        }
+
+        let histograms = self.histograms.lock();
+        for histogram in histograms.values() {
+            let count_name = format!("{}_count", histogram.name);
+            output.push_str(&format!("# HELP {} {}\n", count_name, count_name));
+            output.push_str(&format!("# TYPE {} counter\n", count_name));
+            if histogram.labels.is_empty() {
+                output.push_str(&format!("{} {}\n", count_name, histogram.get_count()));
+            } else {
+                let labels: Vec<String> = histogram
+                    .labels
+                    .iter()
+                    .map(|(k, v)| format!("{}=\"{}\"", k, v))
+                    .collect();
+                output.push_str(&format!(
+                    "{}{{{}}} {}\n",
+                    count_name,
+                    labels.join(","),
+                    histogram.get_count()
+                ));
+            }
+
+            let sum_name = format!("{}_sum", histogram.name);
+            output.push_str(&format!("# HELP {} {}\n", sum_name, sum_name));
+            output.push_str(&format!("# TYPE {} counter\n", sum_name));
+            if histogram.labels.is_empty() {
+                output.push_str(&format!("{} {}\n", sum_name, histogram.get_sum()));
+            } else {
+                let labels: Vec<String> = histogram
+                    .labels
+                    .iter()
+                    .map(|(k, v)| format!("{}=\"{}\"", k, v))
+                    .collect();
+                output.push_str(&format!(
+                    "{}{{{}}} {}\n",
+                    sum_name,
+                    labels.join(","),
+                    histogram.get_sum()
+                ));
+            }
+        }
+
+        output
+    }
 }
 
 impl Default for MetricsCollector {

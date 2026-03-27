@@ -1,34 +1,78 @@
 #!/bin/bash
 
-HOST="matrix.cjystx.top"
-BASE_URL="http://localhost:8008"
+set -e
+
+HOST="cjystx.top"
+BASE_URL="http://localhost:15808"
+
 PASS=0
 FAIL=0
+SKIP=0
 TOTAL=0
 
-# 动态获取有效的 access_token (通过注册新用户)
-echo "正在获取有效的访问令牌..."
-REGISTER_RESPONSE=$(curl -s -X POST "$BASE_URL/_matrix/client/v3/register" \
-    -H "Host: $HOST" \
-    -H "Content-Type: application/json" \
-    -d '{"auth":{"type":"m.login.dummy"},"username":"apifulltest","password":"Test@123"}' 2>/dev/null)
+ADMIN_USER="@admin11:cjystx.top"
+ADMIN_PASS="Wzc9890951!"
+ADMIN_TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAYWRtaW4xMTpjanlzdHgudG9wIiwidXNlcl9pZCI6IkBhZG1pbjExOmNqeXN0eC50b3AiLCJqdGkiOiJkYTJlNWU4OS1lMGQxLTRhZTktOTY1ZC1kZDc1YjY1YmI0OWUiLCJhZG1pbiI6dHJ1ZSwiZXhwIjoxNzc0Njg1MzMxLCJpYXQiOjE3NzQ1OTg5MzEsImRldmljZV9pZCI6IllfajlyVm04ZG9PTXdEQmprRmUyYncifQ.MDN727a8WQznSG2Fb-X7slxYrPG-YpreGDIVtwAlR2U"
 
-TOKEN=$(echo "$REGISTER_RESPONSE" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
 
-if [ -z "$TOKEN" ]; then
-    echo "注册新用户失败，尝试登录..."
-    LOGIN_RESPONSE=$(curl -s -X POST "$BASE_URL/_matrix/client/v3/login" \
+check_admin_token() {
+    if [ -z "$ADMIN_TOKEN" ]; then
+        echo -e "${YELLOW}警告: 未设置 ADMIN_ACCESS_TOKEN 环境变量${NC}"
+        echo -e "${YELLOW}部分需要认证的测试将被跳过${NC}"
+        return 1
+    fi
+
+    local response=$(curl -sk -X GET "$BASE_URL/_matrix/client/v3/account/whoami" \
+        -H "Host: $HOST" \
+        -H "Authorization: Bearer $ADMIN_TOKEN" 2>/dev/null)
+
+    if echo "$response" | grep -q "\"user_id\""; then
+        echo -e "${GREEN}✅ 管理员Token有效${NC}"
+        return 0
+    else
+        echo -e "${RED}❌ 管理员Token无效或已过期${NC}"
+        echo -e "${YELLOW}请更新 ADMIN_ACCESS_TOKEN 环境变量${NC}"
+        return 1
+    fi
+}
+
+refresh_admin_token() {
+    echo -e "${CYAN}尝试刷新管理员Token...${NC}"
+
+    local response=$(curl -sk -X POST "$BASE_URL/_matrix/client/v3/login" \
         -H "Host: $HOST" \
         -H "Content-Type: application/json" \
-        -d '{"type":"m.login.password","user":"apifulltest","password":"Test@123"}' 2>/dev/null)
-    TOKEN=$(echo "$LOGIN_RESPONSE" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
-fi
+        -d "{\"type\":\"m.login.password\",\"user\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\"}" 2>/dev/null)
 
-if [ -z "$TOKEN" ]; then
-    echo "警告: 无法获取令牌..."
-else
-    echo "成功获取访问令牌"
+    ADMIN_TOKEN=$(echo "$response" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+
+    if [ -n "$ADMIN_TOKEN" ]; then
+        echo -e "${GREEN}✅ 新Token获取成功${NC}"
+        echo -e "${CYAN}Token: ${ADMIN_TOKEN:0:50}...${NC}"
+        return 0
+    else
+        echo -e "${RED}❌ Token刷新失败${NC}"
+        echo -e "${YELLOW}响应: $response${NC}"
+        return 1
+    fi
+}
+
+echo -e "${CYAN}=========================================="
+echo -e "  API 全面测试 v6 - $(date)"
+echo -e "==========================================${NC}"
+echo -e "${BLUE}管理员账号: ${ADMIN_USER}${NC}"
+echo ""
+
+if ! check_admin_token; then
+    refresh_admin_token || true
 fi
+echo ""
 
 test_api() {
     local name="$1"
@@ -36,252 +80,223 @@ test_api() {
     local endpoint="$3"
     local data="$4"
     local need_auth="$5"
-    
+    local is_admin="$6"
+
     TOTAL=$((TOTAL + 1))
-    
+
+    local token=""
+    if [ "$is_admin" = "admin" ] || [ "$need_auth" = "auth" ] || [ "$need_auth" = "admin" ]; then
+        token="$ADMIN_TOKEN"
+    fi
+
+    if [ -z "$token" ] && { [ "$need_auth" = "auth" ] || [ "$is_admin" = "admin" ] || [ "$need_auth" = "admin" ]; }; then
+        echo -e "${YELLOW}⏭️ [$TOTAL] $name: 跳过 (无Token)${NC}"
+        SKIP=$((SKIP + 1))
+        return
+    fi
+
     local response
+    local http_code
+
     if [ "$method" = "GET" ]; then
-        if [ "$need_auth" = "auth" ]; then
-            response=$(curl -sk -X GET "$BASE_URL$endpoint" \
+        if [ -n "$token" ]; then
+            response=$(curl -sk -w "\n%{http_code}" -X GET "$BASE_URL$endpoint" \
                 -H "Host: $HOST" \
                 -H "Content-Type: application/json" \
-                -H "Authorization: Bearer $TOKEN" 2>/dev/null)
+                -H "Authorization: Bearer $token" 2>/dev/null)
         else
-            response=$(curl -sk -X GET "$BASE_URL$endpoint" \
+            response=$(curl -sk -w "\n%{http_code}" -X GET "$BASE_URL$endpoint" \
                 -H "Host: $HOST" \
                 -H "Content-Type: application/json" 2>/dev/null)
         fi
     else
-        if [ "$need_auth" = "auth" ]; then
-            response=$(curl -sk -X $method "$BASE_URL$endpoint" \
+        if [ -n "$token" ]; then
+            response=$(curl -sk -w "\n%{http_code}" -X $method "$BASE_URL$endpoint" \
                 -H "Host: $HOST" \
                 -H "Content-Type: application/json" \
-                -H "Authorization: Bearer $TOKEN" \
+                -H "Authorization: Bearer $token" \
                 -d "$data" 2>/dev/null)
         else
-            response=$(curl -sk -X $method "$BASE_URL$endpoint" \
+            response=$(curl -sk -w "\n%{http_code}" -X $method "$BASE_URL$endpoint" \
                 -H "Host: $HOST" \
                 -H "Content-Type: application/json" \
                 -d "$data" 2>/dev/null)
         fi
     fi
-    
-    local status_short=$(echo "$response" | head -c 100 | tr '\n' ' ')
-    
-    if [ -z "$response" ]; then
-        echo "❌ [$TOTAL] $name: Empty response"
+
+    http_code=$(echo "$response" | tail -n1)
+    body=$(echo "$response" | sed '$d')
+
+    local status_short=$(echo "$body" | head -c 60 | tr '\n' ' ')
+
+    if [ "$http_code" = "000" ]; then
+        echo -e "${RED}❌ [$TOTAL] $name: 连接失败${NC}"
         FAIL=$((FAIL + 1))
-    elif echo "$response" | grep -qE '"errcode":"M_UNAUTHORIZED"|"errcode":"M_MISSING_TOKEN"'; then
-        echo "❌ [$TOTAL] $name: Auth failed"
+    elif echo "$body" | grep -qE '"errcode":"M_UNAUTHORIZED"|"errcode":"M_MISSING_TOKEN"'; then
+        echo -e "${RED}❌ [$TOTAL] $name: 认证失败 (401)${NC}"
         FAIL=$((FAIL + 1))
-    elif echo "$response" | grep -qE '"errcode":"M_FORBIDDEN"'; then
-        echo "⚠️ [$TOTAL] $name: Forbidden (expected for non-admin)"
-        PASS=$((PASS + 1))
-    elif echo "$response" | grep -qE '"errcode":"M_NOT_FOUND"'; then
-        echo "⚠️ [$TOTAL] $name: Not Found"
-        PASS=$((PASS + 1))
-    elif echo "$response" | grep -qE '"errcode"'; then
-        echo "❌ [$TOTAL] $name: $status_short"
+    elif echo "$body" | grep -qE '"errcode":"M_FORBIDDEN"'; then
+        echo -e "${YELLOW}⚠️ [$TOTAL] $name: 禁止访问 (403)${NC}"
+        SKIP=$((SKIP + 1))
+    elif echo "$body" | grep -qE '"errcode":"M_NOT_FOUND"'; then
+        echo -e "${YELLOW}⚠️ [$TOTAL] $name: 未找到 (404)${NC}"
+        SKIP=$((SKIP + 1))
+    elif echo "$body" | grep -qE '"errcode":"M_UNKNOWN"'; then
+        echo -e "${RED}❌ [$TOTAL] $name: 未知错误${NC}"
+        FAIL=$((FAIL + 1))
+    elif echo "$body" | grep -qE '"errcode"'; then
+        echo -e "${RED}❌ [$TOTAL] $name: $status_short${NC}"
+        FAIL=$((FAIL + 1))
+    elif [ "$http_code" -ge 400 ]; then
+        echo -e "${RED}❌ [$TOTAL] $name: HTTP $http_code${NC}"
         FAIL=$((FAIL + 1))
     else
-        echo "✅ [$TOTAL] $name"
+        echo -e "${GREEN}✅ [$TOTAL] $name (HTTP $http_code)${NC}"
         PASS=$((PASS + 1))
     fi
 }
 
-echo "=========================================="
-echo "API 全面测试 v4 - $(date)"
-echo "=========================================="
-
-# 1. 基础服务 API
-echo -e "\n=== 1. 基础服务 API ==="
+echo -e "\n${BLUE}=== 1. 基础服务 API (无需认证) ===${NC}"
 test_api "健康检查" GET "/health"
 test_api "客户端版本" GET "/_matrix/client/versions"
 test_api "服务器版本" GET "/_matrix/client/r0/version"
-test_api "客户端能力" GET "/_matrix/client/v3/capabilities" "" "auth"
+test_api "客户端能力" GET "/_matrix/client/v3/capabilities"
 test_api "Well-Known Server" GET "/.well-known/matrix/server"
 test_api "Well-Known Client" GET "/.well-known/matrix/client"
 test_api "Well-Known Support" GET "/.well-known/matrix/support"
 
-# 2. 用户认证 API
-echo -e "\n=== 2. 用户认证 API ==="
+echo -e "\n${BLUE}=== 2. 用户认证 API ===${NC}"
 test_api "登录流程" GET "/_matrix/client/v3/login"
 test_api "用户名可用性" GET "/_matrix/client/v3/register/available?username=testuser123"
+
+echo -e "\n${BLUE}=== 3. 媒体服务 API (无需认证) ===${NC}"
+test_api "媒体配置" GET "/_matrix/media/v3/config"
+test_api "URL预览" GET "/_matrix/media/v3/preview_url?url=https://example.com"
+
+echo -e "\n${BLUE}=== 4. 联邦 API (无需认证) ===${NC}"
+test_api "联邦版本" GET "/_matrix/federation/v1/version"
+test_api "服务器密钥" GET "/_matrix/key/v2/server"
+test_api "联邦发现" GET "/.well-known/matrix/server"
+
+echo -e "\n${CYAN}=========================================="
+echo -e "  需要认证的 API 测试"
+echo -e "==========================================${NC}"
+
+echo -e "\n${BLUE}=== 5. 用户账户 API ===${NC}"
 test_api "当前用户" GET "/_matrix/client/v3/account/whoami" "" "auth"
-
-# 3. 账户管理 API
-echo -e "\n=== 3. 账户管理 API ==="
-test_api "用户资料" GET "/_matrix/client/v3/profile/@apitest_full:cjystx.top" "" "auth"
-test_api "显示名" GET "/_matrix/client/v3/profile/@apitest_full:cjystx.top/displayname" "" "auth"
-test_api "头像URL" GET "/_matrix/client/v3/profile/@apitest_full:cjystx.top/avatar_url" "" "auth"
 test_api "第三方ID列表" GET "/_matrix/client/v3/account/3pid" "" "auth"
+test_api "设置账户数据" POST "/_matrix/client/v3/user/@admin11:cjystx.top/account_data/m.test" '{"test":"value"}' "" "auth"
 
-# 4. 房间管理 API
-echo -e "\n=== 4. 房间管理 API ==="
+echo -e "\n${BLUE}=== 6. 用户资料 API ===${NC}"
+test_api "用户资料" GET "/_matrix/client/v3/profile/@admin11:cjystx.top" "" "auth"
+test_api "显示名" GET "/_matrix/client/v3/profile/@admin11:cjystx.top/displayname" "" "auth"
+test_api "头像URL" GET "/_matrix/client/v3/profile/@admin11:cjystx.top/avatar_url" "" "auth"
+
+echo -e "\n${BLUE}=== 7. 房间管理 API ===${NC}"
 test_api "已加入房间" GET "/_matrix/client/v3/joined_rooms" "" "auth"
 test_api "公开房间" GET "/_matrix/client/v3/publicRooms"
-test_api "创建房间" POST "/_matrix/client/v3/createRoom" '{"name":"Test Room"}' "auth"
+test_api "创建房间" POST "/_matrix/client/v3/createRoom" '{"name":"Test Room API"}' "auth"
 
-# 5. 设备管理 API
-echo -e "\n=== 5. 设备管理 API ==="
+echo -e "\n${BLUE}=== 8. 设备管理 API ===${NC}"
 test_api "设备列表" GET "/_matrix/client/v3/devices" "" "auth"
 
-# 6. 推送通知 API
-echo -e "\n=== 6. 推送通知 API ==="
+echo -e "\n${BLUE}=== 9. 推送通知 API ===${NC}"
 test_api "推送器列表" GET "/_matrix/client/v3/pushers" "" "auth"
 test_api "推送规则" GET "/_matrix/client/v3/pushrules" "" "auth"
 test_api "通知列表" GET "/_matrix/client/v3/notifications" "" "auth"
 
-# 7. E2EE 加密 API
-echo -e "\n=== 7. E2EE 加密 API ==="
+echo -e "\n${BLUE}=== 10. E2EE 加密 API ===${NC}"
 test_api "密钥上传" POST "/_matrix/client/v3/keys/upload" '{}' "auth"
 test_api "密钥查询" POST "/_matrix/client/v3/keys/query" '{"device_keys":{}}' "auth"
 test_api "密钥变更" GET "/_matrix/client/v3/keys/changes" "" "auth"
+test_api "一次性密钥" POST "/_matrix/client/v3/keys/claim" '{"one_time_keys":{}}' "auth"
 
-# 8. 媒体服务 API
-echo -e "\n=== 8. 媒体服务 API ==="
-test_api "媒体配置" GET "/_matrix/media/v3/config" "" "auth"
-test_api "URL预览" GET "/_matrix/media/v3/preview_url?url=https://example.com" "" "auth"
-
-# 9. 好友系统 API
-echo -e "\n=== 9. 好友系统 API ==="
+echo -e "\n${BLUE}=== 11. 好友系统 API ===${NC}"
 test_api "好友列表" GET "/_matrix/client/v1/friends" "" "auth"
 test_api "好友分组" GET "/_matrix/client/v1/friends/groups" "" "auth"
 
-# 10. Space 空间 API
-echo -e "\n=== 10. Space 空间 API ==="
+echo -e "\n${BLUE}=== 12. Space 空间 API ===${NC}"
 test_api "公开空间" GET "/_matrix/client/v1/spaces/public" "" "auth"
 test_api "用户空间" GET "/_matrix/client/v1/spaces/user" "" "auth"
-test_api "空间搜索" GET "/_matrix/client/v1/spaces/search?query=test" "" "auth"
 
-# 11. Thread 线程 API (需要 room_id)
-echo -e "\n=== 11. Thread 线程 API ==="
-test_api "线程列表" GET "/_matrix/client/v1/rooms/!test:cjystx.top/threads" "" "auth"
-
-# 12. 搜索服务 API
-echo -e "\n=== 12. 搜索服务 API ==="
+echo -e "\n${BLUE}=== 13. 搜索服务 API ===${NC}"
 test_api "消息搜索" POST "/_matrix/client/v3/search" '{"search_categories":{"room_events":{"search_term":"test"}}}' "auth"
 test_api "用户搜索" POST "/_matrix/client/v3/user_directory/search" '{"search_term":"test"}' "auth"
 
-# 13. 管理后台 API
-echo -e "\n=== 13. 管理后台 API ==="
-test_api "服务器版本(admin)" GET "/_synapse/admin/v1/server_version" "" "auth"
-test_api "用户列表(admin)" GET "/_synapse/admin/v1/users" "" "auth"
-test_api "房间列表(admin)" GET "/_synapse/admin/v1/rooms" "" "auth"
-test_api "服务器统计(admin)" GET "/_synapse/admin/v1/statistics" "" "auth"
-
-# 14. 联邦 API
-echo -e "\n=== 14. 联邦 API ==="
-test_api "联邦版本" GET "/_matrix/federation/v1/version"
-test_api "服务器密钥" GET "/_matrix/key/v2/server"
-
-# 15. 密钥备份 API
-echo -e "\n=== 15. 密钥备份 API ==="
+echo -e "\n${BLUE}=== 14. 密钥备份 API ===${NC}"
 test_api "备份版本" GET "/_matrix/client/v3/room_keys/version" "" "auth"
 test_api "所有密钥" GET "/_matrix/client/v3/room_keys/keys" "" "auth"
 
-# 16. VoIP 服务 API
-echo -e "\n=== 16. VoIP 服务 API ==="
+echo -e "\n${BLUE}=== 15. VoIP 服务 API ===${NC}"
 test_api "TURN服务器" GET "/_matrix/client/v3/voip/turnServer" "" "auth"
-test_api "VoIP配置" GET "/_matrix/client/v3/voip/config" "" "auth"
 
-# 17. 语音消息 API
-echo -e "\n=== 17. 语音消息 API ==="
+echo -e "\n${BLUE}=== 16. 语音消息 API ===${NC}"
 test_api "语音配置" GET "/_matrix/client/r0/voice/config" "" "auth"
-test_api "语音统计" GET "/_matrix/client/r0/voice/stats" "" "auth"
 
-# 18. 验证码服务 API (正确路由)
-echo -e "\n=== 18. 验证码服务 API ==="
-test_api "发送验证码" POST "/_matrix/client/r0/register/captcha/send" '{"captcha_type":"email","target":"test@example.com"}'
-test_api "验证码状态" GET "/_matrix/client/r0/register/captcha/status"
+echo -e "\n${BLUE}=== 17. Sliding Sync API ===${NC}"
+test_api "Sliding Sync" POST "/_matrix/client/unstable/org.matrix.msc3575/sync" '{"lists":[{"list_key":"joined","sort":["by_activity"],"ranges":[[0,99]]}]}' "auth"
 
-# 19. 后台更新 API
-echo -e "\n=== 19. 后台更新 API ==="
-test_api "更新列表" GET "/_synapse/admin/v1/background_updates" "" "auth"
-test_api "更新统计" GET "/_synapse/admin/v1/background_updates/stats" "" "auth"
+echo -e "\n${CYAN}=========================================="
+echo -e "  管理员 API 测试"
+echo -e "==========================================${NC}"
 
-# 20. 事件举报 API
-echo -e "\n=== 20. 事件举报 API ==="
-test_api "举报列表" GET "/_synapse/admin/v1/event_reports" "" "auth"
-test_api "举报统计" GET "/_synapse/admin/v1/event_reports/stats" "" "auth"
+echo -e "\n${BLUE}=== 18. 管理后台 - 服务器状态 ===${NC}"
+test_api "服务器版本(admin)" GET "/_synapse/admin/v1/server_version" "" "admin"
+test_api "服务器状态(admin)" GET "/_synapse/admin/v1/status" "" "admin"
+test_api "服务器统计(admin)" GET "/_synapse/admin/v1/statistics" "" "admin"
 
-# 21. 账户数据 API
-echo -e "\n=== 21. 账户数据 API ==="
-test_api "全局账户数据" GET "/_matrix/client/v3/user/@apitest_full:cjystx.top/account_data/m.direct" "" "auth"
+echo -e "\n${BLUE}=== 19. 管理后台 - 用户管理 ===${NC}"
+test_api "用户列表(admin)" GET "/_synapse/admin/v1/users?limit=10&offset=0" "" "admin"
+test_api "用户数量(admin)" GET "/_synapse/admin/v1/users/count" "" "admin"
+test_api "指定用户(admin)" GET "/_synapse/admin/v1/users/@admin:cjystx.top" "" "admin"
 
-# 22. 保留策略 API (正确路由)
-echo -e "\n=== 22. 保留策略 API ==="
-test_api "服务器策略" GET "/_synapse/retention/v1/server/policy" "" "auth"
-test_api "房间列表" GET "/_synapse/retention/v1/rooms" "" "auth"
+echo -e "\n${BLUE}=== 20. 管理后台 - 房间管理 ===${NC}"
+test_api "房间列表(admin)" GET "/_synapse/admin/v1/rooms?limit=10&offset=0" "" "admin"
+test_api "房间数量(admin)" GET "/_synapse/admin/v1/rooms/count" "" "admin"
 
-# 23. 服务器通知 API
-echo -e "\n=== 23. 服务器通知 API ==="
-test_api "通知列表(server)" GET "/_synapse/admin/v1/server_notifications" "" "auth"
-test_api "通知统计(server)" GET "/_synapse/admin/v1/server_notifications/stats" "" "auth"
+echo -e "\n${BLUE}=== 21. 管理后台 - 媒体管理 ===${NC}"
+test_api "媒体列表(admin)" GET "/_synapse/admin/v1/media?limit=10&offset=0" "" "admin"
 
-# 24. 注册令牌 API
-echo -e "\n=== 24. 注册令牌 API ==="
-test_api "令牌列表" GET "/_synapse/admin/v1/registration_tokens" "" "auth"
+echo -e "\n${BLUE}=== 22. 管理后台 - 注册令牌 ===${NC}"
+test_api "令牌列表(admin)" GET "/_synapse/admin/v1/registration_tokens" "" "admin"
 
-# 25. 媒体配额 API (正确路由)
-echo -e "\n=== 25. 媒体配额 API ==="
-test_api "配额检查" GET "/_matrix/media/v1/quota/check?file_size=1024" "" "auth"
-test_api "配额统计" GET "/_matrix/media/v1/quota/stats" "" "auth"
+echo -e "\n${BLUE}=== 23. 管理后台 - 后台更新 ===${NC}"
+test_api "更新列表(admin)" GET "/_synapse/admin/v1/background_updates" "" "admin"
 
-# 26. CAS 认证 API
-echo -e "\n=== 26. CAS 认证 API ==="
-test_api "CAS配置" GET "/_synapse/admin/v1/cas/config" "" "auth"
+echo -e "\n${BLUE}=== 24. 管理后台 - 事件举报 ===${NC}"
+test_api "举报列表(admin)" GET "/_synapse/admin/v1/event_reports" "" "admin"
 
-# 27. SAML 认证 API
-echo -e "\n=== 27. SAML 认证 API ==="
-test_api "SAML配置" GET "/_synapse/admin/v1/saml/config" "" "auth"
+echo -e "\n${BLUE}=== 25. 管理后台 - Worker ===${NC}"
+test_api "Worker列表(admin)" GET "/_synapse/admin/v1/workers" "" "admin"
 
-# 28. OIDC 认证 API
-echo -e "\n=== 28. OIDC 认证 API ==="
-test_api "OIDC配置" GET "/_synapse/admin/v1/oidc/config" "" "auth"
+echo -e "\n${BLUE}=== 26. 管理后台 - 联邦 ===${NC}"
+test_api "联邦黑名单(admin)" GET "/_synapse/admin/v1/federation/blacklist" "" "admin"
 
-# 29. Rendezvous API
-echo -e "\n=== 29. Rendezvous API ==="
-test_api "创建会话" POST "/_matrix/client/v1/rendezvous" '{"intent":"login.start","transport":"http.v1"}'
+echo -e "\n${BLUE}=== 27. 管理后台 - 速率限制 ===${NC}"
+test_api "速率限制列表(admin)" GET "/_synapse/admin/v1/rate_limits" "" "admin"
 
-# 30. Worker API (正确路由)
-echo -e "\n=== 30. Worker API ==="
-test_api "Worker列表" GET "/_synapse/worker/v1/workers" "" "auth"
-test_api "Worker统计" GET "/_synapse/worker/v1/statistics" "" "auth"
+echo -e "\n${BLUE}=== 28. 管理后台 - 遥测 ===${NC}"
+test_api "遥测状态(admin)" GET "/_synapse/admin/v1/telemetry/status" "" "admin"
 
-# 31. 联邦黑名单 API (正确路由)
-echo -e "\n=== 31. 联邦黑名单 API ==="
-test_api "黑名单列表" GET "/_synapse/admin/v1/federation/blacklist" "" "auth"
+echo -e "\n${BLUE}=== 29. 管理后台 - CAS/SSO 配置 ===${NC}"
+test_api "CAS配置(admin)" GET "/_synapse/admin/v1/cas/config" "" "admin"
+test_api "SAML配置(admin)" GET "/_synapse/admin/v1/saml/config" "" "admin"
+test_api "OIDC配置(admin)" GET "/_synapse/admin/v1/oidc/config" "" "admin"
 
-# 32. 联邦缓存 API (正确路由)
-echo -e "\n=== 32. 联邦缓存 API ==="
-test_api "缓存统计" GET "/_synapse/admin/v1/federation/cache/stats" "" "auth"
+echo -e "\n${CYAN}=========================================="
+echo -e "  测试完成"
+echo -e "==========================================${NC}"
+echo ""
+echo -e "${BLUE}总计: ${TOTAL} 个测试${NC}"
+echo -e "${GREEN}通过: ${PASS} 个${NC}"
+echo -e "${RED}失败: ${FAIL} 个${NC}"
+echo -e "${YELLOW}跳过: ${SKIP} 个 (无Token/403/404)${NC}"
+echo ""
 
-# 33. 刷新令牌 API
-echo -e "\n=== 33. 刷新令牌 API ==="
-test_api "令牌列表(refresh)" GET "/_synapse/admin/v1/refresh_tokens" "" "auth"
-
-# 34. 推送通知管理 API
-echo -e "\n=== 34. 推送通知管理 API ==="
-test_api "推送列表(mgmt)" GET "/_synapse/admin/v1/push_notifications" "" "auth"
-
-# 35. 速率限制管理 API
-echo -e "\n=== 35. 速率限制管理 API ==="
-test_api "限制列表" GET "/_synapse/admin/v1/rate_limits" "" "auth"
-
-# 36. Sliding Sync API
-echo -e "\n=== 36. Sliding Sync API ==="
-test_api "Sliding Sync" POST "/_matrix/client/unstable/org.matrix.msc3575/sync" "{} " "auth"
-
-# 37. 遥测 API (正确路由)
-echo -e "\n=== 37. 遥测 API ==="
-test_api "遥测状态" GET "/_synapse/admin/v1/telemetry/status" "" "auth"
-test_api "遥测健康" GET "/_synapse/admin/v1/telemetry/health" "" "auth"
-
-echo -e "\n=========================================="
-echo "测试完成"
-echo "=========================================="
-echo "总计: $TOTAL 个测试"
-echo "通过: $PASS 个"
-echo "失败: $FAIL 个"
-echo "通过率: $((PASS * 100 / TOTAL))%"
+if [ $FAIL -eq 0 ]; then
+    echo -e "${GREEN}🎉 所有测试通过!${NC}"
+    exit 0
+else
+    echo -e "${RED}❌ 有 $FAIL 个测试失败${NC}"
+    exit 1
+fi

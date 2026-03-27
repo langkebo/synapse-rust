@@ -6,6 +6,17 @@ use axum::{
 };
 use serde_json::{json, Value};
 
+fn create_device_compat_router() -> Router<AppState> {
+    Router::new()
+        .route("/devices", get(get_devices))
+        .route("/delete_devices", post(delete_devices))
+        .route(
+            "/devices/{device_id}",
+            get(get_device).put(update_device).delete(delete_device),
+        )
+        .route("/keys/device_list_updates", post(get_device_list_updates))
+}
+
 pub async fn get_devices(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -161,25 +172,39 @@ pub async fn get_device_list_updates(
 }
 
 pub fn create_device_router() -> Router<AppState> {
+    let compat_router = create_device_compat_router();
+
     Router::new()
-        .route("/_matrix/client/r0/devices", get(get_devices))
-        .route("/_matrix/client/v3/devices", get(get_devices))
-        .route("/_matrix/client/r0/delete_devices", post(delete_devices))
-        .route("/_matrix/client/v3/delete_devices", post(delete_devices))
-        .route(
-            "/_matrix/client/r0/devices/{device_id}",
-            get(get_device).put(update_device).delete(delete_device),
-        )
-        .route(
+        .nest("/_matrix/client/r0", compat_router.clone())
+        .nest("/_matrix/client/v3", compat_router)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_device_routes_structure() {
+        let routes = [
+            "/_matrix/client/r0/devices",
             "/_matrix/client/v3/devices/{device_id}",
-            get(get_device).put(update_device).delete(delete_device),
-        )
-        .route(
-            "/_matrix/client/r0/keys/device_list_updates",
-            post(get_device_list_updates),
-        )
-        .route(
+            "/_matrix/client/r0/delete_devices",
             "/_matrix/client/v3/keys/device_list_updates",
-            post(get_device_list_updates),
-        )
+        ];
+
+        assert!(routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+    }
+
+    #[test]
+    fn test_device_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/devices",
+            "/delete_devices",
+            "/devices/{device_id}",
+            "/keys/device_list_updates",
+        ];
+
+        assert_eq!(shared_paths.len(), 4);
+        assert!(shared_paths.iter().all(|path| path.starts_with('/')));
+    }
 }

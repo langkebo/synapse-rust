@@ -175,3 +175,90 @@ async fn test_presence_management() {
     assert_eq!(json["presence"], "online");
     assert_eq!(json["status_msg"], "Coding in Rust");
 }
+
+#[tokio::test]
+async fn test_presence_status_shared_across_r0_and_v3() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, user_id) =
+        register_user(&app, &format!("presence_shared_{}", rand::random::<u32>())).await;
+
+    let set_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/presence/{}/status", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "presence": "unavailable",
+                "status_msg": "cross-version presence"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_request)
+        .await
+        .unwrap();
+    assert_eq!(set_response.status(), StatusCode::OK);
+
+    let get_request = Request::builder()
+        .uri(format!("/_matrix/client/r0/presence/{}/status", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request)
+        .await
+        .unwrap();
+    assert_eq!(get_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(get_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["presence"], "unavailable");
+    assert_eq!(json["status_msg"], "cross-version presence");
+}
+
+#[tokio::test]
+async fn test_presence_list_boundary_is_preserved() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, _) = register_user(&app, &format!("presence_list_{}", rand::random::<u32>())).await;
+
+    let v3_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/presence/list")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "subscribe": ["@alice:localhost"]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let v3_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_request)
+        .await
+        .unwrap();
+    assert_ne!(v3_response.status(), StatusCode::NOT_FOUND);
+    assert_ne!(v3_response.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+    let r0_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/presence/list")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "subscribe": ["@alice:localhost"]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let r0_response = ServiceExt::<Request<Body>>::oneshot(app, r0_request)
+        .await
+        .unwrap();
+    assert_eq!(r0_response.status(), StatusCode::NOT_FOUND);
+}

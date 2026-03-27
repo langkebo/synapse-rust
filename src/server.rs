@@ -36,6 +36,7 @@ pub struct SynapseServer {
     app_state: Arc<AppState>,
     router: Router,
     address: SocketAddr,
+    federation_address: SocketAddr,
     media_path: std::path::PathBuf,
     scheduled_tasks: Arc<ScheduledTasks>,
     metrics_collector: Arc<TaskMetricsCollector>,
@@ -126,7 +127,14 @@ impl SynapseServer {
                 config.redis.host, config.redis.port
             );
 
-            let conn_str = format!("redis://{}:{}", config.redis.host, config.redis.port);
+            let conn_str = if let Some(ref password) = config.redis.password {
+                format!(
+                    "redis://:{}@{}:{}",
+                    password, config.redis.host, config.redis.port
+                )
+            } else {
+                format!("redis://{}:{}", config.redis.host, config.redis.port)
+            };
             let redis_cfg = deadpool_redis::Config::from_url(&conn_str);
             let redis_pool = redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
 
@@ -212,6 +220,11 @@ impl SynapseServer {
 
         let address =
             format!("{}:{}", config.server.host, config.server.port).parse::<SocketAddr>()?;
+        let federation_address = format!(
+            "{}:{}",
+            config.server.host, config.federation.federation_port
+        )
+        .parse::<SocketAddr>()?;
         let media_path = std::path::PathBuf::from("/app/data/media");
 
         let router = create_router((*app_state).clone())
@@ -280,6 +293,7 @@ impl SynapseServer {
             app_state,
             router,
             address,
+            federation_address,
             media_path,
             scheduled_tasks,
             metrics_collector,
@@ -291,16 +305,15 @@ impl SynapseServer {
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         info!("Starting Synapse Rust Matrix Server...");
         info!("Server name: {}", self.app_state.services.server_name);
-        info!("Listening on: {}", self.address);
+        info!("Client API listening on: {}", self.address);
+        info!("Federation API listening on: {}", self.federation_address);
         info!("Media storage: {}", self.media_path.display());
 
-        // Performance Optimization: Warmup database and cache
         info!("Performing system warmup...");
         if let Err(e) = self.warmup().await {
             tracing::warn!("Warmup encountered minor errors: {}", e);
         }
 
-        // Start key rotation scheduler
         self.app_state
             .services
             .key_rotation_manager
@@ -310,14 +323,60 @@ impl SynapseServer {
         info!("Starting scheduled database monitoring and maintenance tasks...");
         self.scheduled_tasks.start_all().await;
 
-        let listener = tokio::net::TcpListener::bind(self.address).await?;
-        axum::serve(listener, self.router.clone())
-            .with_graceful_shutdown(async {
-                shutdown_signal().await;
-            })
-            .await?;
+        let client_router = self.router.clone();
+        let client_addr = self.address;
+        let federation_router = self.create_federation_router().await?;
+        let fed_addr = self.federation_address;
+
+        let client_handle = tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind(client_addr)
+                .await
+                .expect("Failed to bind client API port");
+            info!("Client API server started on {}", client_addr);
+            axum::serve(listener, client_router)
+                .with_graceful_shutdown(async {
+                    shutdown_signal().await;
+                })
+                .await
+                .expect("Client API server error");
+        });
+
+        let federation_handle = tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind(fed_addr)
+                .await
+                .expect("Failed to bind federation port");
+            info!("Federation API server started on {}", fed_addr);
+            axum::serve(listener, federation_router)
+                .with_graceful_shutdown(async {
+                    shutdown_signal().await;
+                })
+                .await
+                .expect("Federation API server error");
+        });
+
+        tokio::select! {
+            result = client_handle => {
+                if let Err(e) = result {
+                    error!("Client API server panicked: {}", e);
+                }
+            }
+            result = federation_handle => {
+                if let Err(e) = result {
+                    error!("Federation API server panicked: {}", e);
+                }
+            }
+        }
 
         Ok(())
+    }
+
+    async fn create_federation_router(&self) -> Result<Router, Box<dyn std::error::Error>> {
+        use tower_http::trace::TraceLayer;
+
+        let federation_router =
+            create_router((*self.app_state).clone()).layer(TraceLayer::new_for_http());
+
+        Ok(federation_router)
     }
 
     async fn warmup(&self) -> Result<(), Box<dyn std::error::Error>> {

@@ -410,88 +410,53 @@ pub async fn clear_unread(
     })))
 }
 
-pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
+fn create_room_summary_read_router() -> Router<AppState> {
     Router::new()
+        .route("/rooms/{room_id}/summary", get(get_room_summary))
+        .route("/rooms/{room_id}/summary/members", get(get_members))
+        .route("/rooms/{room_id}/summary/state", get(get_all_state))
+        .route("/rooms/{room_id}/summary/stats", get(get_stats))
+}
+
+fn create_room_summary_v3_router() -> Router<AppState> {
+    Router::new()
+        .merge(create_room_summary_read_router())
+        .route("/rooms/{room_id}/summary", post(create_room_summary))
+        .route("/rooms/{room_id}/summary", put(update_room_summary))
+        .route("/rooms/{room_id}/summary", delete(delete_room_summary))
+        .route("/rooms/{room_id}/summary/sync", post(sync_room_summary))
+        .route("/rooms/{room_id}/summary/members", post(add_member))
         .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary",
-            get(get_room_summary),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary",
-            post(create_room_summary),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary",
-            put(update_room_summary),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary",
-            delete(delete_room_summary),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary/sync",
-            post(sync_room_summary),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary/members",
-            get(get_members),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary/members",
-            post(add_member),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}",
+            "/rooms/{room_id}/summary/members/{user_id}",
             put(update_member),
         )
         .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}",
+            "/rooms/{room_id}/summary/members/{user_id}",
             delete(remove_member),
         )
         .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary/state",
-            get(get_all_state),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}",
+            "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
             get(get_state),
         )
         .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}",
+            "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
             put(update_state),
         )
         .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary/stats",
-            get(get_stats),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary/stats/recalculate",
+            "/rooms/{room_id}/summary/stats/recalculate",
             post(recalculate_stats),
         )
         .route(
-            "/_matrix/client/r0/rooms/{room_id}/summary",
-            get(get_room_summary),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/summary/members",
-            get(get_members),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/summary/state",
-            get(get_all_state),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/summary/stats",
-            get(get_stats),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary/heroes/recalculate",
+            "/rooms/{room_id}/summary/heroes/recalculate",
             post(recalculate_heroes),
         )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/summary/unread/clear",
-            post(clear_unread),
-        )
+        .route("/rooms/{room_id}/summary/unread/clear", post(clear_unread))
+}
+
+pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
+    Router::new()
+        .nest("/_matrix/client/v3", create_room_summary_v3_router())
+        .nest("/_matrix/client/r0", create_room_summary_read_router())
         .route(
             "/_synapse/room_summary/v1/summaries",
             get(get_user_summaries),
@@ -505,4 +470,59 @@ pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
             post(process_updates),
         )
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_room_summary_routes_structure() {
+        let routes = [
+            "/_matrix/client/v3/rooms/{room_id}/summary",
+            "/_matrix/client/r0/rooms/{room_id}/summary",
+            "/_matrix/client/v3/rooms/{room_id}/summary/unread/clear",
+            "/_synapse/room_summary/v1/summaries",
+        ];
+
+        assert_eq!(routes.len(), 4);
+        assert!(routes.iter().all(|route| {
+            route.starts_with("/_matrix/client/") || route.starts_with("/_synapse/")
+        }));
+    }
+
+    #[test]
+    fn test_room_summary_read_router_contains_shared_paths() {
+        let shared_paths = [
+            "/rooms/{room_id}/summary",
+            "/rooms/{room_id}/summary/members",
+            "/rooms/{room_id}/summary/state",
+            "/rooms/{room_id}/summary/stats",
+        ];
+
+        assert_eq!(shared_paths.len(), 4);
+        assert!(shared_paths.iter().all(|path| path.starts_with("/rooms/")));
+    }
+
+    #[test]
+    fn test_room_summary_router_boundaries() {
+        let r0_only_read_paths = [
+            "/rooms/{room_id}/summary",
+            "/rooms/{room_id}/summary/members",
+            "/rooms/{room_id}/summary/state",
+            "/rooms/{room_id}/summary/stats",
+        ];
+        let v3_extra_paths = [
+            "/rooms/{room_id}/summary/sync",
+            "/rooms/{room_id}/summary/members/{user_id}",
+            "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
+            "/rooms/{room_id}/summary/stats/recalculate",
+            "/rooms/{room_id}/summary/heroes/recalculate",
+            "/rooms/{room_id}/summary/unread/clear",
+        ];
+
+        assert_eq!(r0_only_read_paths.len(), 4);
+        assert_eq!(v3_extra_paths.len(), 6);
+        assert!(v3_extra_paths
+            .iter()
+            .all(|path| !r0_only_read_paths.contains(path)));
+    }
 }

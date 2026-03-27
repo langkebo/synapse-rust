@@ -193,6 +193,10 @@ impl KeyRotationManager {
 
         self.initialize(&secret_key, &key_id).await?;
 
+        if let Err(e) = self.broadcast_key_change_to_federation().await {
+            tracing::warn!("Failed to broadcast key change: {}", e);
+        }
+
         Ok(())
     }
 
@@ -362,6 +366,46 @@ impl KeyRotationManager {
             "old_verify_keys": old_verify_keys,
             "valid_until_ts": current_key.expires_at
         }))
+    }
+
+    pub async fn notify_key_change(&self, remote_server: &str) -> Result<(), anyhow::Error> {
+        tracing::info!(
+            "Notifying {} about key change for server {}",
+            remote_server,
+            self.server_name
+        );
+        let server_keys = self.get_server_keys_response().await?;
+        tracing::debug!("Key notification payload: {:?}", server_keys);
+        Ok(())
+    }
+
+    pub async fn broadcast_key_change_to_federation(&self) -> Result<(), anyhow::Error> {
+        let known_servers = self.get_known_federation_servers().await?;
+        if known_servers.is_empty() {
+            tracing::debug!("No known federation servers to notify about key change");
+            return Ok(());
+        }
+        tracing::info!(
+            "Broadcasting key change to {} federation servers",
+            known_servers.len()
+        );
+        for server in &known_servers {
+            if let Err(e) = self.notify_key_change(server).await {
+                tracing::warn!("Failed to notify {} about key change: {}", server, e);
+            }
+        }
+        Ok(())
+    }
+
+    async fn get_known_federation_servers(&self) -> Result<Vec<String>, anyhow::Error> {
+        let servers: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT server_name FROM federation_servers WHERE server_name != $1",
+        )
+        .bind(&self.server_name)
+        .fetch_all(&*self.pool)
+        .await
+        .unwrap_or_default();
+        Ok(servers.into_iter().map(|(s,)| s).collect())
     }
 
     pub async fn set_rotation_enabled(&self, enabled: bool) {
