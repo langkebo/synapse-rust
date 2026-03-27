@@ -4,6 +4,8 @@
 
 pub mod health;
 pub mod versions;
+pub mod auth;
 
 pub use health::*;
 pub use versions::*;
+pub use auth::*;
