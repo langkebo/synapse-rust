@@ -56,7 +56,7 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/_matrix/federation/v1/knock/{room_id}/{user_id}",
-            get(knock_room),
+            put(knock_room),
         )
         .route(
             "/_matrix/federation/v1/thirdparty/invite",

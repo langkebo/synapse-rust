@@ -49,7 +49,7 @@ impl SpaceService {
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
         let content = json!({
             "type": "m.space",
-            "room_id": space.room_id,
+            "room_id": space.space_id,
         });
 
         self.space_storage
@@ -165,7 +165,7 @@ impl SpaceService {
 
         let is_member = self
             .space_storage
-            .is_space_member(&request.space_id, &request.added_by)
+            .is_space_member(&request.space_id, &request.sender)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
 
@@ -198,8 +198,7 @@ impl SpaceService {
         let content = json!({
             "room_id": child.room_id,
             "via": child.via_servers,
-            "order": child.order,
-            "suggested": child.suggested,
+            "suggested": child.is_suggested,
         });
 
         self.space_storage
@@ -207,7 +206,7 @@ impl SpaceService {
                 &event_id,
                 &child.space_id,
                 "m.space.child",
-                &child.added_by,
+                &child.sender,
                 content,
                 Some(&child.room_id),
             )
@@ -371,7 +370,7 @@ impl SpaceService {
             .map_err(|e| ApiError::internal(format!("Failed to get space: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Space not found"))?;
 
-        if space.join_rule == "invite" {
+        if space.join_rules == "invite" {
             let existing = self
                 .space_storage
                 .get_space_members(space_id)
@@ -668,32 +667,30 @@ impl SpaceService {
                     "name": child_space.name,
                     "topic": child_space.topic,
                     "avatar_url": child_space.avatar_url,
-                    "join_rule": child_space.join_rule,
+                    "join_rule": child_space.join_rules,
                     "room_type": "m.space",
                     "via_servers": child.via_servers,
-                    "order": child.order,
-                    "suggested": child.suggested,
+                    "suggested": child.is_suggested,
                 }))
             } else {
                 Some(serde_json::json!({
                     "room_id": child.room_id,
                     "room_type": "m.room",
                     "via_servers": child.via_servers,
-                    "order": child.order,
-                    "suggested": child.suggested,
+                    "suggested": child.is_suggested,
                 }))
             }
         }))
         .await;
 
         Ok(serde_json::json!({
-            "room_id": space.room_id,
+            "room_id": space.space_id,
             "name": space.name,
             "topic": space.topic,
             "avatar_url": space.avatar_url,
-            "join_rule": &space.join_rule,
-            "world_readable": space.visibility == "public",
-            "guest_can_join": space.join_rule == "public",
+            "join_rule": &space.join_rules,
+            "world_readable": space.visibility.as_deref() == Some("public"),
+            "guest_can_join": space.join_rules == "public",
             "room_type": "m.space",
             "num_joined_members": members.len(),
             "children": child_rooms.into_iter().flatten().collect::<Vec<_>>(),
@@ -703,10 +700,9 @@ impl SpaceService {
                     "state_key": &child.room_id,
                     "content": {
                         "via": &child.via_servers,
-                        "order": &child.order,
-                        "suggested": child.suggested,
+                        "suggested": child.is_suggested,
                     },
-                    "sender": &child.added_by,
+                    "sender": &child.sender,
                 })
             }).collect::<Vec<_>>(),
         }))
@@ -723,7 +719,7 @@ mod tests {
             topic: Some("A test space".to_string()),
             avatar_url: Some("mxc://example.com/avatar".to_string()),
             creator: "@user:example.com".to_string(),
-            join_rule: Some("invite".to_string()),
+            join_rules: Some("invite".to_string()),
             visibility: Some("private".to_string()),
             is_public: Some(false),
             parent_space_id: None,
@@ -737,10 +733,9 @@ mod tests {
         let request = crate::storage::space::AddChildRequest {
             space_id: "space_123".to_string(),
             room_id: "!room:example.com".to_string(),
+            sender: "@user:example.com".to_string(),
+            is_suggested: true,
             via_servers: vec!["example.com".to_string()],
-            order: Some("1".to_string()),
-            suggested: Some(true),
-            added_by: "@user:example.com".to_string(),
         };
         assert_eq!(request.space_id, "space_123");
         assert_eq!(request.via_servers.len(), 1);
@@ -752,7 +747,7 @@ mod tests {
             name: Some("Updated Name".to_string()),
             topic: None,
             avatar_url: None,
-            join_rule: Some("public".to_string()),
+            join_rules: Some("public".to_string()),
             visibility: None,
             is_public: Some(true),
         };
@@ -765,28 +760,28 @@ mod tests {
         let request = crate::storage::space::UpdateSpaceRequest::default();
         assert!(request.name.is_none());
         assert!(request.topic.is_none());
-        assert!(request.join_rule.is_none());
+        assert!(request.join_rules.is_none());
     }
 
     #[test]
     fn test_space_structure() {
         let space = crate::storage::space::Space {
             space_id: "space_123".to_string(),
-            room_id: "!space:example.com".to_string(),
+            room_id: "space_123".to_string(),
             name: Some("Test Space".to_string()),
             topic: Some("Test topic".to_string()),
             avatar_url: None,
             creator: "@admin:example.com".to_string(),
-            join_rule: "invite".to_string(),
-            visibility: "private".to_string(),
-            creation_ts: 1234567890,
+            join_rules: "invite".to_string(),
+            visibility: Some("private".to_string()),
+            created_ts: 1234567890,
             updated_ts: None,
             is_public: false,
             parent_space_id: None,
-            room_type: Some("m.space".to_string()),
+            room_type: None,
         };
         assert_eq!(space.space_id, "space_123");
-        assert_eq!(space.join_rule, "invite");
+        assert_eq!(space.join_rules, "invite");
         assert!(!space.is_public);
     }
 
@@ -796,15 +791,17 @@ mod tests {
             id: 1,
             space_id: "space_123".to_string(),
             room_id: "!room:example.com".to_string(),
+            sender: "@user:example.com".to_string(),
+            is_suggested: true,
             via_servers: vec!["example.com".to_string()],
-            order: Some("1".to_string()),
-            suggested: true,
-            added_by: "@user:example.com".to_string(),
             added_ts: 1234567890,
+            order: None,
+            suggested: None,
+            added_by: None,
             removed_ts: None,
         };
         assert_eq!(child.space_id, "space_123");
-        assert!(child.suggested);
+        assert!(child.is_suggested);
     }
 
     #[test]
