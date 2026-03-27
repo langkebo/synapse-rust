@@ -127,12 +127,16 @@ mod boundary_tests {
 
     #[test]
     fn test_json_number_boundaries() {
-        let min_i64 = json!(i64::MIN);
-        let max_i64 = json!(i64::MAX);
-        let zero = json!(0);
+        let min_i64_val: i64 = i64::MIN;
+        let max_i64_val: i64 = i64::MAX;
+        let zero_val: i64 = 0;
 
-        assert!(min_i64 < zero);
-        assert!(max_i64 > zero);
+        let min_i64 = json!(min_i64_val);
+        let max_i64 = json!(max_i64_val);
+        let zero = json!(zero_val);
+
+        assert!(min_i64_val < zero_val);
+        assert!(max_i64_val > zero_val);
     }
 
     // ==================== Time Boundary Tests ====================

@@ -5,6 +5,7 @@ mod admin_api_tests;
 mod admin_extra_api_tests;
 mod app_service_api_tests;
 mod background_update_api_tests;
+mod boundary_tests;
 mod captcha_api_tests;
 mod core_api_tests;
 mod e2ee_api_tests;
