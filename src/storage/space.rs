@@ -11,7 +11,7 @@ pub struct Space {
     pub topic: Option<String>,
     pub avatar_url: Option<String>,
     pub creator: String,
-    pub join_rules: String,
+    pub join_rule: String,
     pub visibility: Option<String>,
     pub created_ts: i64,
     pub updated_ts: Option<i64>,
@@ -74,7 +74,7 @@ pub struct CreateSpaceRequest {
     pub topic: Option<String>,
     pub avatar_url: Option<String>,
     pub creator: String,
-    pub join_rules: Option<String>,
+    pub join_rule: Option<String>,
     pub visibility: Option<String>,
     pub is_public: Option<bool>,
     pub parent_space_id: Option<String>,
@@ -94,7 +94,7 @@ pub struct UpdateSpaceRequest {
     pub name: Option<String>,
     pub topic: Option<String>,
     pub avatar_url: Option<String>,
-    pub join_rules: Option<String>,
+    pub join_rule: Option<String>,
     pub visibility: Option<String>,
     pub is_public: Option<bool>,
 }
@@ -119,8 +119,8 @@ impl UpdateSpaceRequest {
         self
     }
 
-    pub fn join_rules(mut self, join_rules: impl Into<String>) -> Self {
-        self.join_rules = Some(join_rules.into());
+    pub fn join_rule(mut self, join_rule: impl Into<String>) -> Self {
+        self.join_rule = Some(join_rule.into());
         self
     }
 
@@ -170,7 +170,7 @@ pub struct SpaceHierarchyRoom {
     pub name: Option<String>,
     pub topic: Option<String>,
     pub avatar_url: Option<String>,
-    pub join_rules: String,
+    pub join_rule: String,
     pub world_readable: bool,
     pub guest_can_join: bool,
     pub num_joined_members: i64,
@@ -217,7 +217,7 @@ impl SpaceStorage {
                 join_rule, is_public, created_ts, parent_space_id
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING space_id, name, topic, avatar_url, creator, join_rules, is_public, created_ts, updated_ts, parent_space_id, room_type
+            RETURNING space_id, name, topic, avatar_url, creator, join_rule, is_public, created_ts, updated_ts, parent_space_id, room_type
             "#,
         )
         .bind(&space_id)
@@ -225,7 +225,7 @@ impl SpaceStorage {
         .bind(&request.topic)
         .bind(&request.avatar_url)
         .bind(&request.creator)
-        .bind(request.join_rules.unwrap_or_else(|| "invite".to_string()))
+        .bind(request.join_rule.unwrap_or_else(|| "invite".to_string()))
         .bind(request.is_public.unwrap_or(false))
         .bind(now)
         .bind(&request.parent_space_id)
@@ -239,14 +239,14 @@ impl SpaceStorage {
     }
 
     pub async fn get_space(&self, space_id: &str) -> Result<Option<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r#"SELECT space_id, name, topic, avatar_url, creator, join_rules, is_public, created_ts, updated_ts, parent_space_id, room_type FROM spaces WHERE space_id = $1"#)
+        sqlx::query_as::<_, Space>(r#"SELECT space_id, name, topic, avatar_url, creator, join_rule, is_public, created_ts, updated_ts, parent_space_id, room_type FROM spaces WHERE space_id = $1"#)
             .bind(space_id)
             .fetch_optional(&*self.pool)
             .await
     }
 
     pub async fn get_space_by_room(&self, room_id: &str) -> Result<Option<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r#"SELECT space_id, name, topic, avatar_url, creator, join_rules, is_public, created_ts, updated_ts, parent_space_id, room_type FROM spaces WHERE space_id = $1"#)
+        sqlx::query_as::<_, Space>(r#"SELECT space_id, name, topic, avatar_url, creator, join_rule, is_public, created_ts, updated_ts, parent_space_id, room_type FROM spaces WHERE space_id = $1"#)
             .bind(room_id)
             .fetch_optional(&*self.pool)
             .await
@@ -265,18 +265,18 @@ impl SpaceStorage {
                 name = COALESCE($2, name),
                 topic = COALESCE($3, topic),
                 avatar_url = COALESCE($4, avatar_url),
-                join_rules = COALESCE($5, join_rules),
+                join_rule = COALESCE($5, join_rule),
                 is_public = COALESCE($6, is_public),
                 updated_ts = $7
             WHERE space_id = $1
-            RETURNING space_id, name, topic, avatar_url, creator, join_rules, is_public, created_ts, updated_ts, parent_space_id, room_type
+            RETURNING space_id, name, topic, avatar_url, creator, join_rule, is_public, created_ts, updated_ts, parent_space_id, room_type
             "#,
         )
         .bind(space_id)
         .bind(&request.name)
         .bind(&request.topic)
         .bind(&request.avatar_url)
-        .bind(&request.join_rules)
+        .bind(&request.join_rule)
         .bind(request.is_public)
         .bind(now)
         .fetch_one(&*self.pool)
@@ -413,7 +413,7 @@ impl SpaceStorage {
     pub async fn get_user_spaces(&self, user_id: &str) -> Result<Vec<Space>, sqlx::Error> {
         sqlx::query_as::<_, Space>(
             r#"
-            SELECT s.space_id, s.name, s.topic, s.avatar_url, s.creator, s.join_rules, s.is_public, s.created_ts, s.updated_ts, s.parent_space_id, s.room_type FROM spaces s
+            SELECT s.space_id, s.name, s.topic, s.avatar_url, s.creator, s.join_rule, s.is_public, s.created_ts, s.updated_ts, s.parent_space_id, s.room_type FROM spaces s
             JOIN space_members sm ON s.space_id = sm.space_id
             WHERE sm.user_id = $1 AND sm.membership = 'join'
             ORDER BY s.created_ts DESC
@@ -429,7 +429,7 @@ impl SpaceStorage {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r#"SELECT space_id, name, topic, avatar_url, creator, join_rules, is_public, created_ts, updated_ts, parent_space_id, room_type FROM spaces WHERE is_public = TRUE ORDER BY created_ts DESC LIMIT $1 OFFSET $2"#)
+        sqlx::query_as::<_, Space>(r#"SELECT space_id, name, topic, avatar_url, creator, join_rule, is_public, created_ts, updated_ts, parent_space_id, room_type FROM spaces WHERE is_public = TRUE ORDER BY created_ts DESC LIMIT $1 OFFSET $2"#)
         .bind(limit)
         .bind(offset)
         .fetch_all(&*self.pool)
@@ -573,7 +573,7 @@ impl SpaceStorage {
 
         sqlx::query_as::<_, Space>(
             r#"
-            SELECT space_id, name, topic, avatar_url, creator, join_rules, is_public, created_ts, updated_ts, parent_space_id, room_type
+            SELECT space_id, name, topic, avatar_url, creator, join_rule, is_public, created_ts, updated_ts, parent_space_id, room_type
             FROM spaces
             WHERE is_public = TRUE AND (name ILIKE $1 OR topic ILIKE $1)
             ORDER BY created_ts DESC
@@ -747,7 +747,7 @@ impl SpaceStorage {
 
         let room = if child.is_space {
             if let Some(space) = self.get_space_by_room(&child.room_id).await? {
-                let join_rule = space.join_rules.clone();
+                let join_rule = space.join_rule.clone();
                 let visibility = space.visibility.clone();
                 let guest_can_join = join_rule == "public";
                 Some(SpaceHierarchyRoom {
@@ -755,7 +755,7 @@ impl SpaceStorage {
                     name: space.name,
                     topic: space.topic,
                     avatar_url: space.avatar_url,
-                    join_rules: join_rule,
+                    join_rule: join_rule,
                     world_readable: visibility.as_deref() == Some("public"),
                     guest_can_join,
                     num_joined_members: self.get_space_member_count(&space.space_id).await?,
@@ -771,7 +771,7 @@ impl SpaceStorage {
                 name: None,
                 topic: None,
                 avatar_url: None,
-                join_rules: "invite".to_string(),
+                join_rule: "invite".to_string(),
                 world_readable: false,
                 guest_can_join: false,
                 num_joined_members: 0,
@@ -877,7 +877,7 @@ mod tests {
             topic: Some("A test space".to_string()),
             avatar_url: None,
             creator: "@test:localhost".to_string(),
-            join_rules: "invite".to_string(),
+            join_rule: "invite".to_string(),
             visibility: Some("private".to_string()),
             created_ts: 1234567890,
             updated_ts: None,
@@ -925,7 +925,7 @@ mod tests {
         assert_eq!(space.name, deserialized.name);
         assert_eq!(space.topic, deserialized.topic);
         assert_eq!(space.creator, deserialized.creator);
-        assert_eq!(space.join_rules, deserialized.join_rules);
+        assert_eq!(space.join_rule, deserialized.join_rule);
         assert_eq!(space.visibility, deserialized.visibility);
         assert_eq!(space.is_public, deserialized.is_public);
     }
@@ -963,7 +963,7 @@ mod tests {
             topic: Some("Description".to_string()),
             avatar_url: None,
             creator: "@user:localhost".to_string(),
-            join_rules: Some("public".to_string()),
+            join_rule: Some("public".to_string()),
             visibility: Some("public".to_string()),
             is_public: Some(true),
             parent_space_id: None,
@@ -975,7 +975,7 @@ mod tests {
         assert_eq!(request.room_id, deserialized.room_id);
         assert_eq!(request.name, deserialized.name);
         assert_eq!(request.creator, deserialized.creator);
-        assert_eq!(request.join_rules, deserialized.join_rules);
+        assert_eq!(request.join_rule, deserialized.join_rule);
     }
 
     #[test]

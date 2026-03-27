@@ -370,7 +370,7 @@ impl SpaceService {
             .map_err(|e| ApiError::internal(format!("Failed to get space: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Space not found"))?;
 
-        if space.join_rules == "invite" {
+        if space.join_rule == "invite" {
             let existing = self
                 .space_storage
                 .get_space_members(space_id)
@@ -667,7 +667,7 @@ impl SpaceService {
                     "name": child_space.name,
                     "topic": child_space.topic,
                     "avatar_url": child_space.avatar_url,
-                    "join_rule": child_space.join_rules,
+                    "join_rule": child_space.join_rule,
                     "room_type": "m.space",
                     "via_servers": child.via_servers,
                     "suggested": child.is_suggested,
@@ -688,9 +688,9 @@ impl SpaceService {
             "name": space.name,
             "topic": space.topic,
             "avatar_url": space.avatar_url,
-            "join_rule": &space.join_rules,
+            "join_rule": &space.join_rule,
             "world_readable": space.visibility.as_deref() == Some("public"),
-            "guest_can_join": space.join_rules == "public",
+            "guest_can_join": space.join_rule == "public",
             "room_type": "m.space",
             "num_joined_members": members.len(),
             "children": child_rooms.into_iter().flatten().collect::<Vec<_>>(),
@@ -781,7 +781,7 @@ mod tests {
             room_type: None,
         };
         assert_eq!(space.space_id, "space_123");
-        assert_eq!(space.join_rules, "invite");
+        assert_eq!(space.join_rule, "invite");
         assert!(!space.is_public);
     }
 
