@@ -29,7 +29,7 @@ pub async fn rotate_keys(
 
     sqlx::query(
         r#"
-        INSERT INTO key_rotation_history (user_id, device_id, key_id, rotated_at)
+        INSERT INTO key_rotation_history (user_id, device_id, key_id, rotated_ts)
         VALUES ($1, $2, $3, $4)
         "#,
     )
@@ -44,7 +44,7 @@ pub async fn rotate_keys(
     Ok(Json(json!({
         "success": true,
         "key_id": key_id,
-        "rotated_at": now,
+        "rotated_ts": now,
     })))
 }
 
@@ -55,9 +55,9 @@ pub async fn get_rotation_history(
 ) -> Result<Json<Value>, ApiError> {
     let rows = sqlx::query(
         r#"
-        SELECT key_id, rotated_at FROM key_rotation_history 
+        SELECT key_id, rotated_ts FROM key_rotation_history
         WHERE user_id = $1 AND device_id = $2
-        ORDER BY rotated_at DESC
+        ORDER BY rotated_ts DESC
         LIMIT 10
         "#,
     )
@@ -73,7 +73,7 @@ pub async fn get_rotation_history(
             use sqlx::Row;
             json!({
                 "key_id": row.get::<Option<String>, _>("key_id"),
-                "rotated_at": row.get::<Option<i64>, _>("rotated_at"),
+                "rotated_ts": row.get::<Option<i64>, _>("rotated_ts"),
             })
         })
         .collect();
@@ -156,7 +156,7 @@ pub async fn check_needs_rotation(
 ) -> Result<Json<Value>, ApiError> {
     let last_rotation: Option<i64> = sqlx::query_scalar(
         r#"
-        SELECT MAX(rotated_at) FROM key_rotation_history 
+        SELECT MAX(rotated_ts) FROM key_rotation_history 
         WHERE user_id = $1
         "#,
     )

@@ -236,7 +236,7 @@ pub async fn get_blacklist(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
     let blacklist = sqlx::query(
-        "SELECT server_name, added_at, reason FROM federation_blacklist ORDER BY added_at DESC",
+        "SELECT server_name, added_ts, reason FROM federation_blacklist ORDER BY added_ts DESC",
     )
     .fetch_all(&*state.services.user_storage.pool)
     .await
@@ -247,7 +247,7 @@ pub async fn get_blacklist(
         .map(|row| {
             json!({
                 "server_name": row.get::<Option<String>, _>("server_name"),
-                "added_at": row.get::<Option<i64>, _>("added_at"),
+                "added_ts": row.get::<Option<i64>, _>("added_ts"),
                 "reason": row.get::<Option<String>, _>("reason")
             })
         })
@@ -265,10 +265,12 @@ pub async fn add_to_blacklist(
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
-        "INSERT INTO federation_blacklist (server_name, added_at) VALUES ($1, $2) ON CONFLICT (server_name) DO NOTHING"
+        "INSERT INTO federation_blacklist (server_name, added_ts, added_by, reason) VALUES ($1, $2, $3, $4) ON CONFLICT (server_name) DO NOTHING"
     )
     .bind(&server_name)
     .bind(now)
+    .bind(&server_name)
+    .bind(&serde_json::Value::Null)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;

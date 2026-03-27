@@ -283,7 +283,7 @@ impl KeyBackupService {
         let rows = sqlx::query_as::<_, BackupKeyInfo>(
             r#"
             SELECT user_id, backup_id, room_id, session_id, first_message_index,
-                   forwarded_count, is_verified, backup_data
+                   forwarded_count, is_verified, session_data
             FROM backup_keys
             WHERE user_id = $1
             "#,
@@ -414,7 +414,7 @@ impl KeyBackupService {
                             "first_message_index": key.first_message_index,
                             "forwarded_count": key.forwarded_count,
                             "is_verified": key.is_verified,
-                            "session_data": key.backup_data,
+                            "session_data": key.session_data,
                         }),
                     );
                 }
@@ -515,7 +515,7 @@ impl KeyBackupService {
                         "first_message_index": key.first_message_index,
                         "forwarded_count": key.forwarded_count,
                         "is_verified": key.is_verified,
-                        "session_data": key.backup_data,
+                        "session_data": key.session_data,
                     }),
                 );
                 total_sessions += 1;
@@ -568,7 +568,7 @@ impl KeyBackupService {
                     "first_message_index": key.first_message_index,
                     "forwarded_count": key.forwarded_count,
                     "is_verified": key.is_verified,
-                    "session_data": key.backup_data,
+                    "session_data": key.session_data,
                 }),
             );
         }
@@ -592,7 +592,7 @@ impl KeyBackupService {
                 "first_message_index": k.first_message_index,
                 "forwarded_count": k.forwarded_count,
                 "is_verified": k.is_verified,
-                "session_data": k.backup_data,
+                "session_data": k.session_data,
             })
         }))
     }

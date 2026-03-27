@@ -1328,6 +1328,8 @@ pub struct RedisConfig {
     pub host: String,
     /// Redis 端口
     pub port: u16,
+    /// Redis 密码（可选）
+    pub password: Option<String>,
     /// 缓存键前缀
     pub key_prefix: String,
     /// 连接池大小
@@ -2159,6 +2161,7 @@ mod tests {
             redis: RedisConfig {
                 host: "localhost".to_string(),
                 port: 6379,
+                password: None,
                 key_prefix: "test:".to_string(),
                 pool_size: 10,
                 enabled: true,
@@ -2278,6 +2281,7 @@ mod tests {
             redis: RedisConfig {
                 host: "redis.example.com".to_string(),
                 port: 6380,
+                password: Some("secret".to_string()),
                 key_prefix: "prod:".to_string(),
                 pool_size: 20,
                 enabled: true,
@@ -2413,6 +2417,7 @@ mod tests {
         let config = RedisConfig {
             host: "127.0.0.1".to_string(),
             port: 6379,
+            password: None,
             key_prefix: "synapse:".to_string(),
             pool_size: 16,
             enabled: true,
