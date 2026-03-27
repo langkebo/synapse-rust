@@ -467,10 +467,14 @@ CREATE TABLE IF NOT EXISTS device_signatures (
 CREATE TABLE IF NOT EXISTS key_backups (
     backup_id BIGSERIAL,
     user_id TEXT NOT NULL,
+    backup_id_text TEXT,
     algorithm TEXT NOT NULL,
     auth_data JSONB,
     auth_key TEXT,
+    mgmt_key TEXT,
+    backup_data JSONB,
     version BIGINT DEFAULT 1,
+    etag TEXT,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
     CONSTRAINT pk_key_backups PRIMARY KEY (backup_id),
@@ -2403,8 +2407,12 @@ CREATE TABLE IF NOT EXISTS rendezvous_session (
     session_id TEXT NOT NULL,
     user_id TEXT,
     device_id TEXT,
-    status TEXT DEFAULT 'pending',
+    intent TEXT,
+    transport TEXT,
+    transport_data JSONB,
+    key TEXT,
     content JSONB DEFAULT '{}',
+    status TEXT DEFAULT 'pending',
     expires_ts BIGINT NOT NULL,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
@@ -2415,6 +2423,19 @@ CREATE TABLE IF NOT EXISTS rendezvous_session (
 CREATE INDEX IF NOT EXISTS idx_rendezvous_session_user ON rendezvous_session(user_id) WHERE user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_rendezvous_session_expires ON rendezvous_session(expires_ts);
 CREATE INDEX IF NOT EXISTS idx_rendezvous_session_status ON rendezvous_session(status);
+
+-- Rendezvous 消息表
+CREATE TABLE IF NOT EXISTS rendezvous_messages (
+    id BIGSERIAL,
+    session_id TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    message_type TEXT NOT NULL,
+    content JSONB NOT NULL,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_rendezvous_messages PRIMARY KEY (id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rendezvous_messages_session ON rendezvous_messages(session_id);
 
 -- 应用服务状态表
 CREATE TABLE IF NOT EXISTS application_service_state (

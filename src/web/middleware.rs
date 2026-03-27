@@ -1923,15 +1923,15 @@ mod tests {
 
             let report = check_cors_security();
 
-            assert!(!report.is_development_mode);
-            assert!(report.allows_any_origin);
-            assert!(!report.errors.is_empty());
+            assert!(!report.is_development_mode, "Should not be in dev mode");
+            assert!(report.allows_any_origin, "Should allow any origin with wildcard");
+            assert!(!report.errors.is_empty(), "Should have errors with wildcard in production");
 
             let validation = validate_cors_config_for_production();
-            assert!(validation.is_err());
+            assert!(validation.is_err(), "Validation should fail with wildcard origin in production: {:?}", validation);
         })
         .join()
-        .unwrap();
+        .expect("Thread panicked");
     }
 
     #[test]

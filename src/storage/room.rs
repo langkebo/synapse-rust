@@ -594,15 +594,17 @@ impl RoomStorage {
         room_id: &str,
         is_public: bool,
     ) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            INSERT INTO room_directory (room_id, is_public)
-            VALUES ($1, $2)
+            INSERT INTO room_directory (room_id, is_public, added_ts)
+            VALUES ($1, $2, $3)
             ON CONFLICT (room_id) DO UPDATE SET is_public = EXCLUDED.is_public
             "#,
         )
         .bind(room_id)
         .bind(is_public)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())

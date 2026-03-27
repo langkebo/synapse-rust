@@ -1,7 +1,7 @@
 #!/bin/bash
 
 HOST="matrix.cjystx.top"
-BASE_URL="http://localhost:8008"
+BASE_URL="http://localhost:28008"
 PASS=0
 FAIL=0
 TOTAL=0

@@ -862,10 +862,10 @@ impl PresenceStorage {
             let now = chrono::Utc::now().timestamp_millis();
             sqlx::query(
                 r#"
-                INSERT INTO typing (user_id, room_id, is_typing, last_active_ts)
+                INSERT INTO typing (user_id, room_id, typing, last_active_ts)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (user_id, room_id)
-                DO UPDATE SET is_typing = EXCLUDED.is_typing, last_active_ts = EXCLUDED.last_active_ts
+                DO UPDATE SET typing = EXCLUDED.typing, last_active_ts = EXCLUDED.last_active_ts
                 "#,
             )
             .bind(user_id)

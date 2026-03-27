@@ -24,7 +24,7 @@ pub struct CreateSpaceBody {
     #[validate(length(max = 2048))]
     pub avatar_url: Option<String>,
     #[validate(length(max = 50))]
-    pub join_rule: Option<String>,
+    pub join_rules: Option<String>,
     #[validate(length(max = 50))]
     pub visibility: Option<String>,
     pub is_public: Option<bool>,
@@ -38,8 +38,6 @@ pub struct AddChildBody {
     pub room_id: String,
     #[validate(length(max = 100))]
     pub via_servers: Vec<String>,
-    #[validate(length(max = 1000))]
-    pub order: Option<String>,
     pub suggested: Option<bool>,
 }
 
@@ -52,7 +50,7 @@ pub struct UpdateSpaceBody {
     #[validate(length(max = 2048))]
     pub avatar_url: Option<String>,
     #[validate(length(max = 50))]
-    pub join_rule: Option<String>,
+    pub join_rules: Option<String>,
     #[validate(length(max = 50))]
     pub visibility: Option<String>,
     pub is_public: Option<bool>,
@@ -93,10 +91,10 @@ pub struct SpaceResponse {
     pub topic: Option<String>,
     pub avatar_url: Option<String>,
     pub creator: String,
-    pub join_rule: String,
-    pub visibility: String,
+    pub join_rules: String,
+    pub visibility: Option<String>,
     pub is_public: bool,
-    pub creation_ts: i64,
+    pub created_ts: i64,
     pub updated_ts: Option<i64>,
     pub parent_space_id: Option<String>,
 }
@@ -104,16 +102,16 @@ pub struct SpaceResponse {
 impl From<crate::storage::space::Space> for SpaceResponse {
     fn from(space: crate::storage::space::Space) -> Self {
         Self {
-            space_id: space.space_id,
-            room_id: space.room_id,
+            space_id: space.space_id.clone(),
+            room_id: space.space_id,
             name: space.name,
             topic: space.topic,
             avatar_url: space.avatar_url,
             creator: space.creator,
-            join_rule: space.join_rule,
+            join_rules: space.join_rules,
             visibility: space.visibility,
             is_public: space.is_public,
-            creation_ts: space.creation_ts,
+            created_ts: space.created_ts,
             updated_ts: space.updated_ts,
             parent_space_id: space.parent_space_id,
         }
@@ -125,9 +123,8 @@ pub struct SpaceChildResponse {
     pub space_id: String,
     pub room_id: String,
     pub via_servers: Vec<String>,
-    pub order: Option<String>,
-    pub suggested: bool,
-    pub added_by: String,
+    pub sender: String,
+    pub is_suggested: bool,
     pub added_ts: i64,
 }
 
@@ -137,9 +134,8 @@ impl From<crate::storage::space::SpaceChild> for SpaceChildResponse {
             space_id: child.space_id,
             room_id: child.room_id,
             via_servers: child.via_servers,
-            order: child.order,
-            suggested: child.suggested,
-            added_by: child.added_by,
+            sender: child.sender,
+            is_suggested: child.is_suggested,
             added_ts: child.added_ts,
         }
     }
@@ -184,7 +180,7 @@ pub async fn create_space(
         topic: body.topic,
         avatar_url: body.avatar_url,
         creator: auth_user.user_id.clone(),
-        join_rule: body.join_rule,
+        join_rules: body.join_rules,
         visibility: body.visibility,
         is_public: body.is_public,
         parent_space_id: body.parent_space_id,
@@ -240,8 +236,8 @@ pub async fn update_space(
     if let Some(avatar_url) = body.avatar_url {
         request = request.avatar_url(avatar_url);
     }
-    if let Some(join_rule) = body.join_rule {
-        request = request.join_rule(join_rule);
+    if let Some(join_rules) = body.join_rules {
+        request = request.join_rules(join_rules);
     }
     if let Some(visibility) = body.visibility {
         request = request.visibility(visibility);
@@ -282,10 +278,9 @@ pub async fn add_child(
     let request = AddChildRequest {
         space_id,
         room_id: body.room_id,
+        sender: auth_user.user_id.clone(),
+        is_suggested: body.suggested.unwrap_or(false),
         via_servers: body.via_servers,
-        order: body.order,
-        suggested: body.suggested,
-        added_by: auth_user.user_id.clone(),
     };
 
     let child = state.services.space_service.add_child(request).await?;
@@ -705,7 +700,7 @@ mod tests {
             name: Some("My Space".to_string()),
             topic: Some("A test space".to_string()),
             avatar_url: Some("mxc://example.com/avatar".to_string()),
-            join_rule: Some("invite".to_string()),
+            join_rules: Some("invite".to_string()),
             visibility: Some("private".to_string()),
             is_public: Some(false),
             parent_space_id: None,
@@ -720,7 +715,6 @@ mod tests {
         let body = AddChildBody {
             room_id: "!child:example.com".to_string(),
             via_servers: vec!["example.com".to_string()],
-            order: Some("1".to_string()),
             suggested: Some(true),
         };
 
@@ -734,7 +728,7 @@ mod tests {
             name: Some("Updated Name".to_string()),
             topic: Some("Updated topic".to_string()),
             avatar_url: None,
-            join_rule: Some("public".to_string()),
+            join_rules: Some("public".to_string()),
             visibility: Some("public".to_string()),
             is_public: Some(true),
         };
@@ -781,10 +775,10 @@ mod tests {
             topic: None,
             avatar_url: None,
             creator: "@admin:example.com".to_string(),
-            join_rule: "invite".to_string(),
-            visibility: "private".to_string(),
+            join_rules: "invite".to_string(),
+            visibility: Some("private".to_string()),
             is_public: false,
-            creation_ts: 1234567890,
+            created_ts: 1234567890,
             updated_ts: None,
             parent_space_id: None,
         };

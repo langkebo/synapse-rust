@@ -1000,10 +1000,12 @@ pub async fn set_room_public(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     // Add to directory
+    let now = chrono::Utc::now().timestamp_millis();
     sqlx::query(
-        "INSERT INTO room_directory (room_id, visibility) VALUES ($1, 'public') ON CONFLICT DO NOTHING"
+        "INSERT INTO room_directory (room_id, is_public, added_ts) VALUES ($1, true, $2) ON CONFLICT (room_id) DO UPDATE SET is_public = true"
     )
     .bind(&room_id)
+    .bind(now)
     .execute(&*state.services.room_storage.pool)
     .await
     .ok();

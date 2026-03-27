@@ -171,11 +171,11 @@ impl RoomSummaryStorage {
             INSERT INTO room_summaries (
                 room_id, room_type, name, topic, avatar_url, canonical_alias,
                 join_rules, history_visibility, guest_access, is_direct, is_space,
-                member_count, joined_members, invited_members, hero_users,
+                member_count, joined_member_count, invited_member_count, hero_users,
                 updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 0, 0, '[]'::jsonb, $12)
-            RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_members as joined_member_count, invited_members as invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, NULL as created_ts
+            RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, NULL as created_ts
             "#,
         )
         .bind(&request.room_id)
