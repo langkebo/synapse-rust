@@ -1,0 +1,155 @@
+-- ============================================================================
+-- P1 关键修复迁移脚本
+-- 执行日期: 2026-03-28
+--
+-- 问题描述:
+--   根据数据库字段命名规范，部分字段使用了错误的后缀
+--   _ts 后缀应用于 NOT NULL 时间戳
+--   _at 后缀应用于可选时间戳（expires/revoke/validate 等）
+--
+-- 修复内容:
+--   1. user_threepids.validated_ts → validated_at (可选验证时间)
+--   2. user_threepids.verification_expires_ts → verification_expires_at (可选过期时间)
+--
+-- 重要: 此迁移脚本具有幂等性，可安全重复执行
+-- ============================================================================
+
+BEGIN;
+
+-- ============================================================================
+-- 修复 1: user_threepids 表字段命名
+-- ============================================================================
+
+-- 步骤 1: 检查并添加新列 validated_at (如果不存在)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'user_threepids' AND column_name = 'validated_at'
+    ) THEN
+        ALTER TABLE user_threepids ADD COLUMN validated_at BIGINT;
+        RAISE NOTICE 'Added user_threepids.validated_at column';
+    ELSE
+        RAISE NOTICE 'user_threepids.validated_at already exists';
+    END IF;
+END $$;
+
+-- 步骤 2: 如果 validated_ts 存在，则迁移数据到 validated_at
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'user_threepids' AND column_name = 'validated_ts'
+    ) THEN
+        UPDATE user_threepids SET validated_at = validated_ts WHERE validated_ts IS NOT NULL;
+        RAISE NOTICE 'Migrated data from validated_ts to validated_at';
+
+        -- 步骤 3: 删除旧列
+        ALTER TABLE user_threepids DROP COLUMN validated_ts;
+        RAISE NOTICE 'Dropped user_threepids.validated_ts column';
+    ELSE
+        RAISE NOTICE 'user_threepids.validated_ts does not exist, skipping migration';
+    END IF;
+END $$;
+
+-- 步骤 4: 检查并添加新列 verification_expires_at (如果不存在)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'user_threepids' AND column_name = 'verification_expires_at'
+    ) THEN
+        ALTER TABLE user_threepids ADD COLUMN verification_expires_at BIGINT;
+        RAISE NOTICE 'Added user_threepids.verification_expires_at column';
+    ELSE
+        RAISE NOTICE 'user_threepids.verification_expires_at already exists';
+    END IF;
+END $$;
+
+-- 步骤 5: 如果 verification_expires_ts 存在，则迁移数据到 verification_expires_at
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'user_threepids' AND column_name = 'verification_expires_ts'
+    ) THEN
+        UPDATE user_threepids SET verification_expires_at = verification_expires_ts WHERE verification_expires_ts IS NOT NULL;
+        RAISE NOTICE 'Migrated data from verification_expires_ts to verification_expires_at';
+
+        -- 步骤 6: 删除旧列
+        ALTER TABLE user_threepids DROP COLUMN verification_expires_ts;
+        RAISE NOTICE 'Dropped user_threepids.verification_expires_ts column';
+    ELSE
+        RAISE NOTICE 'user_threepids.verification_expires_ts does not exist, skipping migration';
+    END IF;
+END $$;
+
+-- ============================================================================
+-- 验证修复结果
+-- ============================================================================
+
+DO $$
+DECLARE
+    v_old_fields INTEGER := 0;
+    v_validated_at_exists BOOLEAN := FALSE;
+    v_verification_expires_at_exists BOOLEAN := FALSE;
+BEGIN
+    -- 检查是否还有遗留的旧字段名
+    SELECT COUNT(*) INTO v_old_fields
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+    AND table_name = 'user_threepids'
+    AND column_name IN ('validated_ts', 'verification_expires_ts');
+
+    -- 检查新字段是否存在
+    SELECT EXISTS(
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'user_threepids' AND column_name = 'validated_at'
+    ) INTO v_validated_at_exists;
+
+    SELECT EXISTS(
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'user_threepids' AND column_name = 'verification_expires_at'
+    ) INTO v_verification_expires_at_exists;
+
+    -- 输出验证结果
+    IF v_old_fields = 0 AND v_validated_at_exists AND v_verification_expires_at_exists THEN
+        RAISE NOTICE '✅ P1 fixes completed successfully';
+        RAISE NOTICE '   - validated_at: OK';
+        RAISE NOTICE '   - verification_expires_at: OK';
+    ELSE
+        IF v_old_fields > 0 THEN
+            RAISE WARNING '⚠️ Still have % old field name(s) remaining', v_old_fields;
+        END IF;
+        IF NOT v_validated_at_exists THEN
+            RAISE WARNING '⚠️ validated_at column is missing';
+        END IF;
+        IF NOT v_verification_expires_at_exists THEN
+            RAISE WARNING '⚠️ verification_expires_at column is missing';
+        END IF;
+    END IF;
+END $$;
+
+-- ============================================================================
+-- 显示最终表结构
+-- ============================================================================
+
+DO $$
+BEGIN
+    RAISE NOTICE 'Final user_threepids table structure:';
+    RAISE NOTICE '%',
+        (SELECT string_agg(column_name || ' ' || data_type, ', ')
+         FROM information_schema.columns
+         WHERE table_name = 'user_threepids'
+         ORDER BY ordinal_position);
+END $$;
+
+COMMIT;
+
+-- ============================================================================
+-- [SUCCESS] P1 关键修复迁移完成
+--
+-- 修复内容:
+--   ✅ user_threepids.validated_ts → validated_at
+--   ✅ user_threepids.verification_expires_ts → verification_expires_at
+-- ============================================================================

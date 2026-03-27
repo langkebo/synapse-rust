@@ -1008,7 +1008,7 @@ pub async fn set_room_public(
     .bind(now)
     .execute(&*state.services.room_storage.pool)
     .await
-    .ok();
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({
         "room_id": room_id,

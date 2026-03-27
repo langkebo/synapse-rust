@@ -142,6 +142,10 @@ pub fn create_thread_routes(state: AppState) -> Router<AppState> {
             "/_matrix/client/v1/threads/unread",
             get(get_unread_threads_global),
         )
+        .route(
+            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads",
+            get(list_threads_legacy_search),
+        )
         // Room-level threads (v1)
         .route(
             "/_matrix/client/v1/rooms/{room_id}/threads",
@@ -210,6 +214,26 @@ pub fn create_thread_routes(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+fn build_legacy_threads_response(response: ThreadListResponse) -> Value {
+    let chunk = response
+        .threads
+        .into_iter()
+        .map(|thread| {
+            json!({
+                "event_id": thread.root_event_id,
+                "sender": thread.root_sender,
+                "content": thread.root_content,
+                "origin_server_ts": thread.root_origin_server_ts
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "chunk": chunk,
+        "next_batch": response.next_batch
+    })
+}
+
 async fn create_thread(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
@@ -246,6 +270,23 @@ async fn list_threads(
 
     let response = state.services.thread_service.list_threads(request).await?;
     Ok(Json(response))
+}
+
+async fn list_threads_legacy_search(
+    State(state): State<AppState>,
+    Path((_user_id, room_id)): Path<(String, String)>,
+    Query(query): Query<ListQuery>,
+    _auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let request = ListThreadsRequest {
+        room_id,
+        limit: query.limit,
+        from: query.from,
+        include_all: query.include_all.unwrap_or(false),
+    };
+
+    let response = state.services.thread_service.list_threads(request).await?;
+    Ok(Json(build_legacy_threads_response(response)))
 }
 
 async fn get_thread(
@@ -556,4 +597,48 @@ async fn get_unread_threads_global(
     Ok(Json(json!({
         "threads": []
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::thread::ThreadSummary;
+
+    #[test]
+    fn test_build_legacy_threads_response_shape() {
+        let response = ThreadListResponse {
+            threads: vec![ThreadSummary {
+                id: 1,
+                room_id: "!room:localhost".to_string(),
+                thread_id: "$thread".to_string(),
+                root_event_id: "$root".to_string(),
+                root_sender: "@alice:localhost".to_string(),
+                root_content: json!({ "body": "hello" }),
+                root_origin_server_ts: 42,
+                latest_event_id: None,
+                latest_sender: None,
+                latest_content: None,
+                latest_origin_server_ts: None,
+                reply_count: 0,
+                participants: json!(["@alice:localhost"]),
+                is_frozen: false,
+                created_ts: 42,
+                updated_ts: 42,
+            }],
+            next_batch: Some("$thread".to_string()),
+            total: 1,
+        };
+
+        let legacy = build_legacy_threads_response(response);
+        assert_eq!(legacy["chunk"][0]["event_id"], "$root");
+        assert_eq!(legacy["chunk"][0]["sender"], "@alice:localhost");
+        assert_eq!(legacy["next_batch"], "$thread");
+    }
+
+    #[test]
+    fn test_legacy_search_thread_route_path_shape() {
+        let route = "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads";
+        assert!(route.starts_with("/_matrix/client/v3/user/"));
+        assert!(route.ends_with("/threads"));
+    }
 }

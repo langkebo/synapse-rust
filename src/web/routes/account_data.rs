@@ -8,72 +8,34 @@ use axum::{
 use serde_json::{json, Value};
 use sqlx::Row;
 
-pub fn create_account_data_router(state: AppState) -> Router<AppState> {
+fn create_account_data_compat_router() -> Router<AppState> {
     Router::new()
+        .route("/user/{user_id}/account_data/", get(list_account_data))
         .route(
-            "/_matrix/client/v3/user/{user_id}/account_data/",
-            get(list_account_data),
+            "/user/{user_id}/account_data/{type}",
+            get(get_account_data).put(set_account_data),
         )
         .route(
-            "/_matrix/client/v3/user/{user_id}/account_data/{type}",
-            put(set_account_data),
+            "/user/{user_id}/rooms/{room_id}/account_data/{type}",
+            get(get_room_account_data).put(set_room_account_data),
         )
         .route(
-            "/_matrix/client/v3/user/{user_id}/account_data/{type}",
-            get(get_account_data),
-        )
-        .route(
-            "/_matrix/client/r0/user/{user_id}/account_data/",
-            get(list_account_data),
-        )
-        .route(
-            "/_matrix/client/r0/user/{user_id}/account_data/{type}",
-            put(set_account_data),
-        )
-        .route(
-            "/_matrix/client/r0/user/{user_id}/account_data/{type}",
-            get(get_account_data),
-        )
-        .route(
-            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}",
-            put(set_room_account_data),
-        )
-        .route(
-            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}",
-            get(get_room_account_data),
-        )
-        .route(
-            "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/account_data/{type}",
-            put(set_room_account_data),
-        )
-        .route(
-            "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/account_data/{type}",
-            get(get_room_account_data),
-        )
-        .route(
-            "/_matrix/client/v3/user/{user_id}/filter",
+            "/user/{user_id}/filter",
             put(create_filter).post(create_filter),
         )
+        .route("/user/{user_id}/filter/{filter_id}", get(get_filter))
         .route(
-            "/_matrix/client/v3/user/{user_id}/filter/{filter_id}",
-            get(get_filter),
-        )
-        .route(
-            "/_matrix/client/r0/user/{user_id}/filter",
-            put(create_filter).post(create_filter),
-        )
-        .route(
-            "/_matrix/client/r0/user/{user_id}/filter/{filter_id}",
-            get(get_filter),
-        )
-        .route(
-            "/_matrix/client/v3/user/{user_id}/openid/request_token",
+            "/user/{user_id}/openid/request_token",
             get(get_openid_token),
         )
-        .route(
-            "/_matrix/client/r0/user/{user_id}/openid/request_token",
-            get(get_openid_token),
-        )
+}
+
+pub fn create_account_data_router(state: AppState) -> Router<AppState> {
+    let compat_router = create_account_data_compat_router();
+
+    Router::new()
+        .nest("/_matrix/client/v3", compat_router.clone())
+        .nest("/_matrix/client/r0", compat_router)
         .with_state(state)
 }
 
@@ -345,6 +307,35 @@ async fn get_openid_token(
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+
+    #[test]
+    fn test_account_data_routes_structure() {
+        let routes = [
+            "/_matrix/client/v3/user/{user_id}/account_data/",
+            "/_matrix/client/r0/user/{user_id}/account_data/{type}",
+            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}",
+            "/_matrix/client/r0/user/{user_id}/openid/request_token",
+        ];
+
+        assert!(routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+    }
+
+    #[test]
+    fn test_account_data_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/user/{user_id}/account_data/",
+            "/user/{user_id}/account_data/{type}",
+            "/user/{user_id}/rooms/{room_id}/account_data/{type}",
+            "/user/{user_id}/filter",
+            "/user/{user_id}/filter/{filter_id}",
+            "/user/{user_id}/openid/request_token",
+        ];
+
+        assert_eq!(shared_paths.len(), 6);
+        assert!(shared_paths.iter().all(|path| path.starts_with("/user/")));
+    }
 
     #[test]
     fn test_account_data_json_structure() {

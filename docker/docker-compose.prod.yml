@@ -69,7 +69,7 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      - DATABASE_URL=postgres://synapse:RprMQmy35isJt8k4WqswEViJutat0rvH@db:5432/synapse
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
       - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
       - WORKER_ROLE=main
@@ -85,9 +85,9 @@ services:
       - synapse_media:/app/data/media
       - synapse_data:/app/data
     ports:
-      - "8008:8008"
-      - "8448:8448"
-      - "9090:9090"
+      - "15808:8008"
+      - "15448:8448"
+      - "15090:9090"
     deploy:
       resources:
         limits:
@@ -117,7 +117,7 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      - DATABASE_URL=postgres://synapse:RprMQmy35isJt8k4WqswEViJutat0rvH@db:5432/synapse
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
       - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
       - WORKER_ROLE=worker

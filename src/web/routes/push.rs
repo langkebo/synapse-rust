@@ -2,92 +2,47 @@ use crate::common::ApiError;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Json, Path, State},
-    routing::{delete, get, post, put},
+    routing::{get, post, put},
     Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::Row;
 
-pub fn create_push_router(state: AppState) -> Router<AppState> {
+fn create_push_compat_router() -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/v3/pushers", get(get_pushers))
-        .route("/_matrix/client/v3/pushers", post(set_pusher))
-        .route("/_matrix/client/v3/pushers/set", post(set_pusher))
-        .route("/_matrix/client/r0/pushers", get(get_pushers))
-        .route("/_matrix/client/r0/pushers", post(set_pusher))
-        .route("/_matrix/client/r0/pushers/set", post(set_pusher))
-        .route("/_matrix/client/v3/pushrules", get(get_push_rules))
-        .route("/_matrix/client/r0/pushrules", get(get_push_rules))
+        .route("/pushers", get(get_pushers).post(set_pusher))
+        .route("/pushers/set", post(set_pusher))
+        .route("/pushrules", get(get_push_rules))
+        .route("/pushrules/{scope}", get(get_push_rules_scope))
+        .route("/pushrules/{scope}/{kind}", get(get_push_rules_kind))
         .route(
-            "/_matrix/client/v3/pushrules/{scope}",
-            get(get_push_rules_scope),
+            "/pushrules/{scope}/{kind}/{rule_id}",
+            get(get_push_rule)
+                .post(create_push_rule)
+                .put(set_push_rule)
+                .delete(delete_push_rule),
         )
+        .route("/notifications", get(get_notifications))
         .route(
-            "/_matrix/client/r0/pushrules/{scope}",
-            get(get_push_rules_scope),
+            "/notifications/{notification_id}/ack",
+            post(ack_notification),
         )
-        .route(
-            "/_matrix/client/v3/pushrules/{scope}/{kind}",
-            get(get_push_rules_kind),
-        )
-        .route(
-            "/_matrix/client/r0/pushrules/{scope}/{kind}",
-            get(get_push_rules_kind),
-        )
-        .route(
-            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}",
-            get(get_push_rule),
-        )
-        .route(
-            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}",
-            post(create_push_rule),
-        )
-        .route(
-            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}",
-            put(set_push_rule),
-        )
-        .route(
-            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}",
-            delete(delete_push_rule),
-        )
-        .route(
-            "/_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id}",
-            get(get_push_rule),
-        )
-        .route(
-            "/_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id}",
-            post(create_push_rule),
-        )
-        .route(
-            "/_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id}",
-            put(set_push_rule),
-        )
-        .route(
-            "/_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id}",
-            delete(delete_push_rule),
-        )
+}
+
+pub fn create_push_router(state: AppState) -> Router<AppState> {
+    let compat_router = create_push_compat_router();
+
+    Router::new()
+        .nest("/_matrix/client/v3", compat_router.clone())
+        .nest("/_matrix/client/r0", compat_router)
         .route(
             "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions",
             put(set_push_rule_actions),
         )
         .route(
             "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
-            get(get_push_rule_enabled),
-        )
-        .route(
-            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
-            put(set_push_rule_enabled),
-        )
-        .route("/_matrix/client/v3/notifications", get(get_notifications))
-        .route("/_matrix/client/r0/notifications", get(get_notifications))
-        .route(
-            "/_matrix/client/v3/notifications/{notification_id}/ack",
-            post(ack_notification),
-        )
-        .route(
-            "/_matrix/client/r0/notifications/{notification_id}/ack",
-            post(ack_notification),
+            get(get_push_rule_enabled).put(set_push_rule_enabled),
         )
         .with_state(state)
 }
@@ -634,6 +589,67 @@ mod tests {
 
     #[test]
     fn test_push_routes_structure() {
+        let compat_routes = [
+            "/_matrix/client/v3/pushers",
+            "/_matrix/client/r0/pushers",
+            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}",
+            "/_matrix/client/r0/notifications/{notification_id}/ack",
+        ];
+        let v3_only_routes = [
+            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions",
+            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
+        ];
+
+        assert!(compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(v3_only_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/v3/")));
+    }
+
+    #[test]
+    fn test_push_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/pushers",
+            "/pushers/set",
+            "/pushrules",
+            "/pushrules/{scope}",
+            "/pushrules/{scope}/{kind}",
+            "/pushrules/{scope}/{kind}/{rule_id}",
+            "/notifications",
+            "/notifications/{notification_id}/ack",
+        ];
+
+        assert_eq!(shared_paths.len(), 8);
+        assert!(shared_paths.iter().all(|path| path.starts_with('/')));
+    }
+
+    #[test]
+    fn test_push_router_keeps_rule_mutation_extras_limited_to_v3() {
+        let compat_paths = ["/pushrules/{scope}/{kind}/{rule_id}"];
+        let v3_only_paths = [
+            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions",
+            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
+        ];
+        let absent_r0_paths = [
+            "/_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id}/actions",
+            "/_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id}/enabled",
+        ];
+
+        assert!(compat_paths
+            .iter()
+            .all(|path| !path.ends_with("/actions") && !path.ends_with("/enabled")));
+        assert!(v3_only_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/v3/")));
+        assert!(absent_r0_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/r0/")));
+    }
+
+    #[test]
+    fn test_push_route_examples_still_match_expected_prefixes() {
         let routes = vec![
             "/_matrix/client/v3/pushers",
             "/_matrix/client/v3/pushers/set",

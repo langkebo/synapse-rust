@@ -79,6 +79,7 @@ fn create_test_config() -> Config {
         redis: RedisConfig {
             host: "localhost".to_string(),
             port: 6379,
+            password: None,
             key_prefix: "test:".to_string(),
             pool_size: 5,
             enabled: false,
@@ -371,6 +372,110 @@ async fn test_room_directory_and_public_rooms() {
 }
 
 #[tokio::test]
+async fn test_directory_routes_work_across_r0_and_v3() {
+    let Some(app) = setup_test_app() else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let Some(alice_token) = register_user(&app, &format!("alice_{}", rand::random::<u32>())).await
+    else {
+        eprintln!("Skipping test: failed to register alice");
+        return;
+    };
+
+    let create_room_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/createRoom")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({"name": "Directory Room", "visibility": "public"}).to_string(),
+        ))
+        .unwrap();
+    let create_room_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), create_room_request)
+            .await
+            .unwrap();
+    assert_eq!(create_room_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(create_room_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let room_id = json["room_id"].as_str().unwrap().to_string();
+
+    let r0_public_rooms_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/r0/publicRooms")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let r0_public_rooms_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_public_rooms_request)
+            .await
+            .unwrap();
+    assert_eq!(r0_public_rooms_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(r0_public_rooms_response.into_body(), 10240)
+        .await
+        .unwrap();
+    let r0_public_rooms_json: Value = serde_json::from_slice(&body).unwrap();
+
+    let v3_public_rooms_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/publicRooms")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let v3_public_rooms_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_public_rooms_request)
+            .await
+            .unwrap();
+    assert_eq!(v3_public_rooms_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(v3_public_rooms_response.into_body(), 10240)
+        .await
+        .unwrap();
+    let v3_public_rooms_json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert!(r0_public_rooms_json["chunk"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|room| room["room_id"] == room_id));
+    assert_eq!(r0_public_rooms_json, v3_public_rooms_json);
+
+    let r0_aliases_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/r0/directory/room/{}/alias",
+            room_id
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let r0_aliases_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_aliases_request)
+        .await
+        .unwrap();
+    assert_eq!(r0_aliases_response.status(), StatusCode::OK);
+
+    let v3_aliases_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v3/directory/room/{}/alias",
+            room_id
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let v3_aliases_response = ServiceExt::<Request<Body>>::oneshot(app, v3_aliases_request)
+        .await
+        .unwrap();
+    assert_eq!(v3_aliases_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_room_state_and_redaction() {
     let Some(app) = setup_test_app() else {
         eprintln!("Skipping test: database not available");
@@ -554,4 +659,510 @@ async fn test_room_moderation() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_room_info_and_event_routes_work_across_r0_and_v3() {
+    let Some(app) = setup_test_app() else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let Some(alice_token) =
+        register_user(&app, &format!("room_compat_{}", rand::random::<u32>())).await
+    else {
+        eprintln!("Skipping test: failed to register alice");
+        return;
+    };
+
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/createRoom")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({"name": "Compat Room"}).to_string()))
+        .unwrap();
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(create_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let room_id = json["room_id"].as_str().unwrap().to_string();
+
+    let r0_info_request = Request::builder()
+        .uri(format!("/_matrix/client/r0/rooms/{}", room_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let r0_info_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_info_request)
+        .await
+        .unwrap();
+    assert_eq!(r0_info_response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(r0_info_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let r0_info_json: Value = serde_json::from_slice(&body).unwrap();
+
+    let v3_info_request = Request::builder()
+        .uri(format!("/_matrix/client/v3/rooms/{}", room_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let v3_info_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_info_request)
+        .await
+        .unwrap();
+    assert_eq!(v3_info_response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(v3_info_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let v3_info_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(r0_info_json, v3_info_json);
+
+    let send_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/send/m.room.message/compat_txn_{}",
+            room_id,
+            rand::random::<u32>()
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({"msgtype": "m.text", "body": "cross-version event"}).to_string(),
+        ))
+        .unwrap();
+    let send_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), send_request)
+        .await
+        .unwrap();
+    assert_eq!(send_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(send_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let send_json: Value = serde_json::from_slice(&body).unwrap();
+    let event_id = send_json["event_id"].as_str().unwrap();
+
+    let get_event_request = Request::builder()
+        .uri(format!(
+            "/_matrix/client/r0/rooms/{}/event/{}",
+            room_id, event_id
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_event_response = ServiceExt::<Request<Body>>::oneshot(app, get_event_request)
+        .await
+        .unwrap();
+    assert_eq!(get_event_response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_room_report_route_boundaries_are_preserved() {
+    let Some(app) = setup_test_app() else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let Some(alice_token) =
+        register_user(&app, &format!("room_report_{}", rand::random::<u32>())).await
+    else {
+        eprintln!("Skipping test: failed to register alice");
+        return;
+    };
+
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/createRoom")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({"name": "Report Boundaries"}).to_string()))
+        .unwrap();
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(create_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let room_id = json["room_id"].as_str().unwrap().to_string();
+
+    let send_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/r0/rooms/{}/send/m.room.message/report_txn_{}",
+            room_id,
+            rand::random::<u32>()
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({"msgtype": "m.text", "body": "report target"}).to_string(),
+        ))
+        .unwrap();
+    let send_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), send_request)
+        .await
+        .unwrap();
+    assert_eq!(send_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(send_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let event_id = json["event_id"].as_str().unwrap().to_string();
+
+    for path in [
+        format!("/_matrix/client/r0/rooms/{}/report/{}", room_id, event_id),
+        format!("/_matrix/client/v1/rooms/{}/report/{}", room_id, event_id),
+        format!("/_matrix/client/v3/rooms/{}/report/{}", room_id, event_id),
+    ] {
+        let request = Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("Authorization", format!("Bearer {}", alice_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({"reason": "compatibility check", "score": -50}).to_string(),
+            ))
+            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+            .await
+            .unwrap();
+        assert_ne!(response.status(), StatusCode::NOT_FOUND);
+        assert_ne!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    let r0_report_room_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/report", room_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({"reason": "should not exist"}).to_string(),
+        ))
+        .unwrap();
+    let r0_report_room_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_report_room_request)
+            .await
+            .unwrap();
+    assert_eq!(r0_report_room_response.status(), StatusCode::NOT_FOUND);
+
+    let scanner_request = Request::builder()
+        .uri(format!(
+            "/_matrix/client/v1/rooms/{}/report/{}/scanner_info",
+            room_id, event_id
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let scanner_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), scanner_request)
+        .await
+        .unwrap();
+    assert_ne!(scanner_response.status(), StatusCode::NOT_FOUND);
+
+    let v3_scanner_request = Request::builder()
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/report/{}/scanner_info",
+            room_id, event_id
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let v3_scanner_response = ServiceExt::<Request<Body>>::oneshot(app, v3_scanner_request)
+        .await
+        .unwrap();
+    assert_eq!(v3_scanner_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_relations_routes_work_across_v1_and_r0() {
+    let Some(app) = setup_test_app() else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let Some(alice_token) =
+        register_user(&app, &format!("relations_{}", rand::random::<u32>())).await
+    else {
+        eprintln!("Skipping test: failed to register alice");
+        return;
+    };
+
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/createRoom")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({"name": "Relations Compat"}).to_string()))
+        .unwrap();
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(create_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let room_id = json["room_id"].as_str().unwrap().to_string();
+
+    let send_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/r0/rooms/{}/send/m.room.message/relations_txn_{}",
+            room_id,
+            rand::random::<u32>()
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({"msgtype": "m.text", "body": "relation target"}).to_string(),
+        ))
+        .unwrap();
+    let send_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), send_request)
+        .await
+        .unwrap();
+    assert_eq!(send_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(send_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let event_id = json["event_id"].as_str().unwrap().to_string();
+
+    let v1_put_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v1/relations/{}/{}/m.annotation/{}",
+            room_id, event_id, event_id
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({"key": "🔥"}).to_string()))
+        .unwrap();
+    let v1_put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v1_put_request)
+        .await
+        .unwrap();
+    assert_eq!(v1_put_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(v1_put_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let v1_put_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(v1_put_json["room_id"], room_id);
+    assert_eq!(v1_put_json["relates_to"]["event_id"], event_id);
+
+    let r0_relations_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/r0/relations/{}/{}/m.annotation",
+            room_id, event_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let r0_relations_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_relations_request)
+            .await
+            .unwrap();
+    assert_eq!(r0_relations_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(r0_relations_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let r0_relations_json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(!r0_relations_json["chunk"].as_array().unwrap().is_empty());
+
+    let r0_aggregations_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/r0/aggregations/{}/{}/m.annotation",
+            room_id, event_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let r0_aggregations_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_aggregations_request)
+            .await
+            .unwrap();
+    assert_eq!(r0_aggregations_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(r0_aggregations_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let r0_aggregations_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(r0_aggregations_json["chunk"][0]["type"], "m.annotation");
+    assert_eq!(r0_aggregations_json["chunk"][0]["key"], "🔥");
+
+    let v3_relations_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v3/relations/{}/{}/m.annotation",
+            room_id, event_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let v3_relations_response = ServiceExt::<Request<Body>>::oneshot(app, v3_relations_request)
+        .await
+        .unwrap();
+    assert_eq!(v3_relations_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_reaction_send_routes_work_across_r0_and_v3() {
+    let Some(app) = setup_test_app() else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let Some(alice_token) =
+        register_user(&app, &format!("reactions_{}", rand::random::<u32>())).await
+    else {
+        eprintln!("Skipping test: failed to register alice");
+        return;
+    };
+
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/createRoom")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({"name": "Reaction Compat"}).to_string()))
+        .unwrap();
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(create_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let room_id = json["room_id"].as_str().unwrap().to_string();
+
+    let send_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/r0/rooms/{}/send/m.room.message/reaction_target_{}",
+            room_id,
+            rand::random::<u32>()
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({"msgtype": "m.text", "body": "reaction target"}).to_string(),
+        ))
+        .unwrap();
+    let send_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), send_request)
+        .await
+        .unwrap();
+    assert_eq!(send_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(send_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let event_id = json["event_id"].as_str().unwrap().to_string();
+
+    let r0_reaction_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/r0/rooms/{}/send/m.reaction/r0_reaction_{}",
+            room_id,
+            rand::random::<u32>()
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "relates_to": {
+                    "event_id": event_id,
+                    "rel_type": "m.annotation"
+                },
+                "body": "👍"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let r0_reaction_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_reaction_request)
+            .await
+            .unwrap();
+    assert_eq!(r0_reaction_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(r0_reaction_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let r0_reaction_json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(r0_reaction_json["event_id"].as_str().is_some());
+
+    let v3_reaction_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/send/m.reaction/v3_reaction_{}",
+            room_id,
+            rand::random::<u32>()
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "relates_to": {
+                    "event_id": event_id,
+                    "rel_type": "m.annotation"
+                },
+                "body": "🔥"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let v3_reaction_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_reaction_request)
+            .await
+            .unwrap();
+    assert_eq!(v3_reaction_response.status(), StatusCode::OK);
+
+    let v3_relations_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/relations/{}",
+            room_id, event_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let v3_relations_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_relations_request)
+            .await
+            .unwrap();
+    assert_eq!(v3_relations_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(v3_relations_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let v3_relations_json: Value = serde_json::from_slice(&body).unwrap();
+    let relation_bodies: Vec<_> = v3_relations_json["chunk"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["content"]["body"].as_str())
+        .collect();
+    assert!(relation_bodies.contains(&"👍"));
+    assert!(relation_bodies.contains(&"🔥"));
+
+    let r0_relations_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/r0/rooms/{}/relations/{}",
+            room_id, event_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let r0_relations_response = ServiceExt::<Request<Body>>::oneshot(app, r0_relations_request)
+        .await
+        .unwrap();
+    assert_eq!(r0_relations_response.status(), StatusCode::NOT_FOUND);
 }

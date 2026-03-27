@@ -714,6 +714,7 @@ impl ServiceContainer {
             redis: RedisConfig {
                 host: "localhost".to_string(),
                 port: 6379,
+                password: None,
                 key_prefix: "test:".to_string(),
                 pool_size: 10,
                 enabled: false,

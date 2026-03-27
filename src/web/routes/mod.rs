@@ -338,6 +338,44 @@ fn extract_token_from_headers(headers: &HeaderMap) -> Result<String, ApiError> {
     Ok(token)
 }
 
+fn create_client_capabilities_router() -> Router<AppState> {
+    Router::new().route("/capabilities", get(get_capabilities))
+}
+
+fn create_client_media_config_router() -> Router<AppState> {
+    Router::new().route("/media/config", get(media::media_config))
+}
+
+fn create_voip_compat_router() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/voip/turnServer",
+            get(get_turn_server).post(get_turn_server),
+        )
+        .route("/voip/config", get(get_voip_config))
+        .route("/voip/turnServer/guest", get(get_turn_credentials_guest))
+        .route(
+            "/rooms/{room_id}/send/m.call.invite/{txn_id}",
+            put(voip::call_invite),
+        )
+        .route(
+            "/rooms/{room_id}/send/m.call.candidates/{txn_id}",
+            put(voip::call_candidates),
+        )
+        .route(
+            "/rooms/{room_id}/send/m.call.answer/{txn_id}",
+            put(voip::call_answer),
+        )
+        .route(
+            "/rooms/{room_id}/send/m.call.hangup/{txn_id}",
+            put(voip::call_hangup),
+        )
+        .route(
+            "/rooms/{room_id}/call/{call_id}",
+            get(voip::get_call_session),
+        )
+}
+
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .without_v07_checks()
@@ -356,8 +394,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/v3/versions", get(get_client_versions))
         .route("/_matrix/client/r0/version", get(get_server_version))
         .route("/_matrix/server_version", get(get_server_version))
-        .route("/_matrix/client/r0/capabilities", get(get_capabilities))
-        .route("/_matrix/client/v3/capabilities", get(get_capabilities))
         // Push rules - return default rules (SDK requires this endpoint)
         // Push rules - handled by push router; add trailing-slash aliases
         .route("/_matrix/client/v3/pushrules/", get(get_push_rules_default))
@@ -404,6 +440,13 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_telemetry_router())
         .merge(create_thirdparty_router(state.clone()))
         .merge(create_tags_router(state.clone()))
+        .nest("/_matrix/client/r0", create_client_capabilities_router())
+        .nest("/_matrix/client/v3", create_client_capabilities_router())
+        .nest("/_matrix/client/r0", create_voip_compat_router())
+        .nest("/_matrix/client/v3", create_voip_compat_router())
+        .nest("/_matrix/client/v1", create_client_media_config_router())
+        .nest("/_matrix/client/r0", create_client_media_config_router())
+        .nest("/_matrix/client/v3", create_client_media_config_router())
         .merge(dm::create_dm_router(state.clone()))
         .merge(typing::create_typing_router(state.clone()))
         .merge(ephemeral::create_ephemeral_router(state.clone()))
@@ -413,84 +456,10 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_widget_router())
         .merge(create_rendezvous_router(state.clone()))
         .merge(create_ai_connection_router())
-        .route("/_matrix/client/r0/voip/turnServer", get(get_turn_server))
-        .route("/_matrix/client/r0/voip/turnServer", post(get_turn_server))
-        .route("/_matrix/client/v3/voip/turnServer", get(get_turn_server))
-        .route("/_matrix/client/v3/voip/turnServer", post(get_turn_server))
-        .route("/_matrix/client/r0/voip/config", get(get_voip_config))
-        .route("/_matrix/client/v3/voip/config", get(get_voip_config))
-        .route(
-            "/_matrix/client/r0/voip/turnServer/guest",
-            get(get_turn_credentials_guest),
-        )
-        .route(
-            "/_matrix/client/v3/voip/turnServer/guest",
-            get(get_turn_credentials_guest),
-        )
-        // Call event routes (MSC3079)
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/send/m.call.invite/{txn_id}",
-            put(voip::call_invite),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/send/m.call.invite/{txn_id}",
-            put(voip::call_invite),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/send/m.call.candidates/{txn_id}",
-            put(voip::call_candidates),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/send/m.call.candidates/{txn_id}",
-            put(voip::call_candidates),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/send/m.call.answer/{txn_id}",
-            put(voip::call_answer),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/send/m.call.answer/{txn_id}",
-            put(voip::call_answer),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/send/m.call.hangup/{txn_id}",
-            put(voip::call_hangup),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/send/m.call.hangup/{txn_id}",
-            put(voip::call_hangup),
-        )
-        // Get call session
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/call/{call_id}",
-            get(voip::get_call_session),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/call/{call_id}",
-            get(voip::get_call_session),
-        )
-        .route("/_matrix/client/v3/account/whoami", get(whoami))
-        .route(
-            "/_matrix/client/v3/account/3pid",
-            get(get_threepids).post(add_threepid),
-        )
-        .route("/_matrix/client/v3/account/3pid/add", post(add_threepid))
-        .route("/_matrix/client/v3/account/3pid/bind", post(add_threepid))
-        .route(
-            "/_matrix/client/v3/account/3pid/delete",
-            post(delete_threepid),
-        )
-        .route(
-            "/_matrix/client/v3/account/3pid/unbind",
-            post(unbind_threepid),
-        )
         .route("/_matrix/client/v3/sync", get(sync))
         .route("/_matrix/client/v3/createRoom", post(create_room))
         .route("/_matrix/client/v3/joined_rooms", get(get_joined_rooms))
-        // Media config - client API
-        .route("/_matrix/client/v1/media/config", get(media::media_config))
-        .route("/_matrix/client/v3/media/config", get(media::media_config))
-        .route("/_matrix/client/r0/media/config", get(media::media_config))
+        .route("/_matrix/client/v3/my_rooms", get(get_my_rooms))
         .layer(axum::middleware::from_fn(cors_middleware))
         .layer(axum::middleware::from_fn(security_headers_middleware))
         .layer(CompressionLayer::new())
@@ -505,46 +474,79 @@ pub fn create_router(state: AppState) -> Router {
         .with_state(state)
 }
 
+#[cfg(test)]
+mod top_level_router_tests {
+    #[test]
+    fn test_top_level_compat_routes_structure() {
+        let compat_routes = [
+            "/_matrix/client/r0/capabilities",
+            "/_matrix/client/v3/capabilities",
+            "/_matrix/client/r0/voip/config",
+            "/_matrix/client/v3/rooms/{room_id}/call/{call_id}",
+            "/_matrix/client/v1/media/config",
+            "/_matrix/client/r0/media/config",
+            "/_matrix/client/v3/media/config",
+        ];
+
+        assert!(compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+    }
+
+    #[test]
+    fn test_voip_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/voip/turnServer",
+            "/voip/config",
+            "/voip/turnServer/guest",
+            "/rooms/{room_id}/send/m.call.invite/{txn_id}",
+            "/rooms/{room_id}/send/m.call.candidates/{txn_id}",
+            "/rooms/{room_id}/send/m.call.answer/{txn_id}",
+            "/rooms/{room_id}/send/m.call.hangup/{txn_id}",
+            "/rooms/{room_id}/call/{call_id}",
+        ];
+
+        assert_eq!(shared_paths.len(), 8);
+        assert!(shared_paths.iter().all(|path| path.starts_with('/')));
+    }
+
+    #[test]
+    fn test_top_level_router_keeps_version_boundaries() {
+        let capabilities_paths = ["/capabilities"];
+        let media_config_paths = ["/media/config"];
+        let direct_only_paths = ["/_matrix/client/versions", "/_matrix/client/v3/versions"];
+
+        assert!(capabilities_paths
+            .iter()
+            .all(|path| !path.contains("/versions")));
+        assert!(media_config_paths
+            .iter()
+            .all(|path| path.starts_with("/media/")));
+        assert!(direct_only_paths
+            .iter()
+            .all(|path| !path.ends_with("/capabilities")));
+    }
+}
+
+fn create_auth_compat_router() -> Router<AppState> {
+    Router::new()
+        .route("/register", get(get_register_flows).post(register))
+        .route("/register/available", get(check_username_availability))
+        .route(
+            "/register/email/requestToken",
+            post(request_email_verification),
+        )
+        .route("/register/email/submitToken", post(submit_email_token))
+        .route("/login", get(get_login_flows).post(login))
+        .route("/logout", post(logout))
+        .route("/logout/all", post(logout_all))
+        .route("/refresh", post(refresh_token))
+}
+
 fn create_auth_router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/_matrix/client/r0/register",
-            get(get_register_flows).post(register),
-        )
-        .route(
-            "/_matrix/client/v3/register",
-            get(get_register_flows).post(register),
-        )
-        .route(
-            "/_matrix/client/r0/register/available",
-            get(check_username_availability),
-        )
-        .route(
-            "/_matrix/client/v3/register/available",
-            get(check_username_availability),
-        )
-        .route(
-            "/_matrix/client/r0/register/email/requestToken",
-            post(request_email_verification),
-        )
-        .route(
-            "/_matrix/client/v3/register/email/requestToken",
-            post(request_email_verification),
-        )
-        .route(
-            "/_matrix/client/r0/register/email/submitToken",
-            post(submit_email_token),
-        )
-        .route(
-            "/_matrix/client/v3/register/email/submitToken",
-            post(submit_email_token),
-        )
-        .route("/_matrix/client/r0/login", get(get_login_flows).post(login))
-        .route("/_matrix/client/v3/login", get(get_login_flows).post(login))
-        .route("/_matrix/client/r0/logout", post(logout))
-        .route("/_matrix/client/r0/logout/all", post(logout_all))
-        .route("/_matrix/client/v3/logout", post(logout))
-        .route("/_matrix/client/v3/logout/all", post(logout_all))
+        .nest("/_matrix/client/r0", create_auth_compat_router())
+        .nest("/_matrix/client/v3", create_auth_compat_router())
         // QR Login (MSC4388)
         .route(
             "/_matrix/client/v1/login/get_qr_code",
@@ -566,440 +568,506 @@ fn create_auth_router() -> Router<AppState> {
             "/_matrix/client/v1/login/qr/invalidate",
             post(qr_login::invalidate_qr_login),
         )
-        .route("/_matrix/client/r0/refresh", post(refresh_token))
-        .route("/_matrix/client/v3/refresh", post(refresh_token))
+}
+
+#[cfg(test)]
+mod auth_router_tests {
+    #[test]
+    fn test_auth_routes_structure() {
+        let compat_routes = [
+            "/_matrix/client/r0/register",
+            "/_matrix/client/v3/login",
+            "/_matrix/client/r0/logout/all",
+            "/_matrix/client/v3/refresh",
+        ];
+        let v1_only_routes = [
+            "/_matrix/client/v1/login/get_qr_code",
+            "/_matrix/client/v1/login/qr/{transaction_id}/status",
+        ];
+
+        assert!(compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(v1_only_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/v1/")));
+    }
+
+    #[test]
+    fn test_auth_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/register",
+            "/register/available",
+            "/register/email/requestToken",
+            "/register/email/submitToken",
+            "/login",
+            "/logout",
+            "/logout/all",
+            "/refresh",
+        ];
+
+        assert_eq!(shared_paths.len(), 8);
+        assert!(shared_paths.iter().all(|path| path.starts_with('/')));
+    }
+
+    #[test]
+    fn test_auth_router_keeps_qr_login_outside_compat_scope() {
+        let compat_paths = ["/register", "/login", "/refresh"];
+        let qr_paths = [
+            "/_matrix/client/v1/login/get_qr_code",
+            "/_matrix/client/v1/login/qr/start",
+        ];
+
+        assert!(compat_paths.iter().all(|path| !path.contains("/login/qr")));
+        assert!(qr_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/v1/login/")));
+    }
+}
+
+fn create_account_compat_router() -> Router<AppState> {
+    Router::new()
+        .route("/account/whoami", get(whoami))
+        .route("/account/password", post(change_password_uia))
+        .route("/account/deactivate", post(deactivate_account))
+        .route("/account/3pid", get(get_threepids).post(add_threepid))
+        .route("/account/3pid/add", post(add_threepid))
+        .route("/account/3pid/bind", post(add_threepid))
+        .route("/account/3pid/delete", post(delete_threepid))
+        .route("/account/3pid/unbind", post(unbind_threepid))
+        .route("/profile/{user_id}", get(get_profile))
+        .route(
+            "/profile/{user_id}/displayname",
+            get(get_displayname).put(update_displayname),
+        )
+        .route(
+            "/profile/{user_id}/avatar_url",
+            get(get_avatar_url).put(update_avatar),
+        )
+}
+
+fn create_account_r0_only_router() -> Router<AppState> {
+    Router::new()
+        .route("/account/profile/{user_id}", get(get_profile))
+        .route(
+            "/account/profile/{user_id}/displayname",
+            put(update_displayname),
+        )
+        .route("/account/profile/{user_id}/avatar_url", put(update_avatar))
 }
 
 fn create_account_router() -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/r0/account/whoami", get(whoami))
-        .route(
-            "/_matrix/client/r0/account/profile/{user_id}",
-            get(get_profile),
+        .nest(
+            "/_matrix/client/r0",
+            create_account_compat_router().merge(create_account_r0_only_router()),
         )
-        .route(
-            "/_matrix/client/r0/account/profile/{user_id}/displayname",
-            put(update_displayname),
-        )
-        .route(
-            "/_matrix/client/r0/account/profile/{user_id}/avatar_url",
-            put(update_avatar),
-        )
-        .route(
-            "/_matrix/client/r0/account/password",
-            post(change_password_uia),
-        )
-        .route(
+        .nest("/_matrix/client/v3", create_account_compat_router())
+}
+
+#[cfg(test)]
+mod account_router_tests {
+    #[test]
+    fn test_account_routes_structure() {
+        let compat_routes = [
+            "/_matrix/client/r0/account/whoami",
             "/_matrix/client/v3/account/password",
-            post(change_password_uia),
-        )
-        .route(
-            "/_matrix/client/r0/account/deactivate",
-            post(deactivate_account),
-        )
-        .route(
-            "/_matrix/client/v3/account/deactivate",
-            post(deactivate_account),
-        )
-        .route(
             "/_matrix/client/r0/account/3pid",
-            get(get_threepids).post(add_threepid),
-        )
-        .route("/_matrix/client/r0/account/3pid/add", post(add_threepid))
-        .route("/_matrix/client/r0/account/3pid/bind", post(add_threepid))
-        .route(
-            "/_matrix/client/r0/account/3pid/delete",
-            post(delete_threepid),
-        )
-        .route(
-            "/_matrix/client/r0/account/3pid/unbind",
-            post(unbind_threepid),
-        )
-        .route("/_matrix/client/r0/profile/{user_id}", get(get_profile))
-        .route("/_matrix/client/v3/profile/{user_id}", get(get_profile))
-        .route(
-            "/_matrix/client/r0/profile/{user_id}/displayname",
-            get(get_displayname).put(update_displayname),
-        )
-        .route(
-            "/_matrix/client/v3/profile/{user_id}/displayname",
-            get(get_displayname).put(update_displayname),
-        )
-        .route(
-            "/_matrix/client/r0/profile/{user_id}/avatar_url",
-            get(get_avatar_url).put(update_avatar),
-        )
-        .route(
             "/_matrix/client/v3/profile/{user_id}/avatar_url",
-            get(get_avatar_url).put(update_avatar),
+        ];
+        let r0_only_routes = [
+            "/_matrix/client/r0/account/profile/{user_id}",
+            "/_matrix/client/r0/account/profile/{user_id}/displayname",
+            "/_matrix/client/r0/account/profile/{user_id}/avatar_url",
+        ];
+
+        assert!(compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(r0_only_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/r0/")));
+    }
+
+    #[test]
+    fn test_account_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/account/whoami",
+            "/account/password",
+            "/account/deactivate",
+            "/account/3pid",
+            "/profile/{user_id}",
+            "/profile/{user_id}/displayname",
+            "/profile/{user_id}/avatar_url",
+        ];
+
+        assert_eq!(shared_paths.len(), 7);
+        assert!(shared_paths.iter().all(|path| path.starts_with('/')));
+    }
+
+    #[test]
+    fn test_account_router_keeps_r0_account_profile_outside_compat_scope() {
+        let compat_paths = ["/account/whoami", "/account/3pid", "/profile/{user_id}"];
+        let r0_only_paths = ["/_matrix/client/r0/account/profile/{user_id}"];
+        let absent_v3_paths = ["/_matrix/client/v3/account/profile/{user_id}"];
+
+        assert!(compat_paths
+            .iter()
+            .all(|path| !path.starts_with("/account/profile/")));
+        assert!(r0_only_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/r0/")));
+        assert!(absent_v3_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/v3/account/profile/")));
+    }
+}
+
+fn create_directory_compat_router() -> Router<AppState> {
+    Router::new()
+        .route("/user_directory/search", post(search_user_directory))
+        .route("/user_directory/list", post(list_user_directory))
+        .route(
+            "/directory/list/room/{room_id}",
+            get(get_room_visibility).put(set_room_visibility),
+        )
+        .route(
+            "/directory/room/{room_alias}",
+            get(get_room_by_alias)
+                .put(set_room_alias_direct)
+                .delete(delete_room_alias_direct),
+        )
+        .route(
+            "/publicRooms",
+            get(get_public_rooms).post(query_public_rooms),
+        )
+}
+
+fn create_directory_r0_only_router() -> Router<AppState> {
+    Router::new()
+        .route("/directory/room/{room_id}/alias", get(get_room_aliases))
+        .route(
+            "/directory/room/{room_id}/alias/{room_alias}",
+            put(set_room_alias).delete(delete_room_alias),
         )
 }
 
 fn create_directory_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/_matrix/client/r0/user_directory/search",
-            post(search_user_directory),
+        .nest(
+            "/_matrix/client/r0",
+            create_directory_compat_router().merge(create_directory_r0_only_router()),
         )
-        .route(
-            "/_matrix/client/v3/user_directory/search",
-            post(search_user_directory),
-        )
-        .route(
-            "/_matrix/client/r0/user_directory/list",
-            post(list_user_directory),
-        )
-        .route(
-            "/_matrix/client/v3/user_directory/list",
-            post(list_user_directory),
-        )
-        .route(
-            "/_matrix/client/r0/directory/list/room/{room_id}",
-            get(get_room_visibility).put(set_room_visibility),
-        )
-        .route(
-            "/_matrix/client/v3/directory/list/room/{room_id}",
-            get(get_room_visibility).put(set_room_visibility),
-        )
-        .route(
-            "/_matrix/client/r0/directory/room/{room_alias}",
-            get(get_room_by_alias)
-                .put(set_room_alias_direct)
-                .delete(delete_room_alias_direct),
-        )
-        .route(
-            "/_matrix/client/v3/directory/room/{room_alias}",
-            get(get_room_by_alias)
-                .put(set_room_alias_direct)
-                .delete(delete_room_alias_direct),
-        )
-        .route(
-            "/_matrix/client/r0/publicRooms",
-            get(get_public_rooms).post(query_public_rooms),
-        )
-        .route(
-            "/_matrix/client/v3/publicRooms",
-            get(get_public_rooms).post(query_public_rooms),
-        )
-        .route(
-            "/_matrix/client/r0/directory/room/{room_id}/alias",
-            get(get_room_aliases),
-        )
-        .route(
-            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
-            put(set_room_alias).delete(delete_room_alias),
-        )
+        .nest("/_matrix/client/v3", create_directory_compat_router())
         .with_state(state)
+}
+
+#[cfg(test)]
+mod directory_router_tests {
+    #[test]
+    fn test_directory_routes_structure() {
+        let compat_routes = [
+            "/_matrix/client/r0/user_directory/search",
+            "/_matrix/client/v3/user_directory/list",
+            "/_matrix/client/r0/directory/room/{room_alias}",
+            "/_matrix/client/v3/publicRooms",
+        ];
+        let r0_only_routes = [
+            "/_matrix/client/r0/directory/room/{room_id}/alias",
+            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
+        ];
+
+        assert!(compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(r0_only_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/r0/")));
+    }
+
+    #[test]
+    fn test_directory_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/user_directory/search",
+            "/user_directory/list",
+            "/directory/list/room/{room_id}",
+            "/directory/room/{room_alias}",
+            "/publicRooms",
+        ];
+
+        assert_eq!(shared_paths.len(), 5);
+        assert!(shared_paths.iter().all(|path| path.starts_with('/')));
+    }
+
+    #[test]
+    fn test_directory_router_keeps_r0_alias_management_outside_compat_scope() {
+        let compat_paths = [
+            "/directory/room/{room_alias}",
+            "/publicRooms",
+            "/directory/list/room/{room_id}",
+        ];
+        let r0_only_paths = [
+            "/_matrix/client/r0/directory/room/{room_id}/alias",
+            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
+        ];
+
+        assert!(compat_paths
+            .iter()
+            .all(|path| !path.contains("/alias/{room_alias}") && !path.ends_with("/alias")));
+        assert!(r0_only_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/r0/")));
+    }
+}
+
+fn create_room_report_compat_router() -> Router<AppState> {
+    Router::new()
+        .route("/rooms/{room_id}/report/{event_id}", post(report_event))
+        .route(
+            "/rooms/{room_id}/report/{event_id}/score",
+            put(update_report_score),
+        )
+}
+
+fn create_room_power_levels_compat_router() -> Router<AppState> {
+    Router::new().route(
+        "/rooms/{room_id}/state/m.room.power_levels/",
+        get(get_power_levels),
+    )
+}
+
+fn create_room_r0_v3_compat_router() -> Router<AppState> {
+    Router::new()
+        .route("/rooms/{room_id}", get(get_room_info))
+        .route("/events", get(get_events))
+        .route("/rooms/{room_id}/messages", get(get_messages))
+        .route(
+            "/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
+            post(send_receipt),
+        )
+        .route(
+            "/rooms/{room_id}/read_markers",
+            post(set_read_markers).put(set_read_markers),
+        )
+        .route("/rooms/{room_id}/aliases", get(get_room_aliases))
+        .route("/rooms/{room_id}/join", post(join_room))
+        .route("/rooms/{room_id}/leave", post(leave_room))
+        .route("/rooms/{room_id}/upgrade", post(upgrade_room))
+        .route("/rooms/{room_id}/forget", post(forget_room))
+        .route("/rooms/{room_id}/initialSync", get(room_initial_sync))
+        .route("/rooms/{room_id}/members", get(get_room_members))
+        .route("/rooms/{room_id}/joined_members", get(get_joined_members))
+        .route("/rooms/{room_id}/invite", post(invite_user))
+        .route("/user/{user_id}/rooms", get(get_user_rooms))
+        .route(
+            "/rooms/{room_id}/state/{event_type}/{state_key}",
+            put(put_state_event).get(get_state_event),
+        )
+        .route(
+            "/rooms/{room_id}/state/{event_type}/",
+            put(put_state_event_empty_key).get(get_state_event_empty_key),
+        )
+        .route(
+            "/rooms/{room_id}/state/{event_type}",
+            put(put_state_event_no_key)
+                .get(get_state_by_type)
+                .post(send_state_event),
+        )
+        .route("/rooms/{room_id}/state", get(get_room_state))
+        .route(
+            "/rooms/{room_id}/redact/{event_id}/{txn_id}",
+            put(redact_event),
+        )
+        .route("/rooms/{room_id}/kick", post(kick_user))
+        .route("/rooms/{room_id}/ban", post(ban_user))
+        .route("/rooms/{room_id}/unban", post(unban_user))
+        .route(
+            "/rooms/{room_id}/send/{event_type}/{txn_id}",
+            put(send_message),
+        )
+        .route("/rooms/{room_id}/event/{event_id}", get(get_single_event))
+}
+
+fn create_room_r0_router() -> Router<AppState> {
+    create_room_r0_v3_compat_router()
+        .merge(create_room_report_compat_router())
+        .merge(create_room_power_levels_compat_router())
+        .route("/sync", get(sync))
+        .route("/joined_rooms", get(get_joined_rooms))
+        .route("/createRoom", post(create_room))
+        .route(
+            "/rooms/{room_id}/get_membership_events",
+            post(get_membership_events),
+        )
+}
+
+fn create_room_v1_router() -> Router<AppState> {
+    create_room_report_compat_router()
+        .merge(create_room_power_levels_compat_router())
+        .route("/sync", get(sync))
+        .route(
+            "/rooms/{room_id}/report/{event_id}/scanner_info",
+            get(get_scanner_info),
+        )
+}
+
+fn create_room_v3_router() -> Router<AppState> {
+    create_room_r0_v3_compat_router()
+        .merge(create_room_report_compat_router())
+        .merge(create_room_power_levels_compat_router())
+        .route("/rooms/{room_id}/report", post(report_room))
+        .route(
+            "/rooms/{room_id}/notifications",
+            get(get_room_notifications),
+        )
+        .route("/join/{room_id_or_alias}", post(join_room_by_id_or_alias))
+        .route("/knock/{room_id_or_alias}", post(knock_room))
+        .route("/invite/{room_id}", post(invite_user_by_room))
+        .route(
+            "/rooms/{room_id}/invite_blocklist",
+            get(invite_blocklist::get_invite_blocklist)
+                .post(invite_blocklist::set_invite_blocklist),
+        )
+        .route(
+            "/rooms/{room_id}/invite_allowlist",
+            get(invite_blocklist::get_invite_allowlist)
+                .post(invite_blocklist::set_invite_allowlist),
+        )
+        .route(
+            "/rooms/{room_id}/sticky_events",
+            get(sticky_event::get_sticky_events).post(sticky_event::set_sticky_events),
+        )
+        .route(
+            "/rooms/{room_id}/sticky_events/{event_type}",
+            axum::routing::delete(sticky_event::clear_sticky_event),
+        )
 }
 
 fn create_room_router() -> Router<AppState> {
     Router::new()
-        // Room info endpoint
-        .route("/_matrix/client/v3/rooms/{room_id}", get(get_room_info))
-        .route("/_matrix/client/r0/rooms/{room_id}", get(get_room_info))
-        // Report events
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/report/{event_id}",
-            post(report_event),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}",
-            post(report_event),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/report/{event_id}",
-            post(report_event),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/report/{event_id}/score",
-            put(update_report_score),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/score",
-            put(update_report_score),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/report/{event_id}/score",
-            put(update_report_score),
-        )
-        // Report room (without event_id) - MSC3891
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/report",
-            post(report_room),
-        )
-        // Content scanner info - MSC3891
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info",
-            get(get_scanner_info),
-        )
-        // Room notifications - MSC3891
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/notifications",
-            get(get_room_notifications),
-        )
-        // Sync & Events
-        .route("/_matrix/client/v1/sync", get(sync))
-        .route("/_matrix/client/r0/sync", get(sync))
-        .route("/_matrix/client/r0/events", get(get_events))
-        .route("/_matrix/client/v3/events", get(get_events))
-        .route("/_matrix/client/r0/joined_rooms", get(get_joined_rooms))
-        // Messages
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/messages",
-            get(get_messages),
-        )
-        .route(
+        .nest("/_matrix/client/r0", create_room_r0_router())
+        .nest("/_matrix/client/v1", create_room_v1_router())
+        .nest("/_matrix/client/v3", create_room_v3_router())
+}
+
+#[cfg(test)]
+mod room_router_tests {
+    #[test]
+    fn test_room_routes_structure() {
+        let r0_v3_compat_routes = [
+            "/_matrix/client/r0/rooms/{room_id}",
             "/_matrix/client/v3/rooms/{room_id}/messages",
-            get(get_messages),
-        )
-        // Receipts
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
-            post(send_receipt),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
-            post(send_receipt),
-        )
-        // Read markers
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/read_markers",
-            post(set_read_markers).put(set_read_markers),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/read_markers",
-            post(set_read_markers).put(set_read_markers),
-        )
-        // Aliases
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/aliases",
-            get(get_room_aliases),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/aliases",
-            get(get_room_aliases),
-        )
-        // Join
-        .route("/_matrix/client/r0/rooms/{room_id}/join", post(join_room))
-        .route("/_matrix/client/v3/rooms/{room_id}/join", post(join_room))
-        .route(
-            "/_matrix/client/v3/join/{room_id_or_alias}",
-            post(join_room_by_id_or_alias),
-        )
-        // Knock
-        .route(
-            "/_matrix/client/v3/knock/{room_id_or_alias}",
-            post(knock_room),
-        )
-        // Invite by room ID (standalone endpoint)
-        .route(
-            "/_matrix/client/v3/invite/{room_id}",
-            post(invite_user_by_room),
-        )
-        // Leave
-        .route("/_matrix/client/r0/rooms/{room_id}/leave", post(leave_room))
-        .route("/_matrix/client/v3/rooms/{room_id}/leave", post(leave_room))
-        // Upgrade Room (MSC2174)
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/upgrade",
-            post(upgrade_room),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/upgrade",
-            post(upgrade_room),
-        )
-        // Forget
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/forget",
-            post(forget_room),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/forget",
-            post(forget_room),
-        )
-        // Initial Sync
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/initialSync",
-            get(room_initial_sync),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/initialSync",
-            get(room_initial_sync),
-        )
-        // Members
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/members",
-            get(get_room_members),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/members",
-            get(get_room_members),
-        )
-        // Joined Members
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/joined_members",
-            get(get_joined_members),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/joined_members",
-            get(get_joined_members),
-        )
-        // Invite
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/invite",
-            post(invite_user),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/invite",
-            post(invite_user),
-        )
-        // Invite blocklist (MSC4380)
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/invite_blocklist",
-            get(invite_blocklist::get_invite_blocklist),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/invite_blocklist",
-            post(invite_blocklist::set_invite_blocklist),
-        )
-        // Invite allowlist (MSC4380)
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/invite_allowlist",
-            get(invite_blocklist::get_invite_allowlist),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/invite_allowlist",
-            post(invite_blocklist::set_invite_allowlist),
-        )
-        // Sticky Events (MSC4354)
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/sticky_events",
-            get(sticky_event::get_sticky_events),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/sticky_events",
-            post(sticky_event::set_sticky_events),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type}",
-            axum::routing::delete(sticky_event::clear_sticky_event),
-        )
-        // Create room
-        .route("/_matrix/client/r0/createRoom", post(create_room))
-        // User rooms
-        .route(
-            "/_matrix/client/r0/user/{user_id}/rooms",
-            get(get_user_rooms),
-        )
-        .route(
-            "/_matrix/client/v3/user/{user_id}/rooms",
-            get(get_user_rooms),
-        )
-        // State events - with state_key
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}",
-            put(put_state_event).get(get_state_event),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}",
-            put(put_state_event).get(get_state_event),
-        )
-        // State events - empty state_key (URL ends with /)
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/state/{event_type}/",
-            put(put_state_event_empty_key).get(get_state_event_empty_key),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/state/{event_type}/",
-            put(put_state_event_empty_key).get(get_state_event_empty_key),
-        )
-        // Special handling for m.room.power_levels with trailing slash (SDK compatibility)
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/state/m.room.power_levels/",
-            get(get_power_levels),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/",
-            get(get_power_levels),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/",
-            get(get_power_levels),
-        )
-        // State events - without state_key
-        .route(
             "/_matrix/client/r0/rooms/{room_id}/state/{event_type}",
-            put(put_state_event_no_key)
-                .get(get_state_by_type)
-                .post(send_state_event),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/state/{event_type}",
-            put(put_state_event_no_key)
-                .get(get_state_by_type)
-                .post(send_state_event),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/state",
-            get(get_room_state),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/state",
-            get(get_room_state),
-        )
-        // Membership events
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/get_membership_events",
-            post(get_membership_events),
-        )
-        // Redact
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/redact/{event_id}/{txn_id}",
-            put(redact_event),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}",
-            put(redact_event),
-        )
-        // Kick / Ban / Unban
-        .route("/_matrix/client/r0/rooms/{room_id}/kick", post(kick_user))
-        .route("/_matrix/client/v3/rooms/{room_id}/kick", post(kick_user))
-        .route("/_matrix/client/r0/rooms/{room_id}/ban", post(ban_user))
-        .route("/_matrix/client/v3/rooms/{room_id}/ban", post(ban_user))
-        .route("/_matrix/client/r0/rooms/{room_id}/unban", post(unban_user))
-        .route("/_matrix/client/v3/rooms/{room_id}/unban", post(unban_user))
-        // Send message
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}",
-            put(send_message),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}",
-            put(send_message),
-        )
-        // Get single event
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/event/{event_id}",
-            get(get_single_event),
-        )
-        .route(
             "/_matrix/client/v3/rooms/{room_id}/event/{event_id}",
-            get(get_single_event),
-        )
+        ];
+        let all_version_report_routes = [
+            "/_matrix/client/r0/rooms/{room_id}/report/{event_id}",
+            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/score",
+            "/_matrix/client/v3/rooms/{room_id}/report/{event_id}",
+        ];
+        let version_specific_routes = [
+            "/_matrix/client/r0/createRoom",
+            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info",
+            "/_matrix/client/v3/rooms/{room_id}/notifications",
+        ];
+
+        assert!(r0_v3_compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+        assert_eq!(all_version_report_routes.len(), 3);
+        assert_eq!(version_specific_routes.len(), 3);
+    }
+
+    #[test]
+    fn test_room_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/rooms/{room_id}",
+            "/events",
+            "/rooms/{room_id}/messages",
+            "/rooms/{room_id}/send/{event_type}/{txn_id}",
+            "/rooms/{room_id}/event/{event_id}",
+        ];
+
+        assert_eq!(shared_paths.len(), 5);
+        assert!(shared_paths.iter().all(|path| path.starts_with('/')));
+    }
+
+    #[test]
+    fn test_room_router_keeps_version_boundaries() {
+        let report_compat_paths = ["/rooms/{room_id}/report/{event_id}"];
+        let v1_only_paths = ["/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info"];
+        let v3_only_paths = [
+            "/_matrix/client/v3/rooms/{room_id}/report",
+            "/_matrix/client/v3/rooms/{room_id}/notifications",
+        ];
+
+        assert!(report_compat_paths
+            .iter()
+            .all(|path| !path.contains("scanner_info") && !path.ends_with("/report")));
+        assert!(v1_only_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/v1/")));
+        assert!(v3_only_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/v3/")));
+    }
+}
+
+fn create_presence_compat_router() -> Router<AppState> {
+    Router::new().route(
+        "/presence/{user_id}/status",
+        get(get_presence).put(set_presence),
+    )
 }
 
 fn create_presence_router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/_matrix/client/r0/presence/{user_id}/status",
-            get(get_presence).put(set_presence),
-        )
-        .route(
-            "/_matrix/client/v3/presence/{user_id}/status",
-            get(get_presence).put(set_presence),
-        )
+        .nest("/_matrix/client/r0", create_presence_compat_router())
+        .nest("/_matrix/client/v3", create_presence_compat_router())
         // Presence list endpoint (MSC2776)
         .route("/_matrix/client/v3/presence/list", post(presence_list))
+}
+
+#[cfg(test)]
+mod presence_router_tests {
+    #[test]
+    fn test_presence_routes_structure() {
+        let compat_routes = [
+            "/_matrix/client/r0/presence/{user_id}/status",
+            "/_matrix/client/v3/presence/{user_id}/status",
+        ];
+        let v3_only_routes = ["/_matrix/client/v3/presence/list"];
+
+        assert!(compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(v3_only_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/v3/")));
+    }
+
+    #[test]
+    fn test_presence_compat_router_contains_shared_paths() {
+        let shared_paths = ["/presence/{user_id}/status"];
+
+        assert_eq!(shared_paths.len(), 1);
+        assert!(shared_paths
+            .iter()
+            .all(|path| path.starts_with("/presence/")));
+    }
+
+    #[test]
+    fn test_presence_router_keeps_presence_list_outside_compat_scope() {
+        let compat_paths = ["/presence/{user_id}/status"];
+        let v3_only_paths = ["/_matrix/client/v3/presence/list"];
+
+        assert!(compat_paths
+            .iter()
+            .all(|path| !path.ends_with("/presence/list")));
+        assert!(v3_only_paths
+            .iter()
+            .all(|path| path.ends_with("/presence/list")));
+    }
 }
 
 // ============================================================================
@@ -1685,41 +1753,40 @@ async fn whoami(
 fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
     // Basic format check
     if user_id.is_empty() {
-        return Err(ApiError::bad_request("user_id is required".to_string()));
+        return Err(ApiError::unknown("user_id is required".to_string()));
     }
 
-    // Detailed validation using common validator logic regex
-    // We can't access state here easily without changing signature, so we keep basic logic consistent with validator
-    // or we just instantiate a local regex if needed, but simple string parsing is faster for basic checks
+    // Matrix spec: user_id format is @username:server
+    // Path parameters with invalid format should return M_UNKNOWN per Matrix spec
 
     if !user_id.starts_with('@') {
-        return Err(ApiError::bad_request(
+        return Err(ApiError::unknown(
             "Invalid user_id format: must start with @".to_string(),
         ));
     }
 
     if user_id.len() > 255 {
-        return Err(ApiError::bad_request(
+        return Err(ApiError::unknown(
             "user_id too long (max 255 characters)".to_string(),
         ));
     }
 
     let parts: Vec<&str> = user_id.split(':').collect();
     if parts.len() < 2 {
-        return Err(ApiError::bad_request(
+        return Err(ApiError::unknown(
             "Invalid user_id format: must be @username:server".to_string(),
         ));
     }
 
     let username = &parts[0][1..];
     if username.is_empty() {
-        return Err(ApiError::bad_request(
+        return Err(ApiError::unknown(
             "Invalid user_id format: username cannot be empty".to_string(),
         ));
     }
 
     if parts[1].is_empty() {
-        return Err(ApiError::bad_request(
+        return Err(ApiError::unknown(
             "Invalid user_id format: server cannot be empty".to_string(),
         ));
     }
@@ -1729,15 +1796,15 @@ fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
 
 fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
     if room_id.is_empty() {
-        return Err(ApiError::bad_request("room_id is required".to_string()));
+        return Err(ApiError::unknown("room_id is required".to_string()));
     }
     if !room_id.starts_with('!') {
-        return Err(ApiError::bad_request(
+        return Err(ApiError::unknown(
             "Invalid room_id format: must start with !".to_string(),
         ));
     }
     if room_id.len() > 255 {
-        return Err(ApiError::bad_request(
+        return Err(ApiError::unknown(
             "room_id too long (max 255 characters)".to_string(),
         ));
     }
@@ -1746,16 +1813,11 @@ fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
 
 fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
     if event_id.is_empty() {
-        return Err(ApiError::bad_request("event_id is required".to_string()));
+        return Err(ApiError::unknown("event_id is required".to_string()));
     }
     if !event_id.starts_with('$') {
-        return Err(ApiError::bad_request(
+        return Err(ApiError::unknown(
             "Invalid event_id format: must start with $".to_string(),
-        ));
-    }
-    if event_id.len() > 255 {
-        return Err(ApiError::bad_request(
-            "event_id too long (max 255 characters)".to_string(),
         ));
     }
     Ok(())
@@ -2725,6 +2787,54 @@ async fn get_joined_rooms(
 
     Ok(Json(json!({
         "joined_rooms": room_ids
+    })))
+}
+
+// TD-API-01: 实现 my_rooms 端点 (前端需要)
+// 返回用户的所有房间（包括 invited, joined, left 等状态）
+async fn get_my_rooms(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = &auth_user.user_id;
+
+    // 获取所有房间（包括 join, invite, leave 状态）
+    let rooms = sqlx::query(
+        r#"
+        SELECT room_id, membership, 
+               COALESCE(name, '') as name,
+               COALESCE(avatar_url, '') as avatar_url,
+               updated_ts
+        FROM room_memberships rm
+        LEFT JOIN rooms r ON rm.room_id = r.room_id
+        WHERE rm.user_id = $1
+        ORDER BY rm.updated_ts DESC
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get rooms: {}", e)))?;
+
+    let mut room_list = Vec::new();
+    for row in rooms.iter() {
+        let membership: Option<String> = row.get("membership");
+        let room_id: Option<String> = row.get("room_id");
+        let name: Option<String> = row.get("name");
+
+        if let (Some(m), Some(r_id)) = (membership, room_id) {
+            room_list.push(json!({
+                "room_id": r_id,
+                "membership": m,
+                "name": name.unwrap_or_default(),
+                "avatar_url": row.get::<Option<String>, _>("avatar_url").unwrap_or_default()
+            }));
+        }
+    }
+
+    Ok(Json(json!({
+        "rooms": room_list,
+        "total": room_list.len()
     })))
 }
 

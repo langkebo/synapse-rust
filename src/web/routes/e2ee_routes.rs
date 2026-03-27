@@ -3,55 +3,31 @@ use crate::web::routes::MatrixJson;
 use crate::ApiError;
 use axum::{
     extract::{Path, Query, State},
-    routing::{delete, get, post, put},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde_json::Value;
 
-pub fn create_e2ee_router(_state: AppState) -> Router<AppState> {
+fn create_e2ee_compat_router() -> Router<AppState> {
     Router::new()
-        // Existing key routes
-        .route("/_matrix/client/r0/keys/upload", post(upload_keys))
-        .route("/_matrix/client/r0/keys/query", post(query_keys))
-        .route("/_matrix/client/r0/keys/claim", post(claim_keys))
-        .route("/_matrix/client/r0/keys/changes", get(key_changes))
+        .route("/keys/upload", post(upload_keys))
+        .route("/keys/query", post(query_keys))
+        .route("/keys/claim", post(claim_keys))
+        .route("/keys/changes", get(key_changes))
+        .route("/keys/signatures/upload", post(upload_signatures))
+        .route("/keys/device_signing/upload", post(upload_device_signing))
         .route(
-            "/_matrix/client/r0/rooms/{room_id}/keys/distribution",
+            "/rooms/{room_id}/keys/distribution",
             get(room_key_distribution),
         )
         .route(
-            "/_matrix/client/r0/sendToDevice/{event_type}/{transaction_id}",
+            "/sendToDevice/{event_type}/{transaction_id}",
             put(send_to_device),
         )
-        .route("/_matrix/client/v3/keys/upload", post(upload_keys))
-        .route("/_matrix/client/v3/keys/query", post(query_keys))
-        .route("/_matrix/client/v3/keys/claim", post(claim_keys))
-        .route("/_matrix/client/v3/keys/changes", get(key_changes))
-        .route(
-            "/_matrix/client/v3/keys/signatures/upload",
-            post(upload_signatures),
-        )
-        .route(
-            "/_matrix/client/r0/keys/signatures/upload",
-            post(upload_signatures),
-        )
-        .route(
-            "/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}",
-            put(send_to_device),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/keys/distribution",
-            get(room_key_distribution),
-        )
-        .route(
-            "/_matrix/client/r0/keys/device_signing/upload",
-            post(upload_device_signing),
-        )
-        .route(
-            "/_matrix/client/v3/keys/device_signing/upload",
-            post(upload_device_signing),
-        )
-        // E2EE Phase 1: Device Trust Routes
+}
+
+fn create_e2ee_v3_only_router() -> Router<AppState> {
+    Router::new()
         .route(
             "/_matrix/client/v3/device_verification/request",
             post(request_device_verification),
@@ -76,14 +52,13 @@ pub fn create_e2ee_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/v3/security/summary",
             get(get_security_summary),
         )
-        // E2EE Phase 3: Secure Backup Routes
         .route(
             "/_matrix/client/v3/keys/backup/secure",
             post(create_secure_backup),
         )
         .route(
             "/_matrix/client/v3/keys/backup/secure/{backup_id}",
-            get(get_secure_backup),
+            get(get_secure_backup).delete(delete_secure_backup),
         )
         .route(
             "/_matrix/client/v3/keys/backup/secure/{backup_id}/keys",
@@ -97,10 +72,15 @@ pub fn create_e2ee_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/v3/keys/backup/secure/{backup_id}/verify",
             post(verify_secure_backup_passphrase),
         )
-        .route(
-            "/_matrix/client/v3/keys/backup/secure/{backup_id}",
-            delete(delete_secure_backup),
-        )
+}
+
+pub fn create_e2ee_router(_state: AppState) -> Router<AppState> {
+    let compat_router = create_e2ee_compat_router();
+
+    Router::new()
+        .nest("/_matrix/client/r0", compat_router.clone())
+        .nest("/_matrix/client/v3", compat_router)
+        .merge(create_e2ee_v3_only_router())
 }
 
 #[axum::debug_handler]
@@ -652,4 +632,48 @@ async fn delete_secure_backup(
         .await?;
 
     Ok(Json(serde_json::json!({})))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_e2ee_routes_structure() {
+        let compat_routes = [
+            "/_matrix/client/r0/keys/upload",
+            "/_matrix/client/v3/keys/query",
+            "/_matrix/client/r0/keys/device_signing/upload",
+            "/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}",
+        ];
+
+        let v3_only_routes = [
+            "/_matrix/client/v3/device_verification/request",
+            "/_matrix/client/v3/device_trust/{device_id}",
+            "/_matrix/client/v3/security/summary",
+            "/_matrix/client/v3/keys/backup/secure/{backup_id}/verify",
+        ];
+
+        assert!(compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(v3_only_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/v3/")));
+    }
+
+    #[test]
+    fn test_e2ee_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/keys/upload",
+            "/keys/query",
+            "/keys/claim",
+            "/keys/changes",
+            "/keys/signatures/upload",
+            "/keys/device_signing/upload",
+            "/rooms/{room_id}/keys/distribution",
+            "/sendToDevice/{event_type}/{transaction_id}",
+        ];
+
+        assert_eq!(shared_paths.len(), 8);
+        assert!(shared_paths.iter().all(|path| path.starts_with('/')));
+    }
 }

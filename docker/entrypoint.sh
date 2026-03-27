@@ -12,7 +12,7 @@ echo "[synapse-rust] 启动脚本开始执行..."
 DB_HOST=${DB_HOST:-db}
 DB_PORT=${DB_PORT:-5432}
 DB_USER=${DB_USER:-synapse}
-DB_PASSWORD=${DB_PASSWORD:-synapse}
+DB_PASSWORD=${SYNAPSE_DB_PASSWORD:-${DB_PASSWORD:-synapse}}
 DB_NAME=${DB_NAME:-synapse}
 
 # 迁移配置

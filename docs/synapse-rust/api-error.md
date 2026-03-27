@@ -2969,3 +2969,178 @@ updated_ts BIGINT
 ---
 
 *审查完成 - 2026-03-14*
+
+
+---
+
+# 未测试端点列表 (待补充测试)
+
+> 生成日期: 2026-03-26
+> 总计: **76 个**未测试端点
+
+## 未测试端点统计
+
+| 模块 | 未测试数量 |
+|------|------------|
+| account_data | 12 |
+| admin/federation | 9 |
+| search | 11 |
+| e2ee_routes | 11 |
+| dm | 5 |
+| worker | 6 |
+| mod (核心模块) | 6 |
+| admin/room | 3 |
+| admin/user | 3 |
+| federation | 3 |
+| room_summary | 2 |
+| space | 2 |
+| device | 2 |
+| friend_room | 1 |
+| **总计** | **76** |
+
+## account_data (12 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_matrix/client/r0/user/{user_id}/account_data/` | GET/POST |  | ⏳ 未测试 |
+| `/_matrix/client/r0/user/{user_id}/account_data/{type}` | GET/POST | {type} | ⏳ 未测试 |
+| `/_matrix/client/r0/user/{user_id}/filter` | GET/POST | filter | ⏳ 未测试 |
+| `/_matrix/client/r0/user/{user_id}/filter/{filter_id}` | GET/POST | {filter_id} | ⏳ 未测试 |
+| `/_matrix/client/r0/user/{user_id}/openid/request_token` | GET/POST | request_token | ⏳ 未测试 |
+| `/_matrix/client/r0/user/{user_id}/rooms/{room_id}/account_data/{type}` | GET/POST | {type} | ⏳ 未测试 |
+| `/_matrix/client/v3/user/{user_id}/account_data/` | GET/POST |  | ⏳ 未测试 |
+| `/_matrix/client/v3/user/{user_id}/account_data/{type}` | GET/POST | {type} | ⏳ 未测试 |
+| `/_matrix/client/v3/user/{user_id}/filter` | GET/POST | filter | ⏳ 未测试 |
+| `/_matrix/client/v3/user/{user_id}/filter/{filter_id}` | GET/POST | {filter_id} | ⏳ 未测试 |
+| `/_matrix/client/v3/user/{user_id}/openid/request_token` | GET/POST | request_token | ⏳ 未测试 |
+| `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}` | GET/POST | {type} | ⏳ 未测试 |
+
+## admin/federation (9 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_synapse/admin/v1/federation/blacklist` | GET/POST | blacklist | ⏳ 未测试 |
+| `/_synapse/admin/v1/federation/blacklist/{server_name}` | GET/POST | {server_name} | ⏳ 未测试 |
+| `/_synapse/admin/v1/federation/confirm` | GET/POST | confirm | ⏳ 未测试 |
+| `/_synapse/admin/v1/federation/destinations` | GET/POST | destinations | ⏳ 未测试 |
+| `/_synapse/admin/v1/federation/destinations/{destination}` | GET/POST | {destination} | ⏳ 未测试 |
+| `/_synapse/admin/v1/federation/destinations/{destination}/reset_connection` | PUT | reset_connection | ⏳ 未测试 |
+| `/_synapse/admin/v1/federation/destinations/{destination}/rooms` | GET/POST | rooms | ⏳ 未测试 |
+| `/_synapse/admin/v1/federation/resolve` | GET/POST | resolve | ⏳ 未测试 |
+| `/_synapse/admin/v1/federation/rewrite` | GET/POST | rewrite | ⏳ 未测试 |
+
+## admin/room (3 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_synapse/admin/v1/purge_room` | GET/POST | purge_room | ⏳ 未测试 |
+| `/_synapse/admin/v1/room_stats` | GET/POST | room_stats | ⏳ 未测试 |
+| `/_synapse/admin/v1/room_stats/{room_id}` | GET/POST | {room_id} | ⏳ 未测试 |
+
+## admin/user (3 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_synapse/admin/v1/account/{user_id}` | GET/POST | {user_id} | ⏳ 未测试 |
+| `/_synapse/admin/v1/user_sessions/{user_id}` | GET/POST | {user_id} | ⏳ 未测试 |
+| `/_synapse/admin/v1/user_sessions/{user_id}/invalidate` | GET/POST | invalidate | ⏳ 未测试 |
+
+## device (2 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_matrix/client/r0/keys/device_list_updates` | PUT | device_list_updates | ⏳ 未测试 |
+| `/_matrix/client/v3/keys/device_list_updates` | PUT | device_list_updates | ⏳ 未测试 |
+
+## dm (5 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_matrix/client/r0/create_dm` | POST | create_dm | ⏳ 未测试 |
+| `/_matrix/client/v3/direct` | GET/POST | direct | ⏳ 未测试 |
+| `/_matrix/client/v3/direct/{room_id}` | GET/POST | {room_id} | ⏳ 未测试 |
+| `/_matrix/client/v3/rooms/{room_id}/dm` | GET/POST | dm | ⏳ 未测试 |
+| `/_matrix/client/v3/rooms/{room_id}/dm/partner` | GET/POST | partner | ⏳ 未测试 |
+
+## e2ee_routes (11 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_matrix/client/v3/device_trust` | GET/POST | device_trust | ⏳ 未测试 |
+| `/_matrix/client/v3/device_trust/{device_id}` | GET/POST | {device_id} | ⏳ 未测试 |
+| `/_matrix/client/v3/device_verification/request` | GET/POST | request | ⏳ 未测试 |
+| `/_matrix/client/v3/device_verification/respond` | GET/POST | respond | ⏳ 未测试 |
+| `/_matrix/client/v3/device_verification/status/{token}` | GET/POST | {token} | ⏳ 未测试 |
+| `/_matrix/client/v3/keys/backup/secure` | GET/POST | secure | ⏳ 未测试 |
+| `/_matrix/client/v3/keys/backup/secure/{backup_id}` | GET/POST | {backup_id} | ⏳ 未测试 |
+| `/_matrix/client/v3/keys/backup/secure/{backup_id}/keys` | GET/POST | keys | ⏳ 未测试 |
+| `/_matrix/client/v3/keys/backup/secure/{backup_id}/restore` | GET/POST | restore | ⏳ 未测试 |
+| `/_matrix/client/v3/keys/backup/secure/{backup_id}/verify` | GET/POST | verify | ⏳ 未测试 |
+| `/_matrix/client/v3/security/summary` | GET/POST | summary | ⏳ 未测试 |
+
+## federation (3 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_matrix/federation/v2/query/{server_name}/{key_id}` | GET/POST | {key_id} | ⏳ 未测试 |
+| `/_matrix/federation/v2/user/keys/query` | GET/POST | query | ⏳ 未测试 |
+| `/_matrix/key/v2/query/{server_name}/{key_id}` | GET/POST | {key_id} | ⏳ 未测试 |
+
+## friend_room (1 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_matrix/client/v3/friends` | GET/POST | friends | ⏳ 未测试 |
+
+## mod (核心模块) (6 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_matrix/client/r0/media/config` | GET/POST | config | ⏳ 未测试 |
+| `/_matrix/client/v1/media/config` | GET/POST | config | ⏳ 未测试 |
+| `/_matrix/client/v1/sync` | GET/POST | sync | ⏳ 未测试 |
+| `/_matrix/client/v3/media/config` | GET/POST | config | ⏳ 未测试 |
+| `/_matrix/client/v3/my_rooms` | GET/POST | my_rooms | ⏳ 未测试 |
+| `/_matrix/client/v3/presence/list` | GET/POST | list | ⏳ 未测试 |
+
+## room_summary (2 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_synapse/room_summary/v1/summaries` | GET/POST | summaries | ⏳ 未测试 |
+| `/_synapse/room_summary/v1/updates/process` | PUT | process | ⏳ 未测试 |
+
+## search (11 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_matrix/client/r0/search` | GET/POST | search | ⏳ 未测试 |
+| `/_matrix/client/r0/search_recipients` | GET/POST | search_recipients | ⏳ 未测试 |
+| `/_matrix/client/r0/search_rooms` | GET/POST | search_rooms | ⏳ 未测试 |
+| `/_matrix/client/v1/rooms/{room_id}/context/{event_id}` | GET/POST | {event_id} | ⏳ 未测试 |
+| `/_matrix/client/v1/rooms/{room_id}/timestamp_to_event` | GET/POST | timestamp_to_event | ⏳ 未测试 |
+| `/_matrix/client/v3/rooms/{room_id}/context/{event_id}` | GET/POST | {event_id} | ⏳ 未测试 |
+| `/_matrix/client/v3/rooms/{room_id}/hierarchy` | GET/POST | hierarchy | ⏳ 未测试 |
+| `/_matrix/client/v3/search` | GET/POST | search | ⏳ 未测试 |
+| `/_matrix/client/v3/search_recipients` | GET/POST | search_recipients | ⏳ 未测试 |
+| `/_matrix/client/v3/search_rooms` | GET/POST | search_rooms | ⏳ 未测试 |
+| `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads` | GET/POST | threads | ⏳ 未测试 |
+
+## space (2 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/spaces/room/{room_id}` | GET/POST | {room_id} | ⏳ 未测试 |
+| `/spaces/room/{room_id}/parents` | GET/POST | parents | ⏳ 未测试 |
+
+## worker (6 个)
+
+| 端点 | 方法 | 功能 | 状态 |
+|------|------|------|------|
+| `/_synapse/worker/v1/events` | GET/POST | events | ⏳ 未测试 |
+| `/_synapse/worker/v1/replication/{worker_id}/position` | GET/POST | position | ⏳ 未测试 |
+| `/_synapse/worker/v1/replication/{worker_id}/{stream_name}` | GET/POST | {stream_name} | ⏳ 未测试 |
+| `/_synapse/worker/v1/select/{task_type}` | GET/POST | {task_type} | ⏳ 未测试 |
+| `/_synapse/worker/v1/statistics` | GET/POST | statistics | ⏳ 未测试 |
+| `/_synapse/worker/v1/statistics/types` | GET/POST | types | ⏳ 未测试 |
+

@@ -20,7 +20,7 @@ pub struct SlidingSyncList {
     pub device_id: String,
     pub conn_id: Option<String>,
     pub list_key: String,
-    pub sort: Vec<String>,
+    pub sort: serde_json::Value,
     pub filters: Option<serde_json::Value>,
     pub room_subscription: Option<serde_json::Value>,
     pub ranges: Option<serde_json::Value>,
