@@ -26,6 +26,7 @@ pub struct User {
     pub password_expires_at: Option<i64>,
     pub failed_login_attempts: i32,
     pub locked_until: Option<i64>,
+    pub must_change_password: bool,
 }
 
 impl User {
@@ -40,11 +41,11 @@ pub struct UserThreepid {
     pub user_id: String,
     pub medium: String,
     pub address: String,
-    pub validated_ts: Option<i64>, // 已修复: validated_at → validated_ts
+    pub validated_at: Option<i64>,
     pub added_ts: i64,
     pub is_verified: bool,
     pub verification_token: Option<String>,
-    pub verification_expires_ts: Option<i64>, // 已修复: verification_expires_at → verification_expires_ts
+    pub verification_expires_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -165,6 +166,7 @@ mod tests {
             password_expires_at: None,
             failed_login_attempts: 0,
             locked_until: None,
+            must_change_password: false,
         };
 
         assert_eq!(user.user_id(), "@alice:example.com");
@@ -183,11 +185,11 @@ mod tests {
             user_id: "@alice:example.com".to_string(),
             medium: "email".to_string(),
             address: "alice@example.com".to_string(),
-            validated_ts: Some(1234567890), // 已修复
+            validated_at: Some(1234567890),
             added_ts: 1234567800,
             is_verified: true,
             verification_token: None,
-            verification_expires_ts: None, // 已修复
+            verification_expires_at: None,
         };
 
         assert_eq!(threepid.medium, "email");

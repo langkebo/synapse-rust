@@ -38,45 +38,25 @@ pub struct ProtocolQuery {
     pub search: Option<String>,
 }
 
-pub fn create_thirdparty_router(state: AppState) -> Router<AppState> {
+fn create_thirdparty_compat_router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/_matrix/client/v3/thirdparty/protocols",
-            get(get_protocols),
-        )
-        .route(
-            "/_matrix/client/v3/thirdparty/protocol/{protocol}",
-            get(get_protocol),
-        )
-        .route(
-            "/_matrix/client/v3/thirdparty/location/{protocol}",
-            get(get_location),
-        )
+        .route("/thirdparty/protocols", get(get_protocols))
+        .route("/thirdparty/protocol/{protocol}", get(get_protocol))
+        .route("/thirdparty/location/{protocol}", get(get_location))
+        .route("/thirdparty/user/{protocol}", get(get_user))
+}
+
+pub fn create_thirdparty_router(state: AppState) -> Router<AppState> {
+    let compat_router = create_thirdparty_compat_router();
+
+    Router::new()
+        .nest("/_matrix/client/v3", compat_router.clone())
+        .nest("/_matrix/client/r0", compat_router)
         .route(
             "/_matrix/client/v3/thirdparty/location",
             get(get_location_by_alias),
         )
-        .route(
-            "/_matrix/client/v3/thirdparty/user/{protocol}",
-            get(get_user),
-        )
         .route("/_matrix/client/v3/thirdparty/user", get(get_user_by_id))
-        .route(
-            "/_matrix/client/r0/thirdparty/protocols",
-            get(get_protocols),
-        )
-        .route(
-            "/_matrix/client/r0/thirdparty/protocol/{protocol}",
-            get(get_protocol),
-        )
-        .route(
-            "/_matrix/client/r0/thirdparty/location/{protocol}",
-            get(get_location),
-        )
-        .route(
-            "/_matrix/client/r0/thirdparty/user/{protocol}",
-            get(get_user),
-        )
         .with_state(state)
 }
 
@@ -149,4 +129,67 @@ async fn get_user_by_id(
     Query(_query): Query<UserQuery>,
 ) -> Json<Vec<serde_json::Value>> {
     Json(vec![])
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_thirdparty_routes_structure() {
+        let compat_routes = [
+            "/_matrix/client/v3/thirdparty/protocols",
+            "/_matrix/client/r0/thirdparty/protocol/{protocol}",
+            "/_matrix/client/v3/thirdparty/location/{protocol}",
+            "/_matrix/client/r0/thirdparty/user/{protocol}",
+        ];
+        let v3_only_routes = [
+            "/_matrix/client/v3/thirdparty/location",
+            "/_matrix/client/v3/thirdparty/user",
+        ];
+
+        assert!(compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(v3_only_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/v3/")));
+    }
+
+    #[test]
+    fn test_thirdparty_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/thirdparty/protocols",
+            "/thirdparty/protocol/{protocol}",
+            "/thirdparty/location/{protocol}",
+            "/thirdparty/user/{protocol}",
+        ];
+
+        assert_eq!(shared_paths.len(), 4);
+        assert!(shared_paths
+            .iter()
+            .all(|path| path.starts_with("/thirdparty/")));
+    }
+
+    #[test]
+    fn test_thirdparty_router_keeps_query_endpoints_outside_compat_scope() {
+        let compat_paths = ["/thirdparty/protocols", "/thirdparty/location/{protocol}"];
+        let v3_only_paths = [
+            "/_matrix/client/v3/thirdparty/location",
+            "/_matrix/client/v3/thirdparty/user",
+        ];
+        let absent_r0_paths = [
+            "/_matrix/client/r0/thirdparty/location",
+            "/_matrix/client/r0/thirdparty/user",
+        ];
+
+        assert!(compat_paths
+            .iter()
+            .all(|path| !path.ends_with("/thirdparty/location")
+                && !path.ends_with("/thirdparty/user")));
+        assert!(v3_only_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/v3/")));
+        assert!(absent_r0_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/r0/")));
+    }
 }

@@ -472,7 +472,6 @@ CREATE TABLE IF NOT EXISTS key_backups (
     auth_data JSONB,
     auth_key TEXT,
     mgmt_key TEXT,
-    backup_data JSONB,
     version BIGINT DEFAULT 1,
     etag TEXT,
     created_ts BIGINT NOT NULL,
@@ -1817,10 +1816,37 @@ CREATE TABLE IF NOT EXISTS blocked_users (
     CONSTRAINT fk_blocked_users_blocked FOREIGN KEY (blocked_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
+CREATE INDEX IF NOT EXISTS idx_blocked_users_user_id ON blocked_users(user_id);
+
+-- 密钥轮转历史表
+CREATE TABLE IF NOT EXISTS key_rotation_history (
+    id BIGSERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    rotated_ts BIGINT NOT NULL,
+    rotation_type TEXT NOT NULL DEFAULT 'olm',
+    revoked BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_key_rotation_history_user ON key_rotation_history(user_id);
+CREATE INDEX IF NOT EXISTS idx_key_rotation_history_device ON key_rotation_history(device_id);
+CREATE INDEX IF NOT EXISTS idx_key_rotation_history_rotated_ts ON key_rotation_history(rotated_ts);
+
+-- 房间封禁表
+CREATE TABLE IF NOT EXISTS blocked_rooms (
+    id BIGSERIAL PRIMARY KEY,
+    room_id TEXT NOT NULL UNIQUE,
+    blocked_at BIGINT NOT NULL,
+    blocked_by TEXT NOT NULL,
+    reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_blocked_rooms_room_id ON blocked_rooms(room_id);
+
 CREATE INDEX IF NOT EXISTS idx_friends_user_id ON friends(user_id);
 CREATE INDEX IF NOT EXISTS idx_friend_requests_sender ON friend_requests(sender_id);
 CREATE INDEX IF NOT EXISTS idx_friend_requests_receiver ON friend_requests(receiver_id);
-CREATE INDEX IF NOT EXISTS idx_blocked_users_user_id ON blocked_users(user_id);
 
 -- ============================================================================
 -- 私密会话表

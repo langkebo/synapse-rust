@@ -1,529 +1,499 @@
 # synapse-rust API 参考文档
 
-> 生成时间: 2026-03-14
+> 生成时间: 2026-03-26
 > 代码行数: ~18万行
-> **审核日期**: 2026-03-18
-> **审核状态**: ✅ 全部通过
 
 ---
 
-## 审核总结
+## 统计概览
 
 | 项目 | 结果 |
 |------|------|
-| **数据库表** | 135+ |
-| **API 端点** | 284+ (333 路由定义) |
+| **API 端点总数** | **656** |
+| **模块数量** | **48** |
 | **HTTP 方法** | 1167+ 处理器 |
-| **代码模块** | 50+ |
-| **测试通过率** | 100% |
-| **字段一致性** | ✅ 已修复 |
+| **数据库表** | 135+ |
 
-### API 分类统计
+---
 
-| 分类 | 端点数量 |
+## 模块端点统计
+
+| 模块 | 端点数量 |
 |------|----------|
-| Client API (r0) | 60 |
-| Client API (v1) | 30 |
-| Client API (v3) | 54 |
-| Media API | 11 |
-| Federation API | 12 |
-| Key API | 1 |
-| Admin API | 93 |
-| Worker API | 8 |
-| 其他 (login/logout/health) | 15 |
-| **总计** | **284** |
+| mod (核心) | 57 |
+| federation | 47 |
+| friend_room | 43 |
+| worker | 21 |
+| media | 21 |
+| space | 21 |
+| module | 20 |
+| e2ee_routes | 27 |
+| key_backup | 20 |
+| admin/user | 18 |
+| push | 18 |
+| background_update | 17 |
+| event_report | 16 |
+| room_summary | 16 |
+| thread | 16 |
+| app_service | 15 |
+| oidc | 15 |
+| verification_routes | 14 |
+| search | 12 |
+| account_data | 12 |
+| admin/federation | 12 |
+| thirdparty | 10 |
+| external_service | 8 |
+| device | 8 |
+| admin/notification | 10 |
+| voice | 10 |
+| **总计** | **656** |
 
 ---
 
-## 目录
+## API 分类
 
-### 用户端 API
-1. [认证 API](#1-认证-api)
-2. [用户管理 API](#2-用户管理-api)
-3. [房间管理 API](#3-房间管理-api)
-4. [消息 API](#4-消息-api)
-5. [设备管理 API](#5-设备管理-api)
-6. [E2EE 加密 API](#6-e2ee-加密-api)
-7. [媒体 API](#7-媒体-api)
-8. [好友系统 API](#8-好友系统-api)
-9. [Space API](#9-space-api)
-10. [Thread API](#10-thread-api)
-11. [搜索 API](#11-搜索-api)
-12. [推送 API](#12-推送-api)
-13. [Widget API](#13-widget-api)
-14. [Sliding Sync API](#14-sliding-sync-api)
+### Matrix Client API
 
-### 管理端 API
-15. [管理后台 API](#15-管理后台-api)
-16. [联邦 API](#16-联邦-api)
-17. [应用服务 API](#17-应用服务-api)
+| 分类 | 路径前缀 | 端点数量 |
+|------|----------|----------|
+| Client API v3 | `/_matrix/client/v3` | 150+ |
+| Client API r0 | `/_matrix/client/r0` | 120+ |
+| Client API v1 | `/_matrix/client/v1` | 80+ |
+| Media API | `/_matrix/media` | 21 |
+| Federation API | `/_matrix/federation` | 47 |
 
-### 认证 API
-18. [CAS 认证 API](#18-cas-认证-api)
-19. [SAML 认证 API](#19-saml-认证-api)
-20. [OIDC 认证 API](#20-oidc-认证-api)
-21. [QR 登录 API](#21-qr-登录-api)
+### Admin API
 
-### 其他 API
-22. [语音消息 API](#22-语音消息-api)
-23. [VoIP API](#23-voip-api)
-24. [密钥备份 API](#24-密钥备份-api)
-25. [保留策略 API](#25-保留策略-api)
-26. [媒体配额 API](#26-媒体配额-api)
-27. [服务器通知 API](#27-服务器通知-api)
-28. [事件举报 API](#28-事件举报-api)
-29. [账户数据 API](#29-账户数据-api)
-30. [注册令牌 API](#30-注册令牌-api)
-31. [Worker API](#31-worker-api)
+| 分类 | 路径前缀 | 端点数量 |
+|------|----------|----------|
+| Admin v1 | `/_synapse/admin/v1` | 120+ |
+| Worker API | `/_synapse/worker` | 21 |
+
+### Custom API
+
+| 分类 | 路径前缀 | 端点数量 |
+|------|----------|----------|
+| Space | `/spaces` | 21 |
+| AI Connection | `/connections`, `/mcp` | 4 |
+| CAS | `/admin`, `/login`, `/logout` | 9 |
+| SAML | `/_matrix/client/r0/saml` | 7 |
+| OIDC | `/_matrix/client/r0/oidc` | 15 |
 
 ---
 
-## 1. 认证 API
+## 完整路由列表
 
-### 1.1 端点统计
+### mod (核心模块) (57)
+- `/.well-known/matrix/client`
+- `/.well-known/matrix/server`
+- `/.well-known/matrix/support`
+- `/_matrix/client/r0/account/3pid/add`
+- `/_matrix/client/r0/account/3pid/bind`
+- `/_matrix/client/r0/account/whoami`
+- `/_matrix/client/r0/capabilities`
+- `/_matrix/client/r0/createRoom`
+- `/_matrix/client/r0/events`
+- `/_matrix/client/r0/joined_rooms`
+- `/_matrix/client/r0/login`
+- `/_matrix/client/r0/logout`
+- `/_matrix/client/r0/logout/all`
+- `/_matrix/client/r0/media/config`
+- `/_matrix/client/r0/profile/{user_id}`
+- `/_matrix/client/r0/refresh`
+- `/_matrix/client/r0/rooms/{room_id}`
+- `/_matrix/client/r0/rooms/{room_id}/ban`
+- `/_matrix/client/r0/rooms/{room_id}/join`
+- `/_matrix/client/r0/rooms/{room_id}/kick`
+- `/_matrix/client/r0/rooms/{room_id}/leave`
+- `/_matrix/client/r0/rooms/{room_id}/unban`
+- `/_matrix/client/r0/sync`
+- `/_matrix/client/r0/version`
+- `/_matrix/client/r0/voip/config`
+- `/_matrix/client/r0/voip/turnServer`
+- `/_matrix/client/v1/media/config`
+- `/_matrix/client/v1/sync`
+- `/_matrix/client/v3/account/3pid/add`
+- `/_matrix/client/v3/account/3pid/bind`
+- `/_matrix/client/v3/account/whoami`
+- `/_matrix/client/v3/capabilities`
+- `/_matrix/client/v3/createRoom`
+- `/_matrix/client/v3/events`
+- `/_matrix/client/v3/joined_rooms`
+- `/_matrix/client/v3/login`
+- `/_matrix/client/v3/logout`
+- `/_matrix/client/v3/logout/all`
+- `/_matrix/client/v3/media/config`
+- `/_matrix/client/v3/my_rooms`
+- `/_matrix/client/v3/presence/list`
+- `/_matrix/client/v3/profile/{user_id}`
+- `/_matrix/client/v3/pushrules/`
+- `/_matrix/client/v3/refresh`
+- `/_matrix/client/v3/rooms/{room_id}`
+- `/_matrix/client/v3/rooms/{room_id}/ban`
+- `/_matrix/client/v3/rooms/{room_id}/join`
+- `/_matrix/client/v3/rooms/{room_id}/kick`
+- `/_matrix/client/v3/rooms/{room_id}/leave`
+- `/_matrix/client/v3/rooms/{room_id}/unban`
+- `/_matrix/client/v3/sync`
+- `/_matrix/client/v3/versions`
+- `/_matrix/client/v3/voip/config`
+- `/_matrix/client/v3/voip/turnServer`
+- `/_matrix/client/versions`
+- `/_matrix/server_version`
+- `/health`
 
-| 分类 | 端点数量 |
-|------|----------|
-| 用户注册 | 4 |
-| 用户登录 | 4 |
-| 用户登出 | 4 |
-| Token 刷新 | 2 |
-| 当前用户 | 2 |
+### account_data (12)
+- `/_matrix/client/r0/user/{user_id}/account_data/`
+- `/_matrix/client/r0/user/{user_id}/account_data/{type}`
+- `/_matrix/client/r0/user/{user_id}/filter`
+- `/_matrix/client/r0/user/{user_id}/filter/{filter_id}`
+- `/_matrix/client/r0/user/{user_id}/openid/request_token`
+- `/_matrix/client/r0/user/{user_id}/rooms/{room_id}/account_data/{type}`
+- `/_matrix/client/v3/user/{user_id}/account_data/`
+- `/_matrix/client/v3/user/{user_id}/account_data/{type}`
+- `/_matrix/client/v3/user/{user_id}/filter`
+- `/_matrix/client/v3/user/{user_id}/filter/{filter_id}`
+- `/_matrix/client/v3/user/{user_id}/openid/request_token`
+- `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}`
 
-### 1.2 核心端点
+### admin/federation (12)
+- `/_synapse/admin/v1/federation/blacklist`
+- `/_synapse/admin/v1/federation/blacklist/{server_name}`
+- `/_synapse/admin/v1/federation/cache`
+- `/_synapse/admin/v1/federation/cache/clear`
+- `/_synapse/admin/v1/federation/cache/{key}`
+- `/_synapse/admin/v1/federation/confirm`
+- `/_synapse/admin/v1/federation/destinations`
+- `/_synapse/admin/v1/federation/destinations/{destination}`
+- `/_synapse/admin/v1/federation/destinations/{destination}/reset_connection`
+- `/_synapse/admin/v1/federation/destinations/{destination}/rooms`
+- `/_synapse/admin/v1/federation/resolve`
+- `/_synapse/admin/v1/federation/rewrite`
 
-| 端点 | 方法 | 功能 | 权限 |
-|------|------|------|------|
-| `/_matrix/client/r0/login` | POST | 用户登录 | 公开 |
-| `/_matrix/client/r0/register` | POST | 用户注册 | 公开 |
-| `/_matrix/client/r0/logout` | POST | 登出 | 认证 |
-| `/_matrix/client/r0/refresh` | POST | 刷新Token | 认证 |
-| `/_matrix/client/r0/account/whoami` | GET | 获取当前用户 | 认证 |
+### admin/room (28)
+- `/_synapse/admin/v1/purge_history`
+- `/_synapse/admin/v1/purge_room`
+- `/_synapse/admin/v1/room_stats`
+- `/_synapse/admin/v1/room_stats/{room_id}`
+- `/_synapse/admin/v1/rooms`
+- `/_synapse/admin/v1/rooms/{room_id}`
+- `/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}`
+- `/_synapse/admin/v1/rooms/{room_id}/block`
+- `/_synapse/admin/v1/rooms/{room_id}/delete`
+- `/_synapse/admin/v1/rooms/{room_id}/event_context/{event_id}`
+- `/_synapse/admin/v1/rooms/{room_id}/forward_extremities`
+- `/_synapse/admin/v1/rooms/{room_id}/kick/{user_id}`
+- `/_synapse/admin/v1/rooms/{room_id}/listings`
+- `/_synapse/admin/v1/rooms/{room_id}/listings/public`
+- `/_synapse/admin/v1/rooms/{room_id}/make_admin`
+- `/_synapse/admin/v1/rooms/{room_id}/members`
+- `/_synapse/admin/v1/rooms/{room_id}/members/{user_id}`
+- `/_synapse/admin/v1/rooms/{room_id}/messages`
+- `/_synapse/admin/v1/rooms/{room_id}/search`
+- `/_synapse/admin/v1/rooms/{room_id}/state`
+- `/_synapse/admin/v1/rooms/{room_id}/unban/{user_id}`
+- `/_synapse/admin/v1/rooms/{room_id}/unblock`
+- `/_synapse/admin/v1/shutdown_room`
+- `/_synapse/admin/v1/spaces`
+- `/_synapse/admin/v1/spaces/{space_id}`
+- `/_synapse/admin/v1/spaces/{space_id}/rooms`
+- `/_synapse/admin/v1/spaces/{space_id}/stats`
+- `/_synapse/admin/v1/spaces/{space_id}/users`
+
+### admin/user (18)
+- `/_synapse/admin/v1/account/{user_id}`
+- `/_synapse/admin/v1/user_sessions/{user_id}`
+- `/_synapse/admin/v1/user_sessions/{user_id}/invalidate`
+- `/_synapse/admin/v1/user_stats`
+- `/_synapse/admin/v1/users`
+- `/_synapse/admin/v1/users/batch`
+- `/_synapse/admin/v1/users/batch_deactivate`
+- `/_synapse/admin/v1/users/{user_id}`
+- `/_synapse/admin/v1/users/{user_id}/admin`
+- `/_synapse/admin/v1/users/{user_id}/deactivate`
+- `/_synapse/admin/v1/users/{user_id}/devices`
+- `/_synapse/admin/v1/users/{user_id}/devices/{device_id}`
+- `/_synapse/admin/v1/users/{user_id}/login`
+- `/_synapse/admin/v1/users/{user_id}/logout`
+- `/_synapse/admin/v1/users/{user_id}/password`
+- `/_synapse/admin/v1/users/{user_id}/rooms`
+- `/_synapse/admin/v2/users`
+- `/_synapse/admin/v2/users/{user_id}`
+
+### device (8)
+- `/_matrix/client/r0/delete_devices`
+- `/_matrix/client/r0/devices`
+- `/_matrix/client/r0/devices/{device_id}`
+- `/_matrix/client/r0/keys/device_list_updates`
+- `/_matrix/client/v3/delete_devices`
+- `/_matrix/client/v3/devices`
+- `/_matrix/client/v3/devices/{device_id}`
+- `/_matrix/client/v3/keys/device_list_updates`
+
+### dm (5)
+- `/_matrix/client/r0/create_dm`
+- `/_matrix/client/v3/direct`
+- `/_matrix/client/v3/direct/{room_id}`
+- `/_matrix/client/v3/rooms/{room_id}/dm`
+- `/_matrix/client/v3/rooms/{room_id}/dm/partner`
+
+### e2ee_routes (27)
+- `/_matrix/client/r0/keys/changes`
+- `/_matrix/client/r0/keys/claim`
+- `/_matrix/client/r0/keys/device_signing/upload`
+- `/_matrix/client/r0/keys/query`
+- `/_matrix/client/r0/keys/signatures/upload`
+- `/_matrix/client/r0/keys/upload`
+- `/_matrix/client/r0/rooms/{room_id}/keys/distribution`
+- `/_matrix/client/r0/sendToDevice/{event_type}/{transaction_id}`
+- `/_matrix/client/v3/device_trust`
+- `/_matrix/client/v3/device_trust/{device_id}`
+- `/_matrix/client/v3/device_verification/request`
+- `/_matrix/client/v3/device_verification/respond`
+- `/_matrix/client/v3/device_verification/status/{token}`
+- `/_matrix/client/v3/keys/backup/secure`
+- `/_matrix/client/v3/keys/backup/secure/{backup_id}`
+- `/_matrix/client/v3/keys/backup/secure/{backup_id}/keys`
+- `/_matrix/client/v3/keys/backup/secure/{backup_id}/restore`
+- `/_matrix/client/v3/keys/backup/secure/{backup_id}/verify`
+- `/_matrix/client/v3/keys/changes`
+- `/_matrix/client/v3/keys/claim`
+- `/_matrix/client/v3/keys/device_signing/upload`
+- `/_matrix/client/v3/keys/query`
+- `/_matrix/client/v3/keys/signatures/upload`
+- `/_matrix/client/v3/keys/upload`
+- `/_matrix/client/v3/rooms/{room_id}/keys/distribution`
+- `/_matrix/client/v3/security/summary`
+- `/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}`
+
+### federation (47)
+- `/_matrix/federation/v1`
+- `/_matrix/federation/v1/backfill/{room_id}`
+- `/_matrix/federation/v1/event/{event_id}`
+- `/_matrix/federation/v1/event_auth`
+- `/_matrix/federation/v1/exchange_third_party_invite/{room_id}`
+- `/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}`
+- `/_matrix/federation/v1/get_joining_rules/{room_id}`
+- `/_matrix/federation/v1/get_missing_events/{room_id}`
+- `/_matrix/federation/v1/hierarchy/{room_id}`
+- `/_matrix/federation/v1/invite/{room_id}/{event_id}`
+- `/_matrix/federation/v1/keys/claim`
+- `/_matrix/federation/v1/keys/query`
+- `/_matrix/federation/v1/keys/upload`
+- `/_matrix/federation/v1/knock/{room_id}/{user_id}`
+- `/_matrix/federation/v1/make_join/{room_id}/{user_id}`
+- `/_matrix/federation/v1/make_leave/{room_id}/{user_id}`
+- `/_matrix/federation/v1/media/download/{server_name}/{media_id}`
+- `/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}`
+- `/_matrix/federation/v1/members/{room_id}`
+- `/_matrix/federation/v1/members/{room_id}/joined`
+- `/_matrix/federation/v1/openid/userinfo`
+- `/_matrix/federation/v1/publicRooms`
+- `/_matrix/federation/v1/query/auth`
+- `/_matrix/federation/v1/query/destination`
+- `/_matrix/federation/v1/query/directory`
+- `/_matrix/federation/v1/query/directory/room/{room_id}`
+- `/_matrix/federation/v1/query/profile/{user_id}`
+- `/_matrix/federation/v1/room/{room_id}/{event_id}`
+- `/_matrix/federation/v1/room_auth/{room_id}`
+- `/_matrix/federation/v1/send/{txn_id}`
+- `/_matrix/federation/v1/send_join/{room_id}/{event_id}`
+- `/_matrix/federation/v1/send_leave/{room_id}/{event_id}`
+- `/_matrix/federation/v1/state/{room_id}`
+- `/_matrix/federation/v1/state_ids/{room_id}`
+- `/_matrix/federation/v1/thirdparty/invite`
+- `/_matrix/federation/v1/timestamp_to_event/{room_id}`
+- `/_matrix/federation/v1/user/devices/{user_id}`
+- `/_matrix/federation/v1/version`
+- `/_matrix/federation/v2/invite/{room_id}/{event_id}`
+- `/_matrix/federation/v2/key/clone`
+- `/_matrix/federation/v2/query/{server_name}/{key_id}`
+- `/_matrix/federation/v2/send_join/{room_id}/{event_id}`
+- `/_matrix/federation/v2/send_leave/{room_id}/{event_id}`
+- `/_matrix/federation/v2/server`
+- `/_matrix/federation/v2/user/keys/query`
+- `/_matrix/key/v2/query/{server_name}/{key_id}`
+- `/_matrix/key/v2/server`
+
+### friend_room (43)
+- `/_matrix/client/r0/friends/check/{user_id}`
+- `/_matrix/client/r0/friends/groups`
+- `/_matrix/client/r0/friends/groups/{group_id}`
+- `/_matrix/client/r0/friends/groups/{group_id}/add/{user_id}`
+- `/_matrix/client/r0/friends/groups/{group_id}/friends`
+- `/_matrix/client/r0/friends/groups/{group_id}/name`
+- `/_matrix/client/r0/friends/groups/{group_id}/remove/{user_id}`
+- `/_matrix/client/r0/friends/request`
+- `/_matrix/client/r0/friends/request/received`
+- `/_matrix/client/r0/friends/request/{user_id}/accept`
+- `/_matrix/client/r0/friends/request/{user_id}/cancel`
+- `/_matrix/client/r0/friends/request/{user_id}/reject`
+- `/_matrix/client/r0/friends/requests/incoming`
+- `/_matrix/client/r0/friends/requests/outgoing`
+- `/_matrix/client/r0/friends/suggestions`
+- `/_matrix/client/r0/friends/{user_id}`
+- `/_matrix/client/r0/friends/{user_id}/groups`
+- `/_matrix/client/r0/friends/{user_id}/info`
+- `/_matrix/client/r0/friends/{user_id}/note`
+- `/_matrix/client/r0/friends/{user_id}/status`
+- `/_matrix/client/r0/friendships`
+- `/_matrix/client/v1/friends`
+- `/_matrix/client/v1/friends/check/{user_id}`
+- `/_matrix/client/v1/friends/groups`
+- `/_matrix/client/v1/friends/groups/{group_id}`
+- `/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}`
+- `/_matrix/client/v1/friends/groups/{group_id}/friends`
+- `/_matrix/client/v1/friends/groups/{group_id}/name`
+- `/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}`
+- `/_matrix/client/v1/friends/request`
+- `/_matrix/client/v1/friends/request/received`
+- `/_matrix/client/v1/friends/request/{user_id}/accept`
+- `/_matrix/client/v1/friends/request/{user_id}/cancel`
+- `/_matrix/client/v1/friends/request/{user_id}/reject`
+- `/_matrix/client/v1/friends/requests/incoming`
+- `/_matrix/client/v1/friends/requests/outgoing`
+- `/_matrix/client/v1/friends/suggestions`
+- `/_matrix/client/v1/friends/{user_id}`
+- `/_matrix/client/v1/friends/{user_id}/groups`
+- `/_matrix/client/v1/friends/{user_id}/info`
+- `/_matrix/client/v1/friends/{user_id}/note`
+- `/_matrix/client/v1/friends/{user_id}/status`
+- `/_matrix/client/v3/friends`
+
+### media (21)
+- `/_matrix/media/r0/config`
+- `/_matrix/media/r0/upload`
+- `/_matrix/media/r1/download/{server_name}/{media_id}`
+- `/_matrix/media/r1/download/{server_name}/{media_id}/{filename}`
+- `/_matrix/media/v1/config`
+- `/_matrix/media/v1/delete/{server_name}/{media_id}`
+- `/_matrix/media/v1/download/{server_name}/{media_id}`
+- `/_matrix/media/v1/download/{server_name}/{media_id}/{filename}`
+- `/_matrix/media/v1/preview_url`
+- `/_matrix/media/v1/quota/alerts`
+- `/_matrix/media/v1/quota/check`
+- `/_matrix/media/v1/quota/stats`
+- `/_matrix/media/v1/upload`
+- `/_matrix/media/v3/config`
+- `/_matrix/media/v3/delete/{server_name}/{media_id}`
+- `/_matrix/media/v3/download/{server_name}/{media_id}`
+- `/_matrix/media/v3/download/{server_name}/{media_id}/{filename}`
+- `/_matrix/media/v3/preview_url`
+- `/_matrix/media/v3/thumbnail/{server_name}/{media_id}`
+- `/_matrix/media/v3/upload`
+- `/_matrix/media/v3/upload/{server_name}/{media_id}`
+
+### room_summary (16)
+- `/_matrix/client/r0/rooms/{room_id}/summary`
+- `/_matrix/client/r0/rooms/{room_id}/summary/members`
+- `/_matrix/client/r0/rooms/{room_id}/summary/state`
+- `/_matrix/client/r0/rooms/{room_id}/summary/stats`
+- `/_matrix/client/v3/rooms/{room_id}/summary`
+- `/_matrix/client/v3/rooms/{room_id}/summary/heroes/recalculate`
+- `/_matrix/client/v3/rooms/{room_id}/summary/members`
+- `/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}`
+- `/_matrix/client/v3/rooms/{room_id}/summary/state`
+- `/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}`
+- `/_matrix/client/v3/rooms/{room_id}/summary/stats`
+- `/_matrix/client/v3/rooms/{room_id}/summary/stats/recalculate`
+- `/_matrix/client/v3/rooms/{room_id}/summary/sync`
+- `/_matrix/client/v3/rooms/{room_id}/summary/unread/clear`
+- `/_synapse/room_summary/v1/summaries`
+- `/_synapse/room_summary/v1/updates/process`
+
+### search (12)
+- `/_matrix/client/r0/search`
+- `/_matrix/client/r0/search_recipients`
+- `/_matrix/client/r0/search_rooms`
+- `/_matrix/client/v1/rooms/{room_id}/context/{event_id}`
+- `/_matrix/client/v1/rooms/{room_id}/hierarchy`
+- `/_matrix/client/v1/rooms/{room_id}/timestamp_to_event`
+- `/_matrix/client/v3/rooms/{room_id}/context/{event_id}`
+- `/_matrix/client/v3/rooms/{room_id}/hierarchy`
+- `/_matrix/client/v3/search`
+- `/_matrix/client/v3/search_recipients`
+- `/_matrix/client/v3/search_rooms`
+- `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads`
+
+### space (21)
+- `/spaces`
+- `/spaces/public`
+- `/spaces/room/{room_id}`
+- `/spaces/room/{room_id}/parents`
+- `/spaces/search`
+- `/spaces/statistics`
+- `/spaces/user`
+- `/spaces/{space_id}`
+- `/spaces/{space_id}/children`
+- `/spaces/{space_id}/children/{room_id}`
+- `/spaces/{space_id}/hierarchy`
+- `/spaces/{space_id}/hierarchy/v1`
+- `/spaces/{space_id}/invite`
+- `/spaces/{space_id}/join`
+- `/spaces/{space_id}/leave`
+- `/spaces/{space_id}/members`
+- `/spaces/{space_id}/rooms`
+- `/spaces/{space_id}/state`
+- `/spaces/{space_id}/summary`
+- `/spaces/{space_id}/summary/with_children`
+- `/spaces/{space_id}/tree_path`
+
+### thread (16)
+- `/_matrix/client/v1/rooms/{room_id}/replies/{event_id}/redact`
+- `/_matrix/client/v1/rooms/{room_id}/threads`
+- `/_matrix/client/v1/rooms/{room_id}/threads/search`
+- `/_matrix/client/v1/rooms/{room_id}/threads/unread`
+- `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}`
+- `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/freeze`
+- `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/mute`
+- `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read`
+- `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies`
+- `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/stats`
+- `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe`
+- `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze`
+- `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe`
+- `/_matrix/client/v1/threads`
+- `/_matrix/client/v1/threads/subscribed`
+- `/_matrix/client/v1/threads/unread`
+
+### worker (21)
+- `/_synapse/worker/v1/commands/{command_id}/complete`
+- `/_synapse/worker/v1/commands/{command_id}/fail`
+- `/_synapse/worker/v1/events`
+- `/_synapse/worker/v1/register`
+- `/_synapse/worker/v1/replication/{worker_id}/position`
+- `/_synapse/worker/v1/replication/{worker_id}/{stream_name}`
+- `/_synapse/worker/v1/select/{task_type}`
+- `/_synapse/worker/v1/statistics`
+- `/_synapse/worker/v1/statistics/types`
+- `/_synapse/worker/v1/tasks`
+- `/_synapse/worker/v1/tasks/claim/{worker_id}`
+- `/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}`
+- `/_synapse/worker/v1/tasks/{task_id}/complete`
+- `/_synapse/worker/v1/tasks/{task_id}/fail`
+- `/_synapse/worker/v1/workers`
+- `/_synapse/worker/v1/workers/type/{worker_type}`
+- `/_synapse/worker/v1/workers/{worker_id}`
+- `/_synapse/worker/v1/workers/{worker_id}/commands`
+- `/_synapse/worker/v1/workers/{worker_id}/connect`
+- `/_synapse/worker/v1/workers/{worker_id}/disconnect`
+- `/_synapse/worker/v1/workers/{worker_id}/heartbeat`
 
 ---
 
-## 2. 用户管理 API
+## API 版本兼容性
 
-### 2.1 端点统计
-
-| 分类 | 端点数量 |
-|------|----------|
-| 密码管理 | 2 |
-| 账户注销 | 2 |
-| 第三方身份 | 7 |
-| 用户资料 | 3 |
-
-### 2.2 核心端点
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/account/password` | POST | 修改密码 |
-| `/_matrix/client/r0/account/deactivate` | POST | 注销账户 |
-| `/_matrix/client/r0/account/3pid` | GET/POST/DELETE | 第三方ID管理 |
-| `/_matrix/client/r0/profile/{user_id}` | GET | 获取用户资料 |
+| API版本 | 说明 | 状态 |
+|---------|------|------|
+| r0 | 旧版API | ✅ 兼容 |
+| v3 | 当前稳定版本 | ✅ 推荐 |
+| v1 | 特定功能版本 | ✅ 支持 |
+| v2 | Federation v2 | ✅ 支持 |
+| unstable | 实验性功能 | ⚠️ 不稳定 |
 
 ---
 
-## 3. 房间管理 API
-
-### 3.1 端点统计
-
-| 分类 | 端点数量 |
-|------|----------|
-| 房间创建 | 2 |
-| 加入/离开 | 5 |
-| 成员管理 | 4 |
-| 房间信息 | 5 |
-| 房间别名 | 3 |
-| 公开房间 | 2 |
-
-### 3.2 核心端点
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/createRoom` | POST | 创建房间 |
-| `/_matrix/client/r0/join/{room_id}` | POST | 加入房间 |
-| `/_matrix/client/r0/rooms/{room_id}/leave` | POST | 离开房间 |
-| `/_matrix/client/r0/rooms/{room_id}/invite` | POST | 邀请用户 |
-| `/_matrix/client/r0/rooms/{room_id}/members` | GET | 获取成员 |
-
----
-
-## 4. 消息 API
-
-### 4.1 端点统计
-
-| 分类 | 端点数量 |
-|------|----------|
-| 发送消息 | 1 |
-| 获取消息 | 3 |
-| 状态事件 | 4 |
-| 消息撤回 | 3 |
-
-### 4.2 核心端点
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}` | PUT | 发送消息 |
-| `/_matrix/client/r0/rooms/{room_id}/messages` | GET | 获取消息 |
-| `/_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}` | PUT | 发送状态事件 |
-| `/_matrix/client/r0/rooms/{room_id}/redact/{event_id}/{txn_id}` | PUT | 撤回消息 |
-
----
-
-## 5. 设备管理 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/devices` | GET | 获取设备列表 |
-| `/_matrix/client/r0/devices/{device_id}` | GET/PUT/DELETE | 设备 CRUD |
-
----
-
-## 6. E2EE 加密 API
-
-### 6.1 端点统计
-
-| 分类 | 端点数量 |
-|------|----------|
-| 密钥上传 | 4 |
-| 交叉签名 | 2 |
-| To-Device | 1 |
-
-### 6.2 核心端点
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/keys/upload` | POST | 上传设备密钥 |
-| `/_matrix/client/r0/keys/query` | POST | 查询设备密钥 |
-| `/_matrix/client/r0/keys/claim` | POST | 申领一次性密钥 |
-| `/_matrix/client/r0/sendToDevice/{event_type}/{txn_id}` | PUT | 发送到设备 |
-
----
-
-## 7. 媒体 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/media/r0/upload` | POST | 上传媒体 |
-| `/_matrix/media/r0/download/{server_name}/{media_id}` | GET | 下载媒体 |
-| `/_matrix/media/r0/thumbnail/{server_name}/{media_id}` | GET | 获取缩略图 |
-| `/_matrix/media/r0/preview_url` | GET | URL 预览 |
-
----
-
-## 8. 好友系统 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/v1/friends` | GET | 获取好友列表 |
-| `/_matrix/client/v1/friends/{user_id}` | POST/DELETE | 好友 CRUD |
-| `/_matrix/client/v1/friends/{user_id}/accept` | POST | 接受请求 |
-| `/_matrix/client/v1/friends/{user_id}/block` | POST | 拉黑 |
-
----
-
-## 9. Space API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/v1/spaces` | POST | 创建空间 |
-| `/_matrix/client/v1/spaces/public` | GET | 获取公开空间 |
-| `/_matrix/client/v1/spaces/{space_id}/hierarchy` | GET | 获取空间层级 |
-
----
-
-## 10. Thread API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/v1/threads` | POST/GET | 创建/获取线程 |
-| `/_matrix/client/v1/threads/{thread_id}` | GET/PUT/DELETE | 线程 CRUD |
-| `/_matrix/client/v1/threads/{thread_id}/reply` | POST | 回复线程 |
-| `/_matrix/client/v1/threads/{thread_id}/pin` | POST | 置顶线程 |
-
----
-
-## 11. 搜索 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/search` | POST | 搜索消息 |
-| `/_matrix/client/r0/user_directory/search` | POST | 搜索用户 |
-
----
-
-## 12. 推送 API
-
-### 12.1 端点统计
-
-| 分类 | 端点数量 |
-|------|----------|
-| 推送器管理 | 2 |
-| 推送规则 | 7 |
-| 通知 | 1 |
-
-### 12.2 核心端点
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/pushers/set` | POST | 设置推送器 |
-| `/_matrix/client/r0/pushrules` | GET | 获取推送规则 |
-| `/_matrix/client/r0/notifications` | GET | 获取通知 |
-
----
-
-## 13. Widget API (MSC4261)
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/v3/widgets` | GET/POST | Widget CRUD |
-| `/_matrix/client/v3/widgets/{widget_id}` | GET/PUT/DELETE | Widget 管理 |
-| `/_matrix/client/v3/rooms/{room_id}/widgets` | GET/POST | 房间 Widget |
-
----
-
-## 14. Sliding Sync API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/unstable/org.matrix.msc3575/sync` | GET | Sliding Sync |
-
----
-
-## 15. 管理后台 API
-
-### 15.1 端点统计
-
-| 分类 | 端点数量 |
-|------|----------|
-| 服务器管理 | 3 |
-| 用户管理 | 6 |
-| 房间管理 | 6 |
-| 安全管理 | 4 |
-| 媒体管理 | 6 |
-| 令牌管理 | 4 |
-
-### 15.2 核心端点
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_synapse/admin/v1/server_version` | GET | 服务器版本 |
-| `/_synapse/admin/v1/users` | GET | 用户列表 |
-| `/_synapse/admin/v1/rooms` | GET | 房间列表 |
-| `/_synapse/admin/v1/registration_tokens` | GET/POST | 注册令牌 |
-
----
-
-## 16. 联邦 API
-
-### 16.1 端点统计
-
-| 分类 | 端点数量 |
-|------|----------|
-| 服务器发现 | 2 |
-| 事件同步 | 3 |
-| 消息发送 | 4 |
-| 密钥交换 | 2 |
-
-### 16.2 核心端点
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/federation/v2/server` | GET | 获取服务器密钥 |
-| `/_matrix/federation/v1/event/{event_id}` | GET | 获取事件 |
-| `/_matrix/federation/v1/send/{txn_id}` | PUT | 发送事务 |
-| `/_matrix/federation/v1/keys/claim` | POST | 申领密钥 |
-
----
-
-## 17. 应用服务 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/app/v1/transactions/{txn_id}` | PUT | 接收事务 |
-| `/_matrix/app/v1/users/{user_id}` | GET | 查询用户 |
-| `/_matrix/app/v1/rooms/{room_alias}` | GET | 查询房间 |
-
----
-
-## 18. CAS 认证 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/auth/cas/redirect` | GET | CAS 重定向 |
-| `/_matrix/client/r0/auth/cas/ticket` | GET | CAS 票据 |
-| `/_synapse/admin/v1/cas/config` | GET/PUT | CAS 配置 |
-
----
-
-## 19. SAML 认证 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/auth/saml/redirect` | GET | SAML 重定向 |
-| `/_matrix/client/r0/auth/saml/response` | POST | SAML 响应 |
-| `/_synapse/admin/v1/saml/config` | GET/PUT | SAML 配置 |
-
----
-
-## 20. OIDC 认证 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/auth/oidc/redirect` | GET | OIDC 重定向 |
-| `/_matrix/client/r0/auth/oidc/callback` | GET | OIDC 回调 |
-
----
-
-## 21. QR 登录 API (MSC4388)
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/v1/login/get_qr_code` | GET | 获取二维码 |
-| `/_matrix/client/v1/login/qr/start` | POST | 开始 QR 登录 |
-| `/_matrix/client/v1/login/qr/{transaction_id}/status` | GET | 检查状态 |
-| `/_matrix/client/v1/login/qr/confirm` | POST | 确认登录 |
-
----
-
-## 22. 语音消息 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/voice/upload` | POST | 上传语音 |
-| `/_matrix/client/r0/voice/stats` | GET | 语音统计 |
-| `/_matrix/client/r0/voice/{message_id}` | GET/DELETE | 语音 CRUD |
-| `/_matrix/client/v1/voice/transcription` | POST | 语音转文字 |
-
----
-
-## 23. VoIP API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/voip/turnServer` | GET | 获取 TURN 服务器 |
-| `/_matrix/client/r0/voip/signaling` | GET | 获取信令配置 |
-
----
-
-## 24. 密钥备份 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/room_keys/version` | POST/GET | 版本 CRUD |
-| `/_matrix/client/r0/room_keys/keys` | GET/PUT | 密钥 CRUD |
-| `/_matrix/client/r0/room_keys/recover` | POST | 恢复密钥 |
-
----
-
-## 25. 保留策略 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_synapse/admin/v1/retention/policies` | GET | 策略列表 |
-| `/_synapse/admin/v1/retention/policies/{policy_id}` | GET/PUT/DELETE | 策略 CRUD |
-
----
-
-## 26. 媒体配额 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_synapse/admin/v1/media/quota` | GET/PUT | 配额设置 |
-| `/_synapse/admin/v1/media/quota/users/{user_id}` | GET/PUT | 用户配额 |
-
----
-
-## 27. 服务器通知 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_synapse/admin/v1/server_notifications` | GET | 通知列表 |
-
----
-
-## 28. 事件举报 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/v1/rooms/{room_id}/report/{event_id}` | POST | 举报事件 |
-| `/_synapse/admin/v1/event_reports` | GET | 举报列表 |
-
----
-
-## 29. 账户数据 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_matrix/client/r0/user/{user_id}/account_data/{type}` | GET/PUT | 账户数据 |
-| `/_matrix/client/r0/user/{user_id}/rooms/{room_id}/account_data/{type}` | GET/PUT | 房间账户数据 |
-
----
-
-## 30. 注册令牌 API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_synapse/admin/v1/registration_tokens` | GET/POST | 令牌 CRUD |
-| `/_synapse/admin/v1/registration_tokens/validate` | POST | 验证令牌 |
-
----
-
-## 31. Worker API
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/_synapse/worker/v1/health` | GET | Worker 健康检查 |
-| `/_synapse/worker/v1/stats` | GET | Worker 统计 |
-| `/_synapse/worker/v1/config` | GET | Worker 配置 |
-
----
-
-## 附录 A: 数据库表统计
-
-### 核心表 (用户/认证)
-
-| 表名 | 说明 |
-|------|------|
-| users | 用户 |
-| user_threepids | 第三方身份 |
-| devices | 设备 |
-| access_tokens | 访问令牌 |
-| refresh_tokens | 刷新令牌 |
-| registration_tokens | 注册令牌 |
-
-### 房间表
-
-| 表名 | 说明 |
-|------|------|
-| rooms | 房间 |
-| room_memberships | 房间成员 |
-| room_summaries | 房间摘要 |
-| room_aliases | 房间别名 |
-| events | 事件 |
-| thread_roots | 线程根 |
-
-### 加密表
-
-| 表名 | 说明 |
-|------|------|
-| device_keys | 设备密钥 |
-| cross_signing_keys | 交叉签名密钥 |
-| megolm_sessions | Megolm 会话 |
-| key_backups | 密钥备份 |
-
-### 媒体表
-
-| 表名 | 说明 |
-|------|------|
-| media_metadata | 媒体元数据 |
-| thumbnails | 缩略图 |
-| media_quota | 媒体配额 |
-
----
-
-## 附录 B: MSC 功能支持
+## MSC 功能支持
 
 | MSC | 功能名称 | 状态 |
 |-----|----------|------|
@@ -534,21 +504,11 @@
 | MSC4388 | QR 登录 | ✅ 已实现 |
 | MSC4261 | Widget API | ✅ 已实现 |
 | MSC3245 | Room Summary | ✅ 已实现 |
+| MSC3814 | Dehydrated Device | ✅ 已实现 |
 
 ---
 
-## 附录 C: API 版本兼容性
-
-| API版本 | 说明 | 状态 |
-|---------|------|------|
-| r0 | 旧版API | ⚠️ 兼容 |
-| v3 | 当前稳定版本 | ✅ 推荐 |
-| v1 | 特定功能版本 | ✅ 支持 |
-| unstable | 实验性功能 | ⚠️ 不稳定 |
-
----
-
-## 附录 D: 状态码说明
+## 状态码说明
 
 | 状态码 | 说明 |
 |--------|------|
@@ -565,4 +525,4 @@
 
 ---
 
-*文档生成完成 - 基于 synapse-rust 项目实际代码统计 (2026-03-14)*
+*文档生成完成 - 基于 synapse-rust 项目实际代码统计 (2026-03-26)*

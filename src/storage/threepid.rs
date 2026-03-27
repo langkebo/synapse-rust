@@ -241,11 +241,11 @@ mod tests {
             user_id: "@test:example.com".to_string(),
             medium: "email".to_string(),
             address: "test@example.com".to_string(),
-            validated_ts: Some(1234567890000),
+            validated_at: Some(1234567890000),
             added_ts: 1234567800000,
             is_verified: true,
             verification_token: None,
-            verification_expires_ts: None,
+            verification_expires_at: None,
         };
         assert_eq!(threepid.id, 1);
         assert!(threepid.is_verified);

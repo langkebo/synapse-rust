@@ -19,44 +19,38 @@ const MAX_FILTER_SENDERS: usize = 50;
 const MAX_SEARCH_LIMIT: u32 = 100;
 const SEARCH_TIMEOUT_SECS: u64 = 30;
 
-pub fn create_search_router(state: AppState) -> Router<AppState> {
+fn create_search_compat_router() -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/v3/search", post(search))
-        .route("/_matrix/client/r0/search", post(search))
+        .route("/search", post(search))
+        .route("/search_recipients", post(search_recipients))
+        .route("/search_rooms", post(search_rooms))
+}
+
+fn create_room_context_router() -> Router<AppState> {
+    Router::new().route(
+        "/rooms/{room_id}/context/{event_id}",
+        get(get_event_context),
+    )
+}
+
+pub fn create_search_router(state: AppState) -> Router<AppState> {
+    let v1_router = Router::new()
+        .merge(create_room_context_router())
+        .route("/rooms/{room_id}/hierarchy", get(get_room_hierarchy))
         .route(
-            "/_matrix/client/v3/search_recipients",
-            post(search_recipients),
-        )
-        .route(
-            "/_matrix/client/r0/search_recipients",
-            post(search_recipients),
-        )
-        .route("/_matrix/client/v3/search_rooms", post(search_rooms))
-        .route("/_matrix/client/r0/search_rooms", post(search_rooms))
-        .route(
-            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads",
-            get(get_threads),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/hierarchy",
-            get(get_room_hierarchy),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/hierarchy",
-            get(get_room_hierarchy_v3),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/timestamp_to_event",
+            "/rooms/{room_id}/timestamp_to_event",
             get(timestamp_to_event),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/context/{event_id}",
-            get(get_event_context),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/context/{event_id}",
-            get(get_event_context),
-        )
+        );
+
+    let v3_router = Router::new()
+        .merge(create_search_compat_router())
+        .merge(create_room_context_router())
+        .route("/rooms/{room_id}/hierarchy", get(get_room_hierarchy_v3));
+
+    Router::new()
+        .nest("/_matrix/client/r0", create_search_compat_router())
+        .nest("/_matrix/client/v1", v1_router)
+        .nest("/_matrix/client/v3", v3_router)
         .with_state(state)
 }
 
@@ -398,67 +392,6 @@ async fn search_users(
         "results": results,
         "limited": results.len() as i64 == limit
     }))
-}
-
-async fn get_threads(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path((_user_id, room_id)): Path<(String, String)>,
-    Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Value>, ApiError> {
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(10);
-
-    let from = params.get("from").cloned();
-
-    let member_check =
-        sqlx::query("SELECT 1 FROM room_memberships WHERE room_id = $1 AND user_id = $2")
-            .bind(&room_id)
-            .bind(&auth_user.user_id)
-            .fetch_optional(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-    if member_check.is_none() {
-        return Err(ApiError::forbidden("Not a member of this room".to_string()));
-    }
-
-    let threads = sqlx::query(
-        r#"
-        SELECT DISTINCT ON (event_id) event_id, sender, content, origin_server_ts
-        FROM events
-        WHERE room_id = $1
-          AND content::jsonb ? 'm.relates_to'
-          AND content::jsonb->'m.relates_to' ? 'rel_type'
-          AND content::jsonb->'m.relates_to'->>'rel_type' = 'm.thread'
-        ORDER BY origin_server_ts DESC
-        LIMIT $2
-        "#,
-    )
-    .bind(&room_id)
-    .bind(limit as i64)
-    .fetch_all(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-    let chunk: Vec<Value> = threads
-        .iter()
-        .map(|row| {
-            json!({
-                "event_id": row.get::<Option<String>, _>("event_id"),
-                "sender": row.get::<Option<String>, _>("sender"),
-                "content": row.get::<Option<Value>, _>("content").unwrap_or(json!({})),
-                "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts").unwrap_or(0)
-            })
-        })
-        .collect();
-
-    Ok(Json(json!({
-        "chunk": chunk,
-        "next_batch": from
-    })))
 }
 
 async fn get_room_hierarchy(
@@ -862,19 +795,81 @@ async fn get_event_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::StatusCode;
+
+    #[test]
+    fn test_validate_search_request_rejects_empty_term() {
+        let request = SearchRequest {
+            search_categories: SearchCategories {
+                room_events: Some(RoomEventsSearch {
+                    search_term: "   ".to_string(),
+                    keys: vec![],
+                    filter: None,
+                    groupings: None,
+                    order_by: default_order_by(),
+                    next_batch: None,
+                }),
+                users: None,
+            },
+        };
+
+        let error = validate_search_request(&request).unwrap_err();
+        assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_validate_search_request_rejects_limit_over_maximum() {
+        let request = SearchRequest {
+            search_categories: SearchCategories {
+                room_events: Some(RoomEventsSearch {
+                    search_term: "hello".to_string(),
+                    keys: vec![],
+                    filter: Some(Filter {
+                        limit: Some(MAX_SEARCH_LIMIT + 1),
+                        rooms: None,
+                        not_rooms: None,
+                        types: None,
+                        not_types: None,
+                        senders: None,
+                        not_senders: None,
+                    }),
+                    groupings: None,
+                    order_by: default_order_by(),
+                    next_batch: None,
+                }),
+                users: None,
+            },
+        };
+
+        let error = validate_search_request(&request).unwrap_err();
+        assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
+    }
 
     #[test]
     fn test_search_routes_structure() {
         let routes = vec![
             "/_matrix/client/v3/search",
             "/_matrix/client/r0/search",
-            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads",
             "/_matrix/client/v1/rooms/{room_id}/hierarchy",
         ];
 
         for route in routes {
             assert!(route.starts_with("/_matrix/client/"));
         }
+    }
+
+    #[test]
+    fn test_search_routes_do_not_claim_thread_compat_endpoint() {
+        let routes = [
+            "/_matrix/client/v3/search",
+            "/_matrix/client/r0/search",
+            "/_matrix/client/v1/rooms/{room_id}/context/{event_id}",
+            "/_matrix/client/v3/rooms/{room_id}/context/{event_id}",
+        ];
+
+        assert!(routes
+            .iter()
+            .all(|route| !route.contains("/user/{user_id}/rooms/{room_id}/threads")));
     }
 
     #[test]

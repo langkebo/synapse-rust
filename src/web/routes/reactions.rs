@@ -9,29 +9,27 @@ use serde_json::json;
 use crate::common::error::ApiError;
 use crate::web::routes::{AppState, AuthenticatedUser};
 
+fn create_reactions_compat_router() -> Router<AppState> {
+    Router::new().route(
+        "/rooms/{room_id}/send/m.reaction/{txn_id}",
+        put(add_reaction),
+    )
+}
+
 pub fn create_reactions_router(state: AppState) -> Router<AppState> {
+    let compat_router = create_reactions_compat_router();
+
     Router::new()
-        // 添加 reaction (annotation) - 使用 PUT 方法符合 Matrix 规范
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}",
-            put(add_reaction),
-        )
-        // 同时支持 r0 版本路径
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/send/m.reaction/{txn_id}",
-            put(add_reaction),
-        )
-        // 获取事件的 reactions/relations
+        .nest("/_matrix/client/v3", compat_router.clone())
+        .nest("/_matrix/client/r0", compat_router)
         .route(
             "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}",
             get(get_relations),
         )
-        // 获取事件的 annotations (别名)
         .route(
             "/_matrix/client/v3/rooms/{room_id}/annotations/{event_id}",
             get(get_annotations),
         )
-        // 获取 references (引用)
         .route(
             "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/m.reference",
             get(get_references),
@@ -278,5 +276,53 @@ mod tests {
             serde_json::from_str(json).expect("Failed to parse RelatesTo JSON");
         assert_eq!(relates.event_id, "$test_event");
         assert_eq!(relates.rel_type, "m.annotation");
+    }
+
+    #[test]
+    fn test_reactions_routes_structure() {
+        let compat_routes = [
+            "/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}",
+            "/_matrix/client/r0/rooms/{room_id}/send/m.reaction/{txn_id}",
+        ];
+        let v3_only_routes = [
+            "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}",
+            "/_matrix/client/v3/rooms/{room_id}/annotations/{event_id}",
+            "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/m.reference",
+        ];
+
+        assert!(compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(v3_only_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/v3/")));
+    }
+
+    #[test]
+    fn test_reactions_compat_router_contains_shared_paths() {
+        let shared_paths = ["/rooms/{room_id}/send/m.reaction/{txn_id}"];
+
+        assert_eq!(shared_paths.len(), 1);
+        assert!(shared_paths.iter().all(|path| path.starts_with("/rooms/")));
+    }
+
+    #[test]
+    fn test_reactions_router_keeps_read_endpoints_outside_compat_scope() {
+        let compat_paths = ["/rooms/{room_id}/send/m.reaction/{txn_id}"];
+        let v3_only_paths = [
+            "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}",
+            "/_matrix/client/v3/rooms/{room_id}/annotations/{event_id}",
+        ];
+        let absent_r0_paths = ["/_matrix/client/r0/rooms/{room_id}/relations/{event_id}"];
+
+        assert!(compat_paths
+            .iter()
+            .all(|path| !path.contains("/relations/") && !path.contains("/annotations/")));
+        assert!(v3_only_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/v3/")));
+        assert!(absent_r0_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/r0/")));
     }
 }

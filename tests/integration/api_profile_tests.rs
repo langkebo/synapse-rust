@@ -192,3 +192,134 @@ async fn test_profile_validation_fixes() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn test_account_routes_work_across_r0_and_v3() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, user_id) = register_user(&app, "test_account_versions").await;
+
+    let r0_whoami_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/r0/account/whoami")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let r0_whoami_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_whoami_request)
+        .await
+        .unwrap();
+    assert_eq!(r0_whoami_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(r0_whoami_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let r0_whoami_json: Value = serde_json::from_slice(&body).unwrap();
+
+    let v3_whoami_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/account/whoami")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let v3_whoami_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_whoami_request)
+        .await
+        .unwrap();
+    assert_eq!(v3_whoami_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(v3_whoami_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let v3_whoami_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(r0_whoami_json, v3_whoami_json);
+
+    let r0_profile_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/r0/profile/{}", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let r0_profile_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_profile_request)
+        .await
+        .unwrap();
+    assert_eq!(r0_profile_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(r0_profile_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let r0_profile_json: Value = serde_json::from_slice(&body).unwrap();
+
+    let v3_profile_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/profile/{}", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let v3_profile_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_profile_request)
+        .await
+        .unwrap();
+    assert_eq!(v3_profile_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(v3_profile_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let v3_profile_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(r0_profile_json, v3_profile_json);
+
+    let r0_account_profile_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/r0/account/profile/{}", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let r0_account_profile_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_account_profile_request)
+            .await
+            .unwrap();
+    assert_eq!(r0_account_profile_response.status(), StatusCode::OK);
+
+    let v3_account_profile_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/account/profile/{}", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let v3_account_profile_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_account_profile_request)
+            .await
+            .unwrap();
+    assert_eq!(v3_account_profile_response.status(), StatusCode::NOT_FOUND);
+
+    let r0_3pid_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/r0/account/3pid")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let r0_3pid_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_3pid_request)
+        .await
+        .unwrap();
+    assert_eq!(r0_3pid_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(r0_3pid_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let r0_3pid_json: Value = serde_json::from_slice(&body).unwrap();
+
+    let v3_3pid_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/account/3pid")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let v3_3pid_response = ServiceExt::<Request<Body>>::oneshot(app, v3_3pid_request)
+        .await
+        .unwrap();
+    assert_eq!(v3_3pid_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(v3_3pid_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let v3_3pid_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(r0_3pid_json, v3_3pid_json);
+}
