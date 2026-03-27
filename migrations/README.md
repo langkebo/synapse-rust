@@ -8,7 +8,7 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
-| `UNIFIED_MIGRATION_v1.sql` | 综合迁移脚本（推荐） | ✅ 活跃 |
+| `99999999_unified_incremental_migration.sql` | 综合迁移脚本（推荐） | ✅ 活跃 |
 | `00000000_unified_schema_v6.sql` | 基础 Schema 定义 | ⚠️ 兼容 |
 | `archive/schema_legacy.sql` | 旧版基础定义 | ❌ 已废弃 |
 
@@ -21,17 +21,17 @@
 psql -U synapse -d synapse -f 00000000_unified_schema_v6.sql
 
 # 2. 执行迁移脚本
-psql -U synapse -d synapse -f UNIFIED_MIGRATION_v1.sql
+psql -U synapse -d synapse -f 99999999_unified_incremental_migration.sql
 ```
 
 #### 推荐的部署顺序
 
 ```bash
 # 方式一：使用 psql 直接执行
-psql -U synapse -d synapse -f UNIFIED_MIGRATION_v1.sql
+psql -U synapse -d synapse -f 99999999_unified_incremental_migration.sql
 
 # 方式二：使用 Docker
-docker exec -i synapse-rust-db psql -U synapse -d synapse < migrations/UNIFIED_MIGRATION_v1.sql
+docker exec -i synapse-rust-db psql -U synapse -d synapse < migrations/99999999_unified_incremental_migration.sql
 ```
 
 ### Schema 变更历史
