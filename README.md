@@ -69,8 +69,9 @@ cargo run --release
 
 ## 文档
 
-- API 参考：`docs/synapse-rust/api-reference.md`
+- API 参考：`docs/synapse-rust/API_DOCUMENTATION.md`
 - 实现指南：`docs/synapse-rust/implementation-guide.md`
+- 部署指南：`docs/synapse-rust/DEPLOYMENT_GUIDE.md`
 
 ## 私密聊天功能集成指南 (Private Chat Features)
 
@@ -148,17 +149,8 @@ client.sendReadReceipt(event);
 
 ## 项目任务与状态追踪
 
-为确保项目按计划推进，我们使用自动化工具跟踪未完成的任务和文档TODO。
+> ⚠️ 任务追踪已整合到 GitHub Issues 和项目看板
 
-- **最新任务报告**: [Unfinished Tasks Report](docs/synapse-rust/unfinished_tasks_summary_20260201_114736.md)
-- **JSON 数据源**: [unfinished_tasks.json](docs/synapse-rust/unfinished_tasks_20260201_114736.json)
-
-### 生成任务报告
-
-在提交代码前，建议运行以下脚本以更新任务清单：
-
-```bash
-python3 scripts/analyze_docs.py
-```
-
-此脚本会扫描 `docs/` 和 `src/` 目录，提取 `TODO`、`FIXME` 及其他关键词，并生成最新的 JSON 和 Markdown 报告。
+- **任务看板**: [HuLa Project Board](https://github.com/hu-matrix/hula/projects)
+- **缺失功能**: [MISSING_FEATURES.md](docs/synapse-rust/MISSING_FEATURES.md)
+- **完成度报告**: [COMPLETION_REPORT.md](docs/synapse-rust/COMPLETION_REPORT.md)
