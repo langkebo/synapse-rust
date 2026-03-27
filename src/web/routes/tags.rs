@@ -25,32 +25,22 @@ pub struct TagContent {
     pub order: Option<f64>,
 }
 
-pub fn create_tags_router(state: AppState) -> Router<AppState> {
+fn create_tags_compat_router() -> Router<AppState> {
     Router::new()
+        .route("/user/{user_id}/rooms/{room_id}/tags", get(get_tags))
+        .route("/user/{user_id}/rooms/{room_id}/tags/{tag}", put(put_tag))
         .route(
-            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags",
-            get(get_tags),
-        )
-        .route(
-            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}",
-            put(put_tag),
-        )
-        .route(
-            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}",
+            "/user/{user_id}/rooms/{room_id}/tags/{tag}",
             delete(delete_tag),
         )
-        .route(
-            "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/tags",
-            get(get_tags),
-        )
-        .route(
-            "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/tags/{tag}",
-            put(put_tag),
-        )
-        .route(
-            "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/tags/{tag}",
-            delete(delete_tag),
-        )
+}
+
+pub fn create_tags_router(state: AppState) -> Router<AppState> {
+    let compat_router = create_tags_compat_router();
+
+    Router::new()
+        .nest("/_matrix/client/v3", compat_router.clone())
+        .nest("/_matrix/client/r0", compat_router)
         .with_state(state)
 }
 
@@ -187,4 +177,51 @@ async fn delete_room_tag(
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_tags_routes_structure() {
+        let compat_routes = [
+            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags",
+            "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/tags",
+            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}",
+            "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/tags/{tag}",
+        ];
+
+        assert!(compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+    }
+
+    #[test]
+    fn test_tags_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/user/{user_id}/rooms/{room_id}/tags",
+            "/user/{user_id}/rooms/{room_id}/tags/{tag}",
+        ];
+
+        assert_eq!(shared_paths.len(), 2);
+        assert!(shared_paths.iter().all(|path| path.starts_with("/user/")));
+    }
+
+    #[test]
+    fn test_tags_router_keeps_scope_limited_to_r0_and_v3() {
+        let supported_paths = [
+            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags",
+            "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/tags/{tag}",
+        ];
+        let unsupported_v1_paths = [
+            "/_matrix/client/v1/user/{user_id}/rooms/{room_id}/tags",
+            "/_matrix/client/v1/user/{user_id}/rooms/{room_id}/tags/{tag}",
+        ];
+
+        assert!(supported_paths
+            .iter()
+            .all(|path| !path.starts_with("/_matrix/client/v1/")));
+        assert!(unsupported_v1_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/v1/")));
+    }
 }

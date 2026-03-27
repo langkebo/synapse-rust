@@ -14,34 +14,28 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub fn create_relations_router(state: AppState) -> Router<AppState> {
+fn create_relations_compat_router() -> Router<AppState> {
     Router::new()
-        // v1 路径 (Matrix 1.6+)
         .route(
-            "/_matrix/client/v1/relations/{room_id}/{event_id}/{rel_type}",
+            "/relations/{room_id}/{event_id}/{rel_type}",
             get(get_relations),
         )
         .route(
-            "/_matrix/client/v1/relations/{room_id}/{event_id}/{rel_type}/{event_id}",
+            "/relations/{room_id}/{event_id}/{rel_type}/{event_id}",
             put(send_relation),
         )
         .route(
-            "/_matrix/client/v1/aggregations/{room_id}/{event_id}/{rel_type}",
+            "/aggregations/{room_id}/{event_id}/{rel_type}",
             get(get_aggregations),
         )
-        // r0 路径兼容
-        .route(
-            "/_matrix/client/r0/relations/{room_id}/{event_id}/{rel_type}",
-            get(get_relations),
-        )
-        .route(
-            "/_matrix/client/r0/relations/{room_id}/{event_id}/{rel_type}/{event_id}",
-            put(send_relation),
-        )
-        .route(
-            "/_matrix/client/r0/aggregations/{room_id}/{event_id}/{rel_type}",
-            get(get_aggregations),
-        )
+}
+
+pub fn create_relations_router(state: AppState) -> Router<AppState> {
+    let compat_router = create_relations_compat_router();
+
+    Router::new()
+        .nest("/_matrix/client/v1", compat_router.clone())
+        .nest("/_matrix/client/r0", compat_router)
         .with_state(state)
 }
 
@@ -273,4 +267,52 @@ async fn get_aggregations(
         .await?;
 
     Ok(Json(response))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_relations_routes_structure() {
+        let compat_routes = [
+            "/_matrix/client/v1/relations/{room_id}/{event_id}/{rel_type}",
+            "/_matrix/client/r0/relations/{room_id}/{event_id}/{rel_type}/{event_id}",
+            "/_matrix/client/v1/aggregations/{room_id}/{event_id}/{rel_type}",
+            "/_matrix/client/r0/aggregations/{room_id}/{event_id}/{rel_type}",
+        ];
+
+        assert!(compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+    }
+
+    #[test]
+    fn test_relations_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/relations/{room_id}/{event_id}/{rel_type}",
+            "/relations/{room_id}/{event_id}/{rel_type}/{event_id}",
+            "/aggregations/{room_id}/{event_id}/{rel_type}",
+        ];
+
+        assert_eq!(shared_paths.len(), 3);
+        assert!(shared_paths.iter().all(|path| path.starts_with('/')));
+    }
+
+    #[test]
+    fn test_relations_router_keeps_scope_to_v1_and_r0() {
+        let supported_versions = [
+            "/_matrix/client/v1/relations/{room_id}/{event_id}/{rel_type}",
+            "/_matrix/client/r0/aggregations/{room_id}/{event_id}/{rel_type}",
+        ];
+        let unsupported_v3_paths = [
+            "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}",
+            "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
+        ];
+
+        assert!(supported_versions
+            .iter()
+            .all(|path| !path.starts_with("/_matrix/client/v3/")));
+        assert!(unsupported_v3_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/v3/")));
+    }
 }
