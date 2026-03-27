@@ -15,6 +15,8 @@ use validator::Validate;
 #[derive(Debug, Deserialize, Validate)]
 pub struct CreateDmRequest {
     #[validate(length(max = 100))]
+    pub user_id: Option<String>,
+    #[validate(length(max = 100))]
     pub invite: Option<Vec<String>>,
     pub is_direct: Option<bool>,
     #[validate(length(max = 255))]
@@ -25,6 +27,7 @@ pub struct CreateDmRequest {
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct UpdateDmRequest {
+    pub content: Option<Value>,
     pub users: Option<Value>,
 }
 
@@ -37,13 +40,17 @@ pub async fn create_dm_room(
     body.validate()
         .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
-    let invite_list = body.invite.unwrap_or_default();
+    let invite_list = body.invite.clone().unwrap_or_default();
 
-    if invite_list.is_empty() {
+    let users_to_invite = if !invite_list.is_empty() {
+        invite_list.clone()
+    } else if let Some(ref uid) = body.user_id {
+        vec![uid.clone()]
+    } else {
         return Err(ApiError::bad_request(
             "At least one user must be invited to create a DM",
         ));
-    }
+    };
 
     let config = CreateRoomConfig {
         name: body.name.clone(),
@@ -53,7 +60,7 @@ pub async fn create_dm_room(
                 .unwrap_or_else(|| "private".to_string()),
         ),
         preset: Some("private_chat".to_string()),
-        invite_list: Some(invite_list.clone()),
+        invite_list: Some(users_to_invite.clone()),
         is_direct: Some(true),
         room_type: Some("m.direct".to_string()),
         ..Default::default()
@@ -71,7 +78,7 @@ pub async fn create_dm_room(
         .ok_or_else(|| ApiError::internal("Failed to get room_id from create_room response"))?;
 
     let mut dm_users: Vec<String> = Vec::new();
-    for u in &invite_list {
+    for u in &users_to_invite {
         let clean_user = u
             .replace("@", "")
             .split(':')
@@ -289,7 +296,10 @@ pub async fn get_dm_partner_route(
 pub fn create_dm_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/r0/create_dm", post(create_dm_room))
+        .route("/_matrix/client/v3/create_dm", post(create_dm_room))
+        .route("/_matrix/client/r0/direct", get(get_dm_rooms))
         .route("/_matrix/client/v3/direct", get(get_dm_rooms))
+        .route("/_matrix/client/r0/direct/{room_id}", put(update_dm_room))
         .route("/_matrix/client/v3/direct/{room_id}", put(update_dm_room))
         .route("/_matrix/client/v3/rooms/{room_id}/dm", get(check_room_dm))
         .route(
