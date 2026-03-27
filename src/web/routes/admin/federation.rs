@@ -258,17 +258,18 @@ pub async fn get_blacklist(
 
 #[axum::debug_handler]
 pub async fn add_to_blacklist(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(server_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
-        "INSERT INTO federation_blacklist (server_name, added_at) VALUES ($1, $2) ON CONFLICT (server_name) DO NOTHING"
+        "INSERT INTO federation_blacklist (server_name, added_ts, added_by) VALUES ($1, $2, $3) ON CONFLICT (server_name) DO NOTHING"
     )
     .bind(&server_name)
     .bind(now)
+    .bind(&admin.user_id)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;

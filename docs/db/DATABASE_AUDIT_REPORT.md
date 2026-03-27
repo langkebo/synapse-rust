@@ -167,3 +167,36 @@ psql -U synapse -d synapse -f migrations/UNIFIED_MIGRATION_v1.sql
 *最后更新: 2026-03-21 (revoked_at → is_revoked 优化完成)*
 *使用工具: postgres-expert SKILL.md*
 *维护者: HuLa Team*
+
+---
+
+## 附录：2026-03-26 问题修复记录
+
+### 新发现的问题
+
+| 问题 | 严重程度 | 状态 |
+|------|----------|------|
+| blocked_rooms 表缺失 | 🔴 高 | ✅ 已修复 - 创建迁移脚本 |
+| shadow_bans 表缺失 | 🔴 高 | ✅ 已修复 - 创建迁移脚本 |
+| presence 表索引列名错误 (status → presence) | 🟡 中 | ✅ 已修复 - 修改迁移脚本 |
+| room_directory.added_ts 代码遗漏 | 🔴 高 | ✅ 已修复 - 修改 admin/room.rs |
+| event_relations 表缺失 | 🔴 高 | ✅ 已修复 - 创建迁移脚本 |
+
+### 修复文件
+
+1. **新增迁移脚本**: `migrations/20260326000002_fix_missing_tables.sql`
+   - 创建 blocked_rooms 表
+   - 创建 shadow_bans 表
+   - 修复 presence 表索引列名
+   - 确保 room_directory.added_ts 列存在
+   - 创建 event_relations 表
+
+2. **代码修复**:
+   - `src/web/routes/admin/room.rs:1001-1010` - 修复 room_directory INSERT 语句
+   - `migrations/20260322000001_performance_indexes.sql:144` - 修复索引列名
+
+### 建议
+
+1. 执行新创建的迁移脚本 `20260326000002_fix_missing_tables.sql`
+2. 重新构建并部署 synapse-rust Docker 镜像
+3. 验证 blocked_rooms、shadow_bans、event_relations 表功能正常

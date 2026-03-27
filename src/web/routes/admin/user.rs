@@ -1,4 +1,5 @@
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
+use crate::common::crypto::hash_password;
 use crate::common::ApiError;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
@@ -712,6 +713,9 @@ pub async fn batch_create_users(
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let username = user.username.clone();
 
+        let password_hash = hash_password(&password)
+            .map_err(|e| ApiError::internal(format!("Failed to hash password: {}", e)))?;
+
         let result = sqlx::query(
             r#"
             INSERT INTO users (user_id, username, password_hash, displayname, is_admin, creation_ts, updated_ts)
@@ -721,7 +725,7 @@ pub async fn batch_create_users(
         )
         .bind(format!("@{}:{}", username, state.services.config.server.name))
         .bind(&username)
-        .bind(&password)  // In production, hash this!
+        .bind(&password_hash)
         .bind(user.displayname.as_deref().unwrap_or(&username))
         .bind(user.admin.unwrap_or(false))
         .bind(now)
@@ -758,7 +762,7 @@ pub async fn batch_deactivate_users(
     let mut deactivated = Vec::new();
 
     for user_id in body.users {
-        sqlx::query("UPDATE users SET deactivated = true WHERE user_id = $1")
+        sqlx::query("UPDATE users SET is_deactivated = true WHERE user_id = $1")
             .bind(&user_id)
             .execute(&*state.services.user_storage.pool)
             .await

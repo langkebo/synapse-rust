@@ -4,7 +4,6 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::signal;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
@@ -36,6 +35,7 @@ pub struct SynapseServer {
     app_state: Arc<AppState>,
     router: Router,
     address: SocketAddr,
+    federation_address: SocketAddr,
     media_path: std::path::PathBuf,
     scheduled_tasks: Arc<ScheduledTasks>,
     metrics_collector: Arc<TaskMetricsCollector>,
@@ -212,6 +212,8 @@ impl SynapseServer {
 
         let address =
             format!("{}:{}", config.server.host, config.server.port).parse::<SocketAddr>()?;
+        let federation_address = format!("{}:{}", config.server.host, config.federation.federation_port)
+            .parse::<SocketAddr>()?;
         let media_path = std::path::PathBuf::from("/app/data/media");
 
         let router = create_router((*app_state).clone())
@@ -280,6 +282,7 @@ impl SynapseServer {
             app_state,
             router,
             address,
+            federation_address,
             media_path,
             scheduled_tasks,
             metrics_collector,
@@ -291,16 +294,14 @@ impl SynapseServer {
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         info!("Starting Synapse Rust Matrix Server...");
         info!("Server name: {}", self.app_state.services.server_name);
-        info!("Listening on: {}", self.address);
+        info!("Listening on (Client API): {}", self.address);
+        info!("Listening on (Federation): {}", self.federation_address);
         info!("Media storage: {}", self.media_path.display());
 
-        // Performance Optimization: Warmup database and cache
-        info!("Performing system warmup...");
         if let Err(e) = self.warmup().await {
             tracing::warn!("Warmup encountered minor errors: {}", e);
         }
 
-        // Start key rotation scheduler
         self.app_state
             .services
             .key_rotation_manager
@@ -310,29 +311,57 @@ impl SynapseServer {
         info!("Starting scheduled database monitoring and maintenance tasks...");
         self.scheduled_tasks.start_all().await;
 
-        let listener = tokio::net::TcpListener::bind(self.address).await?;
-        axum::serve(listener, self.router.clone())
-            .with_graceful_shutdown(async {
-                shutdown_signal().await;
-            })
-            .await?;
+        let router = self.router.clone();
+        let fed_router = self.router.clone();
+        let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(2);
 
+        let client_listener = tokio::net::TcpListener::bind(self.address).await?;
+        let federation_listener = tokio::net::TcpListener::bind(self.federation_address).await?;
+
+        let (client_tx, client_rx) = tokio::sync::oneshot::channel();
+        let (fed_tx, fed_rx) = tokio::sync::oneshot::channel();
+
+        let mut shutdown_rx1 = shutdown_tx.subscribe();
+        let mut shutdown_rx2 = shutdown_tx.subscribe();
+
+        tokio::spawn(async move {
+            let _ = shutdown_tx;
+            axum::serve(client_listener, router)
+                .with_graceful_shutdown(async move {
+                    shutdown_rx1.recv().await.ok();
+                })
+                .await.ok();
+            let _ = client_tx.send(());
+        });
+
+        tokio::spawn(async move {
+            axum::serve(federation_listener, fed_router)
+                .with_graceful_shutdown(async move {
+                    shutdown_rx2.recv().await.ok();
+                })
+                .await.ok();
+            let _ = fed_tx.send(());
+        });
+
+        info!("All servers started successfully");
+
+        client_rx.await.ok();
+        fed_rx.await.ok();
+
+        info!("Servers shutdown complete");
         Ok(())
     }
 
     async fn warmup(&self) -> Result<(), Box<dyn std::error::Error>> {
         let pool = &self.app_state.services.user_storage.pool;
 
-        // 1. Warmup DB connections with a simple query
+        info!("Performing system warmup...");
+
         sqlx::query("SELECT 1").execute(&**pool).await?;
 
-        // 2. Warmup common lookup tables (e.g., server version, active users count)
         let _ = sqlx::query("SELECT count(*) FROM users")
             .fetch_one(&**pool)
             .await?;
-
-        // 3. Populate Redis/Cache with critical system configs if any
-        // (Currently handled by ServiceContainer initialization, but could add specific ones)
 
         info!("Warmup completed successfully.");
         Ok(())
@@ -341,11 +370,4 @@ impl SynapseServer {
     pub fn metrics_collector(&self) -> &Arc<TaskMetricsCollector> {
         &self.metrics_collector
     }
-}
-
-async fn shutdown_signal() {
-    if let Err(e) = signal::ctrl_c().await {
-        tracing::error!("Failed to install Ctrl+C handler: {}", e);
-    }
-    info!("Shutting down server...");
 }

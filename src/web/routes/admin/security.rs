@@ -57,16 +57,11 @@ pub async fn shadow_ban_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let now = chrono::Utc::now().timestamp_millis();
-
-    sqlx::query(
-        "INSERT INTO shadow_bans (user_id, banned_at) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET banned_at = $2"
-    )
-    .bind(&user_id)
-    .bind(now)
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    sqlx::query("UPDATE users SET is_shadow_banned = true WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({})))
 }
@@ -77,7 +72,7 @@ pub async fn unshadow_ban_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    sqlx::query("DELETE FROM shadow_bans WHERE user_id = $1")
+    sqlx::query("UPDATE users SET is_shadow_banned = false WHERE user_id = $1")
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)
         .await

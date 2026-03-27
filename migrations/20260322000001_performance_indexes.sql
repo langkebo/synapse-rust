@@ -142,7 +142,7 @@ ON notifications(ts DESC);
 
 -- 优化: 用户在线状态查询
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_presence_user_status
-ON presence(user_id, status);
+ON presence(user_id, presence);
 
 -- ============================================================================
 -- 9. event_receipts 表索引优化

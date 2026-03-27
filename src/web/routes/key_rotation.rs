@@ -29,13 +29,14 @@ pub async fn rotate_keys(
 
     sqlx::query(
         r#"
-        INSERT INTO key_rotation_history (user_id, device_id, key_id, rotated_at)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO key_rotation_history (user_id, device_id, key_id, rotated_ts, created_ts)
+        VALUES ($1, $2, $3, $4, $5)
         "#,
     )
     .bind(&auth_user.user_id)
     .bind(&device_id)
     .bind(&key_id)
+    .bind(now)
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
@@ -55,9 +56,9 @@ pub async fn get_rotation_history(
 ) -> Result<Json<Value>, ApiError> {
     let rows = sqlx::query(
         r#"
-        SELECT key_id, rotated_at FROM key_rotation_history 
+        SELECT key_id, rotated_ts FROM key_rotation_history
         WHERE user_id = $1 AND device_id = $2
-        ORDER BY rotated_at DESC
+        ORDER BY rotated_ts DESC
         LIMIT 10
         "#,
     )
@@ -73,7 +74,7 @@ pub async fn get_rotation_history(
             use sqlx::Row;
             json!({
                 "key_id": row.get::<Option<String>, _>("key_id"),
-                "rotated_at": row.get::<Option<i64>, _>("rotated_at"),
+                "rotated_ts": row.get::<Option<i64>, _>("rotated_ts"),
             })
         })
         .collect();
@@ -108,8 +109,8 @@ pub async fn revoke_old_keys(
     for key_id in &key_ids {
         let result = sqlx::query(
             r#"
-            UPDATE key_rotation_history 
-            SET revoked = TRUE 
+            UPDATE key_rotation_history
+            SET is_revoked = TRUE
             WHERE user_id = $1 AND device_id = $2 AND key_id = $3
             "#,
         )
@@ -156,7 +157,7 @@ pub async fn check_needs_rotation(
 ) -> Result<Json<Value>, ApiError> {
     let last_rotation: Option<i64> = sqlx::query_scalar(
         r#"
-        SELECT MAX(rotated_at) FROM key_rotation_history 
+        SELECT MAX(rotated_ts) FROM key_rotation_history
         WHERE user_id = $1
         "#,
     )
