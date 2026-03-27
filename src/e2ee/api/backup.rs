@@ -88,7 +88,7 @@ pub async fn download_backup_keys(
         first_message_index: backup.first_message_index,
         forwarded_count: backup.forwarded_count,
         is_verified: backup.is_verified,
-        session_data: backup.backup_data["session_data"]
+        session_data: backup.session_data["session_data"]
             .as_str()
             .unwrap_or_default()
             .to_string(),

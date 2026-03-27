@@ -422,10 +422,10 @@ async fn get_room_key_by_id(
     let mut sessions = serde_json::Map::new();
     for key in keys {
         let session_data = key
-            .backup_data
+            .session_data
             .get("session_data")
             .cloned()
-            .unwrap_or_else(|| key.backup_data.clone());
+            .unwrap_or_else(|| key.session_data.clone());
 
         sessions.insert(
             key.session_id,
@@ -466,7 +466,7 @@ async fn get_room_key(
             "first_message_index": k.first_message_index,
             "forwarded_count": k.forwarded_count,
             "is_verified": k.is_verified,
-            "session_data": k.backup_data.get("session_data").cloned().unwrap_or(k.backup_data)
+            "session_data": k.session_data.get("session_data").cloned().unwrap_or(k.session_data)
         }))),
         None => Err(crate::error::ApiError::not_found(format!(
             "Session '{}' not found in room '{}'",
@@ -628,7 +628,7 @@ async fn export_keys(
         room_keys.push(serde_json::json!({
             "room_id": key.room_id,
             "session_id": key.session_id,
-            "session_data": key.backup_data,
+            "session_data": key.session_data,
             "first_message_index": key.first_message_index,
             "forwarded_count": key.forwarded_count,
             "is_verified": key.is_verified
@@ -662,7 +662,7 @@ async fn export_keys_by_version(
         room_keys.push(serde_json::json!({
             "room_id": key.room_id,
             "session_id": key.session_id,
-            "session_data": key.backup_data,
+            "session_data": key.session_data,
             "first_message_index": key.first_message_index,
             "forwarded_count": key.forwarded_count,
             "is_verified": key.is_verified

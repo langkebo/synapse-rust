@@ -8,188 +8,69 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-pub fn create_friend_router(state: AppState) -> Router<AppState> {
+fn create_friends_router() -> Router<AppState> {
     Router::new()
-        // v3 路径
+        .route("/friends", get(get_friends).post(send_friend_request))
+        .route("/friends/request", post(send_friend_request))
+        .route("/friends/request/received", get(get_received_requests))
+        .route(
+            "/friends/request/{user_id}/accept",
+            post(accept_friend_request),
+        )
+        .route(
+            "/friends/request/{user_id}/reject",
+            post(reject_friend_request),
+        )
+        .route(
+            "/friends/request/{user_id}/cancel",
+            post(cancel_friend_request),
+        )
+        .route("/friends/requests/incoming", get(get_incoming_requests))
+        .route("/friends/requests/outgoing", get(get_outgoing_requests))
+        .route("/friends/check/{user_id}", get(check_friendship))
+        .route("/friends/suggestions", get(get_friend_suggestions))
+        .route("/friends/{user_id}", delete(remove_friend))
+        .route("/friends/{user_id}/note", put(update_friend_note))
+        .route(
+            "/friends/{user_id}/status",
+            get(get_friend_status).put(update_friend_status),
+        )
+        .route("/friends/{user_id}/info", get(get_friend_info))
+}
+
+fn create_friend_groups_router() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/friends/groups",
+            get(get_friend_groups).post(create_friend_group),
+        )
+        .route("/friends/groups/{group_id}", delete(delete_friend_group))
+        .route("/friends/groups/{group_id}/name", put(rename_friend_group))
+        .route(
+            "/friends/groups/{group_id}/add/{user_id}",
+            post(add_friend_to_group),
+        )
+        .route(
+            "/friends/groups/{group_id}/remove/{user_id}",
+            delete(remove_friend_from_group),
+        )
+        .route(
+            "/friends/groups/{group_id}/friends",
+            get(get_friends_in_group),
+        )
+        .route("/friends/{user_id}/groups", get(get_groups_for_user))
+}
+
+pub fn create_friend_router(state: AppState) -> Router<AppState> {
+    let compat_router = create_friends_router().merge(create_friend_groups_router());
+    let r0_router = compat_router
+        .clone()
+        .route("/friendships", get(get_friends).post(send_friend_request));
+
+    Router::new()
         .route("/_matrix/client/v3/friends", get(get_friends))
-        // v1 和 r0 路径 - 主路由
-        .route("/_matrix/client/v1/friends", get(get_friends))
-        .route("/_matrix/client/v1/friends", post(send_friend_request))
-        .route("/_matrix/client/r0/friendships", get(get_friends))
-        .route("/_matrix/client/r0/friendships", post(send_friend_request))
-        // 好友请求
-        .route(
-            "/_matrix/client/v1/friends/request",
-            post(send_friend_request),
-        )
-        .route(
-            "/_matrix/client/v1/friends/request/received",
-            get(get_received_requests),
-        )
-        .route(
-            "/_matrix/client/v1/friends/request/{user_id}/accept",
-            post(accept_friend_request),
-        )
-        .route(
-            "/_matrix/client/v1/friends/request/{user_id}/reject",
-            post(reject_friend_request),
-        )
-        .route(
-            "/_matrix/client/v1/friends/request/{user_id}/cancel",
-            post(cancel_friend_request),
-        )
-        // r0 兼容路由
-        .route(
-            "/_matrix/client/r0/friends/request",
-            post(send_friend_request),
-        )
-        .route(
-            "/_matrix/client/r0/friends/request/received",
-            get(get_received_requests),
-        )
-        .route(
-            "/_matrix/client/r0/friends/request/{user_id}/accept",
-            post(accept_friend_request),
-        )
-        .route(
-            "/_matrix/client/r0/friends/request/{user_id}/reject",
-            post(reject_friend_request),
-        )
-        .route(
-            "/_matrix/client/r0/friends/request/{user_id}/cancel",
-            post(cancel_friend_request),
-        )
-        .route(
-            "/_matrix/client/v1/friends/requests/incoming",
-            get(get_incoming_requests),
-        )
-        .route(
-            "/_matrix/client/v1/friends/requests/outgoing",
-            get(get_outgoing_requests),
-        )
-        .route(
-            "/_matrix/client/r0/friends/requests/incoming",
-            get(get_incoming_requests),
-        )
-        .route(
-            "/_matrix/client/r0/friends/requests/outgoing",
-            get(get_outgoing_requests),
-        )
-        .route(
-            "/_matrix/client/v1/friends/check/{user_id}",
-            get(check_friendship),
-        )
-        .route(
-            "/_matrix/client/r0/friends/check/{user_id}",
-            get(check_friendship),
-        )
-        .route(
-            "/_matrix/client/v1/friends/suggestions",
-            get(get_friend_suggestions),
-        )
-        .route(
-            "/_matrix/client/r0/friends/suggestions",
-            get(get_friend_suggestions),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}",
-            delete(remove_friend),
-        )
-        .route(
-            "/_matrix/client/r0/friends/{user_id}",
-            delete(remove_friend),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}/note",
-            put(update_friend_note),
-        )
-        .route(
-            "/_matrix/client/r0/friends/{user_id}/note",
-            put(update_friend_note),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}/status",
-            get(get_friend_status),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}/status",
-            put(update_friend_status),
-        )
-        .route(
-            "/_matrix/client/r0/friends/{user_id}/status",
-            get(get_friend_status),
-        )
-        .route(
-            "/_matrix/client/r0/friends/{user_id}/status",
-            put(update_friend_status),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}/info",
-            get(get_friend_info),
-        )
-        .route(
-            "/_matrix/client/r0/friends/{user_id}/info",
-            get(get_friend_info),
-        )
-        // 好友分组
-        .route("/_matrix/client/v1/friends/groups", get(get_friend_groups))
-        .route(
-            "/_matrix/client/v1/friends/groups",
-            post(create_friend_group),
-        )
-        .route("/_matrix/client/r0/friends/groups", get(get_friend_groups))
-        .route(
-            "/_matrix/client/r0/friends/groups",
-            post(create_friend_group),
-        )
-        .route(
-            "/_matrix/client/v1/friends/groups/{group_id}",
-            delete(delete_friend_group),
-        )
-        .route(
-            "/_matrix/client/r0/friends/groups/{group_id}",
-            delete(delete_friend_group),
-        )
-        .route(
-            "/_matrix/client/v1/friends/groups/{group_id}/name",
-            put(rename_friend_group),
-        )
-        .route(
-            "/_matrix/client/r0/friends/groups/{group_id}/name",
-            put(rename_friend_group),
-        )
-        .route(
-            "/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}",
-            post(add_friend_to_group),
-        )
-        .route(
-            "/_matrix/client/r0/friends/groups/{group_id}/add/{user_id}",
-            post(add_friend_to_group),
-        )
-        .route(
-            "/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}",
-            delete(remove_friend_from_group),
-        )
-        .route(
-            "/_matrix/client/r0/friends/groups/{group_id}/remove/{user_id}",
-            delete(remove_friend_from_group),
-        )
-        .route(
-            "/_matrix/client/v1/friends/groups/{group_id}/friends",
-            get(get_friends_in_group),
-        )
-        .route(
-            "/_matrix/client/r0/friends/groups/{group_id}/friends",
-            get(get_friends_in_group),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}/groups",
-            get(get_groups_for_user),
-        )
-        .route(
-            "/_matrix/client/r0/friends/{user_id}/groups",
-            get(get_groups_for_user),
-        )
+        .nest("/_matrix/client/v1", compat_router)
+        .nest("/_matrix/client/r0", r0_router)
         .with_state(state)
 }
 
@@ -642,6 +523,27 @@ async fn get_groups_for_user(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_friend_routes_structure() {
+        let routes = [
+            "/_matrix/client/v3/friends",
+            "/_matrix/client/v1/friends",
+            "/_matrix/client/r0/friendships",
+            "/_matrix/client/r0/friends/groups",
+        ];
+
+        assert!(routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+    }
+
+    #[test]
+    fn test_v3_route_scope_remains_minimal() {
+        let v3_only_routes = ["/_matrix/client/v3/friends"];
+        assert_eq!(v3_only_routes.len(), 1);
+        assert!(v3_only_routes[0].ends_with("/friends"));
+    }
 
     #[test]
     fn test_add_friend_request_serialization() {

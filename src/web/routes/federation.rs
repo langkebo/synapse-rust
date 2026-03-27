@@ -1211,50 +1211,29 @@ async fn server_key(State(state): State<AppState>) -> Result<Json<Value>, ApiErr
         return Err(ApiError::not_found("Federation disabled".to_string()));
     }
 
-    // 尝试从数据库获取有效的签名密钥
-    let db = &*state.services.user_storage.pool;
-    let row: Option<(String, String, i64)> = sqlx::query_as(
-        "SELECT key_id, public_key, ts_valid_until_ms FROM federation_signing_keys 
-         WHERE server_name = $1 AND (ts_valid_until_ms > EXTRACT(EPOCH FROM NOW()) * 1000 OR ts_valid_until_ms IS NULL)
-         ORDER BY ts_valid_until_ms DESC NULLS LAST LIMIT 1"
-    )
-    .bind(&config.server_name)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to query signing key: {}", e)))?;
+    // 从配置获取签名密钥
+    let key_id = config
+        .key_id
+        .clone()
+        .unwrap_or_else(|| "ed25519:1".to_string());
 
-    let (key_id, verify_key, valid_until) = match row {
-        Some(r) => r,
+    let verify_key = match config.signing_key.as_deref().and_then(|k| {
+        let res = derive_ed25519_verify_key_base64(k);
+        if res.is_none() {
+            ::tracing::error!("Failed to derive verify key from signing_key: {}", k);
+        }
+        res
+    }) {
+        Some(k) => k,
         None => {
-            // 如果没有数据库密钥，尝试从配置读取
-            let key_id = config
-                .key_id
-                .clone()
-                .unwrap_or_else(|| "ed25519:1".to_string());
-
-            let verify_key = match config.signing_key.as_deref().and_then(|k| {
-                let res = derive_ed25519_verify_key_base64(k);
-                if res.is_none() {
-                    ::tracing::error!("Failed to derive verify key from signing_key: {}", k);
-                }
-                res
-            }) {
-                Some(k) => k,
-                None => {
-                    ::tracing::error!("Federation signing key missing or invalid in config");
-                    return Err(ApiError::internal(
-                        "Missing or invalid federation signing key".to_string(),
-                    ));
-                }
-            };
-
-            (
-                key_id,
-                verify_key,
-                chrono::Utc::now().timestamp_millis() + 3600 * 1000,
-            )
+            ::tracing::error!("Federation signing key missing or invalid in config");
+            return Err(ApiError::internal(
+                "Missing or invalid federation signing key".to_string(),
+            ));
         }
     };
+
+    let valid_until = chrono::Utc::now().timestamp_millis() + 3600 * 1000;
 
     Ok(Json(json!({
         "server_name": config.server_name,

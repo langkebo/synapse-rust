@@ -17,7 +17,7 @@ ENV CARGO_INCREMENTAL=1 \
     CARGO_NET_RETRY=10 \
     CARGO_HTTP_CHECK_REVOKE=false \
     CARGO_TERM_COLOR=always \
-    RUSTFLAGS="-C codegen-units=4 -C target-cpu=native"
+    RUSTFLAGS="-C codegen-units=4"
 
 # 安装编译依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \

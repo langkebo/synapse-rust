@@ -323,7 +323,7 @@ impl SecureBackupService {
     async fn get_all_session_keys(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
         // Get all backup keys for the user
         let keys =
-            sqlx::query("SELECT session_id, backup_data FROM backup_keys WHERE user_id = $1")
+            sqlx::query("SELECT session_id, session_data FROM backup_keys WHERE user_id = $1")
                 .bind(user_id)
                 .fetch_all(&*self.pool)
                 .await
@@ -332,10 +332,10 @@ impl SecureBackupService {
         let mut session_keys = Vec::new();
         for row in keys {
             let session_id: String = row.get("session_id");
-            let backup_data: serde_json::Value = row.get("backup_data");
+            let session_data: serde_json::Value = row.get("session_data");
 
-            // Extract session_key from backup_data
-            if let Some(session_key) = backup_data.get("session_key") {
+            // Extract session_key from session_data
+            if let Some(session_key) = session_data.get("session_key") {
                 if let Some(key_str) = session_key.as_str() {
                     session_keys.push(key_str.to_string());
                 }

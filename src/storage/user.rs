@@ -39,7 +39,7 @@ impl UserStorage {
             RETURNING user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                       created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                       appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                      is_password_change_required, password_expires_at, failed_login_attempts, locked_until
+                      is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
             "#,
         )
         .bind(user_id)
@@ -70,7 +70,7 @@ impl UserStorage {
             RETURNING user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                       created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                       appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                      is_password_change_required, password_expires_at, failed_login_attempts, locked_until
+                      is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
             "#,
         )
         .bind(user_id)
@@ -89,7 +89,7 @@ impl UserStorage {
             SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                   is_password_change_required, password_expires_at, failed_login_attempts, locked_until
+                   is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
             FROM users
             WHERE user_id = $1
             "#,
@@ -105,7 +105,7 @@ impl UserStorage {
             SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                   is_password_change_required, password_expires_at, failed_login_attempts, locked_until
+                   is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
             FROM users
             WHERE username = $1
             "#,
@@ -153,7 +153,7 @@ impl UserStorage {
                    is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts, 
                    generation, consent_version, appservice_id, user_type, invalid_update_at, 
                    migration_state, email, phone, password_changed_ts, is_password_change_required, 
-                   password_expires_at, failed_login_attempts, locked_until
+                   password_expires_at, failed_login_attempts, locked_until, must_change_password
             FROM users
             ORDER BY created_ts DESC
             LIMIT $1 OFFSET $2

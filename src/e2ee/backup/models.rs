@@ -50,7 +50,7 @@ pub struct BackupKeyInfo {
     pub first_message_index: i64,
     pub forwarded_count: i64,
     pub is_verified: bool,
-    pub backup_data: serde_json::Value,
+    pub session_data: serde_json::Value,
 }
 
 #[derive(Debug, Clone)]
