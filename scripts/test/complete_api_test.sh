@@ -2,8 +2,8 @@
 set -e
 
 SERVER_URL="http://localhost:28008"
-ADMIN_USER="testuser1"
-ADMIN_PASS='Test@123'
+TEST_USER="admin"
+TEST_PASS='Wzc9890951!'
 
 echo "=========================================="
 echo "Complete API Integration Test"
@@ -31,7 +31,7 @@ echo ""
 echo "3. Authentication"
 LOGIN_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/login" \
     -H "Content-Type: application/json" \
-    -d "{\"type\": \"m.login.password\", \"user\": \"$ADMIN_USER\", \"password\": \"$ADMIN_PASS\"}")
+    -d "{\"type\": \"m.login.password\", \"user\": \"$TEST_USER\", \"password\": \"$TEST_PASS\"}")
 TOKEN=$(echo "$LOGIN_RESP" | grep -o "\"access_token\":\"[^\"]*\"" | cut -d'"' -f4)
 USER_ID=$(echo "$LOGIN_RESP" | grep -o "\"user_id\":\"[^\"]*\"" | cut -d'"' -f4)
 if [ -n "$TOKEN" ]; then
@@ -39,8 +39,6 @@ if [ -n "$TOKEN" ]; then
 else
     fail "Login failed"
 fi
-
-# 4. Capabilities
 echo ""
 echo "4. Capabilities"
 curl -s "$SERVER_URL/_matrix/client/v3/capabilities" -H "Authorization: Bearer $TOKEN" | grep -q "capabilities" && pass "Capabilities" || fail "Capabilities"
@@ -140,44 +138,20 @@ echo ""
 echo "17. WhoAmI"
 curl -s "$SERVER_URL/_matrix/client/v3/account/whoami" -H "Authorization: Bearer $TOKEN" | grep -q "user_id" && pass "WhoAmI" || fail "WhoAmI"
 
-# 18. Admin - List Users (requires admin)
+# 18. Admin - List Users
 echo ""
 echo "18. Admin - List Users"
-ADMIN_CHECK=$(curl -s "$SERVER_URL/_synapse/admin/v1/users" -H "Authorization: Bearer $TOKEN")
-if echo "$ADMIN_CHECK" | grep -q "M_FORBIDDEN"; then
-    echo "SKIP: Admin access required (non-admin user)"
-elif echo "$ADMIN_CHECK" | grep -q "users"; then
-    pass "Admin List Users"
-else
-    echo "INFO: Admin API response: $ADMIN_CHECK"
-    fail "Admin List Users"
-fi
+curl -s "$SERVER_URL/_synapse/admin/v1/users" -H "Authorization: Bearer $TOKEN" | grep -q "users" && pass "Admin List Users" || fail "Admin List Users"
 
-# 19. Admin - User Details (requires admin)
+# 19. Admin - User Details
 echo ""
 echo "19. Admin - User Details"
-ADMIN_DETAIL=$(curl -s "$SERVER_URL/_synapse/admin/v1/users/@admin:localhost" -H "Authorization: Bearer $TOKEN")
-if echo "$ADMIN_DETAIL" | grep -q "M_FORBIDDEN"; then
-    echo "SKIP: Admin access required (non-admin user)"
-elif echo "$ADMIN_DETAIL" | grep -q "name"; then
-    pass "Admin User Details"
-else
-    echo "INFO: Admin API response: $ADMIN_DETAIL"
-    fail "Admin User Details"
-fi
+curl -s "$SERVER_URL/_synapse/admin/v1/users/@admin:cjystx.top" -H "Authorization: Bearer $TOKEN" | grep -q "name" && pass "Admin User Details" || fail "Admin User Details"
 
-# 20. Admin - List Rooms (requires admin)
+# 20. Admin - List Rooms
 echo ""
 echo "20. Admin - List Rooms"
-ADMIN_ROOMS=$(curl -s "$SERVER_URL/_synapse/admin/v1/rooms" -H "Authorization: Bearer $TOKEN")
-if echo "$ADMIN_ROOMS" | grep -q "M_FORBIDDEN"; then
-    echo "SKIP: Admin access required (non-admin user)"
-elif echo "$ADMIN_ROOMS" | grep -q "rooms"; then
-    pass "Admin List Rooms"
-else
-    echo "INFO: Admin API response: $ADMIN_ROOMS"
-    fail "Admin List Rooms"
-fi
+curl -s "$SERVER_URL/_synapse/admin/v1/rooms" -H "Authorization: Bearer $TOKEN" | grep -q "rooms" && pass "Admin List Rooms" || fail "Admin List Rooms"
 
 echo ""
 echo "=========================================="
