@@ -75,6 +75,11 @@ registration:
   enable_registration_captcha: false
   session_duration: 86400000
 
+admin_registration:
+  enabled: true
+  shared_secret: "admin_registration_secret_key_2024"
+  nonce_timeout_seconds: 60
+
 worker:
   enabled: false
 
