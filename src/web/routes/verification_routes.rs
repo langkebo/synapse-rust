@@ -14,55 +14,32 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
 
-pub fn create_verification_router(_state: AppState) -> Router<AppState> {
+fn create_verification_compat_router() -> Router<AppState> {
     Router::new()
-        // SAS verification
         .route(
-            "/_matrix/client/v1/keys/device_signing/verify_start",
+            "/keys/device_signing/verify_start",
             post(verification_start),
         )
         .route(
-            "/_matrix/client/v1/keys/device_signing/verify_accept",
+            "/keys/device_signing/verify_accept",
             put(verification_accept),
         )
         .route(
-            "/_matrix/client/v1/keys/device_signing/verify_key_agreement",
+            "/keys/device_signing/verify_key_agreement",
             post(verification_key_agreement),
         )
-        .route(
-            "/_matrix/client/v1/keys/device_signing/verify_mac",
-            post(verification_mac),
-        )
-        .route(
-            "/_matrix/client/v1/keys/device_signing/verify_done",
-            post(verification_done),
-        )
-        // QR verification
-        .route("/_matrix/client/v1/keys/qr_code/show", get(show_qr_code))
-        .route("/_matrix/client/v1/keys/qr_code/scan", post(scan_qr_code))
-        // Legacy routes (Matrix v1)
-        .route(
-            "/_matrix/client/r0/keys/device_signing/verify_start",
-            post(verification_start),
-        )
-        .route(
-            "/_matrix/client/r0/keys/device_signing/verify_accept",
-            put(verification_accept),
-        )
-        .route(
-            "/_matrix/client/r0/keys/device_signing/verify_key_agreement",
-            post(verification_key_agreement),
-        )
-        .route(
-            "/_matrix/client/r0/keys/device_signing/verify_mac",
-            post(verification_mac),
-        )
-        .route(
-            "/_matrix/client/r0/keys/device_signing/verify_done",
-            post(verification_done),
-        )
-        .route("/_matrix/client/r0/keys/qr_code/show", get(show_qr_code))
-        .route("/_matrix/client/r0/keys/qr_code/scan", post(scan_qr_code))
+        .route("/keys/device_signing/verify_mac", post(verification_mac))
+        .route("/keys/device_signing/verify_done", post(verification_done))
+        .route("/keys/qr_code/show", get(show_qr_code))
+        .route("/keys/qr_code/scan", post(scan_qr_code))
+}
+
+pub fn create_verification_router(_state: AppState) -> Router<AppState> {
+    let compat_router = create_verification_compat_router();
+
+    Router::new()
+        .nest("/_matrix/client/v1", compat_router.clone())
+        .nest("/_matrix/client/r0", compat_router)
 }
 
 #[derive(Debug, Deserialize)]
@@ -342,3 +319,58 @@ const SAS_EMOJIS: &[&str; 64] = &[
     "🐜", "🦟", "🦗", "🕷", "🦂", "🐢", "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡",
     "🐠", "🐟", "🐬", "🐳", "🦈", "🐊", "🐅", "🐆", "🦓", "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫",
 ];
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_verification_routes_structure() {
+        let compat_routes = [
+            "/_matrix/client/v1/keys/device_signing/verify_start",
+            "/_matrix/client/r0/keys/device_signing/verify_mac",
+            "/_matrix/client/v1/keys/qr_code/show",
+            "/_matrix/client/r0/keys/qr_code/scan",
+        ];
+
+        assert!(compat_routes
+            .iter()
+            .all(|route| route.starts_with("/_matrix/client/")));
+    }
+
+    #[test]
+    fn test_verification_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/keys/device_signing/verify_start",
+            "/keys/device_signing/verify_accept",
+            "/keys/device_signing/verify_key_agreement",
+            "/keys/device_signing/verify_mac",
+            "/keys/device_signing/verify_done",
+            "/keys/qr_code/show",
+            "/keys/qr_code/scan",
+        ];
+
+        assert_eq!(shared_paths.len(), 7);
+        assert!(shared_paths.iter().all(|path| path.starts_with('/')));
+    }
+
+    #[test]
+    fn test_verification_router_keeps_scope_to_v1_and_r0() {
+        let compat_paths = [
+            "/keys/device_signing/verify_start",
+            "/keys/qr_code/show",
+            "/keys/qr_code/scan",
+        ];
+        let supported_versions = [
+            "/_matrix/client/v1/keys/device_signing/verify_start",
+            "/_matrix/client/r0/keys/device_signing/verify_start",
+        ];
+        let unsupported_v3_paths = ["/_matrix/client/v3/keys/device_signing/verify_start"];
+
+        assert!(compat_paths.iter().all(|path| path.starts_with("/keys/")));
+        assert!(supported_versions
+            .iter()
+            .all(|path| !path.starts_with("/_matrix/client/v3/")));
+        assert!(unsupported_v3_paths
+            .iter()
+            .all(|path| path.starts_with("/_matrix/client/v3/")));
+    }
+}

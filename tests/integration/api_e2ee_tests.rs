@@ -174,3 +174,212 @@ async fn test_e2ee_keys() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn test_e2ee_shared_routes_across_versions() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, user_id) =
+        register_user(&app, &format!("e2ee_shared_{}", rand::random::<u32>())).await;
+
+    let upload_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/keys/upload")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_keys": {
+                    "user_id": user_id.clone(),
+                    "device_id": "DEVICE_SHARED",
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+                    "keys": {
+                        "curve25519:DEVICE_SHARED": "shared-curve",
+                        "ed25519:DEVICE_SHARED": "shared-ed"
+                    },
+                    "signatures": {
+                        user_id.clone(): {
+                            "ed25519:DEVICE_SHARED": "shared-signature"
+                        }
+                    }
+                },
+                "one_time_keys": {
+                    "curve25519:shared1": "shared-key"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let upload_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), upload_request)
+        .await
+        .unwrap();
+    assert_eq!(upload_response.status(), StatusCode::OK);
+
+    let query_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/query")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_keys": {
+                    user_id.clone(): []
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let query_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), query_request)
+        .await
+        .unwrap();
+    assert_eq!(query_response.status(), StatusCode::OK);
+
+    let device_signing_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/device_signing/upload")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({}).to_string()))
+        .unwrap();
+    let device_signing_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), device_signing_request)
+            .await
+            .unwrap();
+    assert_eq!(device_signing_response.status(), StatusCode::OK);
+
+    let changes_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/keys/changes?from=0&to=100")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let changes_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), changes_request)
+        .await
+        .unwrap();
+    assert_eq!(changes_response.status(), StatusCode::OK);
+
+    let summary_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/security/summary")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let summary_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), summary_request)
+        .await
+        .unwrap();
+    assert_eq!(summary_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(summary_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json.get("security_score").is_some());
+
+    let missing_r0_only_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/r0/security/summary")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let missing_r0_only_response =
+        ServiceExt::<Request<Body>>::oneshot(app, missing_r0_only_request)
+            .await
+            .unwrap();
+    assert_eq!(missing_r0_only_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_verification_routes_work_across_v1_and_r0() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, _) = register_user(&app, &format!("verify_shared_{}", rand::random::<u32>())).await;
+
+    let v1_show_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v1/keys/qr_code/show")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let v1_show_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v1_show_request)
+        .await
+        .unwrap();
+    assert_eq!(v1_show_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(v1_show_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let v1_show_json: Value = serde_json::from_slice(&body).unwrap();
+
+    let r0_show_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/r0/keys/qr_code/show")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let r0_show_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_show_request)
+        .await
+        .unwrap();
+    assert_eq!(r0_show_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(r0_show_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let r0_show_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(v1_show_json["user_id"], r0_show_json["user_id"]);
+    assert_eq!(v1_show_json["device_id"], r0_show_json["device_id"]);
+
+    let v1_start_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v1/keys/device_signing/verify_start")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "from_device": "DEVICE",
+                "to_user": "@nobody:localhost"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let v1_start_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v1_start_request)
+        .await
+        .unwrap();
+
+    let r0_start_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/device_signing/verify_start")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "from_device": "DEVICE",
+                "to_user": "@nobody:localhost"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let r0_start_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_start_request)
+        .await
+        .unwrap();
+    assert_eq!(v1_start_response.status(), r0_start_response.status());
+
+    let v3_start_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/keys/device_signing/verify_start")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "from_device": "DEVICE",
+                "to_user": "@nobody:localhost"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let v3_start_response = ServiceExt::<Request<Body>>::oneshot(app, v3_start_request)
+        .await
+        .unwrap();
+    assert_eq!(v3_start_response.status(), StatusCode::NOT_FOUND);
+}
