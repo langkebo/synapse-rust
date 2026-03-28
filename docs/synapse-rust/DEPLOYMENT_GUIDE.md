@@ -70,7 +70,7 @@ cargo run --bin migrate
 
 ```bash
 # 复制示例配置
-cp config.example.yaml config.yaml
+cp homeserver.yaml config.yaml
 
 # 编辑配置
 nano config.yaml
@@ -280,7 +280,7 @@ RUN apt-get update && \
 
 WORKDIR /app
 COPY --from=builder /build/target/release/synapse-rust /app/
-COPY config.example.yaml /app/config.yaml
+COPY homeserver.yaml /app/config.yaml
 
 EXPOSE 8008 8448
 

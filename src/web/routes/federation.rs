@@ -1466,7 +1466,7 @@ async fn send_join_v2(
             .await
             .unwrap_or(false);
 
-        if !is_member && !room.join_rules.is_empty() && room.join_rules != "public" {
+        if !is_member && !room.join_rule.is_empty() && room.join_rule != "public" {
             return Err(ApiError::forbidden("User is not allowed to join this room"));
         }
     }
@@ -1484,7 +1484,7 @@ async fn send_join_v2(
         "Federation send_join: origin={}, sender={}, room_id={}",
         origin, sender, room_id
     );
-    let _ = (origin, sender, room.is_public, room.join_rules.as_str());
+    let _ = (origin, sender, room.is_public, room.join_rule.as_str());
 
     Ok(Json(json!({
         "state": state_events,

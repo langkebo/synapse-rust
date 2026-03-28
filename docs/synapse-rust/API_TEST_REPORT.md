@@ -23,7 +23,7 @@
 | 模块 | 端点数 | 测试文件 |
 |------|--------|----------|
 | mod (核心模块) | 57 | core_api_tests.rs |
-| account_data | 12 | account_data_tests.rs |
+| account_data | 12 | api_account_data_routes_tests.rs |
 | admin (federation/room/user) | 58 | admin_api_tests.rs |
 | device | 8 | device_api_tests.rs |
 | dm | 5 | dm_api_tests.rs |
@@ -152,8 +152,9 @@
 
 | 测试项 | 测试用例 | 状态 |
 |--------|----------|------|
+| 账户数据列表 | GET /user/{user_id}/account_data/ | ✅ 通过 |
 | 用户账户数据 | GET/PUT /user/{user_id}/account_data/{type} | ✅ 通过 |
-| 过滤器 | POST /user/{user_id}/filter | ✅ 通过 |
+| 过滤器 | PUT/POST /user/{user_id}/filter | ✅ 通过 |
 | OpenID Token | GET /user/{user_id}/openid/request_token | ✅ 通过 |
 | 房间账户数据 | GET/PUT /user/{user_id}/rooms/{room_id}/account_data/{type} | ✅ 通过 |
 

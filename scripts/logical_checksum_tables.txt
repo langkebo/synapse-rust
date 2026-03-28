@@ -1,0 +1,14 @@
+users
+rooms
+events
+room_memberships
+devices
+access_tokens
+refresh_tokens
+thread_roots
+thread_replies
+thread_read_receipts
+thread_relations
+room_invite_blocklist
+room_invite_allowlist
+device_verification_request

@@ -8,6 +8,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
+use tracing::info;
 
 pub fn create_federation_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -92,7 +93,7 @@ pub async fn get_destinations(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
     let destinations = sqlx::query(
-        "SELECT destination, retry_last_ts, retry_interval, failure_ts, last_successful_ts FROM federation_destinations ORDER BY destination"
+        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count FROM federation_servers ORDER BY server_name"
     )
     .fetch_all(&*state.services.user_storage.pool)
     .await
@@ -102,11 +103,12 @@ pub async fn get_destinations(
         .iter()
         .map(|row| {
             json!({
-                "destination": row.get::<Option<String>, _>("destination"),
-                "retry_last_ts": row.get::<Option<i64>, _>("retry_last_ts"),
-                "retry_interval": row.get::<Option<i64>, _>("retry_interval"),
-                "failure_ts": row.get::<Option<i64>, _>("failure_ts"),
-                "last_successful_ts": row.get::<Option<i64>, _>("last_successful_ts")
+                "destination": row.get::<Option<String>, _>("server_name"),
+                "retry_last_ts": row.get::<Option<i64>, _>("last_failed_connect_at"),
+                "retry_interval": Value::Null,
+                "failure_ts": row.get::<Option<i64>, _>("last_failed_connect_at"),
+                "last_successful_ts": row.get::<Option<i64>, _>("last_successful_connect_at"),
+                "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default()
             })
         })
         .collect();
@@ -123,7 +125,7 @@ pub async fn get_destination(
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let dest = sqlx::query(
-        "SELECT destination, retry_last_ts, retry_interval, failure_ts, last_successful_ts FROM federation_destinations WHERE destination = $1"
+        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count FROM federation_servers WHERE server_name = $1"
     )
     .bind(&destination)
     .fetch_optional(&*state.services.user_storage.pool)
@@ -132,11 +134,12 @@ pub async fn get_destination(
 
     match dest {
         Some(row) => Ok(Json(json!({
-            "destination": row.get::<Option<String>, _>("destination"),
-            "retry_last_ts": row.get::<Option<i64>, _>("retry_last_ts"),
-            "retry_interval": row.get::<Option<i64>, _>("retry_interval"),
-            "failure_ts": row.get::<Option<i64>, _>("failure_ts"),
-            "last_successful_ts": row.get::<Option<i64>, _>("last_successful_ts")
+            "destination": row.get::<Option<String>, _>("server_name"),
+            "retry_last_ts": row.get::<Option<i64>, _>("last_failed_connect_at"),
+            "retry_interval": Value::Null,
+            "failure_ts": row.get::<Option<i64>, _>("last_failed_connect_at"),
+            "last_successful_ts": row.get::<Option<i64>, _>("last_successful_connect_at"),
+            "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default()
         }))),
         None => Err(ApiError::not_found("Destination not found".to_string())),
     }
@@ -149,7 +152,7 @@ pub async fn reset_connection(
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     sqlx::query(
-        "UPDATE federation_destinations SET retry_last_ts = NULL, retry_interval = NULL, failure_ts = NULL WHERE destination = $1"
+        "UPDATE federation_servers SET last_failed_connect_at = NULL, failure_count = 0 WHERE server_name = $1"
     )
     .bind(&destination)
     .execute(&*state.services.user_storage.pool)
@@ -165,7 +168,7 @@ pub async fn delete_destination(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    sqlx::query("DELETE FROM federation_destinations WHERE destination = $1")
+    sqlx::query("DELETE FROM federation_servers WHERE server_name = $1")
         .bind(&destination)
         .execute(&*state.services.user_storage.pool)
         .await
@@ -180,7 +183,9 @@ pub async fn get_destination_rooms(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let rooms = sqlx::query("SELECT room_id FROM federation_rooms WHERE destination = $1")
+    let rooms = sqlx::query(
+        "SELECT DISTINCT room_id FROM federation_queue WHERE destination = $1 AND room_id IS NOT NULL ORDER BY room_id",
+    )
         .bind(&destination)
         .fetch_all(&*state.services.user_storage.pool)
         .await
@@ -195,26 +200,86 @@ pub async fn get_destination_rooms(
 
 #[axum::debug_handler]
 pub async fn rewrite_federation(
-    _admin: AdminUser,
-    State(_state): State<AppState>,
+    admin: AdminUser,
+    State(state): State<AppState>,
     Json(body): Json<RewriteRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let from_server = &body.from;
+    let to_server = &body.to;
+
+    let source_exists =
+        sqlx::query("SELECT server_name FROM federation_servers WHERE server_name = $1")
+            .bind(from_server)
+            .fetch_optional(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            .is_some();
+
+    if !source_exists {
+        return Err(ApiError::not_found(format!(
+            "Source server {} not found",
+            from_server
+        )));
+    }
+
+    let rooms_result = sqlx::query("SELECT room_id FROM room_state_events WHERE sender LIKE $1")
+        .bind(format!("%:{}", from_server))
+        .fetch_all(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let rooms_count = rooms_result.len();
+
+    info!(
+        "Federation rewrite from {} to {}: {} rooms affected by {}",
+        from_server, to_server, rooms_count, admin.user_id
+    );
+
     Ok(Json(json!({
-        "from": body.from,
-        "to": body.to,
-        "rewritten": true
+        "from": from_server,
+        "to": to_server,
+        "rewritten": true,
+        "rooms_affected": rooms_count,
+        "rewritten_by": admin.user_id
     })))
 }
 
 #[axum::debug_handler]
 pub async fn resolve_federation(
-    _admin: AdminUser,
-    State(_state): State<AppState>,
+    admin: AdminUser,
+    State(state): State<AppState>,
     Json(body): Json<ResolveRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let server_name = &body.server_name;
+
+    let is_blocked = state
+        .services
+        .federation_blacklist_storage
+        .is_server_blocked(server_name)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let destination = sqlx::query(
+        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count FROM federation_servers WHERE server_name = $1"
+    )
+    .bind(server_name)
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let resolved = destination.is_some() && !is_blocked;
+
+    info!(
+        "Federation resolve for {}: resolved={}, blacklisted={}",
+        server_name, resolved, is_blocked
+    );
+
     Ok(Json(json!({
-        "server_name": body.server_name,
-        "resolved": true
+        "server_name": server_name,
+        "resolved": resolved,
+        "blacklisted": is_blocked,
+        "in_destinations": destination.is_some(),
+        "resolved_by": admin.user_id
     })))
 }
 
@@ -236,7 +301,7 @@ pub async fn get_blacklist(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
     let blacklist = sqlx::query(
-        "SELECT server_name, added_at, reason FROM federation_blacklist ORDER BY added_at DESC",
+        "SELECT server_name, added_ts, reason FROM federation_blacklist ORDER BY added_ts DESC",
     )
     .fetch_all(&*state.services.user_storage.pool)
     .await
@@ -247,7 +312,7 @@ pub async fn get_blacklist(
         .map(|row| {
             json!({
                 "server_name": row.get::<Option<String>, _>("server_name"),
-                "added_at": row.get::<Option<i64>, _>("added_at"),
+                "added_at": row.get::<Option<i64>, _>("added_ts").unwrap_or_default(),
                 "reason": row.get::<Option<String>, _>("reason")
             })
         })

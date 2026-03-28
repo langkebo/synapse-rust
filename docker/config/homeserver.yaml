@@ -21,11 +21,22 @@ server:
   session_duration: 86400000
   warmup_pool: true
 
+rate_limit:
+  enabled: false
+  default:
+    per_second: 0
+    burst_size: 0
+  endpoints: []
+  exempt_paths:
+    - "/"
+    - "/_matrix/client/versions"
+  fail_open_on_error: true
+
 database:
   host: "db"
   port: 5432
   username: "synapse"
-  password: "ypSgEf1Y8YzivoBsRFnHvH4JLwn2nspX"
+  password: "change-me-db-password"
   name: "synapse"
   pool_size: 10
   max_size: 20
@@ -60,7 +71,7 @@ federation:
   key_id: "ed25519:testkb1OUw"
 
 security:
-  secret: "e8f6e9a41bfb026417737b52359830aeacd8f54decb50af5697e97a13261f35d"
+  secret: "change-me-jwt-secret"
   expiry_time: 86400
   refresh_token_expiry: 604800
   argon2_m_cost: 65536
@@ -77,7 +88,7 @@ registration:
 
 admin_registration:
   enabled: true
-  shared_secret: "admin_registration_secret_key_2024"
+  shared_secret: "change-me-admin-registration-secret"
   nonce_timeout_seconds: 60
 
 worker:
@@ -96,9 +107,6 @@ cors:
   allowed_headers:
     - "*"
   max_age_seconds: 3600
-
-rate_limit:
-  enabled: false
 
 identity_server_url: "https://vector.im"
 

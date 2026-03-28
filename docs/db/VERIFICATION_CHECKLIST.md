@@ -100,9 +100,9 @@
 - [x] 新发现的规范问题已记录
 - [x] 修复记录已添加至迁移历史
 
-### 4.2 变更检查清单
+### 4.2 变更检查项
 
-- [x] `docs/db/change_checklist.md` 已创建
+- [x] 检查项已整合到 `docs/db/VERIFICATION_CHECKLIST.md`
 - [x] SQL 迁移脚本检查项完整
 - [x] Rust 代码审查检查项完整
 
@@ -131,7 +131,7 @@
 - [x] `docs/db/rust_table_inventory.md` 存在且完整 (9.2KB, 21表)
 - [x] `docs/db/rust_model_inventory.md` 存在且完整 (4.8KB, 51模型)
 - [x] `docs/db/COMPLETION_REPORT.md` 存在且完整 (6.9KB)
-- [x] `docs/db/change_checklist.md` 存在 (规范文档)
+- [x] 检查项已并入当前验收文档，无额外重复文件
 
 ### 变更管理
 

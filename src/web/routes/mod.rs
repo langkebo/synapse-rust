@@ -2,6 +2,7 @@ pub mod account_data;
 pub mod admin;
 pub mod ai_connection;
 pub mod app_service;
+mod assembly;
 pub mod background_update;
 pub mod burn_after_read;
 pub mod captcha;
@@ -13,9 +14,11 @@ pub mod e2ee_routes;
 pub mod ephemeral;
 pub mod event_report;
 pub mod external_service;
+pub mod extractors;
 pub mod federation;
 pub mod friend_room;
 pub mod guest;
+pub mod handlers;
 pub mod invite_blocklist;
 pub mod key_backup;
 pub mod key_rotation;
@@ -24,6 +27,8 @@ pub mod module;
 pub mod oidc;
 pub mod push;
 pub mod push_notification;
+pub mod push_rules;
+pub mod validators;
 pub mod qr_login;
 pub mod reactions;
 pub mod relations;
@@ -33,6 +38,7 @@ pub mod saml;
 pub mod search;
 pub mod sliding_sync;
 pub mod space;
+pub mod state;
 pub mod sticky_event;
 pub mod tags;
 pub mod telemetry;
@@ -49,6 +55,11 @@ pub use account_data::create_account_data_router;
 pub use admin::create_admin_module_router;
 pub use ai_connection::create_ai_connection_router;
 pub use app_service::create_app_service_router;
+pub use assembly::create_router;
+pub use handlers::{
+    get_capabilities, get_client_versions, get_server_version, get_well_known_client,
+    get_well_known_server, get_well_known_support, health_check,
+};
 pub use background_update::create_background_update_router;
 pub use burn_after_read::create_burn_after_read_router;
 pub use captcha::create_captcha_router;
@@ -58,6 +69,10 @@ pub use dm::create_dm_router;
 pub use e2ee_routes::create_e2ee_router;
 pub use event_report::create_event_report_router;
 pub use external_service::create_external_service_router;
+pub(crate) use extractors::extract_token_from_headers;
+pub use extractors::{
+    AdminUser, AuthExtractor, AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser,
+};
 pub use federation::create_federation_router;
 pub use friend_room::create_friend_router;
 pub use guest::create_guest_router;
@@ -68,6 +83,7 @@ pub use module::create_module_router;
 pub use oidc::create_oidc_router;
 pub use push::create_push_router;
 pub use push_notification::create_push_notification_router;
+pub use push_rules::{get_push_rules_default, get_push_rules_global_default, get_default_push_rules};
 pub use reactions::create_reactions_router;
 pub use relations::create_relations_router;
 pub use rendezvous::create_rendezvous_router;
@@ -76,6 +92,8 @@ pub use saml::create_saml_router;
 pub use search::create_search_router;
 pub use sliding_sync::create_sliding_sync_router;
 pub use space::create_space_router;
+pub use state::AppState;
+pub use validators::{validate_user_id, validate_room_id, validate_event_id, validate_presence_status, validate_receipt_type};
 pub use tags::create_tags_router;
 pub use telemetry::create_telemetry_router;
 pub use thirdparty::create_thirdparty_router;
@@ -93,386 +111,16 @@ pub use voip::get_voip_config;
 pub use widget::create_widget_router;
 pub use worker::create_worker_router;
 
-use crate::cache::*;
 use crate::common::*;
 use crate::services::*;
 use crate::storage::CreateEventParams;
-use crate::web::middleware::{
-    cors_middleware, csrf_middleware, rate_limit_middleware, security_headers_middleware,
-};
-use axum::extract::rejection::JsonRejection;
 use axum::{
-    extract::{FromRequestParts, Json, Path, Query, State},
-    http::{request::Parts, HeaderMap},
-    routing::{get, post, put},
-    Router,
+    extract::{Json, Path, Query, State},
+    http::HeaderMap,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{types::JsonValue, Row};
-use std::sync::Arc;
-use tower_http::compression::CompressionLayer;
-
-// Custom JSON extractor to provide friendly error messages
-pub struct MatrixJson<T>(pub T);
-
-impl<S, T> axum::extract::FromRequest<S> for MatrixJson<T>
-where
-    S: Send + Sync,
-    T: serde::de::DeserializeOwned + Send,
-{
-    type Rejection = ApiError;
-
-    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
-        match axum::extract::Json::<T>::from_request(req, state).await {
-            Ok(axum::extract::Json(value)) => Ok(MatrixJson(value)),
-            Err(rejection) => {
-                let message = match rejection {
-                    JsonRejection::JsonDataError(e) => format!("Invalid JSON data: {}", e),
-                    JsonRejection::JsonSyntaxError(e) => format!("JSON syntax error: {}", e),
-                    JsonRejection::MissingJsonContentType(e) => {
-                        format!("Missing Content-Type: application/json: {}", e)
-                    }
-                    _ => format!("JSON error: {}", rejection),
-                };
-                Err(ApiError::bad_request(message))
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct AppState {
-    pub services: ServiceContainer,
-    pub cache: Arc<CacheManager>,
-    pub health_checker: Arc<crate::common::health::HealthChecker>,
-    pub federation_signature_cache: Arc<crate::cache::FederationSignatureCache>,
-    pub rate_limit_config_manager:
-        Option<Arc<crate::common::rate_limit_config::RateLimitConfigManager>>,
-    pub ai_connection_storage: Arc<crate::storage::ai_connection::AiConnectionStorage>,
-    pub mcp_proxy_service: Arc<crate::services::mcp_proxy::McpProxyService>,
-}
-
-impl AppState {
-    pub fn new(services: ServiceContainer, cache: Arc<CacheManager>) -> Self {
-        let mut health_checker = crate::common::health::HealthChecker::new("0.1.0".to_string());
-
-        // Add DB health check
-        health_checker.add_check(Box::new(crate::common::health::DatabaseHealthCheck::new(
-            (*services.user_storage.pool).clone(),
-        )));
-
-        // Add Cache health check
-        health_checker.add_check(Box::new(crate::common::health::CacheHealthCheck::new(
-            (*cache).clone(),
-        )));
-
-        let federation_signature_cache = Arc::new(crate::cache::FederationSignatureCache::new(
-            crate::cache::SignatureCacheConfig::from_federation_config(
-                services.config.federation.signature_cache_ttl,
-                services.config.federation.key_cache_ttl,
-                services.config.federation.key_rotation_grace_period_ms,
-            ),
-        ));
-
-        let pool = services.user_storage.pool.clone();
-
-        Self {
-            services,
-            cache: cache.clone(),
-            health_checker: Arc::new(health_checker),
-            federation_signature_cache,
-            rate_limit_config_manager: None,
-            ai_connection_storage: Arc::new(
-                crate::storage::ai_connection::AiConnectionStorage::new(pool),
-            ),
-            mcp_proxy_service: Arc::new(crate::services::mcp_proxy::McpProxyService::new(
-                cache.clone(),
-            )),
-        }
-    }
-
-    pub fn with_rate_limit_config(
-        mut self,
-        manager: Arc<crate::common::rate_limit_config::RateLimitConfigManager>,
-    ) -> Self {
-        self.rate_limit_config_manager = Some(manager);
-        self
-    }
-}
-
-#[derive(Clone)]
-pub struct AuthenticatedUser {
-    pub user_id: String,
-    pub device_id: Option<String>,
-    pub is_admin: bool,
-    pub access_token: String,
-}
-
-#[derive(Clone)]
-pub struct OptionalAuthenticatedUser {
-    pub user_id: Option<String>,
-    pub device_id: Option<String>,
-    pub is_admin: bool,
-    pub access_token: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct AdminUser {
-    pub user_id: String,
-    pub device_id: Option<String>,
-    pub access_token: String,
-}
-
-impl FromRequestParts<AppState> for AuthenticatedUser {
-    type Rejection = ApiError;
-
-    fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
-        let token_result = extract_token_from_headers(&parts.headers);
-        let state = state.clone();
-
-        async move {
-            let token = token_result?;
-            let (user_id, device_id, is_admin) =
-                state.services.auth_service.validate_token(&token).await?;
-
-            Ok(AuthenticatedUser {
-                user_id,
-                device_id,
-                is_admin,
-                access_token: token,
-            })
-        }
-    }
-}
-
-impl FromRequestParts<AppState> for AdminUser {
-    type Rejection = ApiError;
-
-    fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
-        let auth_future = AuthenticatedUser::from_request_parts(parts, state);
-
-        async move {
-            let auth = auth_future.await?;
-            if !auth.is_admin {
-                return Err(ApiError::forbidden("Admin access required".to_string()));
-            }
-            Ok(AdminUser {
-                user_id: auth.user_id,
-                device_id: auth.device_id,
-                access_token: auth.access_token,
-            })
-        }
-    }
-}
-
-impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
-    type Rejection = std::convert::Infallible;
-
-    fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
-        let token_result = extract_token_from_headers(&parts.headers);
-        let state = state.clone();
-
-        async move {
-            match token_result {
-                Ok(token) => match state.services.auth_service.validate_token(&token).await {
-                    Ok((user_id, device_id, is_admin)) => Ok(OptionalAuthenticatedUser {
-                        user_id: Some(user_id),
-                        device_id,
-                        is_admin,
-                        access_token: Some(token),
-                    }),
-                    Err(_) => Ok(OptionalAuthenticatedUser {
-                        user_id: None,
-                        device_id: None,
-                        is_admin: false,
-                        access_token: None,
-                    }),
-                },
-                Err(_) => Ok(OptionalAuthenticatedUser {
-                    user_id: None,
-                    device_id: None,
-                    is_admin: false,
-                    access_token: None,
-                }),
-            }
-        }
-    }
-}
-
-pub trait AuthExtractor {
-    fn extract_token(&self) -> Result<String, ApiError>;
-}
-
-impl AuthExtractor for HeaderMap {
-    fn extract_token(&self) -> Result<String, ApiError> {
-        extract_token_from_headers(self)
-    }
-}
-
-fn extract_token_from_headers(headers: &HeaderMap) -> Result<String, ApiError> {
-    let token = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .map(|s| s.to_string())
-        .ok_or_else(|| {
-            ApiError::unauthorized("Missing or invalid authorization header".to_string())
-        })?;
-
-    if token.trim().is_empty() {
-        return Err(ApiError::unauthorized(
-            "Empty authorization token".to_string(),
-        ));
-    }
-
-    Ok(token)
-}
-
-fn create_client_capabilities_router() -> Router<AppState> {
-    Router::new().route("/capabilities", get(get_capabilities))
-}
-
-fn create_client_media_config_router() -> Router<AppState> {
-    Router::new().route("/media/config", get(media::media_config))
-}
-
-fn create_voip_compat_router() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/voip/turnServer",
-            get(get_turn_server).post(get_turn_server),
-        )
-        .route("/voip/config", get(get_voip_config))
-        .route("/voip/turnServer/guest", get(get_turn_credentials_guest))
-        .route(
-            "/rooms/{room_id}/send/m.call.invite/{txn_id}",
-            put(voip::call_invite),
-        )
-        .route(
-            "/rooms/{room_id}/send/m.call.candidates/{txn_id}",
-            put(voip::call_candidates),
-        )
-        .route(
-            "/rooms/{room_id}/send/m.call.answer/{txn_id}",
-            put(voip::call_answer),
-        )
-        .route(
-            "/rooms/{room_id}/send/m.call.hangup/{txn_id}",
-            put(voip::call_hangup),
-        )
-        .route(
-            "/rooms/{room_id}/call/{call_id}",
-            get(voip::get_call_session),
-        )
-}
-
-pub fn create_router(state: AppState) -> Router {
-    Router::new()
-        .without_v07_checks()
-        // v3 routes first to avoid being overridden
-        .route(
-            "/",
-            get(|| async {
-                Json(json!({
-                    "msg": "Synapse Rust Matrix Server",
-                    "version": "0.1.0"
-                }))
-            }),
-        )
-        .route("/health", get(health_check))
-        .route("/_matrix/client/versions", get(get_client_versions))
-        .route("/_matrix/client/v3/versions", get(get_client_versions))
-        .route("/_matrix/client/r0/version", get(get_server_version))
-        .route("/_matrix/server_version", get(get_server_version))
-        // Push rules - return default rules (SDK requires this endpoint)
-        // Push rules - handled by push router; add trailing-slash aliases
-        .route("/_matrix/client/v3/pushrules/", get(get_push_rules_default))
-        .route(
-            "/_matrix/client/v3/pushrules/global/",
-            get(get_push_rules_global_default),
-        )
-        .route("/.well-known/matrix/server", get(get_well_known_server))
-        .route("/.well-known/matrix/client", get(get_well_known_client))
-        .route("/.well-known/matrix/support", get(get_well_known_support))
-        .merge(create_auth_router())
-        .merge(create_account_router())
-        .merge(create_account_data_router(state.clone()))
-        .merge(create_directory_router(state.clone()))
-        .merge(create_room_router())
-        .merge(create_presence_router())
-        .merge(create_device_router())
-        // Merge sub-routers
-        .merge(create_voice_router(state.clone()))
-        .merge(create_media_router(state.clone()))
-        .merge(create_e2ee_router(state.clone()))
-        .merge(create_key_backup_router(state.clone()))
-        .merge(create_verification_router(state.clone()))
-        .merge(create_relations_router(state.clone()))
-        .merge(create_reactions_router(state.clone()))
-        .merge(create_admin_module_router(state.clone()))
-        .merge(create_federation_router(state.clone()))
-        .merge(create_friend_router(state.clone()))
-        .merge(create_push_router(state.clone()))
-        .merge(create_search_router(state.clone()))
-        .merge(create_sliding_sync_router(state.clone()))
-        .merge(create_space_router(state.clone()))
-        .merge(create_app_service_router(state.clone()))
-        .merge(create_worker_router(state.clone()))
-        .merge(create_room_summary_router(state.clone()))
-        .merge(create_event_report_router(state.clone()))
-        .merge(create_background_update_router(state.clone()))
-        .merge(create_module_router())
-        .merge(create_saml_router())
-        .merge(create_oidc_router(state.clone()))
-        .merge(cas_routes())
-        .merge(create_captcha_router())
-        .merge(create_push_notification_router())
-        .merge(create_telemetry_router())
-        .merge(create_thirdparty_router(state.clone()))
-        .merge(create_tags_router(state.clone()))
-        .nest("/_matrix/client/r0", create_client_capabilities_router())
-        .nest("/_matrix/client/v3", create_client_capabilities_router())
-        .nest("/_matrix/client/r0", create_voip_compat_router())
-        .nest("/_matrix/client/v3", create_voip_compat_router())
-        .nest("/_matrix/client/v1", create_client_media_config_router())
-        .nest("/_matrix/client/r0", create_client_media_config_router())
-        .nest("/_matrix/client/v3", create_client_media_config_router())
-        .merge(dm::create_dm_router(state.clone()))
-        .merge(typing::create_typing_router(state.clone()))
-        .merge(ephemeral::create_ephemeral_router(state.clone()))
-        .merge(create_external_service_router(state.clone()))
-        .merge(create_burn_after_read_router(state.clone()))
-        .merge(create_thread_routes(state.clone()))
-        .merge(create_widget_router())
-        .merge(create_rendezvous_router(state.clone()))
-        .merge(create_ai_connection_router())
-        .route("/_matrix/client/v3/sync", get(sync))
-        .route("/_matrix/client/v3/createRoom", post(create_room))
-        .route("/_matrix/client/v3/joined_rooms", get(get_joined_rooms))
-        .route("/_matrix/client/v3/my_rooms", get(get_my_rooms))
-        .layer(axum::middleware::from_fn(cors_middleware))
-        .layer(axum::middleware::from_fn(security_headers_middleware))
-        .layer(CompressionLayer::new())
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            csrf_middleware,
-        ))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            rate_limit_middleware,
-        ))
-        .with_state(state)
-}
 
 #[cfg(test)]
 mod top_level_router_tests {
@@ -528,48 +176,6 @@ mod top_level_router_tests {
     }
 }
 
-fn create_auth_compat_router() -> Router<AppState> {
-    Router::new()
-        .route("/register", get(get_register_flows).post(register))
-        .route("/register/available", get(check_username_availability))
-        .route(
-            "/register/email/requestToken",
-            post(request_email_verification),
-        )
-        .route("/register/email/submitToken", post(submit_email_token))
-        .route("/login", get(get_login_flows).post(login))
-        .route("/logout", post(logout))
-        .route("/logout/all", post(logout_all))
-        .route("/refresh", post(refresh_token))
-}
-
-fn create_auth_router() -> Router<AppState> {
-    Router::new()
-        .nest("/_matrix/client/r0", create_auth_compat_router())
-        .nest("/_matrix/client/v3", create_auth_compat_router())
-        // QR Login (MSC4388)
-        .route(
-            "/_matrix/client/v1/login/get_qr_code",
-            get(qr_login::get_qr_code),
-        )
-        .route(
-            "/_matrix/client/v1/login/qr/confirm",
-            post(qr_login::confirm_qr_login),
-        )
-        .route(
-            "/_matrix/client/v1/login/qr/start",
-            post(qr_login::start_qr_login),
-        )
-        .route(
-            "/_matrix/client/v1/login/qr/{transaction_id}/status",
-            get(qr_login::get_qr_status),
-        )
-        .route(
-            "/_matrix/client/v1/login/qr/invalidate",
-            post(qr_login::invalidate_qr_login),
-        )
-}
-
 #[cfg(test)]
 mod auth_router_tests {
     #[test]
@@ -623,46 +229,6 @@ mod auth_router_tests {
             .iter()
             .all(|path| path.starts_with("/_matrix/client/v1/login/")));
     }
-}
-
-fn create_account_compat_router() -> Router<AppState> {
-    Router::new()
-        .route("/account/whoami", get(whoami))
-        .route("/account/password", post(change_password_uia))
-        .route("/account/deactivate", post(deactivate_account))
-        .route("/account/3pid", get(get_threepids).post(add_threepid))
-        .route("/account/3pid/add", post(add_threepid))
-        .route("/account/3pid/bind", post(add_threepid))
-        .route("/account/3pid/delete", post(delete_threepid))
-        .route("/account/3pid/unbind", post(unbind_threepid))
-        .route("/profile/{user_id}", get(get_profile))
-        .route(
-            "/profile/{user_id}/displayname",
-            get(get_displayname).put(update_displayname),
-        )
-        .route(
-            "/profile/{user_id}/avatar_url",
-            get(get_avatar_url).put(update_avatar),
-        )
-}
-
-fn create_account_r0_only_router() -> Router<AppState> {
-    Router::new()
-        .route("/account/profile/{user_id}", get(get_profile))
-        .route(
-            "/account/profile/{user_id}/displayname",
-            put(update_displayname),
-        )
-        .route("/account/profile/{user_id}/avatar_url", put(update_avatar))
-}
-
-fn create_account_router() -> Router<AppState> {
-    Router::new()
-        .nest(
-            "/_matrix/client/r0",
-            create_account_compat_router().merge(create_account_r0_only_router()),
-        )
-        .nest("/_matrix/client/v3", create_account_compat_router())
 }
 
 #[cfg(test)]
@@ -723,45 +289,6 @@ mod account_router_tests {
     }
 }
 
-fn create_directory_compat_router() -> Router<AppState> {
-    Router::new()
-        .route("/user_directory/search", post(search_user_directory))
-        .route("/user_directory/list", post(list_user_directory))
-        .route(
-            "/directory/list/room/{room_id}",
-            get(get_room_visibility).put(set_room_visibility),
-        )
-        .route(
-            "/directory/room/{room_alias}",
-            get(get_room_by_alias)
-                .put(set_room_alias_direct)
-                .delete(delete_room_alias_direct),
-        )
-        .route(
-            "/publicRooms",
-            get(get_public_rooms).post(query_public_rooms),
-        )
-}
-
-fn create_directory_r0_only_router() -> Router<AppState> {
-    Router::new()
-        .route("/directory/room/{room_id}/alias", get(get_room_aliases))
-        .route(
-            "/directory/room/{room_id}/alias/{room_alias}",
-            put(set_room_alias).delete(delete_room_alias),
-        )
-}
-
-fn create_directory_router(state: AppState) -> Router<AppState> {
-    Router::new()
-        .nest(
-            "/_matrix/client/r0",
-            create_directory_compat_router().merge(create_directory_r0_only_router()),
-        )
-        .nest("/_matrix/client/v3", create_directory_compat_router())
-        .with_state(state)
-}
-
 #[cfg(test)]
 mod directory_router_tests {
     #[test]
@@ -818,136 +345,6 @@ mod directory_router_tests {
             .iter()
             .all(|path| path.starts_with("/_matrix/client/r0/")));
     }
-}
-
-fn create_room_report_compat_router() -> Router<AppState> {
-    Router::new()
-        .route("/rooms/{room_id}/report/{event_id}", post(report_event))
-        .route(
-            "/rooms/{room_id}/report/{event_id}/score",
-            put(update_report_score),
-        )
-}
-
-fn create_room_power_levels_compat_router() -> Router<AppState> {
-    Router::new().route(
-        "/rooms/{room_id}/state/m.room.power_levels/",
-        get(get_power_levels),
-    )
-}
-
-fn create_room_r0_v3_compat_router() -> Router<AppState> {
-    Router::new()
-        .route("/rooms/{room_id}", get(get_room_info))
-        .route("/events", get(get_events))
-        .route("/rooms/{room_id}/messages", get(get_messages))
-        .route(
-            "/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
-            post(send_receipt),
-        )
-        .route(
-            "/rooms/{room_id}/read_markers",
-            post(set_read_markers).put(set_read_markers),
-        )
-        .route("/rooms/{room_id}/aliases", get(get_room_aliases))
-        .route("/rooms/{room_id}/join", post(join_room))
-        .route("/rooms/{room_id}/leave", post(leave_room))
-        .route("/rooms/{room_id}/upgrade", post(upgrade_room))
-        .route("/rooms/{room_id}/forget", post(forget_room))
-        .route("/rooms/{room_id}/initialSync", get(room_initial_sync))
-        .route("/rooms/{room_id}/members", get(get_room_members))
-        .route("/rooms/{room_id}/joined_members", get(get_joined_members))
-        .route("/rooms/{room_id}/invite", post(invite_user))
-        .route("/user/{user_id}/rooms", get(get_user_rooms))
-        .route(
-            "/rooms/{room_id}/state/{event_type}/{state_key}",
-            put(put_state_event).get(get_state_event),
-        )
-        .route(
-            "/rooms/{room_id}/state/{event_type}/",
-            put(put_state_event_empty_key).get(get_state_event_empty_key),
-        )
-        .route(
-            "/rooms/{room_id}/state/{event_type}",
-            put(put_state_event_no_key)
-                .get(get_state_by_type)
-                .post(send_state_event),
-        )
-        .route("/rooms/{room_id}/state", get(get_room_state))
-        .route(
-            "/rooms/{room_id}/redact/{event_id}/{txn_id}",
-            put(redact_event),
-        )
-        .route("/rooms/{room_id}/kick", post(kick_user))
-        .route("/rooms/{room_id}/ban", post(ban_user))
-        .route("/rooms/{room_id}/unban", post(unban_user))
-        .route(
-            "/rooms/{room_id}/send/{event_type}/{txn_id}",
-            put(send_message),
-        )
-        .route("/rooms/{room_id}/event/{event_id}", get(get_single_event))
-}
-
-fn create_room_r0_router() -> Router<AppState> {
-    create_room_r0_v3_compat_router()
-        .merge(create_room_report_compat_router())
-        .merge(create_room_power_levels_compat_router())
-        .route("/sync", get(sync))
-        .route("/joined_rooms", get(get_joined_rooms))
-        .route("/createRoom", post(create_room))
-        .route(
-            "/rooms/{room_id}/get_membership_events",
-            post(get_membership_events),
-        )
-}
-
-fn create_room_v1_router() -> Router<AppState> {
-    create_room_report_compat_router()
-        .merge(create_room_power_levels_compat_router())
-        .route("/sync", get(sync))
-        .route(
-            "/rooms/{room_id}/report/{event_id}/scanner_info",
-            get(get_scanner_info),
-        )
-}
-
-fn create_room_v3_router() -> Router<AppState> {
-    create_room_r0_v3_compat_router()
-        .merge(create_room_report_compat_router())
-        .merge(create_room_power_levels_compat_router())
-        .route("/rooms/{room_id}/report", post(report_room))
-        .route(
-            "/rooms/{room_id}/notifications",
-            get(get_room_notifications),
-        )
-        .route("/join/{room_id_or_alias}", post(join_room_by_id_or_alias))
-        .route("/knock/{room_id_or_alias}", post(knock_room))
-        .route("/invite/{room_id}", post(invite_user_by_room))
-        .route(
-            "/rooms/{room_id}/invite_blocklist",
-            get(invite_blocklist::get_invite_blocklist)
-                .post(invite_blocklist::set_invite_blocklist),
-        )
-        .route(
-            "/rooms/{room_id}/invite_allowlist",
-            get(invite_blocklist::get_invite_allowlist)
-                .post(invite_blocklist::set_invite_allowlist),
-        )
-        .route(
-            "/rooms/{room_id}/sticky_events",
-            get(sticky_event::get_sticky_events).post(sticky_event::set_sticky_events),
-        )
-        .route(
-            "/rooms/{room_id}/sticky_events/{event_type}",
-            axum::routing::delete(sticky_event::clear_sticky_event),
-        )
-}
-
-fn create_room_router() -> Router<AppState> {
-    Router::new()
-        .nest("/_matrix/client/r0", create_room_r0_router())
-        .nest("/_matrix/client/v1", create_room_v1_router())
-        .nest("/_matrix/client/v3", create_room_v3_router())
 }
 
 #[cfg(test)]
@@ -1013,21 +410,6 @@ mod room_router_tests {
     }
 }
 
-fn create_presence_compat_router() -> Router<AppState> {
-    Router::new().route(
-        "/presence/{user_id}/status",
-        get(get_presence).put(set_presence),
-    )
-}
-
-fn create_presence_router() -> Router<AppState> {
-    Router::new()
-        .nest("/_matrix/client/r0", create_presence_compat_router())
-        .nest("/_matrix/client/v3", create_presence_compat_router())
-        // Presence list endpoint (MSC2776)
-        .route("/_matrix/client/v3/presence/list", post(presence_list))
-}
-
 #[cfg(test)]
 mod presence_router_tests {
     #[test]
@@ -1069,246 +451,6 @@ mod presence_router_tests {
             .all(|path| path.ends_with("/presence/list")));
     }
 }
-
-// ============================================================================
-// SECTION: Server Info & Discovery
-// ============================================================================
-
-async fn get_client_versions() -> Json<Value> {
-    Json(json!({
-        "versions": ["r0.5.0", "r0.6.0", "v1.1", "v1.2", "v1.3", "v1.4", "v1.5", "v1.6"],
-        "unstable_features": {
-            "m.lazy_load_members": true,
-            "m.require_identity_server": false,
-            "m.supports_login_via_phone_number": true,
-            "org.matrix.msc3882": true,
-            "org.matrix.msc3983": true,
-            "org.matrix.msc3245": true,
-            "org.matrix.msc3266": true
-        }
-    }))
-}
-
-async fn get_server_version() -> Json<Value> {
-    Json(json!({
-        "server_version": "0.1.0",
-        "python_version": "3.11"
-    }))
-}
-
-/// Default push rules response for /_matrix/client/v3/pushrules/
-/// Returns the Matrix spec-compliant default rules
-async fn get_push_rules_default(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    // Try to load user-specific push rules from DB
-    let rows = sqlx::query(
-        "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'",
-    )
-    .bind(&auth_user.user_id)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to get push rules: {}", e)))?;
-
-    if let Some(row) = rows {
-        use sqlx::Row;
-        let content: Value = row.get("content");
-        return Ok(Json(content));
-    }
-
-    // Return Matrix spec default push rules
-    Ok(Json(get_default_push_rules()))
-}
-
-/// Default push rules for /_matrix/client/v3/pushrules/global/
-async fn get_push_rules_global_default(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    let rules = get_push_rules_default(State(state), auth_user).await?;
-    if let Some(global) = rules.0.get("global") {
-        Ok(Json(global.clone()))
-    } else {
-        Ok(Json(get_default_push_rules()["global"].clone()))
-    }
-}
-
-/// Matrix spec-compliant default push rules
-fn get_default_push_rules() -> Value {
-    json!({
-        "global": {
-            "content": [
-                {
-                    "rule_id": ".m.rule.contains_display_name",
-                    "default": true,
-                    "enabled": true,
-                    "conditions": [{"kind": "contains_display_name"}],
-                    "actions": ["notify", {"set_tweak": "highlight"}, {"set_tweak": "sound", "value": "default"}]
-                }
-            ],
-            "override": [
-                {
-                    "rule_id": ".m.rule.master",
-                    "default": true,
-                    "enabled": false,
-                    "conditions": [],
-                    "actions": []
-                },
-                {
-                    "rule_id": ".m.rule.suppress_notices",
-                    "default": true,
-                    "enabled": true,
-                    "conditions": [{"kind": "event_match", "key": "content.msgtype", "pattern": "m.notice"}],
-                    "actions": ["dont_notify"]
-                },
-                {
-                    "rule_id": ".m.rule.invite_for_me",
-                    "default": true,
-                    "enabled": true,
-                    "conditions": [
-                        {"kind": "event_match", "key": "type", "pattern": "m.room.member"},
-                        {"kind": "event_match", "key": "content.membership", "pattern": "invite"},
-                        {"kind": "event_state_key_is_me"}
-                    ],
-                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
-                },
-                {
-                    "rule_id": ".m.rule.member_event",
-                    "default": true,
-                    "enabled": true,
-                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.member"}],
-                    "actions": ["dont_notify"]
-                },
-                {
-                    "rule_id": ".m.rule.call",
-                    "default": true,
-                    "enabled": true,
-                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.call.invite"}],
-                    "actions": ["notify", {"set_tweak": "sound", "value": "ring"}]
-                }
-            ],
-            "room": [],
-            "sender": [],
-            "underride": [
-                {
-                    "rule_id": ".m.rule.message",
-                    "default": true,
-                    "enabled": true,
-                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}],
-                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
-                },
-                {
-                    "rule_id": ".m.rule.encrypted",
-                    "default": true,
-                    "enabled": true,
-                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}],
-                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
-                },
-                {
-                    "rule_id": ".m.rule.room_one_to_one",
-                    "default": true,
-                    "enabled": true,
-                    "conditions": [
-                        {"kind": "room_member_count", "is": "2"},
-                        {"kind": "event_match", "key": "type", "pattern": "m.room.message"}
-                    ],
-                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
-                }
-            ]
-        }
-    })
-}
-
-async fn get_capabilities() -> Json<Value> {
-    Json(json!({
-        "capabilities": {
-            "m.change_password": {
-                "enabled": true
-            },
-            "m.room_versions": {
-                "default": "6",
-                "available": {
-                    "1": "stable",
-                    "2": "stable",
-                    "3": "stable",
-                    "4": "stable",
-                    "5": "stable",
-                    "6": "stable",
-                    "7": "stable",
-                    "8": "stable",
-                    "9": "stable",
-                    "10": "stable",
-                    "11": "stable"
-                }
-            },
-            "m.set_displayname": {
-                "enabled": true
-            },
-            "m.set_avatar_url": {
-                "enabled": true
-            },
-            "m.3pid_changes": {
-                "enabled": true
-            },
-            "m.room.summary": {
-                "enabled": true
-            },
-            "m.room.suggested": {
-                "enabled": true
-            }
-        }
-    }))
-}
-
-async fn get_well_known_server(State(state): State<AppState>) -> Json<Value> {
-    let server_name = &state.services.config.server.name;
-    let port = state.services.config.server.port;
-
-    Json(json!({
-        "m.server": format!("{}:{}", server_name, port)
-    }))
-}
-
-async fn get_well_known_client(State(state): State<AppState>) -> Json<Value> {
-    let base_url = state.services.config.server.get_public_baseurl();
-
-    Json(json!({
-        "m.homeserver": {
-            "base_url": base_url
-        },
-        "m.identity_server": {
-            "base_url": base_url
-        }
-    }))
-}
-
-async fn get_well_known_support(State(state): State<AppState>) -> Json<Value> {
-    let server_name = &state.services.config.server.name;
-
-    Json(json!({
-        "contacts": [
-            {
-                "email_address": format!("admin@{}", server_name),
-                "matrix_id": format!("@admin:{}", server_name),
-                "role": "m.admin"
-            }
-        ],
-        "support_page": format!("https://{}/support", server_name)
-    }))
-}
-
-async fn health_check(State(state): State<AppState>) -> Json<Value> {
-    let status = state.health_checker.check_readiness().await;
-    Json(
-        serde_json::to_value(status)
-            .unwrap_or_else(|_| json!({"status": "unhealthy", "error": "serialization error"})),
-    )
-}
-
-// ============================================================================
-// SECTION: Authentication & Registration
-// ============================================================================
 
 async fn register(
     State(state): State<AppState>,
@@ -1552,23 +694,11 @@ async fn submit_email_token(
     })))
 }
 
-async fn get_login_flows(State(state): State<AppState>) -> Json<Value> {
-    let mut flows = vec![
+async fn get_login_flows(State(_state): State<AppState>) -> Json<Value> {
+    let flows = vec![
         json!({"type": "m.login.password"}),
         json!({"type": "m.login.token"}),
     ];
-
-    // Add OIDC login flow if enabled
-    if let Some(oidc_service) = state.services.oidc_service.as_ref() {
-        if oidc_service.is_enabled() {
-            flows.push(json!({
-                "type": "m.login.oauth2",
-                "steps": [
-                    {"stage": "m.login.oidc"}
-                ]
-            }));
-        }
-    }
 
     Json(json!({ "flows": flows }))
 }
@@ -1748,103 +878,6 @@ async fn whoami(
         "device_id": auth_user.device_id,
         "is_guest": false
     })))
-}
-
-fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
-    // Basic format check
-    if user_id.is_empty() {
-        return Err(ApiError::unknown("user_id is required".to_string()));
-    }
-
-    // Matrix spec: user_id format is @username:server
-    // Path parameters with invalid format should return M_UNKNOWN per Matrix spec
-
-    if !user_id.starts_with('@') {
-        return Err(ApiError::unknown(
-            "Invalid user_id format: must start with @".to_string(),
-        ));
-    }
-
-    if user_id.len() > 255 {
-        return Err(ApiError::unknown(
-            "user_id too long (max 255 characters)".to_string(),
-        ));
-    }
-
-    let parts: Vec<&str> = user_id.split(':').collect();
-    if parts.len() < 2 {
-        return Err(ApiError::unknown(
-            "Invalid user_id format: must be @username:server".to_string(),
-        ));
-    }
-
-    let username = &parts[0][1..];
-    if username.is_empty() {
-        return Err(ApiError::unknown(
-            "Invalid user_id format: username cannot be empty".to_string(),
-        ));
-    }
-
-    if parts[1].is_empty() {
-        return Err(ApiError::unknown(
-            "Invalid user_id format: server cannot be empty".to_string(),
-        ));
-    }
-
-    Ok(())
-}
-
-fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
-    if room_id.is_empty() {
-        return Err(ApiError::unknown("room_id is required".to_string()));
-    }
-    if !room_id.starts_with('!') {
-        return Err(ApiError::unknown(
-            "Invalid room_id format: must start with !".to_string(),
-        ));
-    }
-    if room_id.len() > 255 {
-        return Err(ApiError::unknown(
-            "room_id too long (max 255 characters)".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
-    if event_id.is_empty() {
-        return Err(ApiError::unknown("event_id is required".to_string()));
-    }
-    if !event_id.starts_with('$') {
-        return Err(ApiError::unknown(
-            "Invalid event_id format: must start with $".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-fn validate_presence_status(presence: &str) -> Result<(), ApiError> {
-    // Matrix spec allows: online, offline, unavailable, and optionally away
-    // See: https://spec.matrix.org/v1.9/client-server-api/#presence
-    let valid_statuses = ["online", "offline", "unavailable", "away"];
-    if !valid_statuses.contains(&presence) {
-        return Err(ApiError::bad_request(format!(
-            "Invalid presence status. Must be one of: {}",
-            valid_statuses.join(", ")
-        )));
-    }
-    Ok(())
-}
-
-fn validate_receipt_type(receipt_type: &str) -> Result<(), ApiError> {
-    let valid_types = ["m.read", "m.read.private"];
-    if !valid_types.contains(&receipt_type) {
-        return Err(ApiError::bad_request(format!(
-            "Invalid receipt type. Must be one of: {}",
-            valid_types.join(", ")
-        )));
-    }
-    Ok(())
 }
 
 async fn get_profile(
@@ -2876,40 +1909,24 @@ async fn get_messages(
 async fn send_message(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _event_type, _txn_id)): Path<(String, String, String)>,
+    Path((room_id, event_type, _txn_id)): Path<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let msgtype = body
-        .get("msgtype")
-        .and_then(|v| v.as_str())
-        .unwrap_or("m.room.message");
-    let content = body
-        .get("body")
-        .ok_or_else(|| ApiError::bad_request("Message body required".to_string()))?;
-
     // Validate content length to prevent DoS
-    if let Some(s) = content.as_str() {
-        if s.len() > 65536 {
-            return Err(ApiError::bad_request(
-                "Message body too long (max 64KB)".to_string(),
-            ));
-        }
-    } else {
-        let s = content.to_string();
-        if s.len() > 65536 {
-            return Err(ApiError::bad_request(
-                "Message body too long (max 64KB)".to_string(),
-            ));
-        }
+    let s = body.to_string();
+    if s.len() > 65536 {
+        return Err(ApiError::bad_request(
+            "Message content too long (max 64KB)".to_string(),
+        ));
     }
 
     Ok(Json(
         state
             .services
             .room_service
-            .send_message(&room_id, &auth_user.user_id, msgtype, content)
+            .send_message(&room_id, &auth_user.user_id, &event_type, &body)
             .await?,
     ))
 }
@@ -3430,7 +2447,7 @@ async fn create_room(
                 topic: topic.map(|s| s.to_string()),
                 avatar_url: None,
                 canonical_alias: None,
-                join_rules: None,
+                join_rule: None,
                 history_visibility: None,
                 guest_access: None,
                 is_direct: None,

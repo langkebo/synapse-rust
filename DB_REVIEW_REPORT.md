@@ -102,7 +102,7 @@ idx_notifications_unread ON notifications(user_id, is_read, stream_ordering DESC
 ```
 migrations/
 ├── 00000000_unified_schema_v6.sql    # 基础 Schema (2714 行)
-├── UNIFIED_MIGRATION_v1.sql            # 整合迁移
+├── 99999999_unified_incremental_migration.sql # 整合迁移
 ├── 20260321000001_fix_field_naming.sql
 ├── 20260321000002_add_missing_columns.sql
 ├── 20260321000003_fix_ephemeral.sql
@@ -123,7 +123,7 @@ migrations/
 
 #### 问题 3.1: 迁移顺序依赖 (中等)
 ```sql
--- UNIFIED_MIGRATION_v1.sql 声称整合了特定迁移
+-- 99999999_unified_incremental_migration.sql 整合了当前增量迁移
 -- 但没有明确的依赖关系文档
 -- 风险: 直接执行可能失败
 ```

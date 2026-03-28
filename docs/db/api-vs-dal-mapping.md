@@ -436,10 +436,13 @@
 | `account_data` | 全局账户数据 | user_id, data_type, content, created_ts, updated_ts |
 | `room_account_data` | 房间账户数据 | user_id, room_id, data_type, data, created_ts, updated_ts |
 | `filters` | 用户过滤器 | user_id, filter_id, content, created_ts |
+| `openid_tokens` | OpenID 请求令牌 | token, user_id, device_id, created_ts, expires_at, is_valid |
 
-**DAL 覆盖状态:** ✅ 完整覆盖
-- `storage/user.rs` - AccountDataStorage
+**DAL 覆盖状态:** ⚠️ 部分覆盖
+- `web/routes/account_data.rs` - 直接处理 `account_data`、`room_account_data` 的 SQL 读写
 - `storage/filter.rs` - FilterStorage
+- `storage/openid_token.rs` - OpenIdTokenStorage
+- `storage/user.rs` 中仍保留旧版 `user_account_data` 兼容实现，未作为当前路由主路径
 
 ---
 

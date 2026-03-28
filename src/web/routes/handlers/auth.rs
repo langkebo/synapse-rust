@@ -1,8 +1,9 @@
 //! 认证相关处理器
 
-use crate::common::{ApiError, AppState};
+use crate::common::ApiError;
+use crate::web::AppState;
 use axum::{
-    extract::{Query, State},
+    extract::State,
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -66,7 +67,7 @@ pub async fn get_register_flows() -> Json<serde_json::Value> {
 /// 登录处理
 pub async fn login(
     State(_state): State<AppState>,
-    Json(body): Json<LoginRequest>,
+    Json(_body): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
     // 简化实现
     Err(ApiError::unauthorized("Login not implemented".to_string()))
@@ -89,7 +90,7 @@ pub async fn logout_all(
 /// 注册处理
 pub async fn register(
     State(_state): State<AppState>,
-    Json(body): Json<serde_json::Value>,
+    Json(_body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     Err(ApiError::bad_request("Registration not implemented".to_string()))
 }

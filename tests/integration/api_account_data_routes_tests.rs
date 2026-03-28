@@ -99,6 +99,63 @@ async fn test_account_data_round_trip_across_v3_and_r0() {
 }
 
 #[tokio::test]
+async fn test_account_data_list_returns_saved_entries() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, user_id) = register_user(&app, "account_data_list_routes").await;
+
+    for (data_type, content) in [
+        (
+            "im.vector.settings",
+            json!({ "theme": "dark", "layout": "compact" }),
+        ),
+        ("m.fav_color", json!({ "value": "blue" })),
+    ] {
+        let put_request = Request::builder()
+            .method("PUT")
+            .uri(format!(
+                "/_matrix/client/v3/user/{}/account_data/{}",
+                user_id, data_type
+            ))
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(content.to_string()))
+            .unwrap();
+
+        let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request)
+            .await
+            .unwrap();
+        assert_eq!(put_response.status(), StatusCode::OK);
+    }
+
+    let list_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/r0/user/{}/account_data/",
+            user_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let list_response = ServiceExt::<Request<Body>>::oneshot(app, list_request)
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(list_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        json["account_data"]["im.vector.settings"],
+        json!({ "theme": "dark", "layout": "compact" })
+    );
+    assert_eq!(json["account_data"]["m.fav_color"], json!({ "value": "blue" }));
+}
+
+#[tokio::test]
 async fn test_room_account_data_round_trip_across_versions() {
     let Some(app) = setup_test_app().await else {
         return;
@@ -189,6 +246,62 @@ async fn test_filter_round_trip_across_versions() {
         .unwrap();
 
     let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request)
+        .await
+        .unwrap();
+    assert_eq!(get_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(get_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json, filter);
+}
+
+#[tokio::test]
+async fn test_filter_post_route_round_trip() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, user_id) = register_user(&app, "filter_post_routes").await;
+    let filter = json!({
+        "event_fields": ["type", "content"],
+        "room": {
+            "timeline": {
+                "limit": 10
+            }
+        }
+    });
+
+    let create_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/user/{}/filter", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(filter.to_string()))
+        .unwrap();
+
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(create_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let filter_id = json["filter_id"].as_str().unwrap();
+
+    let get_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/r0/user/{}/filter/{}",
+            user_id, filter_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app, get_request)
         .await
         .unwrap();
     assert_eq!(get_response.status(), StatusCode::OK);
