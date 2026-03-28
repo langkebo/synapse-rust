@@ -1,6 +1,9 @@
 // Basic unit tests module
 // Note: Some original test files have compilation issues that need to be fixed separately
 
+#[path = "../common/mod.rs"]
+mod common;
+
 mod admin_api_tests;
 mod admin_extra_api_tests;
 mod app_service_api_tests;

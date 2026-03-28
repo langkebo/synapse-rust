@@ -1,30 +1,31 @@
-use once_cell::sync::Lazy;
 use sqlx::{PgPool, Pool, Postgres};
 use std::sync::Arc;
 use std::time::Duration;
 
-static TEST_POOL: Lazy<Arc<Pool<Postgres>>> = Lazy::new(|| {
-    let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-    runtime.block_on(async {
-        let database_url = std::env::var("TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("DATABASE_URL"))
-            .unwrap_or_else(|_| "postgres://synapse:secret@localhost:5432/synapse_test".to_string());
-
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(5)
-            .min_connections(1)
-            .acquire_timeout(Duration::from_secs(30))
-            .idle_timeout(Duration::from_secs(600))
-            .connect(&database_url)
-            .await
-            .expect("Failed to connect to test database");
-
-        Arc::new(pool)
-    })
-});
+pub fn get_database_url() -> String {
+    std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .unwrap_or_else(|_| "postgresql://synapse:synapse@localhost:5432/synapse".to_string())
+}
 
 pub fn get_test_pool() -> Arc<Pool<Postgres>> {
-    TEST_POOL.clone()
+    let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    runtime
+        .block_on(get_test_pool_async())
+        .expect("Failed to connect to test database")
+}
+
+pub async fn get_test_pool_async() -> Result<Arc<Pool<Postgres>>, String> {
+    let database_url = get_database_url();
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .min_connections(1)
+        .acquire_timeout(Duration::from_secs(30))
+        .idle_timeout(Duration::from_secs(600))
+        .connect(&database_url)
+        .await
+        .map(Arc::new)
+        .map_err(|e| format!("Failed to connect to database at {}: {}", database_url, e))
 }
 
 pub async fn setup_test_pool() -> Arc<Pool<Postgres>> {
