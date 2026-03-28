@@ -10,7 +10,7 @@
 
 | 类别 | 当前状态 | 风险 |
 |---|---|---|
-| unified schema | 存在 `00000000_unified_schema_v6.sql` | 与部分增量迁移不一致 |
+| unified schema | 存在 `00000000_unified_schema_v6.sql` | thread/retention/room summary/space 主链已收口，仍需持续约束后续增量同步 |
 | 增量迁移 | `migrations/*.sql` 按日期累积 | 同一表可能散落多份定义 |
 | rollback 目录 | 仓库内未独立建立 | 回滚脚本分散在文档或未沉淀 |
 | hotfix 目录 | 仓库内未独立建立 | 临时修复难以审计与收敛 |
@@ -53,6 +53,7 @@ migrations/
 - GATE-DB-006 已接入 `scripts/run_pg_amcheck.py`
 - GATE-DB-007 已接入 `scripts/generate_logical_checksum_report.py`
 - GATE-DB-007 当前在 CI 为“报告框架”模式；当提供 `REPLICA_DATABASE_URL` 时自动切换为主从对比模式
+- `db-migration-gate.yml` 当前已串联 retention / room summary / thread / db schema smoke tests，用于验证关键缺表与 unified schema 闭环
 
 ## 6. PostgreSQL 等价检查说明
 

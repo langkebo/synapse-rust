@@ -1501,8 +1501,7 @@ async fn report_room(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    // Check if room exists by querying room members
-    let members = sqlx::query("SELECT room_id FROM room_members WHERE room_id = $1 LIMIT 1")
+    let members = sqlx::query("SELECT room_id FROM rooms WHERE room_id = $1 LIMIT 1")
         .bind(&room_id)
         .fetch_optional(&*state.services.user_storage.pool)
         .await

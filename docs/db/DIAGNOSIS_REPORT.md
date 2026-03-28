@@ -46,9 +46,9 @@
 | ISSUE-2026-03-28-002 | 设备验证请求表缺失 | P0 | 已修复：补齐 device_verification_request schema 闭环(TIMESTAMPTZ) | [device_trust/storage.rs](../../src/e2ee/device_trust/storage.rs), [unified_schema_v6.sql:L568-L592](../../migrations/00000000_unified_schema_v6.sql#L568-L592), [20260328000003_add_invite_restrictions...sql](../../migrations/20260328000003_add_invite_restrictions_and_device_verification_request.sql) |
 | ISSUE-2026-03-28-003 | thread_read_receipts 表缺失 | P1 | 已修复：补齐 unified schema 与增量迁移，并通过存储层 roundtrip 验证 | [thread.rs](../../src/storage/thread.rs), [00000000_unified_schema_v6.sql](../../migrations/00000000_unified_schema_v6.sql), [20260330000001_add_thread_replies_and_receipts.sql](../../migrations/20260330000001_add_thread_replies_and_receipts.sql), [thread_storage_tests.rs](../../tests/unit/thread_storage_tests.rs) |
 | ISSUE-2026-03-28-004 | thread_replies 表缺失 | P1 | 已修复：补齐 unified schema 与增量迁移，并补强 thread_roots/thread_relations 契约 | [thread.rs](../../src/storage/thread.rs), [00000000_unified_schema_v6.sql](../../migrations/00000000_unified_schema_v6.sql), [20260330000001_add_thread_replies_and_receipts.sql](../../migrations/20260330000001_add_thread_replies_and_receipts.sql), [20260330000002_align_thread_schema_and_relations.sql](../../migrations/20260330000002_align_thread_schema_and_relations.sql) |
-| ISSUE-2026-03-28-005 | room_retention_policies 表缺失 | P1 | 未修复：迁移链未发现 CREATE TABLE | [retention.rs](../../src/storage/retention.rs) |
-| ISSUE-2026-03-28-006 | room_summary_members 表缺失 | P1 | 未修复：迁移链未发现 CREATE TABLE | [room_summary.rs](../../src/storage/room_summary.rs) |
-| ISSUE-2026-03-28-007 | space_statistics/space_summaries 入口不闭环 | P2 | 已存在于增量迁移，未进入统一 schema；新环境需依赖 sqlx migrate run 全量执行 | [create_space_statistics_table.sql](../../migrations/20260326000006_create_space_statistics_table.sql), [20260327_p2_fixes.sql](../../migrations/20260327_p2_fixes.sql) |
+| ISSUE-2026-03-28-005 | room_retention_policies 表缺失 | P1 | 已修复：补齐 unified schema 与增量迁移，并通过 retention 存储层 roundtrip 验证 | [retention.rs](../../src/storage/retention.rs), [00000000_unified_schema_v6.sql](../../migrations/00000000_unified_schema_v6.sql), [20260330000003_align_retention_and_room_summary_schema.sql](../../migrations/20260330000003_align_retention_and_room_summary_schema.sql), [retention_storage_tests.rs](../../tests/unit/retention_storage_tests.rs) |
+| ISSUE-2026-03-28-006 | room_summary_members 表缺失 | P1 | 已修复：补齐 unified schema 与增量迁移，并通过 room summary 存储层 roundtrip 验证 | [room_summary.rs](../../src/storage/room_summary.rs), [00000000_unified_schema_v6.sql](../../migrations/00000000_unified_schema_v6.sql), [20260330000003_align_retention_and_room_summary_schema.sql](../../migrations/20260330000003_align_retention_and_room_summary_schema.sql), [room_summary_storage_tests.rs](../../tests/unit/room_summary_storage_tests.rs) |
+| ISSUE-2026-03-28-007 | space_statistics/space_summaries/space_events 入口不闭环 | P2 | 已修复：统一 spaces/space_members/space_summaries/space_statistics/space_events 进入 unified schema，并补齐对齐迁移与最小数据库回归测试 | [space.rs](../../src/storage/space.rs), [00000000_unified_schema_v6.sql](../../migrations/00000000_unified_schema_v6.sql), [20260326000006_create_space_statistics_table.sql](../../migrations/20260326000006_create_space_statistics_table.sql), [20260327_p2_fixes.sql](../../migrations/20260327_p2_fixes.sql), [20260330000004_align_space_schema_and_add_space_events.sql](../../migrations/20260330000004_align_space_schema_and_add_space_events.sql), [db_schema_smoke_tests.rs](../../tests/unit/db_schema_smoke_tests.rs) |
 
 ## 4. 诊断步骤(现象→复现→定位→根因)
 
@@ -134,6 +134,24 @@ Execution Time: 0.014 ms
 - [20260330000002_align_thread_schema_and_relations.sql](../../migrations/20260330000002_align_thread_schema_and_relations.sql)
 - [thread_storage_tests.rs](../../tests/unit/thread_storage_tests.rs)
 
+### 4.4 ISSUE-2026-03-28-005/006/007：retention / room summary / space schema 闭环(已修复)
+
+| 段落 | 内容 |
+|---|---|
+| 现象 | retention、room summary 与 space 相关读写路径在新环境依赖 `room_retention_policies`、`room_summary_members`、`space_*` 表；统一 schema 与增量迁移未完全收口时，容易在 fresh DB 或 CI 路径中出现运行期失败。 |
+| 复现 | 对 unified schema 与增量迁移进行交叉审计，补齐 `spaces` 主表字段漂移、`space_events` 缺表，以及 `space_members`/`space_summaries`/`space_statistics` 的 unified schema 缺口；随后以最小数据库 smoke test 验证表存在与基础读写。 |
+| 定位 | `SpaceStorage` 直接依赖 `join_rule`、`visibility`、`parent_space_id`、`space_summaries`、`space_statistics`、`space_events`；`RetentionStorage` 与 `RoomSummaryStorage` 则分别依赖 `room_retention_policies` 与 `room_summary_members`。 |
+| 根因 | 统一 schema、增量迁移、代码引用表集合三者演进不同步，导致“增量可用但 unified schema 不闭环”与“依赖 exceptions 掩盖缺口”并存。 |
+
+证据(代码/迁移/验证)：
+
+- [retention.rs](../../src/storage/retention.rs)
+- [room_summary.rs](../../src/storage/room_summary.rs)
+- [space.rs](../../src/storage/space.rs)
+- [20260330000003_align_retention_and_room_summary_schema.sql](../../migrations/20260330000003_align_retention_and_room_summary_schema.sql)
+- [20260330000004_align_space_schema_and_add_space_events.sql](../../migrations/20260330000004_align_space_schema_and_add_space_events.sql)
+- [db_schema_smoke_tests.rs](../../tests/unit/db_schema_smoke_tests.rs)
+
 ## 5. 问题根因(5 Whys)
 
 ### 5.1 Schema 闭环缺失类问题(以 ISSUE-2026-03-28-001 为例)
@@ -150,7 +168,7 @@ Execution Time: 0.014 ms
 |---|---|---|
 | 集群 | TBD | 未提供生产集群清单与拓扑 |
 | 数据库 | PostgreSQL(主从复制) | 术语统一为“主从复制” |
-| 表 | room_invite_blocklist/allowlist, device_verification_request, thread_* 等 | 详见证据索引 |
+| 表 | room_invite_blocklist/allowlist, device_verification_request, room_retention_policies, room_summary_members, thread_*, space_* 等 | 详见证据索引 |
 | 模块 | web/routes, storage, services | 存储层 SQL 直接依赖 |
 | 用户量 | TBD | 未提供业务侧用户量与访问峰值 |
 | SLA 降级 | TBD | 未提供 SLO/SLA 与监控截图 |
@@ -168,8 +186,8 @@ Execution Time: 0.014 ms
 | P0 | ACT-2026-03-28-001 | 已补齐 Invite 黑/白名单两表 | schema 闭环已补齐并加索引/FK | ISSUE-2026-03-28-001 | 0.5 | 集成测试 + EXPLAIN 回归 | 回滚迁移：DROP TABLE/INDEX |
 | P0 | ACT-2026-03-28-002 | 已补齐 device_verification_request 表 | 与 DateTime<Utc> 类型一致；补索引 | ISSUE-2026-03-28-002 | 0.5 | 集成测试 + EXPLAIN 回归 | 回滚迁移：DROP TABLE/INDEX |
 | P1 | ACT-2026-03-28-003 | 已补齐 thread_replies/thread_read_receipts 与 thread_relations | 统一 schema、增量迁移、thread_roots 聚合字段与关键索引已同步收口 | ISSUE-2026-03-28-003, ISSUE-2026-03-28-004 | 1.0 | 存储层 roundtrip + 关键查询验证 | 回滚迁移：DROP TABLE/INDEX |
-| P1 | ACT-2026-03-28-004 | 已落地第一版“代码引用表集合”门禁 | 扫描 Rust SQL 引用表名并在 CI 执行；当前通过 exceptions 基线渐进收敛历史缺口 | ISSUE-2026-03-28-001 | 1.5 | 脚本校验 + CI 门禁 | 例外清单渐进收缩 |
-| P2 | ACT-2026-03-28-005 | 统一 space_* 进入统一 schema | 解决“统一 schema 与增量迁移不一致” | ISSUE-2026-03-28-007 | 0.5 | sqlx migrate run + 全量建库验证 | 保留增量迁移幂等 |
+| P1 | ACT-2026-03-28-004 | 已落地并收缩 schema 对应性门禁 | 扫描 Rust SQL 引用表名、修正误报规则、移除已闭环 exceptions，并在 CI 执行 | ISSUE-2026-03-28-001 | 1.5 | 脚本校验 + CI 门禁 | 例外清单渐进收缩 |
+| P2 | ACT-2026-03-28-005 | 已统一 space_* 进入统一 schema | `spaces` 主表字段与 `space_members`/`space_summaries`/`space_statistics`/`space_events` 已同步收口，并补最小数据库回归测试 | ISSUE-2026-03-28-007 | 0.5 | sqlx migrate run + 全量建库验证 + 最小数据库回归测试 | 保留增量迁移幂等 |
 
 ## 8. 修复验证
 
@@ -179,15 +197,24 @@ Execution Time: 0.014 ms
 SELECT to_regclass('public.room_invite_blocklist') IS NOT NULL AS room_invite_blocklist_exists;
 SELECT to_regclass('public.room_invite_allowlist') IS NOT NULL AS room_invite_allowlist_exists;
 SELECT to_regclass('public.device_verification_request') IS NOT NULL AS device_verification_request_exists;
+SELECT to_regclass('public.room_retention_policies') IS NOT NULL AS room_retention_policies_exists;
+SELECT to_regclass('public.room_summary_members') IS NOT NULL AS room_summary_members_exists;
 SELECT to_regclass('public.thread_replies') IS NOT NULL AS thread_replies_exists;
 SELECT to_regclass('public.thread_read_receipts') IS NOT NULL AS thread_read_receipts_exists;
 SELECT to_regclass('public.thread_relations') IS NOT NULL AS thread_relations_exists;
+SELECT to_regclass('public.space_members') IS NOT NULL AS space_members_exists;
+SELECT to_regclass('public.space_summaries') IS NOT NULL AS space_summaries_exists;
+SELECT to_regclass('public.space_statistics') IS NOT NULL AS space_statistics_exists;
+SELECT to_regclass('public.space_events') IS NOT NULL AS space_events_exists;
 ```
 
 ### 8.2 自动化测试用例
 
 - Invite 黑/白名单：见 [invite_blocklist_tests.rs](../../tests/unit/invite_blocklist_tests.rs)(当前为 ignored; 需要 CI DB 环境启用并断言表存在).
+- Retention 存储层：见 [retention_storage_tests.rs](../../tests/unit/retention_storage_tests.rs)(覆盖 room_retention_policies / server_retention_policy roundtrip).
+- Room Summary 存储层：见 [room_summary_storage_tests.rs](../../tests/unit/room_summary_storage_tests.rs)(覆盖 room_summary_members 与 room_summaries roundtrip).
 - Thread 存储层：见 [thread_storage_tests.rs](../../tests/unit/thread_storage_tests.rs)(覆盖 root/reply/read-receipt/relation/summary/statistics/search roundtrip).
+- Schema Smoke：见 [db_schema_smoke_tests.rs](../../tests/unit/db_schema_smoke_tests.rs)(覆盖 retention / room summary / space 关键表存在性与最小读写).
 
 ### 8.3 回滚脚本(示例)
 
@@ -225,6 +252,7 @@ DROP TABLE IF EXISTS thread_replies;
 | v1.0.0 | 2026-03-28 | TBD | 初始版本 | TBD |
 | v1.1.0 | 2026-03-28 | TBD | 引入证据索引、Issue 编号、EXPLAIN 哈希与企业级结构 | TBD |
 | v1.2.0 | 2026-03-28 | TBD | 补充 thread P1 修复结果、门禁基线与存储层 roundtrip 验证 | TBD |
+| v1.3.0 | 2026-03-28 | TBD | 修正 retention/room summary/space 诊断结论，补齐 unified schema、space_events 迁移与最小数据库回归测试 | TBD |
 
 ### 10.2 配置示例(PostgreSQL 慢查询与死锁日志)
 

@@ -12,10 +12,10 @@ MIGRATIONS_DIR = ROOT / "migrations"
 EXCEPTIONS_FILE = ROOT / "scripts" / "schema_table_coverage_exceptions.txt"
 
 REF_PATTERNS = [
-    re.compile(r"\bFROM\s+([a-z_][a-z0-9_]*)", re.IGNORECASE),
-    re.compile(r"\bJOIN\s+([a-z_][a-z0-9_]*)", re.IGNORECASE),
-    re.compile(r"\bINTO\s+([a-z_][a-z0-9_]*)", re.IGNORECASE),
-    re.compile(r"\bUPDATE\s+([a-z_][a-z0-9_]*)", re.IGNORECASE),
+    re.compile(r"\bFROM\s+([a-z_][a-z0-9_]*)\b(?!\s*\()", re.IGNORECASE),
+    re.compile(r"\bJOIN\s+([a-z_][a-z0-9_]*)\b(?!\s*\()", re.IGNORECASE),
+    re.compile(r"\bINSERT\s+INTO\s+([a-z_][a-z0-9_]*)", re.IGNORECASE),
+    re.compile(r"(?:^|[;(])\s*UPDATE\s+([a-z_][a-z0-9_]*)", re.IGNORECASE | re.MULTILINE),
     re.compile(r"\bDELETE\s+FROM\s+([a-z_][a-z0-9_]*)", re.IGNORECASE),
 ]
 SQL_LITERAL_PATTERNS = [
