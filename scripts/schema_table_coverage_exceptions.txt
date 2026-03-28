@@ -22,7 +22,6 @@ federation_access_stats
 federation_blacklist_config
 federation_blacklist_log
 federation_blacklist_rule
-is_trusted
 key_rotation_log
 key_signatures
 leak_alerts
@@ -34,19 +33,16 @@ moderation_logs
 moderation_rules
 notification_delivery_log
 notification_templates
-now
 push_device
 qr_login_transactions
 rate_limits
 reaction_aggregations
-receipts
 registration_token_batches
 replication_positions
 retention_cleanup_logs
 retention_cleanup_queue
 retention_stats
 room_children
-room_members
 room_sticky_events
 room_summary_state
 room_summary_stats
@@ -56,9 +52,6 @@ secure_backup_session_keys
 secure_key_backups
 server_notices
 server_notifications
-skip
-space_events
-trust_level
 upload_chunks
 upload_progress
 user_notification_settings

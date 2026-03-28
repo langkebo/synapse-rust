@@ -8,6 +8,7 @@ mod background_update_api_tests;
 mod boundary_tests;
 mod captcha_api_tests;
 mod core_api_tests;
+mod db_schema_smoke_tests;
 mod e2ee_api_tests;
 mod event_report_api_tests;
 mod federation_api_tests;

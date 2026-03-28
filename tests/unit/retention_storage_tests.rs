@@ -19,7 +19,7 @@ mod retention_storage_tests {
     async fn connect_pool() -> Arc<sqlx::PgPool> {
         let database_url = std::env::var("TEST_DATABASE_URL")
             .or_else(|_| std::env::var("DATABASE_URL"))
-            .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
+            .unwrap_or_else(|_| "postgresql://synapse:synapse@localhost:5432/synapse_test".to_string());
 
         Arc::new(
             PgPoolOptions::new()

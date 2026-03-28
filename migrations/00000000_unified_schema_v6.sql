@@ -1109,6 +1109,7 @@ CREATE INDEX IF NOT EXISTS idx_space_children_room ON space_children(room_id);
 -- Spaces 表 (新增: 修复 API 错误)
 CREATE TABLE IF NOT EXISTS spaces (
     space_id TEXT NOT NULL PRIMARY KEY,
+    room_id TEXT,
     name TEXT,
     creator TEXT NOT NULL,
     created_ts BIGINT NOT NULL,
@@ -1119,13 +1120,74 @@ CREATE TABLE IF NOT EXISTS spaces (
     avatar_url TEXT,
     canonical_alias TEXT,
     history_visibility TEXT DEFAULT 'shared',
-    join_rules TEXT DEFAULT 'invite',
+    join_rule TEXT DEFAULT 'invite',
+    visibility TEXT DEFAULT 'private',
+    parent_space_id TEXT,
     room_type TEXT DEFAULT 'm.space',
     updated_ts BIGINT
 );
 
 CREATE INDEX IF NOT EXISTS idx_spaces_creator ON spaces(creator);
 CREATE INDEX IF NOT EXISTS idx_spaces_public ON spaces(is_public) WHERE is_public = TRUE;
+CREATE INDEX IF NOT EXISTS idx_spaces_parent ON spaces(parent_space_id) WHERE parent_space_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS space_members (
+    id BIGSERIAL PRIMARY KEY,
+    space_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    membership TEXT NOT NULL DEFAULT 'join',
+    joined_ts BIGINT NOT NULL,
+    updated_ts BIGINT,
+    left_ts BIGINT,
+    inviter TEXT,
+    CONSTRAINT uq_space_members_space_user UNIQUE (space_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_space_members_space ON space_members(space_id);
+CREATE INDEX IF NOT EXISTS idx_space_members_user ON space_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_space_members_membership ON space_members(membership);
+
+CREATE TABLE IF NOT EXISTS space_summaries (
+    id BIGSERIAL PRIMARY KEY,
+    space_id TEXT NOT NULL UNIQUE,
+    summary JSONB DEFAULT '{}',
+    children_count BIGINT DEFAULT 0,
+    member_count BIGINT DEFAULT 0,
+    updated_ts BIGINT NOT NULL,
+    CONSTRAINT fk_space_summary_space FOREIGN KEY (space_id) REFERENCES spaces(space_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_space_summary_space ON space_summaries(space_id);
+
+CREATE TABLE IF NOT EXISTS space_statistics (
+    space_id TEXT PRIMARY KEY,
+    name TEXT,
+    is_public BOOLEAN NOT NULL DEFAULT FALSE,
+    child_room_count BIGINT DEFAULT 0,
+    member_count BIGINT DEFAULT 0,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT
+);
+
+CREATE INDEX IF NOT EXISTS idx_space_statistics_member_count ON space_statistics(member_count DESC);
+
+CREATE TABLE IF NOT EXISTS space_events (
+    event_id TEXT NOT NULL PRIMARY KEY,
+    space_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    content JSONB NOT NULL,
+    state_key TEXT,
+    origin_server_ts BIGINT NOT NULL,
+    processed_ts BIGINT,
+    CONSTRAINT fk_space_events_space FOREIGN KEY (space_id) REFERENCES spaces(space_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_space_events_space ON space_events(space_id);
+CREATE INDEX IF NOT EXISTS idx_space_events_space_type_ts
+ON space_events(space_id, event_type, origin_server_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_space_events_space_ts
+ON space_events(space_id, origin_server_ts DESC);
 
 -- ============================================================================
 -- 第九部分：联邦相关表
