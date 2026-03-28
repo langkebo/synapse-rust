@@ -59,7 +59,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         .await
         .ok();
     sqlx::query(
-        "DELETE FROM receipts WHERE sender LIKE '@%:localhost' OR sent_to LIKE '@%:localhost'",
+        "DELETE FROM event_receipts WHERE user_id LIKE '@%:localhost'",
     )
     .execute(&pool)
     .await
@@ -114,9 +114,9 @@ async fn create_test_room(pool: &Pool<Postgres>, room_id: &str) {
     let now = chrono::Utc::now().timestamp_millis();
 
     // Use the actual schema from master_unified_schema.sql
-    // Required NOT NULL fields: room_id, creator, creation_ts, last_activity_ts
+    // Required fields: room_id, creator, created_ts, last_activity_ts
     sqlx::query(
-            "INSERT INTO rooms (room_id, creator, creation_ts, last_activity_ts) VALUES ($1, $2, $3, $4)
+            "INSERT INTO rooms (room_id, creator, created_ts, last_activity_ts) VALUES ($1, $2, $3, $4)
              ON CONFLICT (room_id) DO NOTHING"
         )
         .bind(room_id)
