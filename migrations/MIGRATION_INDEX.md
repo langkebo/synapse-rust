@@ -24,6 +24,34 @@ psql -U synapse -d synapse -f migrations/99999999_unified_incremental_migration.
 psql -U synapse -d synapse -f migrations/99999999_unified_incremental_migration.sql
 ```
 
+## 回滚策略
+
+### 回滚目录
+回滚脚本位于 `rollback/` 目录，命名格式：`YYYYMMDDHHMMSS_description.rollback.sql`
+
+### 回滚原则
+1. **DROP TABLE 操作不可逆** - 回滚会删除表和数据
+2. **列重命名可逆** - 使用条件判断安全回滚
+3. **列添加通常不可逆** - PostgreSQL 不容易删除列
+
+### 已提供回滚脚本的迁移
+
+| 迁移文件 | 回滚脚本 | 可逆性 |
+|----------|----------|--------|
+| `20260330000001_add_thread_replies_and_receipts.sql` | `rollback/20260330000001_...rollback.sql` | 部分可逆 |
+| `20260330000002_align_thread_schema_and_relations.sql` | `rollback/20260330000002_...rollback.sql` | 可逆 |
+| `20260330000003_align_retention_and_room_summary_schema.sql` | `rollback/20260330000003_...rollback.sql` | 部分可逆 |
+| `20260330000004_align_space_schema_and_add_space_events.sql` | `rollback/20260330000004_...rollback.sql` | 可逆 |
+| `20260330000005_align_remaining_schema_exceptions.sql` | `rollback/20260330000005_...rollback.sql` | 部分可逆 |
+
+### 执行回滚
+```bash
+# 按日期顺序回滚（逆序）
+psql -U synapse -d synapse -f migrations/rollback/20260330000005_...rollback.sql
+psql -U synapse -d synapse -f migrations/rollback/20260330000004_...rollback.sql
+# ...
+```
+
 ## 迁移整合说明
 
 99999999_unified_incremental_migration.sql 已整合以下迁移:
