@@ -1,27 +1,20 @@
 #![cfg(test)]
 
 mod invite_blocklist_tests {
+    use crate::common::{get_database_url, get_test_pool_async};
     use synapse_rust::storage::invite_blocklist::InviteBlocklistStorage;
-    use sqlx::postgres::PgPoolOptions;
-    use std::sync::Arc;
-    use std::time::Duration;
 
-    /// Integration test for invite blocklist storage
-    /// Run with: TEST_DATABASE_URL=postgresql://user:pass@localhost/db cargo test invite_blocklist_tests --test unit
     #[tokio::test]
-    #[ignore] // Requires database setup
+    #[ignore]
     async fn test_invite_blocklist_operations() {
-        let database_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
-
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .connect(&database_url)
-            .await
-            .expect("Failed to connect to test database");
-
-        let storage = InviteBlocklistStorage::new(Arc::new(pool));
+        let pool = match get_test_pool_async().await {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Skipping test: {}", e);
+                return;
+            }
+        };
+        let storage = InviteBlocklistStorage::new(pool);
         let room_id = "!testroom:localhost";
         let blocked_users = vec![
             "@blocked1:localhost".to_string(),
@@ -55,19 +48,17 @@ mod invite_blocklist_tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires database setup
+    #[ignore]
     async fn test_invite_allowlist_operations() {
-        let database_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
+        let pool = match get_test_pool_async().await {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Skipping test: {}", e);
+                return;
+            }
+        };
 
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .connect(&database_url)
-            .await
-            .expect("Failed to connect to test database");
-
-        let storage = InviteBlocklistStorage::new(Arc::new(pool));
+        let storage = InviteBlocklistStorage::new(pool);
         let room_id = "!testroom:localhost";
         let allowed_users = vec![
             "@allowed1:localhost".to_string(),
