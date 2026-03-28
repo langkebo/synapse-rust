@@ -13,7 +13,7 @@ pub struct Room {
     pub topic: Option<String>,
     pub avatar_url: Option<String>,
     pub canonical_alias: Option<String>,
-    pub join_rules: String,
+    pub join_rule: String,
     pub creator_user_id: Option<String>,
     pub room_version: String,
     pub encryption: Option<String>,
@@ -33,7 +33,7 @@ struct RoomRecord {
     topic: Option<String>,
     avatar_url: Option<String>,
     canonical_alias: Option<String>,
-    join_rules: Option<String>,
+    join_rule: Option<String>,
     creator: Option<String>,
     room_version: Option<String>,
     encryption: Option<String>,
@@ -50,7 +50,7 @@ struct RoomWithMembersRecord {
     topic: Option<String>,
     avatar_url: Option<String>,
     canonical_alias: Option<String>,
-    join_rules: Option<String>,
+    join_rule: Option<String>,
     creator: Option<String>,
     room_version: Option<String>,
     encryption: Option<String>,
@@ -100,7 +100,7 @@ impl RoomStorage {
             topic: None,
             avatar_url: None,
             canonical_alias: None,
-            join_rules: join_rule.to_string(),
+            join_rule: join_rule.to_string(),
             creator_user_id: Some(creator.to_string()),
             room_version: version.to_string(),
             encryption: None,
@@ -117,7 +117,7 @@ impl RoomStorage {
     pub async fn get_room(&self, room_id: &str) -> Result<Option<Room>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRecord>(
             r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules, creator, room_version,
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules as join_rule, creator, room_version,
                   encryption, is_public, member_count, history_visibility, created_ts
             FROM rooms WHERE room_id = $1
             "#,
@@ -132,8 +132,8 @@ impl RoomStorage {
                 topic: row.topic,
                 avatar_url: row.avatar_url,
                 canonical_alias: row.canonical_alias,
-                join_rules: row
-                    .join_rules
+                join_rule: row
+                    .join_rule
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator,
                 room_version: row.room_version.unwrap_or_else(|| "1".to_string()),
@@ -160,7 +160,7 @@ impl RoomStorage {
 
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules, creator, room_version,
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules as join_rule, creator, room_version,
                   encryption, is_public, member_count, history_visibility, created_ts
             FROM rooms
             WHERE room_id = ANY($1)
@@ -178,8 +178,8 @@ impl RoomStorage {
                 topic: row.topic.clone(),
                 avatar_url: row.avatar_url.clone(),
                 canonical_alias: row.canonical_alias.clone(),
-                join_rules: row
-                    .join_rules
+                join_rule: row
+                    .join_rule
                     .clone()
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator.clone(),
@@ -214,7 +214,7 @@ impl RoomStorage {
     pub async fn get_public_rooms(&self, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules, creator, room_version,
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules as join_rule, creator, room_version,
                   encryption, is_public, member_count, history_visibility, created_ts
             FROM rooms WHERE is_public = TRUE
             ORDER BY created_ts DESC
@@ -232,8 +232,8 @@ impl RoomStorage {
                 topic: row.topic.clone(),
                 avatar_url: row.avatar_url.clone(),
                 canonical_alias: row.canonical_alias.clone(),
-                join_rules: row
-                    .join_rules
+                join_rule: row
+                    .join_rule
                     .clone()
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator.clone(),
@@ -260,7 +260,7 @@ impl RoomStorage {
     ) -> Result<Vec<(Room, i64)>, sqlx::Error> {
         let rows: Vec<RoomWithMembersRecord> = sqlx::query_as(
             r#"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator,
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator,
                    r.room_version, r.encryption, r.is_public, r.member_count, r.history_visibility,
                    r.created_ts, COUNT(rm.user_id) as joined_members
             FROM rooms r
@@ -284,8 +284,8 @@ impl RoomStorage {
                         topic: row.topic.clone(),
                         avatar_url: row.avatar_url.clone(),
                         canonical_alias: row.canonical_alias.clone(),
-                        join_rules: row
-                            .join_rules
+                        join_rule: row
+                            .join_rule
                             .clone()
                             .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                         creator_user_id: row.creator.clone(),
@@ -321,6 +321,26 @@ impl RoomStorage {
     }
 
     pub async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), sqlx::Error> {
+        Self::update_room_name_with_executor(&*self.pool, room_id, name).await
+    }
+
+    pub async fn update_room_name_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        room_id: &str,
+        name: &str,
+    ) -> Result<(), sqlx::Error> {
+        Self::update_room_name_with_executor(&mut **tx, room_id, name).await
+    }
+
+    async fn update_room_name_with_executor<'a, E>(
+        executor: E,
+        room_id: &str,
+        name: &str,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: sqlx::Executor<'a, Database = Postgres>,
+    {
         sqlx::query(
             r#"
             UPDATE rooms SET name = $1 WHERE room_id = $2
@@ -328,12 +348,32 @@ impl RoomStorage {
         )
         .bind(name)
         .bind(room_id)
-        .execute(&*self.pool)
+        .execute(executor)
         .await?;
         Ok(())
     }
 
     pub async fn update_room_topic(&self, room_id: &str, topic: &str) -> Result<(), sqlx::Error> {
+        Self::update_room_topic_with_executor(&*self.pool, room_id, topic).await
+    }
+
+    pub async fn update_room_topic_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        room_id: &str,
+        topic: &str,
+    ) -> Result<(), sqlx::Error> {
+        Self::update_room_topic_with_executor(&mut **tx, room_id, topic).await
+    }
+
+    async fn update_room_topic_with_executor<'a, E>(
+        executor: E,
+        room_id: &str,
+        topic: &str,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: sqlx::Executor<'a, Database = Postgres>,
+    {
         sqlx::query(
             r#"
             UPDATE rooms SET topic = $1 WHERE room_id = $2
@@ -341,7 +381,7 @@ impl RoomStorage {
         )
         .bind(topic)
         .bind(room_id)
-        .execute(&*self.pool)
+        .execute(executor)
         .await?;
         Ok(())
     }
@@ -788,7 +828,7 @@ impl RoomStorage {
 
         let rows: Vec<RoomWithMembersRecord> = sqlx::query_as(
             r#"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator,
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator,
                    r.room_version, r.encryption, r.is_public, r.member_count, r.history_visibility,
                    r.created_ts, COUNT(rm.user_id) as joined_members
             FROM rooms r
@@ -810,8 +850,8 @@ impl RoomStorage {
                     topic: row.topic.clone(),
                     avatar_url: row.avatar_url.clone(),
                     canonical_alias: row.canonical_alias.clone(),
-                    join_rules: row
-                        .join_rules
+                    join_rule: row
+                        .join_rule
                         .clone()
                         .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                     creator_user_id: row.creator.clone(),
@@ -860,7 +900,7 @@ impl RoomStorage {
     ) -> Result<Vec<(Room, Vec<String>)>, sqlx::Error> {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules, creator, room_version,
+            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules as join_rule, creator, room_version,
                   encryption, is_public, member_count, history_visibility, created_ts
             FROM rooms WHERE is_public = TRUE
             ORDER BY created_ts DESC
@@ -884,8 +924,8 @@ impl RoomStorage {
                     topic: row.topic.clone(),
                     avatar_url: row.avatar_url.clone(),
                     canonical_alias: row.canonical_alias.clone(),
-                    join_rules: row
-                        .join_rules
+                    join_rule: row
+                        .join_rule
                         .clone()
                         .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                     creator_user_id: row.creator.clone(),
@@ -1010,7 +1050,7 @@ mod tests {
             topic: Some("A test room".to_string()),
             avatar_url: Some("mxc://example.com/avatar".to_string()),
             canonical_alias: Some("#test:example.com".to_string()),
-            join_rules: "invite".to_string(),
+            join_rule: "invite".to_string(),
             creator_user_id: Some("@alice:example.com".to_string()),
             room_version: "6".to_string(),
             encryption: Some("m.megolm.v1.aes-sha2".to_string()),
@@ -1036,7 +1076,7 @@ mod tests {
             topic: None,
             avatar_url: None,
             canonical_alias: None,
-            join_rules: DEFAULT_JOIN_RULE.to_string(),
+            join_rule: DEFAULT_JOIN_RULE.to_string(),
             creator_user_id: Some("@bob:example.com".to_string()),
             room_version: "1".to_string(),
             encryption: None,
@@ -1062,7 +1102,7 @@ mod tests {
             topic: None,
             avatar_url: None,
             canonical_alias: None,
-            join_rules: "public".to_string(),
+            join_rule: "public".to_string(),
             creator_user_id: Some("@test:example.com".to_string()),
             room_version: "9".to_string(),
             encryption: None,
@@ -1088,7 +1128,7 @@ mod tests {
             topic: None,
             avatar_url: None,
             canonical_alias: None,
-            join_rules: "invite".to_string(),
+            join_rule: "invite".to_string(),
             creator_user_id: Some("@admin:example.com".to_string()),
             room_version: "6".to_string(),
             encryption: Some("m.megolm.v1.aes-sha2".to_string()),

@@ -12,7 +12,7 @@ pub struct RoomSummary {
     pub topic: Option<String>,
     pub avatar_url: Option<String>,
     pub canonical_alias: Option<String>,
-    pub join_rules: String,
+    pub join_rule: String,
     pub history_visibility: String,
     pub guest_access: String,
     pub is_direct: bool,
@@ -76,7 +76,7 @@ pub struct CreateRoomSummaryRequest {
     pub topic: Option<String>,
     pub avatar_url: Option<String>,
     pub canonical_alias: Option<String>,
-    pub join_rules: Option<String>,
+    pub join_rule: Option<String>,
     pub history_visibility: Option<String>,
     pub guest_access: Option<String>,
     pub is_direct: Option<bool>,
@@ -89,7 +89,7 @@ pub struct UpdateRoomSummaryRequest {
     pub topic: Option<String>,
     pub avatar_url: Option<String>,
     pub canonical_alias: Option<String>,
-    pub join_rules: Option<String>,
+    pub join_rule: Option<String>,
     pub history_visibility: Option<String>,
     pub guest_access: Option<String>,
     pub is_direct: Option<bool>,
@@ -129,7 +129,7 @@ pub struct RoomSummaryResponse {
     pub topic: Option<String>,
     pub avatar_url: Option<String>,
     pub canonical_alias: Option<String>,
-    pub join_rules: String,
+    pub join_rule: String,
     pub history_visibility: String,
     pub guest_access: String,
     pub is_direct: bool,
@@ -171,11 +171,11 @@ impl RoomSummaryStorage {
             INSERT INTO room_summaries (
                 room_id, room_type, name, topic, avatar_url, canonical_alias,
                 join_rules, history_visibility, guest_access, is_direct, is_space,
-                member_count, joined_member_count, invited_member_count, hero_users,
-                updated_ts
+                is_encrypted, member_count, joined_member_count, invited_member_count, hero_users,
+                unread_notifications, unread_highlight, updated_ts, created_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 0, 0, '[]'::jsonb, $12)
-            RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, NULL as created_ts
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE, 0, 0, 0, '[]'::jsonb, 0, 0, $12, $12)
+            RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
             "#,
         )
         .bind(&request.room_id)
@@ -184,7 +184,7 @@ impl RoomSummaryStorage {
         .bind(&request.topic)
         .bind(&request.avatar_url)
         .bind(&request.canonical_alias)
-        .bind(request.join_rules.unwrap_or_else(|| "invite".to_string()))
+        .bind(request.join_rule.unwrap_or_else(|| "invite".to_string()))
         .bind(
             request
                 .history_visibility
@@ -206,7 +206,7 @@ impl RoomSummaryStorage {
 
     pub async fn get_summary(&self, room_id: &str) -> Result<Option<RoomSummary>, sqlx::Error> {
         let row =
-            sqlx::query_as::<_, RoomSummary>("SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_members as joined_member_count, invited_members as invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, NULL as created_ts FROM room_summaries WHERE room_id = $1")
+            sqlx::query_as::<_, RoomSummary>("SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts FROM room_summaries WHERE room_id = $1")
                 .bind(room_id)
                 .fetch_optional(&*self.pool)
                 .await?;
@@ -245,7 +245,7 @@ impl RoomSummaryStorage {
         .bind(&request.topic)
         .bind(&request.avatar_url)
         .bind(&request.canonical_alias)
-        .bind(&request.join_rules)
+        .bind(&request.join_rule)
         .bind(&request.history_visibility)
         .bind(&request.guest_access)
         .bind(request.is_direct)
@@ -275,7 +275,7 @@ impl RoomSummaryStorage {
         room_ids: &[String],
     ) -> Result<Vec<RoomSummary>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummary>(
-            "SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_members as joined_member_count, invited_members as invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, NULL as created_ts FROM room_summaries WHERE room_id = ANY($1)",
+            "SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts FROM room_summaries WHERE room_id = ANY($1)",
         )
         .bind(room_ids)
         .fetch_all(&*self.pool)
@@ -290,7 +290,7 @@ impl RoomSummaryStorage {
     ) -> Result<Vec<RoomSummary>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummary>(
             r#"
-            SELECT rs.id, rs.room_id, rs.room_type, rs.name, rs.topic, rs.avatar_url, rs.canonical_alias, rs.join_rules, rs.history_visibility, rs.guest_access, rs.is_direct, rs.is_space, rs.is_encrypted, rs.member_count, rs.joined_members as joined_member_count, rs.invited_members as invited_member_count, rs.hero_users, rs.last_event_id, rs.last_event_ts, rs.last_message_ts, rs.unread_notifications, rs.unread_highlight, rs.updated_ts, NULL as created_ts FROM room_summaries rs
+            SELECT rs.id, rs.room_id, rs.room_type, rs.name, rs.topic, rs.avatar_url, rs.canonical_alias, rs.join_rules, rs.history_visibility, rs.guest_access, rs.is_direct, rs.is_space, rs.is_encrypted, rs.member_count, rs.joined_member_count, rs.invited_member_count, rs.hero_users, rs.last_event_id, rs.last_event_ts, rs.last_message_ts, rs.unread_notifications, rs.unread_highlight, rs.updated_ts, rs.created_ts FROM room_summaries rs
             INNER JOIN room_summary_members rsm ON rs.room_id = rsm.room_id
             WHERE rsm.user_id = $1 AND rsm.membership IN ('join', 'invite')
             ORDER BY rs.last_event_ts DESC NULLS LAST
@@ -666,7 +666,7 @@ impl RoomSummary {
             topic: self.topic.clone(),
             avatar_url: self.avatar_url.clone(),
             canonical_alias: self.canonical_alias.clone(),
-            join_rules: self.join_rules.clone(),
+            join_rule: self.join_rule.clone(),
             history_visibility: self.history_visibility.clone(),
             guest_access: self.guest_access.clone(),
             is_direct: self.is_direct,
@@ -706,7 +706,7 @@ mod tests {
             topic: Some("A test room".to_string()),
             avatar_url: Some("mxc://avatar".to_string()),
             canonical_alias: None,
-            join_rules: "public".to_string(),
+            join_rule: "public".to_string(),
             history_visibility: "shared".to_string(),
             guest_access: "forbidden".to_string(),
             is_direct: false,
@@ -784,7 +784,7 @@ mod tests {
             topic: Some("Topic".to_string()),
             avatar_url: None,
             canonical_alias: None,
-            join_rules: Some("public".to_string()),
+            join_rule: Some("public".to_string()),
             history_visibility: Some("shared".to_string()),
             guest_access: Some("forbidden".to_string()),
             is_direct: Some(false),
@@ -800,7 +800,7 @@ mod tests {
             topic: None,
             avatar_url: Some("mxc://new".to_string()),
             canonical_alias: None,
-            join_rules: None,
+            join_rule: None,
             history_visibility: None,
             guest_access: None,
             is_direct: None,
@@ -842,7 +842,7 @@ mod tests {
             topic: None,
             avatar_url: None,
             canonical_alias: None,
-            join_rules: "public".to_string(),
+            join_rule: "public".to_string(),
             history_visibility: "shared".to_string(),
             guest_access: "forbidden".to_string(),
             is_direct: false,
