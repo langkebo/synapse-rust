@@ -1212,7 +1212,15 @@ pub async fn get_room_forward_extremities(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM room_events WHERE room_id = $1 AND is_state = true AND event_id NOT IN (SELECT event_id FROM room_events WHERE room_id = $1 AND is_state = true AND event_id IN (SELECT event_id FROM room_events WHERE room_id = $1))"
+        r#"
+        SELECT COUNT(*) FROM room_events
+        WHERE room_id = $1
+        AND state_key IS NOT NULL
+        AND event_id NOT IN (
+            SELECT prev_event_id FROM room_events
+            WHERE room_id = $1 AND prev_event_id IS NOT NULL
+        )
+        "#,
     )
     .bind(&room_id)
     .fetch_one(&*state.services.room_storage.pool)
