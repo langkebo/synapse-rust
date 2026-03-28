@@ -149,6 +149,7 @@ Execution Time: 0.014 ms
 - [room_summary.rs](../../src/storage/room_summary.rs)
 - [space.rs](../../src/storage/space.rs)
 - [20260330000003_align_retention_and_room_summary_schema.sql](../../migrations/20260330000003_align_retention_and_room_summary_schema.sql)
+- [20260330000005_align_remaining_schema_exceptions.sql](../../migrations/20260330000005_align_remaining_schema_exceptions.sql)
 - [20260330000004_align_space_schema_and_add_space_events.sql](../../migrations/20260330000004_align_space_schema_and_add_space_events.sql)
 - [db_schema_smoke_tests.rs](../../tests/unit/db_schema_smoke_tests.rs)
 
@@ -186,7 +187,7 @@ Execution Time: 0.014 ms
 | P0 | ACT-2026-03-28-001 | 已补齐 Invite 黑/白名单两表 | schema 闭环已补齐并加索引/FK | ISSUE-2026-03-28-001 | 0.5 | 集成测试 + EXPLAIN 回归 | 回滚迁移：DROP TABLE/INDEX |
 | P0 | ACT-2026-03-28-002 | 已补齐 device_verification_request 表 | 与 DateTime<Utc> 类型一致；补索引 | ISSUE-2026-03-28-002 | 0.5 | 集成测试 + EXPLAIN 回归 | 回滚迁移：DROP TABLE/INDEX |
 | P1 | ACT-2026-03-28-003 | 已补齐 thread_replies/thread_read_receipts 与 thread_relations | 统一 schema、增量迁移、thread_roots 聚合字段与关键索引已同步收口 | ISSUE-2026-03-28-003, ISSUE-2026-03-28-004 | 1.0 | 存储层 roundtrip + 关键查询验证 | 回滚迁移：DROP TABLE/INDEX |
-| P1 | ACT-2026-03-28-004 | 已落地并收缩 schema 对应性门禁 | 扫描 Rust SQL 引用表名、修正误报规则、移除已闭环 exceptions，并在 CI 执行 | ISSUE-2026-03-28-001 | 1.5 | 脚本校验 + CI 门禁 | 例外清单渐进收缩 |
+| P1 | ACT-2026-03-28-004 | 已落地并收缩 schema 对应性门禁 | 扫描 Rust SQL 引用表名，并新增字段/索引/约束级契约校验；同步移除 retention / room summary / device trust / verification / moderation / worker 已闭环 exceptions，并在 CI 执行 | ISSUE-2026-03-28-001 | 1.5 | 脚本校验 + CI 门禁 | 例外清单渐进收缩 |
 | P2 | ACT-2026-03-28-005 | 已统一 space_* 进入统一 schema | `spaces` 主表字段与 `space_members`/`space_summaries`/`space_statistics`/`space_events` 已同步收口，并补最小数据库回归测试 | ISSUE-2026-03-28-007 | 0.5 | sqlx migrate run + 全量建库验证 + 最小数据库回归测试 | 保留增量迁移幂等 |
 
 ## 8. 修复验证
@@ -253,6 +254,7 @@ DROP TABLE IF EXISTS thread_replies;
 | v1.1.0 | 2026-03-28 | TBD | 引入证据索引、Issue 编号、EXPLAIN 哈希与企业级结构 | TBD |
 | v1.2.0 | 2026-03-28 | TBD | 补充 thread P1 修复结果、门禁基线与存储层 roundtrip 验证 | TBD |
 | v1.3.0 | 2026-03-28 | TBD | 修正 retention/room summary/space 诊断结论，补齐 unified schema、space_events 迁移与最小数据库回归测试 | TBD |
+| v1.4.0 | 2026-03-28 | TBD | 收缩 retention/room summary/device trust/verification/moderation/worker exceptions，补字段级门禁、回滚脚本与最小 smoke test | TBD |
 
 ### 10.2 配置示例(PostgreSQL 慢查询与死锁日志)
 
@@ -305,6 +307,7 @@ DROP TABLE IF EXISTS thread_replies;
 - `scripts/run_pg_amcheck.py`：在 CI/PostgreSQL 环境执行 `pg_amcheck`
 - `scripts/generate_logical_checksum_report.py`：生成关键表逻辑 checksum 报告；提供 `REPLICA_DATABASE_URL` 时进入主从对比模式
 - `scripts/logical_checksum_tables.txt`：关键表清单基线
+- `scripts/check_schema_contract_coverage.py`：对关键表执行字段/索引/约束级门禁，提前发现“表存在但列名/索引/约束漂移”
 - `db-migration-gate.yml`：上传逻辑 checksum 报告产物，供发布审批与外部证据回填
 
 同行评审与门禁要求：

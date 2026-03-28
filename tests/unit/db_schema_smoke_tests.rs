@@ -1,11 +1,19 @@
 #![cfg(test)]
 
 mod db_schema_smoke_tests {
-    use crate::common::{get_database_url, get_test_pool_async};
+    use crate::common::get_test_pool_async;
     use serde_json::json;
     use std::sync::atomic::{AtomicU64, Ordering};
     use synapse_rust::e2ee::device_trust::models::DeviceTrustLevel;
     use synapse_rust::e2ee::device_trust::storage::DeviceTrustStorage;
+    use synapse_rust::e2ee::verification::models::{
+        QrState, SasState, VerificationMethod, VerificationRequest, VerificationState,
+    };
+    use synapse_rust::e2ee::verification::storage::VerificationStorage;
+    use synapse_rust::storage::moderation::{
+        CreateModerationRuleParams, ModerationAction, ModerationLogStorage, ModerationRuleType,
+        ModerationStorage,
+    };
     use synapse_rust::storage::retention::RetentionStorage;
     use synapse_rust::storage::room_summary::RoomSummaryStorage;
     use synapse_rust::storage::space::SpaceStorage;
@@ -481,6 +489,167 @@ mod db_schema_smoke_tests {
             .execute(&*pool)
             .await
             .expect("Failed to cleanup device_trust_status");
+    }
+
+    #[tokio::test]
+    async fn test_verification_and_moderation_schema_smoke_roundtrip() {
+        let pool = match connect_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
+
+        for table_name in [
+            "verification_requests",
+            "verification_sas",
+            "verification_qr",
+            "moderation_actions",
+            "moderation_rules",
+            "moderation_logs",
+        ] {
+            assert_table_exists(&pool, table_name).await;
+        }
+
+        let verification_storage = VerificationStorage::new(&pool);
+        let moderation_storage = ModerationStorage::new(pool.clone());
+        let moderation_log_storage = ModerationLogStorage::new(pool.clone());
+        let suffix = unique_id();
+        let tx_id = format!("txn_{suffix}");
+        let request = VerificationRequest {
+            transaction_id: tx_id.clone(),
+            from_user: format!("@verify_from_{suffix}:localhost"),
+            from_device: format!("VERIFY_FROM_{suffix}"),
+            to_user: format!("@verify_to_{suffix}:localhost"),
+            to_device: Some(format!("VERIFY_TO_{suffix}")),
+            method: VerificationMethod::Sas,
+            state: VerificationState::Requested,
+            created_at: 0,
+            updated_at: 0,
+        };
+
+        verification_storage
+            .create_request(&request)
+            .await
+            .expect("Failed to create verification request");
+        verification_storage
+            .store_sas_state(&SasState {
+                tx_id: tx_id.clone(),
+                from_device: request.from_device.clone(),
+                to_device: request.to_device.clone(),
+                method: VerificationMethod::Sas,
+                state: VerificationState::Ready,
+                exchange_hashes: vec!["sha256".to_string()],
+                commitment: Some("commitment".to_string()),
+                pubkey: Some("pubkey".to_string()),
+                sas_bytes: Some(vec![1, 2, 3]),
+                mac: Some("mac".to_string()),
+            })
+            .await
+            .expect("Failed to store SAS state");
+        verification_storage
+            .store_qr_state(&QrState {
+                tx_id: tx_id.clone(),
+                from_device: request.from_device.clone(),
+                to_device: request.to_device.clone(),
+                state: VerificationState::Pending,
+                qr_code_data: Some("qr-data".to_string()),
+                scanned_data: Some("scanned-data".to_string()),
+            })
+            .await
+            .expect("Failed to store QR state");
+
+        let loaded_request = verification_storage
+            .get_request(&tx_id)
+            .await
+            .expect("Failed to load verification request")
+            .expect("Verification request should exist");
+        assert_eq!(loaded_request.transaction_id, tx_id);
+
+        let (creator, room_id) = seed_room(&pool, suffix + 20_000, "moderation_smoke").await;
+        let created_rule = moderation_storage
+            .create_rule(CreateModerationRuleParams {
+                rule_type: ModerationRuleType::Keyword,
+                pattern: "forbidden".to_string(),
+                action: ModerationAction::Flag,
+                reason: Some("schema smoke".to_string()),
+                created_by: creator.clone(),
+                server_id: Some("localhost".to_string()),
+                priority: Some(50),
+            })
+            .await
+            .expect("Failed to create moderation rule");
+        moderation_log_storage
+            .log_action(
+                &created_rule.rule_id,
+                "$moderation_event",
+                &room_id,
+                &creator,
+                "content-hash",
+                "flag",
+                0.9,
+            )
+            .await
+            .expect("Failed to create moderation log");
+
+        sqlx::query(
+            "INSERT INTO moderation_actions (user_id, action_type, reason, report_id, created_ts, expires_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(&creator)
+        .bind("warn")
+        .bind("schema smoke")
+        .bind(1_i64)
+        .bind(0_i64)
+        .bind(1_000_i64)
+        .execute(&*pool)
+        .await
+        .expect("Failed to create moderation action");
+
+        let room_logs = moderation_log_storage
+            .get_logs_for_room(&room_id, 10)
+            .await
+            .expect("Failed to fetch moderation logs");
+        assert_eq!(room_logs.len(), 1);
+
+        let moderation_action_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM moderation_actions WHERE user_id = $1 AND action_type = $2",
+        )
+        .bind(&creator)
+        .bind("warn")
+        .fetch_one(&*pool)
+        .await
+        .expect("Failed to count moderation actions");
+        assert_eq!(moderation_action_count, 1);
+
+        sqlx::query("DELETE FROM moderation_actions WHERE user_id = $1")
+            .bind(&creator)
+            .execute(&*pool)
+            .await
+            .expect("Failed to cleanup moderation_actions");
+        sqlx::query("DELETE FROM moderation_logs WHERE rule_id = $1")
+            .bind(&created_rule.rule_id)
+            .execute(&*pool)
+            .await
+            .expect("Failed to cleanup moderation_logs");
+        sqlx::query("DELETE FROM moderation_rules WHERE rule_id = $1")
+            .bind(&created_rule.rule_id)
+            .execute(&*pool)
+            .await
+            .expect("Failed to cleanup moderation_rules");
+        sqlx::query("DELETE FROM verification_qr WHERE tx_id = $1")
+            .bind(&tx_id)
+            .execute(&*pool)
+            .await
+            .expect("Failed to cleanup verification_qr");
+        sqlx::query("DELETE FROM verification_sas WHERE tx_id = $1")
+            .bind(&tx_id)
+            .execute(&*pool)
+            .await
+            .expect("Failed to cleanup verification_sas");
+        sqlx::query("DELETE FROM verification_requests WHERE transaction_id = $1")
+            .bind(&tx_id)
+            .execute(&*pool)
+            .await
+            .expect("Failed to cleanup verification_requests");
+        cleanup_room(&pool, &room_id, &creator).await;
     }
 
     #[tokio::test]

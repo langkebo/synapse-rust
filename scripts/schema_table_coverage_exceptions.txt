@@ -1,36 +1,40 @@
-active_workers
+# application services
 application_service_statistics
 application_service_users
+
+# background updates
 background_update_history
 background_update_locks
 background_update_stats
+
+# beacons / calls / rtc
 beacon_info
 beacon_locations
 call_candidates
 call_sessions
-cross_signing_trust
 dehydrated_devices
 delayed_events
-deleted_events_index
-device_trust_status
 e2ee_audit_log
 e2ee_secret_storage_keys
 e2ee_security_events
 e2ee_stored_secrets
 email_verification_tokens
+
+# federation
 federation_access_stats
 federation_blacklist_config
 federation_blacklist_log
 federation_blacklist_rule
+
+# e2ee / key management
 key_rotation_log
 key_signatures
 leak_alerts
 matrixrtc_encryption_keys
 matrixrtc_memberships
 matrixrtc_sessions
-moderation_actions
-moderation_logs
-moderation_rules
+
+# notifications
 notification_delivery_log
 notification_templates
 push_device
@@ -38,33 +42,22 @@ qr_login_transactions
 rate_limits
 reaction_aggregations
 registration_token_batches
-replication_positions
-retention_cleanup_logs
-retention_cleanup_queue
-retention_stats
-room_children
 room_sticky_events
-room_summary_state
-room_summary_stats
-room_summary_update_queue
 scheduled_notifications
 secure_backup_session_keys
 secure_key_backups
 server_notices
 server_notifications
+
+# uploads / user settings
 upload_chunks
 upload_progress
 user_notification_settings
 user_notification_status
 user_reputations
 user_settings
-verification_qr
-verification_requests
-verification_sas
+
+# verification / widgets
 widget_permissions
 widget_sessions
 widgets
-worker_connections
-worker_load_stats
-worker_task_assignments
-worker_type_statistics

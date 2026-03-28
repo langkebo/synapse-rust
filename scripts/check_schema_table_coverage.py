@@ -35,7 +35,18 @@ SQL_LITERAL_PATTERNS = [
 SQL_TRIGGER_PATTERN = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE)\b", re.IGNORECASE)
 CTE_PATTERN = re.compile(r"(?:WITH|,)\s*([a-z_][a-z0-9_]*)\s+AS\s*\(", re.IGNORECASE)
 DEF_PATTERNS = [
-    re.compile(r"\bCREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+([a-z_][a-z0-9_]*)", re.IGNORECASE),
+    re.compile(
+        r"\bCREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+([a-z_][a-z0-9_]*)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bCREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+([a-z_][a-z0-9_]*)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bCREATE\s+(?:OR\s+REPLACE\s+)?MATERIALIZED\s+VIEW\s+([a-z_][a-z0-9_]*)",
+        re.IGNORECASE,
+    ),
 ]
 IGNORED_REFS = {
     "information_schema",
