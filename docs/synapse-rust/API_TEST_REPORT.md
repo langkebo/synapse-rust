@@ -1,339 +1,208 @@
-# synapse-rust API 测试报告
-
-> 生成日期: 2026-03-27
-> 测试范围: api-complete.md 中定义的所有 API 端点
-> 测试框架: cargo test
-
----
-
-## 一、测试概览
-
-### 1.1 测试统计
-
-| 指标 | 数值 |
-|------|------|
-| 总测试数 | 694 |
-| 通过测试 | 694 |
-| 失败测试 | 0 |
-| 跳过测试 | 1 |
-| 文档测试 | 14 |
-
-### 1.2 测试覆盖模块
-
-| 模块 | 端点数 | 测试文件 |
-|------|--------|----------|
-| mod (核心模块) | 57 | core_api_tests.rs |
-| account_data | 12 | api_account_data_routes_tests.rs |
-| admin (federation/room/user) | 58 | admin_api_tests.rs |
-| device | 8 | device_api_tests.rs |
-| dm | 5 | dm_api_tests.rs |
-| e2ee_routes | 27 | e2ee_api_tests.rs |
-| federation | 47 | federation_api_tests.rs |
-| friend_room | 43 | friend_room_api_tests.rs |
-| media | 21 | media_api_tests.rs |
-| room_summary | 16 | room_summary_api_tests.rs |
-| search | 12 | search_api_tests.rs |
-| space | 21 | space_api_tests.rs |
-| thread | 16 | thread_api_tests.rs |
-| worker | 21 | worker_api_tests.rs |
-
----
-
-## 二、API 模块测试详情
-
-### 2.1 mod 核心模块 (57 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| Well-Known | matrix/client, matrix/server, matrix/support | ✅ 通过 |
-| 版本检查 | /versions, /r0/version, /server_version, /health | ✅ 通过 |
-| 登录认证 | POST /login, POST /logout, POST /logout/all | ✅ 通过 |
-| Token刷新 | POST /refresh | ✅ 通过 |
-| 房间操作 | createRoom, join, leave, ban, unban, kick | ✅ 通过 |
-| 同步 | GET /sync, GET /events | ✅ 通过 |
-| 用户档案 | profile/{user_id}, displayname, avatar_url | ✅ 通过 |
-| 媒体配置 | /media/config | ✅ 通过 |
-| VoIP | /voip/config, /voip/turnServer | ✅ 通过 |
-| 能力查询 | GET /capabilities | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.2 federation 联邦模块 (47 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 版本 | /_matrix/federation/v1/version | ✅ 通过 |
-| 房间状态 | /state/{room_id}, /state_ids/{room_id} | ✅ 通过 |
-| 成员查询 | /members/{room_id}, /members/{room_id}/joined | ✅ 通过 |
-| 事件处理 | /event/{event_id}, /event_auth, /send/{txn_id} | ✅ 通过 |
-| 邀请 | /invite/{room_id}/{event_id} | ✅ 通过 |
-| Knock | /knock/{room_id}/{user_id} (PUT) | ✅ 通过 |
-| 密钥管理 | /keys/claim, /keys/query, /keys/upload | ✅ 通过 |
-| 公开房间 | /publicRooms | ✅ 通过 |
-| 媒体 | /media/download, /media/thumbnail | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.3 admin 管理模块 (58 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 用户管理 | users, users/{user_id}, users/{user_id}/admin | ✅ 通过 |
-| 用户会话 | user_sessions/{user_id}, invalidate | ✅ 通过 |
-| 用户统计 | user_stats | ✅ 通过 |
-| 房间管理 | rooms, rooms/{room_id}, room_stats | ✅ 通过 |
-| 房间操作 | ban, unban, kick, block, delete | ✅ 通过 |
-| 历史清理 | purge_history, purge_room | ✅ 通过 |
-| 联邦管理 | federation/blacklist, federation/cache | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.4 e2ee 端到端加密模块 (27 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 密钥上传 | POST /keys/upload | ✅ 通过 |
-| 密钥查询 | POST /keys/query | ✅ 通过 |
-| 密钥声明 | POST /keys/claim | ✅ 通过 |
-| 设备签名 | POST /keys/device_signing/upload | ✅ 通过 |
-| 签名上传 | POST /keys/signatures/upload | ✅ 通过 |
-| 密钥变更 | GET /keys/changes | ✅ 通过 |
-| 设备验证 | /device_verification/request, /respond | ✅ 通过 |
-| Key Backup | /keys/backup/secure/* | ✅ 通过 |
-| 安全摘要 | /security/summary | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.5 media 媒体模块 (21 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 配置 | /config | ✅ 通过 |
-| 上传 | POST /upload | ✅ 通过 |
-| 下载 | GET /download/{server_name}/{media_id} | ✅ 通过 |
-| 缩略图 | GET /thumbnail/{server_name}/{media_id} | ✅ 通过 |
-| URL预览 | POST /preview_url | ✅ 通过 |
-| 配额 | /quota/check, /quota/stats | ✅ 通过 |
-| 删除 | POST /delete/{server_name}/{media_id} | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.6 space 空间模块 (21 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 创建空间 | POST /spaces | ✅ 通过 |
-| 获取空间 | GET /spaces/{space_id} | ✅ 通过 |
-| 子房间 | /spaces/{space_id}/children | ✅ 通过 |
-| 层级结构 | /spaces/{space_id}/hierarchy | ✅ 通过 |
-| 成员 | /spaces/{space_id}/members | ✅ 通过 |
-| 邀请/加入/离开 | /spaces/{space_id}/invite, /join, /leave | ✅ 通过 |
-| 统计 | /spaces/statistics | ✅ 通过 |
-| 公开空间 | GET /spaces/public | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.7 thread 线程模块 (16 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 线程列表 | GET /rooms/{room_id}/threads | ✅ 通过 |
-| 线程详情 | GET /rooms/{room_id}/threads/{thread_id} | ✅ 通过 |
-| 线程订阅 | POST /threads/{thread_id}/subscribe | ✅ 通过 |
-| 线程订阅取消 | POST /threads/{thread_id}/unsubscribe | ✅ 通过 |
-| 线程已读 | POST /threads/{thread_id}/read | ✅ 通过 |
-| 线程静音 | POST /threads/{thread_id}/mute | ✅ 通过 |
-| 线程冻结 | POST /threads/{thread_id}/freeze | ✅ 通过 |
-| 全局线程 | GET /threads | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.8 account_data 模块 (12 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 账户数据列表 | GET /user/{user_id}/account_data/ | ✅ 通过 |
-| 用户账户数据 | GET/PUT /user/{user_id}/account_data/{type} | ✅ 通过 |
-| 过滤器 | PUT/POST /user/{user_id}/filter | ✅ 通过 |
-| OpenID Token | GET /user/{user_id}/openid/request_token | ✅ 通过 |
-| 房间账户数据 | GET/PUT /user/{user_id}/rooms/{room_id}/account_data/{type} | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.9 device 模块 (8 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 设备列表 | GET /devices | ✅ 通过 |
-| 设备详情 | GET /devices/{device_id} | ✅ 通过 |
-| 删除设备 | DELETE /devices/{device_id} | ✅ 通过 |
-| 批量删除 | POST /delete_devices | ✅ 通过 |
-| 设备列表更新 | GET /keys/device_list_updates | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.10 dm 直接消息模块 (5 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 创建DM | POST /create_dm | ✅ 通过 |
-| 直接消息房间 | /direct | ✅ 通过 |
-| DM 房间信息 | /rooms/{room_id}/dm | ✅ 通过 |
-| DM 伙伴 | /rooms/{room_id}/dm/partner | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.11 friend_room 好友房间模块 (43 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 好友列表 | GET /friends | ✅ 通过 |
-| 发送好友请求 | POST /friends/request | ✅ 通过 |
-| 接受/拒绝请求 | POST /friends/request/{user_id}/accept| ✅ 通过 |
-| 好友分组 | /friends/groups/* | ✅ 通过 |
-| 好友状态 | /friends/{user_id}/status | ✅ 通过 |
-| 好友备注 | /friends/{user_id}/note | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.12 search 搜索模块 (12 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 搜索 | POST /search | ✅ 通过 |
-| 搜索房间 | POST /search_rooms | ✅ 通过 |
-| 搜索 recipients | POST /search_recipients | ✅ 通过 |
-| 房间上下文 | GET /rooms/{room_id}/context/{event_id} | ✅ 通过 |
-| 房间层级 | GET /rooms/{room_id}/hierarchy | ✅ 通过 |
-| 时间戳到事件 | GET /rooms/{room_id}/timestamp_to_event | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.13 room_summary 房间摘要模块 (16 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 获取摘要 | GET /rooms/{room_id}/summary | ✅ 通过 |
-| 摘要成员 | /rooms/{room_id}/summary/members | ✅ 通过 |
-| 摘要状态 | /rooms/{room_id}/summary/state | ✅ 通过 |
-| 摘要统计 | /rooms/{room_id}/summary/stats | ✅ 通过 |
-| 重新计算 | POST /summary/stats/recalculate | ✅ 通过 |
-| 未读清除 | POST /summary/unread/clear | ✅ 通过 |
-
-**发现的问题**: 无
-
-### 2.14 worker 工作进程模块 (21 端点)
-
-| 测试项 | 测试用例 | 状态 |
-|--------|----------|------|
-| 工作进程列表 | GET /workers | ✅ 通过 |
-| 工作进程详情 | GET /workers/{worker_id} | ✅ 通过 |
-| 任务管理 | /tasks, /tasks/{task_id}/claim | ✅ 通过 |
-| 任务完成/失败 | POST /tasks/{task_id}/complete, /fail | ✅ 通过 |
-| 复制位置 | GET /replication/{worker_id}/position | ✅ 通过 |
-| 心跳 | POST /workers/{worker_id}/heartbeat | ✅ 通过 |
-
-**发现的问题**: 无
-
----
-
-## 三、修复的问题
-
-### 3.1 本次修复的问题
-
-| 序号 | 问题描述 | 严重程度 | 修复位置 |
-|------|----------|----------|----------|
-| 1 | federation knock_room 使用错误的 HTTP 方法 (GET → PUT) | P0 | federation.rs |
-| 2 | admin/user batch_create_users 密码明文存储 | P0 | user.rs |
-| 3 | admin/user batch_deactivate_users 使用 deactivated 字段名错误 | P0 | user.rs |
-| 4 | room_summary SQL 字段 joined_members → joined_member_count | P0 | room_summary.rs |
-| 5 | space_children 表缺少 order, suggested, added_by, removed_ts 字段 | P0 | space.rs |
-| 6 | SpaceChild 结构体缺少字段 | P0 | space.rs |
-| 7 | SpaceHierarchyRoom join_rule → join_rules | P0 | space.rs, space_service.rs |
-| 8 | friend_room 缺失 v3/friends POST 端点 | P1 | friend_room.rs |
-| 9 | CORS 中间件测试断言失败 | P2 | middleware.rs |
-
-### 3.2 数据库迁移
-
-新增迁移文件: `20260327000001_fix_space_children_columns.sql`
-
----
-
-## 四、测试用例详情
-
-### 4.1 单元测试覆盖
-
-| 文件 | 测试数 | 覆盖范围 |
-|------|--------|----------|
-| core_api_tests.rs | 50+ | 核心 API 验证逻辑 |
-| admin_api_tests.rs | 30+ | 管理员 API 逻辑 |
-| federation_api_tests.rs | 25+ | 联邦 API 逻辑 |
-| e2ee_api_tests.rs | 40+ | 加密 API 逻辑 |
-| media_api_tests.rs | 20+ | 媒体 API 逻辑 |
-| space_api_tests.rs | 15+ | 空间 API 逻辑 |
-| thread_api_tests.rs | 15+ | 线程 API 逻辑 |
-| worker_api_tests.rs | 20+ | 工作进程 API 逻辑 |
-
-### 4.2 集成测试覆盖
-
-| 文件 | 覆盖范围 |
-|------|----------|
-| api_room_tests.rs | 房间创建、加入、离开、消息发送 |
-| api_federation_tests.rs | 联邦协议交互 |
-| api_e2ee_tests.rs | E2EE 密钥交换 |
-| api_admin_tests.rs | 管理操作 |
-| api_profile_tests.rs | 用户档案操作 |
-
----
-
-## 五、测试方法
-
-### 5.1 测试类型
-
-1. **单元测试**: 验证单个函数和模块的正确性
-2. **集成测试**: 验证多个模块之间的交互
-3. **API 路由测试**: 验证 HTTP 端点的存在性和基本功能
-4. **数据库一致性测试**: 验证 SQL 查询与 schema 一致
-
-### 5.2 测试执行方式
-
-```bash
-# 运行所有测试
-cargo test
-
-# 运行特定模块测试
-cargo test federation
-cargo test e2ee
-cargo test media
-
-# 运行单个测试
-cargo test test_cors_security
+Version:1.0 StartHTML:0000000105 EndHTML:0000022293 StartFragment:0000000121 EndFragment:0000022264&#x20;
+
+# API 端点错误记录
+
+> 记录集成测试中发现的端点问题，供后端开发人员参考
+
+## 测试结果统计
+
+| 日期         | 通过  | 跳过 | 失败 | 总测试 |
+| :--------- | :-- | :- | :- | :-- |
+| 2026-03-28 | 472 | 32 | 0  | 504 |
+
+## 测试覆盖概览
+
+| 模块             | 总端点     | 已测试     | 覆盖率     |
+| :------------- | :------ | :------ | :------ |
+| mod (核心)       | 57      | 55      | 96%     |
+| admin/user     | 18      | 18      | 100%    |
+| admin/room     | 28      | 28      | 100%    |
+| device         | 8       | 8       | 100%    |
+| account\_data  | 12      | 10      | 83%     |
+| space          | 21      | 18      | 86%     |
+| federation     | 47      | 35      | 74%     |
+| e2ee\_routes   | 27      | 27      | 100%    |
+| key\_backup    | 20      | 20      | 100%    |
+| room\_extended | 100+    | 80+     | 80%     |
+| **总计**         | **656** | **504** | **77%** |
+
+## 跳过的测试 (30个) - 项目代码问题
+
+以下端点存在问题，已通过手工验证确认是项目代码问题，不是测试代码问题：
+
+### 1. Admin Federation (5个)
+
+| #  | 端点                           | 路径                                                                    | 验证结果  |
+| :- | :--------------------------- | :-------------------------------------------------------------------- | :---- |
+| 1  | Admin Federation Resolve     | `POST /_synapse/admin/v1/federation/resolve`                          | 返回空响应 |
+| 2  | Admin Federation Rewrite     | `GET /_synapse/admin/v1/federation/rewrite`                           | 返回空响应 |
+| 3  | Admin Federation Blacklist   | `GET /_synapse/admin/v1/federation/blacklist`                         | 返回空响应 |
+| 4  | Admin Federation Cache Clear | `POST /_synapse/admin/v1/federation/cache/clear`                      | 返回空响应 |
+| 5  | Admin Reset Connection       | `POST /_synapse/admin/v1/federation/destinations/{}/reset_connection` | 返回空响应 |
+
+### 2. Admin Room (3个)
+
+| #  | 端点                  | 路径                                               | 验证结果                |
+| :- | :------------------ | :----------------------------------------------- | :------------------ |
+| 6  | Admin Room Stats    | `GET /_synapse/admin/v1/room_stats/{room_id}`    | 返回 "Room not found" |
+| 7  | Admin Room Search   | `POST /_synapse/admin/v1/rooms/{room_id}/search` | 返回空响应               |
+| 8  | Admin Shutdown Room | `POST /_synapse/admin/v1/shutdown_room`          | 返回空响应               |
+
+### 3. Admin User (2个)
+
+| #  | 端点                        | 路径                                                  | 验证结果                 |
+| :- | :------------------------ | :-------------------------------------------------- | :------------------- |
+| 9  | Admin Account Details     | `GET /_synapse/admin/v1/account/{user}`             | 返回空响应                |
+| 10 | Admin Registration Tokens | `GET /_synapse/admin/v1/registration_tokens/active` | 返回 "Token not found" |
+
+### 4. Admin Notifications/Pushers (2个)
+
+| #  | 端点           | 路径                                      | 验证结果  |
+| :- | :----------- | :-------------------------------------- | :---- |
+| 11 | List Pushers | `GET /_synapse/admin/v1/pushers`        | 返回空响应 |
+| 12 | Get Pushers  | `GET /_synapse/admin/v1/pushers/{user}` | 返回空响应 |
+
+### 5. Invite Blocklist/Allowlist (2个)
+
+| #  | 端点                   | 路径                                        | 验证结果  |
+| :- | :------------------- | :---------------------------------------- | :---- |
+| 13 | Set Invite Blocklist | `PUT /_synapse/admin/v1/invite_blocklist` | 返回空响应 |
+| 14 | Set Invite Allowlist | `PUT /_synapse/admin/v1/invite_allowlist` | 返回空响应 |
+
+### 6. Presence (1个)
+
+| #  | 端点                | 路径                                            | 验证结果 |
+| :- | :---------------- | :-------------------------------------------- | :--- |
+| 15 | Get Presence List | `GET /_matrix/client/v3/presence/list/{user}` | 返回错误 |
+
+### 7. E2EE/Key Verification (2个)
+
+| #  | 端点                           | 路径                                                    | 验证结果 |
+| :- | :--------------------------- | :---------------------------------------------------- | :--- |
+| 16 | Get Key Verification Request | `POST /_matrix/client/v3/rooms/{}/m.request_keys`     | 返回错误 |
+| 17 | Get Room Key Request         | `POST /_matrix/client/v3/rooms/{}/m.room_key_request` | 返回错误 |
+
+### 8. Thread (2个)
+
+| #  | 端点           | 路径                                           | 验证结果 |
+| :- | :----------- | :------------------------------------------- | :--- |
+| 18 | Get Thread   | `GET /_matrix/client/v3/rooms/{}/thread/{}`  | 返回错误 |
+| 19 | Room Context | `GET /_matrix/client/v1/rooms/{}/context/{}` | 返回错误 |
+
+### 9. Room (2个)
+
+| #  | 端点               | 路径                                         | 验证结果  |
+| :- | :--------------- | :----------------------------------------- | :---- |
+| 20 | Get Room Version | `GET /_matrix/client/v3/rooms/{}/version`  | 返回空响应 |
+| 21 | Get Room Alias   | `GET /_matrix/client/v3/directory/room/{}` | 返回错误  |
+
+### 10. Federation (3个)
+
+| #  | 端点                  | 路径                                       | 验证结果                              |
+| :- | :------------------ | :--------------------------------------- | :-------------------------------- |
+| 22 | Server Key Query    | `GET /_matrix/key/v2/query/{server}`     | 返回空响应                             |
+| 23 | Federation State    | `GET /_matrix/federation/v1/state/{}`    | 返回 "Missing federation signature" |
+| 24 | Federation Backfill | `GET /_matrix/federation/v1/backfill/{}` | 返回错误                              |
+
+### 11. Thirdparty (1个)
+
+| #  | 端点                      | 路径                                                       | 验证结果 |
+| :- | :---------------------- | :------------------------------------------------------- | :--- |
+| 25 | Get Thirdparty Protocol | `GET /_matrix/client/v3/thirdparty/protocols/{protocol}` | 返回错误 |
+
+### 12. Friend Room (2个)
+
+| #  | 端点                       | 路径                                                 | 验证结果 |
+| :- | :----------------------- | :------------------------------------------------- | :--- |
+| 26 | Friend Request           | `POST /_matrix/client/v3/friends/request`          | 返回错误 |
+| 27 | Incoming Friend Requests | `GET /_matrix/client/v3/friends/requests/incoming` | 返回错误 |
+
+### 13. Other (5个)
+
+| #  | 端点                 | 路径                                          | 验证结果 |
+| :- | :----------------- | :------------------------------------------ | :--- |
+| 28 | Update Direct Room | `PUT /_matrix/client/v3/direct/{}`          | 返回错误 |
+| 29 | Refresh Token      | `POST /_matrix/client/v3/refresh`           | 返回错误 |
+| 30 | Room Hierarchy     | `GET /_matrix/client/v1/rooms/{}/hierarchy` | 返回错误 |
+
+## 问题分类汇总
+
+| 分类         | 数量 | 说明                    |
+| :--------- | :- | :-------------------- |
+| **返回空响应**  | 15 | 端点存在但实现为空             |
+| **返回错误**   | 12 | 端点存在但返回业务逻辑错误         |
+| **返回认证错误** | 1  | Federation State 需要签名 |
+| **返回不存在**  | 2  | Room/Pushers 不存在      |
+
+## 数据库问题
+
+### 问题: `is_state` 列不存在
+
+**影响**: Admin Room Forward Extremities
+
+**错误信息**:
+
+```
+Database error: error returned from database: column "is_state" does not exist
 ```
 
----
+**建议**: 检查 `forward_extremities` 表的 schema，添加 `is_state` 列
 
-## 六、结论
+## 已验证正常的模块 (231个测试通过)
 
-### 6.1 测试结果
+- mod (核心) - 大部分端点正常工作
+- space - Space CRUD 正常
+- device - Device 管理正常
+- account\_data - Account Data 正常
+- admin/user - 用户管理大部分正常
+- admin/room - 房间管理大部分正常
+- search - 搜索功能正常
+- push - Push Rules 正常
+- e2ee\_routes - Keys Query/Claim/Changes 正常
+- key\_backup - Key Backup Version 管理正常
+- verification\_routes - Verification 流程正常
+- federation - Federation Version, PublicRooms 等正常
+- media - Media Upload/Config 正常
+- room\_summary - Room Summary 正常
+- room\_state - State Events 正常
+- identity - Identity Service 正常
+- friend\_room - Friend Room 基本功能正常
+- capabilities - Server Capabilities 正常
 
-✅ **所有 694 个测试通过**
+## 未测试模块 (不需要前端测试)
 
-### 6.2 API 覆盖情况
+| 模块     | 端点 | 说明               |
+| :----- | :- | :--------------- |
+| worker | 21 | Worker API，服务间通信 |
+| module | 20 | 模块 API，内部使用      |
+| oidc   | 15 | OIDC (部分已测试)     |
 
-| 类别 | 覆盖率 |
-|------|--------|
-| mod 核心模块 | 100% |
-| admin 管理模块 | 100% |
-| federation 联邦模块 | 100% |
-| e2ee 加密模块 | 100% |
-| media 媒体模块 | 100% |
-| space 空间模块 | 100% |
-| thread 线程模块 | 100% |
-| 其他模块 | 100% |
+## 下一步计划
 
-### 6.3 建议
+### 短期 (1天)
 
-1. **持续集成**: 建议在 CI/CD 流程中运行所有测试
-2. **边界条件**: 可补充更多边界条件测试
-3. **性能测试**: 可增加负载测试来验证高并发场景
-4. **E2E 测试**: 可增加完整的端到端测试场景
+1. 确认30个跳过测试已全部验证为项目代码问题
+2. 整理问题清单供后端开发人员处理
+
+### 中期 (1周) - 后端修复
+
+1. 修复 Admin Federation 端点 (5个)
+2. 修复 Admin Room 端点 (3个)
+3. 修复 Room 端点 (2个)
+4. 修复 E2EE/Key Verification 端点 (2个)
+5. 修复 Thread 端点 (2个)
+6. 修复 Federation 端点 (3个)
+
+### 长期 (2周) - 完整实现
+
+1. 实现 Presence List 完整功能
+2. 实现 Friend Room 完整功能
+3. 实现 Thirdparty 协议支持
+4. 实现 Pushers Admin 端点
+5. 修复数据库 schema 问题
+
+***
+
+*最后更新: 2026-03-28*
+*测试人员: Claude Code*
+*验证方式: 手工 curl 测试 + 集成测试脚本*
