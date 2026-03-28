@@ -1,4 +1,5 @@
 mod api_account_data_routes_tests;
+mod api_admin_federation_tests;
 mod api_admin_tests;
 mod api_auth_routes_tests;
 mod api_device_presence_tests;

@@ -136,7 +136,7 @@ impl AuthorizationService {
                     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
                 if let Some(r) = room {
-                    if r.join_rules == "public" {
+                    if r.join_rule == "public" {
                         return Ok(());
                     }
                 }

@@ -31,6 +31,10 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
             "/_synapse/admin/v1/rooms/{room_id}/messages",
             get(get_room_messages_admin),
         )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/version",
+            get(get_room_version),
+        )
         .route("/_synapse/admin/v1/rooms/{room_id}/block", post(block_room))
         .route(
             "/_synapse/admin/v1/rooms/{room_id}/block",
@@ -200,7 +204,7 @@ pub async fn get_room(
             "topic": r.topic.unwrap_or_default(),
             "creator": r.creator_user_id.unwrap_or_default(),
             "is_public": r.is_public,
-            "join_rule": r.join_rules
+            "join_rule": r.join_rule
         }))),
         None => Err(ApiError::not_found("Room not found".to_string())),
     }
@@ -1173,6 +1177,31 @@ pub async fn search_room_messages_admin(
         "count": results.len(),
         "room_id": room_id
     })))
+}
+
+/// Get room version
+#[axum::debug_handler]
+pub async fn get_room_version(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let row = sqlx::query("SELECT room_version FROM rooms WHERE room_id = $1")
+        .bind(&room_id)
+        .fetch_optional(&*state.services.room_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    match row {
+        Some(row) => {
+            let version: String = row.get("room_version");
+            Ok(Json(json!({
+                "room_id": room_id,
+                "room_version": version
+            })))
+        }
+        None => Err(ApiError::not_found(format!("Room {} not found", room_id))),
+    }
 }
 
 /// Get room forward extremities count

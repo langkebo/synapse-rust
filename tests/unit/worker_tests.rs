@@ -231,6 +231,8 @@ mod tests {
         let pos = StreamPosition {
             stream_name: "events".to_string(),
             position: 100,
+            instance_name: "main".to_string(),
+            updated_ts: 1234567890,
         };
         assert_eq!(pos.stream_name, "events");
         assert_eq!(pos.position, 100);

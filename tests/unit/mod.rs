@@ -23,13 +23,16 @@ mod rate_limit_api_tests;
 mod reactions_api_tests;
 mod refresh_token_api_tests;
 mod registration_token_api_tests;
+mod retention_storage_tests;
 mod retention_api_tests;
 mod room_summary_api_tests;
+mod room_summary_storage_tests;
 mod server_notification_api_tests;
 mod sliding_sync_api_tests;
 mod space_api_tests;
 mod telemetry_api_tests;
 mod thread_api_tests;
+mod thread_storage_tests;
 mod worker_api_tests;
 
 mod directory_service_tests;

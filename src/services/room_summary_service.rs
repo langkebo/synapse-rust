@@ -228,7 +228,7 @@ impl RoomSummaryService {
                     .map(|s| s.to_string());
             }
             Some("m.room.join_rules") => {
-                request.join_rules = content
+                request.join_rule = content
                     .get("join_rule")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
@@ -497,7 +497,7 @@ impl RoomSummaryService {
                 topic: None,
                 avatar_url: None,
                 canonical_alias: None,
-                join_rules: None,
+                join_rule: None,
                 history_visibility: None,
                 guest_access: None,
                 is_direct: None,
@@ -543,7 +543,7 @@ mod tests {
             topic: Some("Test topic".to_string()),
             avatar_url: Some("mxc://example.com/avatar".to_string()),
             canonical_alias: Some("#test:example.com".to_string()),
-            join_rules: Some("invite".to_string()),
+            join_rule: Some("invite".to_string()),
             history_visibility: Some("shared".to_string()),
             guest_access: Some("can_join".to_string()),
             is_direct: Some(false),
@@ -560,7 +560,7 @@ mod tests {
             topic: None,
             avatar_url: None,
             canonical_alias: None,
-            join_rules: Some("public".to_string()),
+            join_rule: Some("public".to_string()),
             history_visibility: None,
             guest_access: None,
             is_direct: None,
@@ -593,7 +593,7 @@ mod tests {
             topic: Some("Topic".to_string()),
             avatar_url: None,
             canonical_alias: None,
-            join_rules: "invite".to_string(),
+            join_rule: "invite".to_string(),
             history_visibility: "shared".to_string(),
             guest_access: "forbidden".to_string(),
             is_direct: false,

@@ -69,7 +69,7 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgres://synapse:RprMQmy35isJt8k4WqswEViJutat0rvH@db:5432/synapse
+      - DATABASE_URL=postgres://synapse:${DB_PASSWORD}@db:5432/synapse
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
       - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
       - WORKER_ROLE=main
@@ -117,12 +117,15 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgres://synapse:RprMQmy35isJt8k4WqswEViJutat0rvH@db:5432/synapse
+      - DATABASE_URL=postgres://synapse:${DB_PASSWORD}@db:5432/synapse
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=synapse
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=synapse
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
       - SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
       - WORKER_ROLE=worker
-      - SYNAPSE_DB_HOST=db
-      - SYNAPSE_DB_PASSWORD=${DB_PASSWORD}
       - REDIS_HOST=redis
       - REDIS_PASSWORD=${REDIS_PASSWORD}
     volumes:

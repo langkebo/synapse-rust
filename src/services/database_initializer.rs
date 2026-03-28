@@ -130,6 +130,15 @@ impl DatabaseInitService {
             }
         }
 
+        // 创建 E2EE 核心表 (Olm, Megolm, Cross-signing, Backup keys)
+        match self.step_create_e2ee_core_tables().await {
+            Ok(msg) => report.steps.push(msg),
+            Err(e) => {
+                report.success = false;
+                report.errors.push(format!("E2EE核心表创建失败: {}", e));
+            }
+        }
+
         match self.step_ensure_additional_tables().await {
             Ok(msg) => report.steps.push(msg),
             Err(e) => {
@@ -656,6 +665,155 @@ impl DatabaseInitService {
         Ok("E2EE设备密钥表创建完成".to_string())
     }
 
+    /// 创建 E2EE 核心表 - 包括 Olm 和 Megolm 会话表
+    /// 这些表在迁移文件中定义，确保在迁移失败时也能创建
+    async fn step_create_e2ee_core_tables(&self) -> Result<String, sqlx::Error> {
+        // Create olm_accounts table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS olm_accounts (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                identity_key TEXT NOT NULL,
+                serialized_account TEXT NOT NULL,
+                is_one_time_keys_published BOOLEAN DEFAULT FALSE,
+                is_fallback_key_published BOOLEAN DEFAULT FALSE,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT NOT NULL,
+                CONSTRAINT uq_olm_accounts_user_device UNIQUE (user_id, device_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_olm_accounts_user ON olm_accounts(user_id)")
+            .execute(&*self.pool)
+            .await?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_olm_accounts_device ON olm_accounts(device_id)",
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Create olm_sessions table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS olm_sessions (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                sender_key TEXT NOT NULL,
+                receiver_key TEXT NOT NULL,
+                serialized_state TEXT NOT NULL,
+                message_index INTEGER DEFAULT 0,
+                created_ts BIGINT NOT NULL,
+                last_used_ts BIGINT NOT NULL,
+                is_fallback BOOLEAN DEFAULT FALSE,
+                CONSTRAINT uq_olm_sessions UNIQUE (session_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_olm_sessions_user ON olm_sessions(user_id)")
+            .execute(&*self.pool)
+            .await?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_olm_sessions_device ON olm_sessions(device_id)",
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Create megolm_sessions table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS megolm_sessions (
+                id BIGSERIAL PRIMARY KEY,
+                room_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                sender_key TEXT NOT NULL,
+                sender_claimed_key TEXT NOT NULL,
+                forwarding_chains JSONB DEFAULT '[]',
+                is_fallback BOOLEAN DEFAULT FALSE,
+                session_data JSONB NOT NULL,
+                message_index INTEGER DEFAULT 0,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT NOT NULL,
+                used_ts BIGINT,
+                CONSTRAINT uq_megolm_sessions UNIQUE (room_id, session_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_megolm_sessions_room ON megolm_sessions(room_id)",
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Create cross_signing_keys table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS cross_signing_keys (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                key_type TEXT NOT NULL,
+                key_id TEXT NOT NULL,
+                key_data TEXT NOT NULL,
+                signatures JSONB DEFAULT '{}',
+                verified BOOLEAN DEFAULT FALSE,
+                trust_level TEXT,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT,
+                CONSTRAINT uq_cross_signing_keys UNIQUE (user_id, key_type)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_cross_signing_keys_user ON cross_signing_keys(user_id)",
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Create backup_keys table (密钥备份数据)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS backup_keys (
+                id BIGSERIAL PRIMARY KEY,
+                backup_id BIGINT NOT NULL,
+                room_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                session_data JSONB NOT NULL,
+                created_ts BIGINT NOT NULL,
+                first_message_index INTEGER,
+                forwarded_count INTEGER DEFAULT 0,
+                is_verified BOOLEAN DEFAULT FALSE,
+                backup_data JSONB
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_backup_keys_backup ON backup_keys(backup_id)")
+            .execute(&*self.pool)
+            .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_backup_keys_room ON backup_keys(room_id)")
+            .execute(&*self.pool)
+            .await?;
+
+        Ok("E2EE核心表创建完成".to_string())
+    }
+
     async fn step_ensure_additional_tables(&self) -> Result<String, sqlx::Error> {
         // Ensure typing table exists
         sqlx::query(
@@ -843,10 +1001,13 @@ impl DatabaseInitService {
             CREATE TABLE IF NOT EXISTS key_backups (
                 backup_id BIGSERIAL PRIMARY KEY,
                 user_id TEXT NOT NULL,
+                backup_id_text TEXT,
                 algorithm TEXT NOT NULL,
                 auth_data JSONB,
                 auth_key TEXT,
+                mgmt_key TEXT,
                 version BIGINT DEFAULT 1,
+                etag TEXT,
                 created_ts BIGINT NOT NULL,
                 updated_ts BIGINT,
                 CONSTRAINT uq_key_backups_user_version UNIQUE (user_id, version)
@@ -1181,7 +1342,7 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
-        // Create space_children table
+        // Create space_children table (with all fields including those added via migration)
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS space_children (
@@ -1192,6 +1353,10 @@ impl DatabaseInitService {
                 is_suggested BOOLEAN DEFAULT FALSE,
                 via_servers JSONB DEFAULT '[]',
                 added_ts BIGINT NOT NULL,
+                "order" TEXT DEFAULT '',
+                suggested BOOLEAN DEFAULT FALSE,
+                added_by TEXT DEFAULT '',
+                removed_ts BIGINT,
                 CONSTRAINT pk_space_children PRIMARY KEY (id),
                 CONSTRAINT uq_space_children_space_room UNIQUE (space_id, room_id)
             )

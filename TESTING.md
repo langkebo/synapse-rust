@@ -362,10 +362,10 @@ cargo test --test integration
 
 ## 十、相关文档
 
-- [优化计划文档](../docs/synapse-rust/optimization-plan.md)
-- [API错误文档](../docs/api-error.md)
-- [安全开发指南](../docs/security-guidelines.md)
-- [部署运维手册](../docs/deployment.md)
+- [工程收口计划](docs/API-OPTION/engineering-optimization-plan.md)
+- [API错误文档](docs/api-error.md)
+- [安全审计文档](docs/security-audit.md)
+- [部署运维手册](docs/synapse-rust/DEPLOYMENT_GUIDE.md)
 
 ---
 

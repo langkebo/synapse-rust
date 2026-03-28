@@ -242,7 +242,7 @@ docker compose -f docker-compose.prod.yml exec db pg_isready -U synapse
 docker compose -f docker-compose.prod.yml logs synapse-main | grep -i migration
 
 # 手动运行迁移
-docker compose -f docker-compose.prod.yml exec synapse-main /app/scripts/run-migrations.sh
+docker compose -f docker-compose.prod.yml exec synapse-main /app/docker/db_migrate.sh
 ```
 
 ### Q4: 如何完全重新部署
