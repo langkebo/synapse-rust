@@ -98,7 +98,8 @@ impl ModerationService {
                 expires_at BIGINT,
                 revoked BOOLEAN NOT NULL DEFAULT FALSE,
                 revoked_reason TEXT,
-                revoked_at BIGINT
+                revoked_at BIGINT,
+                CONSTRAINT fk_moderation_actions_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
             "#,
         )
@@ -122,7 +123,7 @@ impl ModerationService {
         .await?;
 
         sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_moderation_actions_user_id ON moderation_actions(user_id)"
+            "CREATE INDEX IF NOT EXISTS idx_moderation_actions_user_created ON moderation_actions(user_id, created_ts DESC)"
         )
         .execute(&*self.pool)
         .await?;
