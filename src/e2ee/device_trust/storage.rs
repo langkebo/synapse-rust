@@ -43,14 +43,14 @@ impl DeviceTrustStorage {
     /// Create or update device trust status
     pub async fn upsert_device_trust(&self, status: &DeviceTrustStatus) -> Result<(), ApiError> {
         sqlx::query(
-            "INSERT INTO device_trust_status (user_id, device_id, trust_level, 
+            "INSERT INTO device_trust_status (user_id, device_id, trust_level,
              verified_by_device_id, verified_at, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
-             ON DUPLICATE KEY UPDATE 
-             trust_level = VALUES(trust_level),
-             verified_by_device_id = VALUES(verified_by_device_id),
-             verified_at = VALUES(verified_at),
-             updated_at = VALUES(updated_at)",
+             ON CONFLICT (user_id, device_id) DO UPDATE SET
+             trust_level = EXCLUDED.trust_level,
+             verified_by_device_id = EXCLUDED.verified_by_device_id,
+             verified_at = EXCLUDED.verified_at,
+             updated_at = EXCLUDED.updated_at",
         )
         .bind(&status.user_id)
         .bind(&status.device_id)
@@ -77,14 +77,14 @@ impl DeviceTrustStorage {
         let now = chrono::Utc::now();
 
         sqlx::query(
-            "INSERT INTO device_trust_status (user_id, device_id, trust_level, 
+            "INSERT INTO device_trust_status (user_id, device_id, trust_level,
              verified_by_device_id, verified_at, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
-             ON DUPLICATE KEY UPDATE 
-             trust_level = VALUES(trust_level),
-             verified_by_device_id = VALUES(verified_by_device_id),
-             verified_at = CASE WHEN VALUES(trust_level) = 'verified' THEN VALUES(verified_at) ELSE verified_at END,
-             updated_at = VALUES(updated_at)"
+             ON CONFLICT (user_id, device_id) DO UPDATE SET
+             trust_level = EXCLUDED.trust_level,
+             verified_by_device_id = EXCLUDED.verified_by_device_id,
+             verified_at = CASE WHEN EXCLUDED.trust_level = 'verified' THEN EXCLUDED.verified_at ELSE device_trust_status.verified_at END,
+             updated_at = EXCLUDED.updated_at"
         )
         .bind(user_id)
         .bind(device_id)
@@ -379,13 +379,13 @@ impl DeviceTrustStorage {
         let now = chrono::Utc::now();
 
         sqlx::query(
-            "INSERT INTO cross_signing_trust 
+            "INSERT INTO cross_signing_trust
              (user_id, target_user_id, is_trusted, trusted_at, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6)
-             ON DUPLICATE KEY UPDATE 
-             is_trusted = VALUES(is_trusted),
-             trusted_at = CASE WHEN VALUES(is_trusted) = TRUE THEN VALUES(trusted_at) ELSE trusted_at END,
-             updated_at = VALUES(updated_at)"
+             ON CONFLICT (user_id, target_user_id) DO UPDATE SET
+             is_trusted = EXCLUDED.is_trusted,
+             trusted_at = CASE WHEN EXCLUDED.is_trusted = TRUE THEN EXCLUDED.trusted_at ELSE cross_signing_trust.trusted_at END,
+             updated_at = EXCLUDED.updated_at"
         )
         .bind(user_id)
         .bind(target_user_id)
