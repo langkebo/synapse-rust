@@ -693,11 +693,11 @@ impl WorkerStorage {
         sqlx::query(
             r#"
             UPDATE worker_connections SET
-                last_activity_ts = $5,
-                bytes_sent = bytes_sent + $6,
-                bytes_received = bytes_received + $7,
-                messages_sent = messages_sent + $8,
-                messages_received = messages_received + $9
+                last_activity_ts = $4,
+                bytes_sent = bytes_sent + $5,
+                bytes_received = bytes_received + $6,
+                messages_sent = messages_sent + $7,
+                messages_received = messages_received + $8
             WHERE source_worker_id = $1 AND target_worker_id = $2 AND connection_type = $3
             "#,
         )

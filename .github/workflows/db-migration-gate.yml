@@ -17,6 +17,16 @@ jobs:
       - name: Validate referenced tables have schema coverage
         run: python3 scripts/check_schema_table_coverage.py
 
+  schema-contract-coverage:
+    name: Schema Contract Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate critical schema contracts
+        run: python3 scripts/check_schema_contract_coverage.py
+
   unified-schema-apply:
     name: Unified Schema Apply
     runs-on: ubuntu-latest
@@ -57,6 +67,8 @@ jobs:
           psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000001_add_thread_replies_and_receipts.sql
           psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000002_align_thread_schema_and_relations.sql
           psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000003_align_retention_and_room_summary_schema.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000004_align_space_schema_and_add_space_events.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000005_align_remaining_schema_exceptions.sql
 
       - name: Run pg_amcheck
         env:
