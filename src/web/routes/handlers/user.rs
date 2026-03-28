@@ -1,6 +1,7 @@
 //! 用户相关处理器
 
-use crate::common::{ApiError, AppState};
+use crate::common::ApiError;
+use crate::web::AppState;
 use axum::{
     extract::{Path, State},
     Json,
@@ -9,8 +10,8 @@ use serde_json::json;
 
 /// 获取用户资料
 pub async fn get_profile(
-    State(state): State<AppState>,
-    headers: axum::http::HeaderMap,
+    State(_state): State<AppState>,
+    _headers: axum::http::HeaderMap,
     Path(user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validate_user_id(&user_id)?;
@@ -25,9 +26,9 @@ pub async fn get_profile(
 
 /// 设置用户资料
 pub async fn set_profile(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(user_id): Path<String>,
-    Json(body): Json<serde_json::Value>,
+    Json(_body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validate_user_id(&user_id)?;
     Ok(Json(json!({ "ok": true })))
@@ -35,7 +36,7 @@ pub async fn set_profile(
 
 /// 获取用户头像
 pub async fn get_avatar_url(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validate_user_id(&user_id)?;
@@ -44,9 +45,9 @@ pub async fn get_avatar_url(
 
 /// 设置用户头像
 pub async fn set_avatar_url(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(user_id): Path<String>,
-    Json(body): Json<serde_json::Value>,
+    Json(_body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validate_user_id(&user_id)?;
     Ok(Json(json!({ "ok": true })))
@@ -54,7 +55,7 @@ pub async fn set_avatar_url(
 
 /// 获取用户显示名
 pub async fn get_displayname(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validate_user_id(&user_id)?;
@@ -63,9 +64,9 @@ pub async fn get_displayname(
 
 /// 设置用户显示名
 pub async fn set_displayname(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(user_id): Path<String>,
-    Json(body): Json<serde_json::Value>,
+    Json(_body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validate_user_id(&user_id)?;
     Ok(Json(json!({ "ok": true })))

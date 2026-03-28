@@ -4,6 +4,11 @@ use regex::Regex;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+// ============================================================================
+// SECTION: Error Types
+// ============================================================================
+
 // The issue is that parking_lot::RwLock doesn't poison on panic unlike std::sync::RwLock
 // parking_lot's lock() methods return &T directly, not Result<_, PoisonError<T>>
 
@@ -19,6 +24,10 @@ pub enum ConfigError {
     #[error("Validation error: {0}")]
     ValidationError(String),
 }
+
+// ============================================================================
+// SECTION: VoIP & Push Notifications
+// ============================================================================
 
 /// VoIP 配置。
 ///
@@ -343,6 +352,10 @@ impl UrlPreviewConfig {
     }
 }
 
+// ============================================================================
+// SECTION: Authentication (OIDC, SAML)
+// ============================================================================
+
 /// OpenID Connect 配置。
 #[derive(Debug, Clone, Deserialize)]
 pub struct OidcConfig {
@@ -618,6 +631,10 @@ impl SamlConfig {
     }
 }
 
+// ============================================================================
+// SECTION: Retention Policy
+// ============================================================================
+
 /// 消息保留策略配置。
 ///
 /// 配置自动删除旧消息的策略。
@@ -807,6 +824,10 @@ pub struct Config {
     pub prometheus: crate::common::telemetry_config::PrometheusConfig,
 }
 
+// ============================================================================
+// SECTION: Search Configuration
+// ============================================================================
+
 /// 搜索服务配置。
 #[derive(Debug, Clone, Deserialize)]
 pub struct SearchConfig {
@@ -858,6 +879,11 @@ impl Default for SearchConfig {
 /// 限流配置。
 ///
 /// 配置 API 请求限流规则，包括全局限流和端点级限流。
+
+// ============================================================================
+// SECTION: Rate Limiting
+// ============================================================================
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct RateLimitConfig {
     /// 是否启用限流
@@ -971,6 +997,10 @@ impl Default for RateLimitConfig {
         }
     }
 }
+
+// ============================================================================
+// SECTION: Config Manager
+// ============================================================================
 
 /// 配置管理器。
 ///
@@ -1102,6 +1132,10 @@ impl Clone for ConfigManager {
         }
     }
 }
+
+// ============================================================================
+// SECTION: Server Configuration
+// ============================================================================
 
 /// 服务器配置。
 ///
@@ -1298,6 +1332,10 @@ fn default_warmup_pool() -> bool {
     true
 }
 
+// ============================================================================
+// SECTION: Database Configuration
+// ============================================================================
+
 /// 数据库连接配置。
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct DatabaseConfig {
@@ -1407,6 +1445,10 @@ fn default_window_size_seconds() -> u64 {
     120 // 2 minutes (was 1 min) - larger window for better accuracy
 }
 
+// ============================================================================
+// SECTION: Logging Configuration
+// ============================================================================
+
 /// 日志配置。
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct LoggingConfig {
@@ -1419,6 +1461,10 @@ pub struct LoggingConfig {
     /// 日志目录
     pub log_dir: Option<String>,
 }
+
+// ============================================================================
+// SECTION: Federation Configuration
+// ============================================================================
 
 /// 联邦配置。
 ///
@@ -1500,6 +1546,10 @@ fn default_key_cache_ttl() -> u64 {
 fn default_key_rotation_grace_period_ms() -> u64 {
     600 * 1000
 }
+
+// ============================================================================
+// SECTION: Security Configuration
+// ============================================================================
 
 /// 安全配置。
 ///
@@ -1652,6 +1702,10 @@ impl Default for AdminRegistrationConfig {
         }
     }
 }
+
+// ============================================================================
+// SECTION: Worker & Replication Configuration
+// ============================================================================
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkerConfig {

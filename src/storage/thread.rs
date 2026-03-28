@@ -162,9 +162,9 @@ impl ThreadStorage {
         sqlx::query_as::<_, ThreadRoot>(
             r#"
             INSERT INTO thread_roots (
-                room_id, root_event_id, sender, thread_id, created_ts
+                room_id, root_event_id, sender, thread_id, participants, created_ts
             )
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES ($1, $2, $3, $4, jsonb_build_array($3), $5)
             RETURNING id, room_id, root_event_id, sender, thread_id, reply_count, 
                       last_reply_event_id, last_reply_sender, last_reply_ts, 
                       participants, is_fetched, created_ts, updated_ts
@@ -266,8 +266,9 @@ impl ThreadStorage {
         params: CreateThreadReplyParams,
     ) -> Result<ThreadReply, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
+        let mut tx = self.pool.begin().await?;
 
-        sqlx::query_as::<_, ThreadReply>(
+        let reply = sqlx::query_as::<_, ThreadReply>(
             r#"
             INSERT INTO thread_replies (
                 room_id, thread_id, event_id, root_event_id, sender,
@@ -287,8 +288,42 @@ impl ThreadStorage {
         .bind(&params.content)
         .bind(params.origin_server_ts)
         .bind(now)
-        .fetch_one(&*self.pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE thread_roots
+            SET reply_count = reply_count + 1,
+                last_reply_event_id = $3,
+                last_reply_sender = $4,
+                last_reply_ts = $5,
+                participants = (
+                    SELECT COALESCE(jsonb_agg(participant ORDER BY participant), '[]'::jsonb)
+                    FROM (
+                        SELECT DISTINCT participant
+                        FROM (
+                            SELECT jsonb_array_elements_text(COALESCE(thread_roots.participants, '[]'::jsonb)) AS participant
+                            UNION
+                            SELECT $4::TEXT AS participant
+                        ) AS merged_participants
+                    ) AS deduped_participants
+                ),
+                updated_ts = $6
+            WHERE room_id = $1 AND thread_id = $2
+            "#,
+        )
+        .bind(&params.room_id)
+        .bind(&params.thread_id)
+        .bind(&params.event_id)
+        .bind(&params.sender)
+        .bind(params.origin_server_ts)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(reply)
     }
 
     pub async fn get_thread_replies(
@@ -635,6 +670,12 @@ impl ThreadStorage {
     pub async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         let mut tx = self.pool.begin().await?;
 
+        sqlx::query(r#"DELETE FROM thread_relations WHERE room_id = $1 AND thread_id = $2"#)
+            .bind(room_id)
+            .bind(thread_id)
+            .execute(&mut *tx)
+            .await?;
+
         sqlx::query(r#"DELETE FROM thread_replies WHERE room_id = $1 AND thread_id = $2"#)
             .bind(room_id)
             .bind(thread_id)
@@ -703,11 +744,74 @@ impl ThreadStorage {
     ) -> Result<Option<ThreadSummary>, sqlx::Error> {
         sqlx::query_as::<_, ThreadSummary>(
             r#"
-            SELECT id, room_id, thread_id, root_event_id, root_sender, root_content, 
-                   root_origin_server_ts, latest_event_id, latest_sender, latest_content, 
-                   latest_origin_server_ts, reply_count, participants, is_frozen, created_ts, updated_ts
-            FROM thread_summaries
-            WHERE room_id = $1 AND thread_id = $2
+            WITH root AS (
+                SELECT
+                    tr.id,
+                    tr.room_id,
+                    COALESCE(tr.thread_id, '') AS thread_id,
+                    tr.root_event_id,
+                    tr.sender AS root_sender,
+                    COALESCE(e.content, '{}'::jsonb) AS root_content,
+                    COALESCE(e.origin_server_ts, tr.created_ts) AS root_origin_server_ts,
+                    tr.is_fetched AS is_frozen,
+                    tr.created_ts,
+                    COALESCE(tr.updated_ts, tr.created_ts) AS base_updated_ts
+                FROM thread_roots tr
+                LEFT JOIN events e
+                    ON e.event_id = tr.root_event_id
+                   AND e.room_id = tr.room_id
+                WHERE tr.room_id = $1 AND tr.thread_id = $2
+            ),
+            latest_reply AS (
+                SELECT
+                    r.event_id AS latest_event_id,
+                    r.sender AS latest_sender,
+                    r.content AS latest_content,
+                    r.origin_server_ts AS latest_origin_server_ts
+                FROM thread_replies r
+                WHERE r.room_id = $1 AND r.thread_id = $2
+                ORDER BY r.origin_server_ts DESC, r.id DESC
+                LIMIT 1
+            ),
+            reply_stats AS (
+                SELECT COUNT(*)::INTEGER AS reply_count
+                FROM thread_replies
+                WHERE room_id = $1 AND thread_id = $2
+            ),
+            participants AS (
+                SELECT COALESCE(jsonb_agg(sender ORDER BY sender), '[]'::jsonb) AS participants
+                FROM (
+                    SELECT root_sender AS sender FROM root
+                    UNION
+                    SELECT DISTINCT sender
+                    FROM thread_replies
+                    WHERE room_id = $1 AND thread_id = $2
+                ) AS deduped_senders
+            )
+            SELECT
+                root.id,
+                root.room_id,
+                root.thread_id,
+                root.root_event_id,
+                root.root_sender,
+                root.root_content,
+                root.root_origin_server_ts,
+                latest_reply.latest_event_id,
+                latest_reply.latest_sender,
+                latest_reply.latest_content,
+                latest_reply.latest_origin_server_ts,
+                reply_stats.reply_count,
+                participants.participants,
+                root.is_frozen,
+                root.created_ts,
+                GREATEST(
+                    root.base_updated_ts,
+                    COALESCE(latest_reply.latest_origin_server_ts, root.base_updated_ts)
+                ) AS updated_ts
+            FROM root
+            LEFT JOIN latest_reply ON TRUE
+            CROSS JOIN reply_stats
+            CROSS JOIN participants
             "#,
         )
         .bind(room_id)
@@ -723,11 +827,47 @@ impl ThreadStorage {
     ) -> Result<Option<ThreadStatistics>, sqlx::Error> {
         sqlx::query_as::<_, ThreadStatistics>(
             r#"
-            SELECT id, room_id, thread_id, total_replies, total_participants, total_edits, 
-                   total_redactions, first_reply_ts, last_reply_ts, avg_reply_time_ms, 
-                   created_ts, updated_ts
-            FROM thread_statistics
-            WHERE room_id = $1 AND thread_id = $2
+            SELECT
+                tr.id,
+                tr.room_id,
+                COALESCE(tr.thread_id, '') AS thread_id,
+                COALESCE(reply_stats.total_replies, 0) AS total_replies,
+                COALESCE(participant_stats.total_participants, 1) AS total_participants,
+                COALESCE(reply_stats.total_edits, 0) AS total_edits,
+                COALESCE(reply_stats.total_redactions, 0) AS total_redactions,
+                reply_stats.first_reply_ts,
+                reply_stats.last_reply_ts,
+                reply_stats.avg_reply_time_ms,
+                tr.created_ts,
+                COALESCE(tr.updated_ts, tr.created_ts) AS updated_ts
+            FROM thread_roots tr
+            LEFT JOIN events e
+                ON e.event_id = tr.root_event_id
+               AND e.room_id = tr.room_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*)::INTEGER AS total_replies,
+                    COUNT(*) FILTER (WHERE is_edited)::INTEGER AS total_edits,
+                    COUNT(*) FILTER (WHERE is_redacted)::INTEGER AS total_redactions,
+                    MIN(origin_server_ts) AS first_reply_ts,
+                    MAX(origin_server_ts) AS last_reply_ts,
+                    AVG(origin_server_ts - COALESCE(e.origin_server_ts, tr.created_ts))::BIGINT AS avg_reply_time_ms
+                FROM thread_replies rr
+                WHERE rr.room_id = tr.room_id
+                  AND rr.thread_id = tr.thread_id
+            ) AS reply_stats ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*)::INTEGER AS total_participants
+                FROM (
+                    SELECT tr.sender AS sender
+                    UNION
+                    SELECT DISTINCT rr.sender
+                    FROM thread_replies rr
+                    WHERE rr.room_id = tr.room_id
+                      AND rr.thread_id = tr.thread_id
+                ) AS participant_set
+            ) AS participant_stats ON TRUE
+            WHERE tr.room_id = $1 AND tr.thread_id = $2
             "#,
         )
         .bind(room_id)
@@ -747,16 +887,65 @@ impl ThreadStorage {
 
         sqlx::query_as::<_, ThreadSummary>(
             r#"
-            SELECT id, room_id, thread_id, root_event_id, root_sender, root_content, 
-                   root_origin_server_ts, latest_event_id, latest_sender, latest_content, 
-                   latest_origin_server_ts, reply_count, participants, is_frozen, created_ts, updated_ts
-            FROM thread_summaries
-            WHERE room_id = $1 
-            AND (
-                root_content::text ILIKE $2 
-                OR latest_content::text ILIKE $2
-            )
-            ORDER BY latest_origin_server_ts DESC NULLS LAST
+            SELECT
+                tr.id,
+                tr.room_id,
+                COALESCE(tr.thread_id, '') AS thread_id,
+                tr.root_event_id,
+                tr.sender AS root_sender,
+                COALESCE(e.content, '{}'::jsonb) AS root_content,
+                COALESCE(e.origin_server_ts, tr.created_ts) AS root_origin_server_ts,
+                latest_reply.latest_event_id,
+                latest_reply.latest_sender,
+                latest_reply.latest_content,
+                latest_reply.latest_origin_server_ts,
+                COALESCE(reply_stats.reply_count, 0) AS reply_count,
+                COALESCE(participants.participants, jsonb_build_array(tr.sender)) AS participants,
+                tr.is_fetched AS is_frozen,
+                tr.created_ts,
+                GREATEST(
+                    COALESCE(tr.updated_ts, tr.created_ts),
+                    COALESCE(latest_reply.latest_origin_server_ts, COALESCE(tr.updated_ts, tr.created_ts))
+                ) AS updated_ts
+            FROM thread_roots tr
+            LEFT JOIN events e
+                ON e.event_id = tr.root_event_id
+               AND e.room_id = tr.room_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    rr.event_id AS latest_event_id,
+                    rr.sender AS latest_sender,
+                    rr.content AS latest_content,
+                    rr.origin_server_ts AS latest_origin_server_ts
+                FROM thread_replies rr
+                WHERE rr.room_id = tr.room_id
+                  AND rr.thread_id = tr.thread_id
+                ORDER BY rr.origin_server_ts DESC, rr.id DESC
+                LIMIT 1
+            ) AS latest_reply ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*)::INTEGER AS reply_count
+                FROM thread_replies rr
+                WHERE rr.room_id = tr.room_id
+                  AND rr.thread_id = tr.thread_id
+            ) AS reply_stats ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(jsonb_agg(sender ORDER BY sender), '[]'::jsonb) AS participants
+                FROM (
+                    SELECT tr.sender AS sender
+                    UNION
+                    SELECT DISTINCT rr.sender
+                    FROM thread_replies rr
+                    WHERE rr.room_id = tr.room_id
+                      AND rr.thread_id = tr.thread_id
+                ) AS participant_set
+            ) AS participants ON TRUE
+            WHERE tr.room_id = $1
+              AND (
+                  COALESCE(e.content, '{}'::jsonb)::text ILIKE $2
+                  OR COALESCE(latest_reply.latest_content, '{}'::jsonb)::text ILIKE $2
+              )
+            ORDER BY COALESCE(latest_reply.latest_origin_server_ts, e.origin_server_ts, tr.created_ts) DESC NULLS LAST
             LIMIT $3
             "#,
         )

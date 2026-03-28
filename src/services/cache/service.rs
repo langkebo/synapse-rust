@@ -88,7 +88,9 @@ impl CacheService {
         let full_key = key.to_string();
         let now = chrono::Utc::now().timestamp_millis();
 
-        let expires_at = ttl_seconds.map(|ttl| now + (ttl as i64 * 1000));
+        let expires_at = ttl_seconds
+            .filter(|ttl| *ttl > 0)
+            .map(|ttl| now + (ttl as i64 * 1000));
 
         if cache.entries.len() >= cache.max_entries && !cache.entries.contains_key(&full_key) {
             self.evict_lru(&mut cache).await;

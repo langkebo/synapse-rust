@@ -11,8 +11,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 MIGRATIONS_DIR="$PROJECT_ROOT/migrations"
-DOCKER_COMPOSE_FILE="$PROJECT_ROOT/docker/docker-compose.local.yml"
-CONTAINER_NAME="synapse-postgres-local"
+DOCKER_COMPOSE_FILE="$PROJECT_ROOT/docker/docker-compose.yml"
+DB_SERVICE_NAME="db"
 DB_NAME="synapse_test"
 DB_USER="synapse"
 
@@ -40,22 +40,25 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+compose_exec_db() {
+    docker compose -f "$DOCKER_COMPOSE_FILE" exec -T "$DB_SERVICE_NAME" "$@"
+}
+
 # 检查 Docker 容器是否运行
 check_container() {
-    if ! docker ps | grep -q "$CONTAINER_NAME"; then
-        log_error "Container $CONTAINER_NAME is not running"
+    if ! docker compose -f "$DOCKER_COMPOSE_FILE" ps "$DB_SERVICE_NAME" | grep -q "running"; then
+        log_error "Service $DB_SERVICE_NAME is not running"
         log_info "Starting container..."
-        cd "$PROJECT_ROOT/docker"
-        docker compose -f docker-compose.local.yml up -d postgres-local
+        docker compose -f "$DOCKER_COMPOSE_FILE" up -d "$DB_SERVICE_NAME"
         sleep 5
     fi
-    log_success "Container $CONTAINER_NAME is running"
+    log_success "Service $DB_SERVICE_NAME is running"
 }
 
 # 检查 schema_migrations 表是否存在
 check_migrations_table() {
     log_info "Checking schema_migrations table..."
-    docker exec "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" -c "
+    compose_exec_db psql -U "$DB_USER" -d "$DB_NAME" -c "
         CREATE TABLE IF NOT EXISTS schema_migrations (
             version VARCHAR(50) PRIMARY KEY,
             name VARCHAR(255) NOT NULL,
@@ -68,7 +71,7 @@ check_migrations_table() {
 
 # 获取已应用的迁移列表
 get_applied_migrations() {
-    docker exec "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" -t -c "
+    compose_exec_db psql -U "$DB_USER" -d "$DB_NAME" -t -c "
         SELECT version FROM schema_migrations ORDER BY version;
     " 2>/dev/null | tr -d ' '
 }
@@ -107,7 +110,7 @@ apply_migration() {
     log_info "Creating backup point: $backup_name"
     
     # 执行迁移
-    if docker exec -i "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" < "$migration_file" 2>&1; then
+    if compose_exec_db psql -U "$DB_USER" -d "$DB_NAME" < "$migration_file" 2>&1; then
         log_success "Migration applied successfully: $filename"
         return 0
     else
@@ -194,7 +197,7 @@ verify_migrations() {
     local tables=("users" "rooms" "events" "device_keys" "one_time_keys" "key_backups" "backup_keys")
     
     for table in "${tables[@]}"; do
-        local exists=$(docker exec "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" -t -c "
+        local exists=$(compose_exec_db psql -U "$DB_USER" -d "$DB_NAME" -t -c "
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
                 WHERE table_name = '$table'

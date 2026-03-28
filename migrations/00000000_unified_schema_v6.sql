@@ -272,21 +272,66 @@ CREATE INDEX IF NOT EXISTS idx_events_not_redacted ON events(room_id, origin_ser
 -- 房间摘要表
 -- 存储房间的摘要信息
 CREATE TABLE IF NOT EXISTS room_summaries (
+    id BIGSERIAL,
     room_id TEXT NOT NULL,
+    room_type TEXT,
     name TEXT,
     topic TEXT,
+    avatar_url TEXT,
     canonical_alias TEXT,
+    join_rules TEXT NOT NULL DEFAULT 'invite',
+    history_visibility TEXT NOT NULL DEFAULT 'shared',
+    guest_access TEXT NOT NULL DEFAULT 'forbidden',
+    is_direct BOOLEAN NOT NULL DEFAULT FALSE,
+    is_space BOOLEAN NOT NULL DEFAULT FALSE,
+    is_encrypted BOOLEAN NOT NULL DEFAULT FALSE,
     member_count BIGINT DEFAULT 0,
-    joined_members BIGINT DEFAULT 0,
-    invited_members BIGINT DEFAULT 0,
-    hero_users JSONB,
-    is_world_readable BOOLEAN DEFAULT FALSE,
-    can_guest_join BOOLEAN DEFAULT FALSE,
-    is_federated BOOLEAN DEFAULT TRUE,
-    encryption_state TEXT,
-    updated_ts BIGINT,
-    CONSTRAINT pk_room_summaries PRIMARY KEY (room_id)
+    joined_member_count BIGINT DEFAULT 0,
+    invited_member_count BIGINT DEFAULT 0,
+    hero_users JSONB NOT NULL DEFAULT '[]',
+    last_event_id TEXT,
+    last_event_ts BIGINT,
+    last_message_ts BIGINT,
+    unread_notifications BIGINT NOT NULL DEFAULT 0,
+    unread_highlight BIGINT NOT NULL DEFAULT 0,
+    updated_ts BIGINT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_room_summaries PRIMARY KEY (room_id),
+    CONSTRAINT uq_room_summaries_id UNIQUE (id),
+    CONSTRAINT fk_room_summaries_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_room_summaries_last_event_ts
+ON room_summaries(last_event_ts DESC);
+
+CREATE INDEX IF NOT EXISTS idx_room_summaries_space
+ON room_summaries(is_space)
+WHERE is_space = TRUE;
+
+CREATE TABLE IF NOT EXISTS room_summary_members (
+    id BIGSERIAL PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    display_name TEXT,
+    avatar_url TEXT,
+    membership TEXT NOT NULL,
+    is_hero BOOLEAN NOT NULL DEFAULT FALSE,
+    last_active_ts BIGINT,
+    updated_ts BIGINT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT uq_room_summary_members_room_user UNIQUE (room_id, user_id),
+    CONSTRAINT fk_room_summary_members_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
+    CONSTRAINT fk_room_summary_members_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_room_summary_members_user_membership_room
+ON room_summary_members(user_id, membership, room_id);
+
+CREATE INDEX IF NOT EXISTS idx_room_summary_members_room_membership_hero_active
+ON room_summary_members(room_id, membership, is_hero DESC, last_active_ts DESC);
+
+CREATE INDEX IF NOT EXISTS idx_room_summary_members_room_hero_user
+ON room_summary_members(room_id, is_hero DESC, user_id);
 
 -- 房间目录表
 -- 存储公开房间目录
@@ -323,7 +368,7 @@ CREATE INDEX IF NOT EXISTS idx_room_aliases_room_id ON room_aliases(room_id);
 CREATE TABLE IF NOT EXISTS thread_roots (
     id BIGSERIAL,
     room_id TEXT NOT NULL,
-    event_id TEXT NOT NULL,
+    root_event_id TEXT NOT NULL,
     sender TEXT NOT NULL,
     thread_id TEXT,
     reply_count BIGINT DEFAULT 0,
@@ -335,14 +380,68 @@ CREATE TABLE IF NOT EXISTS thread_roots (
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
     CONSTRAINT pk_thread_roots PRIMARY KEY (id),
-    CONSTRAINT uq_thread_roots_room_event UNIQUE (room_id, event_id),
+    CONSTRAINT uq_thread_roots_room_root_event UNIQUE (room_id, root_event_id),
     CONSTRAINT fk_thread_roots_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_thread_roots_room ON thread_roots(room_id);
-CREATE INDEX IF NOT EXISTS idx_thread_roots_event ON thread_roots(event_id);
+CREATE INDEX IF NOT EXISTS idx_thread_roots_root_event ON thread_roots(root_event_id);
 CREATE INDEX IF NOT EXISTS idx_thread_roots_thread ON thread_roots(thread_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_thread_roots_room_thread_unique
+ON thread_roots(room_id, thread_id)
+WHERE thread_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_thread_roots_room_last_reply_created
+ON thread_roots(room_id, last_reply_ts DESC, created_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_thread_roots_last_reply ON thread_roots(last_reply_ts DESC) WHERE last_reply_ts IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS thread_replies (
+    id BIGSERIAL PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    root_event_id TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    in_reply_to_event_id TEXT,
+    content JSONB NOT NULL DEFAULT '{}',
+    origin_server_ts BIGINT NOT NULL,
+    is_edited BOOLEAN NOT NULL DEFAULT FALSE,
+    is_redacted BOOLEAN NOT NULL DEFAULT FALSE,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT uq_thread_replies_room_event UNIQUE (room_id, event_id),
+    CONSTRAINT fk_thread_replies_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_thread_replies_room_thread_ts
+ON thread_replies(room_id, thread_id, origin_server_ts ASC);
+
+CREATE INDEX IF NOT EXISTS idx_thread_replies_room_event
+ON thread_replies(room_id, event_id);
+
+CREATE INDEX IF NOT EXISTS idx_thread_replies_room_thread_event
+ON thread_replies(room_id, thread_id, event_id);
+
+CREATE TABLE IF NOT EXISTS thread_relations (
+    id BIGSERIAL PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    relates_to_event_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL,
+    thread_id TEXT,
+    is_falling_back BOOLEAN NOT NULL DEFAULT FALSE,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT uq_thread_relations_room_event_type UNIQUE (room_id, event_id, relation_type),
+    CONSTRAINT fk_thread_relations_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_thread_relations_room_event
+ON thread_relations(room_id, event_id);
+
+CREATE INDEX IF NOT EXISTS idx_thread_relations_room_relates_to
+ON thread_relations(room_id, relates_to_event_id);
+
+CREATE INDEX IF NOT EXISTS idx_thread_relations_room_thread
+ON thread_relations(room_id, thread_id)
+WHERE thread_id IS NOT NULL;
 
 -- 线程统计表 (Thread Statistics)
 -- 注意: 此表已废弃，功能已合并到 thread_roots
@@ -564,6 +663,32 @@ CREATE TABLE IF NOT EXISTS e2ee_key_requests (
 CREATE INDEX IF NOT EXISTS idx_e2ee_key_requests_user ON e2ee_key_requests(user_id);
 CREATE INDEX IF NOT EXISTS idx_e2ee_key_requests_session ON e2ee_key_requests(session_id);
 CREATE INDEX IF NOT EXISTS idx_e2ee_key_requests_pending ON e2ee_key_requests(is_fulfilled) WHERE is_fulfilled = FALSE;
+
+CREATE TABLE IF NOT EXISTS device_verification_request (
+    id BIGSERIAL,
+    user_id TEXT NOT NULL,
+    new_device_id TEXT NOT NULL,
+    requesting_device_id TEXT,
+    verification_method TEXT NOT NULL,
+    status TEXT NOT NULL,
+    request_token TEXT NOT NULL,
+    commitment TEXT,
+    pubkey TEXT,
+    created_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ,
+    CONSTRAINT pk_device_verification_request PRIMARY KEY (id),
+    CONSTRAINT uq_device_verification_request_token UNIQUE (request_token),
+    CONSTRAINT fk_device_verification_request_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_verification_request_user_device_pending
+ON device_verification_request(user_id, new_device_id)
+WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_device_verification_request_expires_pending
+ON device_verification_request(expires_at)
+WHERE status = 'pending';
 
 -- ============================================================================
 -- 第四部分：媒体存储表
@@ -1082,7 +1207,7 @@ CREATE TABLE IF NOT EXISTS openid_tokens (
     user_id TEXT NOT NULL,
     device_id TEXT,
     created_ts BIGINT NOT NULL,
-    expires_ts BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL,
     is_valid BOOLEAN DEFAULT TRUE,
     CONSTRAINT pk_openid_tokens PRIMARY KEY (id),
     CONSTRAINT uq_openid_tokens_token UNIQUE (token),
@@ -1597,6 +1722,34 @@ CREATE TABLE IF NOT EXISTS room_invites (
 
 CREATE INDEX IF NOT EXISTS idx_room_invites_room ON room_invites(room_id);
 CREATE INDEX IF NOT EXISTS idx_room_invites_invitee ON room_invites(invitee);
+
+CREATE TABLE IF NOT EXISTS room_invite_blocklist (
+    id BIGSERIAL,
+    room_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_room_invite_blocklist PRIMARY KEY (id),
+    CONSTRAINT uq_room_invite_blocklist_room_user UNIQUE (room_id, user_id),
+    CONSTRAINT fk_room_invite_blocklist_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
+    CONSTRAINT fk_room_invite_blocklist_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_room_invite_blocklist_room ON room_invite_blocklist(room_id);
+CREATE INDEX IF NOT EXISTS idx_room_invite_blocklist_user ON room_invite_blocklist(user_id);
+
+CREATE TABLE IF NOT EXISTS room_invite_allowlist (
+    id BIGSERIAL,
+    room_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_room_invite_allowlist PRIMARY KEY (id),
+    CONSTRAINT uq_room_invite_allowlist_room_user UNIQUE (room_id, user_id),
+    CONSTRAINT fk_room_invite_allowlist_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
+    CONSTRAINT fk_room_invite_allowlist_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_room_invite_allowlist_room ON room_invite_allowlist(room_id);
+CREATE INDEX IF NOT EXISTS idx_room_invite_allowlist_user ON room_invite_allowlist(user_id);
 
 -- ============================================================================
 -- 推送通知队列表
@@ -2279,6 +2432,28 @@ CREATE TABLE IF NOT EXISTS thread_subscriptions (
 
 CREATE INDEX IF NOT EXISTS idx_thread_subscriptions_room_thread ON thread_subscriptions(room_id, thread_id);
 
+CREATE TABLE IF NOT EXISTS thread_read_receipts (
+    id BIGSERIAL PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    last_read_event_id TEXT,
+    last_read_ts BIGINT NOT NULL DEFAULT 0,
+    unread_count INTEGER NOT NULL DEFAULT 0,
+    updated_ts BIGINT NOT NULL,
+    CONSTRAINT uq_thread_read_receipts_room_thread_user UNIQUE (room_id, thread_id, user_id),
+    CONSTRAINT fk_thread_read_receipts_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
+    CONSTRAINT fk_thread_read_receipts_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_thread_read_receipts_user_unread
+ON thread_read_receipts(user_id, updated_ts DESC)
+WHERE unread_count > 0;
+
+CREATE INDEX IF NOT EXISTS idx_thread_read_receipts_user_room_unread
+ON thread_read_receipts(user_id, room_id, updated_ts DESC)
+WHERE unread_count > 0;
+
 -- Space 层级结构表
 CREATE TABLE IF NOT EXISTS space_hierarchy (
     id BIGSERIAL PRIMARY KEY,
@@ -2361,18 +2536,34 @@ CREATE INDEX IF NOT EXISTS idx_db_metadata_key ON db_metadata(key);
 -- 保留策略表 (服务器级)
 CREATE TABLE IF NOT EXISTS server_retention_policy (
     id BIGSERIAL,
-    policy_name TEXT NOT NULL,
-    min_lifetime_days INTEGER DEFAULT 90,
-    max_lifetime_days INTEGER DEFAULT 365,
-    allow_per_room_override BOOLEAN DEFAULT TRUE,
-    is_default BOOLEAN DEFAULT FALSE,
+    max_lifetime BIGINT,
+    min_lifetime BIGINT NOT NULL DEFAULT 0,
+    expire_on_clients BOOLEAN NOT NULL DEFAULT FALSE,
     created_ts BIGINT NOT NULL,
-    updated_ts BIGINT,
-    CONSTRAINT pk_server_retention_policy PRIMARY KEY (id),
-    CONSTRAINT uq_server_retention_policy_name UNIQUE (policy_name)
+    updated_ts BIGINT NOT NULL,
+    CONSTRAINT pk_server_retention_policy PRIMARY KEY (id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_server_retention_policy_default ON server_retention_policy(is_default) WHERE is_default = TRUE;
+INSERT INTO server_retention_policy (id, max_lifetime, min_lifetime, expire_on_clients, created_ts, updated_ts)
+VALUES (1, NULL, 0, FALSE, 0, 0)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS room_retention_policies (
+    id BIGSERIAL PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    max_lifetime BIGINT,
+    min_lifetime BIGINT NOT NULL DEFAULT 0,
+    expire_on_clients BOOLEAN NOT NULL DEFAULT FALSE,
+    is_server_default BOOLEAN NOT NULL DEFAULT FALSE,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL,
+    CONSTRAINT uq_room_retention_policies_room UNIQUE (room_id),
+    CONSTRAINT fk_room_retention_policies_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_room_retention_policies_server_default
+ON room_retention_policies(is_server_default)
+WHERE is_server_default = TRUE;
 
 -- 用户媒体配额表
 CREATE TABLE IF NOT EXISTS user_media_quota (

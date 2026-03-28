@@ -184,6 +184,10 @@ pub struct OidcTokenResponse {
     pub expires_in: i64,
     pub refresh_token: Option<String>,
     pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matrix_user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
 }
 
 /// OIDC Token 端点
@@ -218,6 +222,8 @@ async fn oidc_token(
             expires_in: token_response.expires_in,
             refresh_token: token_response.refresh_token,
             scope: token_response.scope.unwrap_or_default(),
+            matrix_user_id: None,
+            device_id: None,
         }));
     }
 
@@ -294,27 +300,51 @@ async fn oidc_token(
                     })?;
             }
 
-            // TODO: 生成设备ID和Matrix Access Token
-            // 由于目前的 OidcTokenResponse 结构不支持直接返回 Matrix token，
-            // 真实生产中，Matrix 客户端期望在 /login 之后获得 Matrix token。
-            // 现阶段，保留原始 OIDC 响应以供调试和过渡
-
-            // 记录成功事件
-            tracing::info!(
-                "OIDC token exchange successful for sub: {}, mapped to Matrix user: {}",
-                oidc_user.subject,
-                matrix_user_id
+            // 生成设备ID
+            let device_id = format!(
+                "OIDC{}",
+                &uuid::Uuid::new_v4().to_string().replace("-", "")[..8]
             );
 
-            // 这里后续需要完成用户自动创建、Token分配等逻辑
-            // 目前先返回标准的 OIDC 成功响应
+            // 注册设备
+            state
+                .services
+                .device_storage
+                .create_device(&device_id, &matrix_user_id, Some("OIDC Device"))
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
+
+            // 生成 Matrix Access Token
+            let is_admin = state
+                .services
+                .user_storage
+                .get_user_by_username(&localpart)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get user: {}", e)))?
+                .map(|u| u.is_admin)
+                .unwrap_or(false);
+
+            let matrix_token = state
+                .services
+                .auth_service
+                .generate_access_token(&matrix_user_id, &device_id, is_admin)
+                .await?;
+
+            tracing::info!(
+                "OIDC token exchange successful for sub: {}, mapped to Matrix user: {}, device_id: {}",
+                oidc_user.subject,
+                matrix_user_id,
+                device_id
+            );
 
             Ok(Json(OidcTokenResponse {
-                access_token: token_response.access_token,
-                token_type: token_response.token_type,
-                expires_in: token_response.expires_in.unwrap_or(3600),
+                access_token: matrix_token,
+                token_type: "Bearer".to_string(),
+                expires_in: 3600,
                 refresh_token: token_response.refresh_token,
                 scope: scope.unwrap_or_else(|| "openid profile email".to_string()),
+                matrix_user_id: Some(matrix_user_id),
+                device_id: Some(device_id),
             }))
         }
         "refresh_token" => {
@@ -337,6 +367,8 @@ async fn oidc_token(
                 expires_in: token_response.expires_in.unwrap_or(3600),
                 refresh_token: token_response.refresh_token,
                 scope: scope.unwrap_or_else(|| "openid profile email".to_string()),
+                matrix_user_id: None,
+                device_id: None,
             }))
         }
         _ => Err(ApiError::bad_request(format!(
@@ -468,8 +500,6 @@ async fn oidc_logout(
     auth_user: AuthenticatedUser,
     Json(body): Json<OidcLogoutRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let pool = state.services.user_storage.pool.clone();
-
     // 如果提供了设备 ID，则删除该设备
     if let Some(device_id) = body.device_id {
         state
@@ -482,11 +512,11 @@ async fn oidc_logout(
 
     // 如果提供了 refresh_token，则尝试撤销
     if let Some(refresh_token) = body.refresh_token {
-        sqlx::query("DELETE FROM refresh_tokens WHERE token = $1")
-            .bind(&refresh_token)
-            .execute(&*pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to revoke token: {}", e)))?;
+        state
+            .services
+            .refresh_token_service
+            .revoke_token(&refresh_token, "OIDC logout")
+            .await?;
     }
 
     tracing::info!("OIDC logout for user: {}", auth_user.user_id);

@@ -1,5 +1,6 @@
 use crate::common::*;
 use crate::services::*;
+use crate::storage::PresenceStorage;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -770,7 +771,7 @@ impl SyncService {
                     "topic": r.topic,
                     "canonical_alias": r.canonical_alias,
                     "is_public": r.is_public,
-                    "join_rule": r.join_rules
+                    "join_rule": r.join_rule
                 })
             })
             .collect();

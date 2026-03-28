@@ -7,7 +7,6 @@ use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
-use tracing::info;
 
 use crate::cache::*;
 use crate::common::config::Config;
@@ -21,11 +20,9 @@ use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
 use crate::web::middleware::{
     check_cors_security, log_cors_security_report, panic_catcher_middleware,
     request_timeout_middleware, validate_bind_address_for_dev_mode,
-    validate_cors_config_for_production,
 };
 use crate::web::routes::create_router;
 use crate::web::AppState;
-use tracing::{error, warn};
 
 const DEFAULT_MAX_LIFETIME: Duration = Duration::from_secs(1800);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
@@ -50,13 +47,14 @@ impl SynapseServer {
         let cors_report = check_cors_security();
         log_cors_security_report(&cors_report);
 
-        if let Err(e) = validate_cors_config_for_production() {
-            tracing::error!("CORS configuration validation failed: {}", e);
+        if !cors_report.errors.is_empty() {
+            let e = cors_report.errors.join("; ");
+            ::tracing::error!("CORS configuration validation failed: {}", e);
             return Err(e.into());
         }
 
         if let Err(e) = validate_bind_address_for_dev_mode(&config.server.host) {
-            tracing::warn!("{}", e);
+            ::tracing::warn!("{}", e);
         }
 
         let pool_options = PgPoolOptions::new()
@@ -67,10 +65,10 @@ impl SynapseServer {
             .idle_timeout(DEFAULT_IDLE_TIMEOUT)
             .test_before_acquire(true);
 
-        info!("Connecting to database with optimized pool settings...");
-        info!("  Max connections: {}", config.database.max_size);
-        info!("  Min idle connections: {:?}", config.database.min_idle);
-        info!(
+        ::tracing::info!("Connecting to database with optimized pool settings...");
+        ::tracing::info!("  Max connections: {}", config.database.max_size);
+        ::tracing::info!("  Min idle connections: {:?}", config.database.min_idle);
+        ::tracing::info!(
             "  Connection timeout: {}s",
             config.database.connection_timeout
         );
@@ -80,21 +78,21 @@ impl SynapseServer {
         let pool = Arc::new(pool);
 
         // 运行数据库 Schema 健康检查
-        info!("Running database schema health check...");
+        ::tracing::info!("Running database schema health check...");
         match run_schema_health_check(&pool, true).await {
             Ok(result) => {
                 if result.passed {
-                    info!("✅ Database schema validation PASSED");
+                    ::tracing::info!("✅ Database schema validation PASSED");
                 } else {
-                    error!("❌ Database schema validation FAILED");
+                    ::tracing::error!("❌ Database schema validation FAILED");
                     if !result.missing_tables.is_empty() {
-                        error!("  Missing tables: {:?}", result.missing_tables);
+                        ::tracing::error!("  Missing tables: {:?}", result.missing_tables);
                     }
                     if !result.missing_columns.is_empty() {
-                        error!("  Missing columns: {:?}", result.missing_columns);
+                        ::tracing::error!("  Missing columns: {:?}", result.missing_columns);
                     }
                     if !result.repaired_indexes.is_empty() {
-                        info!("  Repaired indexes: {:?}", result.repaired_indexes);
+                        ::tracing::info!("  Repaired indexes: {:?}", result.repaired_indexes);
                     }
                     // 如果有严重问题（缺少表或列），退出
                     if !result.missing_tables.is_empty() || !result.missing_columns.is_empty() {
@@ -105,11 +103,11 @@ impl SynapseServer {
                     }
                 }
                 if !result.warnings.is_empty() {
-                    warn!("Schema warnings (non-critical): {:?}", result.warnings);
+                    ::tracing::warn!("Schema warnings (non-critical): {:?}", result.warnings);
                 }
             }
             Err(e) => {
-                error!("Failed to run schema health check: {}", e);
+                ::tracing::error!("Failed to run schema health check: {}", e);
                 // 非致命错误，继续启动
             }
         }
@@ -121,16 +119,17 @@ impl SynapseServer {
         let mut task_queue: Option<Arc<RedisTaskQueue>> = None;
 
         let cache = if config.redis.enabled {
-            info!(
+            ::tracing::info!(
                 "Redis enabled. Connecting to: {}:{}",
-                config.redis.host, config.redis.port
+                config.redis.host,
+                config.redis.port
             );
 
             let conn_str = format!("redis://{}:{}", config.redis.host, config.redis.port);
             let redis_cfg = deadpool_redis::Config::from_url(&conn_str);
             let redis_pool = redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
 
-            info!("Redis pool created.");
+            ::tracing::info!("Redis pool created.");
 
             let tq = RedisTaskQueue::from_pool(redis_pool.clone());
             task_queue = Some(Arc::new(tq));
@@ -142,14 +141,14 @@ impl SynapseServer {
             ));
 
             if let Err(e) = cache.start_invalidation_subscriber().await {
-                tracing::warn!("Failed to start cache invalidation subscriber: {}", e);
+                ::tracing::warn!("Failed to start cache invalidation subscriber: {}", e);
             } else {
-                info!("Cache invalidation subscriber started successfully");
+                ::tracing::info!("Cache invalidation subscriber started successfully");
             }
 
             cache
         } else {
-            info!("Redis disabled. Using local in-memory cache.");
+            ::tracing::info!("Redis disabled. Using local in-memory cache.");
             Arc::new(CacheManager::new(CacheConfig::default()))
         };
 
@@ -169,11 +168,11 @@ impl SynapseServer {
                     let config = manager.get_config();
                     let handle =
                         start_config_watcher(manager.clone(), config.reload_interval_seconds).await;
-                    info!("Rate limit config loaded from {:?}", rate_limit_config_path);
+                    ::tracing::info!("Rate limit config loaded from {:?}", rate_limit_config_path);
                     (Some(manager), Some(handle))
                 }
                 Err(e) => {
-                    tracing::warn!(
+                    ::tracing::warn!(
                         "Failed to load rate limit config from {:?}: {}. Using default config.",
                         rate_limit_config_path,
                         e
@@ -187,7 +186,7 @@ impl SynapseServer {
                 }
             }
         } else {
-            info!(
+            ::tracing::info!(
                 "Rate limit config file not found at {:?}. Using default config.",
                 rate_limit_config_path.display()
             );
@@ -212,8 +211,11 @@ impl SynapseServer {
 
         let address =
             format!("{}:{}", config.server.host, config.server.port).parse::<SocketAddr>()?;
-        let federation_address = format!("{}:{}", config.server.host, config.federation.federation_port)
-            .parse::<SocketAddr>()?;
+        let federation_address = format!(
+            "{}:{}",
+            config.server.host, config.federation.federation_port
+        )
+        .parse::<SocketAddr>()?;
         let media_path = std::path::PathBuf::from("/app/data/media");
 
         let router = create_router((*app_state).clone())
@@ -292,14 +294,14 @@ impl SynapseServer {
     }
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Starting Synapse Rust Matrix Server...");
-        info!("Server name: {}", self.app_state.services.server_name);
-        info!("Listening on (Client API): {}", self.address);
-        info!("Listening on (Federation): {}", self.federation_address);
-        info!("Media storage: {}", self.media_path.display());
+        ::tracing::info!("Starting Synapse Rust Matrix Server...");
+        ::tracing::info!("Server name: {}", self.app_state.services.server_name);
+        ::tracing::info!("Listening on (Client API): {}", self.address);
+        ::tracing::info!("Listening on (Federation): {}", self.federation_address);
+        ::tracing::info!("Media storage: {}", self.media_path.display());
 
         if let Err(e) = self.warmup().await {
-            tracing::warn!("Warmup encountered minor errors: {}", e);
+            ::tracing::warn!("Warmup encountered minor errors: {}", e);
         }
 
         self.app_state
@@ -308,7 +310,7 @@ impl SynapseServer {
             .start_auto_rotation()
             .await;
 
-        info!("Starting scheduled database monitoring and maintenance tasks...");
+        ::tracing::info!("Starting scheduled database monitoring and maintenance tasks...");
         self.scheduled_tasks.start_all().await;
 
         let router = self.router.clone();
@@ -330,7 +332,8 @@ impl SynapseServer {
                 .with_graceful_shutdown(async move {
                     shutdown_rx1.recv().await.ok();
                 })
-                .await.ok();
+                .await
+                .ok();
             let _ = client_tx.send(());
         });
 
@@ -339,23 +342,24 @@ impl SynapseServer {
                 .with_graceful_shutdown(async move {
                     shutdown_rx2.recv().await.ok();
                 })
-                .await.ok();
+                .await
+                .ok();
             let _ = fed_tx.send(());
         });
 
-        info!("All servers started successfully");
+        ::tracing::info!("All servers started successfully");
 
         client_rx.await.ok();
         fed_rx.await.ok();
 
-        info!("Servers shutdown complete");
+        ::tracing::info!("Servers shutdown complete");
         Ok(())
     }
 
     async fn warmup(&self) -> Result<(), Box<dyn std::error::Error>> {
         let pool = &self.app_state.services.user_storage.pool;
 
-        info!("Performing system warmup...");
+        ::tracing::info!("Performing system warmup...");
 
         sqlx::query("SELECT 1").execute(&**pool).await?;
 
@@ -363,7 +367,7 @@ impl SynapseServer {
             .fetch_one(&**pool)
             .await?;
 
-        info!("Warmup completed successfully.");
+        ::tracing::info!("Warmup completed successfully.");
         Ok(())
     }
 

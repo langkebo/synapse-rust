@@ -132,11 +132,11 @@
 - ✅ 规范内容完整
 - ⏳ 需要验证规范执行情况
 
-### 任务 11: 建立表结构变更检查清单 🔄
+### 任务 11: 建立表结构变更检查清单 ✅
 
-**交付物**: `docs/db/change_checklist.md`
+**交付物**: `docs/db/VERIFICATION_CHECKLIST.md`
 
-**状态**: 已创建基本框架
+**状态**: 已整合
 
 包含内容:
 - SQL 迁移脚本检查清单
@@ -178,7 +178,7 @@
 | 20260320000002_rename_olm_boolean_fields | ✅ | 1774000235519 |
 | 20260321000001_add_device_trust_tables | ✅ | 1774000235664 |
 | 20260321000003_add_secure_backup_tables | ✅ | 1774000235783 |
-| UNIFIED_MIGRATION_v1 | ✅ | 1774000235981 |
+| 99999999_unified_incremental_migration | ✅ | 1774000235981 |
 | 20260321000005_fix_timestamp_fields | ✅ | 1774013987143 |
 
 ---
@@ -226,7 +226,7 @@ curl http://localhost:28008/_matrix/client/versions
 | table_diff_report.md | - | ❌ 被删除 |
 | field_naming_report.md | - | ❌ 被删除 |
 | index_analysis_report.md | - | ❌ 被删除 |
-| change_checklist.md | - | ❌ 被删除 |
+| VERIFICATION_CHECKLIST.md | ~6KB | ✅ 已保留 |
 | performance_comparison.md | - | ❌ 被删除 |
 | db_optimization_plan.md | - | ❌ 被删除 |
 

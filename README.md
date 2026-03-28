@@ -70,7 +70,7 @@ cargo run --release
 ## 文档
 
 - API 参考：`docs/synapse-rust/API_DOCUMENTATION.md`
-- 实现指南：`docs/synapse-rust/implementation-guide.md`
+- 工程收口计划：`docs/API-OPTION/engineering-optimization-plan.md`
 - 部署指南：`docs/synapse-rust/DEPLOYMENT_GUIDE.md`
 
 ## 私密聊天功能集成指南 (Private Chat Features)

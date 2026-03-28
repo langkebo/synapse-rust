@@ -3,6 +3,7 @@ use crate::services::telemetry_service::{ExportConfig, TelemetryService};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{extract::State, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::Arc;
 
 #[derive(Debug, Serialize)]
@@ -99,20 +100,12 @@ pub async fn get_resource_attributes(
 }
 
 pub async fn get_metrics_summary(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     _admin_user: AdminUser,
-) -> Result<impl IntoResponse, ApiError> {
-    let _config = &state.services.config.telemetry;
-
-    let response = MetricsSummaryResponse {
-        total_spans: 0,
-        total_metrics: 0,
-        active_traces: 0,
-        export_errors: 0,
-        last_export: None,
-    };
-
-    Ok(Json(response))
+) -> Result<Json<Value>, ApiError> {
+    Err(ApiError::Unrecognized(
+        "Telemetry metrics summary is not implemented".to_string(),
+    ))
 }
 
 pub async fn health_check(

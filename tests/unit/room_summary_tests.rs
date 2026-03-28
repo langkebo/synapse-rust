@@ -114,6 +114,8 @@ mod tests {
         let pos = StreamPosition {
             stream_name: "events".to_string(),
             position: 100,
+            instance_name: "main".to_string(),
+            updated_ts: 1234567890,
         };
 
         assert_eq!(pos.stream_name, "events");
@@ -123,7 +125,7 @@ mod tests {
     #[test]
     fn test_room_summary_to_response() {
         let summary = RoomSummary {
-            id: 1,
+            id: Some(1),
             room_id: "!test:example.com".to_string(),
             room_type: Some("m.space".to_string()),
             name: Some("Test Room".to_string()),
@@ -145,8 +147,8 @@ mod tests {
             last_message_ts: Some(1234567800),
             unread_notifications: 5,
             unread_highlight: 1,
-            updated_ts: 1234567890,
-            created_ts: 1234560000,
+            updated_ts: Some(1234567890),
+            created_ts: Some(1234560000),
         };
 
         let heroes = vec![RoomSummaryHero {

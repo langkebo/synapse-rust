@@ -496,6 +496,10 @@ pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::
     response
 }
 
+// ============================================================================
+// SECTION: Utility Functions
+// ============================================================================
+
 fn is_dev_mode() -> bool {
     std::env::var("RUST_ENV")
         .unwrap_or_else(|_| "production".to_string())
@@ -953,6 +957,10 @@ pub async fn auth_middleware(
     next.run(request).await
 }
 
+// ============================================================================
+// SECTION: Federation Authentication
+// ============================================================================
+
 pub async fn federation_auth_middleware(
     State(state): State<crate::web::routes::AppState>,
     request: Request<Body>,
@@ -1090,6 +1098,10 @@ struct XMatrixAuthParams {
     sig: String,
 }
 
+// ============================================================================
+// SECTION: Federation Request Parsing
+// ============================================================================
+
 fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams> {
     let header_value = header_value.trim();
     let header_value = header_value.strip_prefix("X-Matrix ")?;
@@ -1121,6 +1133,10 @@ fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams>
         sig: sig?,
     })
 }
+
+// ============================================================================
+// SECTION: Federation Signature Computation
+// ============================================================================
 
 fn canonical_federation_request_bytes(
     method: &str,
@@ -1518,6 +1534,10 @@ fn decode_ed25519_signature(sig: &str) -> Result<ed25519_dalek::Signature, ()> {
     }
     Err(())
 }
+
+// ============================================================================
+// SECTION: Rate Limiting Helpers
+// ============================================================================
 
 fn select_endpoint_rule<'a>(
     config: &'a crate::common::config::RateLimitConfig,
@@ -1924,11 +1944,21 @@ mod tests {
             let report = check_cors_security();
 
             assert!(!report.is_development_mode, "Should not be in dev mode");
-            assert!(report.allows_any_origin, "Should allow any origin with wildcard");
-            assert!(!report.errors.is_empty(), "Should have errors with wildcard in production");
+            assert!(
+                report.allows_any_origin,
+                "Should allow any origin with wildcard"
+            );
+            assert!(
+                !report.errors.is_empty(),
+                "Should have errors with wildcard in production"
+            );
 
             let validation = validate_cors_config_for_production();
-            assert!(validation.is_err(), "Validation should fail with wildcard origin in production: {:?}", validation);
+            assert!(
+                validation.is_err(),
+                "Validation should fail with wildcard origin in production: {:?}",
+                validation
+            );
         })
         .join()
         .expect("Thread panicked");

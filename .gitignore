@@ -1,8 +1,11 @@
 target/
-Cargo.lock
 *.local
 docker/postgres_data/
 docker/imags/*.tar
+data/
+docker/data/
+docker/ssl/
+docker/nginx/ssl/
 
 # 环境变量文件（包含敏感信息）
 .env
@@ -13,6 +16,7 @@ docker/imags/*.tar
 .sqlx/
 
 # 临时文件和日志
+*.db
 *.log
 *.tmp
 *.bak

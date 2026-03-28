@@ -1,258 +1,123 @@
 # Tasks
 
-## Phase 1: Space 模块排查与优化 (21 个端点)
+## 阶段零：验证基线恢复
 
-- [x] Task 1.1: 检查 Space 模块所有端点实现
-  - [x] SubTask 1.1.1: 列出所有 Space 端点（21 个）
-  - [x] SubTask 1.1.2: 检查每个端点的路由实现
-  - [x] SubTask 1.1.3: 验证端点对应的处理函数
+- [x] Task 0.1: 恢复全局测试入口
+  - [x] 修复 `src/storage/search_index.rs` 中阻断测试执行的编译错误
+  - [x] 运行 `cargo test --locked --tests`，确认测试可完成编译并进入执行阶段
+  - [x] 记录基线结果，确认当前无阻断测试执行的失败项
 
-- [x] Task 1.2: 修复数据库表结构不匹配问题
-  - [x] SubTask 1.2.1: 修复 `join_rule` vs `join_rules` 不匹配
-  - [x] SubTask 1.2.2: 处理 `visibility` 字段缺失问题
-  - [x] SubTask 1.2.3: 验证所有 SQL 查询使用正确的列名
+## 阶段一：核心模块排查
 
-- [x] Task 1.3: 验证 Space 相关数据库表
-  - [x] SubTask 1.3.1: 检查 `spaces` 表结构
-  - [x] SubTask 1.3.2: 检查 `space_children` 表结构
-  - [x] SubTask 1.3.3: 创建 `space_members` 表（缺失）
-  - [x] SubTask 1.3.4: 检查 `space_events` 表结构
+- [x] Task 1.1: 排查 mod（核心模块）- 57 端点
+  - [x] 检查 `src/web/routes/` 中的核心路由实现
+  - [x] 对比 `api-complete.md` 中的核心端点列表
+  - [x] 验证涉及表结构与字段映射一致性
+  - [x] 运行核心模块相关测试并修复阻断问题
+  - [x] 补充缺失端点到 `api-complete.md`
 
-- [x] Task 1.4: 编写 Space 模块 API 测试
-  - [x] SubTask 1.4.1: 创建 Space API 测试脚本
-  - [ ] SubTask 1.4.2: 测试所有 21 个端点
-  - [ ] SubTask 1.4.3: 记录测试结果
+- [x] Task 1.2: 排查 account_data 模块 - 12 端点
+  - [x] 检查 `account_data` 路由实现
+  - [x] 验证存储层数据库操作与字段一致性
+  - [x] 运行 `account_data` 相关测试并修复问题
+  - [x] 补充缺失端点到 `api-complete.md`
 
-- [ ] Task 1.5: 修复发现的问题并重新测试
-  - [ ] SubTask 1.5.1: 修复所有测试失败的问题
-  - [ ] SubTask 1.5.2: 确保所有测试通过
-  - [ ] SubTask 1.5.3: 更新 `api-complete.md` 中的 Space 模块
+## 阶段二：管理模块排查
 
-## Phase 2: Media 模块排查与优化 (21 个端点)
+- [x] Task 2.1: 排查 admin/federation 模块 - 12 端点
+  - [x] 检查 admin 路由中的 federation 管理端点实现
+  - [x] 验证联邦管理相关表与字段一致性
+  - [x] 运行 `admin/federation` 相关测试并修复问题
+  - [x] 补充缺失端点到 `api-complete.md`
 
-- [ ] Task 2.1: 检查 Media 模块所有端点实现
-  - [ ] SubTask 2.1.1: 列出所有 Media 端点（21 个）
-  - [ ] SubTask 2.1.2: 检查每个端点的路由实现
-  - [ ] SubTask 2.1.3: 验证端点对应的处理函数
+- [ ] Task 2.2: 排查 admin/room 模块 - 28 端点
+  - [ ] 检查房间管理端点实现
+  - [ ] 验证房间管理相关数据库表与字段
+  - [ ] 运行 `admin/room` 相关测试并修复问题
+  - [ ] 补充缺失端点到 `api-complete.md`
 
-- [ ] Task 2.2: 验证 Media 相关数据库表
-  - [ ] SubTask 2.2.1: 检查 `media` 表结构
-  - [ ] SubTask 2.2.2: 检查 `media_quota_config` 表结构
-  - [ ] SubTask 2.2.3: 检查 `user_media_quota` 表结构
-  - [ ] SubTask 2.2.4: 检查 `media_usage_log` 表结构
-  - [ ] SubTask 2.2.5: 检查 `media_quota_alerts` 表结构
-  - [ ] SubTask 2.2.6: 检查 `server_media_quota` 表结构
+- [ ] Task 2.3: 排查 admin/user 模块 - 18 端点
+  - [ ] 检查用户管理端点实现
+  - [ ] 验证用户相关数据库表与字段
+  - [ ] 运行 `admin/user` 相关测试并修复问题
+  - [ ] 补充缺失端点到 `api-complete.md`
 
-- [ ] Task 2.3: 编写 Media 模块 API 测试
-  - [ ] SubTask 2.3.1: 创建 Media API 测试脚本
-  - [ ] SubTask 2.3.2: 测试所有 21 个端点
-  - [ ] SubTask 2.3.3: 记录测试结果
+## 阶段三：客户端功能模块排查
 
-- [ ] Task 2.4: 修复发现的问题并重新测试
-  - [ ] SubTask 2.4.1: 修复所有测试失败的问题
-  - [ ] SubTask 2.4.2: 确保所有测试通过
-  - [ ] SubTask 2.4.3: 更新 `api-complete.md` 中的 Media 模块
+- [ ] Task 3.1: 排查 device 模块 - 8 端点
+  - [ ] 检查设备管理端点实现
+  - [ ] 验证 `devices` 表及相关字段
+  - [ ] 运行 `device` 相关测试并修复问题
 
-## Phase 3: Device 模块排查与优化 (8 个端点)
+- [ ] Task 3.2: 排查 dm 模块 - 5 端点
+  - [ ] 检查私信与直接消息端点实现
+  - [ ] 验证相关数据库表与字段
+  - [ ] 运行 `dm` 相关测试并修复问题
 
-- [ ] Task 3.1: 检查 Device 模块所有端点实现
-  - [ ] SubTask 3.1.1: 列出所有 Device 端点（8 个）
-  - [ ] SubTask 3.1.2: 检查每个端点的路由实现
-  - [ ] SubTask 3.1.3: 验证端点对应的处理函数
+- [ ] Task 3.3: 排查 e2ee_routes 模块 - 27 端点
+  - [ ] 检查端到端加密端点实现
+  - [ ] 验证加密密钥相关数据库表与字段
+  - [ ] 运行 `e2ee_routes` 相关测试并修复问题
 
-- [ ] Task 3.2: 验证 Device 相关数据库表
-  - [ ] SubTask 3.2.1: 检查 `devices` 表结构
-  - [ ] SubTask 3.2.2: 检查 `device_keys` 表结构
+## 阶段四：联邦与第三方模块排查
 
-- [ ] Task 3.3: 编写 Device 模块 API 测试
-  - [ ] SubTask 3.3.1: 创建 Device API 测试脚本
-  - [ ] SubTask 3.3.2: 测试所有 8 个端点
-  - [ ] SubTask 3.3.3: 记录测试结果
+- [ ] Task 4.1: 排查 federation 模块 - 47 端点
+  - [ ] 检查联邦协议端点实现
+  - [ ] 验证联邦相关数据库表与字段
+  - [ ] 运行 `federation` 相关测试并修复问题
 
-- [ ] Task 3.4: 修复发现的问题并重新测试
-  - [ ] SubTask 3.4.1: 修复所有测试失败的问题
-  - [ ] SubTask 3.4.2: 确保所有测试通过
-  - [ ] SubTask 3.4.3: 更新 `api-complete.md` 中的 Device 模块
+- [ ] Task 4.2: 排查 friend_room 模块 - 43 端点
+  - [ ] 检查好友与群组功能端点实现
+  - [ ] 验证好友关系相关数据库表与字段
+  - [ ] 运行 `friend_room` 相关测试并修复问题
 
-## Phase 4: E2EE Routes 模块排查与优化 (27 个端点)
+- [ ] Task 4.3: 排查 media 模块 - 21 端点
+  - [ ] 检查媒体上传下载端点实现
+  - [ ] 验证媒体存储相关表与字段
+  - [ ] 运行 `media` 相关测试并修复问题
 
-- [ ] Task 4.1: 检查 E2EE Routes 模块所有端点实现
-  - [ ] SubTask 4.1.1: 列出所有 E2EE Routes 端点（27 个）
-  - [ ] SubTask 4.1.2: 检查每个端点的路由实现
-  - [ ] SubTask 4.1.3: 验证端点对应的处理函数
+## 阶段五：高级功能模块排查
 
-- [ ] Task 4.2: 验证 E2EE 相关数据库表
-  - [ ] SubTask 4.2.1: 检查 `device_keys` 表结构
-  - [ ] SubTask 4.2.2: 检查 `one_time_keys` 表结构
-  - [ ] SubTask 4.2.3: 检查 `key_backups` 表结构
-  - [ ] SubTask 4.2.4: 检查 `cross_signing_keys` 表结构
+- [ ] Task 5.1: 排查 room_summary 模块 - 16 端点
+  - [ ] 检查房间摘要端点实现
+  - [ ] 验证摘要缓存相关表与字段
+  - [ ] 运行 `room_summary` 相关测试并修复问题
 
-- [ ] Task 4.3: 编写 E2EE Routes 模块 API 测试
-  - [ ] SubTask 4.3.1: 创建 E2EE API 测试脚本
-  - [ ] SubTask 4.3.2: 测试所有 27 个端点
-  - [ ] SubTask 4.3.3: 记录测试结果
+- [ ] Task 5.2: 排查 search 模块 - 12 端点
+  - [ ] 检查搜索端点实现
+  - [ ] 验证搜索索引与相关字段
+  - [ ] 运行 `search` 相关测试并修复问题
 
-- [ ] Task 4.4: 修复发现的问题并重新测试
-  - [ ] SubTask 4.4.1: 修复所有测试失败的问题
-  - [ ] SubTask 4.4.2: 确保所有测试通过
-  - [ ] SubTask 4.4.3: 更新 `api-complete.md` 中的 E2EE Routes 模块
+- [ ] Task 5.3: 排查 space 模块 - 21 端点
+  - [ ] 检查空间功能端点实现
+  - [ ] 验证 `spaces` 及相关表结构和字段
+  - [ ] 运行 `space` 相关测试并修复问题
 
-## Phase 5: Search 模块排查与优化 (12 个端点)
+- [ ] Task 5.4: 排查 thread 模块 - 16 端点
+  - [ ] 检查话题与线程功能端点实现
+  - [ ] 验证线程相关表与字段
+  - [ ] 运行 `thread` 相关测试并修复问题
 
-- [ ] Task 5.1: 检查 Search 模块所有端点实现
-  - [ ] SubTask 5.1.1: 列出所有 Search 端点（12 个）
-  - [ ] SubTask 5.1.2: 检查每个端点的路由实现
-  - [ ] SubTask 5.1.3: 验证端点对应的处理函数
+- [ ] Task 5.5: 排查 worker 模块 - 21 端点
+  - [ ] 检查工作进程端点实现
+  - [ ] 验证任务队列与 worker 相关表结构
+  - [ ] 运行 `worker` 相关测试并修复问题
 
-- [ ] Task 5.2: 验证 Search 相关数据库表
-  - [ ] SubTask 5.2.1: 检查 `search_index` 表结构
-  - [ ] SubTask 5.2.2: 检查 `search_results` 表结构
+## 阶段六：最终验证
 
-- [ ] Task 5.3: 编写 Search 模块 API 测试
-  - [ ] SubTask 5.3.1: 创建 Search API 测试脚本
-  - [ ] SubTask 5.3.2: 测试所有 12 个端点
-  - [ ] SubTask 5.3.3: 记录测试结果
+- [ ] Task 6.1: 更新 `api-complete.md`
+  - [ ] 汇总所有补充的端点
+  - [ ] 更新文档中的模块统计与端点统计
+  - [ ] 校正文档中的实现状态与 MSC 状态
 
-- [ ] Task 5.4: 修复发现的问题并重新测试
-  - [ ] SubTask 5.4.1: 修复所有测试失败的问题
-  - [ ] SubTask 5.4.2: 确保所有测试通过
-  - [ ] SubTask 5.4.3: 更新 `api-complete.md` 中的 Search 模块
-
-## Phase 6: Account Data 模块排查与优化 (12 个端点)
-
-- [ ] Task 6.1: 检查 Account Data 模块所有端点实现
-  - [ ] SubTask 6.1.1: 列出所有 Account Data 端点（12 个）
-  - [ ] SubTask 6.1.2: 检查每个端点的路由实现
-  - [ ] SubTask 6.1.3: 验证端点对应的处理函数
-
-- [ ] Task 6.2: 验证 Account Data 相关数据库表
-  - [ ] SubTask 6.2.1: 检查 `account_data` 表结构
-  - [ ] SubTask 6.2.2: 检查 `room_account_data` 表结构
-
-- [ ] Task 6.3: 编写 Account Data 模块 API 测试
-  - [ ] SubTask 6.3.1: 创建 Account Data API 测试脚本
-  - [ ] SubTask 6.3.2: 测试所有 12 个端点
-  - [ ] SubTask 6.3.3: 记录测试结果
-
-- [ ] Task 6.4: 修复发现的问题并重新测试
-  - [ ] SubTask 6.4.1: 修复所有测试失败的问题
-  - [ ] SubTask 6.4.2: 确保所有测试通过
-  - [ ] SubTask 6.4.3: 更新 `api-complete.md` 中的 Account Data 模块
-
-## Phase 7: Thread 模块排查与优化 (16 个端点)
-
-- [ ] Task 7.1: 检查 Thread 模块所有端点实现
-  - [ ] SubTask 7.1.1: 列出所有 Thread 端点（16 个）
-  - [ ] SubTask 7.1.2: 检查每个端点的路由实现
-  - [ ] SubTask 7.1.3: 验证端点对应的处理函数
-
-- [ ] Task 7.2: 验证 Thread 相关数据库表
-  - [ ] SubTask 7.2.1: 检查 `threads` 表结构
-  - [ ] SubTask 7.2.2: 检查 `thread_events` 表结构
-
-- [ ] Task 7.3: 编写 Thread 模块 API 测试
-  - [ ] SubTask 7.3.1: 创建 Thread API 测试脚本
-  - [ ] SubTask 7.3.2: 测试所有 16 个端点
-  - [ ] SubTask 7.3.3: 记录测试结果
-
-- [ ] Task 7.4: 修复发现的问题并重新测试
-  - [ ] SubTask 7.4.1: 修复所有测试失败的问题
-  - [ ] SubTask 7.4.2: 确保所有测试通过
-  - [ ] SubTask 7.4.3: 更新 `api-complete.md` 中的 Thread 模块
-
-## Phase 8: Room Summary 模块排查与优化 (16 个端点)
-
-- [ ] Task 8.1: 检查 Room Summary 模块所有端点实现
-  - [ ] SubTask 8.1.1: 列出所有 Room Summary 端点（16 个）
-  - [ ] SubTask 8.1.2: 检查每个端点的路由实现
-  - [ ] SubTask 8.1.3: 验证端点对应的处理函数
-
-- [ ] Task 8.2: 验证 Room Summary 相关数据库表
-  - [ ] SubTask 8.2.1: 检查 `room_summaries` 表结构
-  - [ ] SubTask 8.2.2: 检查 `room_summary_updates` 表结构
-
-- [ ] Task 8.3: 编写 Room Summary 模块 API 测试
-  - [ ] SubTask 8.3.1: 创建 Room Summary API 测试脚本
-  - [ ] SubTask 8.3.2: 测试所有 16 个端点
-  - [ ] SubTask 8.3.3: 记录测试结果
-
-- [ ] Task 8.4: 修复发现的问题并重新测试
-  - [ ] SubTask 8.4.1: 修复所有测试失败的问题
-  - [ ] SubTask 8.4.2: 确保所有测试通过
-  - [ ] SubTask 8.4.3: 更新 `api-complete.md` 中的 Room Summary 模块
-
-## Phase 9: Push 模块排查与优化 (18 个端点)
-
-- [ ] Task 9.1: 检查 Push 模块所有端点实现
-  - [ ] SubTask 9.1.1: 列出所有 Push 端点（18 个）
-  - [ ] SubTask 9.1.2: 检查每个端点的路由实现
-  - [ ] SubTask 9.1.3: 验证端点对应的处理函数
-
-- [ ] Task 9.2: 验证 Push 相关数据库表
-  - [ ] SubTask 9.2.1: 检查 `pushers` 表结构
-  - [ ] SubTask 9.2.2: 检查 `push_rules` 表结构
-  - [ ] SubTask 9.2.3: 检查 `notifications` 表结构
-
-- [ ] Task 9.3: 编写 Push 模块 API 测试
-  - [ ] SubTask 9.3.1: 创建 Push API 测试脚本
-  - [ ] SubTask 9.3.2: 测试所有 18 个端点
-  - [ ] SubTask 9.3.3: 记录测试结果
-
-- [ ] Task 9.4: 修复发现的问题并重新测试
-  - [ ] SubTask 9.4.1: 修复所有测试失败的问题
-  - [ ] SubTask 9.4.2: 确保所有测试通过
-  - [ ] SubTask 9.4.3: 更新 `api-complete.md` 中的 Push 模块
-
-## Phase 10: Voice 模块排查与优化 (10 个端点)
-
-- [ ] Task 10.1: 检查 Voice 模块所有端点实现
-  - [ ] SubTask 10.1.1: 列出所有 Voice 端点（10 个）
-  - [ ] SubTask 10.1.2: 检查每个端点的路由实现
-  - [ ] SubTask 10.1.3: 验证端点对应的处理函数
-
-- [ ] Task 10.2: 验证 Voice 相关数据库表
-  - [ ] SubTask 10.2.1: 检查 `voice_messages` 表结构
-  - [ ] SubTask 10.2.2: 检查 `voice_stats` 表结构
-
-- [ ] Task 10.3: 编写 Voice 模块 API 测试
-  - [ ] SubTask 10.3.1: 创建 Voice API 测试脚本
-  - [ ] SubTask 10.3.2: 测试所有 10 个端点
-  - [ ] SubTask 10.3.3: 记录测试结果
-
-- [ ] Task 10.4: 修复发现的问题并重新测试
-  - [ ] SubTask 10.4.1: 修复所有测试失败的问题
-  - [ ] SubTask 10.4.2: 确保所有测试通过
-  - [ ] SubTask 10.4.3: 更新 `api-complete.md` 中的 Voice 模块
+- [ ] Task 6.2: 生成排查报告
+  - [ ] 记录所有发现的问题
+  - [ ] 记录所有修复内容
+  - [ ] 记录最终测试与验证结果
 
 # Task Dependencies
-- [Task 1.2] depends on [Task 1.1]
-- [Task 1.3] depends on [Task 1.2]
-- [Task 1.4] depends on [Task 1.3]
-- [Task 1.5] depends on [Task 1.4]
-- [Task 2.2] depends on [Task 2.1]
-- [Task 2.3] depends on [Task 2.2]
-- [Task 2.4] depends on [Task 2.3]
-- [Task 3.2] depends on [Task 3.1]
-- [Task 3.3] depends on [Task 3.2]
-- [Task 3.4] depends on [Task 3.3]
-- [Task 4.2] depends on [Task 4.1]
-- [Task 4.3] depends on [Task 4.2]
-- [Task 4.4] depends on [Task 4.3]
-- [Task 5.2] depends on [Task 5.1]
-- [Task 5.3] depends on [Task 5.2]
-- [Task 5.4] depends on [Task 5.3]
-- [Task 6.2] depends on [Task 6.1]
-- [Task 6.3] depends on [Task 6.2]
-- [Task 6.4] depends on [Task 6.3]
-- [Task 7.2] depends on [Task 7.1]
-- [Task 7.3] depends on [Task 7.2]
-- [Task 7.4] depends on [Task 7.3]
-- [Task 8.2] depends on [Task 8.1]
-- [Task 8.3] depends on [Task 8.2]
-- [Task 8.4] depends on [Task 8.3]
-- [Task 9.2] depends on [Task 9.1]
-- [Task 9.3] depends on [Task 9.2]
-- [Task 9.4] depends on [Task 9.3]
-- [Task 10.2] depends on [Task 10.1]
-- [Task 10.3] depends on [Task 10.2]
-- [Task 10.4] depends on [Task 10.3]
+
+- 模块排查按顺序执行：Task 1.1 → 1.2 → 2.1 → 2.2 → 2.3 → 3.1 → 3.2 → 3.3 → 4.1 → 4.2 → 4.3 → 5.1 → 5.2 → 5.3 → 5.4 → 5.5 → 6.1 → 6.2
+- 每个模块必须先完成“路由实现检查 → 数据库一致性验证 → 测试验证 → 文档补录”再进入下一个模块
+- 当前仓库存在全局测试阻断，因此所有模块任务依赖 Task 0.1 完成
+- 若某模块测试未通过，不得开始下一个模块

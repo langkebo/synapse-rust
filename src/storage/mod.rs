@@ -35,6 +35,7 @@ pub mod monitoring;
 pub mod openid_token;
 pub mod performance;
 pub mod pool_monitor;
+pub mod presence;
 pub mod privacy;
 pub mod push_notification;
 pub mod qr_login;
@@ -49,6 +50,7 @@ pub mod room_tag;
 pub mod saml;
 pub mod schema_health_check;
 pub mod schema_validator;
+pub mod search_index;
 pub mod server_notification;
 pub mod sliding_sync;
 pub mod space;
@@ -92,6 +94,7 @@ pub use self::pool_monitor::{
     create_pool_with_monitoring, set_query_timeout, set_transaction_timeout, DatabasePoolConfig,
     DatabasePoolMonitor, PoolHealthStatus, PoolStats, QueryTimeoutConfig,
 };
+pub use self::presence::*;
 pub use self::privacy::*;
 pub use self::push_notification::*;
 pub use self::qr_login::*;
@@ -99,6 +102,7 @@ pub use self::rendezvous::*;
 pub use self::room::*;
 pub use self::saml::*;
 pub use self::schema_validator::*;
+pub use self::search_index::*;
 pub use self::server_notification::*;
 pub use self::sliding_sync::*;
 pub use self::space::*;
@@ -312,7 +316,7 @@ mod tests {
             name: Some("Test Room".to_string()),
             topic: Some("A test room".to_string()),
             canonical_alias: Some("#test:example.com".to_string()),
-            join_rules: "invite".to_string(),
+            join_rule: "invite".to_string(),
             creator_user_id: Some("@test:example.com".to_string()),
             room_version: "1".to_string(),
             encryption: None,
@@ -326,7 +330,7 @@ mod tests {
             is_flagged: false,
         };
         assert_eq!(room.room_id, "!test:example.com");
-        assert_eq!(room.join_rules, "invite");
+        assert_eq!(room.join_rule, "invite");
         assert!(!room.is_public);
     }
 
@@ -386,7 +390,7 @@ mod tests {
             name: None,
             topic: None,
             canonical_alias: None,
-            join_rules: "public".to_string(),
+            join_rule: "public".to_string(),
             creator_user_id: None,
             room_version: "1".to_string(),
             encryption: None,

@@ -335,7 +335,20 @@ impl SpaceStorage {
 
     pub async fn get_space_children(&self, space_id: &str) -> Result<Vec<SpaceChild>, sqlx::Error> {
         sqlx::query_as::<_, SpaceChild>(
-            r#"SELECT id, space_id, room_id, via_servers, "order", suggested, added_by, added_ts, removed_ts FROM space_children WHERE space_id = $1 AND removed_ts IS NULL ORDER BY "order""#
+            r#"
+            SELECT 
+                id, space_id, room_id, via_servers,
+                COALESCE(sender, '') as sender,
+                COALESCE(is_suggested, false) as is_suggested,
+                added_ts,
+                COALESCE("order", '') as "order",
+                suggested,
+                COALESCE(added_by, '') as added_by,
+                removed_ts
+            FROM space_children 
+            WHERE space_id = $1 AND removed_ts IS NULL 
+            ORDER BY "order"
+            "#,
         )
         .bind(space_id)
         .fetch_all(&*self.pool)
@@ -344,7 +357,19 @@ impl SpaceStorage {
 
     pub async fn get_child_spaces(&self, room_id: &str) -> Result<Vec<SpaceChild>, sqlx::Error> {
         sqlx::query_as::<_, SpaceChild>(
-            r#"SELECT id, space_id, room_id, via_servers, "order", suggested, added_by, added_ts, removed_ts FROM space_children WHERE room_id = $1 AND removed_ts IS NULL"#,
+            r#"
+            SELECT 
+                id, space_id, room_id, via_servers,
+                COALESCE(sender, '') as sender,
+                COALESCE(is_suggested, false) as is_suggested,
+                added_ts,
+                COALESCE("order", '') as "order",
+                suggested,
+                COALESCE(added_by, '') as added_by,
+                removed_ts
+            FROM space_children 
+            WHERE room_id = $1 AND removed_ts IS NULL
+            "#,
         )
         .bind(room_id)
         .fetch_all(&*self.pool)
@@ -755,7 +780,7 @@ impl SpaceStorage {
                     name: space.name,
                     topic: space.topic,
                     avatar_url: space.avatar_url,
-                    join_rule: join_rule,
+                    join_rule,
                     world_readable: visibility.as_deref() == Some("public"),
                     guest_can_join,
                     num_joined_members: self.get_space_member_count(&space.space_id).await?,

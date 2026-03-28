@@ -391,10 +391,8 @@ impl RoomService {
     ) -> ApiResult<()> {
         if let Some(room_name) = name {
             if let Some(ref mut tx) = tx {
-                sqlx::query("UPDATE rooms SET name = $1 WHERE room_id = $2")
-                    .bind(room_name)
-                    .bind(room_id)
-                    .execute(&mut ***tx)
+                self.room_storage
+                    .update_room_name_in_tx(tx, room_id, room_name)
                     .await
                     .map_err(|e| {
                         ApiError::internal(format!("Failed to update room name: {}", e))
@@ -411,10 +409,8 @@ impl RoomService {
 
         if let Some(room_topic) = topic {
             if let Some(ref mut tx) = tx {
-                sqlx::query("UPDATE rooms SET topic = $1 WHERE room_id = $2")
-                    .bind(room_topic)
-                    .bind(room_id)
-                    .execute(&mut ***tx)
+                self.room_storage
+                    .update_room_topic_in_tx(tx, room_id, room_topic)
                     .await
                     .map_err(|e| {
                         ApiError::internal(format!("Failed to update room topic: {}", e))
@@ -494,7 +490,7 @@ impl RoomService {
         &self,
         room_id: &str,
         user_id: &str,
-        message_type: &str,
+        event_type: &str,
         content: &serde_json::Value,
     ) -> ApiResult<serde_json::Value> {
         if !self
@@ -511,19 +507,14 @@ impl RoomService {
         let event_id = generate_event_id(&self.server_name);
         let now = chrono::Utc::now().timestamp_millis();
 
-        let event_content = json!({
-            "msgtype": message_type,
-            "body": content
-        });
-
         self.event_storage
             .create_event(
                 CreateEventParams {
                     event_id: event_id.clone(),
                     room_id: room_id.to_string(),
                     user_id: user_id.to_string(),
-                    event_type: "m.room.message".to_string(),
-                    content: event_content,
+                    event_type: event_type.to_string(),
+                    content: content.clone(),
                     state_key: None,
                     origin_server_ts: now,
                 },
@@ -675,7 +666,7 @@ impl RoomService {
                 "canonical_alias": r.canonical_alias,
                 "is_public": r.is_public,
                 "creator": r.creator_user_id,
-                "join_rule": r.join_rules
+                "join_rule": r.join_rule
             })),
             None => Err(ApiError::not_found("Room not found".to_string())),
         }
@@ -711,7 +702,7 @@ impl RoomService {
                 "canonical_alias": r.canonical_alias,
                 "is_public": r.is_public,
                 "creator": r.creator_user_id,
-                "join_rule": r.join_rules
+                "join_rule": r.join_rule
             })),
             None => Err(ApiError::not_found("Room not found".to_string())),
         }
@@ -738,7 +729,7 @@ impl RoomService {
                     "name": room.name,
                     "topic": room.topic,
                     "is_public": room.is_public,
-                    "join_rule": room.join_rules
+                    "join_rule": room.join_rule
                 })
             })
             .collect();
@@ -903,7 +894,7 @@ impl RoomService {
                     "topic": r.topic,
                     "canonical_alias": r.canonical_alias,
                     "is_public": r.is_public,
-                    "join_rule": r.join_rules
+                    "join_rule": r.join_rule
                 })
             })
             .collect();

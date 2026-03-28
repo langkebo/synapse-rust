@@ -1,6 +1,7 @@
 //! 房间相关处理器
 
-use crate::common::{ApiError, AppState};
+use crate::common::ApiError;
+use crate::web::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -25,7 +26,7 @@ pub struct RoomMessagesParams {
 pub async fn get_messages(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
-    Query(params): Query<RoomMessagesParams>,
+    Query(_params): Query<RoomMessagesParams>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -49,75 +50,70 @@ pub async fn get_messages(
 
 /// 发送消息
 pub async fn send_message(
-    State(state): State<AppState>,
-    Path((room_id, event_type, txn_id)): Path<(String, String, String)>,
+    State(_state): State<AppState>,
+    Path((room_id, _event_type, _txn_id)): Path<(String, String, String)>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let content = body
-        .get("body")
-        .ok_or_else(|| ApiError::bad_request("Message body required".to_string()))?;
-
     // 长度检查
-    if let Some(s) = content.as_str() {
-        if s.len() > 65536 {
-            return Err(ApiError::bad_request("Message body too long (max 64KB)".to_string()));
-        }
+    let s = body.to_string();
+    if s.len() > 65536 {
+        return Err(ApiError::bad_request("Message body too long (max 64KB)".to_string()));
     }
 
-    Ok(json!({
+    Ok(Json(json!({
         "event_id": "$placeholder"
-    }))
+    })))
 }
 
 /// 加入房间
 pub async fn join_room(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(room_id_or_alias): Path<String>,
-    Json(body): Json<serde_json::Value>,
+    Json(_body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validate_room_id_or_alias(&room_id_or_alias)?;
-    Ok(json!({ "room_id": room_id_or_alias }))
+    Ok(Json(json!({ "room_id": room_id_or_alias })))
 }
 
 /// 离开房间
 pub async fn leave_room(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validate_room_id(&room_id)?;
-    Ok(json!({ "ok": true }))
+    Ok(Json(json!({ "ok": true })))
 }
 
 /// 获取房间信息
 pub async fn get_room_info(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validate_room_id(&room_id)?;
 
     // 简化返回
-    Ok(json!({
+    Ok(Json(json!({
         "room_id": room_id,
         "name": null,
         "topic": null,
         "avatar_url": null
-    }))
+    })))
 }
 
 /// 获取已加入的房间列表
 pub async fn get_joined_rooms(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(json!({ "joined_rooms": [] }))
+    Ok(Json(json!({ "joined_rooms": [] })))
 }
 
 /// 获取我的房间列表
 pub async fn get_my_rooms(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(json!({ "rooms": [] }))
+    Ok(Json(json!({ "rooms": [] })))
 }
 
 /// 验证 room_id 格式

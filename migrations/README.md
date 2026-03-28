@@ -44,15 +44,10 @@ docker exec -i synapse-rust-db psql -U synapse -d synapse < migrations/99999999_
 
 ### 字段命名规范
 
-所有时间戳字段必须使用 `*_ts` 命名：
-- `created_ts` - 创建时间（毫秒）
-- `updated_ts` - 更新时间（毫秒）
-- `joined_ts` - 加入时间
-- `left_ts` - 离开时间
-- `last_active_ts` - 最后活跃时间
-- `validated_ts` - 验证时间
-- `verification_expires_ts` - 验证过期时间
-- `read_ts` - 阅读时间
+时间字段命名以项目规则和 `DATABASE_FIELD_STANDARDS.md` 为准：
+- 必填毫秒时间戳使用 `*_ts`
+- 可选时间戳优先使用 `*_at`
+- 发生冲突时，以 Rust 模型和实际迁移文件为单一真实来源
 
 ### 启动时验证
 

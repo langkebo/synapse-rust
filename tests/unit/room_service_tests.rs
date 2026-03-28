@@ -68,8 +68,12 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             displayname TEXT,
             avatar_url TEXT,
             is_admin BOOLEAN DEFAULT FALSE,
-            deactivated BOOLEAN DEFAULT FALSE,
-            creation_ts BIGINT NOT NULL
+            is_guest BOOLEAN DEFAULT FALSE,
+            is_shadow_banned BOOLEAN DEFAULT FALSE,
+            is_deactivated BOOLEAN DEFAULT FALSE,
+            created_ts BIGINT NOT NULL,
+            updated_ts BIGINT,
+            generation BIGINT DEFAULT 0
         )
     "#)
     .execute(&pool)
@@ -79,20 +83,20 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
     sqlx::query(r#"
         CREATE TABLE rooms (
             room_id VARCHAR(255) PRIMARY KEY,
+            is_public BOOLEAN DEFAULT FALSE,
+            room_version TEXT DEFAULT '6',
+            created_ts BIGINT NOT NULL,
+            last_activity_ts BIGINT,
+            join_rules TEXT DEFAULT 'invite',
+            history_visibility TEXT DEFAULT 'shared',
             name TEXT,
             topic TEXT,
             avatar_url TEXT,
             canonical_alias TEXT,
-            join_rule TEXT,
-            creator TEXT NOT NULL,
-            version TEXT,
+            visibility TEXT DEFAULT 'private',
+            creator TEXT,
             encryption TEXT,
-            is_public BOOLEAN DEFAULT FALSE,
-            member_count BIGINT DEFAULT 0,
-            history_visibility TEXT,
-            visibility TEXT,
-            creation_ts BIGINT NOT NULL,
-            last_activity_ts BIGINT NOT NULL
+            member_count BIGINT DEFAULT 0
         )
     "#)
     .execute(&pool)
@@ -117,7 +121,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             reason TEXT,
             banned_by TEXT,
             ban_reason TEXT,
-            ban_ts BIGINT,
+            banned_ts BIGINT,
             join_reason TEXT,
             PRIMARY KEY (room_id, user_id)
         )
@@ -137,8 +141,9 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             state_key TEXT,
             depth BIGINT,
             origin_server_ts BIGINT NOT NULL,
-            processed_ts BIGINT NOT NULL,
+            processed_ts BIGINT,
             not_before BIGINT,
+            is_redacted BOOLEAN DEFAULT FALSE,
             status TEXT,
             reference_image TEXT,
             origin TEXT,
@@ -155,14 +160,14 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
 async fn create_test_user(pool: &Pool<Postgres>, user_id: &str, username: &str) {
     sqlx::query(
         r#"
-        INSERT INTO users (user_id, username, creation_ts)
+        INSERT INTO users (user_id, username, created_ts)
         VALUES ($1, $2, $3)
         ON CONFLICT (user_id) DO NOTHING
         "#,
     )
     .bind(user_id)
     .bind(username)
-    .bind(chrono::Utc::now().timestamp())
+    .bind(chrono::Utc::now().timestamp_millis())
     .execute(pool)
     .await
     .expect("Failed to create test user");
@@ -181,7 +186,7 @@ fn test_room_service_creation() {
         let room_service = RoomService::new(
             RoomStorage::new(&pool),
             RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool),
+            EventStorage::new(&pool, "localhost".to_string()),
             UserStorage::new(&pool, cache.clone()),
             Arc::new(Validator::default()),
             "localhost".to_string(),
@@ -209,7 +214,7 @@ fn test_create_room_success() {
         let room_service = RoomService::new(
             RoomStorage::new(&pool),
             RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool),
+            EventStorage::new(&pool, "localhost".to_string()),
             UserStorage::new(&pool, cache.clone()),
             Arc::new(Validator::default()),
             "localhost".to_string(),
@@ -257,7 +262,7 @@ fn test_join_room_success() {
         let room_service = RoomService::new(
             RoomStorage::new(&pool),
             RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool),
+            EventStorage::new(&pool, "localhost".to_string()),
             UserStorage::new(&pool, cache.clone()),
             Arc::new(Validator::default()),
             "localhost".to_string(),
@@ -300,7 +305,7 @@ fn test_send_message_success() {
         let room_service = RoomService::new(
             RoomStorage::new(&pool),
             RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool),
+            EventStorage::new(&pool, "localhost".to_string()),
             UserStorage::new(&pool, cache.clone()),
             Arc::new(Validator::default()),
             "localhost".to_string(),
@@ -314,9 +319,9 @@ fn test_send_message_success() {
             .unwrap();
         let room_id = room_val["room_id"].as_str().unwrap();
 
-        let content = json!({"body": "Hello world"});
+        let content = json!({"msgtype": "m.text", "body": "Hello world"});
         let result = room_service
-            .send_message(room_id, &alice_id, "m.text", &content)
+            .send_message(room_id, &alice_id, "m.room.message", &content)
             .await;
         assert!(result.is_ok());
         let val = result.unwrap();
@@ -328,7 +333,7 @@ fn test_send_message_success() {
             .unwrap();
         let chunk = messages["chunk"].as_array().unwrap();
         assert_eq!(chunk.len(), 1);
-        assert_eq!(chunk[0]["content"]["body"]["body"], "Hello world");
+        assert_eq!(chunk[0]["content"]["body"], "Hello world");
         assert_eq!(chunk[0]["sender"], alice_id);
     });
 }
@@ -353,7 +358,7 @@ fn test_invite_user_success() {
         let room_service = RoomService::new(
             RoomStorage::new(&pool),
             RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool),
+            EventStorage::new(&pool, "localhost".to_string()),
             UserStorage::new(&pool, cache.clone()),
             Arc::new(Validator::default()),
             "localhost".to_string(),
@@ -402,7 +407,7 @@ fn test_ban_user_success() {
         let room_service = RoomService::new(
             RoomStorage::new(&pool),
             RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool),
+            EventStorage::new(&pool, "localhost".to_string()),
             UserStorage::new(&pool, cache.clone()),
             Arc::new(Validator::default()),
             "localhost".to_string(),
@@ -449,7 +454,7 @@ fn test_upgrade_room_success() {
         let room_service = RoomService::new(
             RoomStorage::new(&pool),
             RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool),
+            EventStorage::new(&pool, "localhost".to_string()),
             UserStorage::new(&pool, cache.clone()),
             Arc::new(Validator::default()),
             "localhost".to_string(),
@@ -491,7 +496,7 @@ fn test_upgrade_room_not_found() {
         let room_service = RoomService::new(
             RoomStorage::new(&pool),
             RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool),
+            EventStorage::new(&pool, "localhost".to_string()),
             UserStorage::new(&pool, cache.clone()),
             Arc::new(Validator::default()),
             "localhost".to_string(),

@@ -45,8 +45,9 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             state_key TEXT,
             depth BIGINT,
             origin_server_ts BIGINT NOT NULL,
-            processed_ts BIGINT NOT NULL,
+            processed_ts BIGINT,
             not_before BIGINT,
+            is_redacted BOOLEAN DEFAULT FALSE,
             status TEXT,
             reference_image TEXT,
             origin TEXT,
@@ -68,7 +69,7 @@ fn test_create_event_success() {
             Some(pool) => Arc::new(pool),
             None => return,
         };
-        let storage = EventStorage::new(&pool);
+        let storage = EventStorage::new(&pool, "localhost".to_string());
 
         let params = CreateEventParams {
             event_id: "$event1:localhost".to_string(),
@@ -96,7 +97,7 @@ fn test_get_room_events_batch_empty() {
             Some(pool) => Arc::new(pool),
             None => return,
         };
-        let storage = EventStorage::new(&pool);
+        let storage = EventStorage::new(&pool, "localhost".to_string());
 
         let room_ids: Vec<String> = vec![];
         let result = storage.get_room_events_batch(&room_ids, 10).await;
@@ -113,7 +114,7 @@ fn test_get_room_events_batch_multiple_rooms() {
             Some(pool) => Arc::new(pool),
             None => return,
         };
-        let storage = EventStorage::new(&pool);
+        let storage = EventStorage::new(&pool, "localhost".to_string());
 
         let ts = chrono::Utc::now().timestamp_millis();
 
@@ -157,7 +158,7 @@ fn test_get_room_events_since_batch() {
             Some(pool) => Arc::new(pool),
             None => return,
         };
-        let storage = EventStorage::new(&pool);
+        let storage = EventStorage::new(&pool, "localhost".to_string());
 
         let base_ts = chrono::Utc::now().timestamp_millis();
         let room_id = "!room_batch:localhost".to_string();
@@ -195,7 +196,7 @@ fn test_get_room_events_batch_limit_per_room() {
             Some(pool) => Arc::new(pool),
             None => return,
         };
-        let storage = EventStorage::new(&pool);
+        let storage = EventStorage::new(&pool, "localhost".to_string());
 
         let base_ts = chrono::Utc::now().timestamp_millis();
         let room_id = "!room_limit:localhost".to_string();

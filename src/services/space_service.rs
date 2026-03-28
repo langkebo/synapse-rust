@@ -719,7 +719,7 @@ mod tests {
             topic: Some("A test space".to_string()),
             avatar_url: Some("mxc://example.com/avatar".to_string()),
             creator: "@user:example.com".to_string(),
-            join_rules: Some("invite".to_string()),
+            join_rule: Some("invite".to_string()),
             visibility: Some("private".to_string()),
             is_public: Some(false),
             parent_space_id: None,
@@ -747,7 +747,7 @@ mod tests {
             name: Some("Updated Name".to_string()),
             topic: None,
             avatar_url: None,
-            join_rules: Some("public".to_string()),
+            join_rule: Some("public".to_string()),
             visibility: None,
             is_public: Some(true),
         };
@@ -760,7 +760,7 @@ mod tests {
         let request = crate::storage::space::UpdateSpaceRequest::default();
         assert!(request.name.is_none());
         assert!(request.topic.is_none());
-        assert!(request.join_rules.is_none());
+        assert!(request.join_rule.is_none());
     }
 
     #[test]
@@ -772,7 +772,7 @@ mod tests {
             topic: Some("Test topic".to_string()),
             avatar_url: None,
             creator: "@admin:example.com".to_string(),
-            join_rules: "invite".to_string(),
+            join_rule: "invite".to_string(),
             visibility: Some("private".to_string()),
             created_ts: 1234567890,
             updated_ts: None,

@@ -20,18 +20,12 @@ impl IdentityService {
     }
 
     pub async fn get_user_three_pids(&self, user_id: &str) -> ApiResult<Vec<ThirdPartyId>> {
-        self.storage
-            .get_user_three_pids(user_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get 3PIDs: {}", e)))
+        self.storage.get_user_three_pids(user_id).await
     }
 
     pub async fn add_three_pid(&self, address: &str, medium: &str, user_id: &str) -> ApiResult<()> {
         let three_pid = ThirdPartyId::new(address, medium, user_id);
-        self.storage
-            .add_three_pid(&three_pid)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to add 3PID: {}", e)))
+        self.storage.add_three_pid(&three_pid).await
     }
 
     pub async fn remove_three_pid(
@@ -43,7 +37,6 @@ impl IdentityService {
         self.storage
             .remove_three_pid(address, medium, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to remove 3PID: {}", e)))
     }
 
     pub async fn bind_three_pid(
@@ -79,10 +72,7 @@ impl IdentityService {
         }
 
         let three_pid = ThirdPartyId::new(&format!("{}:{}", id_server, sid), "unknown", user_id);
-        self.storage
-            .add_three_pid(&three_pid)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to save 3PID: {}", e)))?;
+        self.storage.add_three_pid(&three_pid).await?;
 
         Ok(())
     }
@@ -206,10 +196,7 @@ impl IdentityService {
     }
 
     pub async fn lookup_3pid(&self, medium: &str, address: &str) -> ApiResult<Option<String>> {
-        self.storage
-            .get_three_pid_user(address, medium)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to lookup 3PID: {}", e)))
+        self.storage.get_three_pid_user(address, medium).await
     }
 
     pub async fn hash_lookup(

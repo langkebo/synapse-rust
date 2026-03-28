@@ -65,6 +65,7 @@ impl VoiceMessage {
     }
 }
 
+#[derive(Clone)]
 pub struct VoiceUsageStatsStorage {
     pool: Arc<Pool<Postgres>>,
 }
@@ -131,6 +132,7 @@ impl VoiceUsageStatsStorage {
     }
 }
 
+#[derive(Clone)]
 pub struct VoiceMessageStorage {
     pool: Arc<Pool<Postgres>>,
 }

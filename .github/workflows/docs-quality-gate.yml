@@ -1,0 +1,40 @@
+name: Docs Quality Gate
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  docs-quality:
+    name: Docs Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install markdownlint
+        run: npm i -g markdownlint-cli
+
+      - name: markdownlint
+        run: markdownlint -c .markdownlint.json docs/db/DIAGNOSIS_REPORT.md
+
+      - name: Install aspell
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aspell aspell-en
+
+      - name: aspell
+        run: |
+          bash scripts/check_doc_spelling.sh docs/db/DIAGNOSIS_REPORT.md
+
+      - name: lychee
+        uses: lycheeverse/lychee-action@v1.10.0
+        with:
+          args: --base . --exclude-loopback docs/db/DIAGNOSIS_REPORT.md

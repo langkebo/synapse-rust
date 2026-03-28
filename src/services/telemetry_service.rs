@@ -141,8 +141,15 @@ impl TelemetryService {
     }
 
     fn initialize_metrics(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        info!("Initializing metrics collection (OTLP/Prometheus)");
-        // TODO: Implement OTLP metrics initialization if needed
+        if self.prometheus_config.enabled {
+            info!(
+                "Prometheus metrics export is enabled (port: {}, path: {})",
+                self.prometheus_config.port, self.prometheus_config.path
+            );
+        }
+        if self.config.is_metrics_enabled() {
+            info!("OTLP metrics export is enabled");
+        }
         Ok(())
     }
 
