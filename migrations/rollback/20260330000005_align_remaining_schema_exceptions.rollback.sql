@@ -1,0 +1,31 @@
+DROP VIEW IF EXISTS worker_type_statistics;
+DROP VIEW IF EXISTS active_workers;
+
+DROP INDEX IF EXISTS idx_worker_connections_source;
+DROP INDEX IF EXISTS idx_worker_task_assignments_worker_status;
+DROP INDEX IF EXISTS idx_worker_task_assignments_status_priority_created;
+DROP INDEX IF EXISTS idx_worker_load_stats_worker_recorded;
+DROP INDEX IF EXISTS idx_cross_signing_trust_user_trusted;
+DROP INDEX IF EXISTS idx_device_trust_status_user_level;
+DROP INDEX IF EXISTS idx_deleted_events_index_room_ts;
+DROP INDEX IF EXISTS idx_retention_cleanup_logs_room_started;
+DROP INDEX IF EXISTS idx_retention_cleanup_queue_status_origin;
+DROP INDEX IF EXISTS idx_room_children_child;
+DROP INDEX IF EXISTS idx_room_children_parent_suggested;
+DROP INDEX IF EXISTS idx_room_summary_update_queue_status_priority_created;
+DROP INDEX IF EXISTS idx_room_summary_state_room;
+
+DROP TABLE IF EXISTS worker_connections;
+DROP TABLE IF EXISTS worker_task_assignments;
+DROP TABLE IF EXISTS worker_load_stats;
+DROP TABLE IF EXISTS replication_positions;
+DROP TABLE IF EXISTS cross_signing_trust;
+DROP TABLE IF EXISTS device_trust_status;
+DROP TABLE IF EXISTS deleted_events_index;
+DROP TABLE IF EXISTS retention_stats;
+DROP TABLE IF EXISTS retention_cleanup_logs;
+DROP TABLE IF EXISTS retention_cleanup_queue;
+DROP TABLE IF EXISTS room_children;
+DROP TABLE IF EXISTS room_summary_update_queue;
+DROP TABLE IF EXISTS room_summary_stats;
+DROP TABLE IF EXISTS room_summary_state;
