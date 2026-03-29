@@ -481,6 +481,17 @@ pub async fn get_user_pushers(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if user.is_none() {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     let pushers = sqlx::query(
         "SELECT pushkey, kind, app_id, app_display_name, device_display_name, profile_tag, lang, data FROM pushers WHERE user_id = $1"
     )

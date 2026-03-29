@@ -1,5 +1,6 @@
 use crate::cache::*;
 use crate::common::ApiError;
+use crate::web::utils::{encoding::decode_base64_32, ip::extract_client_ip};
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode};
 use axum::response::IntoResponse;
@@ -788,11 +789,7 @@ pub async fn metrics_middleware(request: Request<Body>, next: axum::middleware::
 }
 
 pub fn extract_token(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .map(|s| s.to_string())
+    crate::web::utils::auth::bearer_token_opt(headers)
 }
 
 pub async fn rate_limit_middleware(
@@ -842,13 +839,12 @@ pub async fn rate_limit_middleware(
     let (endpoint_id, per_second, burst_size) = match &file_config {
         Some(fc) => {
             let (id, r) = crate::common::rate_limit_config::select_endpoint_rule(fc, path);
-            let aliased_id = fc.endpoint_aliases.get(&id).cloned().unwrap_or(id);
-            (aliased_id, r.per_second, r.burst_size)
+            (id, r.per_second, r.burst_size)
         }
         None => {
-            let (id, r) = select_endpoint_rule(&config, path);
-            let aliased_id = config.endpoint_aliases.get(&id).cloned().unwrap_or(id);
-            (aliased_id, r.per_second, r.burst_size)
+            let (id, r) =
+                crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, path);
+            (id, r.per_second, r.burst_size)
         }
     };
 
@@ -1404,27 +1400,6 @@ fn get_local_verify_key(state: &crate::web::routes::AppState, key_id: &str) -> O
     Some(*verifying_key.as_bytes())
 }
 
-fn decode_base64_32(value: &str) -> Option<[u8; 32]> {
-    let value = value.trim();
-    let engines = [
-        base64::engine::general_purpose::STANDARD,
-        base64::engine::general_purpose::STANDARD_NO_PAD,
-        base64::engine::general_purpose::URL_SAFE,
-        base64::engine::general_purpose::URL_SAFE_NO_PAD,
-    ];
-
-    for engine in engines {
-        if let Ok(bytes) = engine.decode(value) {
-            if bytes.len() == 32 {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&bytes);
-                return Some(arr);
-            }
-        }
-    }
-    None
-}
-
 async fn fetch_federation_verify_key(origin: &str, key_id: &str) -> Result<String, ApiError> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(3))
@@ -1539,127 +1514,6 @@ fn decode_ed25519_signature(sig: &str) -> Result<ed25519_dalek::Signature, ()> {
 // SECTION: Rate Limiting Helpers
 // ============================================================================
 
-fn select_endpoint_rule<'a>(
-    config: &'a crate::common::config::RateLimitConfig,
-    path: &str,
-) -> (String, &'a crate::common::config::RateLimitRule) {
-    let mut best: Option<(
-        usize,
-        bool,
-        &'a crate::common::config::RateLimitEndpointRule,
-    )> = None;
-    for rule in &config.endpoints {
-        let matches = match rule.match_type {
-            crate::common::config::RateLimitMatchType::Exact => path == rule.path,
-            crate::common::config::RateLimitMatchType::Prefix => path.starts_with(&rule.path),
-        };
-        if !matches {
-            continue;
-        }
-        let score = rule.path.len();
-        let is_exact = matches
-            && matches!(
-                rule.match_type,
-                crate::common::config::RateLimitMatchType::Exact
-            );
-        match best {
-            None => best = Some((score, is_exact, rule)),
-            Some((best_score, best_exact, _)) => {
-                if (is_exact && !best_exact) || (is_exact == best_exact && score > best_score) {
-                    best = Some((score, is_exact, rule));
-                }
-            }
-        }
-    }
-
-    if let Some((_, _, endpoint_rule)) = best {
-        (endpoint_rule.path.clone(), &endpoint_rule.rule)
-    } else {
-        (path.to_string(), &config.default)
-    }
-}
-
-fn extract_client_ip(headers: &HeaderMap, priority: &[String]) -> Option<String> {
-    for name in priority {
-        let lower = name.to_ascii_lowercase();
-        if lower == "x-forwarded-for" {
-            if let Some(ip) = headers
-                .get("x-forwarded-for")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.split(',').next())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-            {
-                return Some(ip);
-            }
-            continue;
-        }
-
-        if lower == "x-real-ip" {
-            if let Some(ip) = headers
-                .get("x-real-ip")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-            {
-                return Some(ip);
-            }
-            continue;
-        }
-
-        if lower == "forwarded" {
-            if let Some(ip) = headers
-                .get("forwarded")
-                .and_then(|v| v.to_str().ok())
-                .and_then(parse_forwarded_for)
-            {
-                return Some(ip);
-            }
-            continue;
-        }
-
-        if let Some(ip) = headers
-            .get(name)
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-        {
-            return Some(ip);
-        }
-    }
-    None
-}
-
-fn parse_forwarded_for(value: &str) -> Option<String> {
-    let first = value.split(',').next()?.trim();
-    for part in first.split(';') {
-        let part = part.trim();
-        let lower = part.to_ascii_lowercase();
-        if lower.starts_with("for=") {
-            let mut original = part[4..].trim();
-            if original.starts_with('"') && original.ends_with('"') {
-                original = &original[1..original.len() - 1];
-            }
-
-            if original.starts_with('[') {
-                if let Some(end) = original.find(']') {
-                    return Some(original[1..end].to_string());
-                }
-            }
-
-            let colons = original.chars().filter(|c| *c == ':').count();
-            if colons == 1 {
-                return original.split(':').next().map(|s| s.to_string());
-            }
-
-            if !original.is_empty() {
-                return Some(original.to_string());
-            }
-        }
-    }
-    None
-}
-
 pub async fn panic_catcher_middleware(request: Request<Body>, next: Next) -> Response {
     let method = request.method().to_string();
     let path = request.uri().path().to_string();
@@ -1730,6 +1584,7 @@ mod tests {
     use crate::common::config::{
         RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule,
     };
+    use crate::web::utils::ip::extract_client_ip;
     use std::time::Duration;
 
     #[test]
@@ -1826,22 +1681,32 @@ mod tests {
         });
 
         // Exact match
-        let (id, rule) = select_endpoint_rule(&config, "/_matrix/client/r0/login");
+        let (id, rule) = crate::common::rate_limit_config::select_endpoint_rule_runtime(
+            &config,
+            "/_matrix/client/r0/login",
+        );
         assert_eq!(id, "/_matrix/client/r0/login");
         assert_eq!(rule.per_second, 5);
 
         // Longest prefix match
-        let (id, rule) = select_endpoint_rule(&config, "/_matrix/client/r0/sync?since=123");
+        let (id, rule) = crate::common::rate_limit_config::select_endpoint_rule_runtime(
+            &config,
+            "/_matrix/client/r0/sync?since=123",
+        );
         assert_eq!(id, "/_matrix/client/r0/sync");
         assert_eq!(rule.per_second, 20);
 
         // Shorter prefix match
-        let (id, rule) = select_endpoint_rule(&config, "/_matrix/client/versions");
+        let (id, rule) = crate::common::rate_limit_config::select_endpoint_rule_runtime(
+            &config,
+            "/_matrix/client/versions",
+        );
         assert_eq!(id, "/_matrix/client");
         assert_eq!(rule.per_second, 50);
 
         // Default fallback
-        let (id, rule) = select_endpoint_rule(&config, "/other/path");
+        let (id, rule) =
+            crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, "/other/path");
         assert_eq!(id, "/other/path");
         assert_eq!(rule.per_second, config.default.per_second);
     }

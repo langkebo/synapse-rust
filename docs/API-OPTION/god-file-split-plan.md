@@ -250,8 +250,8 @@ pub type VoipConfig = crate::common::config::VoipConfig;
 
 ## 六、验收标准
 
-- [ ] `cargo check --all-features` 通过
-- [ ] `cargo fmt` 通过
-- [ ] `cargo clippy` 无新警告
-- [ ] 所有模块 import 正常工作
-- [ ] 运行时功能无异常
+- [x] `cargo check --all-features` 通过
+- [x] `cargo fmt --all -- --check` 通过
+- [x] `cargo clippy --all-features -- -D warnings` 通过
+- [x] 所有模块 import 正常工作
+- [x] 运行时功能无异常

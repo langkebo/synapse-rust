@@ -1254,11 +1254,13 @@ pub async fn search_all_rooms(
     let offset = body.offset.unwrap_or(0) as i64;
     let pool = &*state.services.room_storage.pool;
 
-    let mut query = String::from(
+    let search_pattern = body.search_term.as_ref().map(|term| format!("%{}%", term));
+
+    let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
         r#"
         SELECT r.room_id, r.name, r.topic, r.creator, r.is_public, r.creation_ts,
                COUNT(DISTINCT rm.user_id) as member_count,
-               COUNT(DISTINCT CASE WHEN re.type = 'm.room.encryption' THEN 1 END) as is_encrypted
+               CASE WHEN COUNT(DISTINCT re.event_id) > 0 THEN TRUE ELSE FALSE END as is_encrypted
         FROM rooms r
         LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
         LEFT JOIN room_events re ON r.room_id = re.room_id AND re.type = 'm.room.encryption'
@@ -1266,53 +1268,95 @@ pub async fn search_all_rooms(
         "#,
     );
 
-    if let Some(ref term) = body.search_term {
-        query.push_str(&format!(
-            " AND (LOWER(r.name) LIKE '%{}%' OR LOWER(r.topic) LIKE '%{}%' OR LOWER(r.room_id) LIKE '%{}%')",
-            term.to_lowercase(),
-            term.to_lowercase(),
-            term.to_lowercase()
-        ));
+    if let Some(pattern) = &search_pattern {
+        query.push(" AND (r.name ILIKE ");
+        query.push_bind(pattern);
+        query.push(" OR r.topic ILIKE ");
+        query.push_bind(pattern);
+        query.push(" OR r.room_id ILIKE ");
+        query.push_bind(pattern);
+        query.push(")");
     }
 
     if let Some(is_public) = body.is_public {
-        query.push_str(&format!(" AND r.is_public = {}", is_public));
+        query.push(" AND r.is_public = ");
+        query.push_bind(is_public);
     }
 
-    query.push_str(" GROUP BY r.room_id, r.name, r.topic, r.creator, r.is_public, r.creation_ts");
-
-    match body.order_by.as_deref() {
-        Some("name") => query.push_str(" ORDER BY r.name ASC"),
-        Some("size") => query.push_str(" ORDER BY member_count DESC"),
-        Some("created") => query.push_str(" ORDER BY r.creation_ts DESC"),
-        _ => query.push_str(" ORDER BY r.creation_ts DESC"),
+    if let Some(is_encrypted) = body.is_encrypted {
+        if is_encrypted {
+            query.push(
+                " AND EXISTS (SELECT 1 FROM room_events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.type = 'm.room.encryption')",
+            );
+        } else {
+            query.push(
+                " AND NOT EXISTS (SELECT 1 FROM room_events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.type = 'm.room.encryption')",
+            );
+        }
     }
 
-    query.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
+    query.push(" GROUP BY r.room_id, r.name, r.topic, r.creator, r.is_public, r.creation_ts");
 
-    let rooms = sqlx::query(&query)
+    let order_by_clause = match body.order_by.as_deref() {
+        Some("name") => " ORDER BY r.name ASC NULLS LAST, r.creation_ts DESC",
+        Some("size") => " ORDER BY member_count DESC, r.creation_ts DESC",
+        Some("created") => " ORDER BY r.creation_ts DESC",
+        _ => " ORDER BY r.creation_ts DESC",
+    };
+    query.push(order_by_clause);
+
+    query.push(" LIMIT ");
+    query.push_bind(limit);
+    query.push(" OFFSET ");
+    query.push_bind(offset);
+
+    let rooms = query
+        .build()
         .fetch_all(pool)
         .await
         .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
 
-    let total_query = if let Some(ref term) = body.search_term {
-        format!(
-            r#"SELECT COUNT(*) FROM rooms WHERE LOWER(name) LIKE '%{}%' OR LOWER(topic) LIKE '%{}%'"#,
-            term.to_lowercase(),
-            term.to_lowercase()
-        )
-    } else {
-        "SELECT COUNT(*) FROM rooms".to_string()
-    };
-    let total: i64 = sqlx::query_scalar(&total_query)
+    let mut count_query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+        "SELECT COUNT(*) as total FROM rooms r WHERE 1=1",
+    );
+
+    if let Some(pattern) = &search_pattern {
+        count_query.push(" AND (r.name ILIKE ");
+        count_query.push_bind(pattern);
+        count_query.push(" OR r.topic ILIKE ");
+        count_query.push_bind(pattern);
+        count_query.push(" OR r.room_id ILIKE ");
+        count_query.push_bind(pattern);
+        count_query.push(")");
+    }
+
+    if let Some(is_public) = body.is_public {
+        count_query.push(" AND r.is_public = ");
+        count_query.push_bind(is_public);
+    }
+
+    if let Some(is_encrypted) = body.is_encrypted {
+        if is_encrypted {
+            count_query.push(
+                " AND EXISTS (SELECT 1 FROM room_events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.type = 'm.room.encryption')",
+            );
+        } else {
+            count_query.push(
+                " AND NOT EXISTS (SELECT 1 FROM room_events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.type = 'm.room.encryption')",
+            );
+        }
+    }
+
+    let total_row = count_query
+        .build()
         .fetch_one(pool)
         .await
         .map_err(|e| ApiError::internal(format!("Count failed: {}", e)))?;
+    let total: i64 = total_row.get("total");
 
     let results: Vec<Value> = rooms
         .iter()
         .map(|r| {
-            let is_encrypted: Option<i64> = r.get("is_encrypted");
             json!({
                 "room_id": r.get::<String, _>("room_id"),
                 "name": r.get::<Option<String>, _>("name"),
@@ -1320,7 +1364,7 @@ pub async fn search_all_rooms(
                 "creator": r.get::<Option<String>, _>("creator"),
                 "is_public": r.get::<bool, _>("is_public"),
                 "member_count": r.get::<i64, _>("member_count"),
-                "is_encrypted": is_encrypted.map(|v| v > 0).unwrap_or(false),
+                "is_encrypted": r.get::<bool, _>("is_encrypted"),
                 "creation_ts": r.get::<i64, _>("creation_ts")
             })
         })

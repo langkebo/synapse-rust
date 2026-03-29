@@ -13,7 +13,7 @@ mod tests {
             topic: Some("Test Topic".to_string()),
             avatar_url: Some("mxc://example.com/avatar".to_string()),
             canonical_alias: Some("#test:example.com".to_string()),
-            join_rules: Some("public".to_string()),
+            join_rule: Some("public".to_string()),
             history_visibility: Some("shared".to_string()),
             guest_access: Some("can_join".to_string()),
             is_direct: Some(false),
@@ -32,7 +32,7 @@ mod tests {
             topic: Some("Updated Topic".to_string()),
             avatar_url: None,
             canonical_alias: None,
-            join_rules: None,
+            join_rule: None,
             history_visibility: None,
             guest_access: None,
             is_direct: None,
@@ -86,7 +86,7 @@ mod tests {
             topic: Some("Test Topic".to_string()),
             avatar_url: Some("mxc://example.com/avatar".to_string()),
             canonical_alias: Some("#test:example.com".to_string()),
-            join_rules: "public".to_string(),
+            join_rule: "public".to_string(),
             history_visibility: "shared".to_string(),
             guest_access: "can_join".to_string(),
             is_direct: false,
@@ -132,7 +132,7 @@ mod tests {
             topic: Some("Test Topic".to_string()),
             avatar_url: Some("mxc://example.com/avatar".to_string()),
             canonical_alias: Some("#test:example.com".to_string()),
-            join_rules: "public".to_string(),
+            join_rule: "public".to_string(),
             history_visibility: "shared".to_string(),
             guest_access: "can_join".to_string(),
             is_direct: false,
@@ -219,7 +219,7 @@ mod tests {
             topic: None,
             avatar_url: None,
             canonical_alias: None,
-            join_rules: None,
+            join_rule: None,
             history_visibility: None,
             guest_access: None,
             is_direct: None,
@@ -233,7 +233,7 @@ mod tests {
         }
 
         let response = result.unwrap();
-        assert_eq!(response.join_rules, "invite");
+        assert_eq!(response.join_rule, "invite");
     }
 
     #[tokio::test]
@@ -265,7 +265,7 @@ mod tests {
             topic: None,
             avatar_url: None,
             canonical_alias: None,
-            join_rules: None,
+            join_rule: None,
             history_visibility: None,
             guest_access: None,
             is_direct: None,

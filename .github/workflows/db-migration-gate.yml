@@ -27,6 +27,26 @@ jobs:
       - name: Validate critical schema contracts
         run: python3 scripts/check_schema_contract_coverage.py
 
+  migration-layout-audit:
+    name: Migration Layout Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Audit migration directory layout
+        run: python3 scripts/audit_migration_layout.py
+
+  external-evidence-gate:
+    name: External Evidence Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate external evidence is complete
+        run: python3 scripts/check_external_evidence_complete.py
+
   unified-schema-apply:
     name: Unified Schema Apply
     runs-on: ubuntu-latest
@@ -73,7 +93,15 @@ jobs:
       - name: Run pg_amcheck
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          PG_AMCHECK_REPORT: artifacts/db-amcheck-report.txt
         run: python3 scripts/run_pg_amcheck.py
+
+      - name: Upload pg_amcheck report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-amcheck-report
+          path: artifacts/db-amcheck-report.txt
 
   sqlx-migrate-run:
     name: sqlx Migrate Run
@@ -132,6 +160,12 @@ jobs:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: cargo test --locked --test unit db_schema_smoke_tests -- --test-threads=1
+
+      - name: Run invite blocklist database smoke tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+        run: cargo test --locked --test unit invite_blocklist_tests -- --test-threads=1
 
       - name: Generate logical checksum report
         env:

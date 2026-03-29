@@ -12,6 +12,7 @@ mod api_input_validation_tests;
 mod api_ip_block_test;
 mod api_media_routes_tests;
 mod api_profile_tests;
+mod api_protocol_alignment_tests;
 mod api_room_summary_routes_tests;
 mod api_room_tests;
 mod api_search_thread_tests;

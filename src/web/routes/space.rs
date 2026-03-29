@@ -11,7 +11,7 @@ use validator::Validate;
 use crate::common::ApiError;
 use crate::storage::space::{AddChildRequest, CreateSpaceRequest, UpdateSpaceRequest};
 use crate::web::routes::AppState;
-use crate::web::routes::AuthenticatedUser;
+use crate::web::routes::{AuthenticatedUser, OptionalAuthenticatedUser};
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct CreateSpaceBody {
@@ -174,6 +174,9 @@ pub async fn create_space(
     auth_user: AuthenticatedUser,
     Json(body): Json<CreateSpaceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    body.validate()
+        .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
+
     let request = CreateSpaceRequest {
         room_id: body.room_id,
         name: body.name,
@@ -225,6 +228,9 @@ pub async fn update_space(
     auth_user: AuthenticatedUser,
     Json(body): Json<UpdateSpaceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    body.validate()
+        .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
+
     let mut request = UpdateSpaceRequest::new();
 
     if let Some(name) = body.name {
@@ -275,6 +281,9 @@ pub async fn add_child(
     auth_user: AuthenticatedUser,
     Json(body): Json<AddChildBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    body.validate()
+        .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
+
     let request = AddChildRequest {
         space_id,
         room_id: body.room_id,
@@ -355,15 +364,15 @@ pub async fn get_space_rooms(
 pub async fn get_space_state(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
+    auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let space = state
+    let space_state = state
         .services
         .space_service
-        .get_space(&space_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Space not found"))?;
+        .get_space_state(&space_id, auth_user.user_id.as_deref())
+        .await?;
 
-    Ok(Json(SpaceResponse::from(space)))
+    Ok(Json(space_state))
 }
 
 pub async fn invite_user(
@@ -372,6 +381,9 @@ pub async fn invite_user(
     auth_user: AuthenticatedUser,
     Json(body): Json<InviteUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    body.validate()
+        .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
+
     let member = state
         .services
         .space_service

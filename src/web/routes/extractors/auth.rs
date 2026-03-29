@@ -124,20 +124,5 @@ impl AuthExtractor for HeaderMap {
 }
 
 pub(crate) fn extract_token_from_headers(headers: &HeaderMap) -> Result<String, ApiError> {
-    let token = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .map(|s| s.to_string())
-        .ok_or_else(|| {
-            ApiError::unauthorized("Missing or invalid authorization header".to_string())
-        })?;
-
-    if token.trim().is_empty() {
-        return Err(ApiError::unauthorized(
-            "Empty authorization token".to_string(),
-        ));
-    }
-
-    Ok(token)
+    crate::web::utils::auth::bearer_token(headers)
 }
