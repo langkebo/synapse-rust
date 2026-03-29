@@ -1,11 +1,7 @@
 //! 版本相关处理器
 
 use crate::web::AppState;
-use axum::{
-    extract::State,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, routing::get, Json, Router};
 use serde_json::json;
 
 /// 获取客户端 API 版本

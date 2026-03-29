@@ -131,10 +131,7 @@ async fn test_account_data_list_returns_saved_entries() {
 
     let list_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/r0/user/{}/account_data/",
-            user_id
-        ))
+        .uri(format!("/_matrix/client/r0/user/{}/account_data/", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -152,7 +149,10 @@ async fn test_account_data_list_returns_saved_entries() {
         json["account_data"]["im.vector.settings"],
         json!({ "theme": "dark", "layout": "compact" })
     );
-    assert_eq!(json["account_data"]["m.fav_color"], json!({ "value": "blue" }));
+    assert_eq!(
+        json["account_data"]["m.fav_color"],
+        json!({ "value": "blue" })
+    );
 }
 
 #[tokio::test]
