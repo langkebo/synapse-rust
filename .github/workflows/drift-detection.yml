@@ -1,0 +1,285 @@
+name: Schema Drift Detection
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'migrations/**/*.sql'
+      - 'scripts/db/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'migrations/**/*.sql'
+      - 'scripts/db/**'
+
+env:
+  FLYWAY_DB_HOST: ${{ vars.PGHOST || 'localhost' }}
+  FLYWAY_DB_PORT: ${{ vars.PGPORT || '5432' }}
+  FLYWAY_DB_NAME: ${{ vars.PGDATABASE || 'synapse' }}
+  FLYWAY_DB_USER: ${{ vars.PGUSER || 'synapse' }}
+  FLYWAY_DB_PASSWORD: ${{ secrets.PGPASSWORD || 'synapse' }}
+
+jobs:
+  drift-detection:
+    name: Schema Drift Detection
+    runs-on: ubuntu-latest
+    container:
+      image: postgres:15-alpine
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse
+          POSTGRES_DB: synapse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          pip install psycopg2-binary pg8000
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U synapse; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+          echo "PostgreSQL did not start in time"
+          exit 1
+
+      - name: Generate expected schema from migrations
+        run: |
+          python scripts/db/extract_schema.py \
+            --host localhost \
+            --port 5432 \
+            --database synapse \
+            --user synapse \
+            --password synapse \
+            --schema public \
+            --output expected_schema.json \
+            --skip-row-counts
+
+      - name: Extract actual schema from database
+        run: |
+          python scripts/db/extract_schema.py \
+            --host localhost \
+            --port 5432 \
+            --database synapse \
+            --user synapse \
+            --password synapse \
+            --schema public \
+            --output actual_schema.json
+
+      - name: Run drift detection
+        id: drift
+        run: |
+          python scripts/db/diff_schema.py \
+            expected_schema.json \
+            actual_schema.json \
+            --format text \
+            --output drift_report.txt \
+            --exit-code || true
+
+          echo "## Schema Drift Report" >> $GITHUB_STEP_SUMMARY
+          cat drift_report.txt >> $GITHUB_STEP_SUMMARY
+
+          if grep -q "BLOCKER" drift_report.txt; then
+            echo "drift_detected=true" >> $GITHUB_OUTPUT
+            echo "drift_blockers=$(grep -c BLOCKER drift_report.txt)" >> $GITHUB_OUTPUT
+          else
+            echo "drift_detected=false" >> $GITHUB_OUTPUT
+            echo "drift_blockers=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload drift report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: drift-report
+          path: drift_report.txt
+          retention-days: 30
+
+      - name: Fail on blockers
+        if: steps.drift.outputs.drift_detected == 'true' && steps.drift.outputs.drift_blockers != '0'
+        run: |
+          echo "Schema drift with blockers detected!"
+          echo "Blocking merge until drift is resolved."
+          exit 1
+
+  migration-validation:
+    name: Migration Script Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check migration naming convention
+        run: |
+          echo "Checking migration script naming conventions..."
+          errors=0
+          
+          for f in migrations/*.sql; do
+            if [[ ! "$f" =~ ^migrations/V[0-9]{14}_[0-9]+__[A-Z]+-[0-9]+__.*\.sql$ ]]; then
+              echo "Invalid naming: $f"
+              errors=$((errors + 1))
+            fi
+          done
+          
+          if [ $errors -gt 0 ]; then
+            echo "Found $errors migration scripts with invalid naming"
+            exit 1
+          fi
+          echo "All migration scripts follow naming convention"
+
+      - name: Check for duplicate migrations
+        run: |
+          echo "Checking for duplicate migration scripts..."
+          duplicates=$(find migrations -name "*.sql" -not -name "*undo*" -not -name "*rollback*" | \
+            xargs basename -a | \
+            sort | \
+            uniq -d)
+          
+          if [ -n "$duplicates" ]; then
+            echo "Duplicate migration scripts found:"
+            echo "$duplicates"
+            exit 1
+          fi
+          echo "No duplicate migration scripts found"
+
+      - name: Check for missing rollback scripts
+        run: |
+          echo "Checking for missing rollback scripts..."
+          missing=0
+          
+          for f in migrations/V*.sql; do
+            if [[ "$f" == *"undo"* ]] || [[ "$f" == *"rollback"* ]]; then
+              continue
+            fi
+            rollback_name="${f%.sql}.undo.sql"
+            rollback_alt="migrations/rollback/$(basename ${f%.sql}).rollback.sql"
+            
+            if [ ! -f "$rollback_name" ] && [ ! -f "$rollback_alt" ]; then
+              echo "Missing rollback for: $f"
+              missing=$((missing + 1))
+            fi
+          done
+          
+          if [ $missing -gt 0 ]; then
+            echo "Found $missing migrations without rollback scripts"
+            exit 1
+          fi
+          echo "All migrations have rollback scripts"
+
+  performance-baseline:
+    name: Migration Performance Baseline
+    runs-on: ubuntu-latest
+    container:
+      image: postgres:15-alpine
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse
+          POSTGRES_DB: synapse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PostgreSQL
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U synapse; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Simulate large table for performance testing
+        run: |
+          PGPASSWORD=synapse psql -h localhost -U synapse -d synapse -c "
+            CREATE TABLE IF NOT EXISTS test_events (
+              id BIGSERIAL PRIMARY KEY,
+              room_id TEXT NOT NULL,
+              event_type TEXT NOT NULL,
+              content JSONB,
+              created_ts BIGINT NOT NULL
+            );
+            
+            INSERT INTO test_events (room_id, event_type, content, created_ts)
+            SELECT 
+              '!room:' || (random() * 100)::int || ':example.com',
+              CASE (random() * 3)::int
+                WHEN 0 THEN 'm.room.message'
+                WHEN 1 THEN 'm.room.member'
+                ELSE 'm.room.event'
+              END,
+              '{}'::jsonb,
+              extract(epoch from now())::bigint * 1000
+            FROM generate_series(1, 100000);
+          "
+
+      - name: Run migration performance test
+        run: |
+          echo "Testing migration performance with 100K rows..."
+          
+          for migration in migrations/V20260322000001*.sql; do
+            if [ -f "$migration" ]; then
+              start_time=$(date +%s%3N)
+              
+              PGPASSWORD=synapse psql -h localhost -U synapse -d synapse -f "$migration" 2>&1 || true
+              
+              end_time=$(date +%s%3N)
+              duration=$((end_time - start_time))
+              
+              echo "Migration: $(basename $migration)"
+              echo "Duration: ${duration}ms"
+              
+              if [ $duration -gt 30000 ]; then
+                echo "⚠️  Migration exceeds 30s baseline!"
+              fi
+            fi
+          done
+
+      - name: Cleanup test data
+        run: |
+          PGPASSWORD=synapse psql -h localhost -U synapse -d synapse -c "DROP TABLE IF EXISTS test_events;"

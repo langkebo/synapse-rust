@@ -383,3 +383,92 @@ async fn test_verification_routes_work_across_v1_and_r0() {
         .unwrap();
     assert_eq!(v3_start_response.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn test_device_verification_v3_accepts_alias_fields_and_round_trips_status() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, _) = register_user(&app, &format!("device_verify_{}", rand::random::<u32>())).await;
+
+    let request_verification_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/device_verification/request")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_id": "SECOND_DEVICE",
+                "method": "sas"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let request_verification_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), request_verification_request)
+            .await
+            .unwrap();
+    assert_eq!(request_verification_response.status(), StatusCode::OK);
+
+    let request_verification_body =
+        axum::body::to_bytes(request_verification_response.into_body(), 4096)
+            .await
+            .unwrap();
+    let request_verification_json: Value =
+        serde_json::from_slice(&request_verification_body).unwrap();
+    let verification_token = request_verification_json["token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        request_verification_json["request_token"],
+        request_verification_json["token"]
+    );
+    assert_eq!(request_verification_json["status"], "pending");
+
+    let status_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v3/device_verification/status/{}",
+            verification_token
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let status_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), status_request)
+        .await
+        .unwrap();
+    assert_eq!(status_response.status(), StatusCode::OK);
+
+    let status_body = axum::body::to_bytes(status_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let status_json: Value = serde_json::from_slice(&status_body).unwrap();
+    assert_eq!(status_json["request_token"], status_json["token"]);
+    assert_eq!(status_json["status"], "pending");
+
+    let respond_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/device_verification/respond")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "token": verification_token,
+                "approved": true
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let respond_response = ServiceExt::<Request<Body>>::oneshot(app, respond_request)
+        .await
+        .unwrap();
+    assert_eq!(respond_response.status(), StatusCode::OK);
+
+    let respond_body = axum::body::to_bytes(respond_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let respond_json: Value = serde_json::from_slice(&respond_body).unwrap();
+    assert_eq!(respond_json["success"], true);
+    assert_eq!(respond_json["trust_level"], "verified");
+}

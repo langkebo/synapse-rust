@@ -110,6 +110,41 @@ impl RoomSummaryService {
             .ok_or_else(|| ApiError::not_found("Room summary not found after sync"))
     }
 
+    async fn get_initial_state_events(&self, room_id: &str) -> Result<Vec<crate::storage::event::StateEvent>, ApiError> {
+        let mut all_states = Vec::new();
+
+        let current_states = self
+            .event_storage
+            .get_state_events(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get current state: {}", e)))?;
+
+        all_states.extend(current_states);
+
+        if let Some(member_storage) = self.member_storage.as_ref() {
+            let join_members = member_storage
+                .get_room_members(room_id, "join")
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get join members: {}", e)))?;
+
+            let invite_members = member_storage
+                .get_room_members(room_id, "invite")
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get invite members: {}", e)))?;
+
+            let all_members: Vec<_> = join_members
+                .into_iter()
+                .chain(invite_members)
+                .collect();
+
+            if !all_members.is_empty() {
+                info!("Found {} initial members for room {}", all_members.len(), room_id);
+            }
+        }
+
+        Ok(all_states)
+    }
+
     fn create_request_to_update_request(
         request: &CreateRoomSummaryRequest,
     ) -> UpdateRoomSummaryRequest {
@@ -152,7 +187,7 @@ impl RoomSummaryService {
             let join_members = member_storage
                 .get_room_members(room_id, "join")
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get room members: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to get room join members: {}", e)))?;
 
             let invite_members = member_storage
                 .get_room_members(room_id, "invite")
@@ -173,7 +208,7 @@ impl RoomSummaryService {
                     display_name: member.display_name.clone(),
                     avatar_url: member.avatar_url.clone(),
                     membership: member.membership.clone(),
-                    is_hero: None,
+                    is_hero: Some(member.user_id == member.user_id),
                     last_active_ts: member.joined_ts.or(member.updated_ts),
                 };
 
