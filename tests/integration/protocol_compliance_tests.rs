@@ -58,12 +58,10 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         .execute(&pool)
         .await
         .ok();
-    sqlx::query(
-        "DELETE FROM event_receipts WHERE user_id LIKE '@%:localhost'",
-    )
-    .execute(&pool)
-    .await
-    .ok();
+    sqlx::query("DELETE FROM event_receipts WHERE user_id LIKE '@%:localhost'")
+        .execute(&pool)
+        .await
+        .ok();
     sqlx::query("DELETE FROM typing WHERE user_id LIKE '@%:localhost'")
         .execute(&pool)
         .await
@@ -116,16 +114,16 @@ async fn create_test_room(pool: &Pool<Postgres>, room_id: &str) {
     // Use the actual schema from master_unified_schema.sql
     // Required fields: room_id, creator, created_ts, last_activity_ts
     sqlx::query(
-            "INSERT INTO rooms (room_id, creator, created_ts, last_activity_ts) VALUES ($1, $2, $3, $4)
-             ON CONFLICT (room_id) DO NOTHING"
-        )
-        .bind(room_id)
-        .bind("@creator:localhost")
-        .bind(now)
-        .bind(now)  // last_activity_ts
-        .execute(pool)
-        .await
-        .ok();
+        "INSERT INTO rooms (room_id, creator, created_ts, last_activity_ts) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (room_id) DO NOTHING",
+    )
+    .bind(room_id)
+    .bind("@creator:localhost")
+    .bind(now)
+    .bind(now) // last_activity_ts
+    .execute(pool)
+    .await
+    .ok();
 }
 
 #[test]

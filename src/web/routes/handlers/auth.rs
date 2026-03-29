@@ -2,10 +2,7 @@
 
 use crate::common::ApiError;
 use crate::web::AppState;
-use axum::{
-    extract::State,
-    Json,
-};
+use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -74,9 +71,7 @@ pub async fn login(
 }
 
 /// 登出处理
-pub async fn logout(
-    State(_state): State<AppState>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+pub async fn logout(State(_state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -92,5 +87,7 @@ pub async fn register(
     State(_state): State<AppState>,
     Json(_body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::bad_request("Registration not implemented".to_string()))
+    Err(ApiError::bad_request(
+        "Registration not implemented".to_string(),
+    ))
 }
