@@ -317,6 +317,7 @@ async fn request_device_verification(
 ) -> Result<Json<Value>, ApiError> {
     let new_device_id = body
         .get("new_device_id")
+        .or_else(|| body.get("device_id"))
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("new_device_id required".to_string()))?;
 
@@ -341,6 +342,7 @@ async fn request_device_verification(
 
     Ok(Json(serde_json::json!({
         "request_token": response.request_token,
+        "token": response.request_token,
         "status": response.status,
         "expires_at": response.expires_at,
         "methods_available": response.methods_available
@@ -355,6 +357,7 @@ async fn respond_device_verification(
 ) -> Result<Json<Value>, ApiError> {
     let request_token = body
         .get("request_token")
+        .or_else(|| body.get("token"))
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("request_token required".to_string()))?;
 
@@ -390,6 +393,7 @@ async fn get_verification_status(
     match response {
         Some(r) => Ok(Json(serde_json::json!({
             "request_token": r.request_token,
+            "token": r.request_token,
             "status": r.status,
             "expires_at": r.expires_at,
             "methods_available": r.methods_available

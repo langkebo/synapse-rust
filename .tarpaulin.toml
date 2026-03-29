@@ -1,0 +1,15 @@
+[upload]
+token = "$CODECOV_TOKEN"
+
+[build]
+artifacts = true
+
+[report]
+exclude_files = ["src/tests/**", "**/tests/**", "**/migrations/**"]
+fail_ci_if_error = true
+precision = 2
+range = "70..90"
+
+[flags]
+unit = "src/**/*.rs"
+integration = "tests/**/*.rs"

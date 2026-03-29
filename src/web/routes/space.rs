@@ -71,6 +71,7 @@ pub struct PaginationQuery {
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct SearchQuery {
+    #[serde(alias = "search_term")]
     #[validate(length(min = 1, max = 500))]
     pub query: String,
     #[validate(range(min = 0, max = 100))]

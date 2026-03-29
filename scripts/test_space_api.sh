@@ -5,7 +5,7 @@
 
 set -e
 
-BASE_URL="http://localhost:28008"
+BASE_URL="http://localhost:28008/_matrix/client/v3"
 TEST_USER="spacetest"
 TEST_PASSWORD="Test@123"
 
@@ -26,7 +26,7 @@ echo "=========================================="
 
 # 登录获取 token
 echo -e "\n${YELLOW}[1/21]${NC} 登录获取 token..."
-LOGIN_RESPONSE=$(curl -s -X POST "${BASE_URL}/_matrix/client/v3/login" \
+LOGIN_RESPONSE=$(curl -s -X POST "http://localhost:28008/_matrix/client/v3/login" \
     -H "Content-Type: application/json" \
     -d "{\"type\":\"m.login.password\",\"user\":\"${TEST_USER}\",\"password\":\"${TEST_PASSWORD}\"}")
 

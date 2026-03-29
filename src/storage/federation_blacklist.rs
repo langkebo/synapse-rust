@@ -197,7 +197,21 @@ impl FederationBlacklistStorage {
         server_name: &str,
     ) -> Result<Option<FederationBlacklist>, ApiError> {
         let row = sqlx::query_as::<_, FederationBlacklist>(
-            "SELECT * FROM federation_blacklist WHERE server_name = $1 AND is_enabled = true",
+            r#"
+            SELECT
+                id,
+                server_name,
+                'blacklist' AS block_type,
+                reason,
+                COALESCE(added_by, 'system') AS blocked_by,
+                added_ts AS created_ts,
+                COALESCE(updated_ts, added_ts) AS updated_ts,
+                NULL::BIGINT AS expires_at,
+                TRUE AS is_enabled,
+                '{}'::jsonb AS metadata
+            FROM federation_blacklist
+            WHERE server_name = $1
+            "#,
         )
         .bind(server_name)
         .fetch_optional(&*self.pool)

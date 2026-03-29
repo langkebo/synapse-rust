@@ -100,18 +100,22 @@ fn remove_room_from_direct_map(direct_map: &mut Map<String, Value>, room_id: &st
 }
 
 fn parse_dm_users(value: &Value) -> Result<Vec<String>, ApiError> {
-    let users = value
-        .as_array()
-        .ok_or_else(|| ApiError::bad_request("users must be an array of Matrix user IDs"))?;
-
-    let parsed: Vec<String> = users
-        .iter()
-        .map(|user| {
-            user.as_str()
-                .map(|value| value.to_string())
-                .ok_or_else(|| ApiError::bad_request("users must contain only strings"))
-        })
-        .collect::<Result<_, _>>()?;
+    let parsed = match value {
+        Value::Array(users) => users
+            .iter()
+            .map(|user| {
+                user.as_str()
+                    .map(|value| value.to_string())
+                    .ok_or_else(|| ApiError::bad_request("users must contain only strings"))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        Value::Object(users) => users.keys().cloned().collect::<Vec<_>>(),
+        _ => {
+            return Err(ApiError::bad_request(
+                "users must be an array of Matrix user IDs or an m.direct user map",
+            ));
+        }
+    };
 
     if parsed.is_empty() {
         return Err(ApiError::bad_request(
@@ -259,11 +263,25 @@ pub async fn update_dm_room(
         }
         save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
     } else if let Some(content) = body.content {
-        let direct_map = content
+        let content = content
             .as_object()
             .cloned()
             .ok_or_else(|| ApiError::bad_request("content must be an m.direct object"))?;
-        save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
+
+        if let Some(user_id) = content.get("user_id").and_then(|value| value.as_str()) {
+            remove_room_from_direct_map(&mut direct_map, &room_id);
+            ensure_room_in_direct_map(&mut direct_map, user_id, &room_id);
+            save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
+        } else if let Some(users) = content.get("users") {
+            let users = parse_dm_users(users)?;
+            remove_room_from_direct_map(&mut direct_map, &room_id);
+            for user_id in users {
+                ensure_room_in_direct_map(&mut direct_map, &user_id, &room_id);
+            }
+            save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
+        } else {
+            save_direct_map(&state, &auth_user.user_id, &content).await?;
+        }
     }
 
     Ok(Json(json!({})))
@@ -394,6 +412,13 @@ mod tests {
         let parsed = parse_dm_users(&json!(["@bob:example.com", "@carol:example.com"])).unwrap();
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0], "@bob:example.com");
+        let object_parsed = parse_dm_users(&json!({
+            "@bob:example.com": {},
+            "@carol:example.com": {"is_direct": true}
+        }))
+        .unwrap();
+        assert_eq!(object_parsed.len(), 2);
+        assert!(object_parsed.contains(&"@bob:example.com".to_string()));
         assert!(parse_dm_users(&json!("invalid")).is_err());
         assert!(parse_dm_users(&json!([])).is_err());
     }

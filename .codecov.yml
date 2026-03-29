@@ -1,0 +1,18 @@
+[codecov]
+require_ci=true
+
+[coverage]
+precision=2
+range=70..90
+
+[coverage.notifications]
+  workflow = true
+
+[codecov.uploaded_files]
+  artifacts = true
+  bundle = true
+  file_reports = true
+  flags = true
+  network = true
+  patch = true
+  files = true

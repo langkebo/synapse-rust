@@ -628,7 +628,7 @@ if [ -n "$DM_ROOM_ID" ]; then
     curl -s -X PUT "$SERVER_URL/_matrix/client/v3/direct/$DM_ENC" \
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: application/json" \
-        -d '{"content": {"user_id": "'"$USER_ID"'"}}' | grep -q "ok\|success" && pass "Update Direct Room" || skip "Update Direct Room (not implemented)"
+        -d '{"users": ["'"$USER_ID"'"]}' | grep -q "^{}$" && pass "Update Direct Room" || skip "Update Direct Room (not implemented)"
 else
     skip "Update Direct Room (no DM room)"
 fi

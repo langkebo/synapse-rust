@@ -313,6 +313,99 @@ async fn test_dm_routes_persist_matrix_direct_account_data() {
 }
 
 #[tokio::test]
+async fn test_dm_update_accepts_users_array_and_legacy_content_shorthand() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (alice_token, alice_id) = register_user(&app, "dm_update_alice").await;
+    let (_bob_token, bob_id) = register_user(&app, "dm_update_bob").await;
+
+    let create_dm_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/create_dm")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "user_id": bob_id
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let create_dm_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_dm_request)
+        .await
+        .unwrap();
+    assert_eq!(create_dm_response.status(), StatusCode::OK);
+
+    let create_dm_body = axum::body::to_bytes(create_dm_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let create_dm_json: Value = serde_json::from_slice(&create_dm_body).unwrap();
+    let room_id = create_dm_json["room_id"].as_str().unwrap().to_string();
+
+    let update_array_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/direct/{}", room_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "users": [bob_id]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let update_array_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), update_array_request)
+            .await
+            .unwrap();
+    assert_eq!(update_array_response.status(), StatusCode::OK);
+
+    let update_legacy_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/direct/{}", room_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "content": {
+                    "user_id": bob_id
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let update_legacy_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), update_legacy_request)
+            .await
+            .unwrap();
+    assert_eq!(update_legacy_response.status(), StatusCode::OK);
+
+    let account_data_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/user/{}/account_data/m.direct", alice_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let account_data_response =
+        ServiceExt::<Request<Body>>::oneshot(app, account_data_request)
+            .await
+            .unwrap();
+    assert_eq!(account_data_response.status(), StatusCode::OK);
+
+    let account_data_body = axum::body::to_bytes(account_data_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let account_data_json: Value = serde_json::from_slice(&account_data_body).unwrap();
+    let account_data_rooms = account_data_json[&bob_id].as_array().unwrap();
+    let expected_room_id = Value::String(room_id);
+    assert!(account_data_rooms
+        .iter()
+        .any(|room| room == &expected_room_id));
+}
+
+#[tokio::test]
 async fn test_admin_room_search_enforces_matrix_forbidden_and_handles_special_terms() {
     let Some(app) = setup_test_app().await else {
         return;
@@ -493,6 +586,79 @@ async fn test_space_state_and_children_form_a_matrix_style_closure() {
     let children_json: Value = serde_json::from_slice(&children_body).unwrap();
     let children = children_json.as_array().unwrap();
     assert!(children.iter().any(|entry| entry["room_id"] == child_room_id));
+}
+
+#[tokio::test]
+async fn test_space_search_accepts_query_and_search_term_alias() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (token, _user_id) = register_user(&app, "space_search_owner").await;
+    let parent_room_id = create_room(&app, &token, "Search Alias Parent Room").await;
+
+    let create_space_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/spaces")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room_id": parent_room_id,
+                "name": "Alias Search Space",
+                "topic": "Search alias coverage",
+                "join_rule": "invite",
+                "visibility": "private",
+                "is_public": false
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let create_space_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), create_space_request)
+            .await
+            .unwrap();
+    assert_eq!(create_space_response.status(), StatusCode::CREATED);
+
+    let query_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/spaces/search?query=Alias")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let query_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), query_request)
+        .await
+        .unwrap();
+    assert_eq!(query_response.status(), StatusCode::OK);
+
+    let query_body = axum::body::to_bytes(query_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let query_json: Value = serde_json::from_slice(&query_body).unwrap();
+    let query_entries = query_json.as_array().unwrap();
+    assert!(query_entries
+        .iter()
+        .any(|entry| entry["name"] == "Alias Search Space"));
+
+    let alias_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/spaces/search?search_term=Alias")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let alias_response = ServiceExt::<Request<Body>>::oneshot(app, alias_request)
+        .await
+        .unwrap();
+    assert_eq!(alias_response.status(), StatusCode::OK);
+
+    let alias_body = axum::body::to_bytes(alias_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let alias_json: Value = serde_json::from_slice(&alias_body).unwrap();
+    let alias_entries = alias_json.as_array().unwrap();
+    assert!(alias_entries
+        .iter()
+        .any(|entry| entry["name"] == "Alias Search Space"));
 }
 
 #[tokio::test]

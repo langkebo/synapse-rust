@@ -777,7 +777,7 @@ pub async fn get_single_room_stats(
 
     // Message count
     let message_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM events WHERE room_id = $1 AND type = 'm.room.message'",
+        "SELECT COUNT(*) FROM events WHERE room_id = $1 AND event_type = 'm.room.message'",
     )
     .bind(&room_id)
     .fetch_one(pool)
