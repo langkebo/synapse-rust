@@ -79,6 +79,7 @@ pub use push_service::*;
 pub use read_receipt_service::*;
 pub use registration_service::*;
 pub use room_service::*;
+pub use room_summary_service::*;
 pub use search_service::*;
 pub use sliding_sync_service::*;
 pub use space_service::*;

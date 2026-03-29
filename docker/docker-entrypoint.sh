@@ -268,7 +268,13 @@ main() {
         log_error "迁移验证失败，退出"
         exit 1
     fi
-    
+
+    # 修复媒体目录权限
+    log_info "修复媒体目录权限..."
+    mkdir -p /app/data/media
+    chmod -R 755 /app/data/media 2>/dev/null || true
+    chown -R synapse:synapse /app/data/media 2>/dev/null || true
+
     log_info "=========================================="
     log_info "启动应用服务"
     log_info "=========================================="

@@ -1,9 +1,12 @@
 use config::Config as ConfigBuilder;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use regex::Regex;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+mod manager;
+
+pub use manager::ConfigManager;
 
 // ============================================================================
 // SECTION: Error Types
@@ -12,7 +15,6 @@ use std::path::PathBuf;
 // The issue is that parking_lot::RwLock doesn't poison on panic unlike std::sync::RwLock
 // parking_lot's lock() methods return &T directly, not Result<_, PoisonError<T>>
 
-use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -994,141 +996,6 @@ impl Default for RateLimitConfig {
             exempt_path_prefixes: Vec::new(),
             endpoint_aliases: HashMap::new(),
             fail_open_on_error: default_rate_limit_fail_open(),
-        }
-    }
-}
-
-// ============================================================================
-// SECTION: Config Manager
-// ============================================================================
-
-/// 配置管理器。
-///
-/// 提供线程安全的配置访问和更新方法。
-pub struct ConfigManager {
-    /// 内部配置存储
-    config: Arc<RwLock<Config>>,
-}
-
-impl ConfigManager {
-    /// 创建新的配置管理器。
-    ///
-    /// # 参数
-    ///
-    /// * `config` - 初始配置
-    pub fn new(config: Config) -> Self {
-        Self {
-            config: Arc::new(RwLock::new(config)),
-        }
-    }
-
-    /// 安全读取配置（只读）。
-    ///
-    /// # 返回值
-    ///
-    /// 成功时返回配置只读引用
-    fn read_config(&self, _location: &str) -> RwLockReadGuard<'_, Config> {
-        self.config.read()
-    }
-
-    /// 安全写入配置（可写）。
-    ///
-    /// # 返回值
-    ///
-    /// 成功时返回配置可变引用
-    fn write_config(&self, _location: &str) -> RwLockWriteGuard<'_, Config> {
-        self.config.write()
-    }
-
-    /// 获取服务器名称。
-    ///
-    /// # 返回值
-    ///
-    /// 返回服务器名称字符串
-    pub fn get_server_name(&self) -> String {
-        let config = self.read_config("get_server_name");
-        config.server.name.clone()
-    }
-
-    /// 获取服务器主机地址。
-    ///
-    /// # 返回值
-    ///
-    /// 返回服务器主机字符串
-    pub fn get_server_host(&self) -> String {
-        let config = self.read_config("get_server_host");
-        config.server.host.clone()
-    }
-
-    /// 获取服务器端口。
-    ///
-    /// # 返回值
-    ///
-    /// 返回服务器端口号
-    pub fn get_server_port(&self) -> u16 {
-        let config = self.read_config("get_server_port");
-        config.server.port
-    }
-
-    /// 获取数据库连接 URL。
-    ///
-    /// # 返回值
-    ///
-    /// 返回 PostgreSQL 连接字符串
-    pub fn get_database_url(&self) -> String {
-        let config = self.read_config("get_database_url");
-        format!(
-            "postgres://{}:{}@{}:{}/{}",
-            config.database.username,
-            config.database.password,
-            config.database.host,
-            config.database.port,
-            config.database.name
-        )
-    }
-
-    /// 获取 Redis 连接 URL。
-    ///
-    /// # 返回值
-    ///
-    /// 返回 Redis 连接字符串
-    pub fn get_redis_url(&self) -> String {
-        let config = self.read_config("get_redis_url");
-        format!("redis://{}:{}", config.redis.host, config.redis.port)
-    }
-
-    /// 获取完整配置副本。
-    ///
-    /// # 返回值
-    ///
-    /// 返回配置克隆
-    pub fn get_config(&self) -> Config {
-        let config = self.read_config("get_config");
-        config.clone()
-    }
-
-    /// 更新配置。
-    ///
-    /// # 参数
-    ///
-    /// * `f` - 配置更新闭包
-    ///
-    /// # 返回值
-    ///
-    /// 成功时返回 `Ok(())`，失败时返回错误
-    pub fn update_config<F>(&self, f: F)
-    where
-        F: FnOnce(&mut Config),
-    {
-        let mut config = self.write_config("update_config");
-        f(&mut config);
-    }
-}
-
-impl Clone for ConfigManager {
-    fn clone(&self) -> Self {
-        Self {
-            config: Arc::clone(&self.config),
         }
     }
 }

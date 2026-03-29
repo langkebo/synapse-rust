@@ -258,6 +258,164 @@ BEGIN
         CONSTRAINT fk_worker_connections_source FOREIGN KEY (source_worker_id) REFERENCES workers(worker_id) ON DELETE CASCADE,
         CONSTRAINT fk_worker_connections_target FOREIGN KEY (target_worker_id) REFERENCES workers(worker_id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS widgets (
+        id BIGSERIAL PRIMARY KEY,
+        widget_id TEXT NOT NULL UNIQUE,
+        room_id TEXT,
+        user_id TEXT NOT NULL,
+        widget_type TEXT NOT NULL,
+        url TEXT NOT NULL,
+        name TEXT NOT NULL,
+        data JSONB NOT NULL DEFAULT '{}',
+        created_ts BIGINT NOT NULL,
+        updated_ts BIGINT,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        CONSTRAINT fk_widgets_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
+        CONSTRAINT fk_widgets_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS widget_permissions (
+        id BIGSERIAL PRIMARY KEY,
+        widget_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        permissions JSONB NOT NULL DEFAULT '[]',
+        created_ts BIGINT NOT NULL,
+        updated_ts BIGINT,
+        CONSTRAINT uq_widget_permissions_widget_user UNIQUE (widget_id, user_id),
+        CONSTRAINT fk_widget_permissions_widget FOREIGN KEY (widget_id) REFERENCES widgets(widget_id) ON DELETE CASCADE,
+        CONSTRAINT fk_widget_permissions_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS widget_sessions (
+        id BIGSERIAL PRIMARY KEY,
+        session_id TEXT NOT NULL UNIQUE,
+        widget_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        device_id TEXT,
+        created_ts BIGINT NOT NULL,
+        last_active_ts BIGINT,
+        expires_at BIGINT,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        CONSTRAINT fk_widget_sessions_widget FOREIGN KEY (widget_id) REFERENCES widgets(widget_id) ON DELETE CASCADE,
+        CONSTRAINT fk_widget_sessions_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS server_notifications (
+        id BIGSERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        notification_type TEXT NOT NULL DEFAULT 'info',
+        priority INTEGER NOT NULL DEFAULT 0,
+        target_audience TEXT NOT NULL DEFAULT 'all',
+        target_user_ids JSONB NOT NULL DEFAULT '[]',
+        starts_at BIGINT,
+        expires_at BIGINT,
+        is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        is_dismissable BOOLEAN NOT NULL DEFAULT TRUE,
+        action_url TEXT,
+        action_text TEXT,
+        created_by TEXT,
+        created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
+        updated_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
+    );
+
+    CREATE TABLE IF NOT EXISTS user_notification_status (
+        id BIGSERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        notification_id BIGINT NOT NULL,
+        is_read BOOLEAN NOT NULL DEFAULT FALSE,
+        is_dismissed BOOLEAN NOT NULL DEFAULT FALSE,
+        read_ts BIGINT,
+        dismissed_ts BIGINT,
+        created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
+        CONSTRAINT uq_user_notification_status_user_notification UNIQUE (user_id, notification_id),
+        CONSTRAINT fk_user_notification_status_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        CONSTRAINT fk_user_notification_status_notification FOREIGN KEY (notification_id) REFERENCES server_notifications(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_templates (
+        id BIGSERIAL PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        title_template TEXT NOT NULL,
+        content_template TEXT NOT NULL,
+        notification_type TEXT NOT NULL DEFAULT 'info',
+        variables JSONB NOT NULL DEFAULT '[]',
+        is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
+        updated_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_delivery_log (
+        id BIGSERIAL PRIMARY KEY,
+        notification_id BIGINT NOT NULL,
+        user_id TEXT,
+        delivery_method TEXT NOT NULL,
+        status TEXT NOT NULL,
+        error_message TEXT,
+        delivered_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
+        CONSTRAINT fk_notification_delivery_log_notification FOREIGN KEY (notification_id) REFERENCES server_notifications(id) ON DELETE CASCADE,
+        CONSTRAINT fk_notification_delivery_log_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS scheduled_notifications (
+        id BIGSERIAL PRIMARY KEY,
+        notification_id BIGINT NOT NULL,
+        scheduled_for BIGINT NOT NULL,
+        is_sent BOOLEAN NOT NULL DEFAULT FALSE,
+        sent_ts BIGINT,
+        created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
+        CONSTRAINT fk_scheduled_notifications_notification FOREIGN KEY (notification_id) REFERENCES server_notifications(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS secure_key_backups (
+        user_id TEXT NOT NULL,
+        backup_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        algorithm TEXT NOT NULL,
+        auth_data TEXT NOT NULL,
+        key_count BIGINT NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT pk_secure_key_backups PRIMARY KEY (user_id, backup_id),
+        CONSTRAINT fk_secure_key_backups_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS secure_backup_session_keys (
+        user_id TEXT NOT NULL,
+        backup_id TEXT NOT NULL,
+        room_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        encrypted_key TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT pk_secure_backup_session_keys PRIMARY KEY (user_id, backup_id, room_id, session_id),
+        CONSTRAINT fk_secure_backup_session_keys_backup FOREIGN KEY (user_id, backup_id) REFERENCES secure_key_backups(user_id, backup_id) ON DELETE CASCADE,
+        CONSTRAINT fk_secure_backup_session_keys_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS application_service_users (
+        as_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        displayname TEXT,
+        avatar_url TEXT,
+        created_ts BIGINT NOT NULL,
+        CONSTRAINT pk_application_service_users PRIMARY KEY (as_id, user_id),
+        CONSTRAINT fk_application_service_users_as FOREIGN KEY (as_id) REFERENCES application_services(as_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS application_service_statistics (
+        id BIGSERIAL PRIMARY KEY,
+        as_id TEXT NOT NULL UNIQUE,
+        name TEXT,
+        is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        rate_limited BOOLEAN NOT NULL DEFAULT TRUE,
+        virtual_user_count BIGINT NOT NULL DEFAULT 0,
+        pending_event_count BIGINT NOT NULL DEFAULT 0,
+        pending_transaction_count BIGINT NOT NULL DEFAULT 0,
+        last_seen_ts BIGINT,
+        created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
+        CONSTRAINT fk_application_service_statistics_as FOREIGN KEY (as_id) REFERENCES application_services(as_id) ON DELETE CASCADE
+    );
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_room_summary_state_room
@@ -316,6 +474,51 @@ ON worker_task_assignments(status, priority DESC, created_ts ASC);
 
 CREATE INDEX IF NOT EXISTS idx_worker_task_assignments_worker_status
 ON worker_task_assignments(assigned_worker_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_widgets_room_active_created
+ON widgets(room_id, created_ts DESC)
+WHERE is_active = TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_widgets_user_active_created
+ON widgets(user_id, created_ts DESC)
+WHERE is_active = TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_widget_permissions_widget
+ON widget_permissions(widget_id);
+
+CREATE INDEX IF NOT EXISTS idx_widget_permissions_user
+ON widget_permissions(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_widget_sessions_widget_active_last_active
+ON widget_sessions(widget_id, last_active_ts DESC)
+WHERE is_active = TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_server_notifications_enabled_priority_created
+ON server_notifications(priority DESC, created_ts DESC)
+WHERE is_enabled = TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_user_notification_status_user_created
+ON user_notification_status(user_id, created_ts DESC);
+
+CREATE INDEX IF NOT EXISTS idx_notification_templates_enabled
+ON notification_templates(is_enabled)
+WHERE is_enabled = TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_notification_delivery_log_notification_delivered
+ON notification_delivery_log(notification_id, delivered_ts DESC);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_notifications_pending
+ON scheduled_notifications(scheduled_for)
+WHERE is_sent = FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_secure_key_backups_user_created
+ON secure_key_backups(user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_secure_backup_session_keys_backup
+ON secure_backup_session_keys(user_id, backup_id);
+
+CREATE INDEX IF NOT EXISTS idx_application_service_users_as
+ON application_service_users(as_id);
 
 CREATE INDEX IF NOT EXISTS idx_worker_connections_source
 ON worker_connections(source_worker_id, status);

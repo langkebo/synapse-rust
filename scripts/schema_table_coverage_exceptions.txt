@@ -1,17 +1,8 @@
 # application services
-application_service_statistics
-application_service_users
 
 # background updates
-background_update_history
-background_update_locks
-background_update_stats
 
 # beacons / calls / rtc
-beacon_info
-beacon_locations
-call_candidates
-call_sessions
 dehydrated_devices
 delayed_events
 e2ee_audit_log
@@ -30,34 +21,11 @@ federation_blacklist_rule
 key_rotation_log
 key_signatures
 leak_alerts
-matrixrtc_encryption_keys
-matrixrtc_memberships
-matrixrtc_sessions
 
 # notifications
-notification_delivery_log
-notification_templates
-push_device
-qr_login_transactions
-rate_limits
-reaction_aggregations
-registration_token_batches
 room_sticky_events
-scheduled_notifications
-secure_backup_session_keys
-secure_key_backups
-server_notices
-server_notifications
 
 # uploads / user settings
-upload_chunks
-upload_progress
-user_notification_settings
-user_notification_status
 user_reputations
-user_settings
 
 # verification / widgets
-widget_permissions
-widget_sessions
-widgets

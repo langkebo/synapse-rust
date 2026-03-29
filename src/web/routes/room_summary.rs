@@ -87,6 +87,7 @@ impl From<RoomSummaryStats> for StatsResponse {
 pub async fn get_room_summary(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let summary = state
         .services
@@ -100,18 +101,53 @@ pub async fn get_room_summary(
 
 pub async fn get_user_summaries(
     State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let summaries = state
         .services
         .room_summary_service
-        .get_summaries_for_user(&auth_user.user_id)
+        .get_summaries_for_user(&_auth_user.user_id)
         .await?;
 
     Ok(Json(summaries))
 }
 
 pub async fn create_room_summary(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    _auth_user: AuthenticatedUser,
+    Json(body): Json<CreateRoomSummaryRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    if body.room_id != room_id {
+        return Err(ApiError::bad_request(
+            "Path room_id does not match body room_id".to_string(),
+        ));
+    }
+
+    let request = CreateRoomSummaryRequest {
+        room_id,
+        room_type: body.room_type,
+        name: body.name,
+        topic: body.topic,
+        avatar_url: body.avatar_url,
+        canonical_alias: body.canonical_alias,
+        join_rule: body.join_rule,
+        history_visibility: body.history_visibility,
+        guest_access: body.guest_access,
+        is_direct: body.is_direct,
+        is_space: body.is_space,
+    };
+
+    let summary = state
+        .services
+        .room_summary_service
+        .create_summary(request)
+        .await?;
+
+    Ok((StatusCode::CREATED, Json(summary)))
+}
+
+pub async fn create_internal_room_summary(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
     Json(body): Json<CreateRoomSummaryRequest>,
@@ -178,6 +214,7 @@ pub async fn sync_room_summary(
 pub async fn get_members(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let members = state
         .services
@@ -255,6 +292,7 @@ pub async fn remove_member(
 pub async fn get_state(
     State(state): State<AppState>,
     Path((room_id, event_type, state_key)): Path<(String, String, String)>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let state = state
         .services
@@ -298,6 +336,7 @@ pub async fn update_state(
 pub async fn get_all_state(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let states = state
         .services
@@ -323,6 +362,7 @@ pub async fn get_all_state(
 pub async fn get_stats(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let stats = state
         .services
@@ -463,7 +503,7 @@ pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/_synapse/room_summary/v1/summaries",
-            post(create_room_summary),
+            post(create_internal_room_summary),
         )
         .route(
             "/_synapse/room_summary/v1/updates/process",

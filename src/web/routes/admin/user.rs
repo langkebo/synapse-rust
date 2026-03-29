@@ -1,6 +1,7 @@
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::crypto::hash_password;
 use crate::common::ApiError;
+use crate::storage::models::User;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -101,6 +102,16 @@ pub struct CreateUpdateUserRequest {
     pub password: Option<String>,
 }
 
+async fn resolve_user(state: &AppState, identifier: &str) -> Result<User, ApiError> {
+    state
+        .services
+        .user_storage
+        .get_user_by_identifier(identifier)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("User not found".to_string()))
+}
+
 #[axum::debug_handler]
 pub async fn get_users(
     _admin: AdminUser,
@@ -188,25 +199,17 @@ async fn delete_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state
-        .services
-        .user_storage
-        .user_exists(&user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-    {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    let user = resolve_user(&state, &user_id).await?;
 
     state
         .services
         .user_storage
-        .delete_user(&user_id)
+        .delete_user(&user.user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({
-        "user_id": user_id,
+        "user_id": user.user_id,
         "deleted": true
     })))
 }
@@ -223,22 +226,18 @@ pub async fn set_admin(
         .and_then(|v| v.as_bool())
         .ok_or_else(|| ApiError::bad_request("Missing 'admin' field".to_string()))?;
 
-    if !state
-        .services
-        .user_storage
-        .user_exists(&user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-    {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    let user = resolve_user(&state, &user_id).await?;
 
     state
         .services
         .user_storage
-        .set_admin_status(&user_id, admin_status)
+        .set_admin_status(&user.user_id, admin_status)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    state
+        .cache
+        .set(&format!("user:admin:{}", user.user_id), admin_status, 3600)
+        .await?;
 
     Ok(Json(json!({ "success": true })))
 }
@@ -249,20 +248,12 @@ pub async fn deactivate_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state
-        .services
-        .user_storage
-        .user_exists(&user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-    {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    let user = resolve_user(&state, &user_id).await?;
 
     state
         .services
         .auth_service
-        .deactivate_user(&user_id)
+        .deactivate_user(&user.user_id)
         .await?;
 
     Ok(Json(json!({ "id_server_unbind_result": "success" })))
@@ -281,20 +272,12 @@ pub async fn reset_user_password(
         .validator
         .validate_password(&body.new_password)?;
 
-    if !state
-        .services
-        .user_storage
-        .user_exists(&user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-    {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    let user = resolve_user(&state, &user_id).await?;
 
     state
         .services
         .registration_service
-        .change_password(&user_id, &body.new_password)
+        .change_password(&user.user_id, &body.new_password)
         .await?;
 
     Ok(Json(json!({})))
@@ -306,20 +289,12 @@ pub async fn get_user_rooms_admin(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state
-        .services
-        .user_storage
-        .user_exists(&user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-    {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    let user = resolve_user(&state, &user_id).await?;
 
     let rooms = state
         .services
         .room_storage
-        .get_user_rooms(&user_id)
+        .get_user_rooms(&user.user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
@@ -692,23 +667,14 @@ pub async fn get_single_user_stats(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user_exists = sqlx::query("SELECT 1 FROM users WHERE user_id = $1")
-        .bind(&user_id)
-        .fetch_optional(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user: {}", e)))?
-        .is_some();
-
-    if !user_exists {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    let user = resolve_user(&state, &user_id).await?;
 
     let pool = &*state.services.room_storage.pool;
 
     let rooms_joined: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM room_memberships WHERE user_id = $1 AND membership = 'join'",
     )
-    .bind(&user_id)
+    .bind(&user.user_id)
     .fetch_one(pool)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to count rooms: {}", e)))?;
@@ -716,7 +682,7 @@ pub async fn get_single_user_stats(
     let messages_sent: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM room_events WHERE sender = $1 AND type = 'm.room.message'",
     )
-    .bind(&user_id)
+    .bind(&user.user_id)
     .fetch_one(pool)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to count messages: {}", e)))?;
@@ -724,31 +690,18 @@ pub async fn get_single_user_stats(
     let last_seen: Option<i64> = sqlx::query_scalar(
         "SELECT last_seen_ts FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC LIMIT 1",
     )
-    .bind(&user_id)
+    .bind(&user.user_id)
     .fetch_optional(pool)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to get last seen: {}", e)))?;
 
-    let account_ts: Option<i64> =
-        sqlx::query_scalar("SELECT creation_ts FROM users WHERE user_id = $1")
-            .bind(&user_id)
-            .fetch_one(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get account time: {}", e)))?;
-
-    let admin: bool = sqlx::query_scalar("SELECT is_admin FROM users WHERE user_id = $1")
-        .bind(&user_id)
-        .fetch_one(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check admin: {}", e)))?;
-
     Ok(Json(json!({
-        "user_id": user_id,
+        "user_id": user.user_id,
         "rooms_joined": rooms_joined,
         "messages_sent": messages_sent,
         "last_seen_ts": last_seen,
-        "creation_ts": account_ts,
-        "is_admin": admin,
+        "creation_ts": user.created_ts,
+        "is_admin": user.is_admin,
         "dashboard": {
             "total_rooms": rooms_joined,
             "total_messages": messages_sent,
@@ -913,44 +866,33 @@ pub async fn get_account_details(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = sqlx::query(
-        "SELECT user_id, username, displayname, is_admin, deactivated, creation_ts FROM users WHERE user_id = $1"
+    let user = resolve_user(&state, &user_id).await?;
+    let canonical_user_id = &user.user_id;
+
+    let device_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM devices WHERE user_id = $1")
+        .bind(canonical_user_id)
+        .fetch_one(&*state.services.device_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let room_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM room_memberships WHERE user_id = $1 AND membership = 'join'",
     )
-    .bind(&user_id)
-    .fetch_optional(&*state.services.user_storage.pool)
+    .bind(canonical_user_id)
+    .fetch_one(&*state.services.room_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    match user {
-        Some(row) => {
-            let device_count: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM devices WHERE user_id = $1")
-                    .bind(&user_id)
-                    .fetch_one(&*state.services.device_storage.pool)
-                    .await
-                    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-            let room_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM room_memberships WHERE user_id = $1 AND membership = 'join'",
-            )
-            .bind(&user_id)
-            .fetch_one(&*state.services.room_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-            Ok(Json(json!({
-                "name": row.get::<Option<String>, _>("username"),
-                "user_id": row.get::<String, _>("user_id"),
-                "displayname": row.get::<Option<String>, _>("displayname"),
-                "admin": row.get::<bool, _>("is_admin"),
-                "deactivated": row.get::<bool, _>("deactivated"),
-                "creation_ts": row.get::<i64, _>("creation_ts"),
-                "device_count": device_count,
-                "room_count": room_count
-            })))
-        }
-        None => Err(ApiError::not_found("User not found".to_string())),
-    }
+    Ok(Json(json!({
+        "name": user.username,
+        "user_id": user.user_id,
+        "displayname": user.displayname,
+        "admin": user.is_admin,
+        "deactivated": user.is_deactivated,
+        "creation_ts": user.created_ts,
+        "device_count": device_count,
+        "room_count": room_count
+    })))
 }
 
 /// Update account
@@ -968,10 +910,13 @@ pub async fn update_account(
     Path(user_id): Path<String>,
     Json(body): Json<UpdateAccountRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let user = resolve_user(&state, &user_id).await?;
+    let canonical_user_id = &user.user_id;
+
     if let Some(displayname) = &body.displayname {
         sqlx::query("UPDATE users SET displayname = $1 WHERE user_id = $2")
             .bind(displayname)
-            .bind(&user_id)
+            .bind(canonical_user_id)
             .execute(&*state.services.user_storage.pool)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -980,14 +925,18 @@ pub async fn update_account(
     if let Some(admin) = body.admin {
         sqlx::query("UPDATE users SET is_admin = $1 WHERE user_id = $2")
             .bind(admin)
-            .bind(&user_id)
+            .bind(canonical_user_id)
             .execute(&*state.services.user_storage.pool)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        state
+            .cache
+            .set(&format!("user:admin:{}", canonical_user_id), admin, 3600)
+            .await?;
     }
 
     Ok(Json(json!({
-        "user_id": user_id,
+        "user_id": canonical_user_id,
         "updated": true
     })))
 }

@@ -53,7 +53,7 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
     mac.update(b"\0");
     mac.update(password.as_bytes());
     mac.update(b"\0");
-    mac.update(b"admin");
+    mac.update(b"admin\0\0\0");
 
     let expected_mac = mac.finalize().into_bytes();
     let mac_hex = expected_mac

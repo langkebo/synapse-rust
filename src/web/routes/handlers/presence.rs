@@ -1,6 +1,5 @@
 use crate::common::{ApiError, MAX_MESSAGE_LENGTH};
-use crate::web::extractors::AuthenticatedUser;
-use crate::web::routes::{validate_presence_status, validate_user_id, AppState};
+use crate::web::routes::{validate_presence_status, validate_user_id, AppState, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 

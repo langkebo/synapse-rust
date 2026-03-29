@@ -35,6 +35,7 @@ pub struct RoomService {
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
+    pub room_summary_service: Arc<RoomSummaryService>,
 }
 
 impl RoomService {
@@ -43,6 +44,7 @@ impl RoomService {
         member_storage: RoomMemberStorage,
         event_storage: EventStorage,
         user_storage: UserStorage,
+        room_summary_service: Arc<RoomSummaryService>,
         validator: Arc<Validator>,
         server_name: String,
         task_queue: Option<Arc<RedisTaskQueue>>,
@@ -52,6 +54,7 @@ impl RoomService {
             member_storage,
             event_storage,
             user_storage,
+            room_summary_service,
             validator,
             server_name,
             task_queue,
@@ -291,6 +294,28 @@ impl RoomService {
         tx.commit()
             .await
             .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {}", e)))?;
+
+        // Auto-create room summary
+        let summary_request = crate::storage::room_summary::CreateRoomSummaryRequest {
+            room_id: room_id.clone(),
+            room_type: config.room_type.clone(),
+            name: config.name.clone(),
+            topic: config.topic.clone(),
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: Some(join_rule.to_string()),
+            history_visibility: config.history_visibility.clone(),
+            guest_access: None,
+            is_direct: config.is_direct,
+            is_space: None,
+        };
+        if let Err(e) = self
+            .room_summary_service
+            .create_summary(summary_request)
+            .await
+        {
+            ::tracing::warn!("Failed to create room summary: {}", e);
+        }
 
         // Save room alias if provided
         if let Some(ref alias) = config.room_alias_name {
@@ -1206,10 +1231,31 @@ impl RoomService {
         params: CreateEventParams,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<crate::storage::RoomEvent> {
-        self.event_storage
+        let room_id = params.room_id.clone();
+        let event_id = params.event_id.clone();
+        let event_type = params.event_type.clone();
+        let state_key = params.state_key.clone();
+        let should_update_summary = tx.is_none();
+
+        let event = self
+            .event_storage
             .create_event(params, tx)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create event: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to create event: {}", e)))?;
+
+        if should_update_summary {
+            if let Err(error) = self
+                .room_summary_service
+                .queue_update(&room_id, &event_id, &event_type, state_key.as_deref())
+                .await
+            {
+                ::tracing::warn!("Failed to queue room summary update: {}", error);
+            } else if let Err(error) = self.room_summary_service.process_pending_updates(32).await {
+                ::tracing::warn!("Failed to process room summary updates: {}", error);
+            }
+        }
+
+        Ok(event)
     }
 
     pub async fn add_member(
@@ -1221,10 +1267,34 @@ impl RoomService {
         join_reason: Option<&str>,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<crate::storage::RoomMember> {
-        self.member_storage
+        let should_update_summary = tx.is_none();
+        let member = self
+            .member_storage
             .add_member(room_id, user_id, membership, display_name, join_reason, tx)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to add member: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to add member: {}", e)))?;
+
+        if should_update_summary {
+            let request = crate::storage::room_summary::CreateSummaryMemberRequest {
+                room_id: room_id.to_string(),
+                user_id: user_id.to_string(),
+                display_name: display_name.map(|value| value.to_string()),
+                avatar_url: None,
+                membership: membership.to_string(),
+                is_hero: None,
+                last_active_ts: member.joined_ts.or(member.updated_ts),
+            };
+
+            if let Err(error) = self.room_summary_service.add_member(request).await {
+                ::tracing::warn!("Failed to update room summary member: {}", error);
+            }
+
+            if let Err(error) = self.room_summary_service.recalculate_heroes(room_id).await {
+                ::tracing::warn!("Failed to recalculate room summary heroes: {}", error);
+            }
+        }
+
+        Ok(member)
     }
 }
 

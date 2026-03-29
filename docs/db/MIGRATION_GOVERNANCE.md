@@ -12,8 +12,10 @@
 |---|---|---|
 | unified schema | 存在 `00000000_unified_schema_v6.sql` | thread/retention/room summary/space 主链已收口，仍需持续约束后续增量同步 |
 | 增量迁移 | `migrations/*.sql` 按日期累积 | 同一表可能散落多份定义 |
-| rollback 目录 | 仓库内未独立建立 | 回滚脚本分散在文档或未沉淀 |
-| hotfix 目录 | 仓库内未独立建立 | 临时修复难以审计与收敛 |
+| rollback 目录 | `migrations/rollback/` 已建立并为新增迁移配套回滚脚本 | 仍需持续补齐“新增迁移必有回滚/声明不可逆”的门禁 |
+| incremental 目录 | `migrations/incremental/` 已建立 | 迁移治理按批次渐进推进，暂不影响 sqlx 默认入口 |
+| hotfix 目录 | `migrations/hotfix/` 已建立 | 仍需约束 hotfix 在下一次常规发布前收敛 |
+| archive 目录 | `migrations/archive/` 已建立 | 历史脚本归档需按批次推进，避免影响现有迁移链 |
 
 ## 3. 目标目录模型
 
@@ -46,13 +48,15 @@ migrations/
 | GATE-DB-005 | 文档质量通过 | markdownlint + lychee + 拼写检查 | 阻止合并 |
 | GATE-DB-006 | 数据库完整性通过 | `pg_amcheck` | 阻止合并 |
 | GATE-DB-007 | 主从复制一致性通过 | 逻辑校验 / checksum 报告 | 阻止发布 |
+| GATE-DB-008 | 外部证据已补齐 | 外部证据文件占位词扫描 | 阻止合并 |
 
 当前落地状态:
 
 - GATE-DB-004 已接入 `scripts/check_schema_table_coverage.py`
 - GATE-DB-006 已接入 `scripts/run_pg_amcheck.py`
 - GATE-DB-007 已接入 `scripts/generate_logical_checksum_report.py`
-- GATE-DB-007 当前在 CI 为“报告框架”模式；当提供 `REPLICA_DATABASE_URL` 时自动切换为主从对比模式
+- GATE-DB-007 在 MR/CI 中为“报告框架”模式；主从对比通过 `db-replica-consistency.yml` 定时/手动执行（依赖 secrets 提供主从连接）
+- GATE-DB-008 已接入 `scripts/check_external_evidence_complete.py`，要求提交 `docs/db/DIAGNOSIS_EXTERNAL_EVIDENCE_*.md`
 - `db-migration-gate.yml` 当前已串联 retention / room summary / thread / db schema smoke tests，用于验证关键缺表与 unified schema 闭环
 
 ## 6. PostgreSQL 等价检查说明

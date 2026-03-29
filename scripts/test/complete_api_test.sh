@@ -1,8 +1,8 @@
 #!/bin/bash
 
-SERVER_URL="http://localhost:28008"
-TEST_USER="admin"
-TEST_PASS='Wzc9890951!'
+SERVER_URL="${SERVER_URL:-http://localhost:8008}"
+ADMIN_USER="${ADMIN_USER:-admin}"
+ADMIN_PASS="${ADMIN_PASS:-Admin@123}"
 
 echo "=========================================="
 echo "Complete API Integration Test"
@@ -36,12 +36,17 @@ echo "3. Authentication"
 echo "=========================================="
 LOGIN_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/login" \
     -H "Content-Type: application/json" \
-    -d "{\"type\": \"m.login.password\", \"user\": \"$TEST_USER\", \"password\": \"$TEST_PASS\"}")
+    -d "{
+        \"identifier\": {\"type\": \"m.id.user\", \"user\": \"$ADMIN_USER\"},
+        \"password\": \"$ADMIN_PASS\",
+        \"type\": \"m.login.password\"
+    }")
 TOKEN=$(echo "$LOGIN_RESP" | grep -o "\"access_token\":\"[^\"]*\"" | cut -d'"' -f4)
 USER_ID=$(echo "$LOGIN_RESP" | grep -o "\"user_id\":\"[^\"]*\"" | cut -d'"' -f4)
 DEVICE_ID=$(echo "$LOGIN_RESP" | grep -o "\"device_id\":\"[^\"]*\"" | cut -d'"' -f4)
 if [ -n "$TOKEN" ]; then
     pass "Login (User: $USER_ID)"
+    USER_DOMAIN="${USER_ID#*:}"
 else
     fail "Login failed"
 fi
@@ -106,7 +111,7 @@ echo "11. Set Avatar URL"
 curl -s -X PUT "$SERVER_URL/_matrix/client/v3/profile/$USER_ID/avatar_url" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"avatar_url": "mxc://cjystx.top/avatar"}' && pass "Set Avatar URL" || fail "Set Avatar URL"
+    -d "{\"avatar_url\": \"mxc://$USER_DOMAIN/avatar\"}" && pass "Set Avatar URL" || fail "Set Avatar URL"
 
 # 6. Room State & Messages
 echo ""
@@ -134,7 +139,7 @@ curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/joined_members" -H "Author
 
 echo ""
 echo "16. Room Aliases"
-curl -s "$SERVER_URL/_matrix/client/v1/directory/room/%21$(echo $ROOM_ID | cut -d: -f1 | cut -c2-):cjystx.top" -H "Authorization: Bearer $TOKEN" && pass "Room Aliases" || fail "Room Aliases"
+curl -s "$SERVER_URL/_matrix/client/v1/directory/room/%21$(echo $ROOM_ID | cut -d: -f1 | cut -c2-):$USER_DOMAIN" -H "Authorization: Bearer $TOKEN" && pass "Room Aliases" || fail "Room Aliases"
 
 echo ""
 echo "17. Set Room Topic"
@@ -278,7 +283,7 @@ echo "34. Invite User"
 curl -s -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/invite" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"user_id": "@admin:cjystx.top"}' && pass "Invite User" || fail "Invite User"
+    -d "{\"user_id\": \"$USER_ID\"}" && pass "Invite User" || fail "Invite User"
 
 echo ""
 echo "35. Join Room"
@@ -353,14 +358,14 @@ echo "43. Query Keys"
 curl -s -X POST "$SERVER_URL/_matrix/client/v3/keys/query" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"device_keys": {"@admin:cjystx.top": []}}' && pass "Query Keys" || fail "Query Keys"
+    -d "{\"device_keys\": {\"$USER_ID\": []}}" && pass "Query Keys" || fail "Query Keys"
 
 echo ""
 echo "44. Claim Keys"
 curl -s -X POST "$SERVER_URL/_matrix/client/v3/keys/claim" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"one_time_keys": {"@admin:cjystx.top": {"device_id": "DEVICE_ID"}}}' && pass "Claim Keys" || fail "Claim Keys"
+    -d "{\"one_time_keys\": {\"$USER_ID\": {\"device_id\": \"DEVICE_ID\"}}}" && pass "Claim Keys" || fail "Claim Keys"
 
 # 14. Public Rooms & Directory
 echo ""
@@ -435,11 +440,11 @@ curl -s "$SERVER_URL/_synapse/admin/v1/users" -H "Authorization: Bearer $TOKEN" 
 
 echo ""
 echo "55. Admin User Details"
-curl -s "$SERVER_URL/_synapse/admin/v1/users/@admin:cjystx.top" -H "Authorization: Bearer $TOKEN" | grep -q "name" && pass "Admin User Details" || fail "Admin User Details"
+curl -s "$SERVER_URL/_synapse/admin/v1/users/$USER_ID" -H "Authorization: Bearer $TOKEN" | grep -q "name" && pass "Admin User Details" || fail "Admin User Details"
 
 echo ""
 echo "56. Admin User Sessions"
-curl -s "$SERVER_URL/_synapse/admin/v1/user_sessions/@admin:cjystx.top" -H "Authorization: Bearer $TOKEN" | grep -q "sessions\|users" && pass "Admin User Sessions" || fail "Admin User Sessions"
+curl -s "$SERVER_URL/_synapse/admin/v1/user_sessions/$USER_ID" -H "Authorization: Bearer $TOKEN" | grep -q "sessions\|users" && pass "Admin User Sessions" || fail "Admin User Sessions"
 
 echo ""
 echo "57. Admin User Stats"
@@ -447,7 +452,7 @@ curl -s "$SERVER_URL/_synapse/admin/v1/user_stats" -H "Authorization: Bearer $TO
 
 echo ""
 echo "58. Admin User Devices"
-curl -s "$SERVER_URL/_synapse/admin/v1/users/@admin:cjystx.top/devices" -H "Authorization: Bearer $TOKEN" | grep -q "devices\|user_id" && pass "Admin User Devices" || fail "Admin User Devices"
+curl -s "$SERVER_URL/_synapse/admin/v1/users/$USER_ID/devices" -H "Authorization: Bearer $TOKEN" | grep -q "devices\|user_id" && pass "Admin User Devices" || fail "Admin User Devices"
 
 # 19. Admin - Rooms
 echo ""
@@ -701,7 +706,7 @@ echo "97. Set Invite Blocklist"
 curl -s -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ENC/invite_blocklist" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"user_ids": ["@test:cjystx.top"]}' | grep -q "ok\|success" && pass "Set Invite Blocklist" || skip "Set Invite Blocklist (not implemented)"
+    -d "{\"user_ids\": [\"@test:$USER_DOMAIN\"]}" | grep -q "ok\|success" && pass "Set Invite Blocklist" || skip "Set Invite Blocklist (not implemented)"
 
 echo ""
 echo "98. Get Invite Allowlist"
@@ -712,7 +717,7 @@ echo "99. Set Invite Allowlist"
 curl -s -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ENC/invite_allowlist" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"user_ids": ["@test:cjystx.top"]}' | grep -q "ok\|success" && pass "Set Invite Allowlist" || skip "Set Invite Allowlist (not implemented)"
+    -d "{\"user_ids\": [\"@test:$USER_DOMAIN\"]}" | grep -q "ok\|success" && pass "Set Invite Allowlist" || skip "Set Invite Allowlist (not implemented)"
 
 # 32. Logout
 echo ""

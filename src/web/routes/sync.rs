@@ -1,4 +1,8 @@
-use crate::web::routes::{get_events, get_joined_rooms, get_my_rooms, sync, AppState};
+use crate::web::routes::{
+    get_joined_rooms, get_my_rooms,
+    handlers::sync::{get_events, sync},
+    AppState,
+};
 use axum::{routing::get, Router};
 
 fn create_sync_compat_router() -> Router<AppState> {

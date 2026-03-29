@@ -1,4 +1,7 @@
-use crate::web::routes::{get_presence, presence_list, set_presence, AppState};
+use crate::web::routes::{
+    handlers::presence::{get_presence, presence_list, set_presence},
+    AppState,
+};
 use axum::{
     routing::{get, post},
     Router,

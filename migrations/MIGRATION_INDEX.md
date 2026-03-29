@@ -7,6 +7,16 @@
 | `00000000_unified_schema_v6.sql` | 基础数据库 Schema | 必需 |
 | `99999999_unified_incremental_migration.sql` | 综合迁移 (整合当前增量迁移) | 推荐 |
 
+## 目录结构
+
+| 目录 | 用途 |
+|---|---|
+| `migrations/` | sqlx 默认迁移入口（现阶段仍以根目录脚本为主） |
+| `migrations/rollback/` | 回滚脚本（与迁移同名，后缀 `.rollback.sql`） |
+| `migrations/incremental/` | 常规增量迁移治理入口（按批次渐进推进） |
+| `migrations/hotfix/` | 紧急修复迁移治理入口（需在后续常规迁移中收敛） |
+| `migrations/archive/` | 历史脚本归档 |
+
 ## 迁移策略
 
 ### 新环境部署
@@ -43,6 +53,10 @@ psql -U synapse -d synapse -f migrations/99999999_unified_incremental_migration.
 | `20260330000003_align_retention_and_room_summary_schema.sql` | `rollback/20260330000003_...rollback.sql` | 部分可逆 |
 | `20260330000004_align_space_schema_and_add_space_events.sql` | `rollback/20260330000004_...rollback.sql` | 可逆 |
 | `20260330000005_align_remaining_schema_exceptions.sql` | `rollback/20260330000005_...rollback.sql` | 部分可逆 |
+| `20260330000006_align_notifications_push_and_misc_exceptions.sql` | `rollback/20260330000006_...rollback.sql` | 部分可逆 |
+| `20260330000007_align_uploads_and_user_settings_exceptions.sql` | `rollback/20260330000007_...rollback.sql` | 部分可逆 |
+| `20260330000008_align_background_update_exceptions.sql` | `rollback/20260330000008_...rollback.sql` | 部分可逆 |
+| `20260330000009_align_beacon_and_call_exceptions.sql` | `rollback/20260330000009_...rollback.sql` | 部分可逆 |
 
 ### 执行回滚
 ```bash

@@ -591,14 +591,31 @@ impl AuthService {
         if let Some(cached_claims) = cached_token {
             ::tracing::debug!(target: "token_validation", "Found cached token for user: {}", 
                 cached_claims.sub);
+            let admin_cache_key = format!("user:admin:{}", cached_claims.sub);
 
             if let Some(active) = self.cache.is_user_active(&cached_claims.sub).await {
                 ::tracing::debug!(target: "token_validation", "Cache hit for user active: {:?}", active);
                 return if active {
+                    let is_admin = if let Some(is_admin) =
+                        self.cache.get::<bool>(&admin_cache_key).await?
+                    {
+                        is_admin
+                    } else {
+                        let user = self
+                            .user_storage
+                            .get_user_by_id(&cached_claims.sub)
+                            .await
+                            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+                            .ok_or_else(|| ApiError::unauthorized("User not found".to_string()))?;
+                        self.cache
+                            .set(&admin_cache_key, user.is_admin, 3600)
+                            .await?;
+                        user.is_admin
+                    };
                     Ok((
                         cached_claims.user_id,
                         cached_claims.device_id.clone(),
-                        cached_claims.admin,
+                        is_admin,
                     ))
                 } else {
                     Err(ApiError::unauthorized(
@@ -622,12 +639,13 @@ impl AuthService {
                 self.cache
                     .set_user_active(&cached_claims.sub, is_active, 60)
                     .await;
+                self.cache.set(&admin_cache_key, u.is_admin, 3600).await?;
 
                 if is_active {
                     Ok((
                         cached_claims.user_id,
                         cached_claims.device_id.clone(),
-                        cached_claims.admin,
+                        u.is_admin,
                     ))
                 } else {
                     Err(ApiError::unauthorized("User is deactivated".to_string()))
@@ -667,6 +685,10 @@ impl AuthService {
                 let mut final_claims = claims.clone();
                 final_claims.admin = is_admin;
 
+                self.cache.set_user_active(&claims.sub, true, 60).await;
+                self.cache
+                    .set(&format!("user:admin:{}", claims.sub), is_admin, 3600)
+                    .await?;
                 self.cache.set_token(token, &final_claims, 3600).await;
                 Ok((
                     final_claims.user_id,

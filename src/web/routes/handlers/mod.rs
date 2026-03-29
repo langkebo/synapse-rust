@@ -4,12 +4,13 @@
 
 pub mod auth;
 pub mod health;
+pub mod presence;
 pub mod room;
+pub mod sync;
 pub mod user;
 pub mod versions;
 
 pub use auth::*;
 pub use health::*;
-pub use room::*;
 pub use user::*;
 pub use versions::*;

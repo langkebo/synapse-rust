@@ -1,5 +1,6 @@
 use crate::common::ApiError;
 use crate::storage::event::EventStorage;
+use crate::storage::membership::RoomMemberStorage;
 use crate::storage::room_summary::*;
 use std::sync::Arc;
 use tracing::{debug, info, instrument, warn};
@@ -7,13 +8,19 @@ use tracing::{debug, info, instrument, warn};
 pub struct RoomSummaryService {
     storage: Arc<RoomSummaryStorage>,
     event_storage: Arc<EventStorage>,
+    member_storage: Option<Arc<RoomMemberStorage>>,
 }
 
 impl RoomSummaryService {
-    pub fn new(storage: Arc<RoomSummaryStorage>, event_storage: Arc<EventStorage>) -> Self {
+    pub fn new(
+        storage: Arc<RoomSummaryStorage>,
+        event_storage: Arc<EventStorage>,
+        member_storage: Option<Arc<RoomMemberStorage>>,
+    ) -> Self {
         Self {
             storage,
             event_storage,
+            member_storage,
         }
     }
 
@@ -73,13 +80,117 @@ impl RoomSummaryService {
     ) -> Result<RoomSummaryResponse, ApiError> {
         info!("Creating room summary for: {}", request.room_id);
 
-        let summary = self
-            .storage
-            .create_summary(request)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to create room summary: {}", e)))?;
+        let room_id = request.room_id.clone();
 
-        Ok(summary.to_response(Vec::new()))
+        let summary = if self
+            .storage
+            .get_summary(&room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check room summary: {}", e)))?
+            .is_some()
+        {
+            self.storage
+                .update_summary(&room_id, Self::create_request_to_update_request(&request))
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to update room summary: {}", e)))?
+        } else {
+            self.storage
+                .create_summary(request)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to create room summary: {}", e)))?
+        };
+
+        let _response = summary.to_response(Vec::new());
+
+        self.synchronize_room_snapshot(&room_id).await?;
+
+        self.get_summary(&room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get summary after sync: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Room summary not found after sync"))
+    }
+
+    fn create_request_to_update_request(
+        request: &CreateRoomSummaryRequest,
+    ) -> UpdateRoomSummaryRequest {
+        UpdateRoomSummaryRequest {
+            name: request.name.clone(),
+            topic: request.topic.clone(),
+            avatar_url: request.avatar_url.clone(),
+            canonical_alias: request.canonical_alias.clone(),
+            join_rule: request.join_rule.clone(),
+            history_visibility: request.history_visibility.clone(),
+            guest_access: request.guest_access.clone(),
+            is_direct: request.is_direct,
+            is_space: request.is_space,
+            ..Default::default()
+        }
+    }
+
+    async fn sync_summary_state_and_members(&self, room_id: &str) -> Result<(), ApiError> {
+        let states = self
+            .event_storage
+            .get_state_events(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get current state: {}", e)))?;
+
+        info!("Syncing {} state events for room {}", states.len(), room_id);
+
+        for state in states {
+            let event_type_str = state.event_type.as_deref().unwrap_or("");
+            self.update_state(
+                room_id,
+                event_type_str,
+                state.state_key.as_deref().unwrap_or(""),
+                Some(&state.event_id),
+                state.content.clone(),
+            )
+            .await?;
+        }
+
+        if let Some(member_storage) = self.member_storage.as_ref() {
+            let join_members = member_storage
+                .get_room_members(room_id, "join")
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get room members: {}", e)))?;
+
+            let invite_members = member_storage
+                .get_room_members(room_id, "invite")
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get room invite members: {}", e)))?;
+
+            let all_members: Vec<_> = join_members
+                .into_iter()
+                .chain(invite_members)
+                .collect();
+
+            info!("Syncing {} members for room {}", all_members.len(), room_id);
+
+            for member in all_members {
+                let request = CreateSummaryMemberRequest {
+                    room_id: room_id.to_string(),
+                    user_id: member.user_id.clone(),
+                    display_name: member.display_name.clone(),
+                    avatar_url: member.avatar_url.clone(),
+                    membership: member.membership.clone(),
+                    is_hero: None,
+                    last_active_ts: member.joined_ts.or(member.updated_ts),
+                };
+
+                if let Err(e) = self.storage.add_member(request).await {
+                    warn!("Failed to add member during sync: {}", e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn synchronize_room_snapshot(&self, room_id: &str) -> Result<(), ApiError> {
+        self.sync_summary_state_and_members(room_id).await?;
+        self.recalculate_stats(room_id).await?;
+        self.recalculate_heroes(room_id).await?;
+        Ok(())
     }
 
     #[instrument(skip(self))]
@@ -196,7 +307,38 @@ impl RoomSummaryService {
         state_key: &str,
         content: &serde_json::Value,
     ) -> Result<(), ApiError> {
-        if !state_key.is_empty() {
+        if event_type == Some("m.room.member") {
+            if !state_key.is_empty() {
+                let membership = content
+                    .get("membership")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("join")
+                    .to_string();
+
+                let display_name = content
+                    .get("displayname")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let avatar_url = content
+                    .get("avatar_url")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let request = CreateSummaryMemberRequest {
+                    room_id: room_id.to_string(),
+                    user_id: state_key.to_string(),
+                    display_name,
+                    avatar_url,
+                    membership,
+                    is_hero: None,
+                    last_active_ts: None,
+                };
+
+                if let Err(e) = self.storage.add_member(request).await {
+                    warn!("Failed to add/update member in summary: {}", e);
+                }
+            }
             return Ok(());
         }
 
@@ -507,23 +649,7 @@ impl RoomSummaryService {
             self.create_summary(request).await?;
         }
 
-        let states = self
-            .event_storage
-            .get_state_events(room_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get current state: {}", e)))?;
-
-        for state in states {
-            let event_type_str = state.event_type.as_deref().unwrap_or("");
-            self.update_state(
-                room_id,
-                event_type_str,
-                state.state_key.as_deref().unwrap_or(""),
-                Some(&state.event_id),
-                state.content.clone(),
-            )
-            .await?;
-        }
+        self.synchronize_room_snapshot(room_id).await?;
 
         self.get_summary(room_id)
             .await

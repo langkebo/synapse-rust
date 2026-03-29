@@ -47,38 +47,45 @@ async fn register_user(app: &axum::Router, username: &str) -> String {
     json["access_token"].as_str().unwrap().to_string()
 }
 
+async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/createRoom")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": name,
+                "preset": "private_chat"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["room_id"].as_str().unwrap().to_string()
+}
+
 #[tokio::test]
 async fn test_room_summary_read_routes_share_across_versions() {
     let Some(app) = setup_test_app().await else {
         return;
     };
     let token = register_user(&app, "room_summary_routes_shared").await;
-    let room_id = format!("!room-summary-shared-{}:localhost", rand::random::<u32>());
-
-    let create_request = Request::builder()
-        .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
-        .header("Authorization", format!("Bearer {}", token))
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({
-                "room_id": room_id,
-                "name": "Shared summary room",
-                "topic": "room summary route test",
-                "is_space": false
-            })
-            .to_string(),
-        ))
-        .unwrap();
-
-    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
-        .await
-        .unwrap();
-    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let room_id = create_room(&app, &token, "Shared summary room").await;
 
     let v3_get_request = Request::builder()
         .method("GET")
         .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
     let v3_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_get_request)
@@ -96,6 +103,7 @@ async fn test_room_summary_read_routes_share_across_versions() {
     let r0_get_request = Request::builder()
         .method("GET")
         .uri(format!("/_matrix/client/r0/rooms/{}/summary", room_id))
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
     let r0_get_response = ServiceExt::<Request<Body>>::oneshot(app, r0_get_request)
@@ -108,7 +116,35 @@ async fn test_room_summary_read_routes_share_across_versions() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["room_id"], room_id);
-    assert_eq!(json["topic"], "room summary route test");
+    assert_eq!(json["name"], "Shared summary room");
+}
+
+#[tokio::test]
+async fn test_room_summary_create_rejects_path_body_mismatch() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(&app, "room_summary_path_body_mismatch").await;
+    let room_id = create_room(&app, &token, "Mismatch summary room").await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room_id": "!another-room:localhost",
+                "name": "mismatch"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]

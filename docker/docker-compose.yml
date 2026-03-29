@@ -83,7 +83,7 @@ services:
       - LOG_FORMAT=${LOG_FORMAT:-text}
 
     volumes:
-      - synapse_data:/app/data
+      - ./data:/app/data
       - synapse_logs:/app/logs
       - ./config/homeserver.yaml:/app/config/homeserver.yaml:ro
 

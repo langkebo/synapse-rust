@@ -307,6 +307,38 @@ pub fn select_endpoint_rule(config: &RateLimitConfigFile, path: &str) -> (String
     }
 }
 
+pub fn select_endpoint_rule_runtime(
+    config: &crate::common::config::RateLimitConfig,
+    path: &str,
+) -> (String, crate::common::config::RateLimitRule) {
+    let mut best_match: Option<&crate::common::config::RateLimitEndpointRule> = None;
+    let mut best_match_len = 0;
+
+    for rule in &config.endpoints {
+        let is_match = match rule.match_type {
+            crate::common::config::RateLimitMatchType::Exact => rule.path == path,
+            crate::common::config::RateLimitMatchType::Prefix => path.starts_with(&rule.path),
+        };
+
+        if is_match && rule.path.len() > best_match_len {
+            best_match = Some(rule);
+            best_match_len = rule.path.len();
+        }
+    }
+
+    match best_match {
+        Some(rule) => {
+            let endpoint_id = config
+                .endpoint_aliases
+                .get(&rule.path)
+                .cloned()
+                .unwrap_or_else(|| rule.path.clone());
+            (endpoint_id, rule.rule.clone())
+        }
+        None => (path.to_string(), config.default.clone()),
+    }
+}
+
 pub async fn start_config_watcher(
     manager: Arc<RateLimitConfigManager>,
     interval_seconds: u64,

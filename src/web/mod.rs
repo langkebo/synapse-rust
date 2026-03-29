@@ -2,6 +2,7 @@ pub mod filter;
 pub mod middleware;
 pub mod routes;
 pub mod streaming;
+pub(crate) mod utils;
 
 pub use filter::*;
 pub use middleware::*;
