@@ -101,3 +101,30 @@ Router::new()
 1. 先处理“路径不变、内部复用”的模块
 2. 再处理“有重叠但语义不完全相同”的模块
 3. 最后再评估是否需要统一兼容日志、版本访问统计、运行时开关
+
+进一步建议（基于最近一次重构经验）：
+
+1. 继续把 `routes/mod.rs` 的剩余 handler 推进到 `handlers/*.rs`（优先级：Room / Moderation 等仍较集中部分）
+2. 转去处理 `search` / `thread` 的归属收口（这块属于“语义重叠但不完全同构”的高优先未完成项）
+
+---
+
+## 七、最近完成（2026-03-29）
+
+### 7.1 Room 模块下沉（God File Split）
+
+- 将房间主逻辑集中到 `src/web/routes/handlers/room.rs`，覆盖：房间基础查询与消息流、join/leave/upgrade/forget、state/receipt/read markers、moderation（kick/ban/unban/redact）、createRoom/room visibility/membership history
+- `src/web/routes/mod.rs` 原本的 Room handler 已移除，保留为更薄的聚合与导出层
+- 补回 `ApiError` 的导出兼容，避免其他路由模块引用断裂
+
+### 7.2 验证
+
+- 已执行 `cargo fmt`
+- 已执行 `cargo test -q`
+- 测试汇总：1654 passed; 0 failed; 1 ignored；204 passed; 0 failed；762 passed; 0 failed；doc tests 通过
+- 运行测试时可能出现媒体目录创建失败的错误日志（只读文件系统），但不影响测试结果
+
+### 7.3 Sync / Presence 下沉（God File Split）
+
+- `src/web/routes/sync.rs` / `src/web/routes/presence.rs` 改为直接引用 `handlers::sync` 与 `handlers::presence`
+- `src/web/routes/mod.rs` 移除 Sync / Presence handler 的 re-export，进一步压薄聚合层

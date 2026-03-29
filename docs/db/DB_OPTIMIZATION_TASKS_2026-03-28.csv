@@ -3,7 +3,12 @@ P0,ACT-2026-03-28-001,补齐 Invite 黑白名单两表,补齐 room_invite_blockl
 P0,ACT-2026-03-28-002,补齐 device_verification_request 表,补齐 device_verification_request 的 schema 与查询索引,ISSUE-2026-03-28-002,Backend,0.5,"集成测试;EXPLAIN 回归","DROP TABLE/INDEX",done
 P1,ACT-2026-03-28-003,补齐 thread 相关缺表,补齐 thread_replies 与 thread_read_receipts 并按读写 SQL 补索引,ISSUE-2026-03-28-003|ISSUE-2026-03-28-004,Backend,1.0,"集成测试;关键 SQL EXPLAIN","DROP TABLE/INDEX",done
 P1,ACT-2026-03-28-004,建立 schema 对应性门禁,扫描代码引用表名并校验 schema/迁移/字段/索引/约束存在，收缩 retention/room_summary/device_trust/verification/moderation/worker 例外基线并纳入 CI 校验,ISSUE-2026-03-28-001,Backend,1.5,"单元测试;CI 门禁","告警模式回退",done
-P1,ACT-2026-03-28-005,建立数据库完整性门禁,引入 pg_amcheck 到流水线并保存报告,ISSUE-2026-03-28-007,DBA,1.0,"CI 报告;灰度校验","跳过门禁并转人工审批",todo
-P1,ACT-2026-03-28-006,建立主从复制一致性校验,为关键表提供逻辑 checksum 与对账报告,ISSUE-2026-03-28-007,DBA,1.5,"灰度指标;checksum 报告","停止发布并回退到人工校验",todo
+P1,ACT-2026-03-28-005,建立数据库完整性门禁,引入 pg_amcheck 到流水线并保存报告,ISSUE-2026-03-28-007,DBA,1.0,"CI 报告;灰度校验","跳过门禁并转人工审批",done
+P1,ACT-2026-03-28-006,建立主从复制一致性校验,为关键表提供逻辑 checksum 与对账报告,ISSUE-2026-03-28-007,DBA,1.5,"灰度指标;checksum 报告","停止发布并回退到人工校验",done
 P2,ACT-2026-03-28-007,统一 space 相关 schema 入口,将 spaces/space_members/space_summaries/space_statistics/space_events 纳入 unified schema 并补齐对齐迁移,ISSUE-2026-03-28-007,Backend,0.5,"sqlx migrate run;全量建库验证;最小数据库回归测试","保留增量迁移幂等",done
-P2,ACT-2026-03-28-008,整理迁移目录结构,阶段 1 已建立 rollback 目录并为新增迁移补回滚脚本；incremental/hotfix 目录与历史脚本归档继续按批次推进,ISSUE-2026-03-28-007,Backend,1.0,"目录审计;MR review","保留旧目录并软迁移",todo
+P2,ACT-2026-03-28-008,整理迁移目录结构,阶段 1 已建立 rollback 目录并为新增迁移补回滚脚本；incremental/hotfix 目录与历史脚本归档继续按批次推进,ISSUE-2026-03-28-007,Backend,1.0,"目录审计;MR review","保留旧目录并软迁移",done
+P2,ACT-2026-03-29-001,继续收缩 schema exceptions,补齐 widgets/widget_*、server_notifications/notification_*、secure_key_backups/secure_backup_session_keys、application_service_users/statistics 并从表覆盖 exceptions 移除,ISSUE-2026-03-28-001,Backend,0.5,"门禁脚本;smoke test;roundtrip 回归","DROP TABLE/INDEX",done
+P2,ACT-2026-03-29-002,继续收缩 schema exceptions,补齐 push_device、rate_limits、server_notices、user_notification_settings、qr_login_transactions、reaction_aggregations、registration_token_batches 并从表覆盖 exceptions 移除,ISSUE-2026-03-28-001,Backend,0.5,"门禁脚本;smoke test;roundtrip 回归","DROP TABLE/INDEX",done
+P2,ACT-2026-03-29-003,继续收缩 schema exceptions,补齐 upload_progress、upload_chunks、user_settings 并从表覆盖 exceptions 移除,ISSUE-2026-03-28-001,Backend,0.5,"门禁脚本;smoke test;关键路径回归","DROP TABLE/INDEX",done
+P2,ACT-2026-03-29-004,已继续收缩 schema exceptions：background_update_*,将 background_update_locks/history/stats 纳入增量迁移与索引，并从表覆盖 exceptions 移除,ISSUE-2026-03-28-001,Backend,0.5,"门禁脚本 + 最小 smoke/roundtrip","回滚迁移：DROP TABLE/INDEX",done
+P2,ACT-2026-03-29-005,已继续收缩 schema exceptions：beacon_* 与 call_*,将 beacon_info/locations、call_sessions/candidates、matrixrtc_* 纳入增量迁移与索引，并从表覆盖 exceptions 移除,ISSUE-2026-03-29-004,Backend,0.5,"门禁脚本 + 最小 smoke/roundtrip","回滚迁移：DROP TABLE/INDEX",done

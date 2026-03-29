@@ -1,7 +1,7 @@
 use crate::common::ApiError;
 use crate::web::routes::{extract_token_from_headers, AppState};
 use axum::{
-    extract::{Json, Path, Query, State},
+    extract::{Json, Query, State},
     http::HeaderMap,
 };
 use serde::Serialize;
@@ -57,46 +57,6 @@ pub(crate) struct FilterResponse {
     filter_id: String,
     room: Option<Value>,
     presence: Option<Value>,
-}
-
-#[allow(dead_code)]
-pub(crate) async fn create_filter(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(_user_id): Path<String>,
-    Json(body): Json<Value>,
-) -> Result<Json<FilterResponse>, ApiError> {
-    let token = extract_token_from_headers(&headers)?;
-    let (_, _, _) = state.services.auth_service.validate_token(&token).await?;
-
-    let filter_id = format!("f{}", uuid::Uuid::new_v4());
-
-    Ok(Json(FilterResponse {
-        filter_id,
-        room: body.get("room").cloned(),
-        presence: body.get("presence").cloned(),
-    }))
-}
-
-#[allow(dead_code)]
-pub(crate) async fn get_filter(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path((_user_id, filter_id)): Path<(String, String)>,
-) -> Result<Json<Value>, ApiError> {
-    let token = extract_token_from_headers(&headers)?;
-    let (_, _, _) = state.services.auth_service.validate_token(&token).await?;
-
-    Ok(Json(json!({
-        "filter_id": filter_id,
-        "filter": {
-            "room": {
-                "state": {"limit": 50},
-                "timeline": {"limit": 50}
-            },
-            "presence": {"limit": 100}
-        }
-    })))
 }
 
 pub(crate) async fn get_events(

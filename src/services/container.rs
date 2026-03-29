@@ -190,6 +190,14 @@ impl ServiceContainer {
         let member_storage = RoomMemberStorage::new(pool, &server_name_for_storage);
         let room_storage = RoomStorage::new(pool);
         let event_storage = EventStorage::new(pool, server_name_for_storage.clone());
+        let room_summary_storage = crate::storage::room_summary::RoomSummaryStorage::new(pool);
+        let room_summary_service = Arc::new(
+            crate::services::room_summary_service::RoomSummaryService::new(
+                Arc::new(room_summary_storage.clone()),
+                Arc::new(event_storage.clone()),
+                Some(Arc::new(member_storage.clone())),
+            ),
+        );
         let presence_storage = PresenceStorage::new(presence_pool.clone(), cache.clone());
         let qr_login_storage = QrLoginStorage::new(pool.clone());
         let invite_blocklist_storage = InviteBlocklistStorage::new(pool.clone());
@@ -209,6 +217,7 @@ impl ServiceContainer {
             member_storage.clone(),
             event_storage.clone(),
             user_storage.clone(),
+            room_summary_service.clone(),
             auth_service.validator.clone(),
             config.server.name.clone(),
             task_queue.clone(),
@@ -282,13 +291,6 @@ impl ServiceContainer {
             Arc::new(worker_storage.clone()),
             config.server.name.clone(),
         ));
-        let room_summary_storage = crate::storage::room_summary::RoomSummaryStorage::new(pool);
-        let room_summary_service = Arc::new(
-            crate::services::room_summary_service::RoomSummaryService::new(
-                Arc::new(room_summary_storage.clone()),
-                Arc::new(event_storage.clone()),
-            ),
-        );
         let retention_storage = crate::storage::retention::RetentionStorage::new(pool);
         let retention_service =
             Arc::new(crate::services::retention_service::RetentionService::new(

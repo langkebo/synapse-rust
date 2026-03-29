@@ -294,6 +294,108 @@ impl SpaceService {
     }
 
     #[instrument(skip(self))]
+    pub async fn get_space_state(
+        &self,
+        space_id: &str,
+        user_id: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>, ApiError> {
+        let space = self
+            .space_storage
+            .get_space(space_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get space: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Space not found"))?;
+
+        if !space.is_public {
+            let user_id =
+                user_id.ok_or_else(|| ApiError::unauthorized("Authentication required"))?;
+            let can_see = self
+                .space_storage
+                .check_user_can_see_space(space_id, user_id)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to check space visibility: {}", e)))?;
+            if !can_see {
+                return Err(ApiError::forbidden("User cannot access this space"));
+            }
+        }
+
+        let children = self
+            .space_storage
+            .get_space_children(space_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get space children: {}", e)))?;
+        let members = self
+            .space_storage
+            .get_space_members(space_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get space members: {}", e)))?;
+
+        let mut state = vec![json!({
+            "type": "m.room.create",
+            "state_key": "",
+            "content": {
+                "creator": space.creator,
+                "room_type": "m.space",
+            }
+        })];
+
+        if let Some(name) = space.name {
+            state.push(json!({
+                "type": "m.room.name",
+                "state_key": "",
+                "content": { "name": name }
+            }));
+        }
+
+        if let Some(topic) = space.topic {
+            state.push(json!({
+                "type": "m.room.topic",
+                "state_key": "",
+                "content": { "topic": topic }
+            }));
+        }
+
+        if let Some(avatar_url) = space.avatar_url {
+            state.push(json!({
+                "type": "m.room.avatar",
+                "state_key": "",
+                "content": { "url": avatar_url }
+            }));
+        }
+
+        state.push(json!({
+            "type": "m.room.join_rules",
+            "state_key": "",
+            "content": { "join_rule": space.join_rule }
+        }));
+
+        for child in children {
+            state.push(json!({
+                "type": "m.space.child",
+                "state_key": child.room_id,
+                "content": {
+                    "via": child.via_servers,
+                    "suggested": child.is_suggested,
+                },
+                "sender": child.sender,
+            }));
+        }
+
+        for member in members {
+            state.push(json!({
+                "type": "m.space.member",
+                "state_key": member.user_id,
+                "content": {
+                    "membership": member.membership,
+                },
+                "sender": member.inviter.unwrap_or_default(),
+            }));
+        }
+
+        Ok(state)
+    }
+
+    #[instrument(skip(self))]
     pub async fn get_space_members(&self, space_id: &str) -> Result<Vec<SpaceMember>, ApiError> {
         self.space_storage
             .get_space_members(space_id)

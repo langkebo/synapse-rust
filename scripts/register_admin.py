@@ -1,64 +1,56 @@
 #!/usr/bin/env python3
 import hmac
 import hashlib
-import subprocess
 import json
+import urllib.request
 
-SERVER_NAME = "cjystx.top"
-SERVER_URL = "http://localhost:15808"
-SHARED_SECRET = "test_admin_secret_key_for_dev_only"
+# 配置
+SERVER = "http://localhost:28008"
+USERNAME = "admin"
+PASSWORD = "Admin@123"
+SHARED_SECRET = "change-me-admin-registration-secret"
+ADMIN = True
 
-print("=== Step 1: Get nonce ===")
-result = subprocess.run([
-    'curl', '-s', f'{SERVER_URL}/_synapse/admin/v1/register/nonce',
-    '-H', f'Host: {SERVER_NAME}'
-], capture_output=True, text=True)
-nonce = json.loads(result.stdout)['nonce']
-print(f"Nonce: {nonce}")
+def main():
+    # 获取 nonce
+    with urllib.request.urlopen(f"{SERVER}/_synapse/admin/v1/register/nonce") as resp:
+        nonce_data = json.loads(resp.read())
+        nonce = nonce_data["nonce"]
 
-print("\n=== Step 2: Calculate HMAC ===")
-username = "admin11"
-password = "Wzc9890951!"
+    print(f"Got nonce: {nonce}")
 
-# CORRECT: admin\x00\x00\x00 (not just admin)
-message = nonce + "\x00" + username + "\x00" + password + "\x00" + "admin\x00\x00\x00"
-print(f"Message: {repr(message)}")
-print(f"Message hex: {message.encode('utf-8').hex()}")
-
-mac = hmac.new(SHARED_SECRET.encode('utf-8'), message.encode('utf-8'), hashlib.sha256)
-mac_hex = mac.hexdigest()
-print(f"HMAC: {mac_hex}")
-
-print("\n=== Step 3: Register admin user ===")
-
-register_data = {
-    "nonce": nonce,
-    "username": username,
-    "password": password,
-    "admin": True,
-    "mac": mac_hex
-}
-
-curl_cmd = [
-    'curl', '-s', '-X', 'POST',
-    f'{SERVER_URL}/_synapse/admin/v1/register',
-    '-H', f'Host: {SERVER_NAME}',
-    '-H', 'Content-Type: application/json',
-    '-d', json.dumps(register_data)
-]
-
-result = subprocess.run(curl_cmd, capture_output=True, text=True)
-print(f"Response: {result.stdout}")
-
-try:
-    resp_data = json.loads(result.stdout)
-    if 'access_token' in resp_data:
-        print("\n=== SUCCESS! ===")
-        print(f"User ID: {resp_data.get('user_id')}")
-        print(f"Token: {resp_data.get('access_token')}")
+    # 构建 message
+    # 格式: nonce\x00username\x00password\x00admin\x00\x00\x00 (for admin with no user_type)
+    message = f"{nonce}\x00{USERNAME}\x00{PASSWORD}\x00"
+    if ADMIN:
+        message += "admin\x00\x00\x00"
     else:
-        print("\n=== FAILED ===")
-        print(f"Error: {resp_data}")
-except json.JSONDecodeError:
-    print(f"\n=== FAILED (not JSON) ===")
-    print(f"Response: {result.stdout}")
+        message += "notadmin"
+
+    print(f"Message: {repr(message)}")
+
+    # 计算 MAC
+    mac = hmac.new(SHARED_SECRET.encode(), message.encode(), hashlib.sha256).hexdigest()
+    print(f"MAC: {mac}")
+
+    # 注册
+    data = json.dumps({
+        "nonce": nonce,
+        "username": USERNAME,
+        "password": PASSWORD,
+        "admin": ADMIN,
+        "mac": mac
+    }).encode()
+
+    req = urllib.request.Request(
+        f"{SERVER}/_synapse/admin/v1/register",
+        data=data,
+        headers={"Content-Type": "application/json"}
+    )
+
+    with urllib.request.urlopen(req) as resp:
+        result = json.loads(resp.read())
+        print(f"Success: {result}")
+
+if __name__ == "__main__":
+    main()
