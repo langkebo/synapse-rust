@@ -115,6 +115,7 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
             "/_synapse/admin/v1/rooms/{room_id}/search",
             post(search_room_messages_admin),
         )
+        .route("/_synapse/admin/v1/rooms/search", post(search_all_rooms))
         .route(
             "/_synapse/admin/v1/rooms/{room_id}/forward_extremities",
             get(get_room_forward_extremities),
@@ -1230,5 +1231,106 @@ pub async fn get_room_forward_extremities(
     Ok(Json(json!({
         "room_id": room_id,
         "forward_extremities": count
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchAllRoomsRequest {
+    pub search_term: Option<String>,
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+    pub order_by: Option<String>,
+    pub is_public: Option<bool>,
+    pub is_encrypted: Option<bool>,
+}
+
+#[axum::debug_handler]
+pub async fn search_all_rooms(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Json(body): Json<SearchAllRoomsRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = body.limit.unwrap_or(50).min(200) as i64;
+    let offset = body.offset.unwrap_or(0) as i64;
+    let pool = &*state.services.room_storage.pool;
+
+    let mut query = String::from(
+        r#"
+        SELECT r.room_id, r.name, r.topic, r.creator, r.is_public, r.creation_ts,
+               COUNT(DISTINCT rm.user_id) as member_count,
+               COUNT(DISTINCT CASE WHEN re.type = 'm.room.encryption' THEN 1 END) as is_encrypted
+        FROM rooms r
+        LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
+        LEFT JOIN room_events re ON r.room_id = re.room_id AND re.type = 'm.room.encryption'
+        WHERE 1=1
+        "#,
+    );
+
+    if let Some(ref term) = body.search_term {
+        query.push_str(&format!(
+            " AND (LOWER(r.name) LIKE '%{}%' OR LOWER(r.topic) LIKE '%{}%' OR LOWER(r.room_id) LIKE '%{}%')",
+            term.to_lowercase(),
+            term.to_lowercase(),
+            term.to_lowercase()
+        ));
+    }
+
+    if let Some(is_public) = body.is_public {
+        query.push_str(&format!(" AND r.is_public = {}", is_public));
+    }
+
+    query.push_str(" GROUP BY r.room_id, r.name, r.topic, r.creator, r.is_public, r.creation_ts");
+
+    match body.order_by.as_deref() {
+        Some("name") => query.push_str(" ORDER BY r.name ASC"),
+        Some("size") => query.push_str(" ORDER BY member_count DESC"),
+        Some("created") => query.push_str(" ORDER BY r.creation_ts DESC"),
+        _ => query.push_str(" ORDER BY r.creation_ts DESC"),
+    }
+
+    query.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
+
+    let rooms = sqlx::query(&query)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
+
+    let total_query = if let Some(ref term) = body.search_term {
+        format!(
+            r#"SELECT COUNT(*) FROM rooms WHERE LOWER(name) LIKE '%{}%' OR LOWER(topic) LIKE '%{}%'"#,
+            term.to_lowercase(),
+            term.to_lowercase()
+        )
+    } else {
+        "SELECT COUNT(*) FROM rooms".to_string()
+    };
+    let total: i64 = sqlx::query_scalar(&total_query)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Count failed: {}", e)))?;
+
+    let results: Vec<Value> = rooms
+        .iter()
+        .map(|r| {
+            let is_encrypted: Option<i64> = r.get("is_encrypted");
+            json!({
+                "room_id": r.get::<String, _>("room_id"),
+                "name": r.get::<Option<String>, _>("name"),
+                "topic": r.get::<Option<String>, _>("topic"),
+                "creator": r.get::<Option<String>, _>("creator"),
+                "is_public": r.get::<bool, _>("is_public"),
+                "member_count": r.get::<i64, _>("member_count"),
+                "is_encrypted": is_encrypted.map(|v| v > 0).unwrap_or(false),
+                "creation_ts": r.get::<i64, _>("creation_ts")
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "results": results,
+        "count": results.len(),
+        "total": total,
+        "offset": offset,
+        "limit": limit
     })))
 }

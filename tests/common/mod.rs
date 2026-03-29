@@ -83,9 +83,12 @@ pub async fn cleanup_test_data(pool: &PgPool) {
     ];
 
     for table in tables {
-        let _ = sqlx::query(&format!("DELETE FROM {} WHERE user_id LIKE 'test_%'", table))
-            .execute(pool)
-            .await;
+        let _ = sqlx::query(&format!(
+            "DELETE FROM {} WHERE user_id LIKE 'test_%'",
+            table
+        ))
+        .execute(pool)
+        .await;
     }
 }
 

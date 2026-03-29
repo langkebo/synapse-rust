@@ -60,24 +60,44 @@ pub fn create_router(state: AppState) -> Router {
             }),
         )
         .route("/health", get(handlers::health_check))
-        .route("/_matrix/client/versions", get(handlers::get_client_versions))
-        .route("/_matrix/client/v3/versions", get(handlers::get_client_versions))
-        .route("/_matrix/client/r0/version", get(handlers::get_server_version))
+        .route(
+            "/_matrix/client/versions",
+            get(handlers::get_client_versions),
+        )
+        .route(
+            "/_matrix/client/v3/versions",
+            get(handlers::get_client_versions),
+        )
+        .route(
+            "/_matrix/client/r0/version",
+            get(handlers::get_server_version),
+        )
         .route("/_matrix/server_version", get(handlers::get_server_version))
         .route("/_matrix/client/v3/pushrules/", get(get_push_rules_default))
         .route(
             "/_matrix/client/v3/pushrules/global/",
             get(get_push_rules_global_default),
         )
-        .route("/.well-known/matrix/server", get(handlers::get_well_known_server))
-        .route("/.well-known/matrix/client", get(handlers::get_well_known_client))
-        .route("/.well-known/matrix/support", get(handlers::get_well_known_support))
+        .route(
+            "/.well-known/matrix/server",
+            get(handlers::get_well_known_server),
+        )
+        .route(
+            "/.well-known/matrix/client",
+            get(handlers::get_well_known_client),
+        )
+        .route(
+            "/.well-known/matrix/support",
+            get(handlers::get_well_known_support),
+        )
         .merge(create_auth_router())
         .merge(create_account_router())
         .merge(create_account_data_router(state.clone()))
         .merge(create_directory_router(state.clone()))
         .merge(create_room_router())
+        .merge(create_sync_router())
         .merge(create_presence_router())
+        .merge(create_moderation_router())
         .merge(create_device_router())
         .merge(create_voice_router(state.clone()))
         .merge(create_media_router(state.clone()))
@@ -123,10 +143,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_widget_router())
         .merge(create_rendezvous_router(state.clone()))
         .merge(create_ai_connection_router())
-        .route("/_matrix/client/v3/sync", get(sync))
         .route("/_matrix/client/v3/createRoom", post(create_room))
-        .route("/_matrix/client/v3/joined_rooms", get(get_joined_rooms))
-        .route("/_matrix/client/v3/my_rooms", get(get_my_rooms))
         .layer(axum::middleware::from_fn(cors_middleware))
         .layer(axum::middleware::from_fn(security_headers_middleware))
         .layer(CompressionLayer::new())
@@ -259,17 +276,7 @@ fn create_directory_router(state: AppState) -> Router<AppState> {
         )
         .nest("/_matrix/client/v3", create_directory_compat_router())
         .merge(create_guest_router(state.clone()))
-        .merge(create_module_router())
         .with_state(state)
-}
-
-fn create_room_report_compat_router() -> Router<AppState> {
-    Router::new()
-        .route("/rooms/{room_id}/report/{event_id}", post(report_event))
-        .route(
-            "/rooms/{room_id}/report/{event_id}/score",
-            put(update_report_score),
-        )
 }
 
 fn create_room_power_levels_compat_router() -> Router<AppState> {
@@ -282,7 +289,6 @@ fn create_room_power_levels_compat_router() -> Router<AppState> {
 fn create_room_r0_v3_compat_router() -> Router<AppState> {
     Router::new()
         .route("/rooms/{room_id}", get(get_room_info))
-        .route("/events", get(get_events))
         .route("/rooms/{room_id}/messages", get(get_messages))
         .route(
             "/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
@@ -333,10 +339,7 @@ fn create_room_r0_v3_compat_router() -> Router<AppState> {
 
 fn create_room_r0_router() -> Router<AppState> {
     create_room_r0_v3_compat_router()
-        .merge(create_room_report_compat_router())
         .merge(create_room_power_levels_compat_router())
-        .route("/sync", get(sync))
-        .route("/joined_rooms", get(get_joined_rooms))
         .route("/createRoom", post(create_room))
         .route(
             "/rooms/{room_id}/get_membership_events",
@@ -345,20 +348,12 @@ fn create_room_r0_router() -> Router<AppState> {
 }
 
 fn create_room_v1_router() -> Router<AppState> {
-    create_room_report_compat_router()
-        .merge(create_room_power_levels_compat_router())
-        .route("/sync", get(sync))
-        .route(
-            "/rooms/{room_id}/report/{event_id}/scanner_info",
-            get(get_scanner_info),
-        )
+    create_room_power_levels_compat_router()
 }
 
 fn create_room_v3_router() -> Router<AppState> {
     create_room_r0_v3_compat_router()
-        .merge(create_room_report_compat_router())
         .merge(create_room_power_levels_compat_router())
-        .route("/rooms/{room_id}/report", post(report_room))
         .route(
             "/rooms/{room_id}/notifications",
             get(get_room_notifications),
@@ -391,18 +386,4 @@ fn create_room_router() -> Router<AppState> {
         .nest("/_matrix/client/r0", create_room_r0_router())
         .nest("/_matrix/client/v1", create_room_v1_router())
         .nest("/_matrix/client/v3", create_room_v3_router())
-}
-
-fn create_presence_compat_router() -> Router<AppState> {
-    Router::new().route(
-        "/presence/{user_id}/status",
-        get(get_presence).put(set_presence),
-    )
-}
-
-fn create_presence_router() -> Router<AppState> {
-    Router::new()
-        .nest("/_matrix/client/r0", create_presence_compat_router())
-        .nest("/_matrix/client/v3", create_presence_compat_router())
-        .route("/_matrix/client/v3/presence/list", post(presence_list))
 }

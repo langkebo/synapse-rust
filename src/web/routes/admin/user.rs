@@ -53,6 +53,10 @@ pub fn create_user_router(_state: AppState) -> Router<AppState> {
             put(create_or_update_user_v2),
         )
         .route("/_synapse/admin/v1/user_stats", get(get_user_stats))
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/stats",
+            get(get_single_user_stats),
+        )
         // Batch operations
         .route("/_synapse/admin/v1/users/batch", post(batch_create_users))
         .route(
@@ -679,6 +683,77 @@ pub async fn get_user_stats(
         "guest_users": 0,
         "average_rooms_per_user": average_rooms_per_user,
         "user_registration_enabled": true
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_single_user_stats(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_exists = sqlx::query("SELECT 1 FROM users WHERE user_id = $1")
+        .bind(&user_id)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check user: {}", e)))?
+        .is_some();
+
+    if !user_exists {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
+    let pool = &*state.services.room_storage.pool;
+
+    let rooms_joined: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM room_memberships WHERE user_id = $1 AND membership = 'join'",
+    )
+    .bind(&user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to count rooms: {}", e)))?;
+
+    let messages_sent: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM room_events WHERE sender = $1 AND type = 'm.room.message'",
+    )
+    .bind(&user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to count messages: {}", e)))?;
+
+    let last_seen: Option<i64> = sqlx::query_scalar(
+        "SELECT last_seen_ts FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC LIMIT 1",
+    )
+    .bind(&user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get last seen: {}", e)))?;
+
+    let account_ts: Option<i64> =
+        sqlx::query_scalar("SELECT creation_ts FROM users WHERE user_id = $1")
+            .bind(&user_id)
+            .fetch_one(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get account time: {}", e)))?;
+
+    let admin: bool = sqlx::query_scalar("SELECT is_admin FROM users WHERE user_id = $1")
+        .bind(&user_id)
+        .fetch_one(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check admin: {}", e)))?;
+
+    Ok(Json(json!({
+        "user_id": user_id,
+        "rooms_joined": rooms_joined,
+        "messages_sent": messages_sent,
+        "last_seen_ts": last_seen,
+        "creation_ts": account_ts,
+        "is_admin": admin,
+        "dashboard": {
+            "total_rooms": rooms_joined,
+            "total_messages": messages_sent,
+            "last_seen": last_seen
+        }
     })))
 }
 

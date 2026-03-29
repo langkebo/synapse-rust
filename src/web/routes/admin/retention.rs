@@ -50,13 +50,12 @@ pub async fn get_retention_policy(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let policy =
-        sqlx::query(
-            "SELECT max_lifetime, min_lifetime, expire_on_clients FROM server_retention_policy LIMIT 1",
-        )
-            .fetch_optional(&*state.services.room_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let policy = sqlx::query(
+        "SELECT max_lifetime, min_lifetime, expire_on_clients FROM server_retention_policy LIMIT 1",
+    )
+    .fetch_optional(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     match policy {
         Some(row) => Ok(Json(json!({

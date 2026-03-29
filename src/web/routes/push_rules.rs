@@ -1,10 +1,7 @@
-use crate::web::routes::AppState;
-use crate::web::extractors::AuthenticatedUser;
 use crate::common::ApiError;
-use axum::{
-    extract::{State},
-    Json,
-};
+use crate::web::extractors::AuthenticatedUser;
+use crate::web::routes::AppState;
+use axum::{extract::State, Json};
 use serde_json::Value;
 
 pub async fn get_push_rules_default(

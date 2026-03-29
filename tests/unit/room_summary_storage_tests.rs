@@ -1,12 +1,12 @@
 #![cfg(test)]
 
 mod room_summary_storage_tests {
+    use crate::common::get_test_pool_async;
     use std::time::{SystemTime, UNIX_EPOCH};
     use synapse_rust::storage::room_summary::{
         CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryStorage,
         UpdateRoomSummaryRequest,
     };
-    use crate::common::get_test_pool_async;
 
     fn unique_suffix() -> u128 {
         SystemTime::now()
@@ -19,7 +19,10 @@ mod room_summary_storage_tests {
         match get_test_pool_async().await {
             Ok(pool) => Some(pool),
             Err(error) => {
-                eprintln!("Skipping room summary storage tests because test database is unavailable: {}", error);
+                eprintln!(
+                    "Skipping room summary storage tests because test database is unavailable: {}",
+                    error
+                );
                 None
             }
         }
@@ -137,7 +140,10 @@ mod room_summary_storage_tests {
             .await
             .expect("Failed to update room summary");
 
-        assert_eq!(updated_summary.name.as_deref(), Some("Updated Summary Room"));
+        assert_eq!(
+            updated_summary.name.as_deref(),
+            Some("Updated Summary Room")
+        );
         assert_eq!(updated_summary.join_rule, "public");
         assert!(updated_summary.is_direct);
         assert!(updated_summary.is_encrypted);
@@ -174,7 +180,10 @@ mod room_summary_storage_tests {
             .expect("Failed to get summary")
             .expect("Summary should exist");
 
-        assert_eq!(loaded_summary.last_event_id.as_deref(), Some("$summary-event"));
+        assert_eq!(
+            loaded_summary.last_event_id.as_deref(),
+            Some("$summary-event")
+        );
 
         let summaries_for_user = storage
             .get_summaries_for_user(&hero)

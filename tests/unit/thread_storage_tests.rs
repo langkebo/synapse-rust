@@ -1,10 +1,12 @@
 #![cfg(test)]
 
 mod thread_storage_tests {
+    use crate::common::get_test_pool_async;
     use sqlx::Row;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use synapse_rust::storage::thread::{CreateThreadReplyParams, CreateThreadRootParams, ThreadStorage};
-    use crate::common::get_test_pool_async;
+    use synapse_rust::storage::thread::{
+        CreateThreadReplyParams, CreateThreadRootParams, ThreadStorage,
+    };
 
     fn unique_suffix() -> u128 {
         SystemTime::now()
@@ -17,13 +19,19 @@ mod thread_storage_tests {
         match get_test_pool_async().await {
             Ok(pool) => Some(pool),
             Err(error) => {
-                eprintln!("Skipping thread storage tests because test database is unavailable: {}", error);
+                eprintln!(
+                    "Skipping thread storage tests because test database is unavailable: {}",
+                    error
+                );
                 None
             }
         }
     }
 
-    async fn seed_room(pool: &sqlx::PgPool, suffix: u128) -> (String, String, String, String, String) {
+    async fn seed_room(
+        pool: &sqlx::PgPool,
+        suffix: u128,
+    ) -> (String, String, String, String, String) {
         let creator = format!("@threadcreator{suffix}:localhost");
         let replier = format!("@threadreplier{suffix}:localhost");
         let reader = format!("@threadreader{suffix}:localhost");
@@ -122,7 +130,10 @@ mod thread_storage_tests {
             .expect("Failed to create thread root");
 
         assert_eq!(root.root_event_id, root_event_id);
-        assert_eq!(root.participants, Some(serde_json::json!([creator.clone()])));
+        assert_eq!(
+            root.participants,
+            Some(serde_json::json!([creator.clone()]))
+        );
 
         let loaded = storage
             .get_thread_root_by_event(&room_id, &root_event_id)
@@ -214,8 +225,14 @@ mod thread_storage_tests {
             .expect("Thread root should exist");
 
         assert_eq!(updated_root.reply_count, 1);
-        assert_eq!(updated_root.last_reply_event_id.as_deref(), Some(reply_event_id.as_str()));
-        assert_eq!(updated_root.last_reply_sender.as_deref(), Some(replier.as_str()));
+        assert_eq!(
+            updated_root.last_reply_event_id.as_deref(),
+            Some(reply_event_id.as_str())
+        );
+        assert_eq!(
+            updated_root.last_reply_sender.as_deref(),
+            Some(replier.as_str())
+        );
         assert_eq!(updated_root.last_reply_ts, Some(1234));
         assert_eq!(
             updated_root.participants,
@@ -229,7 +246,10 @@ mod thread_storage_tests {
             .expect("Thread summary should exist");
 
         assert_eq!(summary.thread_id, thread_id);
-        assert_eq!(summary.latest_event_id.as_deref(), Some(reply_event_id.as_str()));
+        assert_eq!(
+            summary.latest_event_id.as_deref(),
+            Some(reply_event_id.as_str())
+        );
         assert_eq!(summary.reply_count, 1);
 
         let statistics = storage
@@ -282,7 +302,10 @@ mod thread_storage_tests {
             .await
             .expect("Failed to update read receipt");
 
-        assert_eq!(receipt.last_read_event_id.as_deref(), Some(root_event_id.as_str()));
+        assert_eq!(
+            receipt.last_read_event_id.as_deref(),
+            Some(root_event_id.as_str())
+        );
         assert_eq!(receipt.unread_count, 0);
 
         storage
@@ -306,12 +329,14 @@ mod thread_storage_tests {
         assert_eq!(unread.len(), 1);
         assert_eq!(unread[0].thread_id, thread_id);
 
-        let row = sqlx::query("SELECT root_event_id FROM thread_roots WHERE room_id = $1 AND thread_id = $2")
-            .bind(&room_id)
-            .bind(&thread_id)
-            .fetch_one(&*pool)
-            .await
-            .expect("Failed to query root_event_id");
+        let row = sqlx::query(
+            "SELECT root_event_id FROM thread_roots WHERE room_id = $1 AND thread_id = $2",
+        )
+        .bind(&room_id)
+        .bind(&thread_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("Failed to query root_event_id");
 
         let stored_root_event_id: String = row.get("root_event_id");
         assert_eq!(stored_root_event_id, root_event_id);

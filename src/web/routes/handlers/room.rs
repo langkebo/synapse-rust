@@ -59,7 +59,9 @@ pub async fn send_message(
     // 长度检查
     let s = body.to_string();
     if s.len() > 65536 {
-        return Err(ApiError::bad_request("Message body too long (max 64KB)".to_string()));
+        return Err(ApiError::bad_request(
+            "Message body too long (max 64KB)".to_string(),
+        ));
     }
 
     Ok(Json(json!({
@@ -127,7 +129,9 @@ fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
 /// 验证 room_id 或 room_alias 格式
 fn validate_room_id_or_alias(id: &str) -> Result<(), ApiError> {
     if !id.starts_with('!') && !id.starts_with('#') {
-        return Err(ApiError::bad_request("Invalid room ID or alias format".to_string()));
+        return Err(ApiError::bad_request(
+            "Invalid room ID or alias format".to_string(),
+        ));
     }
     Ok(())
 }
