@@ -9,6 +9,7 @@ description = "Matrix Homeserver implemented in Rust"
 [features]
 default = ["server"]
 server = ["dep:axum", "dep:tower-http", "dep:tower_governor"]
+runtime-ddl = []
 
 [dependencies]
 tokio = { version = "1.49", features = ["full", "test-util"] }

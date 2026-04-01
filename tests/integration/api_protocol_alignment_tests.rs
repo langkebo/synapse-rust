@@ -548,7 +548,12 @@ async fn test_space_state_and_children_form_a_matrix_style_closure() {
     let add_child_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), add_child_request)
         .await
         .unwrap();
-    assert_eq!(add_child_response.status(), StatusCode::CREATED);
+    if add_child_response.status() != StatusCode::CREATED {
+        let body = axum::body::to_bytes(add_child_response.into_body(), 8192)
+            .await
+            .unwrap();
+        panic!("add_child failed: {:?}", String::from_utf8_lossy(&body));
+    }
 
     let update_space_request = Request::builder()
         .method("PUT")

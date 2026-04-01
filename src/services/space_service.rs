@@ -623,9 +623,14 @@ impl SpaceService {
     }
 
     #[instrument(skip(self))]
-    pub async fn search_spaces(&self, query: &str, limit: i64) -> Result<Vec<Space>, ApiError> {
+    pub async fn search_spaces(
+        &self,
+        query: &str,
+        limit: i64,
+        user_id: Option<&str>,
+    ) -> Result<Vec<Space>, ApiError> {
         self.space_storage
-            .search_spaces(query, limit)
+            .search_spaces(query, limit, user_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to search spaces: {}", e)))
     }

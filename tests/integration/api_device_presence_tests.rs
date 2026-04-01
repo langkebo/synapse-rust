@@ -376,10 +376,9 @@ async fn test_presence_list_after_session_invalidation_and_relogin() {
         .header("Content-Type", "application/json")
         .body(Body::from("{}"))
         .unwrap();
-    let invalidate_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), invalidate_request)
-            .await
-            .unwrap();
+    let invalidate_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), invalidate_request)
+        .await
+        .unwrap();
     assert_eq!(invalidate_response.status(), StatusCode::OK);
 
     let relogin_token = login_user(&app, &username).await;

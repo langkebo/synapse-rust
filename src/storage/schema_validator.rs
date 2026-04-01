@@ -234,6 +234,7 @@ impl SchemaValidator {
         })
     }
 
+    #[cfg(feature = "runtime-ddl")]
     pub async fn repair_missing_columns(&self) -> Result<Vec<String>, sqlx::Error> {
         let mut repaired = Vec::new();
 
@@ -281,6 +282,7 @@ impl SchemaValidator {
         Ok(rows)
     }
 
+    #[cfg(feature = "runtime-ddl")]
     pub async fn create_missing_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
         let mut created = Vec::new();
 
@@ -303,6 +305,7 @@ impl SchemaValidator {
         Ok(created)
     }
 
+    #[cfg(feature = "runtime-ddl")]
     async fn index_exists(&self, index_name: &str) -> Result<bool, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
             r#"

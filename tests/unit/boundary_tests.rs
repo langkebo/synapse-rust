@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception)]
+
 // Boundary Condition Tests
 // These tests verify edge cases and boundary conditions for API inputs
 
@@ -284,7 +286,7 @@ mod boundary_tests {
 
     #[test]
     fn test_media_upload_empty() {
-        let empty_data = vec![0u8; 0];
+        let empty_data = [0u8; 0];
         assert!(empty_data.is_empty());
     }
 

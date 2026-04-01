@@ -132,9 +132,8 @@ async fn test_create_widget_returns_not_found_for_missing_room() {
         ))
         .unwrap();
 
-    let create_widget_response =
-        ServiceExt::<Request<Body>>::oneshot(app, create_widget_request)
-            .await
-            .unwrap();
+    let create_widget_response = ServiceExt::<Request<Body>>::oneshot(app, create_widget_request)
+        .await
+        .unwrap();
     assert_eq!(create_widget_response.status(), StatusCode::NOT_FOUND);
 }

@@ -169,10 +169,7 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
             put(exchange_third_party_invite),
         )
         // Communities/Groups (Deprecated but still registered for compatibility)
-        .route(
-            "/_matrix/federation/v1/groups/{group_id}",
-            get(get_group),
-        );
+        .route("/_matrix/federation/v1/groups/{group_id}", get(get_group));
 
     let protected = protected.layer(middleware::from_fn_with_state(
         state,
