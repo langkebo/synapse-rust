@@ -39,7 +39,8 @@ pub fn create_relations_router(state: AppState) -> Router<AppState> {
 
     Router::new()
         .nest("/_matrix/client/v1", compat_router.clone())
-        .nest("/_matrix/client/r0", compat_router)
+        .nest("/_matrix/client/r0", compat_router.clone())
+        .nest("/_matrix/client/v3", compat_router)
         .with_state(state)
 }
 
@@ -320,8 +321,10 @@ mod tests {
         let compat_routes = [
             "/_matrix/client/v1/relations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/r0/relations/{room_id}/{event_id}/{rel_type}/{event_id}",
+            "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/v1/aggregations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/r0/aggregations/{room_id}/{event_id}/{rel_type}",
+            "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
         ];
 
         assert!(compat_routes
@@ -342,21 +345,19 @@ mod tests {
     }
 
     #[test]
-    fn test_relations_router_keeps_scope_to_v1_and_r0() {
+    fn test_relations_router_supports_v3() {
         let supported_versions = [
             "/_matrix/client/v1/relations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/r0/aggregations/{room_id}/{event_id}/{rel_type}",
-        ];
-        let unsupported_v3_paths = [
             "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
         ];
 
         assert!(supported_versions
             .iter()
-            .all(|path| !path.starts_with("/_matrix/client/v3/")));
-        assert!(unsupported_v3_paths
+            .all(|path| path.starts_with("/_matrix/client/")));
+        assert!(supported_versions
             .iter()
-            .all(|path| path.starts_with("/_matrix/client/v3/")));
+            .any(|path| path.starts_with("/_matrix/client/v3/")));
     }
 }
