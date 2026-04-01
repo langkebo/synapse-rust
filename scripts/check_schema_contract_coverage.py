@@ -134,8 +134,8 @@ TABLE_CONTRACTS: dict[str, dict[str, list[str]]] = {
             "trust_level",
             "verified_by_device_id",
             "verified_at",
-            "created_at",
-            "updated_at",
+            "created_ts",
+            "updated_ts",
         ],
         "indexes": ["idx_device_trust_status_user_level"],
         "constraints": ["uq_device_trust_status_user_device"],
@@ -147,8 +147,8 @@ TABLE_CONTRACTS: dict[str, dict[str, list[str]]] = {
             "master_key_id",
             "is_trusted",
             "trusted_at",
-            "created_at",
-            "updated_at",
+            "created_ts",
+            "updated_ts",
         ],
         "indexes": ["idx_cross_signing_trust_user_trusted"],
         "constraints": ["uq_cross_signing_trust_user_target"],
@@ -163,7 +163,7 @@ TABLE_CONTRACTS: dict[str, dict[str, list[str]]] = {
             "request_token",
             "commitment",
             "pubkey",
-            "created_at",
+            "created_ts",
             "expires_at",
             "completed_at",
         ],
@@ -181,8 +181,8 @@ TABLE_CONTRACTS: dict[str, dict[str, list[str]]] = {
             "to_device",
             "method",
             "state",
-            "created_at",
-            "updated_at",
+            "created_ts",
+            "updated_ts",
         ],
         "indexes": ["idx_verification_requests_to_user_state"],
     },
@@ -362,9 +362,17 @@ def collect_schema_metadata() -> tuple[dict[str, set[str]], dict[str, set[str]],
     return table_columns, table_indexes, table_constraints
 
 
+def print_contract_scope_note() -> None:
+    print(
+        "Schema contract coverage note: checks migration source coverage for expected "
+        "tables, columns, indexes, and constraints; it is not a full ALTER TABLE interpreter."
+    )
+
+
 def main() -> int:
     table_columns, table_indexes, table_constraints = collect_schema_metadata()
     failures: list[str] = []
+    print_contract_scope_note()
 
     for table_name, contract in sorted(TABLE_CONTRACTS.items()):
         if table_name not in table_columns:

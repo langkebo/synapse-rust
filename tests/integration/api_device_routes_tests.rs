@@ -118,6 +118,8 @@ async fn test_devices_routes_round_trip_across_versions() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["device_id"], device_id);
     assert_eq!(json["display_name"], "Nested Device Router");
+    assert_eq!(json["device"]["device_id"], device_id);
+    assert_eq!(json["device"]["display_name"], "Nested Device Router");
 
     let updates_request = Request::builder()
         .method("POST")

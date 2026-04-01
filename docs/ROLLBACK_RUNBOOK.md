@@ -8,6 +8,8 @@
 
 ## 1. 回滚策略概述
 
+> 当前项目口径以 `docker/db_migrate.sh`、`migrations/rollback/`、`.undo.sql` / `.down.sql` 迁移资产为准，Flyway 仅作为兼容路径保留。
+
 ### 1.1 回滚时间目标
 
 | 环境 | 回滚耗时目标 | 实际演练 |
@@ -19,8 +21,9 @@
 
 | 类型 | 适用场景 | 工具 |
 |------|----------|------|
-| Flyway Undo | 单个迁移脚本回滚 | Flyway |
-| 物理回滚 | Flyway 不可用时的紧急回滚 | psql |
+| 迁移资产回滚 | 单个迁移脚本回滚 | `rollback/*.rollback.sql`、`.undo.sql`、`psql` |
+| Flyway Undo | 兼容场景下的单个迁移回滚 | Flyway |
+| 物理回滚 | 迁移资产不可用时的紧急回滚 | psql |
 | 应用层回滚 | 数据修复而非结构变更 | Rust 代码 |
 
 ---
@@ -49,26 +52,27 @@ pg_dump -h localhost -U synapse -d synapse -t room_summaries -t room_summary_mem
 
 ---
 
-## 3. Flyway 回滚流程
+## 3. 项目主回滚流程
 
 ### 3.1 检查迁移状态
 
 ```bash
 # 查看当前版本
-psql -h localhost -U synapse -d synapse -c "SELECT * FROM schema_migrations ORDER BY installed_rank DESC LIMIT 5;"
+psql -h localhost -U synapse -d synapse -c "SELECT version, name, success, applied_ts, executed_at FROM schema_migrations ORDER BY COALESCE(applied_ts, FLOOR(EXTRACT(EPOCH FROM executed_at) * 1000)::BIGINT) DESC NULLS LAST, id DESC LIMIT 5;"
 
-# 查看可用的回滚版本
-flyway -configFiles=scripts/db/flyway.conf info
+# 查看可用的回滚脚本
+ls migrations/rollback/
+find migrations -maxdepth 2 \( -name "*.undo.sql" -o -name "*.down.sql" \)
 ```
 
 ### 3.2 执行回滚
 
 ```bash
-# 单个版本回滚
-flyway -configFiles=scripts/db/flyway.conf undo -targetVersion=V20260330000001
+# 时间戳迁移回滚
+psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/rollback/20260330000009_align_beacon_and_call_exceptions.rollback.sql
 
-# 多个版本回滚（谨慎使用）
-flyway -configFiles=scripts/db/flyway.conf undo -targetVersion=V20260329000000
+# 版本化迁移回滚
+psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/V260330_001__MIG-XXX__add_missing_schema_tables.undo.sql
 ```
 
 ### 3.3 验证回滚
@@ -84,6 +88,14 @@ psql -h localhost -U synapse -d synapse -c "SELECT indexname FROM pg_indexes WHE
 psql -h localhost -U synapse -d synapse -c "SELECT COUNT(*) FROM table_name;"
 ```
 
+### 3.4 Flyway 兼容路径
+
+```bash
+# 仅在兼容场景下使用
+flyway -configFiles=scripts/db/flyway.conf info
+flyway -configFiles=scripts/db/flyway.conf undo -targetVersion=V260330_001
+```
+
 ---
 
 ## 4. 紧急物理回滚流程
@@ -93,8 +105,8 @@ psql -h localhost -U synapse -d synapse -c "SELECT COUNT(*) FROM table_name;"
 ```sql
 -- 查看最近的 DDL 变更
 SELECT * FROM schema_migrations
-WHERE installed_on > NOW() - INTERVAL '1 hour'
-ORDER BY installed_rank DESC;
+WHERE executed_at > NOW() - INTERVAL '1 hour'
+ORDER BY COALESCE(applied_ts, 0) DESC, version DESC;
 ```
 
 ### 4.2 手动回滚脚本模板
@@ -281,3 +293,4 @@ DROP INDEX IF EXISTS idx_incomplete_table_col;
 | Flyway 文档 | https://flywaydb.org/documentation/ |
 | PostgreSQL 回滚 | https://www.postgresql.org/docs/current/sql-rollback.html |
 | 项目迁移索引 | migrations/MIGRATION_INDEX.md |
+| 迁移治理文档 | docs/db/MIGRATION_GOVERNANCE.md |

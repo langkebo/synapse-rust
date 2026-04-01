@@ -16,6 +16,7 @@ pub struct EventReport {
     pub status: String,
     pub score: i32,
     pub received_ts: i64,
+    #[sqlx(rename = "resolved_at")]
     pub resolved_ts: Option<i64>,
     pub resolved_by: Option<String>,
     pub resolution_reason: Option<String>,
@@ -244,7 +245,7 @@ impl EventReportStorage {
                 score = COALESCE($3, score),
                 resolved_by = COALESCE($4, resolved_by),
                 resolution_reason = COALESCE($5, resolution_reason),
-                resolved_ts = COALESCE($6, resolved_ts)
+                resolved_at = COALESCE($6, resolved_at)
             WHERE id = $1
             RETURNING *
             "#,

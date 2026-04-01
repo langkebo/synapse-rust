@@ -27,7 +27,7 @@ impl DeviceTrustStorage {
     ) -> Result<Option<DeviceTrustStatus>, ApiError> {
         let result = sqlx::query_as::<_, SqlxDeviceTrustStatus>(
             "SELECT id, user_id, device_id, trust_level, verified_by_device_id, 
-             verified_at, created_at, updated_at 
+             verified_at, created_ts, updated_ts 
              FROM device_trust_status 
              WHERE user_id = $1 AND device_id = $2",
         )
@@ -44,21 +44,21 @@ impl DeviceTrustStorage {
     pub async fn upsert_device_trust(&self, status: &DeviceTrustStatus) -> Result<(), ApiError> {
         sqlx::query(
             "INSERT INTO device_trust_status (user_id, device_id, trust_level,
-             verified_by_device_id, verified_at, created_at, updated_at)
+             verified_by_device_id, verified_at, created_ts, updated_ts)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (user_id, device_id) DO UPDATE SET
              trust_level = EXCLUDED.trust_level,
              verified_by_device_id = EXCLUDED.verified_by_device_id,
              verified_at = EXCLUDED.verified_at,
-             updated_at = EXCLUDED.updated_at",
+             updated_ts = EXCLUDED.updated_ts",
         )
         .bind(&status.user_id)
         .bind(&status.device_id)
         .bind(status.trust_level.to_string())
         .bind(&status.verified_by_device_id)
         .bind(status.verified_at)
-        .bind(status.created_at)
-        .bind(status.updated_at)
+        .bind(status.created_ts)
+        .bind(status.updated_ts)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -75,24 +75,25 @@ impl DeviceTrustStorage {
         verified_by: Option<&str>,
     ) -> Result<(), ApiError> {
         let now = chrono::Utc::now();
+        let now_ts = now.timestamp_millis();
 
         sqlx::query(
             "INSERT INTO device_trust_status (user_id, device_id, trust_level,
-             verified_by_device_id, verified_at, created_at, updated_at)
+             verified_by_device_id, verified_at, created_ts, updated_ts)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (user_id, device_id) DO UPDATE SET
              trust_level = EXCLUDED.trust_level,
              verified_by_device_id = EXCLUDED.verified_by_device_id,
              verified_at = CASE WHEN EXCLUDED.trust_level = 'verified' THEN EXCLUDED.verified_at ELSE device_trust_status.verified_at END,
-             updated_at = EXCLUDED.updated_at"
+             updated_ts = EXCLUDED.updated_ts"
         )
         .bind(user_id)
         .bind(device_id)
         .bind(level.to_string())
         .bind(verified_by)
         .bind(if matches!(level, DeviceTrustLevel::Verified) { Some(now) } else { None })
-        .bind(now)
-        .bind(now)
+        .bind(now_ts)
+        .bind(now_ts)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -107,7 +108,7 @@ impl DeviceTrustStorage {
     ) -> Result<Vec<DeviceTrustStatus>, ApiError> {
         let results = sqlx::query_as::<_, SqlxDeviceTrustStatus>(
             "SELECT id, user_id, device_id, trust_level, verified_by_device_id,
-             verified_at, created_at, updated_at 
+             verified_at, created_ts, updated_ts 
              FROM device_trust_status 
              WHERE user_id = $1",
         )
@@ -126,7 +127,7 @@ impl DeviceTrustStorage {
     ) -> Result<Vec<DeviceTrustStatus>, ApiError> {
         let results = sqlx::query_as::<_, SqlxDeviceTrustStatus>(
             "SELECT id, user_id, device_id, trust_level, verified_by_device_id,
-             verified_at, created_at, updated_at 
+             verified_at, created_ts, updated_ts 
              FROM device_trust_status 
              WHERE user_id = $1 AND trust_level = 'verified'",
         )
@@ -172,7 +173,7 @@ impl DeviceTrustStorage {
         sqlx::query(
             "INSERT INTO device_verification_request 
              (user_id, new_device_id, requesting_device_id, verification_method, 
-              status, request_token, commitment, pubkey, created_at, expires_at, completed_at)
+              status, request_token, commitment, pubkey, created_ts, expires_at, completed_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(&request.user_id)
@@ -183,7 +184,7 @@ impl DeviceTrustStorage {
         .bind(&request.request_token)
         .bind(&request.commitment)
         .bind(&request.pubkey)
-        .bind(request.created_at)
+        .bind(request.created_ts)
         .bind(request.expires_at)
         .bind(request.completed_at)
         .execute(&*self.pool)
@@ -200,7 +201,7 @@ impl DeviceTrustStorage {
     ) -> Result<Option<DeviceVerificationRequest>, ApiError> {
         let result = sqlx::query_as::<_, SqlxVerificationRequest>(
             "SELECT id, user_id, new_device_id, requesting_device_id, verification_method,
-             status, request_token, commitment, pubkey, created_at, expires_at, completed_at
+             status, request_token, commitment, pubkey, created_ts, expires_at, completed_at
              FROM device_verification_request 
              WHERE request_token = $1",
         )
@@ -220,7 +221,7 @@ impl DeviceTrustStorage {
     ) -> Result<Option<DeviceVerificationRequest>, ApiError> {
         let result = sqlx::query_as::<_, SqlxVerificationRequest>(
             "SELECT id, user_id, new_device_id, requesting_device_id, verification_method,
-             status, request_token, commitment, pubkey, created_at, expires_at, completed_at
+             status, request_token, commitment, pubkey, created_ts, expires_at, completed_at
              FROM device_verification_request 
              WHERE user_id = $1 AND new_device_id = $2 AND status = 'pending' AND expires_at > NOW()"
         )
@@ -326,7 +327,7 @@ impl DeviceTrustStorage {
     pub async fn log_security_event(&self, event: &E2eeSecurityEvent) -> Result<(), ApiError> {
         sqlx::query(
             "INSERT INTO e2ee_security_events 
-             (user_id, device_id, event_type, event_data, ip_address, user_agent, created_at)
+             (user_id, device_id, event_type, event_data, ip_address, user_agent, created_ts)
              VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(&event.user_id)
@@ -335,7 +336,7 @@ impl DeviceTrustStorage {
         .bind(event.event_data.as_ref().map(|v| v.to_string()))
         .bind(&event.ip_address)
         .bind(&event.user_agent)
-        .bind(event.created_at)
+        .bind(event.created_ts)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -350,10 +351,10 @@ impl DeviceTrustStorage {
         limit: i64,
     ) -> Result<Vec<E2eeSecurityEvent>, ApiError> {
         let results = sqlx::query_as::<_, SqlxSecurityEvent>(
-            "SELECT id, user_id, device_id, event_type, event_data, ip_address, user_agent, created_at
+            "SELECT id, user_id, device_id, event_type, event_data, ip_address, user_agent, created_ts
              FROM e2ee_security_events 
              WHERE user_id = $1
-             ORDER BY created_at DESC
+             ORDER BY created_ts DESC
              LIMIT $2"
         )
         .bind(user_id)
@@ -380,12 +381,12 @@ impl DeviceTrustStorage {
 
         sqlx::query(
             "INSERT INTO cross_signing_trust
-             (user_id, target_user_id, is_trusted, trusted_at, created_at, updated_at)
+             (user_id, target_user_id, is_trusted, trusted_at, created_ts, updated_ts)
              VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (user_id, target_user_id) DO UPDATE SET
              is_trusted = EXCLUDED.is_trusted,
              trusted_at = CASE WHEN EXCLUDED.is_trusted = TRUE THEN EXCLUDED.trusted_at ELSE cross_signing_trust.trusted_at END,
-             updated_at = EXCLUDED.updated_at"
+             updated_ts = EXCLUDED.updated_ts"
         )
         .bind(user_id)
         .bind(target_user_id)
@@ -427,8 +428,8 @@ struct SqlxDeviceTrustStatus {
     trust_level: String,
     verified_by_device_id: Option<String>,
     verified_at: Option<chrono::DateTime<chrono::Utc>>,
-    created_at: chrono::DateTime<chrono::Utc>,
-    updated_at: chrono::DateTime<chrono::Utc>,
+    created_ts: i64,
+    updated_ts: i64,
 }
 
 impl From<SqlxDeviceTrustStatus> for DeviceTrustStatus {
@@ -440,8 +441,8 @@ impl From<SqlxDeviceTrustStatus> for DeviceTrustStatus {
             trust_level: row.trust_level.parse().unwrap_or_default(),
             verified_by_device_id: row.verified_by_device_id,
             verified_at: row.verified_at,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
+            created_ts: row.created_ts,
+            updated_ts: row.updated_ts,
         }
     }
 }
@@ -457,7 +458,7 @@ struct SqlxVerificationRequest {
     request_token: String,
     commitment: Option<String>,
     pubkey: Option<String>,
-    created_at: chrono::DateTime<chrono::Utc>,
+    created_ts: i64,
     expires_at: chrono::DateTime<chrono::Utc>,
     completed_at: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -474,7 +475,7 @@ impl From<SqlxVerificationRequest> for DeviceVerificationRequest {
             request_token: row.request_token,
             commitment: row.commitment,
             pubkey: row.pubkey,
-            created_at: row.created_at,
+            created_ts: row.created_ts,
             expires_at: row.expires_at,
             completed_at: row.completed_at,
         }
@@ -490,7 +491,7 @@ struct SqlxSecurityEvent {
     event_data: Option<String>,
     ip_address: Option<String>,
     user_agent: Option<String>,
-    created_at: chrono::DateTime<chrono::Utc>,
+    created_ts: i64,
 }
 
 impl From<SqlxSecurityEvent> for E2eeSecurityEvent {
@@ -503,7 +504,7 @@ impl From<SqlxSecurityEvent> for E2eeSecurityEvent {
             event_data: row.event_data.and_then(|s| serde_json::from_str(&s).ok()),
             ip_address: row.ip_address,
             user_agent: row.user_agent,
-            created_at: row.created_at,
+            created_ts: row.created_ts,
         }
     }
 }

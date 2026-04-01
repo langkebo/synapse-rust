@@ -269,6 +269,8 @@ impl AuthService {
             }
         }
 
+        let logout_marker = format!("user:logout_all:{}", user.user_id);
+        self.cache.delete(&logout_marker).await;
         self.log_login_success(&user, device_id);
 
         let device_id = self.get_or_create_device_id(device_id, &user).await?;
@@ -479,6 +481,11 @@ impl AuthService {
             .delete_user_tokens(user_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to delete tokens: {}", e)))?;
+
+        self.refresh_token_storage
+            .revoke_all_user_tokens(user_id, "Logout all devices")
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to revoke refresh tokens: {}", e)))?;
 
         // Delete user devices
         self.device_storage

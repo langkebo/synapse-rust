@@ -167,6 +167,11 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route(
             "/_matrix/federation/v1/exchange_third_party_invite/{room_id}",
             put(exchange_third_party_invite),
+        )
+        // Communities/Groups (Deprecated but still registered for compatibility)
+        .route(
+            "/_matrix/federation/v1/groups/{group_id}",
+            get(get_group),
         );
 
     let protected = protected.layer(middleware::from_fn_with_state(
@@ -1693,6 +1698,34 @@ async fn exchange_third_party_invite(
     Ok(Json(json!({
         "room_id": room_id,
         "status": "processed"
+    })))
+}
+
+/// Get group (community) overview
+/// GET /_matrix/federation/v1/groups/{group_id}
+async fn get_group(
+    State(state): State<AppState>,
+    Path(group_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    if !group_id.starts_with("+") || !group_id.contains(":") {
+        return Err(ApiError::bad_request("Invalid group_id format"));
+    }
+
+    let profile = state
+        .services
+        .registration_service
+        .get_profile(&group_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get group profile: {}", e)))?;
+
+    Ok(Json(json!({
+        "group_id": group_id,
+        "name": profile.get("displayname").and_then(|v| v.as_str()).unwrap_or(&group_id),
+        "avatar_url": profile.get("avatar_url"),
+        "short_description": null,
+        "long_description": null,
+        "number_of_members": 0,
+        "rooms": []
     })))
 }
 

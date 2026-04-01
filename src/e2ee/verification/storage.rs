@@ -21,7 +21,7 @@ impl VerificationStorage {
         sqlx::query(
             r#"
             INSERT INTO verification_requests 
-            (transaction_id, from_user, from_device, to_user, to_device, method, state, created_at, updated_at)
+            (transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (transaction_id) DO NOTHING
             "#,
@@ -33,8 +33,8 @@ impl VerificationStorage {
         .bind(&request.to_device)
         .bind(serde_json::to_string(&request.method).unwrap_or_default())
         .bind(serde_json::to_string(&request.state).unwrap_or_default())
-        .bind(request.created_at)
-        .bind(request.updated_at)
+        .bind(request.created_ts)
+        .bind(request.updated_ts)
         .execute(self.pool.as_ref())
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create verification request: {}", e)))?;
@@ -50,7 +50,7 @@ impl VerificationStorage {
         let row = sqlx::query_as::<_, (
             String, String, String, String, Option<String>, String, String, i64, i64
         )>(
-            "SELECT transaction_id, from_user, from_device, to_user, to_device, method, state, created_at, updated_at 
+            "SELECT transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts 
              FROM verification_requests WHERE transaction_id = $1"
         )
         .bind(transaction_id)
@@ -66,8 +66,8 @@ impl VerificationStorage {
             to_device,
             method,
             state,
-            created_at,
-            updated_at,
+            created_ts,
+            updated_ts,
         )) = row
         {
             Ok(Some(VerificationRequest {
@@ -78,8 +78,8 @@ impl VerificationStorage {
                 to_device,
                 method: serde_json::from_str(&method).unwrap_or(VMethod::Sas),
                 state: serde_json::from_str(&state).unwrap_or(VerificationState::Requested),
-                created_at,
-                updated_at,
+                created_ts,
+                updated_ts,
             }))
         } else {
             Ok(None)
@@ -94,7 +94,7 @@ impl VerificationStorage {
     ) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            "UPDATE verification_requests SET state = $1, updated_at = $2 WHERE transaction_id = $3"
+            "UPDATE verification_requests SET state = $1, updated_ts = $2 WHERE transaction_id = $3"
         )
         .bind(serde_json::to_string(&state).unwrap_or_default())
         .bind(now)
@@ -166,7 +166,7 @@ impl VerificationStorage {
         let rows = sqlx::query_as::<_, (
             String, String, String, String, Option<String>, String, String, i64, i64
         )>(
-            "SELECT transaction_id, from_user, from_device, to_user, to_device, method, state, created_at, updated_at 
+            "SELECT transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts 
              FROM verification_requests 
              WHERE to_user = $1 AND state IN ('requested', 'ready', 'pending')"
         )
@@ -186,8 +186,8 @@ impl VerificationStorage {
                     to_device,
                     method,
                     state,
-                    created_at,
-                    updated_at,
+                    created_ts,
+                    updated_ts,
                 )| {
                     VerificationRequest {
                         transaction_id,
@@ -197,8 +197,8 @@ impl VerificationStorage {
                         to_device,
                         method: serde_json::from_str(&method).unwrap_or(VMethod::Sas),
                         state: serde_json::from_str(&state).unwrap_or(VerificationState::Requested),
-                        created_at,
-                        updated_at,
+                        created_ts,
+                        updated_ts,
                     }
                 },
             )

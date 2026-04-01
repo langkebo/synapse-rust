@@ -17,15 +17,19 @@ use serde_json::Value;
 fn create_relations_compat_router() -> Router<AppState> {
     Router::new()
         .route(
-            "/relations/{room_id}/{event_id}/{rel_type}",
+            "/rooms/{room_id}/relations/{event_id}",
+            get(get_relations_by_event),
+        )
+        .route(
+            "/rooms/{room_id}/relations/{event_id}/{rel_type}",
             get(get_relations),
         )
         .route(
-            "/relations/{room_id}/{event_id}/{rel_type}/{event_id}",
+            "/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_id}",
             put(send_relation),
         )
         .route(
-            "/aggregations/{room_id}/{event_id}/{rel_type}",
+            "/rooms/{room_id}/aggregations/{event_id}/{rel_type}",
             get(get_aggregations),
         )
 }
@@ -85,6 +89,46 @@ fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("Invalid event_id format".to_string()));
     }
     Ok(())
+}
+
+/// Get relations for an event without rel_type filter
+/// This returns all relations for an event
+async fn get_relations_by_event(
+    State(state): State<AppState>,
+    Path((room_id, event_id)): Path<(String, String)>,
+    Query(query): Query<RelationsQuery>,
+) -> Result<Json<RelationsResponse>, ApiError> {
+    validate_room_id(&room_id)?;
+    validate_event_id(&event_id)?;
+
+    let limit = query.limit.unwrap_or(50).min(100) as i32;
+    let direction = query.direction.clone();
+
+    tracing::debug!(
+        "Getting all relations for event {} in room {}",
+        event_id,
+        room_id,
+    );
+
+    let response = state
+        .services
+        .relations_service
+        .get_relations(
+            &room_id,
+            &event_id,
+            None,
+            Some(limit),
+            query.from,
+            direction,
+        )
+        .await?;
+
+    Ok(Json(RelationsResponse {
+        chunk: response.chunk,
+        next_batch: response.next_batch,
+        prev_batch: response.prev_batch,
+        origin_server_ts: None,
+    }))
 }
 
 /// Get relations for an event

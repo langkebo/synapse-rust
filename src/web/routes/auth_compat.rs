@@ -273,8 +273,10 @@ pub(crate) async fn login(
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let username = body
-        .get("user")
-        .or(body.get("username"))
+        .get("identifier")
+        .and_then(|id| id.get("user"))
+        .or_else(|| body.get("user"))
+        .or_else(|| body.get("username"))
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
     let password = body

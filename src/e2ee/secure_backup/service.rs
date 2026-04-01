@@ -57,7 +57,7 @@ impl SecureBackupService {
             ON CONFLICT (user_id, backup_id) DO UPDATE SET
                 version = EXCLUDED.version,
                 auth_data = EXCLUDED.auth_data,
-                updated_at = CURRENT_TIMESTAMP
+                updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
             "#
         )
         .bind(user_id)
@@ -140,8 +140,9 @@ impl SecureBackupService {
 
         // 4. Update backup key count
         sqlx::query(
-            "UPDATE secure_key_backups SET key_count = key_count + $1, updated_at = CURRENT_TIMESTAMP 
-             WHERE user_id = $2 AND backup_id = $3"
+            "UPDATE secure_key_backups SET key_count = key_count + $1,
+             updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
+             WHERE user_id = $2 AND backup_id = $3",
         )
         .bind(key_count)
         .bind(user_id)
@@ -268,7 +269,7 @@ impl SecureBackupService {
     pub async fn list_backups(&self, user_id: &str) -> Result<Vec<SecureBackupResponse>, ApiError> {
         let results = sqlx::query_as::<_, SqlxSecureBackup>(
             "SELECT backup_id, version, algorithm, auth_data, key_count 
-             FROM secure_key_backups WHERE user_id = $1 ORDER BY created_at DESC",
+             FROM secure_key_backups WHERE user_id = $1 ORDER BY created_ts DESC",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)

@@ -2,7 +2,6 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use once_cell::sync::Lazy;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
@@ -14,26 +13,6 @@ use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
-
-static TEST_POOL: Lazy<Option<Arc<sqlx::PgPool>>> = Lazy::new(|| {
-    let database_url =
-        match std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL")) {
-            Ok(url) => url,
-            Err(_) => return None,
-        };
-
-    let rt = tokio::runtime::Runtime::new().ok()?;
-    let pool = rt.block_on(async {
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(3)
-            .min_connections(1)
-            .connect(&database_url)
-            .await
-            .ok()
-    })?;
-
-    Some(Arc::new(pool))
-});
 
 fn create_test_config() -> Config {
     Config {
@@ -149,11 +128,11 @@ fn create_test_config() -> Config {
     }
 }
 
-fn setup_test_app() -> Option<axum::Router> {
-    let pool = TEST_POOL.as_ref()?;
+async fn setup_test_app() -> Option<axum::Router> {
+    let pool = super::get_test_pool().await?;
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let config = create_test_config();
-    let container = ServiceContainer::new(pool, cache.clone(), config, None);
+    let container = ServiceContainer::new(&pool, cache.clone(), config, None);
     let state = AppState::new(container, cache);
     Some(create_router(state))
 }
@@ -190,7 +169,7 @@ async fn register_user(app: &axum::Router, username: &str) -> Option<String> {
 
 #[tokio::test]
 async fn test_trusted_private_chat_transaction() {
-    let Some(app) = setup_test_app() else {
+    let Some(app) = setup_test_app().await else {
         eprintln!("Skipping test: database not available");
         return;
     };

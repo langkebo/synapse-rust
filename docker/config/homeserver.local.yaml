@@ -1,134 +1,118 @@
-server_name: "cjystx.top"
-
 server:
-  name: "cjystx.top"
+  name: "${SERVER_NAME:-cjystx.top}"
   host: "0.0.0.0"
   port: 8008
-  http_port: 8008
-  https_port: 8448
-  bind_address: "0.0.0.0"
-  public_baseurl: "https://matrix.cjystx.top"
-  signing_key_path: "/app/data/signing.key"
-  macaroon_secret_key: "change-me-macaroon-secret"
-  form_secret: "change-me-form-secret"
-  registration_shared_secret: "change-me-registration-secret"
-  max_upload_size: 104857600
-  max_image_resolution: 1920
+  public_baseurl: "${PUBLIC_BASEURL:-http://localhost:8008}"
+  signing_key_path: "./docker/data/signing.key"
+  macaroon_secret_key: "${MACAROON_SECRET:?MACAROON_SECRET is required}"
+  form_secret: "${FORM_SECRET:?FORM_SECRET is required}"
+  server_name: "${SERVER_NAME:-cjystx.top}"
+  registration_shared_secret: "${REGISTRATION_SECRET:?REGISTRATION_SECRET is required}"
+  max_upload_size: 10485760
+  max_image_resolution: 8000000
   enable_registration: true
   enable_registration_captcha: false
-  background_tasks_interval: 3600
-  expire_access_token: false
+  background_tasks_interval: 300
+  expire_access_token: true
   expire_access_token_lifetime: 86400
   refresh_token_lifetime: 604800
-  refresh_token_sliding_window_size: 2592000
-  session_duration: 86400
+  refresh_token_sliding_window_size: 3600
+  session_duration: 86400000
   warmup_pool: true
 
+rate_limit:
+  enabled: false
+  default:
+    per_second: 0
+    burst_size: 0
+  endpoints: []
+  exempt_paths:
+    - "/"
+    - "/_matrix/client/versions"
+  fail_open_on_error: true
+
 database:
-  host: "db"
+  host: "127.0.0.1"
   port: 5432
-  username: "synapse"
-  password: "change-me-db-password"
-  name: "synapse_test"
-  pool_size: 10
-  max_size: 20
-  min_idle: 2
-  connection_timeout: 30
+  username: "${DB_USER:-synapse}"
+  password: "${DB_PASSWORD:?DB_PASSWORD is required}"
+  name: "${DB_NAME:-synapse}"
+  pool_size: 20
+  max_size: 50
+  min_idle: 10
+  connection_timeout: 60
 
 redis:
-  host: "redis"
+  host: "127.0.0.1"
   port: 6379
-  key_prefix: "synapse:"
-  pool_size: 10
+  key_prefix: "${REDIS_KEY_PREFIX:-synapse:}"
+  pool_size: 20
   enabled: true
   connection_timeout_ms: 5000
   command_timeout_ms: 3000
 
 logging:
-  level: "debug"
+  level: "${RUST_LOG:-info}"
   format: "text"
+
+search:
+  enabled: false
+  elasticsearch_url: "http://localhost:9200"
 
 federation:
   enabled: true
   allow_ingress: true
-  server_name: "cjystx.top"
+  server_name: "${SERVER_NAME:-cjystx.top}"
   federation_port: 8448
   connection_pool_size: 100
   max_transaction_payload: 10485760
+  signing_key: "${FEDERATION_SIGNING_KEY:?FEDERATION_SIGNING_KEY is required}"
+  key_id: "${FEDERATION_KEY_ID:-ed25519:local}"
 
 security:
-  secret: "change-me-jwt-secret"
-  expiry_time: 3600
+  secret: "${SECRET_KEY:?SECRET_KEY is required}"
+  expiry_time: 86400
   refresh_token_expiry: 604800
+  argon2_m_cost: 65536
+  argon2_t_cost: 3
+  argon2_p_cost: 4
+  allow_legacy_hashes: false
+  login_failure_lockout_threshold: 5
+  login_lockout_duration_seconds: 300
 
-search:
-  elasticsearch_url: "http://localhost:9200"
-  enabled: false
-
-rate_limit:
-  enabled: false
+registration:
+  enabled: true
+  enable_registration_captcha: false
+  session_duration: 86400000
 
 admin_registration:
   enabled: true
-  secret: "change-me-admin-secret"
-  shared_secret: "change-me-admin-shared-secret"
+  shared_secret: "${ADMIN_SECRET:?ADMIN_SECRET is required}"
+  nonce_timeout_seconds: 60
 
 worker:
   enabled: false
 
 cors:
-  allowed_origins: ["*"]
+  allowed_origins:
+    - "http://localhost:8008"
+    - "http://127.0.0.1:8008"
   allow_credentials: true
-  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-  allowed_headers: ["*"]
+  allowed_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "OPTIONS"
+  allowed_headers:
+    - "Authorization"
+    - "Content-Type"
+    - "Accept"
+    - "Origin"
+    - "X-Requested-With"
   max_age_seconds: 3600
 
-smtp:
-  enabled: false
+identity_server_url: "https://vector.im"
 
 voip:
   enabled: false
-
-push:
-  enabled: false
-
-url_preview:
-  enabled: false
-
-oidc:
-  enabled: false
-  issuer: "https://localhost"
-  client_id: "synapse"
-  scopes: ["openid", "profile", "email"]
-
-saml:
-  enabled: false
-
-retention:
-  enabled: false
-
-telemetry:
-  enabled: false
-  service_name: "synapse-rust"
-  service_version: "0.1.0"
-  service_namespace: "matrix"
-  trace_enabled: false
-  metrics_enabled: false
-  logs_enabled: false
-  sampling_ratio: 1.0
-  batch_export: true
-  export_timeout_seconds: 30
-  max_queue_size: 2048
-  max_export_batch_size: 512
-  scheduled_delay_millis: 5000
-
-jaeger:
-  enabled: false
-  service_name: "synapse-rust"
-  sampling_rate: 1.0
-
-prometheus:
-  enabled: true
-  port: 9090
-  path: "/metrics"
-  include_namespace: true

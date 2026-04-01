@@ -1,7 +1,7 @@
 // Secure Backup Models
 // E2EE Phase 3: Secure key backup with passphrase
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 /// Secure backup info
@@ -12,8 +12,8 @@ pub struct SecureBackupInfo {
     pub algorithm: String,
     pub auth_data: SecureBackupAuthData,
     pub key_count: i64,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 /// Auth data for secure backup
@@ -110,20 +110,20 @@ pub struct BackupVersion {
     pub auth_data: serde_json::Value,
     pub etag: Option<String>,
     pub key_count: i64,
-    pub created_at: DateTime<Utc>,
+    pub created_ts: i64,
 }
 
 impl SecureBackupInfo {
     pub fn new(user_id: &str, algorithm: &str, auth_data: SecureBackupAuthData) -> Self {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         Self {
             backup_id: uuid::Uuid::new_v4().to_string(),
             user_id: user_id.to_string(),
             algorithm: algorithm.to_string(),
             auth_data,
             key_count: 0,
-            created_at: now,
-            updated_at: now,
+            created_ts: now,
+            updated_ts: now,
         }
     }
 }

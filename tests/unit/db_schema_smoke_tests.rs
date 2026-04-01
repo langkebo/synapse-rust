@@ -47,9 +47,11 @@ mod db_schema_smoke_tests {
             .fetch_one(pool)
             .await
             .expect("Failed to query table existence");
-        assert_eq!(
-            regclass.as_deref(),
-            Some(format!("public.{table_name}").as_str())
+        assert!(
+            regclass.as_deref() == Some(table_name)
+                || regclass.as_deref() == Some(format!("public.{table_name}").as_str()),
+            "Expected table '{table_name}' to exist, got: {:?}",
+            regclass
         );
     }
 
@@ -59,9 +61,11 @@ mod db_schema_smoke_tests {
             .fetch_one(pool)
             .await
             .expect("Failed to query view existence");
-        assert_eq!(
-            regclass.as_deref(),
-            Some(format!("public.{view_name}").as_str())
+        assert!(
+            regclass.as_deref() == Some(view_name)
+                || regclass.as_deref() == Some(format!("public.{view_name}").as_str()),
+            "Expected view '{view_name}' to exist, got: {:?}",
+            regclass
         );
     }
 
@@ -522,8 +526,8 @@ mod db_schema_smoke_tests {
             to_device: Some(format!("VERIFY_TO_{suffix}")),
             method: VerificationMethod::Sas,
             state: VerificationState::Requested,
-            created_at: 0,
-            updated_at: 0,
+            created_ts: 0,
+            updated_ts: 0,
         };
 
         verification_storage

@@ -27,6 +27,7 @@ pub struct TagContent {
 
 fn create_tags_compat_router() -> Router<AppState> {
     Router::new()
+        .route("/user/{user_id}/tags", get(get_global_tags))
         .route("/user/{user_id}/rooms/{room_id}/tags", get(get_tags))
         .route("/user/{user_id}/rooms/{room_id}/tags/{tag}", put(put_tag))
         .route(
@@ -42,6 +43,20 @@ pub fn create_tags_router(state: AppState) -> Router<AppState> {
         .nest("/_matrix/client/v3", compat_router.clone())
         .nest("/_matrix/client/r0", compat_router)
         .with_state(state)
+}
+
+async fn get_global_tags(
+    State(_state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if auth_user.user_id != user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden("Access denied".to_string()));
+    }
+
+    Ok(Json(serde_json::json!({
+        "tags": {}
+    })))
 }
 
 async fn get_tags(

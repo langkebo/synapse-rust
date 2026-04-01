@@ -60,8 +60,8 @@ pub struct VerificationRequest {
     pub to_device: Option<String>,
     pub method: VerificationMethod,
     pub state: VerificationState,
-    pub created_at: i64,
-    pub updated_at: i64,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 /// SAS verification data for API

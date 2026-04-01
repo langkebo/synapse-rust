@@ -1,3 +1,4 @@
+use super::audit::{record_audit_event, resolve_request_id};
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::crypto::hash_password;
 use crate::common::ApiError;
@@ -5,6 +6,7 @@ use crate::storage::models::User;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
+    http::HeaderMap,
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -19,6 +21,7 @@ pub fn create_user_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/users/{user_id}", get(get_user))
         .route("/_synapse/admin/v1/users/{user_id}", delete(delete_user))
         .route("/_synapse/admin/v1/users/{user_id}/admin", put(set_admin))
+        .route("/_synapse/admin/v1/users/{user_id}/evict", post(evict_user))
         .route(
             "/_synapse/admin/v1/users/{user_id}/deactivate",
             post(deactivate_user),
@@ -44,8 +47,16 @@ pub fn create_user_router(_state: AppState) -> Router<AppState> {
             get(get_user_devices_admin),
         )
         .route(
+            "/_synapse/admin/v1/users/{user_id}/devices/delete",
+            post(logout_user_devices),
+        )
+        .route(
             "/_synapse/admin/v1/users/{user_id}/devices/{device_id}",
             delete(delete_user_device_admin),
+        )
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete",
+            post(delete_user_device_admin_compat),
         )
         .route("/_synapse/admin/v2/users", get(get_users_v2))
         .route("/_synapse/admin/v2/users/{user_id}", get(get_user_v2))
@@ -79,6 +90,44 @@ pub fn create_user_router(_state: AppState) -> Router<AppState> {
             get(get_account_details),
         )
         .route("/_synapse/admin/v1/account/{user_id}", post(update_account))
+}
+
+#[axum::debug_handler]
+async fn evict_user(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user = resolve_user(&state, &user_id).await?;
+
+    let joined_rooms = state
+        .services
+        .member_storage
+        .get_joined_rooms(&user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let mut failures: Vec<Value> = Vec::new();
+    for room_id in &joined_rooms {
+        if let Err(e) = state
+            .services
+            .member_storage
+            .remove_member(room_id, &user.user_id)
+            .await
+        {
+            failures.push(json!({
+                "room_id": room_id,
+                "error": e.to_string()
+            }));
+        }
+    }
+
+    Ok(Json(json!({
+        "user_id": user.user_id,
+        "rooms_evicted": joined_rooms.len(),
+        "rooms": joined_rooms,
+        "failures": failures
+    })))
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -307,15 +356,16 @@ pub async fn get_user_devices_admin(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let user = resolve_user(&state, &user_id).await?;
     let devices = sqlx::query(
         r#"
         SELECT device_id, display_name, last_seen_ts, last_seen_ip, user_id
         FROM devices 
-        WHERE user_id = (SELECT username FROM users WHERE username = $1 OR user_id = $1)
+        WHERE user_id = $1
         ORDER BY last_seen_ts DESC
         "#,
     )
-    .bind(&user_id)
+    .bind(&user.user_id)
     .fetch_all(&*state.services.device_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -344,10 +394,9 @@ pub async fn delete_user_device_admin(
     State(state): State<AppState>,
     Path((user_id, device_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query(
-        "DELETE FROM devices WHERE user_id = (SELECT username FROM users WHERE username = $1 OR user_id = $1) AND device_id = $2"
-    )
-    .bind(&user_id)
+    let user = resolve_user(&state, &user_id).await?;
+    let result = sqlx::query("DELETE FROM devices WHERE user_id = $1 AND device_id = $2")
+    .bind(&user.user_id)
     .bind(&device_id)
     .execute(&*state.services.device_storage.pool)
     .await
@@ -358,6 +407,15 @@ pub async fn delete_user_device_admin(
     }
 
     Ok(Json(json!({})))
+}
+
+#[axum::debug_handler]
+pub async fn delete_user_device_admin_compat(
+    admin: AdminUser,
+    state: State<AppState>,
+    path: Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    delete_user_device_admin(admin, state, path).await
 }
 
 #[axum::debug_handler]
@@ -401,10 +459,9 @@ pub async fn logout_user_devices(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query(
-        "DELETE FROM devices WHERE user_id = (SELECT username FROM users WHERE username = $1 OR user_id = $1)"
-    )
-    .bind(&user_id)
+    let user = resolve_user(&state, &user_id).await?;
+    let result = sqlx::query("DELETE FROM devices WHERE user_id = $1")
+    .bind(&user.user_id)
     .execute(&*state.services.device_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -847,15 +904,23 @@ pub async fn invalidate_user_sessions(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let deleted = sqlx::query("DELETE FROM devices WHERE user_id = $1")
-        .bind(&user_id)
-        .execute(&*state.services.device_storage.pool)
+    let user = resolve_user(&state, &user_id).await?;
+    let canonical_user_id = user.user_id;
+    let sessions_removed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM devices WHERE user_id = $1")
+        .bind(&canonical_user_id)
+        .fetch_one(&*state.services.device_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
+    state
+        .services
+        .auth_service
+        .logout_all(&canonical_user_id)
+        .await?;
+
     Ok(Json(json!({
         "invalidated": true,
-        "sessions_removed": deleted.rows_affected()
+        "sessions_removed": sessions_removed
     })))
 }
 
@@ -905,9 +970,10 @@ pub struct UpdateAccountRequest {
 
 #[axum::debug_handler]
 pub async fn update_account(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<UpdateAccountRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
@@ -934,6 +1000,22 @@ pub async fn update_account(
             .set(&format!("user:admin:{}", canonical_user_id), admin, 3600)
             .await?;
     }
+
+    let request_id = resolve_request_id(&headers);
+    record_audit_event(
+        &state,
+        &admin.user_id,
+        "admin.user.update",
+        "user",
+        canonical_user_id,
+        request_id,
+        json!({
+            "displayname": body.displayname,
+            "avatar_url": body.avatar_url,
+            "admin": body.admin
+        }),
+    )
+    .await?;
 
     Ok(Json(json!({
         "user_id": canonical_user_id,

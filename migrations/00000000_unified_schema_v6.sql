@@ -581,8 +581,8 @@ CREATE TABLE IF NOT EXISTS device_trust_status (
     trust_level TEXT NOT NULL DEFAULT 'unverified',
     verified_by_device_id TEXT,
     verified_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT,
     CONSTRAINT uq_device_trust_status_user_device UNIQUE (user_id, device_id)
 );
 
@@ -596,8 +596,8 @@ CREATE TABLE IF NOT EXISTS cross_signing_trust (
     master_key_id TEXT,
     is_trusted BOOLEAN NOT NULL DEFAULT FALSE,
     trusted_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT,
     CONSTRAINT uq_cross_signing_trust_user_target UNIQUE (user_id, target_user_id)
 );
 
@@ -641,11 +641,11 @@ CREATE TABLE IF NOT EXISTS e2ee_security_events (
     event_data TEXT,
     ip_address TEXT,
     user_agent TEXT,
-    created_at TIMESTAMPTZ NOT NULL
+    created_ts BIGINT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_e2ee_security_events_user_created
-ON e2ee_security_events(user_id, created_at DESC);
+ON e2ee_security_events(user_id, created_ts DESC);
 
 CREATE TABLE IF NOT EXISTS verification_requests (
     transaction_id TEXT PRIMARY KEY,
@@ -655,12 +655,12 @@ CREATE TABLE IF NOT EXISTS verification_requests (
     to_device TEXT,
     method TEXT NOT NULL,
     state TEXT NOT NULL,
-    created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT
 );
 
 CREATE INDEX IF NOT EXISTS idx_verification_requests_to_user_state
-ON verification_requests(to_user, state, updated_at DESC);
+ON verification_requests(to_user, state, updated_ts DESC);
 
 CREATE TABLE IF NOT EXISTS verification_sas (
     tx_id TEXT PRIMARY KEY,
@@ -849,7 +849,7 @@ CREATE TABLE IF NOT EXISTS device_verification_request (
     request_token TEXT NOT NULL,
     commitment TEXT,
     pubkey TEXT,
-    created_at TIMESTAMPTZ NOT NULL,
+    created_ts BIGINT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     completed_at TIMESTAMPTZ,
     CONSTRAINT pk_device_verification_request PRIMARY KEY (id),
@@ -2036,6 +2036,31 @@ CREATE TABLE IF NOT EXISTS event_report_stats (
 CREATE INDEX IF NOT EXISTS idx_event_report_stats_date ON event_report_stats(stat_date);
 
 -- ============================================================================
+-- 管理审计事件表
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    event_id TEXT PRIMARY KEY,
+    actor_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    result TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    details JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_ts BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_actor_created
+ON audit_events(actor_id, created_ts DESC);
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_resource_created
+ON audit_events(resource_type, resource_id, created_ts DESC);
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_request_created
+ON audit_events(request_id, created_ts DESC);
+
+-- ============================================================================
 -- 房间邀请表
 -- ============================================================================
 
@@ -2233,6 +2258,21 @@ CREATE TABLE IF NOT EXISTS presence (
     CONSTRAINT pk_presence PRIMARY KEY (user_id),
     CONSTRAINT fk_presence_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS presence_subscriptions (
+    subscriber_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT uq_presence_subscriptions UNIQUE (subscriber_id, target_id),
+    CONSTRAINT fk_presence_subscriptions_subscriber FOREIGN KEY (subscriber_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    CONSTRAINT fk_presence_subscriptions_target FOREIGN KEY (target_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_presence_subscriptions_subscriber
+ON presence_subscriptions(subscriber_id);
+
+CREATE INDEX IF NOT EXISTS idx_presence_subscriptions_target
+ON presence_subscriptions(target_id);
 
 -- ============================================================================
 -- 用户目录表
@@ -2721,6 +2761,39 @@ CREATE TABLE IF NOT EXISTS user_filters (
 
 CREATE INDEX IF NOT EXISTS idx_user_filters_user ON user_filters(user_id);
 
+CREATE SEQUENCE IF NOT EXISTS sliding_sync_pos_seq;
+
+CREATE TABLE IF NOT EXISTS sliding_sync_lists (
+    id BIGSERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    conn_id TEXT,
+    list_key TEXT NOT NULL,
+    sort JSONB DEFAULT '[]',
+    filters JSONB DEFAULT '{}',
+    room_subscription JSONB DEFAULT '{}',
+    ranges JSONB DEFAULT '[]',
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_lists_unique ON sliding_sync_lists(user_id, device_id, COALESCE(conn_id, ''), list_key);
+CREATE INDEX IF NOT EXISTS idx_sliding_sync_lists_user_device ON sliding_sync_lists(user_id, device_id);
+
+CREATE TABLE IF NOT EXISTS sliding_sync_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    conn_id TEXT,
+    token TEXT NOT NULL,
+    pos BIGINT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    expires_at BIGINT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_tokens_unique ON sliding_sync_tokens(user_id, device_id, COALESCE(conn_id, ''));
+CREATE INDEX IF NOT EXISTS idx_sliding_sync_tokens_user ON sliding_sync_tokens(user_id, device_id);
+
 -- Sliding Sync 房间状态缓存表
 CREATE TABLE IF NOT EXISTS sliding_sync_rooms (
     id BIGSERIAL PRIMARY KEY,
@@ -2746,6 +2819,7 @@ CREATE TABLE IF NOT EXISTS sliding_sync_rooms (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_rooms_unique ON sliding_sync_rooms (user_id, device_id, room_id, COALESCE(conn_id, ''));
 CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_user_device ON sliding_sync_rooms(user_id, device_id);
 CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_bump_stamp ON sliding_sync_rooms(bump_stamp DESC);
+CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_room_id ON sliding_sync_rooms(room_id, updated_ts DESC);
 
 -- 线程订阅表
 CREATE TABLE IF NOT EXISTS thread_subscriptions (

@@ -4,11 +4,13 @@ use ed25519_dalek::Verifier;
 use serde_json::json;
 use sqlx::{Pool, Postgres, Row};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration as TokioDuration};
 
 const KEY_ROTATION_INTERVAL_DAYS: i64 = 7;
+const KEY_ROTATION_THRESHOLD_DAYS: i64 = 1;
 const KEY_GRACE_PERIOD_MINUTES: i64 = 5;
 
 #[derive(Debug, Clone)]
@@ -28,6 +30,7 @@ pub struct KeyRotationManager {
     historical_keys: Arc<RwLock<HashMap<String, SigningKey>>>,
     server_name: String,
     rotation_enabled: Arc<RwLock<bool>>,
+    signing_keys_table_ready: Arc<AtomicBool>,
 }
 
 impl KeyRotationManager {
@@ -39,7 +42,100 @@ impl KeyRotationManager {
             historical_keys: Arc::new(RwLock::new(HashMap::new())),
             server_name: server_name.to_string(),
             rotation_enabled: Arc::new(RwLock::new(true)),
+            signing_keys_table_ready: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    async fn ensure_signing_keys_table(&self) -> Result<(), anyhow::Error> {
+        if self.signing_keys_table_ready.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        let table_exists: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = 'federation_signing_keys'
+            )
+            "#,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+
+        if !table_exists {
+            sqlx::query(
+                r#"
+                CREATE TABLE federation_signing_keys (
+                    server_name TEXT NOT NULL,
+                    key_id TEXT NOT NULL,
+                    secret_key TEXT NOT NULL,
+                    public_key TEXT NOT NULL,
+                    created_ts BIGINT NOT NULL,
+                    expires_at BIGINT NOT NULL,
+                    key_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    ts_added_ms BIGINT NOT NULL,
+                    ts_valid_until_ms BIGINT NOT NULL,
+                    PRIMARY KEY (server_name, key_id)
+                )
+                "#,
+            )
+            .execute(&*self.pool)
+            .await?;
+        }
+
+        let server_created_index_exists: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname = 'idx_federation_signing_keys_server_created'
+            )
+            "#,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+
+        if !server_created_index_exists {
+            sqlx::query(
+                r#"
+                CREATE INDEX idx_federation_signing_keys_server_created
+                ON federation_signing_keys(server_name, created_ts DESC)
+                "#,
+            )
+            .execute(&*self.pool)
+            .await?;
+        }
+
+        let key_id_index_exists: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname = 'idx_federation_signing_keys_key_id'
+            )
+            "#,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+
+        if !key_id_index_exists {
+            sqlx::query(
+                r#"
+                CREATE INDEX idx_federation_signing_keys_key_id
+                ON federation_signing_keys(key_id)
+                "#,
+            )
+            .execute(&*self.pool)
+            .await?;
+        }
+
+        self.signing_keys_table_ready.store(true, Ordering::Relaxed);
+
+        Ok(())
     }
 
     pub async fn start_auto_rotation(&self) {
@@ -69,6 +165,8 @@ impl KeyRotationManager {
     }
 
     pub async fn load_or_create_key(&self) -> Result<(), anyhow::Error> {
+        self.ensure_signing_keys_table().await?;
+
         let existing_key = sqlx::query(
             r#"
             SELECT key_id, secret_key, public_key, created_ts, expires_at
@@ -118,6 +216,8 @@ impl KeyRotationManager {
     }
 
     pub async fn initialize(&self, secret_key: &str, key_id: &str) -> Result<(), anyhow::Error> {
+        self.ensure_signing_keys_table().await?;
+
         let created_ts = Utc::now().timestamp_millis();
         let expires_at =
             (Utc::now() + Duration::days(KEY_ROTATION_INTERVAL_DAYS)).timestamp_millis();
@@ -171,8 +271,8 @@ impl KeyRotationManager {
     pub async fn should_rotate_keys(&self) -> bool {
         if let Some(key) = &*self.current_key.read().await {
             let now = Utc::now().timestamp_millis();
-            let days_until_expiry = (key.expires_at - now) / (24 * 60 * 60 * 1000);
-            days_until_expiry < 7
+            let rotation_threshold = Duration::days(KEY_ROTATION_THRESHOLD_DAYS).num_milliseconds();
+            key.expires_at.saturating_sub(now) <= rotation_threshold
         } else {
             true
         }
@@ -298,6 +398,8 @@ impl KeyRotationManager {
         signature: &str,
         content: &[u8],
     ) -> Result<bool, anyhow::Error> {
+        self.ensure_signing_keys_table().await?;
+
         let key_record: Option<sqlx::postgres::PgRow> = sqlx::query(
             r#"
             SELECT public_key, expires_at FROM federation_signing_keys WHERE key_id = $1
@@ -550,7 +652,7 @@ mod tests {
         }
 
         let should_rotate = manager.should_rotate_keys().await;
-        // Should not rotate if key expires in more than 7 days
+        // Should not rotate if key expires after the configured threshold
         assert!(!should_rotate);
     }
 
@@ -559,8 +661,8 @@ mod tests {
         let pool = create_test_pool().await;
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
-        // Create a key that expires in 5 days (less than 7 days threshold)
-        let soon_expires = (Utc::now() + Duration::days(5)).timestamp_millis();
+        // Create a key that expires within the configured threshold
+        let soon_expires = (Utc::now() + Duration::hours(12)).timestamp_millis();
 
         {
             let mut current = manager.current_key.write().await;

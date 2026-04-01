@@ -313,7 +313,9 @@ impl SpaceService {
                 .space_storage
                 .check_user_can_see_space(space_id, user_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to check space visibility: {}", e)))?;
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to check space visibility: {}", e))
+                })?;
             if !can_see {
                 return Err(ApiError::forbidden("User cannot access this space"));
             }
@@ -600,7 +602,13 @@ impl SpaceService {
         self.space_storage
             .get_space_hierarchy(space_id, max_depth)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get space hierarchy: {}", e)))
+            .map_err(|e| {
+                if matches!(e, sqlx::Error::RowNotFound) {
+                    ApiError::not_found("Space not found".to_string())
+                } else {
+                    ApiError::internal(format!("Failed to get space hierarchy: {}", e))
+                }
+            })
     }
 
     #[instrument(skip(self))]

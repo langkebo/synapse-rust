@@ -331,13 +331,73 @@ pub async fn send_server_notice(
     State(state): State<AppState>,
     Json(body): Json<ServerNoticeRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let event_id = crate::common::crypto::generate_event_id(&state.services.config.server.name);
+    let target_user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(&body.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    if target_user.is_none() {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     let room_id = format!(
         "!server_notice_{}:{}",
         uuid::Uuid::new_v4(),
         state.services.config.server.name
     );
     let now = chrono::Utc::now().timestamp_millis();
+    let server_user = format!("@server:{}", state.services.config.server.name);
+
+    let room_result = sqlx::query(
+        r#"
+        INSERT INTO rooms (room_id, name, topic, creator, is_public, join_rules, created_ts)
+        VALUES ($1, $2, $3, $4, false, 'private', $5)
+        ON CONFLICT (room_id) DO NOTHING
+        "#,
+    )
+    .bind(&room_id)
+    .bind("Server Notice")
+    .bind("System notifications")
+    .bind(&server_user)
+    .bind(now)
+    .execute(&*state.services.event_storage.pool)
+    .await;
+
+    if let Err(e) = room_result {
+        ::tracing::warn!("Failed to create server notice room: {}", e);
+    }
+
+    let message_event_id = format!(
+        "${}:{}",
+        uuid::Uuid::new_v4(),
+        state.services.config.server.name
+    );
+
+    let create_event_id = format!(
+        "${}:{}",
+        uuid::Uuid::new_v4(),
+        state.services.config.server.name
+    );
+    let create_result = sqlx::query(
+        r#"
+        INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender, state_key)
+        VALUES ($1, $2, $3, 'm.room.create', $4, $5, $6, '')
+        ON CONFLICT (event_id) DO NOTHING
+        "#
+    )
+    .bind(&create_event_id)
+    .bind(&room_id)
+    .bind(&server_user)
+    .bind(json!({"creator": server_user}))
+    .bind(now)
+    .bind(&server_user)
+    .execute(&*state.services.event_storage.pool)
+    .await;
+
+    if let Err(e) = create_result {
+        ::tracing::warn!("Failed to create room event: {}", e);
+    }
 
     sqlx::query(
         r#"
@@ -345,7 +405,7 @@ pub async fn send_server_notice(
         VALUES ($1, $2, $3, 'm.room.message', $4, $5, $6)
         "#
     )
-    .bind(&event_id)
+    .bind(&message_event_id)
     .bind(&room_id)
     .bind(&body.user_id)
     .bind(json!({
@@ -353,12 +413,33 @@ pub async fn send_server_notice(
         "body": body.content.body
     }))
     .bind(now)
-    .bind(format!("@server:{}", state.services.config.server.name))
+    .bind(&server_user)
     .execute(&*state.services.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    Ok(Json(json!({ "event_id": event_id })))
+    let notice_content = json!({
+        "msgtype": body.content.msgtype,
+        "body": body.content.body
+    });
+    let notice_id: i64 = sqlx::query_scalar(
+        r#"
+        INSERT INTO server_notices (user_id, event_id, content, sent_ts)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id
+        "#,
+    )
+    .bind(&body.user_id)
+    .bind(&message_event_id)
+    .bind(notice_content.to_string())
+    .bind(now)
+    .fetch_one(&*state.services.event_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(
+        json!({ "event_id": message_event_id, "room_id": room_id, "notice_id": notice_id }),
+    ))
 }
 
 #[axum::debug_handler]
@@ -511,7 +592,7 @@ pub async fn get_user_pushers(
                 "device_display_name": row.get::<Option<String>, _>("device_display_name"),
                 "profile_tag": row.get::<Option<String>, _>("profile_tag"),
                 "lang": row.get::<Option<String>, _>("lang"),
-                "data": row.get::<Option<String>, _>("data")
+                "data": row.get::<Option<Value>, _>("data").unwrap_or(json!({}))
             })
         })
         .collect();

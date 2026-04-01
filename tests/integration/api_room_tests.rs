@@ -2,7 +2,6 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use once_cell::sync::Lazy;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
@@ -14,26 +13,6 @@ use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
-
-static TEST_POOL: Lazy<Option<Arc<sqlx::PgPool>>> = Lazy::new(|| {
-    let database_url =
-        match std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL")) {
-            Ok(url) => url,
-            Err(_) => return None,
-        };
-
-    let rt = tokio::runtime::Runtime::new().ok()?;
-    let pool = rt.block_on(async {
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(3)
-            .min_connections(1)
-            .connect(&database_url)
-            .await
-            .ok()
-    })?;
-
-    Some(Arc::new(pool))
-});
 
 fn create_test_config() -> Config {
     Config {
@@ -149,11 +128,11 @@ fn create_test_config() -> Config {
     }
 }
 
-fn setup_test_app() -> Option<axum::Router> {
-    let pool = TEST_POOL.as_ref()?;
+async fn setup_test_app() -> Option<axum::Router> {
+    let pool = super::get_test_pool().await?;
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let config = create_test_config();
-    let container = ServiceContainer::new(pool, cache.clone(), config, None);
+    let container = ServiceContainer::new(&pool, cache.clone(), config, None);
     let state = AppState::new(container, cache);
     Some(create_router(state))
 }
@@ -188,9 +167,33 @@ async fn register_user(app: &axum::Router, username: &str) -> Option<String> {
     json.get("access_token")?.as_str().map(|s| s.to_string())
 }
 
+async fn create_room(app: &axum::Router, token: &str, name: &str) -> Option<String> {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "name": name }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .ok()?;
+
+    if response.status() != StatusCode::OK {
+        return None;
+    }
+
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .ok()?;
+    let json: Value = serde_json::from_slice(&body).ok()?;
+    json.get("room_id")?.as_str().map(|value| value.to_string())
+}
+
 #[tokio::test]
 async fn test_room_lifecycle() {
-    let Some(app) = setup_test_app() else {
+    let Some(app) = setup_test_app().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -320,7 +323,7 @@ async fn test_room_lifecycle() {
 
 #[tokio::test]
 async fn test_room_directory_and_public_rooms() {
-    let Some(app) = setup_test_app() else {
+    let Some(app) = setup_test_app().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -373,7 +376,7 @@ async fn test_room_directory_and_public_rooms() {
 
 #[tokio::test]
 async fn test_directory_routes_work_across_r0_and_v3() {
-    let Some(app) = setup_test_app() else {
+    let Some(app) = setup_test_app().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -477,7 +480,7 @@ async fn test_directory_routes_work_across_r0_and_v3() {
 
 #[tokio::test]
 async fn test_room_state_and_redaction() {
-    let Some(app) = setup_test_app() else {
+    let Some(app) = setup_test_app().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -553,7 +556,7 @@ async fn test_room_state_and_redaction() {
 
 #[tokio::test]
 async fn test_room_moderation() {
-    let Some(app) = setup_test_app() else {
+    let Some(app) = setup_test_app().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -663,7 +666,7 @@ async fn test_room_moderation() {
 
 #[tokio::test]
 async fn test_room_info_and_event_routes_work_across_r0_and_v3() {
-    let Some(app) = setup_test_app() else {
+    let Some(app) = setup_test_app().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -762,7 +765,7 @@ async fn test_room_info_and_event_routes_work_across_r0_and_v3() {
 
 #[tokio::test]
 async fn test_room_report_route_boundaries_are_preserved() {
-    let Some(app) = setup_test_app() else {
+    let Some(app) = setup_test_app().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -881,7 +884,7 @@ async fn test_room_report_route_boundaries_are_preserved() {
 
 #[tokio::test]
 async fn test_relations_routes_work_across_v1_and_r0() {
-    let Some(app) = setup_test_app() else {
+    let Some(app) = setup_test_app().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -938,7 +941,7 @@ async fn test_relations_routes_work_across_v1_and_r0() {
     let v1_put_request = Request::builder()
         .method("PUT")
         .uri(format!(
-            "/_matrix/client/v1/relations/{}/{}/m.annotation/{}",
+            "/_matrix/client/v1/rooms/{}/relations/{}/m.annotation/{}",
             room_id, event_id, event_id
         ))
         .header("Authorization", format!("Bearer {}", alice_token))
@@ -960,7 +963,7 @@ async fn test_relations_routes_work_across_v1_and_r0() {
     let r0_relations_request = Request::builder()
         .method("GET")
         .uri(format!(
-            "/_matrix/client/r0/relations/{}/{}/m.annotation",
+            "/_matrix/client/r0/rooms/{}/relations/{}/m.annotation",
             room_id, event_id
         ))
         .body(Body::empty())
@@ -980,7 +983,7 @@ async fn test_relations_routes_work_across_v1_and_r0() {
     let r0_aggregations_request = Request::builder()
         .method("GET")
         .uri(format!(
-            "/_matrix/client/r0/aggregations/{}/{}/m.annotation",
+            "/_matrix/client/r0/rooms/{}/aggregations/{}/m.annotation",
             room_id, event_id
         ))
         .body(Body::empty())
@@ -1014,7 +1017,7 @@ async fn test_relations_routes_work_across_v1_and_r0() {
 
 #[tokio::test]
 async fn test_reaction_send_routes_work_across_r0_and_v3() {
-    let Some(app) = setup_test_app() else {
+    let Some(app) = setup_test_app().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -1165,4 +1168,90 @@ async fn test_reaction_send_routes_work_across_r0_and_v3() {
         .await
         .unwrap();
     assert_eq!(r0_relations_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_room_version_is_available_after_create_room() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let Some(token) = register_user(&app, &format!("room_version_{}", rand::random::<u32>())).await
+    else {
+        return;
+    };
+
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "Version Test Room",
+                "topic": "room version"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(create_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let room_id = json["room_id"].as_str().unwrap();
+
+    let version_request = Request::builder()
+        .uri(format!("/_matrix/client/v3/rooms/{}/version", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let version_response = ServiceExt::<Request<Body>>::oneshot(app, version_request)
+        .await
+        .unwrap();
+    assert_eq!(version_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(version_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["room_version"], "1");
+}
+
+#[tokio::test]
+async fn test_room_hierarchy_returns_room_summary_for_regular_room() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let Some(token) = register_user(&app, &format!("room_hierarchy_{}", rand::random::<u32>())).await
+    else {
+        return;
+    };
+
+    let Some(room_id) = create_room(&app, &token, "Hierarchy Test Room").await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .uri(format!("/_matrix/client/v1/rooms/{}/hierarchy", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["rooms"].is_array());
+    assert_eq!(json["rooms"][0]["room_id"], room_id);
+    assert!(json.get("next_batch").is_some());
 }
