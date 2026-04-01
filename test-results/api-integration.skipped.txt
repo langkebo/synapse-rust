@@ -3,10 +3,23 @@ Get Threads	HTTP 404
 Delete Devices (r0)	destructive test
 Admin Federation Rewrite (requires federation destination data)
 Admin User Password	destructive test
+OpenID Userinfo	requires federation signed request
+Federation Backfill	requires federation signed request
 Invalidate User Session	destructive test
 Reset User Password	destructive test
 Deactivate User	destructive test
+Admin Room Delete	destructive test
+SSO Login	not supported
+SSO User Info	not supported
 Reset Password	destructive test
+Send Room Message	M_FORBIDDEN: You are not a member of this room
+Send Room Event	M_FORBIDDEN: You are not a member of this room
+Send Event	M_FORBIDDEN: You are not a member of this room
+Get Members	M_FORBIDDEN: You are not a member of this room
+Federation Get Groups	not supported
+Federation Groups	not supported
+Identity Lookup	external service
+Identity Request	external service
 Federation User Devices	requires federation signed request
 Federation OpenID UserInfo	requires federation signed request
 Federation Query Directory	requires federation signed request
