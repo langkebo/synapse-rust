@@ -23,7 +23,6 @@ pub struct RegisterAppServiceBody {
     pub hs_token: String,
     pub sender: Option<String>,
     pub sender_localpart: Option<String>,
-    pub name: Option<String>,
     pub description: Option<String>,
     pub rate_limited: Option<bool>,
     pub protocols: Option<Vec<String>>,
@@ -33,7 +32,6 @@ pub struct RegisterAppServiceBody {
 #[derive(Debug, Deserialize)]
 pub struct UpdateAppServiceBody {
     pub url: Option<String>,
-    pub name: Option<String>,
     pub description: Option<String>,
     pub rate_limited: Option<bool>,
     pub protocols: Option<Vec<String>>,
@@ -83,13 +81,11 @@ pub struct AppServiceResponse {
     pub as_id: String,
     pub url: String,
     pub sender: String,
-    pub name: Option<String>,
     pub description: Option<String>,
     pub rate_limited: bool,
     pub protocols: Vec<String>,
     pub is_enabled: bool,
     pub created_ts: i64,
-    pub last_seen_ts: Option<i64>,
 }
 
 impl From<ApplicationService> for AppServiceResponse {
@@ -98,14 +94,12 @@ impl From<ApplicationService> for AppServiceResponse {
             id: svc.id,
             as_id: svc.as_id,
             url: svc.url,
-            sender: svc.sender,
-            name: svc.name,
+            sender: svc.sender_localpart,
             description: svc.description,
             rate_limited: svc.rate_limited,
             protocols: svc.protocols,
             is_enabled: svc.is_enabled,
             created_ts: svc.created_ts,
-            last_seen_ts: svc.last_seen_ts,
         }
     }
 }
@@ -155,7 +149,6 @@ pub async fn register_app_service(
         as_token: body.as_token,
         hs_token: body.hs_token,
         sender,
-        name: body.name,
         description: body.description,
         rate_limited: body.rate_limited,
         protocols: body.protocols,
@@ -202,9 +195,6 @@ pub async fn update_app_service(
 
     if let Some(url) = body.url {
         request = request.url(url);
-    }
-    if let Some(name) = body.name {
-        request = request.name(name);
     }
     if let Some(description) = body.description {
         request = request.description(description);
@@ -555,10 +545,10 @@ pub async fn app_service_query(
     Ok(Json(serde_json::json!({
         "id": service.as_id,
         "url": service.url,
-        "name": service.name,
+        "sender": service.sender_localpart,
         "description": service.description,
         "is_enabled": service.is_enabled,
-        "protocols": service.protocols
+        "protocols": service.protocols,
     })))
 }
 

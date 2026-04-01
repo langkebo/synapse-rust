@@ -10,17 +10,17 @@ pub struct ApplicationService {
     pub url: String,
     pub as_token: String,
     pub hs_token: String,
-    pub sender: String,
-    pub name: Option<String>,
-    pub description: Option<String>,
+    #[serde(rename = "sender")]
+    #[sqlx(rename = "sender_localpart")]
+    pub sender_localpart: String,
+    pub is_enabled: bool,
     pub rate_limited: bool,
     #[sqlx(json)]
     pub protocols: Vec<String>,
     pub namespaces: serde_json::Value,
     pub created_ts: i64,
     pub updated_ts: Option<i64>,
-    pub last_seen_ts: Option<i64>,
-    pub is_enabled: bool,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -83,7 +83,6 @@ pub struct RegisterApplicationServiceRequest {
     pub as_token: String,
     pub hs_token: String,
     pub sender: String,
-    pub name: Option<String>,
     pub description: Option<String>,
     pub rate_limited: Option<bool>,
     pub protocols: Option<Vec<String>>,
@@ -93,7 +92,6 @@ pub struct RegisterApplicationServiceRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateApplicationServiceRequest {
     pub url: Option<String>,
-    pub name: Option<String>,
     pub description: Option<String>,
     pub rate_limited: Option<bool>,
     pub protocols: Option<Vec<String>>,
@@ -107,11 +105,6 @@ impl UpdateApplicationServiceRequest {
 
     pub fn url(mut self, url: impl Into<String>) -> Self {
         self.url = Some(url.into());
-        self
-    }
-
-    pub fn name(mut self, name: impl Into<String>) -> Self {
-        self.name = Some(name.into());
         self
     }
 
@@ -176,10 +169,10 @@ impl ApplicationServiceStorage {
         let service = sqlx::query_as::<_, ApplicationService>(
             r#"
             INSERT INTO application_services (
-                as_id, url, as_token, hs_token, sender, name, description,
-                rate_limited, protocols, namespaces, created_ts, is_enabled
+                as_id, url, as_token, hs_token, sender_localpart, is_enabled,
+                rate_limited, protocols, namespaces, created_ts, description
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE)
+            VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7, $8, $9, $10)
             RETURNING *
             "#,
         )
@@ -188,12 +181,11 @@ impl ApplicationServiceStorage {
         .bind(&request.as_token)
         .bind(&request.hs_token)
         .bind(&request.sender)
-        .bind(&request.name)
-        .bind(&request.description)
         .bind(request.rate_limited.unwrap_or(false))
         .bind(protocols)
         .bind(&namespaces)
         .bind(now)
+        .bind(&request.description)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -331,29 +323,29 @@ impl ApplicationServiceStorage {
             r#"
             UPDATE application_services SET
                 url = COALESCE($2, url),
-                name = COALESCE($3, name),
-                description = COALESCE($4, description),
-                rate_limited = COALESCE($5, rate_limited),
-                protocols = COALESCE($6::jsonb, protocols),
-                is_enabled = COALESCE($7, is_enabled)
+                description = COALESCE($3, description),
+                rate_limited = COALESCE($4, rate_limited),
+                protocols = COALESCE($5::jsonb, protocols),
+                is_enabled = COALESCE($6, is_enabled),
+                updated_ts = $7
             WHERE as_id = $1
             RETURNING *
             "#,
         )
         .bind(as_id)
         .bind(&request.url)
-        .bind(&request.name)
         .bind(&request.description)
         .bind(request.rate_limited)
         .bind(protocols)
         .bind(request.is_enabled)
+        .bind(chrono::Utc::now().timestamp_millis())
         .fetch_one(&*self.pool)
         .await
     }
 
-    pub async fn update_last_seen(&self, as_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
-        sqlx::query(r#"UPDATE application_services SET last_seen_ts = $2 WHERE as_id = $1"#)
+    pub async fn update_timestamp(&self, as_id: &str) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(r#"UPDATE application_services SET updated_ts = $2 WHERE as_id = $1"#)
             .bind(as_id)
             .bind(now)
             .execute(&*self.pool)
@@ -689,6 +681,24 @@ impl ApplicationServiceStorage {
                     .collect()
             })
     }
+
+    pub async fn update_last_seen(&self, as_id: &str) -> Result<(), sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+
+        sqlx::query(
+            r#"
+            UPDATE application_service_statistics
+            SET last_seen_ts = $2
+            WHERE as_id = $1
+            "#,
+        )
+        .bind(as_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -743,7 +753,6 @@ mod tests {
             as_token: "secret_token".to_string(),
             hs_token: "hs_secret".to_string(),
             sender: "@irc-bot:example.com".to_string(),
-            name: Some("IRC Bridge".to_string()),
             description: Some("IRC to Matrix bridge".to_string()),
             rate_limited: Some(false),
             protocols: Some(vec!["irc".to_string()]),

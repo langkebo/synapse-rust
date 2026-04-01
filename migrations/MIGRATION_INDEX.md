@@ -56,13 +56,15 @@ V{version}__{Jira编号}_{简短描述}.undo.sql
 ### 新环境部署
 ```bash
 # 由 Docker 运维入口或 CI 统一执行
-bash docker/db_migrate.sh
+bash docker/db_migrate.sh migrate
+bash docker/db_migrate.sh validate
 ```
 
 ### 现有环境升级
 ```bash
 # 由 Docker 运维入口或 CI 统一执行
-bash docker/db_migrate.sh
+bash docker/db_migrate.sh migrate
+bash docker/db_migrate.sh validate
 ```
 
 ### 治理门禁职责
@@ -70,6 +72,7 @@ bash docker/db_migrate.sh
 - `db-migration-gate.yml` 是唯一迁移治理门禁
 - `ci.yml` 保留通用测试与 `sqlx migrate run` 初始化，不承担治理口径定义
 - `99999999_unified_incremental_migration.sql` 在最小实现阶段继续保留，但新增关键迁移以专项门禁和运维脚本为准
+- Docker 入口在 `RUN_MIGRATIONS=true` 时自动触发同一 `migrate` 入口，不构成独立迁移口径
 
 ## 回滚策略
 

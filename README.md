@@ -1,10 +1,10 @@
 # synapse-rust
 
-用 Rust 实现的 Matrix Homeserver（开发中）。
+用 Rust 实现的 Matrix Homeserver（可运行，当前处于能力收敛与验证阶段）。
 
 ## 功能概览
 
-- Client-Server API（部分实现）
+- Matrix / Synapse 相关能力已广泛铺设，当前按能力域持续收敛与验证
 - PostgreSQL 持久化（`sqlx`）
 - Redis 缓存
 - 可选 Elasticsearch 搜索（用于私聊消息搜索）
@@ -17,6 +17,14 @@
 ```bash
 cd docker
 docker compose up -d --build
+```
+
+默认情况下，容器入口会在应用启动前自动调用统一迁移入口 `docker/db_migrate.sh migrate`。如果需要手动执行或复核迁移，请统一使用：
+
+```bash
+cd docker
+docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust migrate
+docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust validate
 ```
 
 验证服务：
@@ -52,10 +60,17 @@ search:
 
 ```bash
 export SYNAPSE_CONFIG_PATH=homeserver.yaml
+bash docker/db_migrate.sh migrate
+bash docker/db_migrate.sh validate
 cargo run --release
 ```
 
-服务启动时会自动执行数据库迁移（migrations）。
+统一口径：
+
+- 部署与升级的唯一迁移执行入口是 `docker/db_migrate.sh migrate`
+- Docker 容器只是由入口脚本自动调用该迁移入口，不构成第二套迁移方案
+- 服务启动默认只执行 schema health check，不执行运行时迁移
+- 仅在显式开启 `SYNAPSE_ENABLE_RUNTIME_DB_INIT` 且未设置 `SYNAPSE_SKIP_DB_INIT` 时，才进入运行时兼容初始化路径
 
 ## 环境变量（覆盖配置）
 
@@ -69,9 +84,13 @@ cargo run --release
 
 ## 文档
 
+- 当前阶段正式分析与优化方案：`docs/synapse-rust/SYSTEM_GAP_ANALYSIS_AND_OPTIMIZATION_PLAN_2026-04-02.md`
+- 第一版能力总表：`docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md`
 - API 参考：`docs/synapse-rust/API_DOCUMENTATION.md`
 - 工程收口计划：`docs/API-OPTION/engineering-optimization-plan.md`
 - 部署指南：`docs/synapse-rust/DEPLOYMENT_GUIDE.md`
+- 迁移索引：`migrations/MIGRATION_INDEX.md`
+- 迁移治理：`docs/db/MIGRATION_GOVERNANCE.md`
 
 ## 私密聊天功能集成指南 (Private Chat Features)
 
@@ -152,5 +171,7 @@ client.sendReadReceipt(event);
 > ⚠️ 任务追踪已整合到 GitHub Issues 和项目看板
 
 - **任务看板**: [HuLa Project Board](https://github.com/hu-matrix/hula/projects)
-- **缺失功能**: [MISSING_FEATURES.md](docs/synapse-rust/MISSING_FEATURES.md)
 - **完成度报告**: [COMPLETION_REPORT.md](docs/synapse-rust/COMPLETION_REPORT.md)
+- **当前正式分析**: [SYSTEM_GAP_ANALYSIS_AND_OPTIMIZATION_PLAN_2026-04-02.md](docs/synapse-rust/SYSTEM_GAP_ANALYSIS_AND_OPTIMIZATION_PLAN_2026-04-02.md)
+- **能力状态基线**: [CAPABILITY_STATUS_BASELINE_2026-04-02.md](docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md)
+- **测试接线清单**: [.trae/specs/analyze-synapse-gap-and-optimization/test-execution-inventory.md](.trae/specs/analyze-synapse-gap-and-optimization/test-execution-inventory.md)

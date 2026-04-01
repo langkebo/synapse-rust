@@ -36,7 +36,7 @@
 cargo test --all-features
 
 # 仅单元测试
-cargo test --test integration
+cargo test --test unit
 
 # 仅集成测试  
 cargo test --test integration
@@ -44,6 +44,13 @@ cargo test --test integration
 # 仅端到端测试
 cargo test --test e2e
 ```
+
+补充说明：
+
+- `tests/e2e/mod.rs` 已接入独立测试入口 `e2e`
+- `tests/unit/` 与 `tests/integration/` 的实际执行范围仍受各自 `mod.rs` 接线控制
+- `user_flow_tests.rs` 依赖运行中的服务与 `E2E_RUN=1`，默认不会执行真实 HTTP 流程
+- `tests/performance/` 当前仍视为手动套件与基准资产，不参与常规 `cargo test`
 
 ### 2.2 代码覆盖率
 
@@ -62,13 +69,7 @@ open coverage/tarpaulin-report.html
 
 ### 2.3 性能基准测试
 
-```bash
-# 运行性能基准测试
-cargo bench --test benchmarks
-
-# 仅运行特定基准
-cargo bench --test benchmarks -- user_directory_search
-```
+当前 `tests/performance/` 中同时包含普通性能测试样例与 Criterion 基准代码，尚未收敛为标准 `cargo bench` 入口。发布门禁不应把该目录计入常规测试通过率；如需执行，需先完成基准目录重构。
 
 **性能质量门禁**：
 - 搜索API P95延迟：≤500ms
@@ -115,9 +116,10 @@ cargo bench --test benchmarks -- user_directory_search
 
 ### 3.3 端到端测试
 
-| 测试文件 | 覆盖场景 |
-|---------|---------|
-| `user_flow_tests.rs` | 完整用户注册→登录→使用流程 |
+| 测试文件 | 覆盖场景 | 接线状态 |
+|---------|---------|---------|
+| `e2e_scenarios.rs` | 模拟端到端场景编排 | 已接线 |
+| `user_flow_tests.rs` | 完整用户注册→登录→使用流程 | 已接线，真实 HTTP 流程默认受 `E2E_RUN=1` 控制 |
 
 ---
 
@@ -125,7 +127,7 @@ cargo bench --test benchmarks -- user_directory_search
 
 ### 4.1 基准测试位置
 
-所有性能基准测试位于：`tests/performance/benchmarks.rs`
+当前性能资产位于 `tests/performance/`，其中 `benchmarks.rs` 与 `federation_benchmarks.rs` 为基准代码，`api_load_tests.rs` 与 `query_performance_tests.rs` 为手动性能测试样例。
 
 ### 4.2 性能指标定义
 

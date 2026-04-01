@@ -98,9 +98,16 @@ impl FriendRoomService {
 
         let request_id = self
             .friend_storage
-            .create_friend_request(sender_id, receiver_id, message)
+            .create_friend_request_with_user_ensure(sender_id, receiver_id, message)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to create friend request: {}", e)))?;
+            .map_err(|e| {
+                let error_msg = e.to_string();
+                if error_msg.contains("foreign key") {
+                    ApiError::database(format!("Failed to create friend request: user not found - {}", error_msg))
+                } else {
+                    ApiError::database(format!("Failed to create friend request: {}", error_msg))
+                }
+            })?;
 
         if self.is_remote_user(receiver_id) {
             tracing::info!(
@@ -550,22 +557,70 @@ impl FriendRoomService {
     pub async fn get_friend_suggestions(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let _friend_room = self.create_friend_list_room(user_id).await?;
 
-        Ok(vec![
-            json!({
-                "user_id": "@suggestion1:example.com",
-                "display_name": "Suggested User 1",
-                "avatar_url": None::<String>,
-                "reason": "mutual_friends",
-                "mutual_friends_count": 3
-            }),
-            json!({
-                "user_id": "@suggestion2:example.com",
-                "display_name": "Suggested User 2",
-                "avatar_url": None::<String>,
-                "reason": "shared_rooms",
-                "shared_rooms_count": 2
-            }),
-        ])
+        let mut suggestions: Vec<serde_json::Value> = Vec::new();
+        let mut suggested_user_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        let mutual_suggestions = self
+            .friend_storage
+            .get_friend_suggestions_from_mutual_friends(user_id, 10)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to get mutual friend suggestions: {}", e)))?;
+
+        for suggestion in mutual_suggestions {
+            if let Some(uid) = suggestion.get("user_id").and_then(|u| u.as_str()) {
+                suggested_user_ids.insert(uid.to_string());
+            }
+            suggestions.push(suggestion);
+        }
+
+        if suggestions.len() < 10 {
+            let room_suggestions = self
+                .friend_storage
+                .get_friend_suggestions_from_shared_rooms(user_id, 10 - suggestions.len() as i64)
+                .await
+                .map_err(|e| ApiError::database(format!("Failed to get shared room suggestions: {}", e)))?;
+
+            for suggestion in room_suggestions {
+                if let Some(uid) = suggestion.get("user_id").and_then(|u| u.as_str()) {
+                    if !suggested_user_ids.contains(uid) {
+                        suggested_user_ids.insert(uid.to_string());
+                        suggestions.push(suggestion);
+                    }
+                }
+            }
+        }
+
+        suggestions.sort_by(|a, b| {
+            let score_a = Self::calculate_suggestion_score(a);
+            let score_b = Self::calculate_suggestion_score(b);
+            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        suggestions.truncate(20);
+
+        Ok(suggestions)
+    }
+
+    fn calculate_suggestion_score(suggestion: &serde_json::Value) -> f64 {
+        let mut score = 0.0;
+
+        if let Some(mutual_count) = suggestion.get("mutual_friends_count").and_then(|c| c.as_i64()) {
+            score += mutual_count as f64 * 2.0;
+        }
+
+        if let Some(room_count) = suggestion.get("shared_rooms_count").and_then(|c| c.as_i64()) {
+            score += room_count as f64 * 1.0;
+        }
+
+        if suggestion.get("display_name").and_then(|d| d.as_str()).is_some() {
+            score += 0.5;
+        }
+
+        if suggestion.get("avatar_url").and_then(|a| a.as_str()).is_some() {
+            score += 0.3;
+        }
+
+        score
     }
 
     /// 创建好友分组
@@ -855,9 +910,16 @@ impl FriendRoomService {
         let message = content.get("message").and_then(|m| m.as_str());
 
         self.friend_storage
-            .create_friend_request(requester_id, user_id, message)
+            .create_friend_request_with_user_ensure(requester_id, user_id, message)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to create friend request: {}", e)))?;
+            .map_err(|e| {
+                let error_msg = e.to_string();
+                if error_msg.contains("foreign key") {
+                    ApiError::database(format!("Failed to create friend request: user not found - {}", error_msg))
+                } else {
+                    ApiError::database(format!("Failed to create friend request: {}", error_msg))
+                }
+            })?;
 
         Ok(())
     }

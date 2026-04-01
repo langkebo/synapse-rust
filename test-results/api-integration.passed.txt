@@ -2,8 +2,8 @@ Health endpoint
 Versions endpoint
 Login (User: @testuser1:cjystx.top)
 Ensure Second User (@testuser2:cjystx.top)	already exists
-Second Device Login	api-integration-device2-16968
-Admin Login (User: @admin_test_1775032547_17214:cjystx.top)
+Second Device Login	api-integration-device2-24291
+Admin Login (User: @admin_test_1775058424_6103:cjystx.top)
 Capabilities
 Create Test Room
 Create Second Room
@@ -272,7 +272,7 @@ Get Rate Limit
 Admin Version
 Get Presence
 Set Presence
-Create Friend Group	group_1775032562492_d0d83c3c-0bb6-4f4d-af16-da760c98daff
+Create Friend Group	group_1775058476024_aea1c31a-7c96-4b48-a3b9-73b5a4b40089
 List Friend Groups
 Get Vault Data
 Set Vault Data

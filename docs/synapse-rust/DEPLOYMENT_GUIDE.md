@@ -62,8 +62,9 @@ cargo build --release
 # 创建数据库
 createdb synapse
 
-# 运行数据库迁移（唯一推荐入口）
+# 运行数据库迁移与校验（唯一推荐入口）
 bash docker/db_migrate.sh migrate
+bash docker/db_migrate.sh validate
 ```
 
 ### 4. 配置环境变量
@@ -85,6 +86,8 @@ cargo run
 # 生产模式
 ./target/release/synapse-rust -c config.yaml
 ```
+
+服务进程默认只执行 schema health check，不会在启动时替代迁移脚本执行数据库迁移。只有显式开启 `SYNAPSE_ENABLE_RUNTIME_DB_INIT` 且未设置 `SYNAPSE_SKIP_DB_INIT` 时，才会进入兼容初始化路径。
 
 ---
 
@@ -197,7 +200,8 @@ GRANT ALL PRIVILEGES ON DATABASE synapse TO synapse;
 
 ### 迁移入口与环境变量
 
-- 迁移执行入口以 `bash docker/db_migrate.sh migrate` 为准；CI 治理口径以 `.github/workflows/db-migration-gate.yml` 为准。
+- 迁移执行入口以 `bash docker/db_migrate.sh migrate` 为准；`validate` 用于迁移后复核；CI 治理口径以 `.github/workflows/db-migration-gate.yml` 为准。
+- Docker 部署时，容器入口会在 `RUN_MIGRATIONS=true` 的默认配置下自动调用同一脚本；这属于同一条迁移链路的自动触发，不是第二套迁移方案。
 - `SYNAPSE_ENABLE_RUNTIME_DB_INIT`：运行时数据库初始化兼容开关，默认关闭；生产与 CI 不应依赖该路径执行迁移。
 - `SYNAPSE_SKIP_DB_INIT`：强制跳过运行时数据库初始化（即使显式开启 `SYNAPSE_ENABLE_RUNTIME_DB_INIT` 也会被跳过），用于确保服务启动不触发兼容逻辑。
 - `RUN_MIGRATIONS`：Docker 入口控制开关；容器启动时是否调用统一迁移入口执行 `migrate`。
