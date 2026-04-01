@@ -105,7 +105,7 @@ Router::new()
 进一步建议（基于最近一次重构经验）：
 
 1. 继续把 `routes/mod.rs` 的剩余 handler 推进到 `handlers/*.rs`（优先级：Room / Moderation 等仍较集中部分）
-2. 转去处理 `search` / `thread` 的归属收口（这块属于“语义重叠但不完全同构”的高优先未完成项）
+2. 继续在文档与代码中保持 `search` / `thread` 的职责边界一致；本轮已完成路由归属收口与状态归档
 
 ---
 
@@ -128,3 +128,10 @@ Router::new()
 
 - `src/web/routes/sync.rs` / `src/web/routes/presence.rs` 改为直接引用 `handlers::sync` 与 `handlers::presence`
 - `src/web/routes/mod.rs` 移除 Sync / Presence handler 的 re-export，进一步压薄聚合层
+
+### 7.4 Search / Thread 归属收口（2026-03-30）
+
+- `src/web/routes/search.rs` / `src/web/routes/thread.rs` 改为薄路由包装层，实际实现下沉到 `src/web/routes/handlers/search.rs` 与 `src/web/routes/handlers/thread.rs`
+- `search` 模块只保留搜索、context、hierarchy、timestamp_to_event 相关职责；旧的 `user/.../threads` 兼容入口改由 `thread` 模块承接
+- `docs/API-OPTION/search-optimization.md` 与 `docs/API-OPTION/dm-optimization.md` 已同步最新实现状态
+- `docs/API-OPTION/task-done/` 已补充评审记录、验证脚本、测试与交付归档

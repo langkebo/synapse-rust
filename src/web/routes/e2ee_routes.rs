@@ -6,7 +6,7 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 
 fn create_e2ee_compat_router() -> Router<AppState> {
     Router::new()
@@ -14,8 +14,14 @@ fn create_e2ee_compat_router() -> Router<AppState> {
         .route("/keys/query", post(query_keys))
         .route("/keys/claim", post(claim_keys))
         .route("/keys/changes", get(key_changes))
+        .route("/keys/device_list/update", post(device_list_update))
+        .route("/keys/signatures", post(upload_signatures))
         .route("/keys/signatures/upload", post(upload_signatures))
         .route("/keys/device_signing/upload", post(upload_device_signing))
+        .route(
+            "/room_keys/request",
+            post(create_room_key_request).get(get_room_key_requests),
+        )
         .route(
             "/rooms/{room_id}/keys/distribution",
             get(room_key_distribution),
@@ -29,58 +35,49 @@ fn create_e2ee_compat_router() -> Router<AppState> {
 fn create_e2ee_v3_only_router() -> Router<AppState> {
     Router::new()
         .route(
-            "/_matrix/client/v3/device_verification/request",
+            "/device_verification/request",
             post(request_device_verification),
         )
         .route(
-            "/_matrix/client/v3/device_verification/respond",
+            "/device_verification/respond",
             post(respond_device_verification),
         )
         .route(
-            "/_matrix/client/v3/device_verification/status/{token}",
+            "/device_verification/status/{token}",
             get(get_verification_status),
         )
+        .route("/device_trust", get(get_device_trust_list))
+        .route("/device_trust/{device_id}", get(get_device_trust))
+        .route("/security/summary", get(get_security_summary))
+        .route("/keys/backup/secure", post(create_secure_backup))
         .route(
-            "/_matrix/client/v3/device_trust",
-            get(get_device_trust_list),
-        )
-        .route(
-            "/_matrix/client/v3/device_trust/{device_id}",
-            get(get_device_trust),
-        )
-        .route(
-            "/_matrix/client/v3/security/summary",
-            get(get_security_summary),
-        )
-        .route(
-            "/_matrix/client/v3/keys/backup/secure",
-            post(create_secure_backup),
-        )
-        .route(
-            "/_matrix/client/v3/keys/backup/secure/{backup_id}",
+            "/keys/backup/secure/{backup_id}",
             get(get_secure_backup).delete(delete_secure_backup),
         )
         .route(
-            "/_matrix/client/v3/keys/backup/secure/{backup_id}/keys",
+            "/keys/backup/secure/{backup_id}/keys",
             post(store_secure_backup_keys),
         )
         .route(
-            "/_matrix/client/v3/keys/backup/secure/{backup_id}/restore",
+            "/keys/backup/secure/{backup_id}/restore",
             post(restore_secure_backup),
         )
         .route(
-            "/_matrix/client/v3/keys/backup/secure/{backup_id}/verify",
+            "/keys/backup/secure/{backup_id}/verify",
             post(verify_secure_backup_passphrase),
         )
 }
 
-pub fn create_e2ee_router(_state: AppState) -> Router<AppState> {
+pub fn create_e2ee_router(state: AppState) -> Router<AppState> {
     let compat_router = create_e2ee_compat_router();
+    let v3_only_router = create_e2ee_v3_only_router();
 
     Router::new()
         .nest("/_matrix/client/r0", compat_router.clone())
+        .nest("/_matrix/client/v1", compat_router.clone())
         .nest("/_matrix/client/v3", compat_router)
-        .merge(create_e2ee_v3_only_router())
+        .nest("/_matrix/client/v3", v3_only_router)
+        .with_state(state)
 }
 
 #[axum::debug_handler]
@@ -94,16 +91,29 @@ async fn upload_keys(
         .clone()
         .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
 
+    let has_device_keys = body.get("device_keys").is_some();
+    let has_one_time_keys = body.get("one_time_keys").is_some();
+
     let request = crate::e2ee::device_keys::KeyUploadRequest {
-        device_keys: if body.get("device_keys").is_some() {
+        device_keys: if has_device_keys || has_one_time_keys {
             Some(crate::e2ee::device_keys::DeviceKeys {
                 user_id: auth_user.user_id.clone(),
                 device_id,
                 algorithms: vec!["m.olm.v1.curve25519-aes-sha2".to_string()],
-                keys: body["device_keys"]["keys"].clone(),
-                signatures: body["device_keys"]["signatures"].clone(),
-                unsigned: body["device_keys"]["unsigned"]
-                    .as_object()
+                keys: body
+                    .get("device_keys")
+                    .and_then(|v| v.get("keys"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
+                signatures: body
+                    .get("device_keys")
+                    .and_then(|v| v.get("signatures"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
+                unsigned: body
+                    .get("device_keys")
+                    .and_then(|v| v.get("unsigned"))
+                    .and_then(|v| v.as_object())
                     .map(|v| v.clone().into()),
             })
         } else {
@@ -184,6 +194,15 @@ async fn key_changes(
         "changed": changed,
         "left": left
     })))
+}
+
+#[axum::debug_handler]
+async fn device_list_update(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    MatrixJson(_body): MatrixJson<Value>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({})))
 }
 
 #[axum::debug_handler]
@@ -303,6 +322,26 @@ async fn upload_device_signing(
     }
 
     Ok(Json(serde_json::json!({})))
+}
+
+#[axum::debug_handler]
+async fn create_room_key_request(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    MatrixJson(_body): MatrixJson<Value>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(serde_json::json!({})))
+}
+
+#[axum::debug_handler]
+async fn get_room_key_requests(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Query(_params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(serde_json::json!({
+        "requests": []
+    })))
 }
 
 // =====================================================

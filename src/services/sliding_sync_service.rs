@@ -1,8 +1,8 @@
 use crate::cache::CacheManager;
 use crate::common::error::ApiError;
 use crate::storage::sliding_sync::{
-    SlidingSyncListRequest, SlidingSyncRequest, SlidingSyncResponse, SlidingSyncRoom,
-    SlidingSyncStorage,
+    AdminRoomTokenSyncEntry, SlidingSyncListRequest, SlidingSyncRequest, SlidingSyncResponse,
+    SlidingSyncRoom, SlidingSyncStorage,
 };
 use std::sync::Arc;
 
@@ -337,6 +337,27 @@ impl SlidingSyncService {
             .map_err(|e| ApiError::internal(format!("Failed to cleanup tokens: {}", e)))?;
 
         Ok(count)
+    }
+
+    pub async fn get_room_token_sync(
+        &self,
+        room_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<AdminRoomTokenSyncEntry>, i64), ApiError> {
+        let entries = self
+            .storage
+            .list_room_token_sync(room_id, limit, offset)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to list room token sync: {}", e)))?;
+
+        let total = self
+            .storage
+            .count_room_token_sync(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to count room token sync: {}", e)))?;
+
+        Ok((entries, total))
     }
 
     async fn invalidate_room_cache(

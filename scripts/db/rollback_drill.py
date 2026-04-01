@@ -12,6 +12,12 @@ import subprocess
 from datetime import datetime
 from typing import Optional, Dict, List
 
+MIGRATION_ORDER_SQL = """
+SELECT version, name, applied_ts, executed_at
+FROM schema_migrations
+ORDER BY COALESCE(applied_ts, FLOOR(EXTRACT(EPOCH FROM executed_at) * 1000)::BIGINT) DESC NULLS LAST, id DESC
+"""
+
 
 class RollbackDrill:
     def __init__(self, database_url: str, verbose: bool = False):
@@ -37,7 +43,7 @@ class RollbackDrill:
         start = time.time()
         try:
             result = subprocess.run(
-                ['psql', self.database_url, '-c', query],
+                ['psql', self.database_url, '-v', 'ON_ERROR_STOP=1', '-At', '-F', '|', '-c', query],
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -52,7 +58,7 @@ class RollbackDrill:
         """检查回滚前置条件"""
         self.log("检查前置条件...")
 
-        success, output, duration = self.run_psql("SELECT version FROM schema_migrations ORDER BY installed_rank DESC LIMIT 1;")
+        success, output, duration = self.run_psql(f"{MIGRATION_ORDER_SQL} LIMIT 1;")
         if not success:
             self.log(f"❌ 无法获取当前迁移版本: {output}")
             return False
@@ -62,7 +68,7 @@ class RollbackDrill:
 
         success, output, _ = self.run_psql("SELECT COUNT(*) FROM schema_migrations;")
         if success:
-            count = output.strip().split('\n')[-1].strip()
+            count = output.strip().splitlines()[-1].strip()
             self.log(f"  已执行迁移数: {count}")
 
         return True
@@ -75,7 +81,11 @@ class RollbackDrill:
         backup_file = f"/tmp/rollback_drill_backup_{timestamp}.sql"
 
         success, output, duration = self.run_psql(
-            f"COPY (SELECT * FROM schema_migrations ORDER BY installed_rank) TO STDOUT WITH CSV HEADER;"
+            "COPY ("
+            "SELECT id, version, name, checksum, applied_ts, execution_time_ms, success, description, executed_at "
+            "FROM schema_migrations "
+            "ORDER BY COALESCE(applied_ts, FLOOR(EXTRACT(EPOCH FROM executed_at) * 1000)::BIGINT) DESC NULLS LAST, id DESC"
+            ") TO STDOUT WITH CSV HEADER;"
         )
 
         if success:
@@ -90,12 +100,11 @@ class RollbackDrill:
     def get_last_migration(self) -> Optional[str]:
         """获取最后一个迁移版本"""
         success, output, _ = self.run_psql(
-            "SELECT version FROM schema_migrations ORDER BY installed_rank DESC LIMIT 1;"
+            f"{MIGRATION_ORDER_SQL} LIMIT 1;"
         )
         if success and output.strip():
-            lines = [l for l in output.strip().split('\n') if l.strip()]
-            if len(lines) >= 2:
-                return lines[1].strip()
+            line = output.strip().splitlines()[0]
+            return line.split('|', 1)[0].strip()
         return None
 
     def verify_idempotency(self, undo_sql: str) -> bool:
@@ -158,11 +167,11 @@ class RollbackDrill:
 
         success, output, _ = self.run_psql("SELECT COUNT(*) FROM schema_migrations;")
         if success:
-            count = output.strip().split('\n')[-1].strip()
+            count = output.strip().splitlines()[-1].strip()
             self.log(f"  当前迁移数: {count}")
 
         success, output, _ = self.run_psql(
-            "SELECT version, description, installed_on FROM schema_migrations ORDER BY installed_rank DESC LIMIT 3;"
+            f"{MIGRATION_ORDER_SQL} LIMIT 3;"
         )
         if success:
             self.log(f"  最近迁移:\n{output}")

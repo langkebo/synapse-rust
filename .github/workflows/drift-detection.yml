@@ -7,13 +7,13 @@ on:
       - develop
     paths:
       - 'migrations/**/*.sql'
-      - 'scripts/db/**'
+      - 'scripts/**'
   pull_request:
     branches:
       - main
     paths:
       - 'migrations/**/*.sql'
-      - 'scripts/db/**'
+      - 'scripts/**'
 
 env:
   FLYWAY_DB_HOST: ${{ vars.PGHOST || 'localhost' }}
@@ -26,8 +26,6 @@ jobs:
   drift-detection:
     name: Schema Drift Detection
     runs-on: ubuntu-latest
-    container:
-      image: postgres:15-alpine
 
     services:
       postgres:
@@ -53,9 +51,18 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install Python dependencies
         run: |
           pip install psycopg2-binary pg8000
+
+      - name: Install PostgreSQL and sqlx tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          cargo install sqlx-cli --locked --no-default-features --features postgres
 
       - name: Wait for PostgreSQL
         run: |
@@ -70,12 +77,44 @@ jobs:
           echo "PostgreSQL did not start in time"
           exit 1
 
-      - name: Generate expected schema from migrations
+      - name: Prepare comparison databases
+        run: |
+          PGPASSWORD=synapse psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS synapse_expected;"
+          PGPASSWORD=synapse psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS synapse_actual;"
+          PGPASSWORD=synapse psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE synapse_expected;"
+          PGPASSWORD=synapse psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE synapse_actual;"
+
+      - name: Apply expected schema baseline and critical increments
+        env:
+          PGPASSWORD: synapse
+        run: |
+          psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v6.sql
+          for migration in \
+            migrations/20260328000003_add_invite_restrictions_and_device_verification_request.sql \
+            migrations/20260330000001_add_thread_replies_and_receipts.sql \
+            migrations/20260330000002_align_thread_schema_and_relations.sql \
+            migrations/20260330000003_align_retention_and_room_summary_schema.sql \
+            migrations/20260330000004_align_space_schema_and_add_space_events.sql \
+            migrations/20260330000005_align_remaining_schema_exceptions.sql \
+            migrations/20260330000006_align_notifications_push_and_misc_exceptions.sql \
+            migrations/20260330000007_align_uploads_and_user_settings_exceptions.sql \
+            migrations/20260330000008_align_background_update_exceptions.sql \
+            migrations/20260330000009_align_beacon_and_call_exceptions.sql; do
+            psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f "$migration"
+          done
+
+      - name: Apply actual sqlx migration chain
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_actual
+        run: |
+          sqlx migrate run
+
+      - name: Generate expected schema from applied baseline
         run: |
           python scripts/db/extract_schema.py \
             --host localhost \
             --port 5432 \
-            --database synapse \
+            --database synapse_expected \
             --user synapse \
             --password synapse \
             --schema public \
@@ -87,7 +126,7 @@ jobs:
           python scripts/db/extract_schema.py \
             --host localhost \
             --port 5432 \
-            --database synapse \
+            --database synapse_actual \
             --user synapse \
             --password synapse \
             --schema public \
@@ -145,49 +184,104 @@ jobs:
       - name: Check migration naming convention
         run: |
           echo "Checking migration script naming conventions..."
-          errors=0
-          
+          echo "Legacy migrations (YYYYMMDDHHMMSS_*.sql) are allowed for backward compatibility."
+          echo "New migrations must follow: V{version}__{Jira}_{description}.sql"
+          echo ""
+
+          legacy_errors=0
+          new_format_errors=0
+
           for f in migrations/*.sql; do
-            if [[ ! "$f" =~ ^migrations/V[0-9]{14}_[0-9]+__[A-Z]+-[0-9]+__.*\.sql$ ]]; then
-              echo "Invalid naming: $f"
-              errors=$((errors + 1))
+            filename=$(basename "$f")
+
+            if [[ "$filename" == *.undo.sql ]] || [[ "$filename" == *.down.sql ]]; then
+              echo "[ROLLBACK] $filename - validated by rollback check"
+              continue
+            fi
+
+            if [[ "$filename" =~ ^[0-9]{14}_.*\.sql$ ]]; then
+              echo "[LEGACY] $filename - allowed (to be migrated to archive/incremental)"
+              continue
+            fi
+
+            if [[ "$filename" =~ ^V[0-9]+(_[0-9]+)*__[A-Z]+-[0-9]+_[a-z0-9_]+\.sql$ ]]; then
+              echo "[NEW] $filename - follows new convention"
+              continue
+            fi
+
+            if [[ "$filename" =~ ^V[0-9]+_[0-9]+__.*\.sql$ ]]; then
+              echo "[LEGACY-V] $filename - allowed but should be normalized to new convention later"
+              continue
+            fi
+
+            if [[ "$filename" == "00000000_unified_schema_v6.sql" ]] || \
+               [[ "$filename" == "99999999_unified_incremental_migration.sql" ]] || \
+               [[ "$filename" == "MANIFEST-template.txt" ]]; then
+              echo "[SPECIAL] $filename - baseline/unified migration"
+              continue
+            fi
+
+            echo "[ERROR] $filename - invalid naming convention"
+            if [[ "$filename" =~ ^V.*\.sql$ ]]; then
+              new_format_errors=$((new_format_errors + 1))
+            else
+              legacy_errors=$((legacy_errors + 1))
             fi
           done
-          
-          if [ $errors -gt 0 ]; then
-            echo "Found $errors migration scripts with invalid naming"
+
+          echo ""
+          if [ $new_format_errors -gt 0 ]; then
+            echo "Found $new_format_errors migrations with invalid NEW format naming"
+            echo "New migrations must follow: V{version}__{Jira}_{description}.sql"
             exit 1
           fi
-          echo "All migration scripts follow naming convention"
+
+          if [ $legacy_errors -gt 0 ]; then
+            echo "Found $legacy_errors migrations with unrecognized naming"
+            exit 1
+          fi
+
+          echo "Migration naming validation passed (legacy allowed, new format enforced)"
 
       - name: Check for duplicate migrations
         run: |
           echo "Checking for duplicate migration scripts..."
-          duplicates=$(find migrations -name "*.sql" -not -name "*undo*" -not -name "*rollback*" | \
-            xargs basename -a | \
+          duplicates=$(find migrations -maxdepth 1 -name "*.sql" -not -name "*undo*" -not -name "*rollback*" | \
+            xargs basename -a 2>/dev/null | \
             sort | \
             uniq -d)
-          
+
           if [ -n "$duplicates" ]; then
             echo "Duplicate migration scripts found:"
             echo "$duplicates"
             exit 1
           fi
-          echo "No duplicate migration scripts found"
+          echo "No duplicate migration scripts found in root migrations directory"
 
       - name: Check for missing rollback scripts
         run: |
           echo "Checking for missing rollback scripts..."
           missing=0
           
-          for f in migrations/V*.sql; do
-            if [[ "$f" == *"undo"* ]] || [[ "$f" == *"rollback"* ]]; then
+          for f in migrations/*.sql; do
+            filename=$(basename "$f")
+            if [[ "$filename" == "00000000_unified_schema_v6.sql" ]] || \
+               [[ "$filename" == "99999999_unified_incremental_migration.sql" ]] || \
+               [[ "$filename" == *.undo.sql ]] || \
+               [[ "$filename" == *.down.sql ]] || \
+               [[ "$filename" == *.rollback.sql ]]; then
               continue
             fi
+
+            if [[ ! "$filename" =~ ^[0-9]{14}_.*\.sql$ ]] && [[ ! "$filename" =~ ^V.*\.sql$ ]]; then
+              continue
+            fi
+
             rollback_name="${f%.sql}.undo.sql"
+            rollback_down="${f%.sql}.down.sql"
             rollback_alt="migrations/rollback/$(basename ${f%.sql}).rollback.sql"
             
-            if [ ! -f "$rollback_name" ] && [ ! -f "$rollback_alt" ]; then
+            if [ ! -f "$rollback_name" ] && [ ! -f "$rollback_down" ] && [ ! -f "$rollback_alt" ]; then
               echo "Missing rollback for: $f"
               missing=$((missing + 1))
             fi
@@ -236,6 +330,7 @@ jobs:
 
       - name: Simulate large table for performance testing
         run: |
+          rows="${PERF_TEST_ROWS:-10000000}"
           PGPASSWORD=synapse psql -h localhost -U synapse -d synapse -c "
             CREATE TABLE IF NOT EXISTS test_events (
               id BIGSERIAL PRIMARY KEY,
@@ -255,30 +350,53 @@ jobs:
               END,
               '{}'::jsonb,
               extract(epoch from now())::bigint * 1000
-            FROM generate_series(1, 100000);
+            FROM generate_series(1, ${rows});
           "
 
       - name: Run migration performance test
         run: |
-          echo "Testing migration performance with 100K rows..."
-          
-          for migration in migrations/V20260322000001*.sql; do
-            if [ -f "$migration" ]; then
-              start_time=$(date +%s%3N)
-              
-              PGPASSWORD=synapse psql -h localhost -U synapse -d synapse -f "$migration" 2>&1 || true
-              
-              end_time=$(date +%s%3N)
-              duration=$((end_time - start_time))
-              
-              echo "Migration: $(basename $migration)"
-              echo "Duration: ${duration}ms"
-              
-              if [ $duration -gt 30000 ]; then
-                echo "⚠️  Migration exceeds 30s baseline!"
-              fi
+          echo "Testing migration performance with ${PERF_TEST_ROWS:-10000000} rows..."
+          failed=0
+          for migration in \
+            migrations/archive/20260322000001_performance_indexes.sql \
+            migrations/archive/20260322000002_performance_indexes_v2.sql
+          do
+            if [ ! -f "$migration" ]; then
+              echo "Missing migration benchmark target: $migration"
+              failed=1
+              continue
+            fi
+
+            start_time=$(python3 - <<'PY'
+from time import time_ns
+print(time_ns() // 1_000_000)
+PY
+)
+
+            if ! PGPASSWORD=synapse psql -h localhost -U synapse -d synapse -f "$migration"; then
+              failed=1
+              continue
+            fi
+
+            end_time=$(python3 - <<'PY'
+from time import time_ns
+print(time_ns() // 1_000_000)
+PY
+)
+            duration=$((end_time - start_time))
+
+            echo "Migration: $(basename "$migration")"
+            echo "Duration: ${duration}ms"
+
+            if [ "$duration" -gt 30000 ]; then
+              echo "Migration $(basename "$migration") exceeds 30s baseline"
+              failed=1
             fi
           done
+
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Cleanup test data
         run: |

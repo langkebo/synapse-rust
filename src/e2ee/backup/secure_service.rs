@@ -24,7 +24,7 @@ pub struct SecureBackupInfo {
     pub algorithm: String,
     pub auth_data: serde_json::Value,
     pub key_count: i64,
-    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub created_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,7 +111,7 @@ impl SecureBackupService {
             ON CONFLICT (user_id, backup_id) DO UPDATE SET
                 auth_data = EXCLUDED.auth_data,
                 key_count = EXCLUDED.key_count,
-                updated_at = CURRENT_TIMESTAMP
+                updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
             "#
         )
         .bind(user_id)
@@ -227,11 +227,11 @@ impl SecureBackupService {
             algorithm: String,
             auth_data: String,
             key_count: i64,
-            created_at: chrono::DateTime<chrono::Utc>,
+            created_ts: i64,
         }
 
         let results = sqlx::query_as::<_, BackupRow>(
-            "SELECT backup_id, user_id, algorithm, auth_data, key_count, created_at FROM secure_key_backups WHERE user_id = $1 ORDER BY created_at DESC"
+            "SELECT backup_id, user_id, algorithm, auth_data, key_count, created_ts FROM secure_key_backups WHERE user_id = $1 ORDER BY created_ts DESC"
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -249,7 +249,7 @@ impl SecureBackupService {
                 algorithm: row.algorithm,
                 auth_data,
                 key_count: row.key_count,
-                created_at: row.created_at,
+                created_ts: row.created_ts,
             });
         }
 

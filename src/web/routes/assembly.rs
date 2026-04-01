@@ -73,6 +73,10 @@ pub fn create_router(state: AppState) -> Router {
             get(handlers::get_server_version),
         )
         .route("/_matrix/server_version", get(handlers::get_server_version))
+        .route(
+            "/_matrix/client/v1/config/client",
+            get(|| async { Json(json!({})) }),
+        )
         .route("/_matrix/client/v3/pushrules/", get(get_push_rules_default))
         .route(
             "/_matrix/client/v3/pushrules/global/",
@@ -110,13 +114,16 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_federation_router(state.clone()))
         .merge(create_friend_router(state.clone()))
         .merge(create_push_router(state.clone()))
-        .merge(create_search_router(state.clone()))
+        .merge(crate::web::routes::handlers::search::create_search_router(
+            state.clone(),
+        ))
         .merge(create_sliding_sync_router(state.clone()))
         .merge(create_space_router(state.clone()))
         .merge(create_app_service_router(state.clone()))
         .merge(create_worker_router(state.clone()))
         .merge(create_room_summary_router(state.clone()))
         .merge(create_event_report_router(state.clone()))
+        .merge(create_feature_flags_router())
         .merge(create_background_update_router(state.clone()))
         .merge(create_module_router())
         .merge(create_saml_router())
@@ -139,7 +146,9 @@ pub fn create_router(state: AppState) -> Router {
         .merge(ephemeral::create_ephemeral_router(state.clone()))
         .merge(create_external_service_router(state.clone()))
         .merge(create_burn_after_read_router(state.clone()))
-        .merge(create_thread_routes(state.clone()))
+        .merge(crate::web::routes::handlers::thread::create_thread_routes(
+            state.clone(),
+        ))
         .merge(create_widget_router())
         .merge(create_rendezvous_router(state.clone()))
         .merge(create_ai_connection_router())
@@ -232,6 +241,7 @@ fn create_account_r0_only_router() -> Router<AppState> {
 
 fn create_account_router() -> Router<AppState> {
     Router::new()
+        .nest("/_matrix/client/v1", create_account_compat_router())
         .nest(
             "/_matrix/client/r0",
             create_account_compat_router().merge(create_account_r0_only_router()),
@@ -243,6 +253,10 @@ fn create_directory_compat_router() -> Router<AppState> {
     Router::new()
         .route("/user_directory/search", post(search_user_directory))
         .route("/user_directory/list", post(list_user_directory))
+        .route(
+            "/user_directory/profiles/{user_id}",
+            get(get_user_directory_profile),
+        )
         .route(
             "/directory/list/room/{room_id}",
             get(get_room_visibility).put(set_room_visibility),

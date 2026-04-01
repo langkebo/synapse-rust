@@ -163,3 +163,55 @@ pub(crate) async fn presence_list(
         "presences": presences
     })))
 }
+
+pub(crate) async fn get_presence_list(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    if auth_user.user_id != user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden("Access denied".to_string()));
+    }
+
+    let subscriptions = state
+        .services
+        .presence_storage
+        .get_subscriptions(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {}", e)))?;
+
+    let presence_batch = state
+        .services
+        .presence_storage
+        .get_presence_batch(&subscriptions)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get presence batch: {}", e)))?;
+
+    let mut presences = Vec::new();
+
+    for (target_id, presence, status_msg) in presence_batch {
+        let last_active_ago = if presence != "offline" { Some(0) } else { None };
+
+        presences.push(json!({
+            "user_id": target_id,
+            "presence": presence,
+            "status_msg": status_msg,
+            "last_active_ago": last_active_ago
+        }));
+    }
+
+    for target_id in &subscriptions {
+        if !presences.iter().any(|p| p["user_id"] == *target_id) {
+            presences.push(json!({
+                "user_id": target_id,
+                "presence": "offline",
+                "status_msg": None::<String>,
+                "last_active_ago": None::<i64>
+            }));
+        }
+    }
+
+    Ok(Json(json!({
+        "presences": presences
+    })))
+}

@@ -83,6 +83,10 @@ pub struct ServiceContainer {
     pub registration_token_storage: crate::storage::registration_token::RegistrationTokenStorage,
     pub registration_token_service:
         Arc<crate::services::registration_token_service::RegistrationTokenService>,
+    pub audit_storage: crate::storage::audit::AuditEventStorage,
+    pub admin_audit_service: Arc<crate::services::admin_audit_service::AdminAuditService>,
+    pub feature_flag_storage: crate::storage::feature_flags::FeatureFlagStorage,
+    pub feature_flag_service: Arc<crate::services::feature_flag_service::FeatureFlagService>,
     pub event_report_storage: crate::storage::event_report::EventReportStorage,
     pub event_report_service: Arc<crate::services::event_report_service::EventReportService>,
     pub background_update_storage: crate::storage::background_update::BackgroundUpdateStorage,
@@ -117,6 +121,8 @@ pub struct ServiceContainer {
     pub rendezvous_storage: crate::storage::rendezvous::RendezvousStorage,
     pub widget_storage: crate::storage::widget::WidgetStorage,
     pub widget_service: Arc<crate::services::widget_service::WidgetService>,
+    pub telemetry_alert_service:
+        Arc<crate::services::telemetry_alert_service::TelemetryAlertService>,
     pub burn_after_read: Arc<BurnAfterReadServiceImpl>,
     pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
     pub builtin_oidc_provider:
@@ -213,14 +219,16 @@ impl ServiceContainer {
             ),
         );
         let room_service = Arc::new(crate::services::room_service::RoomService::new(
-            room_storage.clone(),
-            member_storage.clone(),
-            event_storage.clone(),
-            user_storage.clone(),
-            room_summary_service.clone(),
-            auth_service.validator.clone(),
-            config.server.name.clone(),
-            task_queue.clone(),
+            crate::services::room_service::RoomServiceConfig {
+                room_storage: room_storage.clone(),
+                member_storage: member_storage.clone(),
+                event_storage: event_storage.clone(),
+                user_storage: user_storage.clone(),
+                room_summary_service: room_summary_service.clone(),
+                validator: auth_service.validator.clone(),
+                server_name: config.server.name.clone(),
+                task_queue: task_queue.clone(),
+            },
         ));
         let sync_service = Arc::new(crate::services::sync_service::SyncService::new(
             presence_storage.clone(),
@@ -311,6 +319,19 @@ impl ServiceContainer {
                 registration_token_storage.clone(),
             )),
         );
+        let audit_storage = crate::storage::audit::AuditEventStorage::new(pool);
+        let admin_audit_service = Arc::new(
+            crate::services::admin_audit_service::AdminAuditService::new(Arc::new(
+                audit_storage.clone(),
+            )),
+        );
+        let feature_flag_storage = crate::storage::feature_flags::FeatureFlagStorage::new(pool);
+        let feature_flag_service = Arc::new(
+            crate::services::feature_flag_service::FeatureFlagService::new(
+                Arc::new(feature_flag_storage.clone()),
+                admin_audit_service.clone(),
+            ),
+        );
         let event_report_storage = crate::storage::event_report::EventReportStorage::new(pool);
         let event_report_service = Arc::new(
             crate::services::event_report_service::EventReportService::new(Arc::new(
@@ -390,6 +411,12 @@ impl ServiceContainer {
         let widget_service = Arc::new(crate::services::widget_service::WidgetService::new(
             Arc::new(widget_storage.clone()),
         ));
+        let telemetry_alert_service = Arc::new(
+            crate::services::telemetry_alert_service::TelemetryAlertService::new(
+                pool.clone(),
+                config.database.max_size,
+            ),
+        );
         let burn_after_read = Arc::new(BurnAfterReadServiceImpl::new());
         let oidc_service = if config.oidc.is_enabled() {
             Some(Arc::new(crate::services::oidc_service::OidcService::new(
@@ -467,6 +494,10 @@ impl ServiceContainer {
             refresh_token_service,
             registration_token_storage,
             registration_token_service,
+            audit_storage,
+            admin_audit_service,
+            feature_flag_storage,
+            feature_flag_service,
             event_report_storage,
             event_report_service,
             background_update_storage,
@@ -496,6 +527,7 @@ impl ServiceContainer {
             rendezvous_storage,
             widget_storage,
             widget_service,
+            telemetry_alert_service,
             burn_after_read,
             oidc_service,
             builtin_oidc_provider,
@@ -506,9 +538,9 @@ impl ServiceContainer {
         let _ = crate::common::argon2_config::Argon2Config::initialize_global_owasp(
             crate::common::argon2_config::Argon2Config::default(),
         );
-        let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()
-        });
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse".to_string());
         let host = std::env::var("DATABASE_HOST").unwrap_or_else(|_| "localhost".to_string());
         let port: u16 = std::env::var("DATABASE_PORT")
             .ok()

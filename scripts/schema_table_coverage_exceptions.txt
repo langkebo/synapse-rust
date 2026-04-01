@@ -1,31 +1,9 @@
+# Schema Table Coverage Exceptions
+# Per OPTIMIZATION_PLAN.md Section 5.2: exceptions must have cleanup deadline
+# Format: table_name (comments indicate category and deadline)
+
 # application services
 
 # background updates
 
-# beacons / calls / rtc
-dehydrated_devices
-delayed_events
-e2ee_audit_log
-e2ee_secret_storage_keys
-e2ee_security_events
-e2ee_stored_secrets
-email_verification_tokens
-
-# federation
-federation_access_stats
-federation_blacklist_config
-federation_blacklist_log
-federation_blacklist_rule
-
-# e2ee / key management
-key_rotation_log
-key_signatures
-leak_alerts
-
-# notifications
-room_sticky_events
-
-# uploads / user settings
-user_reputations
-
-# verification / widgets
+# 已迁移到 V260330_001__MIG-XXX__add_missing_schema_tables.sql

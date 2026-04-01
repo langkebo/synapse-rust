@@ -25,6 +25,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
+    let username = format!("{}_{}", username, rand::random::<u32>());
     let request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/r0/register")
@@ -107,7 +108,7 @@ async fn get_admin_token(app: &axum::Router) -> String {
     mac.update(b"\0");
     mac.update(password.as_bytes());
     mac.update(b"\0");
-    mac.update(b"admin\0\0\0");
+    mac.update(b"admin");
     let mac_hex = mac
         .finalize()
         .into_bytes()
@@ -154,7 +155,10 @@ async fn test_room_summary_sync_populates_members_state_and_stats() {
 
     let members_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/members", room_id))
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/summary/members",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -168,13 +172,16 @@ async fn test_room_summary_sync_populates_members_state_and_stats() {
         .unwrap();
     let members_json: Value = serde_json::from_slice(&members_body).unwrap();
     let members = members_json.as_array().unwrap();
-    assert!(members.iter().any(|member| {
-        member["user_id"] == user_id && member["membership"] == "join"
-    }));
+    assert!(members
+        .iter()
+        .any(|member| { member["user_id"] == user_id && member["membership"] == "join" }));
 
     let state_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/state", room_id))
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/summary/state",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -189,13 +196,17 @@ async fn test_room_summary_sync_populates_members_state_and_stats() {
     let state_json: Value = serde_json::from_slice(&state_body).unwrap();
     let state_entries = state_json.as_array().unwrap();
     assert!(!state_entries.is_empty());
-    assert!(state_entries
-        .iter()
-        .any(|entry| entry["event_type"].as_str().unwrap_or_default().starts_with("m.room.")));
+    assert!(state_entries.iter().any(|entry| entry["event_type"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("m.room.")));
 
     let stats_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/stats", room_id))
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/summary/stats",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -208,7 +219,12 @@ async fn test_room_summary_sync_populates_members_state_and_stats() {
         .await
         .unwrap();
     let stats_json: Value = serde_json::from_slice(&stats_body).unwrap();
-    assert!(stats_json["total_state_events"].as_i64().unwrap_or_default() > 0);
+    assert!(
+        stats_json["total_state_events"]
+            .as_i64()
+            .unwrap_or_default()
+            > 0
+    );
 }
 
 #[tokio::test]
@@ -259,11 +275,16 @@ async fn test_dm_routes_persist_matrix_direct_account_data() {
         .unwrap();
     let direct_json: Value = serde_json::from_slice(&direct_body).unwrap();
     let mapped_rooms = direct_json["rooms"][&bob_id].as_array().unwrap();
-    assert!(mapped_rooms.iter().any(|room| room == &Value::String(room_id.clone())));
+    assert!(mapped_rooms
+        .iter()
+        .any(|room| room == &Value::String(room_id.clone())));
 
     let account_data_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/user/{}/account_data/m.direct", alice_id))
+        .uri(format!(
+            "/_matrix/client/v3/user/{}/account_data/m.direct",
+            alice_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
@@ -299,10 +320,9 @@ async fn test_dm_routes_persist_matrix_direct_account_data() {
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
-    let dm_partner_response =
-        ServiceExt::<Request<Body>>::oneshot(app, dm_partner_request)
-            .await
-            .unwrap();
+    let dm_partner_response = ServiceExt::<Request<Body>>::oneshot(app, dm_partner_request)
+        .await
+        .unwrap();
     assert_eq!(dm_partner_response.status(), StatusCode::OK);
 
     let dm_partner_body = axum::body::to_bytes(dm_partner_response.into_body(), 4096)
@@ -384,14 +404,16 @@ async fn test_dm_update_accepts_users_array_and_legacy_content_shorthand() {
 
     let account_data_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/user/{}/account_data/m.direct", alice_id))
+        .uri(format!(
+            "/_matrix/client/v3/user/{}/account_data/m.direct",
+            alice_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
-    let account_data_response =
-        ServiceExt::<Request<Body>>::oneshot(app, account_data_request)
-            .await
-            .unwrap();
+    let account_data_response = ServiceExt::<Request<Body>>::oneshot(app, account_data_request)
+        .await
+        .unwrap();
     assert_eq!(account_data_response.status(), StatusCode::OK);
 
     let account_data_body = axum::body::to_bytes(account_data_response.into_body(), 4096)
@@ -566,9 +588,9 @@ async fn test_space_state_and_children_form_a_matrix_style_closure() {
     assert!(state_entries.iter().any(|entry| {
         entry["type"] == "m.room.name" && entry["content"]["name"] == "Knowledge Space Updated"
     }));
-    assert!(state_entries.iter().any(|entry| {
-        entry["type"] == "m.space.child" && entry["state_key"] == child_room_id
-    }));
+    assert!(state_entries
+        .iter()
+        .any(|entry| { entry["type"] == "m.space.child" && entry["state_key"] == child_room_id }));
 
     let children_request = Request::builder()
         .method("GET")
@@ -585,7 +607,9 @@ async fn test_space_state_and_children_form_a_matrix_style_closure() {
         .unwrap();
     let children_json: Value = serde_json::from_slice(&children_body).unwrap();
     let children = children_json.as_array().unwrap();
-    assert!(children.iter().any(|entry| entry["room_id"] == child_room_id));
+    assert!(children
+        .iter()
+        .any(|entry| entry["room_id"] == child_room_id));
 }
 
 #[tokio::test]
@@ -690,10 +714,9 @@ async fn test_admin_pusher_query_requires_existing_user_and_returns_created_push
             .to_string(),
         ))
         .unwrap();
-    let set_pusher_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), set_pusher_request)
-            .await
-            .unwrap();
+    let set_pusher_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_pusher_request)
+        .await
+        .unwrap();
     assert_eq!(set_pusher_response.status(), StatusCode::OK);
 
     let get_pushers_request = Request::builder()
@@ -713,7 +736,10 @@ async fn test_admin_pusher_query_requires_existing_user_and_returns_created_push
         .unwrap();
     let get_pushers_json: Value = serde_json::from_slice(&get_pushers_body).unwrap();
     assert_eq!(get_pushers_json["total"], 1);
-    assert_eq!(get_pushers_json["pushers"][0]["pushkey"], "pushkey-alignment");
+    assert_eq!(
+        get_pushers_json["pushers"][0]["pushkey"],
+        "pushkey-alignment"
+    );
 
     let missing_user_request = Request::builder()
         .method("GET")
@@ -721,9 +747,75 @@ async fn test_admin_pusher_query_requires_existing_user_and_returns_created_push
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let missing_user_response =
-        ServiceExt::<Request<Body>>::oneshot(app, missing_user_request)
+    let missing_user_response = ServiceExt::<Request<Body>>::oneshot(app, missing_user_request)
+        .await
+        .unwrap();
+    assert_eq!(missing_user_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_admin_send_server_notice_persists_notice_for_target_user() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (_, user_id) = register_user(&app, "server_notice_target").await;
+    let admin_token = get_admin_token(&app).await;
+
+    let send_notice_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/send_server_notice")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "user_id": user_id,
+                "content": {
+                    "msgtype": "m.text",
+                    "body": "Alignment notice"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let send_notice_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), send_notice_request)
             .await
             .unwrap();
-    assert_eq!(missing_user_response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(send_notice_response.status(), StatusCode::OK);
+
+    let send_notice_body = axum::body::to_bytes(send_notice_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let send_notice_json: Value = serde_json::from_slice(&send_notice_body).unwrap();
+    assert!(send_notice_json["event_id"].as_str().is_some());
+    assert!(send_notice_json["room_id"].as_str().is_some());
+    let notice_id = send_notice_json["notice_id"].as_i64().unwrap();
+
+    let list_notices_request = Request::builder()
+        .method("GET")
+        .uri("/_synapse/admin/v1/server_notices")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let list_notices_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), list_notices_request)
+            .await
+            .unwrap();
+    assert_eq!(list_notices_response.status(), StatusCode::OK);
+
+    let list_notices_body = axum::body::to_bytes(list_notices_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let list_notices_json: Value = serde_json::from_slice(&list_notices_body).unwrap();
+    assert!(list_notices_json["total"].as_u64().unwrap() >= 1);
+    assert!(list_notices_json["notices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|notice| {
+            notice["id"] == notice_id
+                && notice["user_id"] == user_id
+                && notice["event_id"] == send_notice_json["event_id"]
+        }));
 }

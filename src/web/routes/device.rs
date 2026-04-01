@@ -47,7 +47,7 @@ pub async fn get_devices(
 
 pub async fn get_device(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let device = state
@@ -58,12 +58,19 @@ pub async fn get_device(
         .map_err(|e| ApiError::internal(format!("Failed to get device: {}", e)))?;
 
     match device {
-        Some(d) => Ok(Json(json!({
+        Some(d) if d.user_id == auth_user.user_id => Ok(Json(json!({
+            "device": {
+                "device_id": d.device_id,
+                "display_name": d.display_name,
+                "last_seen_ts": d.last_seen_ts,
+                "last_seen_ip": d.last_seen_ip,
+            },
             "device_id": d.device_id,
             "display_name": d.display_name,
             "last_seen_ts": d.last_seen_ts,
             "last_seen_ip": d.last_seen_ip,
         }))),
+        Some(_) => Err(ApiError::not_found("Device not found".to_string())),
         None => Err(ApiError::not_found("Device not found".to_string())),
     }
 }

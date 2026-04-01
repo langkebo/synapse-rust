@@ -322,6 +322,7 @@ impl RoomSummaryStorage {
                 display_name = COALESCE(EXCLUDED.display_name, room_summary_members.display_name),
                 avatar_url = COALESCE(EXCLUDED.avatar_url, room_summary_members.avatar_url),
                 membership = EXCLUDED.membership,
+                is_hero = COALESCE(EXCLUDED.is_hero, room_summary_members.is_hero),
                 last_active_ts = COALESCE(EXCLUDED.last_active_ts, room_summary_members.last_active_ts),
                 updated_ts = EXCLUDED.updated_ts
             RETURNING id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
@@ -421,6 +422,48 @@ impl RoomSummaryStorage {
         .await?;
 
         Ok(rows)
+    }
+
+    pub async fn get_hero_candidates(
+        &self,
+        room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, RoomSummaryMember>(
+            r#"
+            SELECT id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
+            FROM room_summary_members
+            WHERE room_id = $1 AND membership = 'join'
+            ORDER BY last_active_ts DESC NULLS LAST, updated_ts DESC, user_id ASC
+            LIMIT $2
+            "#,
+        )
+        .bind(room_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    pub async fn set_hero_members(
+        &self,
+        room_id: &str,
+        hero_user_ids: &[String],
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE room_summary_members
+            SET is_hero = user_id = ANY($2::text[])
+            WHERE room_id = $1
+            "#,
+        )
+        .bind(room_id)
+        .bind(hero_user_ids)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
     }
 
     pub async fn set_state(

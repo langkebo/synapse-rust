@@ -1,108 +1,52 @@
 # API 错误追踪报告
 
 > **创建日期**: 2026-03-26
-> **更新日期**: 2026-03-26
+> **更新日期**: 2026-04-01
 > **项目**: synapse-rust
 
----
+***
 
 ## 测试结果总览
 
-| 测试类型 | 结果 |
-|----------|------|
-| 单元测试 | ✅ 694 passed |
-| API 测试 | ⚠️ 50/74 passed (67%) |
-| Clippy | ✅ 0 warnings |
+| 测试类型               | 结果                                                    | 日期             |
+| ------------------ | ----------------------------------------------------- | -------------- |
+| <br />             | <br />                                                | <br />         |
+| <br />             | <br />                                                | <br />         |
+| <br />             | <br />                                                | <br />         |
+| <br />             | <br />                                                | <br />         |
+| <br />             | <br />                                                | <br />         |
+| <br />             | <br />                                                | <br />         |
+| <br />             | <br />                                                | <br />         |
+| API 集成测试（数据库契约修复后） | ⚠️ \~510 passed, \~3 failed, \~50 skipped             | 2026-03-31     |
+| API 集成测试（环境恢复后）    | ✅ 421 passed, 0 failed, 171 skipped                   | 2026-03-31     |
+| **API 集成测试（最新）**   | **✅ 397 passed, 0 failed, 155 skipped**               | **2026-03-31** |
+| **API 集成测试（最新，dev）** | **✅ 476 passed, 0 failed, 39 missing, 39 skipped**                            | **2026-04-01** |
+| 定向修复代码验证           | ✅ `cargo test --no-run` 通过；Docker 测试环境已恢复并完成全量 API 回归 | 2026-03-31     |
+| Clippy             | ✅ 0 warnings                                          | 2026-03-30     |
 
----
+***
 
-## 一、API 测试失败分类
+##
 
-### 1.1 Admin API (预期行为 - 需要管理员权限)
+### 1.3 当前剩余问题
 
-这些测试失败是**预期的**，因为测试用户不是管理员。
+- 跳过数为 39，主要原因是联邦签名请求限制与破坏性测试跳过
+- 当前缺口以 MISSING 为主（39 项），集中在 SSO/OpenID、少量房间管理与账号数据补齐
+- 后续工作重点：按 Matrix Client 核心路径优先级继续将 MISSING 收敛为 PASS
 
-| # | API 端点 | 错误码 | 说明 |
-|---|----------|--------|------|
-| 35 | `/_synapse/admin/v1/server_version` | M_FORBIDDEN | 需要管理员 |
-| 36 | `/_synapse/admin/v1/users` | M_FORBIDDEN | 需要管理员 |
-| 37 | `/_synapse/admin/v1/rooms` | M_FORBIDDEN | 需要管理员 |
-| 38 | `/_synapse/admin/v1/statistics` | M_FORBIDDEN | 需要管理员 |
-| 49 | `/_synapse/admin/v1/background_updates` | M_FORBIDDEN | 需要管理员 |
-| 50 | `/_synapse/admin/v1/background_updates/stats` | M_FORBIDDEN | 需要管理员 |
-| 51 | `/_synapse/admin/v1/event_reports` | M_FORBIDDEN | 需要管理员 |
-| 52 | `/_synapse/admin/v1/event_reports/stats` | M_FORBIDDEN | 需要管理员 |
-| 53 | `/_matrix/client/v3/account_data/m.direct` | M_FORBIDDEN | 需要管理员 |
-| 58 | `/_synapse/admin/v1/registration_tokens` | M_FORBIDDEN | 需要管理员 |
-| 65 | `/_synapse/worker/v1/workers` | M_FORBIDDEN | 需要管理员 |
-| 66 | `/_synapse/worker/v1/statistics` | M_FORBIDDEN | 需要管理员 |
-| 67 | `/_synapse/admin/v1/federation/blacklist` | M_FORBIDDEN | 需要管理员 |
-| 73 | `/_synapse/admin/v1/telemetry/status` | M_FORBIDDEN | 需要管理员 |
-| 74 | `/_synapse/admin/v1/telemetry/health` | M_FORBIDDEN | 需要管理员 |
+### 1.4 skip 收敛专项进展
 
-**结论**: Admin API 功能正常，需要管理员令牌才能访问。
+- 已完成代表性 skip 的首轮拆分：`Admin Room Member Add/Ban/Kick` 主要是测试脚本硬编码用户与调用方式不匹配，`Get Room Hierarchy` 属于后端实现稳健性问题
+- 已修复管理员房间成员管理链路：后端新增对 `/_synapse/admin/v1/rooms/{room_id}/ban` 与 `kick` 的 body 兼容处理，同时保留既有 `/{user_id}` 路径式接口
+- 已修复脚本中的目标用户选择：房间邀请、踢出、封禁、解封及管理员成员管理统一改为复用第二测试用户，不再依赖硬编码的 `@test:cjystx.top`
+- 已修复普通房间的 Room Hierarchy 返回逻辑：优先复用 `space_service` 处理 space，普通房间改为返回稳定摘要，避免再落到 500
+- 本轮已完成 `cargo test --no-run` 与 `bash -n scripts/test/api-integration_test.sh` 校验
+- 已完成 Docker dev 环境全量 API 集成回归并同步更新质量证据产物
 
-### 1.2 数据库错误
+###
 
-这些错误需要检查数据库迁移是否正确执行。
+## 质量证据产物（自动生成）
 
-| # | API 端点 | 错误信息 | 可能原因 |
-|---|----------|----------|----------|
-| 41 | `/_matrix/client/v3/room_keys/version` | `column "mgmt_key" does not exist` | 数据库表 `room_keys` 缺少列 |
-| 42 | `/_matrix/client/v3/room_keys/keys` | `column "mgmt_key" does not exist` | 同上 |
-| 29 | `/_matrix/client/v1/spaces/public` | `Failed to get public spaces` | Space 表可能有问题 |
-| 30 | `/_matrix/client/v1/spaces/user` | `Failed to get user spaces` | Space 表可能有问题 |
-| 31 | `/_matrix/client/v1/spaces/search` | `Failed to search spaces` | Space 表可能有问题 |
-| 32 | `/_matrix/client/v1/rooms/!test/threads` | `Failed to list threads` | Thread 表可能有问题 |
-| 59 | `/_matrix/media/v1/quota/check` | `Failed to get default quota config` | 媒体配额表问题 |
-| 60 | `/_matrix/media/v1/quota/stats` | `Failed to get default quota config` | 同上 |
-
-### 1.3 服务配置问题
-
-| # | API 端点 | 错误信息 | 说明 |
-|---|----------|----------|------|
-| 43 | `/_matrix/client/v3/voip/turnServer` | `No TURN URIs configured` | TURN 服务器未配置 |
-| 54 | `/_synapse/retention/v1/server/policy` | Empty response | 保留策略未配置 |
-| 55 | `/_synapse/retention/v1/rooms` | Empty response | 保留策略未配置 |
-| 61 | `/_synapse/admin/v1/cas/config` | Empty response | CAS 未启用 |
-| 62 | `/_synapse/admin/v1/saml/config` | Empty response | SAML 未启用 |
-| 63 | `/_synapse/admin/v1/oidc/config` | Empty response | OIDC 未启用 |
-
----
-
-## 二、需要数据库迁移修复
-
-### 2.1 room_keys 表问题
-
-**错误**: `column "mgmt_key" does not exist`
-
-**检查项**:
-1. 检查 `e2ee_backup` 表或相关表的结构
-2. 确认迁移脚本是否包含 `mgmt_key` 列
-
----
-
-## 三、测试脚本改进建议
-
-### 3.1 添加管理员测试
-
-创建单独的管理员 API 测试脚本，使用管理员令牌。
-
-### 3.2 添加数据库健康检查
-
-在 API 测试前先检查数据库表结构是否完整。
-
----
-
-## 四、行动项
-
-| 优先级 | 问题 | 状态 |
-|--------|------|------|
-| 高 | 检查 `room_keys` 表结构 | 待处理 |
-| 中 | 配置 TURN 服务器 | 待处理 |
-| 中 | 配置保留策略 | 待处理 |
-| 低 | 启用 CAS/SAML/OIDC | 待处理 |
-
----
-
-*本文档将随项目进展持续更新*
+- API 集成测试摘要：`reports/quality/api_integration_summary.md`
+- API 集成缺陷清单（P0-P3 草案）：`docs/quality/defects_api_integration.md`
+- 一键证据采集入口：`bash scripts/quality/collect_evidence.sh`

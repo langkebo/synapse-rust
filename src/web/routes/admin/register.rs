@@ -112,7 +112,10 @@ fn verify_mac(
     message.push(b'\x00');
     message.extend(password.as_bytes());
     message.push(b'\x00');
-    message.extend(if admin { b"admin\0\0\0" } else { b"notadmin" });
+    match admin {
+        true => message.extend(b"admin"),
+        false => message.extend(b"notadmin"),
+    }
 
     if let Some(ref ut) = user_type {
         message.push(b'\x00');

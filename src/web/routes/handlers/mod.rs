@@ -6,7 +6,9 @@ pub mod auth;
 pub mod health;
 pub mod presence;
 pub mod room;
+pub mod search;
 pub mod sync;
+pub mod thread;
 pub mod user;
 pub mod versions;
 

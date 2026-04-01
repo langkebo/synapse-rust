@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS device_verification_request (
     request_token TEXT NOT NULL,
     commitment TEXT,
     pubkey TEXT,
-    created_at TIMESTAMPTZ NOT NULL,
+    created_ts BIGINT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     completed_at TIMESTAMPTZ,
     CONSTRAINT pk_device_verification_request PRIMARY KEY (id),

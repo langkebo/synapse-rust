@@ -143,17 +143,18 @@ async fn set_pusher(
     if kind != "null" {
         sqlx::query(
             r#"
-            INSERT INTO pushers (user_id, device_id, pushkey, kind, app_id, app_display_name, 
-                                 device_display_name, profile_tag, lang, data, created_ts, last_updated_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            INSERT INTO pushers (user_id, device_id, pushkey, pushkey_ts, kind, app_id, app_display_name, 
+                                 device_display_name, profile_tag, lang, data, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT (user_id, device_id, pushkey) DO UPDATE SET
-                kind = $4, app_id = $5, app_display_name = $6,
-                device_display_name = $7, profile_tag = $8, lang = $9, data = $10, last_updated_ts = $12
+                pushkey_ts = $4, kind = $5, app_id = $6, app_display_name = $7,
+                device_display_name = $8, profile_tag = $9, lang = $10, data = $11, updated_ts = $13
             "#
         )
         .bind(&auth_user.user_id)
         .bind(&auth_user.device_id)
         .bind(&body.pushkey)
+        .bind(chrono::Utc::now().timestamp_millis())
         .bind(&kind)
         .bind(&body.app_id)
         .bind(&body.app_display_name)
@@ -254,11 +255,13 @@ async fn get_push_rules_scope(
 ) -> Result<Json<Value>, ApiError> {
     if scope == "global" {
         Ok(Json(json!({
-            "content": [],
-            "override": [],
-            "room": [],
-            "sender": [],
-            "underride": []
+            "global": {
+                "content": [],
+                "override": [],
+                "room": [],
+                "sender": [],
+                "underride": []
+            }
         })))
     } else {
         Ok(Json(json!({})))

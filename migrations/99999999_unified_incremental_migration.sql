@@ -1,24 +1,23 @@
 -- ============================================================================
--- synapse-rust 增量迁移汇总 v1.0.0
+-- synapse-rust 历史综合增量兼容资产 v1.0.1
 -- 创建日期: 2026-03-24
 --
--- 说明: 包含所有增量迁移的索引创建语句
--- 版本: 99999999 (最后执行)
+-- 说明: 该文件仅保留历史索引收敛能力，不代表当前完整增量迁移事实来源
+--       新环境与升级环境的真实执行口径以 docker/db_migrate.sh、
+--       db-migration-gate.yml 和离散迁移文件为准
+-- 版本: 99999999 (兼容保留)
 --
--- 历史迁移:
---   20260321000001 - 字段命名修复
---   20260321000002 - 添加缺失列
---   20260321000003 - 修复 ephemeral 表
---   20260322000001 - 性能索引
---   20260322000002 - 性能索引 v2
---   20260323225620 - AI 连接功能
+-- 历史用途:
+--   - 汇总早期索引优化
+--   - 为旧部署链提供兼容性保留
+--   - 不应被视为“已覆盖所有增量迁移”的证明
 -- ============================================================================
 
 SET TIME ZONE 'UTC';
 
 DO $$
 BEGIN
-    RAISE NOTICE '开始执行增量迁移汇总...';
+    RAISE NOTICE '开始执行历史综合增量兼容脚本...';
 END $$;
 
 -- ============================================================================
@@ -214,13 +213,13 @@ BEGIN
     WHERE schemaname = 'public' AND indexname LIKE 'idx_%';
 
     RAISE NOTICE '==========================================';
-    RAISE NOTICE '增量迁移汇总执行完成';
+    RAISE NOTICE '历史综合增量兼容脚本执行完成';
     RAISE NOTICE '完成时间: %', NOW();
     RAISE NOTICE '索引数量: %', index_count;
     RAISE NOTICE '==========================================';
 
     -- 记录迁移执行
     INSERT INTO schema_migrations (version, name, success, applied_ts, execution_time_ms, description)
-    VALUES ('99999999', 'unified_incremental_migration', true, FLOOR(EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT, 0, '增量迁移汇总 v1.0.0')
+    VALUES ('99999999', 'unified_incremental_migration', true, FLOOR(EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT, 0, '历史综合增量兼容资产 v1.0.1，不代表全部离散迁移已收敛')
     ON CONFLICT (version) DO NOTHING;
 END $$;

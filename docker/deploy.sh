@@ -1,189 +1,85 @@
 #!/bin/bash
-set -e
 
-echo "=========================================="
-echo " synapse-rust Production Deployment Script"
-echo "=========================================="
+set -euo pipefail
 
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
-generate_password() {
-    openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32
+if [ ! -f .env ]; then
+    cp config/.env.example .env
+fi
+
+set -a
+. ./.env
+set +a
+
+IMAGE_REPO="${SYNAPSE_IMAGE:-synapse-rust}"
+IMAGE_TAG="${SYNAPSE_IMAGE_TAG:-latest}"
+
+wait_for_health() {
+    local service_name="$1"
+    local attempts="${2:-40}"
+    local sleep_seconds="${3:-3}"
+    local container_id
+    container_id="$(docker compose ps -q "$service_name")"
+
+    if [ -z "$container_id" ]; then
+        echo "未找到服务容器: $service_name" >&2
+        return 1
+    fi
+
+    for ((i=1; i<=attempts; i++)); do
+        local health_status
+        health_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}running{{end}}' "$container_id")"
+        if [ "$health_status" = "healthy" ] || [ "$health_status" = "running" ]; then
+            return 0
+        fi
+        echo "等待 ${service_name} 就绪... (${i}/${attempts})"
+        sleep "$sleep_seconds"
+    done
+
+    return 1
 }
 
-echo "[0/8] Generating secure passwords..."
-DB_PASSWORD=$(generate_password)
-REDIS_PASSWORD=$(generate_password)
-SECRET_KEY=$(openssl rand -hex 32)
-MACAROON_SECRET=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 64)
-FORM_SECRET=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 64)
-REGISTRATION_SECRET=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 64)
-ADMIN_SECRET=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
-FEDERATION_SIGNING_KEY=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 43)
-OLM_KEY=$(openssl rand -hex 32)
+echo "=========================================="
+echo " synapse-rust Docker Deployment"
+echo "=========================================="
 
-cat > .env << EOF
-# Synapse Rust Environment Configuration
-# ============================================================================
-# 数据库配置
-DB_HOST=db
-DB_PORT=5432
-DB_USER=synapse
-DB_PASSWORD=${DB_PASSWORD}
-DB_NAME=synapse
-DATABASE_URL=postgres://synapse:${DB_PASSWORD}@db:5432/synapse
+mkdir -p data logs
 
-# Redis配置
-REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
-REDIS_PASSWORD=${REDIS_PASSWORD}
+echo "[1/6] 停止旧容器..."
+docker compose down --remove-orphans
+docker compose -p docker down --remove-orphans >/dev/null 2>&1 || true
+docker rm -f docker-rust docker-postgres docker-redis >/dev/null 2>&1 || true
 
-# 服务器配置
-SERVER_NAME=cjystx.top
-
-# 安全密钥 - 生成方法: openssl rand -hex 32
-SECRET_KEY=${SECRET_KEY}
-MACAROON_SECRET=${MACAROON_SECRET}
-FORM_SECRET=${FORM_SECRET}
-REGISTRATION_SECRET=${REGISTRATION_SECRET}
-ADMIN_SECRET=${ADMIN_SECRET}
-
-# 联邦签名密钥
-FEDERATION_SIGNING_KEY=${FEDERATION_SIGNING_KEY}
-
-# 上传限制 (100MB)
-MAX_UPLOAD_SIZE=104857600
-
-# SQLx离线模式
-SQLX_OFFLINE=false
-
-# 日志配置
-RUST_LOG=info
-RUST_BACKTRACE=1
-
-# 连接池配置
-DATABASE_POOL_SIZE=20
-REDIS_POOL_SIZE=20
-
-# Argon2密码哈希参数
-ARGON2_M_COST=8192
-ARGON2_T_COST=4
-ARGON2_P_COST=2
-
-# 时区
-TZ=Asia/Shanghai
-
-# CORS 配置
-ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:8008,http://127.0.0.1:5173,http://127.0.0.1:3000,http://127.0.0.1:8008
-
-# OLM加密密钥 (必须设置)
-OLM_PICKLE_KEY=${OLM_KEY}
-
-# 迁移配置 - 设置为 true 启用运行时迁移
-RUN_MIGRATIONS=true
-EOF
-
-echo "✅ Environment file created with secure passwords"
-echo "   Database password: ${DB_PASSWORD:0:8}..."
-echo "   Redis password: ${REDIS_PASSWORD:0:8}..."
-
-echo "[1/8] Calculating migration checksum..."
-MIGRATION_CHECKSUM=$(cd .. && find migrations -name "*.sql" -type f -exec md5sum {} \; | sort | md5sum | cut -d' ' -f1)
-BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-echo "   Migration checksum: ${MIGRATION_CHECKSUM:0:16}..."
-
-echo "[2/8] Building Docker image (linux/amd64)..."
-cd ..
-docker buildx build \
-    --platform linux/amd64 \
-    --build-arg BUILD_DATE=${BUILD_DATE} \
-    --build-arg MIGRATION_CHECKSUM=${MIGRATION_CHECKSUM} \
-    -f docker/Dockerfile \
-    -t synapse-rust-main:latest \
-    --load \
-    .
-
-echo "[3/8] Tagging image..."
-docker tag synapse-rust-main:latest vmuser232922/synapse-rust:latest
-
-echo "[4/8] Starting database and Redis..."
-cd docker
-docker compose -f docker-compose.prod.yml up -d db redis
-
-echo "Waiting for db and redis to be healthy..."
-for i in {1..30}; do
-    if docker compose -f docker-compose.prod.yml exec -T db pg_isready -U synapse > /dev/null 2>&1; then
-        echo "✅ Database is ready"
-        break
-    fi
-    if [ $i -eq 30 ]; then
-        echo "❌ Database failed to start"
-        docker compose -f docker-compose.prod.yml logs db
-        exit 1
-    fi
-    echo "   Waiting for database... ($i/30)"
-    sleep 2
-done
-
-for i in {1..15}; do
-    if docker compose -f docker-compose.prod.yml exec -T redis redis-cli -a "${REDIS_PASSWORD}" ping > /dev/null 2>&1; then
-        echo "✅ Redis is ready"
-        break
-    fi
-    if [ $i -eq 15 ]; then
-        echo "❌ Redis failed to start"
-        docker compose -f docker-compose.prod.yml logs redis
-        exit 1
-    fi
-    echo "   Waiting for redis... ($i/15)"
-    sleep 2
-done
-
-echo "[5/8] Checking database schema..."
-SCHEMA_EXISTS=$(docker compose -f docker-compose.prod.yml exec -T db psql -U synapse -d synapse -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='users';" 2>/dev/null | tr -d ' ')
-if [ "$SCHEMA_EXISTS" -gt 0 ]; then
-    echo "✅ Database schema already exists"
+echo "[2/6] 删除旧的 synapse-rust 镜像..."
+old_images="$(docker image ls "$IMAGE_REPO" --format '{{.ID}}' | sort -u)"
+if [ -n "$old_images" ]; then
+    echo "$old_images" | xargs docker image rm -f
 else
-    echo "⚠️  Database schema not found, running initial migration..."
-    docker cp ../migrations/00000000_unified_schema_v6.sql synapse_db_prod:/tmp/migration.sql
-    docker compose -f docker-compose.prod.yml exec -T db psql -U synapse -d synapse -f /tmp/migration.sql
+    echo "未发现旧镜像"
 fi
 
-echo "[6/8] Cleaning up old failed migrations..."
-docker compose -f docker-compose.prod.yml exec -T db psql -U synapse -d synapse -c "DELETE FROM schema_migrations WHERE version = '20260322000001' OR version = 'UNIFIED';" 2>/dev/null || true
+echo "[3/6] 重建 Docker 镜像..."
+docker compose build synapse-rust
 
-echo "[7/8] Starting synapse main service..."
-docker compose -f docker-compose.prod.yml up -d synapse-main
+echo "[4/6] 启动数据库和 Redis..."
+docker compose up -d db redis
+wait_for_health db 40 3
+wait_for_health redis 30 2
 
-echo "[8/8] Verifying deployment..."
-sleep 10
-ERRORS=$(docker compose -f docker-compose.prod.yml logs --tail=50 synapse-main 2>&1 | grep -i -E "panic|error returned from database" || true)
-if [ -n "$ERRORS" ]; then
-    echo "⚠️  Found potential issues:"
-    echo "$ERRORS"
-else
-    echo "✅ Deployment completed successfully!"
-fi
+echo "[5/6] 执行数据库迁移与校验..."
+docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust migrate
+docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust validate
 
-echo ""
-echo "=========================================="
-echo " Deployment Summary"
-echo "=========================================="
-echo ""
-echo "📝 Service Endpoints:"
-echo "   - Matrix Client API: http://localhost:8008"
-echo "   - Database: localhost:5432"
-echo "   - Redis: localhost:6379"
-echo ""
-echo "📝 Configuration:"
-echo "   - All passwords stored in: $(pwd)/.env"
-echo "   - Config file: $(pwd)/config/homeserver.yaml"
-echo ""
-echo "🔐 Security:"
-echo "   - OLM_PICKLE_KEY=${OLM_KEY}"
-echo ""
-echo "🔧 Migration Status:"
-docker compose -f docker-compose.prod.yml exec -T db psql -U synapse -d synapse -c "SELECT version, success FROM schema_migrations ORDER BY applied_ts;" 2>/dev/null || true
-echo ""
-echo "To view logs: docker compose -f docker-compose.prod.yml logs -f synapse-main"
-echo "To stop: docker compose -f docker-compose.prod.yml down"
-echo ""
+echo "[6/6] 启动应用服务..."
+docker compose up -d synapse-rust
+wait_for_health synapse-rust 40 3
+
+echo
+echo "部署完成"
+echo "镜像: ${IMAGE_REPO}:${IMAGE_TAG}"
+echo "Client API: http://localhost:${SYNAPSE_PORT:-28008}"
+echo "Federation: http://localhost:${FEDERATION_PORT:-28448}"
+echo
+docker compose ps
