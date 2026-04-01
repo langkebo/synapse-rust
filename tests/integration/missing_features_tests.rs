@@ -1,9 +1,9 @@
 mod tests {
-    use crate::storage::sliding_sync::*;
-    use crate::storage::dehydrated_device::*;
-    use crate::storage::rendezvous::*;
-    use crate::storage::moderation::*;
-    use crate::services::livekit_client::*;
+    use synapse_rust::services::livekit_client::*;
+    use synapse_rust::storage::dehydrated_device::*;
+    use synapse_rust::storage::moderation::*;
+    use synapse_rust::storage::rendezvous::*;
+    use synapse_rust::storage::sliding_sync::*;
 
     #[test]
     fn test_sliding_sync_integration() {
@@ -176,8 +176,8 @@ mod tests {
         ];
 
         let mut covered = 0;
-        for (feature, is_implemented) in features {
-            if is_implemented {
+        for (feature, is_implemented) in &features {
+            if *is_implemented {
                 covered += 1;
             }
             println!("Feature: {} - Implemented: {}", feature, is_implemented);
@@ -248,10 +248,10 @@ mod tests {
             account: None,
             created_ts: 1234567890000,
             updated_ts: 1234567890000,
-            expires_ts: Some(1234654290000),
+            expires_at: Some(1234654290000),
         };
 
         assert_eq!(dehydrated_device.algorithm, "m.megolm.v1");
-        assert!(dehydrated_device.expires_ts.is_some());
+        assert!(dehydrated_device.expires_at.is_some());
     }
 }

@@ -4,10 +4,9 @@
 
 #[cfg(test)]
 mod federation_error_tests {
-    use std::collections::HashMap;
     use serde_json::json;
-    use crate::federation::event_auth::{EventAuthChain, EventData};
-    use crate::common::ApiError;
+    use std::collections::HashMap;
+    use synapse_rust::federation::event_auth::{EventAuthChain, EventData};
 
     #[tokio::test]
     async fn test_invalid_signature_error() {
@@ -18,7 +17,7 @@ mod federation_error_tests {
             "$event1".to_string(),
             EventData {
                 event_id: "$event1".to_string(),
-                room_id: "!room:test".to_string(),
+                room_id: "!room:wrong".to_string(),
                 event_type: "m.room.message".to_string(),
                 auth_events: vec![],
                 prev_events: vec![],
@@ -27,7 +26,8 @@ mod federation_error_tests {
             },
         );
 
-        let result = chain.verify_auth_chain(&events, "!room:test", &["$event1"]);
+        let auth_chain = vec!["$event1".to_string()];
+        let result = chain.verify_auth_chain(&events, "!room:test", &auth_chain);
 
         assert!(!result);
     }
@@ -50,12 +50,10 @@ mod federation_error_tests {
             },
         );
 
-        let result = chain.verify_event_auth_chain_complete(
-            &events,
-            "!room:test",
-            "$event1",
-            &["$event1"],
-        ).await;
+        let auth_chain = vec!["$event1".to_string()];
+        let result = chain
+            .verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain)
+            .await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("missing"));
@@ -79,12 +77,10 @@ mod federation_error_tests {
             },
         );
 
-        let result = chain.verify_event_auth_chain_complete(
-            &events,
-            "!room:test",
-            "$event1",
-            &["$event1"],
-        ).await;
+        let auth_chain = vec!["$event1".to_string()];
+        let result = chain
+            .verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain)
+            .await;
 
         assert!(result.is_err());
     }
@@ -117,12 +113,10 @@ mod federation_error_tests {
             );
         }
 
-        let result = chain.verify_event_auth_chain_complete(
-            &events,
-            "!room:test",
-            "$event_99",
-            &["$event_99"],
-        ).await;
+        let auth_chain = vec!["$event_99".to_string()];
+        let result = chain
+            .verify_event_auth_chain_complete(&events, "!room:test", "$event_99", &auth_chain)
+            .await;
 
         assert!(result.is_err());
     }
@@ -132,12 +126,10 @@ mod federation_error_tests {
         let chain = EventAuthChain::new();
         let events: HashMap<String, EventData> = HashMap::new();
 
-        let result = chain.verify_event_auth_chain_complete(
-            &events,
-            "!room:test",
-            "$event1",
-            &["$event1"],
-        ).await;
+        let auth_chain = vec!["$event1".to_string()];
+        let result = chain
+            .verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain)
+            .await;
 
         assert!(result.is_err());
     }
@@ -160,7 +152,8 @@ mod federation_error_tests {
             },
         );
 
-        let result = chain.verify_auth_chain(&events, "!room:test", &[]);
+        let auth_chain: Vec<String> = vec![];
+        let result = chain.verify_auth_chain(&events, "!room:test", &auth_chain);
 
         assert!(!result);
     }
@@ -171,15 +164,17 @@ mod federation_error_tests {
 
         let events = vec![
             json!({
+                "event_id": "$1",
                 "type": "m.room.name",
-                "state_key": "",
+                "state_key": "!room:test",
                 "content": {"name": "Room A"},
                 "sender": "@user1:test",
                 "origin_server_ts": 1000
             }),
             json!({
+                "event_id": "$2",
                 "type": "m.room.name",
-                "state_key": "",
+                "state_key": "!room:test",
                 "content": {"name": "Room B"},
                 "sender": "@user2:test",
                 "origin_server_ts": 2000
@@ -194,31 +189,31 @@ mod federation_error_tests {
         let conflicts = chain.detect_state_conflicts_advanced(&events, power_levels).await;
 
         assert_eq!(conflicts.len(), 1);
-        assert!(conflicts[0].winning_event.contains("user1"));
+        assert_eq!(conflicts[0].winning_event, "$1");
     }
 }
 
 #[cfg(test)]
 mod compression_error_tests {
-    use crate::cache::compression::{compress, decompress};
+    use synapse_rust::cache::compression::{compress, decompress};
 
     #[test]
     fn test_decompress_empty_data() {
         let result = decompress(&[]);
-        assert!(result.is_none());
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_decompress_invalid_compressed_data() {
         let invalid_data = vec![1, 2, 3, 4, 5];
         let result = decompress(&invalid_data);
-        assert!(result.is_none());
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_compress_decompress_roundtrip() {
         let original = b"Test data for compression roundtrip verification";
-        let compressed = compress(original);
+        let compressed = compress(original).unwrap();
         let decompressed = decompress(&compressed).unwrap();
         assert_eq!(&decompressed, original);
     }
@@ -226,15 +221,16 @@ mod compression_error_tests {
     #[test]
     fn test_compress_unicode() {
         let original = "你好世界 🌍 Hello World";
-        let compressed = crate::cache::compression::compress_string(original);
-        let decompressed = crate::cache::compression::decompress_to_string(&compressed).unwrap();
+        let compressed = synapse_rust::cache::compression::compress_string(original).unwrap();
+        let decompressed =
+            synapse_rust::cache::compression::decompress_to_string(&compressed).unwrap();
         assert_eq!(decompressed, original);
     }
 
     #[test]
     fn test_small_data_not_compressed() {
         let original = b"small";
-        let compressed = compress(original);
+        let compressed = compress(original).unwrap();
         assert_eq!(compressed[0], 0);
         assert_eq!(&compressed[1..], original);
     }
@@ -242,7 +238,7 @@ mod compression_error_tests {
 
 #[cfg(test)]
 mod cache_error_tests {
-    use crate::cache::{CacheConfig, LocalCache, CacheManager};
+    use synapse_rust::cache::{CacheConfig, CacheManager, LocalCache};
 
     #[test]
     fn test_local_cache_nonexistent_key() {

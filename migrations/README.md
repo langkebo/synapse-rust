@@ -26,9 +26,12 @@ bash docker/db_migrate.sh migrate
 ```bash
 # 方式一：在仓库根目录执行统一运维入口
 bash docker/db_migrate.sh migrate
+bash docker/db_migrate.sh validate
 
 # 方式二：在容器内通过相同迁移资产执行
-docker exec -i synapse-rust-app bash /app/scripts/db_migrate.sh migrate
+cd docker
+docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust migrate
+docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust validate
 ```
 
 #### 治理口径
@@ -37,6 +40,7 @@ docker exec -i synapse-rust-app bash /app/scripts/db_migrate.sh migrate
 - `ci.yml` 保留通用测试与 `sqlx migrate run` 初始化，不承担迁移治理口径定义
 - `99999999_unified_incremental_migration.sql` 仅作为历史兼容资产保留，不再作为推荐部署入口
 - 迁移命名与目录模型以 `MIGRATION_INDEX.md` 为唯一规范源
+- Docker 入口在 `RUN_MIGRATIONS=true` 时会自动调用同一 `migrate` 入口，不代表第二套迁移方案
 - Rust 运行时数据库初始化默认关闭，只有显式设置 `SYNAPSE_ENABLE_RUNTIME_DB_INIT=true` 时才允许进入兼容路径
 
 ### Schema 变更历史

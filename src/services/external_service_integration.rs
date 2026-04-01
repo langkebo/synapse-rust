@@ -186,7 +186,6 @@ impl ExternalServiceIntegration {
             as_token: uuid::Uuid::new_v4().to_string(),
             hs_token: uuid::Uuid::new_v4().to_string(),
             sender: format!("@{}-bot:{}", config.service_id, self.server_name),
-            name: Some(config.display_name.clone()),
             description: Some(format!("{} integration", config.service_type)),
             rate_limited: Some(false),
             protocols: Some(vec![config.service_type.to_string()]),

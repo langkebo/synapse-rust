@@ -2,14 +2,19 @@
 
 mod invite_blocklist_tests {
     use crate::common::get_test_pool_async;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
     use synapse_rust::storage::invite_blocklist::InviteBlocklistStorage;
 
+    static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
+
     fn unique_suffix() -> u128 {
-        SystemTime::now()
+        let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
+            .as_nanos();
+        let counter = UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed) as u128;
+        (timestamp << 16) | counter
     }
 
     async fn connect_pool() -> Option<std::sync::Arc<sqlx::PgPool>> {

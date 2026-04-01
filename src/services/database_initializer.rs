@@ -3,6 +3,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
+#[allow(dead_code)]
 const DEFAULT_CACHE_TTL_SECONDS: i64 = 3600;
 const RUNTIME_DB_INIT_ENV: &str = "SYNAPSE_ENABLE_RUNTIME_DB_INIT";
 

@@ -681,6 +681,226 @@ impl FriendRoomStorage {
 
         Ok(row.is_some())
     }
+
+    pub async fn ensure_user_exists(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        let existing = sqlx::query("SELECT 1 FROM users WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_optional(&*self.pool)
+            .await?;
+
+        if existing.is_none() {
+            let now = chrono::Utc::now().timestamp_millis();
+            let username = user_id
+                .strip_prefix('@')
+                .and_then(|s| s.split(':').next())
+                .unwrap_or("remote_user");
+
+            sqlx::query(
+                r#"
+                INSERT INTO users (user_id, username, created_ts, generation)
+                VALUES ($1, $2, $3, $3)
+                ON CONFLICT (user_id) DO NOTHING
+                "#,
+            )
+            .bind(user_id)
+            .bind(username)
+            .bind(now)
+            .execute(&*self.pool)
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn create_friend_request_with_user_ensure(
+        &self,
+        sender_id: &str,
+        receiver_id: &str,
+        message: Option<&str>,
+    ) -> Result<i64, sqlx::Error> {
+        self.ensure_user_exists(sender_id).await?;
+        self.ensure_user_exists(receiver_id).await?;
+
+        self.create_friend_request(sender_id, receiver_id, message).await
+    }
+
+    pub async fn get_mutual_friends(
+        &self,
+        user_id: &str,
+        target_user_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let user_friends = self.get_user_friend_ids(user_id).await?;
+        let target_friends = self.get_user_friend_ids(target_user_id).await?;
+
+        let mutual: Vec<String> = user_friends
+            .into_iter()
+            .filter(|f| target_friends.contains(f))
+            .collect();
+
+        Ok(mutual)
+    }
+
+    pub async fn get_user_friend_ids(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        let room_id = self.get_friend_list_room_id(user_id).await?;
+
+        if let Some(room_id) = room_id {
+            let content = self.get_friend_list_content(&room_id).await?;
+
+            if let Some(content) = content {
+                if let Some(friends) = content.get("friends").and_then(|f| f.as_array()) {
+                    return Ok(friends
+                        .iter()
+                        .filter_map(|f| f.get("user_id").and_then(|u| u.as_str()).map(|s| s.to_string()))
+                        .collect());
+                }
+            }
+        }
+
+        Ok(Vec::new())
+    }
+
+    pub async fn get_shared_rooms(
+        &self,
+        user_id: &str,
+        target_user_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT r1.room_id
+            FROM room_memberships r1
+            INNER JOIN room_memberships r2 ON r1.room_id = r2.room_id
+            WHERE r1.user_id = $1 
+            AND r2.user_id = $2
+            AND r1.membership = 'join'
+            AND r2.membership = 'join'
+            LIMIT 20
+            "#,
+        )
+        .bind(user_id)
+        .bind(target_user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .filter_map(|r| r.try_get("room_id").ok())
+            .collect())
+    }
+
+    pub async fn get_friend_suggestions_from_mutual_friends(
+        &self,
+        user_id: &str,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        let rows = sqlx::query(
+            r#"
+            WITH user_friends AS (
+                SELECT DISTINCT jsonb_array_elements(content->'friends')->>'user_id' AS friend_id
+                FROM events
+                WHERE event_type = 'm.friends.list'
+                AND sender = $1
+            ),
+            friends_of_friends AS (
+                SELECT 
+                    f2.friend_id AS suggested_user,
+                    COUNT(DISTINCT f1.friend_id) AS mutual_count
+                FROM user_friends f1
+                JOIN LATERAL (
+                    SELECT DISTINCT jsonb_array_elements(content->'friends')->>'user_id' AS friend_id
+                    FROM events
+                    WHERE event_type = 'm.friends.list'
+                    AND sender = f1.friend_id
+                ) f2 ON true
+                WHERE f2.friend_id != $1
+                AND f2.friend_id NOT IN (SELECT friend_id FROM user_friends)
+                GROUP BY f2.friend_id
+                ORDER BY mutual_count DESC
+                LIMIT $2
+            )
+            SELECT 
+                f.suggested_user AS user_id,
+                f.mutual_count,
+                u.displayname,
+                u.avatar_url
+            FROM friends_of_friends f
+            LEFT JOIN users u ON u.user_id = f.suggested_user
+            "#,
+        )
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "user_id": r.get::<String, _>("user_id"),
+                    "display_name": r.get::<Option<String>, _>("displayname"),
+                    "avatar_url": r.get::<Option<String>, _>("avatar_url"),
+                    "reason": "mutual_friends",
+                    "mutual_friends_count": r.get::<i64, _>("mutual_count")
+                })
+            })
+            .collect())
+    }
+
+    pub async fn get_friend_suggestions_from_shared_rooms(
+        &self,
+        user_id: &str,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        let rows = sqlx::query(
+            r#"
+            WITH user_rooms AS (
+                SELECT room_id FROM room_memberships
+                WHERE user_id = $1 AND membership = 'join'
+            ),
+            room_users AS (
+                SELECT 
+                    rm.user_id,
+                    COUNT(DISTINCT rm.room_id) AS shared_rooms_count
+                FROM room_memberships rm
+                JOIN user_rooms ur ON rm.room_id = ur.room_id
+                WHERE rm.user_id != $1
+                AND rm.membership = 'join'
+                AND rm.user_id NOT IN (
+                    SELECT DISTINCT jsonb_array_elements(content->'friends')->>'user_id'
+                    FROM events
+                    WHERE event_type = 'm.friends.list'
+                    AND sender = $1
+                )
+                GROUP BY rm.user_id
+                ORDER BY shared_rooms_count DESC
+                LIMIT $2
+            )
+            SELECT 
+                ru.user_id,
+                ru.shared_rooms_count,
+                u.displayname,
+                u.avatar_url
+            FROM room_users ru
+            LEFT JOIN users u ON u.user_id = ru.user_id
+            "#,
+        )
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "user_id": r.get::<String, _>("user_id"),
+                    "display_name": r.get::<Option<String>, _>("displayname"),
+                    "avatar_url": r.get::<Option<String>, _>("avatar_url"),
+                    "reason": "shared_rooms",
+                    "shared_rooms_count": r.get::<i64, _>("shared_rooms_count")
+                })
+            })
+            .collect())
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]

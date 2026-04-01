@@ -52,7 +52,7 @@ impl From<crate::storage::application_service::ApplicationService> for ExternalS
             as_id: svc.as_id.clone(),
             service_type,
             service_id,
-            display_name: svc.name.unwrap_or_else(|| svc.as_id.clone()),
+            display_name: svc.as_id.clone(),
             is_enabled: svc.is_enabled,
             is_healthy: true,
             created_ts: svc.created_ts,

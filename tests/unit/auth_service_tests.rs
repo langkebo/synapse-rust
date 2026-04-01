@@ -92,6 +92,8 @@ fn test_auth_service_register_invalid_username() {
             argon2_t_cost: 1,
             argon2_p_cost: 1,
             allow_legacy_hashes: false,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -123,6 +125,8 @@ fn test_auth_service_login_invalid_credentials() {
             argon2_t_cost: 1,
             argon2_p_cost: 1,
             allow_legacy_hashes: false,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -151,6 +155,8 @@ fn test_password_migration_on_login() {
             argon2_t_cost: 1,
             argon2_p_cost: 1,
             allow_legacy_hashes: true,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -219,6 +225,8 @@ fn test_password_migration_preserves_login_ability() {
             argon2_t_cost: 1,
             argon2_p_cost: 1,
             allow_legacy_hashes: true,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -271,6 +279,8 @@ fn test_no_migration_for_argon2_hash() {
             argon2_t_cost: 1,
             argon2_p_cost: 1,
             allow_legacy_hashes: true,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());

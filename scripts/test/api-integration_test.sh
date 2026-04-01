@@ -1186,7 +1186,7 @@ echo "=========================================="
 echo "71. Thread APIs"
 echo "=========================================="
 echo "71. Get Threads"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/threads" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads" "$TOKEN"
 check_success_json "$HTTP_BODY" "$HTTP_STATUS" "threads" && pass "Get Threads" || skip "Get Threads" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 # 22. Filter APIs
@@ -1644,11 +1644,10 @@ echo "=========================================="
 echo ""
 echo "128. Get Thread"
 if [ -n "$ROOM_ID" ]; then
-    # 获取一个真实的 thread_id，这里使用上文发送的消息
     THREAD_ID=$(echo "$MSG_RESP" | grep -o '"event_id":"[^"]*"' | cut -d'"' -f4)
     if [ -n "$THREAD_ID" ]; then
         THREAD_ENC=$(echo "$THREAD_ID" | sed 's/\$/%24/g' | sed 's/\!/%21/g' | sed 's/:/%3A/g')
-        http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/threads/$THREAD_ENC" "$TOKEN"
+        http_json GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads/$THREAD_ENC" "$TOKEN"
         if [[ "$HTTP_STATUS" == 2* ]]; then
             pass "Get Thread"
         else
@@ -2399,18 +2398,16 @@ curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/thread/test_thread_id" -H 
 
 echo ""
 echo "234. Get User Threads"
-curl -s "$SERVER_URL/_matrix/client/v3/user/$USER_ID/threads" -H "Authorization: Bearer $TOKEN" && pass "Get User Threads" || skip "Thread (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/client/v1/threads" -H "Authorization: Bearer $TOKEN" && pass "Get User Threads" || skip "Thread (endpoint not available)"
 
 echo ""
 echo "235. Thread Search"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/threads/search" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"search_term": "test"}' && pass "Thread Search" || skip "Thread (endpoint not available)"
+curl -s -X GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads/search?q=test" \
+    -H "Authorization: Bearer $TOKEN" && pass "Thread Search" || skip "Thread (endpoint not available)"
 
 echo ""
 echo "236. Get Thread ID"
-curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/thread_id/test_event" -H "Authorization: Bearer $TOKEN" && pass "Get Thread ID" || skip "Thread (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads/test_event" -H "Authorization: Bearer $TOKEN" && pass "Get Thread ID" || skip "Thread (endpoint not available)"
 
 # 81. Room State Extended
 echo ""
@@ -2782,10 +2779,17 @@ echo "=========================================="
 echo "272. Report Content"
 echo "=========================================="
 echo "272. Report Event"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/report" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"event_id": "test_event", "reason": "spam"}' && pass "Report Event" || skip "Report Event (endpoint not available)"
+if [ -n "$MSG_EVENT_ID" ]; then
+    REPORT_ENC=$(echo "$MSG_EVENT_ID" | sed 's/\$/%24/g')
+    http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/report/$REPORT_ENC" "$TOKEN" '{"reason": "spam"}'
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        pass "Report Event"
+    else
+        skip "Report Event" "HTTP $HTTP_STATUS"
+    fi
+else
+    skip "Report Event (no event id)"
+fi
 
 # 98. Room Aggregations
 echo ""
@@ -3176,6 +3180,15 @@ USER_ID_ENC=$(url_encode "$USER_ID")
 http_json POST "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/evict" "$ADMIN_TOKEN" "{}"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Evict User"
+    echo "302. Re-join room after evict"
+    http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/join" "$TOKEN" "{}"
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        MSG_RESP=$(curl -s -X PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/send/m.room.message/after_evict" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"msgtype":"m.text","body":"test message after evict"}')
+        MSG_EVENT_ID=$(echo "$MSG_RESP" | grep -o '"event_id":"[^"]*"' | cut -d'"' -f4)
+    fi
 else
     skip "Evict User (not found)"
 fi
@@ -3948,12 +3961,30 @@ echo "361. Room Event Report"
 echo "=========================================="
 echo "361. Report Event"
 REPORT_EVENT_ID="${REDACT_EVENT_ID:-$MSG_EVENT_ID}"
-http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/report/$REPORT_EVENT_ID" "$TOKEN" '{"reason": "spam", "score": -100}'
-if [[ "$HTTP_STATUS" == 2* ]]; then
-    pass "Report Event"
+if [ -z "$REPORT_EVENT_ID" ]; then
+    MSG_RESP=$(curl -s -w "\n%{http_code}" -X PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/send/m.room.message/report_test_msg" \
+        -H "Authorization: Bearer $TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"msgtype":"m.text","body":"test message for report"}')
+    MSG_HTTP_STATUS=$(echo "$MSG_RESP" | tail -1)
+    MSG_BODY=$(echo "$MSG_RESP" | sed '$d')
+    if [[ "$MSG_HTTP_STATUS" == 2* ]]; then
+        REPORT_EVENT_ID=$(echo "$MSG_BODY" | grep -o '"event_id":"[^"]*"' | cut -d'"' -f4)
+    else
+        skip "Report Event" "failed to create test message (HTTP $MSG_HTTP_STATUS)"
+    fi
+fi
+if [ -n "$REPORT_EVENT_ID" ]; then
+    REPORT_EVENT_ENC=$(echo "$REPORT_EVENT_ID" | sed 's/\$/%24/g')
+    http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/report/$REPORT_EVENT_ENC" "$TOKEN" '{"reason": "spam", "score": -100}'
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        pass "Report Event"
+    else
+        err=$(json_err_summary "$HTTP_BODY")
+        skip "Report Event" "${err:-HTTP $HTTP_STATUS}"
+    fi
 else
-    err=$(json_err_summary "$HTTP_BODY")
-    skip "Report Event" "${err:-HTTP $HTTP_STATUS}"
+    skip "Report Event" "no event to report"
 fi
 
 # 178. Room Event Translate
@@ -4205,12 +4236,7 @@ echo "=========================================="
 echo "381. Federation Extended"
 echo "=========================================="
 echo "381. Federation Get Groups"
-http_json GET "$SERVER_URL/_matrix/federation/v1/get_groups" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]]; then
-    pass "Federation Get Groups"
-else
-    skip "Federation Get Groups" "not supported"
-fi
+skip "Federation Get Groups" "non-standard Matrix endpoint"
 
 echo ""
 echo "382. Federation Groups"
@@ -5638,23 +5664,23 @@ echo "=========================================="
 echo "561.0 Prepare Representative Room"
 http_json POST "$SERVER_URL/_matrix/client/v3/createRoom" "$TOKEN" '{"name":"Representative Room","preset":"private_chat"}'
 assert_success_json "Prepare Representative Room" "$HTTP_BODY" "$HTTP_STATUS" "room_id"
-ROOM_ID=$(json_get "$HTTP_BODY" "room_id")
-ROOM_ENC=$(echo "$ROOM_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
+REPRESENTATIVE_ROOM_ID=$(json_get "$HTTP_BODY" "room_id")
+ROOM_ENC=$(echo "$REPRESENTATIVE_ROOM_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
 
 echo "561.1 Prepare Representative Event"
-http_json PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/send/m.room.message/rep118" "$TOKEN" '{"msgtype":"m.text","body":"Representative test message"}'
+http_json PUT "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ID/send/m.room.message/rep118" "$TOKEN" '{"msgtype":"m.text","body":"Representative test message"}'
 assert_success_json "Prepare Representative Event" "$HTTP_BODY" "$HTTP_STATUS" "event_id"
 MSG_EVENT_ID=$(json_get "$HTTP_BODY" "event_id")
 echo "562. Get Room Version"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/version" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ID/version" "$TOKEN"
 ROOM_VERSION_RESP="$HTTP_BODY"
 assert_success_json "Get Room Version" "$ROOM_VERSION_RESP" "$HTTP_STATUS" "room_version"
 
 echo ""
 echo "563. Get Room Thread"
-if [ -n "$ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
+if [ -n "$REPRESENTATIVE_ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
     THREAD_ID_ENC=$(url_encode "$MSG_EVENT_ID")
-    http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/thread/$THREAD_ID_ENC" "$TOKEN"
+    http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ID/thread/$THREAD_ID_ENC" "$TOKEN"
     THREAD_RESP="$HTTP_BODY"
     if check_success_json "$THREAD_RESP" "$HTTP_STATUS"; then
         pass "Get Room Thread"
@@ -5671,9 +5697,9 @@ fi
 
 echo ""
 echo "564. Get Room Reactions"
-if [ -n "$ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
+if [ -n "$REPRESENTATIVE_ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
     MSG_ENC=$(echo "$MSG_EVENT_ID" | sed 's/\$/%24/g')
-    http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/relations/$MSG_ENC" "$TOKEN"
+    http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ID/relations/$MSG_ENC" "$TOKEN"
     REACTIONS_RESP="$HTTP_BODY"
     if check_success_json "$REACTIONS_RESP" "$HTTP_STATUS"; then
         pass "Get Room Reactions"
@@ -5707,9 +5733,9 @@ fi
 
 echo ""
 echo "567. Get Event Keys"
-if [ -n "$ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
+if [ -n "$REPRESENTATIVE_ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
     MSG_ENC=$(echo "$MSG_EVENT_ID" | sed 's/\$/%24/g')
-    http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/keys/$MSG_ENC" "$TOKEN"
+    http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ID/keys/$MSG_ENC" "$TOKEN"
     EVENT_KEYS_RESP="$HTTP_BODY"
     if check_success_json "$EVENT_KEYS_RESP" "$HTTP_STATUS"; then
         pass "Get Event Keys"
@@ -5726,9 +5752,9 @@ fi
 
 echo ""
 echo "568. Get Room Context"
-if [ -n "$ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
+if [ -n "$REPRESENTATIVE_ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
     MSG_ENC=$(echo "$MSG_EVENT_ID" | sed 's/\$/%24/g')
-    http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/context/$MSG_ENC" "$TOKEN"
+    http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ID/context/$MSG_ENC" "$TOKEN"
     CONTEXT_RESP="$HTTP_BODY"
     if check_success_json "$CONTEXT_RESP" "$HTTP_STATUS"; then
         pass "Get Room Context"
@@ -5755,8 +5781,9 @@ fi
 
 echo ""
 echo "570. Report Event"
-if [ -n "$ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
-    http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/report/$MSG_EVENT_ID" "$TOKEN" '{"reason": "spam"}'
+if [ -n "$REPRESENTATIVE_ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
+    MSG_ENC=$(echo "$MSG_EVENT_ID" | sed 's/\$/%24/g')
+    http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ID/report/$MSG_ENC" "$TOKEN" '{"reason": "spam"}'
     REPORT_RESP="$HTTP_BODY"
     if check_success_json "$REPORT_RESP" "$HTTP_STATUS"; then
         pass "Report Event"

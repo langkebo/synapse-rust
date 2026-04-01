@@ -475,13 +475,11 @@ mod tests {
     fn test_update_request_builder() {
         let request = crate::storage::application_service::UpdateApplicationServiceRequest::new()
             .url("http://new-url:8080")
-            .name("New Name")
             .description("New Description")
             .rate_limited(true)
             .is_enabled(true);
 
         assert_eq!(request.url, Some("http://new-url:8080".to_string()));
-        assert_eq!(request.name, Some("New Name".to_string()));
         assert_eq!(request.description, Some("New Description".to_string()));
         assert_eq!(request.rate_limited, Some(true));
         assert_eq!(request.is_enabled, Some(true));
@@ -490,11 +488,10 @@ mod tests {
     #[test]
     fn test_update_request_partial() {
         let request = crate::storage::application_service::UpdateApplicationServiceRequest::new()
-            .name("Only Name Update");
+            .description("Only Description Update");
 
         assert!(request.url.is_none());
-        assert_eq!(request.name, Some("Only Name Update".to_string()));
-        assert!(request.description.is_none());
+        assert_eq!(request.description, Some("Only Description Update".to_string()));
         assert!(request.rate_limited.is_none());
         assert!(request.is_enabled.is_none());
     }
@@ -555,14 +552,13 @@ mod tests {
             as_token: "token".to_string(),
             hs_token: "hs_token".to_string(),
             sender: "@bot:example.com".to_string(),
-            name: None,
             description: None,
             rate_limited: None,
             protocols: None,
             namespaces: None,
         };
         assert_eq!(request.as_id, "minimal-as");
-        assert!(request.name.is_none());
+        assert!(request.description.is_none());
         assert!(request.protocols.is_none());
     }
 
@@ -574,7 +570,6 @@ mod tests {
             as_token: "as_token".to_string(),
             hs_token: "hs_token".to_string(),
             sender: "@bridge:example.com".to_string(),
-            name: Some("Full Bridge".to_string()),
             description: Some("A full bridge service".to_string()),
             rate_limited: Some(true),
             protocols: Some(vec!["irc".to_string()]),
@@ -584,7 +579,7 @@ mod tests {
                 "rooms": []
             })),
         };
-        assert_eq!(request.name, Some("Full Bridge".to_string()));
+        assert_eq!(request.description, Some("A full bridge service".to_string()));
         assert_eq!(request.rate_limited, Some(true));
         assert!(request.namespaces.is_some());
     }

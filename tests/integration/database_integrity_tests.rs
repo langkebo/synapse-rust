@@ -211,11 +211,14 @@ mod tests {
 
     #[test]
     fn test_integrity_checker_struct() {
-        let checker = DatabaseIntegrityChecker {
-            pool: Pool::connect_lazy("postgres://localhost/test").unwrap(),
-        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let checker = DatabaseIntegrityChecker {
+                pool: Pool::connect_lazy("postgres://localhost/test").unwrap(),
+            };
 
-        assert!(std::mem::size_of_val(&checker) > 0);
+            assert!(std::mem::size_of_val(&checker) > 0);
+        });
     }
 
     #[test]
