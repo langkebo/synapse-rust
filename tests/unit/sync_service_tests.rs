@@ -8,12 +8,14 @@ use serde_json::json;
     use synapse_rust::cache::{CacheConfig, CacheManager};
     use synapse_rust::common::validation::Validator;
     use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
+    use synapse_rust::services::room_summary_service::RoomSummaryService;
     use synapse_rust::services::sync_service::SyncService;
     use synapse_rust::services::PresenceStorage;
     use synapse_rust::storage::device::DeviceStorage;
     use synapse_rust::storage::event::EventStorage;
     use synapse_rust::storage::membership::RoomMemberStorage;
     use synapse_rust::storage::room::RoomStorage;
+    use synapse_rust::storage::room_summary::RoomSummaryStorage;
     use synapse_rust::storage::user::UserStorage;
 
     async fn setup_test_database() -> Option<Pool<Postgres>> {
@@ -200,6 +202,32 @@ use serde_json::json;
         .expect("Failed to create test user");
     }
 
+    fn create_room_service(
+        pool: &Arc<Pool<Postgres>>,
+        room_storage: RoomStorage,
+        member_storage: RoomMemberStorage,
+        event_storage: EventStorage,
+        user_storage: UserStorage,
+    ) -> RoomService {
+        let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
+        let room_summary_service = Arc::new(RoomSummaryService::new(
+            room_summary_storage,
+            Arc::new(event_storage.clone()),
+            Some(Arc::new(member_storage.clone())),
+        ));
+
+        RoomService::new(synapse_rust::services::room_service::RoomServiceConfig {
+            room_storage,
+            member_storage,
+            event_storage,
+            user_storage,
+            room_summary_service,
+            validator: Arc::new(Validator::default()),
+            server_name: "localhost".to_string(),
+            task_queue: None,
+        })
+    }
+
     #[test]
     fn test_sync_success() {
         let rt = Runtime::new().unwrap();
@@ -217,14 +245,12 @@ use serde_json::json;
             let room_storage = RoomStorage::new(&pool);
             let user_storage = UserStorage::new(&pool, cache.clone());
 
-            let room_service = RoomService::new(
+            let room_service = create_room_service(
+                &pool,
                 room_storage.clone(),
                 member_storage.clone(),
                 event_storage.clone(),
                 user_storage.clone(),
-                Arc::new(Validator::default()),
-                "localhost".to_string(),
-                None,
             );
 
             let sync_service = SyncService::new(

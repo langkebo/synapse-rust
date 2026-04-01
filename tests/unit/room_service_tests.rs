@@ -8,9 +8,11 @@ use tokio::runtime::Runtime;
 
 use synapse_rust::common::validation::Validator;
 use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
+use synapse_rust::services::room_summary_service::RoomSummaryService;
 use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::room::RoomStorage;
+use synapse_rust::storage::room_summary::RoomSummaryStorage;
 use synapse_rust::storage::user::UserStorage;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 
@@ -173,6 +175,28 @@ async fn create_test_user(pool: &Pool<Postgres>, user_id: &str, username: &str) 
     .expect("Failed to create test user");
 }
 
+fn create_room_service(pool: &Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> RoomService {
+    let member_storage = RoomMemberStorage::new(pool, "localhost");
+    let event_storage = EventStorage::new(pool, "localhost".to_string());
+    let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
+    let room_summary_service = Arc::new(RoomSummaryService::new(
+        room_summary_storage,
+        Arc::new(event_storage.clone()),
+        Some(Arc::new(member_storage.clone())),
+    ));
+
+    RoomService::new(synapse_rust::services::room_service::RoomServiceConfig {
+        room_storage: RoomStorage::new(pool),
+        member_storage,
+        event_storage,
+        user_storage: UserStorage::new(pool, cache),
+        room_summary_service,
+        validator: Arc::new(Validator::default()),
+        server_name: "localhost".to_string(),
+        task_queue: None,
+    })
+}
+
 #[test]
 fn test_room_service_creation() {
     let rt = Runtime::new().unwrap();
@@ -183,15 +207,7 @@ fn test_room_service_creation() {
         };
         
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let room_service = RoomService::new(
-            RoomStorage::new(&pool),
-            RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool, "localhost".to_string()),
-            UserStorage::new(&pool, cache.clone()),
-            Arc::new(Validator::default()),
-            "localhost".to_string(),
-            None,
-        );
+        let room_service = create_room_service(&pool, cache.clone());
         
         assert_eq!(room_service.server_name, "localhost");
     });
@@ -211,15 +227,7 @@ fn test_create_room_success() {
         create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let room_service = RoomService::new(
-            RoomStorage::new(&pool),
-            RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool, "localhost".to_string()),
-            UserStorage::new(&pool, cache.clone()),
-            Arc::new(Validator::default()),
-            "localhost".to_string(),
-            None,
-        );
+        let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig {
             name: Some("Test Room".to_string()),
@@ -259,15 +267,7 @@ fn test_join_room_success() {
         create_test_user(&pool, &bob_id, &bob_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let room_service = RoomService::new(
-            RoomStorage::new(&pool),
-            RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool, "localhost".to_string()),
-            UserStorage::new(&pool, cache.clone()),
-            Arc::new(Validator::default()),
-            "localhost".to_string(),
-            None,
-        );
+        let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
         let room_val = room_service
@@ -302,15 +302,7 @@ fn test_send_message_success() {
         create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let room_service = RoomService::new(
-            RoomStorage::new(&pool),
-            RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool, "localhost".to_string()),
-            UserStorage::new(&pool, cache.clone()),
-            Arc::new(Validator::default()),
-            "localhost".to_string(),
-            None,
-        );
+        let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
         let room_val = room_service
@@ -355,15 +347,7 @@ fn test_invite_user_success() {
         create_test_user(&pool, &bob_id, &bob_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let room_service = RoomService::new(
-            RoomStorage::new(&pool),
-            RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool, "localhost".to_string()),
-            UserStorage::new(&pool, cache.clone()),
-            Arc::new(Validator::default()),
-            "localhost".to_string(),
-            None,
-        );
+        let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
         let room_val = room_service
@@ -404,15 +388,7 @@ fn test_ban_user_success() {
         create_test_user(&pool, &bob_id, &bob_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let room_service = RoomService::new(
-            RoomStorage::new(&pool),
-            RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool, "localhost".to_string()),
-            UserStorage::new(&pool, cache.clone()),
-            Arc::new(Validator::default()),
-            "localhost".to_string(),
-            None,
-        );
+        let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
         let room_val = room_service
@@ -451,15 +427,7 @@ fn test_upgrade_room_success() {
         create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let room_service = RoomService::new(
-            RoomStorage::new(&pool),
-            RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool, "localhost".to_string()),
-            UserStorage::new(&pool, cache.clone()),
-            Arc::new(Validator::default()),
-            "localhost".to_string(),
-            None,
-        );
+        let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
         let room_val = room_service
@@ -493,15 +461,7 @@ fn test_upgrade_room_not_found() {
         create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let room_service = RoomService::new(
-            RoomStorage::new(&pool),
-            RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool, "localhost".to_string()),
-            UserStorage::new(&pool, cache.clone()),
-            Arc::new(Validator::default()),
-            "localhost".to_string(),
-            None,
-        );
+        let room_service = create_room_service(&pool, cache.clone());
 
         let result = room_service
             .upgrade_room("!nonexistent:localhost", "11", &alice_id)
