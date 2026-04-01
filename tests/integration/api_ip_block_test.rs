@@ -118,8 +118,7 @@ async fn test_ip_block_fix() {
     // Expected: 404 Not Found (route doesn't exist)
     // If the route is implemented in the future, this should return 200
     assert!(
-        response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::OK,
+        response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::OK,
         "Expected 404 (not implemented) or 200 (implemented), got: {}",
         response.status()
     );

@@ -58,7 +58,11 @@ async fn test_media_routes_share_content_across_versions() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let token = register_user(&app, "media_routes_shared").await;
+    let token = register_user(
+        &app,
+        &format!("media_routes_shared_{}", rand::random::<u32>()),
+    )
+    .await;
 
     let upload_request = Request::builder()
         .method("POST")

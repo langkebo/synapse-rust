@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![allow(clippy::module_inception)]
 
 mod room_summary_storage_tests {
     use crate::common::get_test_pool_async;

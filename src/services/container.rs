@@ -20,6 +20,7 @@ use crate::storage::email_verification::EmailVerificationStorage;
 pub use crate::storage::PresenceStorage;
 use crate::storage::*;
 use std::sync::Arc;
+use std::{env, path::Path};
 
 #[derive(Clone)]
 pub struct ServiceContainer {
@@ -136,6 +137,16 @@ impl ServiceContainer {
         config: Config,
         task_queue: Option<Arc<RedisTaskQueue>>,
     ) -> Self {
+        let media_path = env::var("SYNAPSE_MEDIA_PATH").unwrap_or_else(|_| {
+            if Path::new("/app/data/media").exists() {
+                "/app/data/media".to_string()
+            } else {
+                "./data/media".to_string()
+            }
+        });
+        let voice_path =
+            env::var("SYNAPSE_VOICE_PATH").unwrap_or_else(|_| format!("{}/voice", media_path));
+
         let presence_pool = pool.clone();
         let metrics = Arc::new(MetricsCollector::new());
         let auth_service = AuthService::new(
@@ -173,7 +184,7 @@ impl ServiceContainer {
         let voice_service = crate::services::voice_service::VoiceService::new(
             pool,
             cache.clone(),
-            "/app/data/media/voice",
+            voice_path.as_str(),
         );
         let search_service = Arc::new(
             crate::services::search_service::SearchService::with_postgres(
@@ -246,7 +257,7 @@ impl ServiceContainer {
             ),
         );
         let media_service = crate::services::media_service::MediaService::new(
-            "/app/data/media",
+            media_path.as_str(),
             task_queue.clone(),
             &config.server.name,
         );
@@ -538,143 +549,156 @@ impl ServiceContainer {
         let _ = crate::common::argon2_config::Argon2Config::initialize_global_owasp(
             crate::common::argon2_config::Argon2Config::default(),
         );
-        let db_url = std::env::var("TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("DATABASE_URL"))
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse".to_string());
-        let host = std::env::var("DATABASE_HOST").unwrap_or_else(|_| "localhost".to_string());
-        let port: u16 = std::env::var("DATABASE_PORT")
-            .ok()
-            .and_then(|p| p.parse().ok())
-            .unwrap_or(5432);
-        let user = std::env::var("DATABASE_USER").unwrap_or_else(|_| "synapse".to_string());
-        let pass = std::env::var("DATABASE_PASSWORD").unwrap_or_else(|_| "synapse".to_string());
-        let name = std::env::var("DATABASE_NAME").unwrap_or_else(|_| "synapse".to_string());
-        let pool = Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .max_connections(50)
-                .min_connections(5)
-                .acquire_timeout(std::time::Duration::from_secs(2))
-                .idle_timeout(Some(std::time::Duration::from_secs(600)))
-                .max_lifetime(Some(std::time::Duration::from_secs(1800)))
-                .connect_lazy(&db_url)
-                .expect("Failed to create test database pool"),
-        );
+        let pool = crate::test_utils::take_prepared_test_pool().unwrap_or_else(|| {
+            let db_url = std::env::var("TEST_DATABASE_URL")
+                .or_else(|_| std::env::var("DATABASE_URL"))
+                .unwrap_or_else(|_| {
+                    "postgres://synapse:synapse@localhost:5432/synapse".to_string()
+                });
+            Arc::new(
+                sqlx::postgres::PgPoolOptions::new()
+                    .max_connections(10)
+                    .min_connections(0)
+                    .acquire_timeout(std::time::Duration::from_secs(10))
+                    .idle_timeout(Some(std::time::Duration::from_secs(600)))
+                    .max_lifetime(Some(std::time::Duration::from_secs(1800)))
+                    .connect_lazy(&db_url)
+                    .expect("Failed to create test database pool"),
+            )
+        });
+        Self::new_test_with_pool(pool)
+    }
+
+    pub fn new_test_with_pool(pool: Arc<sqlx::PgPool>) -> Self {
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let config = Config {
-            server: ServerConfig {
-                name: "localhost".to_string(),
-                host: "0.0.0.0".to_string(),
-                port: 8008,
-                public_baseurl: None,
-                signing_key_path: None,
-                macaroon_secret_key: None,
-                form_secret: None,
-                server_name: None,
-                suppress_key_server_warning: false,
-                serve_server_wellknown: false,
-                soft_file_limit: 0,
-                user_agent_suffix: None,
-                web_client_location: None,
-                registration_shared_secret: None,
-                admin_contact: None,
-                max_upload_size: 1000000,
-                max_image_resolution: 1000000,
-                enable_registration: true,
-                enable_registration_captcha: false,
-                background_tasks_interval: 60,
-                expire_access_token: true,
-                expire_access_token_lifetime: 3600,
-                refresh_token_lifetime: 604800,
-                refresh_token_sliding_window_size: 1000,
-                session_duration: 86400,
-                warmup_pool: true,
-            },
-            database: DatabaseConfig {
-                host,
-                port,
-                username: user,
-                password: pass,
-                name,
-                pool_size: 10,
-                max_size: 20,
-                min_idle: Some(5),
-                connection_timeout: 30,
-            },
-            redis: RedisConfig {
-                host: "localhost".to_string(),
-                port: 6379,
-                password: None,
-                key_prefix: "test:".to_string(),
-                pool_size: 10,
-                enabled: false,
-                connection_timeout_ms: 5000,
-                command_timeout_ms: 3000,
-                circuit_breaker: crate::common::config::CircuitBreakerConfig::default(),
-            },
-            logging: crate::common::config::LoggingConfig {
-                level: "info".to_string(),
-                format: "json".to_string(),
-                log_file: None,
-                log_dir: None,
-            },
-            federation: FederationConfig {
-                enabled: true,
-                allow_ingress: false,
-                server_name: "test.example.com".to_string(),
-                federation_port: 8448,
-                connection_pool_size: 10,
-                max_transaction_payload: 50000,
-                ca_file: None,
-                client_ca_file: None,
-                signing_key: None,
-                key_id: None,
-                trusted_key_servers: vec![],
-                key_refresh_interval: 86400,
-                suppress_key_server_warning: false,
-                signature_cache_ttl: 3600,
-                key_cache_ttl: 3600,
-                key_rotation_grace_period_ms: 600000,
-            },
-            security: SecurityConfig {
-                secret: "test_secret".to_string(),
-                expiry_time: 3600,
-                refresh_token_expiry: 604800,
-                argon2_m_cost: 65536,
-                argon2_t_cost: 3,
-                argon2_p_cost: 1,
-                allow_legacy_hashes: false,
-                login_failure_lockout_threshold: 5,
-                login_lockout_duration_seconds: 900,
-            },
-            search: SearchConfig {
-                enabled: false,
-                elasticsearch_url: "http://localhost:9200".to_string(),
-                postgres_fts: PostgresFtsConfig {
-                    enabled: true,
-                    weights: Default::default(),
-                },
-                provider: "postgres".to_string(),
-            },
-            rate_limit: RateLimitConfig::default(),
-            admin_registration: AdminRegistrationConfig {
-                enabled: true,
-                shared_secret: "test_shared_secret".to_string(),
-                nonce_timeout_seconds: 60,
-            },
-            builtin_oidc: crate::common::config::BuiltinOidcConfig::default(),
-            worker: WorkerConfig::default(),
-            cors: CorsConfig::default(),
-            smtp: SmtpConfig::default(),
-            voip: crate::common::config::VoipConfig::default(),
-            push: crate::common::config::PushConfig::default(),
-            url_preview: crate::common::config::UrlPreviewConfig::default(),
-            oidc: crate::common::config::OidcConfig::default(),
-            saml: crate::common::config::SamlConfig::default(),
-            retention: crate::common::config::RetentionConfig::default(),
-            telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
-            prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
-        };
+        let config = build_test_config();
         Self::new(&pool, cache, config, None)
+    }
+}
+
+fn build_test_config() -> Config {
+    let host = std::env::var("DATABASE_HOST").unwrap_or_else(|_| "localhost".to_string());
+    let port: u16 = std::env::var("DATABASE_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(5432);
+    let user = std::env::var("DATABASE_USER").unwrap_or_else(|_| "synapse".to_string());
+    let pass = std::env::var("DATABASE_PASSWORD").unwrap_or_else(|_| "synapse".to_string());
+    let name = std::env::var("DATABASE_NAME").unwrap_or_else(|_| "synapse".to_string());
+
+    Config {
+        server: ServerConfig {
+            name: "localhost".to_string(),
+            host: "0.0.0.0".to_string(),
+            port: 8008,
+            public_baseurl: None,
+            signing_key_path: None,
+            macaroon_secret_key: None,
+            form_secret: None,
+            server_name: None,
+            suppress_key_server_warning: false,
+            serve_server_wellknown: false,
+            soft_file_limit: 0,
+            user_agent_suffix: None,
+            web_client_location: None,
+            registration_shared_secret: None,
+            admin_contact: None,
+            max_upload_size: 1000000,
+            max_image_resolution: 1000000,
+            enable_registration: true,
+            enable_registration_captcha: false,
+            background_tasks_interval: 60,
+            expire_access_token: true,
+            expire_access_token_lifetime: 3600,
+            refresh_token_lifetime: 604800,
+            refresh_token_sliding_window_size: 1000,
+            session_duration: 86400,
+            warmup_pool: true,
+        },
+        database: DatabaseConfig {
+            host,
+            port,
+            username: user,
+            password: pass,
+            name,
+            pool_size: 10,
+            max_size: 20,
+            min_idle: Some(5),
+            connection_timeout: 30,
+        },
+        redis: RedisConfig {
+            host: "localhost".to_string(),
+            port: 6379,
+            password: None,
+            key_prefix: "test:".to_string(),
+            pool_size: 10,
+            enabled: false,
+            connection_timeout_ms: 5000,
+            command_timeout_ms: 3000,
+            circuit_breaker: crate::common::config::CircuitBreakerConfig::default(),
+        },
+        logging: crate::common::config::LoggingConfig {
+            level: "info".to_string(),
+            format: "json".to_string(),
+            log_file: None,
+            log_dir: None,
+        },
+        federation: FederationConfig {
+            enabled: true,
+            allow_ingress: false,
+            server_name: "test.example.com".to_string(),
+            federation_port: 8448,
+            connection_pool_size: 10,
+            max_transaction_payload: 50000,
+            ca_file: None,
+            client_ca_file: None,
+            signing_key: None,
+            key_id: None,
+            trusted_key_servers: vec![],
+            key_refresh_interval: 86400,
+            suppress_key_server_warning: false,
+            signature_cache_ttl: 3600,
+            key_cache_ttl: 3600,
+            key_rotation_grace_period_ms: 600000,
+        },
+        security: SecurityConfig {
+            secret: "test_secret".to_string(),
+            expiry_time: 3600,
+            refresh_token_expiry: 604800,
+            argon2_m_cost: 65536,
+            argon2_t_cost: 3,
+            argon2_p_cost: 1,
+            allow_legacy_hashes: false,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
+        },
+        search: SearchConfig {
+            enabled: false,
+            elasticsearch_url: "http://localhost:9200".to_string(),
+            postgres_fts: PostgresFtsConfig {
+                enabled: true,
+                weights: Default::default(),
+            },
+            provider: "postgres".to_string(),
+        },
+        rate_limit: RateLimitConfig::default(),
+        admin_registration: AdminRegistrationConfig {
+            enabled: true,
+            shared_secret: "test_shared_secret".to_string(),
+            nonce_timeout_seconds: 60,
+        },
+        builtin_oidc: crate::common::config::BuiltinOidcConfig::default(),
+        worker: WorkerConfig::default(),
+        cors: CorsConfig::default(),
+        smtp: SmtpConfig::default(),
+        voip: crate::common::config::VoipConfig::default(),
+        push: crate::common::config::PushConfig::default(),
+        url_preview: crate::common::config::UrlPreviewConfig::default(),
+        oidc: crate::common::config::OidcConfig::default(),
+        saml: crate::common::config::SamlConfig::default(),
+        retention: crate::common::config::RetentionConfig::default(),
+        telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
+        prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
     }
 }
 

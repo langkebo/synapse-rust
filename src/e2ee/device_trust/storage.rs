@@ -377,7 +377,7 @@ impl DeviceTrustStorage {
         target_user_id: &str,
         is_trusted: bool,
     ) -> Result<(), ApiError> {
-        let now = chrono::Utc::now();
+        let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
             "INSERT INTO cross_signing_trust
@@ -391,7 +391,7 @@ impl DeviceTrustStorage {
         .bind(user_id)
         .bind(target_user_id)
         .bind(is_trusted)
-        .bind(if is_trusted { Some(now) } else { None })
+        .bind(if is_trusted { Some(chrono::Utc::now()) } else { None })
         .bind(now)
         .bind(now)
         .execute(&*self.pool)

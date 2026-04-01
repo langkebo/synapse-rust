@@ -1004,7 +1004,7 @@ async fn test_relations_routes_work_across_v1_and_r0() {
     let v3_relations_request = Request::builder()
         .method("GET")
         .uri(format!(
-            "/_matrix/client/v3/relations/{}/{}/m.annotation",
+            "/_matrix/client/v3/rooms/{}/relations/{}/m.annotation",
             room_id, event_id
         ))
         .body(Body::empty())
@@ -1012,7 +1012,7 @@ async fn test_relations_routes_work_across_v1_and_r0() {
     let v3_relations_response = ServiceExt::<Request<Body>>::oneshot(app, v3_relations_request)
         .await
         .unwrap();
-    assert_eq!(v3_relations_response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(v3_relations_response.status(), StatusCode::OK);
 }
 
 #[tokio::test]
@@ -1228,7 +1228,8 @@ async fn test_room_hierarchy_returns_room_summary_for_regular_room() {
         return;
     };
 
-    let Some(token) = register_user(&app, &format!("room_hierarchy_{}", rand::random::<u32>())).await
+    let Some(token) =
+        register_user(&app, &format!("room_hierarchy_{}", rand::random::<u32>())).await
     else {
         return;
     };

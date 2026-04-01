@@ -869,7 +869,7 @@ echo "34. Invite User"
 curl -s -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/invite" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"user_id": "@admin:cjystx.top"}' && pass "Invite User" || fail "Invite User"
+    -d '{"user_id": "'"$USER_ID"'"}' && pass "Invite User" || fail "Invite User"
 
 echo ""
 echo "35. Join Room"
@@ -1610,7 +1610,7 @@ curl -s -X PUT "$SERVER_URL/_matrix/client/v3/presence/$USER_ID/status" \
 
 echo ""
 echo "125. Get Presence List"
-http_json GET "$SERVER_URL/_matrix/client/v3/presence/list/@admin:cjystx.top" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/presence/list/$USER_ID" "$TOKEN"
 GET_PRESENCE_LIST_RESP="$HTTP_BODY"
 assert_success_json "Get Presence List" "$GET_PRESENCE_LIST_RESP" "$HTTP_STATUS" "presences"
 
@@ -1739,7 +1739,7 @@ check_success_json "$HTTP_BODY" "$HTTP_STATUS" "chunk" && pass "Admin Room Messa
 
 echo ""
 echo "140. Admin Block Room"
-http_json POST "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/block" "$TOKEN" '{"block": true}'
+http_json POST "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/block" "$ADMIN_TOKEN" '{"block": true}'
 check_success_json "$HTTP_BODY" "$HTTP_STATUS" "block" && pass "Admin Block Room" || fail "Admin Block Room"
 
 # 50. Admin User Sessions
@@ -1958,7 +1958,7 @@ echo "169. Send To Device"
 curl -s -X PUT "$SERVER_URL/_matrix/client/v3/sendToDevice/m.room_key_request/txn123" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"messages": {"@admin:cjystx.top": {"device123": {"type": "m.room_key_request"}}}}' && pass "Send To Device" || skip "SendToDevice (endpoint not available)"
+    -d '{"messages": {"'"$USER_ID"'": {"device123": {"type": "m.room_key_request"}}}}' && pass "Send To Device" || skip "SendToDevice (endpoint not available)"
 
 # 62. OpenID Connect
 echo ""
@@ -2793,7 +2793,7 @@ echo "=========================================="
 echo "273. Room Aggregations"
 echo "=========================================="
 echo "273. Get Aggregation"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/annotations/test_event_id" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/aggregations/\$test_event_id:server/m.annotation" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Aggregation"
 else
@@ -2823,7 +2823,7 @@ fi
 
 echo ""
 echo "276. User Directory Profile"
-http_json GET "$SERVER_URL/_matrix/client/v3/user_directory/profiles/@admin:cjystx.top" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/user_directory/profiles/$USER_ID" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "User Directory Profile"
 else
@@ -2964,7 +2964,7 @@ echo "=========================================="
 echo "287. Presence Extended"
 echo "=========================================="
 echo "287. Get Presence"
-http_json GET "$SERVER_URL/_matrix/client/v3/presence/@admin:cjystx.top/status" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/presence/$USER_ID/status" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Presence"
 else
@@ -2973,7 +2973,7 @@ fi
 
 echo ""
 echo "288. Set Presence"
-http_json PUT "$SERVER_URL/_matrix/client/v3/presence/@admin:cjystx.top/status" "$TOKEN" '{"presence": "online", "status_msg": "Available"}'
+http_json PUT "$SERVER_URL/_matrix/client/v3/presence/$USER_ID/status" "$TOKEN" '{"presence": "online", "status_msg": "Available"}'
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Set Presence"
 else
@@ -3250,7 +3250,7 @@ echo "=========================================="
 echo "308. Key Claim"
 echo "=========================================="
 echo "308. Claim Keys"
-http_json POST "$SERVER_URL/_matrix/client/v3/keys/claim" "$TOKEN" '{"one_time_keys": {"@admin:cjystx.top": {"test_device": {"test:1": ""}}}}'
+http_json POST "$SERVER_URL/_matrix/client/v3/keys/claim" "$TOKEN" '{"one_time_keys": {"'"$USER_ID"'": {"test_device": {"test:1": ""}}}}'
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Claim Keys"
 else
@@ -3263,7 +3263,7 @@ echo "=========================================="
 echo "309. Room Global Tags"
 echo "=========================================="
 echo "309. Get Global Tags"
-http_json GET "$SERVER_URL/_matrix/client/v3/user/@admin:cjystx.top/tags" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID/tags" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Global Tags"
 else
@@ -3366,7 +3366,7 @@ echo "=========================================="
 echo "317. Room Event Relations"
 echo "=========================================="
 echo "317. Get Event Relations"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/relations/test_event/m.reference" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/relations/\$test_event:server/m.reference" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Event Relations"
 else
@@ -3379,7 +3379,7 @@ echo "=========================================="
 echo "318. Room Aggregation Groups"
 echo "=========================================="
 echo "318. Get Aggregation Groups"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/annotations/test_event" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/aggregations/\$test_event:server/m.annotation" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Aggregation Groups"
 else
@@ -3497,7 +3497,7 @@ echo "=========================================="
 echo "327. Room Membership"
 echo "=========================================="
 echo "327. Get Membership"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/membership/@admin:cjystx.top" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/membership/$USER_ID" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Membership"
 else
@@ -3623,7 +3623,7 @@ echo "=========================================="
 echo "335. Room User Fragment"
 echo "=========================================="
 echo "335. Get User Fragments"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/fragments/@admin:cjystx.top" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/fragments/$USER_ID" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get User Fragments"
 else
@@ -3683,14 +3683,14 @@ echo "=========================================="
 echo "340. Room Tags Extended"
 echo "=========================================="
 echo "340. Add Room Tag"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v3/user/@admin:cjystx.top/rooms/$ROOM_ID/tags/m.reduced" \
+curl -s -X PUT "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags/m.reduced" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{}' && pass "Add Room Tag" || skip "Room Tags (endpoint not available)"
 
 echo ""
 echo "341. Remove Room Tag"
-http_json DELETE "$SERVER_URL/_matrix/client/v3/user/@admin:cjystx.top/rooms/$ROOM_ID/tags/m.reduced" "$TOKEN"
+http_json DELETE "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags/m.reduced" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Remove Room Tag"
 else
@@ -3934,7 +3934,7 @@ echo "=========================================="
 echo "360. Room Event Reactions"
 echo "=========================================="
 echo "360. Get Event Reactions"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/relations/test_event_id" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/relations/\$test_event_id:server" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Event Reactions"
 else
@@ -4476,7 +4476,7 @@ echo "=========================================="
 echo "402. Room Tags Extended"
 echo "=========================================="
 echo "402. Get User Tags"
-http_json GET "$SERVER_URL/_matrix/client/v3/user/@admin:cjystx.top/rooms/$ROOM_ID/tags" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get User Tags"
 else
@@ -4489,7 +4489,7 @@ echo "=========================================="
 echo "403. Presence Extended"
 echo "=========================================="
 echo "403. Get Presence v1"
-http_json GET "$SERVER_URL/_matrix/client/v1/presence/@admin:cjystx.top/status" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v1/presence/$USER_ID/status" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Presence v1"
 else
@@ -4502,7 +4502,7 @@ echo "=========================================="
 echo "404. Profile Extended"
 echo "=========================================="
 echo "404. Get Profile"
-http_json GET "$SERVER_URL/_matrix/client/v1/profile/@admin:cjystx.top" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v1/profile/$USER_ID" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Profile"
 else
@@ -4511,7 +4511,7 @@ fi
 
 echo ""
 echo "405. Set Profile"
-http_json PUT "$SERVER_URL/_matrix/client/v1/profile/@admin:cjystx.top/displayname" "$TOKEN" '{"displayname": "Test Admin"}'
+http_json PUT "$SERVER_URL/_matrix/client/v1/profile/$USER_ID/displayname" "$TOKEN" '{"displayname": "Test Admin"}'
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Set Profile"
 else

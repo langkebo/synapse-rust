@@ -1,8 +1,7 @@
 use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::routes::{
-    extract_token_from_headers, validate_event_id, validate_room_id, validate_user_id,
-    AppState,
+    extract_token_from_headers, validate_event_id, validate_room_id, validate_user_id, AppState,
 };
 use axum::{
     extract::{Json, Path, Query, State},

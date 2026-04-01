@@ -14,12 +14,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-fn create_relations_compat_router() -> Router<AppState> {
+fn create_relations_core_router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/rooms/{room_id}/relations/{event_id}",
-            get(get_relations_by_event),
-        )
         .route(
             "/rooms/{room_id}/relations/{event_id}/{rel_type}",
             get(get_relations),
@@ -34,13 +30,21 @@ fn create_relations_compat_router() -> Router<AppState> {
         )
 }
 
+fn create_relations_with_event_router() -> Router<AppState> {
+    create_relations_core_router().route(
+        "/rooms/{room_id}/relations/{event_id}",
+        get(get_relations_by_event),
+    )
+}
+
 pub fn create_relations_router(state: AppState) -> Router<AppState> {
-    let compat_router = create_relations_compat_router();
+    let with_event_router = create_relations_with_event_router();
+    let core_router = create_relations_core_router();
 
     Router::new()
-        .nest("/_matrix/client/v1", compat_router.clone())
-        .nest("/_matrix/client/r0", compat_router.clone())
-        .nest("/_matrix/client/v3", compat_router)
+        .nest("/_matrix/client/v1", with_event_router.clone())
+        .nest("/_matrix/client/v3", with_event_router)
+        .nest("/_matrix/client/r0", core_router)
         .with_state(state)
 }
 

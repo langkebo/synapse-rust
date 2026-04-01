@@ -9,104 +9,43 @@ use synapse_rust::storage::{CreateEventParams, EventStorage, RoomStorage};
 use tokio::runtime::Runtime;
 
 async fn setup_test_database() -> Option<Pool<Postgres>> {
-    let mut candidate_urls = Vec::new();
-    for key in ["TEST_DATABASE_URL", "DATABASE_URL"] {
-        if let Ok(value) = std::env::var(key) {
-            if !candidate_urls.iter().any(|existing| existing == &value) {
-                candidate_urls.push(value);
-            }
+    let pool = match synapse_rust::test_utils::prepare_isolated_test_pool().await {
+        Ok(pool) => pool,
+        Err(error) => {
+            eprintln!(
+                "Skipping protocol tests; isolated schema setup failed: {}",
+                error
+            );
+            return None;
         }
-    }
-    for fallback in [
-        "postgresql://synapse:synapse@localhost:5432/synapse",
-        "postgresql://synapse:synapse@localhost:5432/synapse_test",
-        "postgresql://synapse:secret@localhost:5432/synapse_test",
-    ] {
-        let fallback = fallback.to_string();
-        if !candidate_urls.iter().any(|existing| existing == &fallback) {
-            candidate_urls.push(fallback);
-        }
-    }
-
-    let mut errors = Vec::new();
-    let mut pool = None;
-    for database_url in candidate_urls {
-        match sqlx::postgres::PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(5))
-            .connect(&database_url)
-            .await
-        {
-            Ok(found_pool) => {
-                pool = Some(found_pool);
-                break;
-            }
-            Err(error) => errors.push(format!("{} -> {}", database_url, error)),
-        }
-    }
-    let Some(pool) = pool else {
-        eprintln!(
-            "Skipping protocol tests; database unavailable: {}",
-            errors.join(" | ")
-        );
-        return None;
     };
 
-    // Run database initialization to ensure all tables exist
-    let init_service =
-        synapse_rust::services::DatabaseInitService::new(std::sync::Arc::new(pool.clone()));
-    if let Err(e) = init_service.initialize().await {
-        eprintln!("Database initialization failed: {}", e);
-    }
-
-    // Manually ensure typing table exists (in case init failed silently)
-    let _ = sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS typing (
-                user_id TEXT NOT NULL,
-                room_id TEXT NOT NULL,
-                typing BOOLEAN DEFAULT FALSE,
-                last_active_ts BIGINT NOT NULL,
-                UNIQUE (user_id, room_id)
-            )
-            "#,
-    )
-    .execute(&pool)
-    .await;
-
-    // Manually ensure is_guest column exists
-    let _ =
-        sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN DEFAULT FALSE")
-            .execute(&pool)
-            .await;
-
-    // Clean up any existing test data to avoid conflicts
     sqlx::query("DELETE FROM read_markers WHERE user_id LIKE '@%:localhost'")
-        .execute(&pool)
+        .execute(&*pool)
         .await
         .ok();
     sqlx::query("DELETE FROM event_receipts WHERE user_id LIKE '@%:localhost'")
-        .execute(&pool)
+        .execute(&*pool)
         .await
         .ok();
     sqlx::query("DELETE FROM typing WHERE user_id LIKE '@%:localhost'")
-        .execute(&pool)
+        .execute(&*pool)
         .await
         .ok();
     sqlx::query("DELETE FROM events WHERE room_id = '!room:test'")
-        .execute(&pool)
+        .execute(&*pool)
         .await
         .ok();
     sqlx::query("DELETE FROM rooms WHERE room_id = '!room:test'")
-        .execute(&pool)
+        .execute(&*pool)
         .await
         .ok();
     sqlx::query("DELETE FROM users WHERE user_id LIKE '@%:localhost'")
-        .execute(&pool)
+        .execute(&*pool)
         .await
         .ok();
 
-    Some(pool)
+    Some((*pool).clone())
 }
 
 async fn create_test_user(pool: &Pool<Postgres>, user_id: &str) {

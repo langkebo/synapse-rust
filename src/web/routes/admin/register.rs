@@ -310,14 +310,36 @@ async fn register(
         .await;
 
     match register_result {
-        Ok((_user, access_token, refresh_token, device_id)) => Ok(Json(RegisterResponse {
-            access_token,
-            refresh_token,
-            expires_in: 3600,
-            device_id,
-            user_id: user_id.clone(),
-            home_server: config.server.name.clone(),
-        })),
+        Ok((_user, access_token, refresh_token, device_id)) => {
+            if payload.admin {
+                if let Err(e) = sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
+                    .bind(&user_id)
+                    .execute(&*state.services.user_storage.pool)
+                    .await
+                {
+                    return Err(Response::builder()
+                        .status(500)
+                        .header("Content-Type", "application/json")
+                        .body(Body::from(
+                            serde_json::to_string(&RegisterError {
+                                errcode: "M_UNKNOWN".to_string(),
+                                error: format!("Failed to update admin status: {}", e),
+                            })
+                            .unwrap(),
+                        ))
+                        .unwrap());
+                }
+            }
+
+            Ok(Json(RegisterResponse {
+                access_token,
+                refresh_token,
+                expires_in: 3600,
+                device_id,
+                user_id: user_id.clone(),
+                home_server: config.server.name.clone(),
+            }))
+        }
         Err(e) => {
             let error_msg = e.to_string();
             if error_msg.contains("already exists") {

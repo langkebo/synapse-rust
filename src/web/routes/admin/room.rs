@@ -91,7 +91,10 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
             "/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}",
             post(ban_user),
         )
-        .route("/_synapse/admin/v1/rooms/{room_id}/ban", post(ban_user_by_body))
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/ban",
+            post(ban_user_by_body),
+        )
         .route(
             "/_synapse/admin/v1/rooms/{room_id}/unban/{user_id}",
             post(unban_user),
@@ -100,7 +103,10 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
             "/_synapse/admin/v1/rooms/{room_id}/kick/{user_id}",
             post(kick_user),
         )
-        .route("/_synapse/admin/v1/rooms/{room_id}/kick", post(kick_user_by_body))
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/kick",
+            post(kick_user_by_body),
+        )
         // Room listing
         .route(
             "/_synapse/admin/v1/rooms/{room_id}/listings",
@@ -641,7 +647,7 @@ pub async fn get_spaces(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
     let spaces = sqlx::query(
-        "SELECT space_id, name, topic, creator, created_ts FROM spaces ORDER BY created_ts DESC"
+        "SELECT space_id, name, topic, creator, created_ts FROM spaces ORDER BY created_ts DESC",
     )
     .fetch_all(&*state.services.room_storage.pool)
     .await
@@ -672,7 +678,7 @@ pub async fn get_space(
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let space = sqlx::query(
-        "SELECT space_id, name, topic, creator, created_ts FROM spaces WHERE space_id = $1"
+        "SELECT space_id, name, topic, creator, created_ts FROM spaces WHERE space_id = $1",
     )
     .bind(&space_id)
     .fetch_optional(&*state.services.room_storage.pool)
@@ -716,12 +722,13 @@ pub async fn get_space_users(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let users =
-        sqlx::query("SELECT user_id FROM space_members WHERE space_id = $1 AND membership = 'join'")
-        .bind(&space_id)
-        .fetch_all(&*state.services.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let users = sqlx::query(
+        "SELECT user_id FROM space_members WHERE space_id = $1 AND membership = 'join'",
+    )
+    .bind(&space_id)
+    .fetch_all(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let user_list: Vec<String> = users.iter().map(|r| r.get("user_id")).collect();
 
@@ -755,12 +762,13 @@ pub async fn get_space_stats(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let member_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'")
-            .bind(&space_id)
-            .fetch_one(&*state.services.room_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let member_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'",
+    )
+    .bind(&space_id)
+    .fetch_one(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let child_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM space_children WHERE space_id = $1")
@@ -962,7 +970,11 @@ async fn join_room_member_internal(
         .map(|member| member.membership);
 
     if existing_membership.as_deref() != Some("join") {
-        state.services.room_service.join_room(room_id, user_id).await?;
+        state
+            .services
+            .room_service
+            .join_room(room_id, user_id)
+            .await?;
     }
 
     Ok(json!({
@@ -986,7 +998,11 @@ async fn remove_room_member_internal(
         .map(|member| member.membership);
 
     if existing_membership.as_deref() == Some("join") {
-        state.services.room_service.leave_room(room_id, user_id).await?;
+        state
+            .services
+            .room_service
+            .leave_room(room_id, user_id)
+            .await?;
     }
 
     Ok(json!({
@@ -1012,7 +1028,12 @@ async fn ban_user_internal(
         .map(|member| member.membership);
 
     if existing_membership.as_deref() == Some("join") {
-        state.services.room_storage.decrement_member_count(room_id).await.ok();
+        state
+            .services
+            .room_storage
+            .decrement_member_count(room_id)
+            .await
+            .ok();
     }
 
     state
@@ -1119,7 +1140,11 @@ async fn kick_user_internal(
 
     match existing_membership.as_deref() {
         Some("join") => {
-            state.services.room_service.leave_room(room_id, user_id).await?;
+            state
+                .services
+                .room_service
+                .leave_room(room_id, user_id)
+                .await?;
         }
         Some(_) => {
             let now = chrono::Utc::now().timestamp_millis();
@@ -1609,7 +1634,7 @@ pub async fn search_all_rooms(
 
     let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
         r#"
-        SELECT r.room_id, r.name, r.topic, r.creator, r.is_public, r.creation_ts,
+        SELECT r.room_id, r.name, r.topic, r.creator, r.is_public, r.created_ts as creation_ts,
                COUNT(DISTINCT rm.user_id) as member_count,
                CASE WHEN COUNT(DISTINCT re.event_id) > 0 THEN TRUE ELSE FALSE END as is_encrypted
         FROM rooms r
@@ -1646,13 +1671,13 @@ pub async fn search_all_rooms(
         }
     }
 
-    query.push(" GROUP BY r.room_id, r.name, r.topic, r.creator, r.is_public, r.creation_ts");
+    query.push(" GROUP BY r.room_id, r.name, r.topic, r.creator, r.is_public, r.created_ts");
 
     let order_by_clause = match body.order_by.as_deref() {
-        Some("name") => " ORDER BY r.name ASC NULLS LAST, r.creation_ts DESC",
-        Some("size") => " ORDER BY member_count DESC, r.creation_ts DESC",
-        Some("created") => " ORDER BY r.creation_ts DESC",
-        _ => " ORDER BY r.creation_ts DESC",
+        Some("name") => " ORDER BY r.name ASC NULLS LAST, r.created_ts DESC",
+        Some("size") => " ORDER BY member_count DESC, r.created_ts DESC",
+        Some("created") => " ORDER BY r.created_ts DESC",
+        _ => " ORDER BY r.created_ts DESC",
     };
     query.push(order_by_clause);
 
@@ -1689,11 +1714,11 @@ pub async fn search_all_rooms(
     if let Some(is_encrypted) = body.is_encrypted {
         if is_encrypted {
             count_query.push(
-                " AND EXISTS (SELECT 1 FROM room_events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.type = 'm.room.encryption')",
+                " AND EXISTS (SELECT 1 FROM room_events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption')",
             );
         } else {
             count_query.push(
-                " AND NOT EXISTS (SELECT 1 FROM room_events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.type = 'm.room.encryption')",
+                " AND NOT EXISTS (SELECT 1 FROM room_events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption')",
             );
         }
     }

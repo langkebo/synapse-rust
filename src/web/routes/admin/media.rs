@@ -129,10 +129,11 @@ pub async fn get_media_quota(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let total_size: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
-        .fetch_one(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let total_size: i64 =
+        sqlx::query_scalar("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
+            .fetch_one(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let total_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_metadata")
         .fetch_one(&*state.services.user_storage.pool)

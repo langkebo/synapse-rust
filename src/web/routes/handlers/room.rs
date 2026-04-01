@@ -966,7 +966,11 @@ pub(crate) async fn create_room(
 
     if config.room_type.as_deref() == Some("m.space") {
         let space_request = crate::storage::space::CreateSpaceRequest {
-            room_id: result.get("room_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            room_id: result
+                .get("room_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             name: config.name.clone(),
             topic: config.topic.clone(),
             avatar_url: None,
@@ -976,7 +980,12 @@ pub(crate) async fn create_room(
             is_public: config.visibility.as_ref().map(|v| v == "public"),
             parent_space_id: None,
         };
-        if let Err(e) = state.services.space_service.create_space(space_request).await {
+        if let Err(e) = state
+            .services
+            .space_service
+            .create_space(space_request)
+            .await
+        {
             ::tracing::error!("Failed to create space record: {}", e);
         }
     }
@@ -2020,47 +2029,6 @@ pub(crate) async fn get_room_unread_count(
         "notification_count": 0,
         "highlight_count": 0
     })))
-}
-
-pub(crate) async fn report_room_event_client(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
-    Json(_body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-    let _ = auth_user;
-    let _ = event_id;
-    Ok(Json(json!({})))
-}
-
-pub(crate) async fn report_room_client(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
-    Json(_body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-    let _ = auth_user;
-    Ok(Json(json!({})))
 }
 
 pub(crate) async fn get_room_metadata(

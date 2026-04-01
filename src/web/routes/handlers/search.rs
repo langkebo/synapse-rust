@@ -403,7 +403,12 @@ async fn build_room_hierarchy_response(
     limit: i32,
     from: Option<&str>,
 ) -> Result<Value, ApiError> {
-    if let Some(space) = state.services.space_service.get_space_by_room(room_id).await? {
+    if let Some(space) = state
+        .services
+        .space_service
+        .get_space_by_room(room_id)
+        .await?
+    {
         let response = state
             .services
             .space_service

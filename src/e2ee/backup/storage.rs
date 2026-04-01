@@ -50,7 +50,7 @@ impl KeyBackupStorage {
                 etag = EXCLUDED.etag,
                 backup_id_text = EXCLUDED.backup_id_text,
                 updated_ts = EXCLUDED.updated_ts
-            "#
+            "#,
         )
         .bind(&backup.user_id)
         .bind(&backup.backup_id)
