@@ -134,8 +134,8 @@ impl VerificationService {
             to_device: to_device.clone(),
             method: VerificationMethod::Sas,
             state: VerificationState::Requested,
-            created_at: now,
-            updated_at: now,
+            created_ts: now,
+            updated_ts: now,
         };
 
         self.storage.create_request(&request).await?;
@@ -302,8 +302,8 @@ impl VerificationService {
             to_device: Some(scanner_device.to_string()),
             method: VerificationMethod::Qr,
             state: VerificationState::Pending,
-            created_at: now,
-            updated_at: now,
+            created_ts: now,
+            updated_ts: now,
         };
 
         self.storage.create_request(&request).await?;

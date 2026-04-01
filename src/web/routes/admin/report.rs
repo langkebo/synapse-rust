@@ -44,7 +44,7 @@ pub async fn get_all_reports(
         .unwrap_or(0);
 
     let reports = sqlx::query(
-        "SELECT id, room_id, event_id, user_id, reason, content, received_ts FROM event_reports ORDER BY received_ts DESC LIMIT $1 OFFSET $2"
+        "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports ORDER BY received_ts DESC LIMIT $1 OFFSET $2"
     )
     .bind(limit)
     .bind(offset)
@@ -56,13 +56,16 @@ pub async fn get_all_reports(
         .iter()
         .map(|row| {
             json!({
-                "id": row.get::<Option<i64>, _>("id"),
-                "room_id": row.get::<Option<String>, _>("room_id"),
-                "event_id": row.get::<Option<String>, _>("event_id"),
-                "user_id": row.get::<Option<String>, _>("user_id"),
+                "id": row.get::<i64, _>("id"),
+                "room_id": row.get::<String, _>("room_id"),
+                "event_id": row.get::<String, _>("event_id"),
+                "user_id": row.get::<String, _>("reporter_user_id"),
+                "reported_user_id": row.get::<Option<String>, _>("reported_user_id"),
                 "reason": row.get::<Option<String>, _>("reason"),
-                "content": row.get::<Option<String>, _>("content"),
-                "received_ts": row.get::<Option<i64>, _>("received_ts")
+                "content": row.get::<Option<String>, _>("description"),
+                "status": row.get::<Option<String>, _>("status"),
+                "score": row.get::<Option<i32>, _>("score"),
+                "received_ts": row.get::<i64, _>("received_ts")
             })
         })
         .collect();
@@ -79,7 +82,7 @@ pub async fn get_report(
     Path(report_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
     let report = sqlx::query(
-        "SELECT id, room_id, event_id, user_id, reason, content, received_ts FROM event_reports WHERE id = $1"
+        "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE id = $1"
     )
     .bind(report_id)
     .fetch_optional(&*state.services.event_storage.pool)
@@ -88,13 +91,16 @@ pub async fn get_report(
 
     match report {
         Some(row) => Ok(Json(json!({
-            "id": row.get::<Option<i64>, _>("id"),
-            "room_id": row.get::<Option<String>, _>("room_id"),
-            "event_id": row.get::<Option<String>, _>("event_id"),
-            "user_id": row.get::<Option<String>, _>("user_id"),
+            "id": row.get::<i64, _>("id"),
+            "room_id": row.get::<String, _>("room_id"),
+            "event_id": row.get::<String, _>("event_id"),
+            "user_id": row.get::<String, _>("reporter_user_id"),
+            "reported_user_id": row.get::<Option<String>, _>("reported_user_id"),
             "reason": row.get::<Option<String>, _>("reason"),
-            "content": row.get::<Option<String>, _>("content"),
-            "received_ts": row.get::<Option<i64>, _>("received_ts")
+            "content": row.get::<Option<String>, _>("description"),
+            "status": row.get::<Option<String>, _>("status"),
+            "score": row.get::<Option<i32>, _>("score"),
+            "received_ts": row.get::<i64, _>("received_ts")
         }))),
         None => Err(ApiError::not_found("Report not found".to_string())),
     }
@@ -126,7 +132,7 @@ pub async fn get_room_reports(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let reports = sqlx::query(
-        "SELECT id, room_id, event_id, user_id, reason, content, received_ts FROM event_reports WHERE room_id = $1 ORDER BY received_ts DESC"
+        "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE room_id = $1 ORDER BY received_ts DESC"
     )
     .bind(&room_id)
     .fetch_all(&*state.services.event_storage.pool)
@@ -137,13 +143,16 @@ pub async fn get_room_reports(
         .iter()
         .map(|row| {
             json!({
-                "id": row.get::<Option<i64>, _>("id"),
-                "room_id": row.get::<Option<String>, _>("room_id"),
-                "event_id": row.get::<Option<String>, _>("event_id"),
-                "user_id": row.get::<Option<String>, _>("user_id"),
+                "id": row.get::<i64, _>("id"),
+                "room_id": row.get::<String, _>("room_id"),
+                "event_id": row.get::<String, _>("event_id"),
+                "user_id": row.get::<String, _>("reporter_user_id"),
+                "reported_user_id": row.get::<Option<String>, _>("reported_user_id"),
                 "reason": row.get::<Option<String>, _>("reason"),
-                "content": row.get::<Option<String>, _>("content"),
-                "received_ts": row.get::<Option<i64>, _>("received_ts")
+                "content": row.get::<Option<String>, _>("description"),
+                "status": row.get::<Option<String>, _>("status"),
+                "score": row.get::<Option<i32>, _>("score"),
+                "received_ts": row.get::<i64, _>("received_ts")
             })
         })
         .collect();
@@ -160,7 +169,7 @@ pub async fn get_room_report(
     Path((room_id, report_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
     let report = sqlx::query(
-        "SELECT id, room_id, event_id, user_id, reason, content, received_ts FROM event_reports WHERE id = $1 AND room_id = $2"
+        "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE id = $1 AND room_id = $2"
     )
     .bind(report_id)
     .bind(&room_id)
@@ -170,13 +179,16 @@ pub async fn get_room_report(
 
     match report {
         Some(row) => Ok(Json(json!({
-            "id": row.get::<Option<i64>, _>("id"),
-            "room_id": row.get::<Option<String>, _>("room_id"),
-            "event_id": row.get::<Option<String>, _>("event_id"),
-            "user_id": row.get::<Option<String>, _>("user_id"),
+            "id": row.get::<i64, _>("id"),
+            "room_id": row.get::<String, _>("room_id"),
+            "event_id": row.get::<String, _>("event_id"),
+            "user_id": row.get::<String, _>("reporter_user_id"),
+            "reported_user_id": row.get::<Option<String>, _>("reported_user_id"),
             "reason": row.get::<Option<String>, _>("reason"),
-            "content": row.get::<Option<String>, _>("content"),
-            "received_ts": row.get::<Option<i64>, _>("received_ts")
+            "content": row.get::<Option<String>, _>("description"),
+            "status": row.get::<Option<String>, _>("status"),
+            "score": row.get::<Option<i32>, _>("score"),
+            "received_ts": row.get::<i64, _>("received_ts")
         }))),
         None => Err(ApiError::not_found("Report not found".to_string())),
     }

@@ -82,7 +82,7 @@ impl RoomSummaryService {
 
         let room_id = request.room_id.clone();
 
-        let summary = if self
+        if self
             .storage
             .get_summary(&room_id)
             .await
@@ -92,15 +92,13 @@ impl RoomSummaryService {
             self.storage
                 .update_summary(&room_id, Self::create_request_to_update_request(&request))
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to update room summary: {}", e)))?
+                .map_err(|e| ApiError::internal(format!("Failed to update room summary: {}", e)))?;
         } else {
             self.storage
                 .create_summary(request)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to create room summary: {}", e)))?
-        };
-
-        let _response = summary.to_response(Vec::new());
+                .map_err(|e| ApiError::internal(format!("Failed to create room summary: {}", e)))?;
+        }
 
         self.synchronize_room_snapshot(&room_id).await?;
 
@@ -111,7 +109,10 @@ impl RoomSummaryService {
     }
 
     #[allow(dead_code)]
-    async fn get_initial_state_events(&self, room_id: &str) -> Result<Vec<crate::storage::event::StateEvent>, ApiError> {
+    async fn get_initial_state_events(
+        &self,
+        room_id: &str,
+    ) -> Result<Vec<crate::storage::event::StateEvent>, ApiError> {
         let mut all_states = Vec::new();
 
         let current_states = self
@@ -133,13 +134,14 @@ impl RoomSummaryService {
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed to get invite members: {}", e)))?;
 
-            let all_members: Vec<_> = join_members
-                .into_iter()
-                .chain(invite_members)
-                .collect();
+            let all_members: Vec<_> = join_members.into_iter().chain(invite_members).collect();
 
             if !all_members.is_empty() {
-                info!("Found {} initial members for room {}", all_members.len(), room_id);
+                info!(
+                    "Found {} initial members for room {}",
+                    all_members.len(),
+                    room_id
+                );
             }
         }
 
@@ -188,17 +190,18 @@ impl RoomSummaryService {
             let join_members = member_storage
                 .get_room_members(room_id, "join")
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get room join members: {}", e)))?;
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to get room join members: {}", e))
+                })?;
 
             let invite_members = member_storage
                 .get_room_members(room_id, "invite")
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get room invite members: {}", e)))?;
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to get room invite members: {}", e))
+                })?;
 
-            let all_members: Vec<_> = join_members
-                .into_iter()
-                .chain(invite_members)
-                .collect();
+            let all_members: Vec<_> = join_members.into_iter().chain(invite_members).collect();
 
             info!("Syncing {} members for room {}", all_members.len(), room_id);
 
@@ -209,7 +212,7 @@ impl RoomSummaryService {
                     display_name: member.display_name.clone(),
                     avatar_url: member.avatar_url.clone(),
                     membership: member.membership.clone(),
-                    is_hero: Some(member.user_id == member.user_id),
+                    is_hero: Some(false),
                     last_active_ts: member.joined_ts.or(member.updated_ts),
                 };
 
@@ -637,11 +640,16 @@ impl RoomSummaryService {
     pub async fn recalculate_heroes(&self, room_id: &str) -> Result<Vec<String>, ApiError> {
         let members = self
             .storage
-            .get_heroes(room_id, 5)
+            .get_hero_candidates(room_id, 5)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get heroes: {}", e)))?;
 
         let hero_ids: Vec<String> = members.iter().map(|m| m.user_id.clone()).collect();
+
+        self.storage
+            .set_hero_members(room_id, &hero_ids)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to update hero flags: {}", e)))?;
 
         let hero_users = serde_json::to_value(&hero_ids)
             .map_err(|e| ApiError::internal(format!("Failed to serialize heroes: {}", e)))?;
@@ -682,7 +690,7 @@ impl RoomSummaryService {
                 is_space: None,
             };
 
-            self.create_summary(request).await?;
+            return self.create_summary(request).await;
         }
 
         self.synchronize_room_snapshot(room_id).await?;

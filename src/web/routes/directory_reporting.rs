@@ -1,13 +1,39 @@
 use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::routes::{
-    extract_token_from_headers, validate_event_id, validate_room_id, AppState,
+    extract_token_from_headers, validate_event_id, validate_room_id, validate_user_id,
+    AppState,
 };
 use axum::{
     extract::{Json, Path, Query, State},
     http::HeaderMap,
 };
 use serde_json::{json, Value};
+
+pub(crate) async fn get_user_directory_profile(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let token = extract_token_from_headers(&headers)?;
+    let _ = state.services.auth_service.validate_token(&token).await?;
+
+    validate_user_id(&user_id)?;
+
+    let user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to lookup user: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+
+    Ok(Json(json!({
+        "user_id": user.user_id,
+        "displayname": user.displayname,
+        "avatar_url": user.avatar_url
+    })))
+}
 
 pub(crate) async fn search_user_directory(
     State(state): State<AppState>,
@@ -158,13 +184,13 @@ pub(crate) async fn report_room(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let members = sqlx::query("SELECT room_id FROM rooms WHERE room_id = $1 LIMIT 1")
-        .bind(&room_id)
-        .fetch_optional(&*state.services.user_storage.pool)
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-    if members.is_none() {
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -298,7 +324,10 @@ pub(crate) async fn get_room_by_alias(
         .await?;
     match room_id {
         Some(rid) => Ok(Json(json!({ "room_id": rid }))),
-        None => Err(ApiError::not_found("Room alias not found".to_string())),
+        None => Ok(Json(json!({
+            "room_id": "",
+            "servers": []
+        }))),
     }
 }
 

@@ -3,7 +3,8 @@ use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
 use axum::{
     extract::{Query, State},
-    response::{Html, IntoResponse, Redirect},
+    http::header,
+    response::{IntoResponse, Redirect},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -263,7 +264,10 @@ pub async fn get_sp_metadata(State(state): State<AppState>) -> Result<impl IntoR
         )).unwrap_or_default()
     );
 
-    Ok(Html(metadata))
+    Ok((
+        [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
+        metadata,
+    ))
 }
 
 pub async fn refresh_idp_metadata(

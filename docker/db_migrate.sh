@@ -1,273 +1,275 @@
 #!/bin/bash
-# ============================================================================
-# synapse-rust 数据库迁移管理脚本
-# 版本: 1.0.0
-# 创建日期: 2026-03-01
-# ============================================================================
 
-set -e
+set -euo pipefail
 
-# 配置
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MIGRATIONS_DIR="$PROJECT_ROOT/migrations"
-ENV_FILE="$PROJECT_ROOT/.env"
 
-# 颜色输出
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# 日志函数
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $*"
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo -e "${GREEN}[SUCCESS]${NC} $*"
 }
 
 log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${YELLOW}[WARNING]${NC} $*"
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[ERROR]${NC} $*" >&2
 }
 
-# 加载环境变量
 load_env() {
-    if [ -f "$ENV_FILE" ]; then
-        log_info "加载环境变量: $ENV_FILE"
-        export $(grep -v '^#' "$ENV_FILE" | xargs)
+    local env_file=""
+    for candidate in "$SCRIPT_DIR/.env" "$PWD/.env" "$PROJECT_ROOT/.env"; do
+        if [ -f "$candidate" ]; then
+            env_file="$candidate"
+            break
+        fi
+    done
+
+    if [ -n "$env_file" ]; then
+        log_info "加载环境变量: $env_file"
+        set -a
+        . "$env_file"
+        set +a
     fi
-    
-    export DATABASE_URL="${DATABASE_URL:-postgres://synapse:synapse@localhost:5432/synapse}"
 
-    local parsed_user=$(echo "$DATABASE_URL" | sed -n 's|^postgres://\([^:]*\):.*$|\1|p')
-    local parsed_password=$(echo "$DATABASE_URL" | sed -n 's|^postgres://[^:]*:\([^@]*\)@.*$|\1|p')
-    local parsed_host=$(echo "$DATABASE_URL" | sed -n 's|^postgres://[^@]*@\([^:/]*\).*$|\1|p')
-    local parsed_port=$(echo "$DATABASE_URL" | sed -n 's|^postgres://[^@]*@[^:/]*:\([0-9]*\)/.*$|\1|p')
-    local parsed_db=$(echo "$DATABASE_URL" | sed -n 's|.*/\([^?]*\).*$|\1|p')
-
-    export DB_HOST="${DB_HOST:-${parsed_host:-localhost}}"
-    export DB_PORT="${DB_PORT:-${parsed_port:-5432}}"
-    export DB_NAME="${DB_NAME:-${parsed_db:-synapse}}"
-    export DB_USER="${DB_USER:-${parsed_user:-synapse}}"
-    export DB_PASSWORD="${DB_PASSWORD:-${parsed_password:-synapse}}"
+    export DB_HOST="${DB_HOST:-localhost}"
+    export DB_PORT="${DB_PORT:-5432}"
+    export DB_NAME="${DB_NAME:-synapse}"
+    export DB_USER="${DB_USER:-synapse}"
+    export DB_PASSWORD="${DB_PASSWORD:-synapse}"
+    export DATABASE_URL="${DATABASE_URL:-postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME}"
+    export POSTGRES_ADMIN_URL="${POSTGRES_ADMIN_URL:-postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/postgres}"
 }
 
-# 检查数据库连接
-check_db_connection() {
-    log_info "检查数据库连接..."
-    if psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -c "SELECT 1" > /dev/null 2>&1; then
-        log_success "数据库连接成功"
-        return 0
-    else
-        log_error "无法连接到数据库"
-        return 1
-    fi
+psql_db() {
+    PGOPTIONS='-c client_min_messages=warning' psql "$DATABASE_URL" "$@"
 }
 
-# 获取当前版本
-get_current_version() {
-    local order_column="applied_ts"
-    if ! schema_migrations_has_column "applied_ts"; then
-        order_column="executed_at"
-    fi
-    local version=$(psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -t -c "
-        SELECT version FROM schema_migrations ORDER BY ${order_column} DESC LIMIT 1
-    " 2>/dev/null | tr -d ' ')
-    echo "$version"
+psql_admin() {
+    PGOPTIONS='-c client_min_messages=warning' psql "$POSTGRES_ADMIN_URL" "$@"
+}
+
+table_exists() {
+    local table_name="$1"
+    psql_db -tAc "SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = '$table_name'
+    )" 2>/dev/null | grep -q '^t$'
 }
 
 schema_migrations_has_column() {
     local column_name="$1"
-    psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -t -c "
-        SELECT EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = 'schema_migrations'
-              AND column_name = '$column_name'
-        )
-    " 2>/dev/null | grep -q t
+    psql_db -tAc "SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'schema_migrations'
+          AND column_name = '$column_name'
+    )" 2>/dev/null | grep -q '^t$'
 }
 
-# 列出已应用的迁移
-list_applied_migrations() {
-    log_info "已应用的迁移:"
-    if schema_migrations_has_column "name" && schema_migrations_has_column "applied_ts"; then
-        psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -c "
-            SELECT version, name, applied_ts
-            FROM schema_migrations
-            ORDER BY applied_ts DESC
-        " 2>/dev/null
-    elif schema_migrations_has_column "executed_at"; then
-        psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -c "
-            SELECT version, COALESCE(description, '') AS name, executed_at AS applied_ts
-            FROM schema_migrations
-            ORDER BY executed_at DESC
-        " 2>/dev/null
-    else
-        psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -c "
-            SELECT version FROM schema_migrations ORDER BY version DESC
-        " 2>/dev/null
+ensure_database_exists() {
+    if psql_db -c "SELECT 1" >/dev/null 2>&1; then
+        return 0
     fi
+
+    log_info "数据库不存在，尝试创建: $DB_NAME"
+    psql_admin -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$DB_NAME\";" >/dev/null 2>&1 || true
+    psql_db -c "SELECT 1" >/dev/null 2>&1
 }
 
-# 初始化数据库
+check_db_connection() {
+    log_info "检查数据库连接..."
+    ensure_database_exists
+    psql_db -c "SELECT 1" >/dev/null 2>&1
+    log_success "数据库连接成功"
+}
+
+ensure_schema_migrations_table() {
+    psql_db -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    id BIGSERIAL PRIMARY KEY,
+    version TEXT NOT NULL,
+    name TEXT,
+    checksum TEXT,
+    applied_ts BIGINT,
+    execution_time_ms BIGINT,
+    success BOOLEAN NOT NULL DEFAULT TRUE,
+    description TEXT,
+    executed_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_schema_migrations_version UNIQUE (version)
+);
+ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum TEXT;
+ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS applied_ts BIGINT;
+ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS execution_time_ms BIGINT;
+ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS success BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS executed_at TIMESTAMPTZ DEFAULT NOW();
+CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version);
+SQL
+}
+
+latest_baseline_file() {
+    find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '00000000_unified_schema_v*.sql' ! -name '*.undo.sql' | sort | tail -n 1
+}
+
+record_migration() {
+    local version="$1"
+    local filename="$2"
+    local duration_ms="$3"
+    local success="$4"
+
+    psql_db -v ON_ERROR_STOP=1 -c "
+        INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, success, description, executed_at)
+        VALUES (
+            '$version',
+            '$filename',
+            md5('$filename'),
+            EXTRACT(EPOCH FROM NOW()) * 1000,
+            $duration_ms,
+            $success,
+            '$filename',
+            NOW()
+        )
+        ON CONFLICT (version) DO UPDATE SET
+            name = EXCLUDED.name,
+            checksum = EXCLUDED.checksum,
+            applied_ts = EXCLUDED.applied_ts,
+            execution_time_ms = EXCLUDED.execution_time_ms,
+            success = EXCLUDED.success,
+            description = EXCLUDED.description,
+            executed_at = EXCLUDED.executed_at
+    " >/dev/null
+}
+
+is_migration_applied() {
+    local version="$1"
+    psql_db -tAc "SELECT COALESCE(bool_and(success), FALSE) FROM schema_migrations WHERE version = '$version'" 2>/dev/null | grep -q '^t$'
+}
+
+apply_sql_file() {
+    local file="$1"
+    local filename
+    filename="$(basename "$file")"
+    local version="${filename%.sql}"
+    local started_at
+    started_at="$(date +%s%3N)"
+
+    log_info "应用迁移: $filename"
+
+    if psql_db -v ON_ERROR_STOP=1 -f "$file" >/dev/null; then
+        local finished_at
+        finished_at="$(date +%s%3N)"
+        record_migration "$version" "$filename" "$((finished_at - started_at))" TRUE
+        log_success "迁移完成: $filename"
+        return 0
+    fi
+
+    local finished_at
+    finished_at="$(date +%s%3N)"
+    psql_db -c "ABORT;" >/dev/null 2>&1 || true
+    record_migration "$version" "$filename" "$((finished_at - started_at))" FALSE || true
+    log_error "迁移失败: $filename"
+    return 1
+}
+
 init_database() {
     log_info "初始化数据库..."
-    
-    # 检查数据库是否存在
-    if ! psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -c "SELECT 1" > /dev/null 2>&1; then
-        log_info "创建数据库: $DB_NAME"
-        psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/postgres" -c "CREATE DATABASE $DB_NAME;" 2>/dev/null || true
-    fi
-    
-    # 执行统一架构脚本
-    local schema_file="$MIGRATIONS_DIR/00000000_unified_schema_v5.sql"
-    if [ ! -f "$schema_file" ]; then
-        schema_file="$MIGRATIONS_DIR/00000000_unified_schema_v4.sql"
-    fi
-    if [ -f "$schema_file" ]; then
-        log_info "执行统一架构脚本: $schema_file"
-        psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -f "$schema_file"
-        log_success "数据库初始化完成"
-    else
-        log_error "找不到统一架构脚本: $schema_file"
-        return 1
-    fi
-}
+    ensure_schema_migrations_table
 
-# 执行单个迁移
-apply_migration() {
-    local migration_file="$1"
-    local filename=$(basename "$migration_file")
-    local version=$(echo "$filename" | sed 's/\.sql$//')
-    
-    log_info "应用迁移: $filename"
-    
-    local start_time=$(date +%s%3N)
-    
-    # 使用 ON_ERROR_ROLLBACK on 保证事务安全
-    # 使用 ON_ERROR_STOP on 确保脚本在错误时停止
-    if psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" \
-        --set ON_ERROR_ROLLBACK=on \
-        -f "$migration_file"; then
-        local end_time=$(date +%s%3N)
-        local duration=$((end_time - start_time))
-        
-        if schema_migrations_has_column "name" && schema_migrations_has_column "applied_ts" && schema_migrations_has_column "execution_time_ms"; then
-            psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -c "
-                INSERT INTO schema_migrations (version, name, applied_ts, execution_time_ms)
-                VALUES ('$version', '$filename', EXTRACT(EPOCH FROM NOW()) * 1000, $duration)
-                ON CONFLICT (version) DO NOTHING
-            " 2>/dev/null
-        elif schema_migrations_has_column "executed_at" && schema_migrations_has_column "success"; then
-            psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -c "
-                INSERT INTO schema_migrations (version, checksum, executed_at, success, error_message, description)
-                VALUES ('$version', md5('$filename'), NOW(), TRUE, NULL, '$filename')
-                ON CONFLICT (version) DO NOTHING
-            " 2>/dev/null
-        else
-            psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -c "
-                INSERT INTO schema_migrations (version)
-                VALUES ('$version')
-                ON CONFLICT (version) DO NOTHING
-            " 2>/dev/null
-        fi
-        
-        log_success "迁移完成: $filename (${duration}ms)"
+    if table_exists "users"; then
+        log_info "检测到现有业务表，跳过基线初始化"
         return 0
-    else
-        local error_msg=$(psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -c "
-            SELECT 'Migration failed: $filename' AS error;
-        " 2>&1 || true)
-        
-        log_error "迁移失败: $filename"
-        
-        # 尝试回滚并重置连接状态
-        log_info "尝试恢复连接状态..."
-        psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -c "
-            ABORT;  -- 确保没有未完成的事务
-        " >/dev/null 2>&1 || true
-        
-        # 记录失败状态（如果表支持）
-        if schema_migrations_has_column "success" && schema_migrations_has_column "error_message"; then
-            psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -c "
-                INSERT INTO schema_migrations (version, checksum, executed_at, success, error_message, description)
-                VALUES ('$version', md5('$filename'), NOW(), FALSE, 'Migration failed - see logs', '$filename')
-                ON CONFLICT (version) DO UPDATE SET 
-                    success = FALSE,
-                    error_message = 'Migration failed - see logs'
-            " 2>/dev/null || true
-        fi
-        
+    fi
+
+    local baseline_file
+    baseline_file="$(latest_baseline_file)"
+    if [ -z "$baseline_file" ]; then
+        log_error "找不到统一基线脚本"
         return 1
     fi
+
+    local baseline_name
+    baseline_name="$(basename "$baseline_file")"
+    local baseline_version="${baseline_name%.sql}"
+
+    if is_migration_applied "$baseline_version"; then
+        log_info "基线迁移已记录: $baseline_name"
+        return 0
+    fi
+
+    apply_sql_file "$baseline_file"
 }
 
-# 执行所有待处理的迁移
+get_current_version() {
+    psql_db -tAc "SELECT COALESCE(version, '') FROM schema_migrations ORDER BY COALESCE(applied_ts, 0) DESC, version DESC LIMIT 1" 2>/dev/null | tr -d '[:space:]'
+}
+
+list_applied_migrations() {
+    ensure_schema_migrations_table
+    log_info "已应用的迁移:"
+    psql_db -c "
+        SELECT version, COALESCE(name, description, version) AS name, success, applied_ts
+        FROM schema_migrations
+        ORDER BY COALESCE(applied_ts, 0) DESC, version DESC
+    "
+}
+
 apply_pending_migrations() {
     log_info "检查待处理的迁移..."
-    
-    local current_version=$(get_current_version)
-    log_info "当前版本: $current_version"
-    
+    ensure_schema_migrations_table
+    init_database
+
+    local current_version
+    current_version="$(get_current_version)"
+    log_info "当前版本: ${current_version:-<empty>}"
+
+    local baseline_file
+    baseline_file="$(latest_baseline_file)"
     local pending=0
-    for file in $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | sort); do
-        local filename=$(basename "$file")
-        local version=$(echo "$filename" | sed 's/\.sql$//')
-        
-        # 跳过已应用的迁移
-        if psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -t -c "
-            SELECT 1 FROM schema_migrations WHERE version = '$version'
-        " 2>/dev/null | grep -q 1; then
+
+    while IFS= read -r file; do
+        local filename
+        filename="$(basename "$file")"
+        local version="${filename%.sql}"
+
+        if [ -n "$baseline_file" ] && [ "$file" = "$baseline_file" ]; then
             continue
         fi
-        
-        # 跳过统一架构脚本（已在初始化时执行）
-        if [[ "$filename" == "00000000_unified_schema_v4.sql" || "$filename" == "00000000_unified_schema_v5.sql" ]]; then
+
+        if is_migration_applied "$version"; then
             continue
         fi
-        
+
         pending=$((pending + 1))
-        apply_migration "$file" || return 1
-    done
-    
-    if [ $pending -eq 0 ]; then
+        apply_sql_file "$file"
+    done < <(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' | sort)
+
+    if [ "$pending" -eq 0 ]; then
         log_success "没有待处理的迁移"
     else
         log_success "已应用 $pending 个迁移"
     fi
 }
 
-# 回滚到指定版本
-rollback_to_version() {
-    local target_version="$1"
-    log_warning "回滚到版本: $target_version"
-    log_warning "注意: 此操作不可逆！"
-    
-    read -p "确认回滚? (y/N): " confirm
-    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
-        log_info "取消回滚"
-        return 0
-    fi
-    
-    # 这里需要实现回滚逻辑
-    log_warning "回滚功能需要配合回滚脚本使用"
-}
-
-# 验证数据库架构
 validate_schema() {
     log_info "验证数据库架构..."
-    
-    local errors=0
-    
-    # 检查必要的表
+    ensure_schema_migrations_table
+
     local required_tables=(
         "users"
         "devices"
@@ -275,129 +277,101 @@ validate_schema() {
         "refresh_tokens"
         "rooms"
         "events"
-        "device_keys"
         "schema_migrations"
     )
-    
+    local errors=0
+
     for table in "${required_tables[@]}"; do
-        if psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -t -c "
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_name = '$table'
-            )
-        " 2>/dev/null | grep -q t; then
+        if table_exists "$table"; then
             log_success "表存在: $table"
         else
             log_error "表缺失: $table"
             errors=$((errors + 1))
         fi
     done
-    
-    # 检查字段命名规范
-    log_info "检查字段命名规范..."
-    
-    # 检查 created_at 字段（应为 created_ts）
-    local created_at_count=$(psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -t -c "
-        SELECT COUNT(*) FROM information_schema.columns 
-        WHERE column_name = 'created_at'
-    " 2>/dev/null | tr -d ' ')
-    
-    if [ "$created_at_count" -gt 0 ]; then
-        log_warning "发现 $created_at_count 个 created_at 字段（建议使用 created_ts）"
+
+    local created_at_count
+    created_at_count="$(psql_db -tAc "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'created_at'" 2>/dev/null | tr -d '[:space:]')"
+    if [ "${created_at_count:-0}" -gt 0 ]; then
+        log_info "发现 $created_at_count 个历史 created_at 字段，保留兼容性提醒"
     fi
-    
-    # 检查 updated_at 字段（应为 updated_ts）
-    local updated_at_count=$(psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -t -c "
-        SELECT COUNT(*) FROM information_schema.columns 
-        WHERE column_name = 'updated_at'
-    " 2>/dev/null | tr -d ' ')
-    
-    if [ "$updated_at_count" -gt 0 ]; then
-        log_warning "发现 $updated_at_count 个 updated_at 字段（建议使用 updated_ts）"
+
+    local updated_at_count
+    updated_at_count="$(psql_db -tAc "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'updated_at'" 2>/dev/null | tr -d '[:space:]')"
+    if [ "${updated_at_count:-0}" -gt 0 ]; then
+        log_info "发现 $updated_at_count 个历史 updated_at 字段，保留兼容性提醒"
     fi
-    
-    if [ $errors -eq 0 ]; then
-        log_success "数据库架构验证通过"
-        return 0
-    else
+
+    if [ "$errors" -gt 0 ]; then
         log_error "数据库架构验证失败，发现 $errors 个错误"
         return 1
     fi
+
+    log_success "数据库架构验证通过"
 }
 
-# 显示帮助信息
-show_help() {
-    echo "synapse-rust 数据库迁移管理工具"
-    echo ""
-    echo "用法: $0 <命令> [参数]"
-    echo ""
-    echo "命令:"
-    echo "  init        初始化数据库（执行统一架构脚本）"
-    echo "  migrate     执行所有待处理的迁移"
-    echo "  status      显示当前迁移状态"
-    echo "  validate    验证数据库架构"
-    echo "  rollback    回滚到指定版本（需要回滚脚本）"
-    echo "  help        显示此帮助信息"
-    echo ""
-    echo "环境变量:"
-    echo "  DATABASE_URL    数据库连接字符串"
-    echo "  DB_HOST         数据库主机 (默认: localhost)"
-    echo "  DB_PORT         数据库端口 (默认: 5432)"
-    echo "  DB_NAME         数据库名称 (默认: synapse)"
-    echo "  DB_USER         数据库用户 (默认: synapse)"
-    echo "  DB_PASSWORD     数据库密码 (默认: synapse)"
-}
-
-# 清理处于异常状态的数据库连接
 cleanup_stale_connections() {
     log_info "检查并清理异常连接..."
-    
-    # 查找处于 "idle in transaction" 状态的连接
-    local stale_count=$(psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -t -c "
-        SELECT COUNT(*) FROM pg_stat_activity 
-        WHERE state = 'idle in transaction' 
-        AND query_start < NOW() - INTERVAL '5 minutes'
-        AND datname = '$DB_NAME';
-    " 2>/dev/null | tr -d ' ')
-    
-    if [ -n "$stale_count" ] && [ "$stale_count" -gt 0 ]; then
+    local stale_count
+    stale_count="$(psql_db -tAc "
+        SELECT COUNT(*)
+        FROM pg_stat_activity
+        WHERE state = 'idle in transaction'
+          AND query_start < NOW() - INTERVAL '5 minutes'
+          AND datname = '$DB_NAME'
+    " 2>/dev/null | tr -d '[:space:]')"
+
+    if [ -n "${stale_count:-}" ] && [ "$stale_count" -gt 0 ]; then
         log_warning "发现 $stale_count 个空闲事务连接，正在清理..."
-        
-        psql "postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" -c "
-            SELECT pg_terminate_backend(pid) 
-            FROM pg_stat_activity 
-            WHERE state = 'idle in transaction' 
-            AND query_start < NOW() - INTERVAL '5 minutes'
-            AND datname = '$DB_NAME';
-        " 2>/dev/null || true
-        
+        psql_db -c "
+            SELECT pg_terminate_backend(pid)
+            FROM pg_stat_activity
+            WHERE state = 'idle in transaction'
+              AND query_start < NOW() - INTERVAL '5 minutes'
+              AND datname = '$DB_NAME'
+        " >/dev/null 2>&1 || true
         log_success "异常连接已清理"
     else
         log_info "没有发现异常连接"
     fi
 }
 
-# 主函数
+show_help() {
+    echo "synapse-rust 数据库迁移管理工具"
+    echo
+    echo "用法: $0 <命令>"
+    echo
+    echo "命令:"
+    echo "  init"
+    echo "  migrate"
+    echo "  status"
+    echo "  validate"
+    echo "  help"
+}
+
 main() {
     local command="${1:-help}"
-    
+
     load_env
-    
+
     case "$command" in
         init)
-            check_db_connection && cleanup_stale_connections && init_database
+            check_db_connection
+            cleanup_stale_connections
+            init_database
             ;;
         migrate)
-            check_db_connection && cleanup_stale_connections && apply_pending_migrations
+            check_db_connection
+            cleanup_stale_connections
+            apply_pending_migrations
             ;;
         status)
-            check_db_connection && list_applied_migrations
+            check_db_connection
+            list_applied_migrations
             ;;
         validate)
-            check_db_connection && validate_schema
-            ;;
-        rollback)
-            check_db_connection && rollback_to_version "${2:-}"
+            check_db_connection
+            validate_schema
             ;;
         help|--help|-h)
             show_help

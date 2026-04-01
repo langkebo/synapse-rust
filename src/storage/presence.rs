@@ -16,6 +16,35 @@ impl PresenceStorage {
         }
     }
 
+    async fn ensure_presence_subscriptions_table(&self) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS presence_subscriptions (
+                subscriber_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                CONSTRAINT uq_presence_subscriptions UNIQUE (subscriber_id, target_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_presence_subscriptions_subscriber ON presence_subscriptions(subscriber_id)",
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_presence_subscriptions_target ON presence_subscriptions(target_id)",
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn set_presence(
         &self,
         user_id: &str,
@@ -99,6 +128,7 @@ impl PresenceStorage {
         subscriber_id: &str,
         target_id: &str,
     ) -> Result<(), sqlx::Error> {
+        self.ensure_presence_subscriptions_table().await?;
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
@@ -120,6 +150,7 @@ impl PresenceStorage {
         subscriber_id: &str,
         target_id: &str,
     ) -> Result<(), sqlx::Error> {
+        self.ensure_presence_subscriptions_table().await?;
         sqlx::query(
             r#"
             DELETE FROM presence_subscriptions
@@ -134,6 +165,7 @@ impl PresenceStorage {
     }
 
     pub async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        self.ensure_presence_subscriptions_table().await?;
         let rows = sqlx::query_as::<_, (String,)>(
             r#"
             SELECT target_id FROM presence_subscriptions
@@ -148,6 +180,7 @@ impl PresenceStorage {
     }
 
     pub async fn get_subscribers(&self, target_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        self.ensure_presence_subscriptions_table().await?;
         let rows = sqlx::query_as::<_, (String,)>(
             r#"
             SELECT subscriber_id FROM presence_subscriptions

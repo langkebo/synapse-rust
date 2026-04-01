@@ -1,0 +1,28 @@
+{
+  "missing_dirs": [],
+  "missing_rollbacks": [],
+  "legacy_timestamped": [
+    "20260328000002_add_federation_cache.sql",
+    "20260328000003_add_invite_restrictions_and_device_verification_request.sql",
+    "20260328_p1_indexes.sql",
+    "20260329_p2_optimization.sql",
+    "20260330000001_add_thread_replies_and_receipts.sql",
+    "20260330000002_align_thread_schema_and_relations.sql",
+    "20260330000003_align_retention_and_room_summary_schema.sql",
+    "20260330000004_align_space_schema_and_add_space_events.sql",
+    "20260330000005_align_remaining_schema_exceptions.sql",
+    "20260330000006_align_notifications_push_and_misc_exceptions.sql",
+    "20260330000007_align_uploads_and_user_settings_exceptions.sql",
+    "20260330000008_align_background_update_exceptions.sql",
+    "20260330000009_align_beacon_and_call_exceptions.sql",
+    "20260330000010_add_audit_events.sql",
+    "20260330000011_add_feature_flags.sql",
+    "20260330000012_add_federation_signing_keys.sql",
+    "20260330000013_align_legacy_timestamp_columns.sql"
+  ],
+  "versioned": [
+    "V260329_000__SYS_0001__create_migration_audit_table.sql",
+    "V260330_001__MIG-XXX__add_missing_schema_tables.sql"
+  ],
+  "unknown_layout": []
+}

@@ -29,6 +29,7 @@ const CORE_TABLES: &[&str] = &[
     "user_threepids",
     "presence",
     "user_directory",
+    "federation_signing_keys",
 ];
 
 /// 核心字段定义 (表名, 字段名)
@@ -80,6 +81,9 @@ const CORE_COLUMNS: &[(&str, &str)] = &[
     ("presence", "user_id"),
     ("presence", "presence"),
     ("presence", "last_active_ts"),
+    ("federation_signing_keys", "server_name"),
+    ("federation_signing_keys", "key_id"),
+    ("federation_signing_keys", "created_ts"),
 ];
 
 /// 必需索引定义 (索引名, 表名, 字段, 条件索引的 WHERE 子句)

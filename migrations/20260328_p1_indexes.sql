@@ -65,7 +65,7 @@ ON notifications(user_id, room_id, ts DESC);
 
 -- 复合索引: 房间 + 类型 + 时间 用于回执列表查询
 CREATE INDEX IF NOT EXISTS idx_event_receipts_room_type
-ON event_receipts(room_id, receipt_type, origin_server_ts DESC);
+ON event_receipts(room_id, receipt_type, ts DESC);
 
 -- ============================================================================
 -- 验证索引创建

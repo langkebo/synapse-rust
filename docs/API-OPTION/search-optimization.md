@@ -2,11 +2,11 @@
 
 ## 一、当前实现
 
-`src/web/routes/search.rs` 当前路由分成三类：
+`src/web/routes/search.rs` 当前作为薄包装层，实际路由实现位于 `src/web/routes/handlers/search.rs`，整体分成三类：
 
 1. `v3` / `r0` 共享的搜索端点
 2. `v1` / `v3` 分别暴露的上下文与层级端点
-3. 一个挂在 search 模块里的 `threads` 端点
+3. 已迁移到 `thread` 模块的线程兼容入口
 
 实际路由如下：
 
@@ -17,7 +17,6 @@
 /_matrix/client/r0/search_recipients
 /_matrix/client/v3/search_rooms
 /_matrix/client/r0/search_rooms
-/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads
 /_matrix/client/v1/rooms/{room_id}/hierarchy
 /_matrix/client/v3/rooms/{room_id}/hierarchy
 /_matrix/client/v1/rooms/{room_id}/timestamp_to_event
@@ -39,10 +38,10 @@
 当前 `context` 是 `v1 + v3`，`hierarchy` 也是 `v1 + v3`，而 `timestamp_to_event` 只有 `v1`。
 因此把全部改成 `/_matrix/client/{version}/...` 并不准确，也会让不支持的版本看起来像是“理论上可用”。
 
-### 2.3 `threads` 需要与 thread 模块边界对齐
+### 2.3 `threads` 已与 thread 模块边界对齐
 
-`/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads` 放在 search 模块中，容易与独立 thread 模块职责重叠。
-这一点是本文件中最值得处理的问题。
+历史上的 `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads` 已改由 `thread` 模块承接，避免与独立 thread 模块职责重叠。
+当前 search 与 thread 的职责边界已经对齐。
 
 ---
 
@@ -86,13 +85,13 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
 
 这个方案只对真正重复的 `v3/r0` 搜索接口做收敛，不会误伤 `v1` 特有路径。
 
-### 3.2 调整 `threads` 的模块归属
+### 3.2 `threads` 模块归属已完成
 
-推荐方向：
+已完成动作：
 
-- 从 `search.rs` 删除 `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads`
-- 把线程查询统一收口到 thread 模块
-- 如果需要兼容旧入口，可在 thread 模块内部复用 service，而不是继续把线程接口放在 search 模块
+- `search` 路由实现中已不再注册 `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads`
+- 线程查询入口已统一收口到 `thread` 模块
+- 兼容入口由 `thread` 模块内部复用 service 承接
 
 ---
 
@@ -128,7 +127,7 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
 | `context` | 保持 `v1/v3` 显式注册，继续共享 handler |
 | `hierarchy` | 保持 `v1/v3` 显式注册，注意 `v3` 使用独立 handler |
 | `timestamp_to_event` | 保留 `v1` 独立路由 |
-| `threads` | 移出 `search.rs`，并入 `thread.rs` |
+| `threads` | 已从 `search.rs` 移出，并入 `thread.rs` |
 
 ---
 
@@ -138,5 +137,5 @@ Search 模块真正应该做的不是“全量版本参数化”，而是：
 
 1. **仅对 `v3/r0` 完全同构的搜索端点使用 `nest()` 复用**
 2. **保留 `v1/v3` 的上下文与层级显式路径**
-3. **把 `threads` 从 search 模块中剥离出去**
+3. **已将 `threads` 从 search 模块中剥离出去**
 4. **用模块职责清晰化替代简单的路由数量压缩**

@@ -9,20 +9,47 @@ use synapse_rust::storage::{CreateEventParams, EventStorage, RoomStorage};
 use tokio::runtime::Runtime;
 
 async fn setup_test_database() -> Option<Pool<Postgres>> {
-    let database_url = std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
-    let pool = match sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(5))
-        .connect(&database_url)
-        .await
-    {
-        Ok(pool) => pool,
-        Err(error) => {
-            eprintln!("Skipping protocol tests; database unavailable: {}", error);
-            return None;
+    let mut candidate_urls = Vec::new();
+    for key in ["TEST_DATABASE_URL", "DATABASE_URL"] {
+        if let Ok(value) = std::env::var(key) {
+            if !candidate_urls.iter().any(|existing| existing == &value) {
+                candidate_urls.push(value);
+            }
         }
+    }
+    for fallback in [
+        "postgresql://synapse:synapse@localhost:5432/synapse",
+        "postgresql://synapse:synapse@localhost:5432/synapse_test",
+        "postgresql://synapse:secret@localhost:5432/synapse_test",
+    ] {
+        let fallback = fallback.to_string();
+        if !candidate_urls.iter().any(|existing| existing == &fallback) {
+            candidate_urls.push(fallback);
+        }
+    }
+
+    let mut errors = Vec::new();
+    let mut pool = None;
+    for database_url in candidate_urls {
+        match sqlx::postgres::PgPoolOptions::new()
+            .max_connections(5)
+            .acquire_timeout(std::time::Duration::from_secs(5))
+            .connect(&database_url)
+            .await
+        {
+            Ok(found_pool) => {
+                pool = Some(found_pool);
+                break;
+            }
+            Err(error) => errors.push(format!("{} -> {}", database_url, error)),
+        }
+    }
+    let Some(pool) = pool else {
+        eprintln!(
+            "Skipping protocol tests; database unavailable: {}",
+            errors.join(" | ")
+        );
+        return None;
     };
 
     // Run database initialization to ensure all tables exist

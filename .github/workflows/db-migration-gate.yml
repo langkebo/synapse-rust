@@ -37,6 +37,35 @@ jobs:
       - name: Audit migration directory layout
         run: python3 scripts/audit_migration_layout.py
 
+  migration-manifest-integrity:
+    name: Migration Manifest Integrity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate manifest
+        run: |
+          python3 scripts/generate_migration_manifest.py \
+            --release ci \
+            --jira SYS-0001 \
+            --owner synapse-rust \
+            --output artifacts/MANIFEST-ci.txt
+
+      - name: Verify manifest
+        run: python3 scripts/verify_migration_manifest.py artifacts/MANIFEST-ci.txt
+
+      - name: Upload manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-manifest
+          path: artifacts/MANIFEST-ci.txt
+
   external-evidence-gate:
     name: External Evidence Gate
     runs-on: ubuntu-latest
@@ -79,7 +108,7 @@ jobs:
         run: |
           psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v6.sql
 
-      - name: Apply post-schema critical increment
+      - name: Apply post-schema critical increments
         env:
           PGPASSWORD: synapse
         run: |
@@ -89,6 +118,16 @@ jobs:
           psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000003_align_retention_and_room_summary_schema.sql
           psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000004_align_space_schema_and_add_space_events.sql
           psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000005_align_remaining_schema_exceptions.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000006_align_notifications_push_and_misc_exceptions.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000007_align_uploads_and_user_settings_exceptions.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000008_align_background_update_exceptions.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000009_align_beacon_and_call_exceptions.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000010_add_audit_events.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000011_add_feature_flags.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000012_add_federation_signing_keys.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000013_align_legacy_timestamp_columns.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/V260329_000__SYS_0001__create_migration_audit_table.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/V260330_001__MIG-XXX__add_missing_schema_tables.sql
 
       - name: Run pg_amcheck
         env:

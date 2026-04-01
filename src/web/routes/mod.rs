@@ -18,6 +18,7 @@ pub mod ephemeral;
 pub mod event_report;
 pub mod external_service;
 pub mod extractors;
+pub mod feature_flags;
 pub mod federation;
 pub mod friend_room;
 pub mod guest;
@@ -29,6 +30,7 @@ pub mod media;
 pub mod moderation;
 pub mod module;
 pub mod oidc;
+pub mod pinned;
 pub mod presence;
 pub mod push;
 pub mod push_notification;
@@ -40,7 +42,6 @@ pub mod rendezvous;
 pub mod room;
 pub mod room_summary;
 pub mod saml;
-pub mod search;
 pub mod sliding_sync;
 pub mod space;
 pub mod state;
@@ -49,7 +50,6 @@ pub mod sync;
 pub mod tags;
 pub mod telemetry;
 pub mod thirdparty;
-pub mod thread;
 pub mod typing;
 pub mod validators;
 pub mod verification_routes;
@@ -80,8 +80,9 @@ pub use cas::cas_routes;
 pub use device::create_device_router;
 pub(crate) use directory_reporting::{
     delete_room_alias, delete_room_alias_direct, get_public_rooms, get_room_aliases,
-    get_room_by_alias, get_scanner_info, list_user_directory, query_public_rooms, report_event,
-    report_room, search_user_directory, set_room_alias, set_room_alias_direct, update_report_score,
+    get_room_by_alias, get_scanner_info, get_user_directory_profile, list_user_directory,
+    query_public_rooms, report_event, report_room, search_user_directory, set_room_alias,
+    set_room_alias_direct, update_report_score,
 };
 pub use dm::create_dm_router;
 pub use e2ee_routes::create_e2ee_router;
@@ -91,18 +92,28 @@ pub(crate) use extractors::extract_token_from_headers;
 pub use extractors::{
     AdminUser, AuthExtractor, AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser,
 };
+pub use feature_flags::create_feature_flags_router;
 pub use federation::create_federation_router;
 pub use friend_room::create_friend_router;
 pub use guest::create_guest_router;
 pub(crate) use handlers::room::{
-    ban_user, create_room, forget_room, get_joined_members, get_joined_rooms,
-    get_membership_events, get_messages, get_my_rooms, get_power_levels, get_room_info,
-    get_room_members, get_room_notifications, get_room_state, get_room_visibility,
+    ban_user, claim_room_keys, convert_room_event, create_room, forget_room, forward_room_keys,
+    get_event_keys, get_joined_members, get_joined_rooms, get_membership_events, get_messages,
+    get_my_rooms, get_power_levels, get_receipts, get_retention_policy, get_room_account_data,
+    get_room_capabilities, get_room_device, get_room_encrypted_events, get_room_event_perspective,
+    get_room_event_url, get_room_external_ids, get_room_info, get_room_invites, get_room_key_count,
+    get_room_keys, get_room_keys_version, get_room_members, get_room_members_recent, get_room_spaces,
+    get_room_membership, get_room_message_queue, get_room_metadata, get_room_notifications,
+    get_room_reduced_events, get_room_rendered, get_room_service_types, get_room_state,
+    get_room_sync, get_room_thread, get_room_thread_by_id, get_room_timeline, get_room_turn_server,
+    get_room_unread_count, get_room_user_fragments, get_room_version, get_room_visibility,
     get_single_event, get_state_by_type, get_state_event, get_state_event_empty_key,
-    get_user_rooms, invite_user, invite_user_by_room, join_room, join_room_by_id_or_alias,
-    kick_user, knock_room, leave_room, put_state_event, put_state_event_empty_key,
-    put_state_event_no_key, redact_event, room_initial_sync, send_message, send_receipt,
-    send_state_event, set_read_markers, set_room_visibility, unban_user, upgrade_room,
+    get_user_rooms, get_vault_data, invite_user, invite_user_by_room, join_room,
+    join_room_by_id_or_alias, kick_user, knock_room, leave_room, put_state_event,
+    put_state_event_empty_key, put_state_event_no_key, redact_event, room_initial_sync,
+    search_room_messages, send_message, send_receipt, send_state_event, set_read_markers,
+    set_room_account_data, set_room_visibility, set_vault_data, sign_room_event,
+    translate_room_event, unban_user, upgrade_room, verify_room_event,
 };
 pub use handlers::{
     get_capabilities, get_client_versions, get_server_version, get_well_known_client,
@@ -126,7 +137,6 @@ pub use rendezvous::create_rendezvous_router;
 pub use room::create_room_router;
 pub use room_summary::create_room_summary_router;
 pub use saml::create_saml_router;
-pub use search::create_search_router;
 pub use sliding_sync::create_sliding_sync_router;
 pub use space::create_space_router;
 pub use state::AppState;
@@ -134,7 +144,6 @@ pub use sync::create_sync_router;
 pub use tags::create_tags_router;
 pub use telemetry::create_telemetry_router;
 pub use thirdparty::create_thirdparty_router;
-pub use thread::create_thread_routes;
 pub use validators::{
     validate_event_id, validate_presence_status, validate_receipt_type, validate_room_id,
     validate_user_id,

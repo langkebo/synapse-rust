@@ -26,16 +26,30 @@ impl KeyBackupStorage {
     }
 
     pub async fn create_backup(&self, backup: &KeyBackup) -> Result<(), ApiError> {
+        let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            INSERT INTO key_backups (user_id, backup_id, version, algorithm, auth_key, mgmt_key, backup_data, etag)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ON CONFLICT (user_id, backup_id) DO UPDATE
+            INSERT INTO key_backups (
+                user_id,
+                backup_id_text,
+                version,
+                algorithm,
+                auth_key,
+                mgmt_key,
+                auth_data,
+                etag,
+                created_ts,
+                updated_ts
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+            ON CONFLICT (user_id, version) DO UPDATE
             SET algorithm = EXCLUDED.algorithm,
                 auth_key = EXCLUDED.auth_key,
                 mgmt_key = EXCLUDED.mgmt_key,
-                backup_data = EXCLUDED.backup_data,
-                etag = EXCLUDED.etag
+                auth_data = EXCLUDED.auth_data,
+                etag = EXCLUDED.etag,
+                backup_id_text = EXCLUDED.backup_id_text,
+                updated_ts = EXCLUDED.updated_ts
             "#
         )
         .bind(&backup.user_id)
@@ -46,6 +60,7 @@ impl KeyBackupStorage {
         .bind(&backup.mgmt_key)
         .bind(&backup.backup_data)
         .bind(&backup.etag)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -55,7 +70,15 @@ impl KeyBackupStorage {
     pub async fn get_backup(&self, user_id: &str) -> Result<Option<KeyBackup>, ApiError> {
         let row = sqlx::query_as::<_, KeyBackup>(
             r#"
-            SELECT user_id, backup_id, version, algorithm, auth_key, mgmt_key, backup_data, etag
+            SELECT
+                user_id,
+                COALESCE(backup_id_text, version::text) AS backup_id,
+                version,
+                algorithm,
+                auth_key,
+                mgmt_key,
+                auth_data AS backup_data,
+                etag
             FROM key_backups
             WHERE user_id = $1
             ORDER BY version DESC
@@ -72,7 +95,15 @@ impl KeyBackupStorage {
     pub async fn get_all_backup_versions(&self, user_id: &str) -> Result<Vec<KeyBackup>, ApiError> {
         let rows = sqlx::query_as::<_, KeyBackup>(
             r#"
-            SELECT user_id, backup_id, version, algorithm, auth_key, mgmt_key, backup_data, etag
+            SELECT
+                user_id,
+                COALESCE(backup_id_text, version::text) AS backup_id,
+                version,
+                algorithm,
+                auth_key,
+                mgmt_key,
+                auth_data AS backup_data,
+                etag
             FROM key_backups
             WHERE user_id = $1
             ORDER BY version DESC
@@ -93,7 +124,15 @@ impl KeyBackupStorage {
         let version_int: i64 = version.parse().unwrap_or(0);
         let row = sqlx::query_as::<_, KeyBackup>(
             r#"
-            SELECT user_id, backup_id, version, algorithm, auth_key, mgmt_key, backup_data, etag
+            SELECT
+                user_id,
+                COALESCE(backup_id_text, version::text) AS backup_id,
+                version,
+                algorithm,
+                auth_key,
+                mgmt_key,
+                auth_data AS backup_data,
+                etag
             FROM key_backups
             WHERE user_id = $1 AND version = $2
             "#,

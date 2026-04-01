@@ -33,11 +33,13 @@ pub struct UpdateDmRequest {
 }
 
 async fn load_direct_map(state: &AppState, user_id: &str) -> Result<Map<String, Value>, ApiError> {
-    let row = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.direct'")
-        .bind(user_id)
-        .fetch_optional(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to load m.direct account data: {}", e)))?;
+    let row = sqlx::query(
+        "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.direct'",
+    )
+    .bind(user_id)
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to load m.direct account data: {}", e)))?;
 
     match row {
         Some(row) => match row.get::<Option<Value>, _>("content") {
@@ -72,7 +74,11 @@ async fn save_direct_map(
     Ok(())
 }
 
-fn ensure_room_in_direct_map(direct_map: &mut Map<String, Value>, target_user_id: &str, room_id: &str) {
+fn ensure_room_in_direct_map(
+    direct_map: &mut Map<String, Value>,
+    target_user_id: &str,
+    room_id: &str,
+) {
     let entry = direct_map
         .entry(target_user_id.to_string())
         .or_insert_with(|| Value::Array(Vec::new()));
@@ -354,7 +360,11 @@ pub async fn get_dm_partner_route(
     let other_member = join_members
         .iter()
         .find(|member| member.user_id == partner_id)
-        .or_else(|| invited_members.iter().find(|member| member.user_id == partner_id))
+        .or_else(|| {
+            invited_members
+                .iter()
+                .find(|member| member.user_id == partner_id)
+        })
         .ok_or_else(|| ApiError::not_found("DM partner not found".to_string()))?;
 
     Ok(Json(json!({

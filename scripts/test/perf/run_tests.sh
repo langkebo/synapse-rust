@@ -2,13 +2,14 @@
 # Performance Test Scripts
 #分层压测脚本
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_URL="${BASE_URL:-http://localhost:8008}"
 ADMIN_USER="${ADMIN_USER:-admin}"
 ADMIN_PASS="${ADMIN_PASS:-Admin@123}"
 RESULTS_DIR="${RESULTS_DIR:-$SCRIPT_DIR/results}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 mkdir -p "$RESULTS_DIR"
 
@@ -62,68 +63,11 @@ run_peak_test() {
 
 generate_report() {
     echo "Generating Performance Report..."
-    local report_file="${RESULTS_DIR}/performance_report_$(date +%Y%m%d_%H%M%S).md"
-
-    cat > "$report_file" << 'EOF'
-# Performance Test Report
-
-## Test Configuration
-
-| Parameter | Value |
-|-----------|-------|
-| Base URL | {BASE_URL} |
-| Test Date | {TEST_DATE} |
-
-## Smoke Test (10 VUs)
-
-| Metric | Target | Actual | Status |
-|--------|--------|--------|--------|
-| Login P95 | < 500ms | TBD | TBD |
-| CreateRoom P95 | < 800ms | TBD | TBD |
-| SendMessage P95 | < 600ms | TBD | TBD |
-| Sync P95 | < 1000ms | TBD | TBD |
-| RoomSummary P95 | < 500ms | TBD | TBD |
-
-## Baseline Test (50 VUs)
-
-| Metric | Target | Actual | Status |
-|--------|--------|--------|--------|
-| Login P95 | < 500ms | TBD | TBD |
-| CreateRoom P95 | < 800ms | TBD | TBD |
-| SendMessage P95 | < 600ms | TBD | TBD |
-| Sync P95 | < 1000ms | TBD | TBD |
-| RoomSummary P95 | < 500ms | TBD | TBD |
-
-## Stress Test (100 VUs)
-
-| Metric | Target | Actual | Status |
-|--------|--------|--------|--------|
-| Login P95 | < 600ms | TBD | TBD |
-| CreateRoom P95 | < 1000ms | TBD | TBD |
-| SendMessage P95 | < 800ms | TBD | TBD |
-| Sync P95 | < 1200ms | TBD | TBD |
-| RoomSummary P95 | < 600ms | TBD | TBD |
-
-## Peak Test (200 VUs)
-
-| Metric | Target | Actual | Status |
-|--------|--------|--------|--------|
-| Login P95 | < 600ms | TBD | TBD |
-| CreateRoom P95 | < 1000ms | TBD | TBD |
-| SendMessage P95 | < 800ms | TBD | TBD |
-| Sync P95 | < 1200ms | TBD | TBD |
-| RoomSummary P95 | < 600ms | TBD | TBD |
-
-## Conclusion
-
-TBD
-
-EOF
-
-    sed -i "s/{BASE_URL}/$BASE_URL/g" "$report_file"
-    sed -i "s/{TEST_DATE}/$(date)/g" "$report_file"
-
-    echo "Report generated: $report_file"
+    "$PYTHON_BIN" "$SCRIPT_DIR/guardrail.py" \
+        --results-dir "$RESULTS_DIR" \
+        --base-url "$BASE_URL" \
+        --fail-on-breach
+    echo "Report generated: ${RESULTS_DIR}/performance_guardrail_report.md"
 }
 
 case "${1:-all}" in

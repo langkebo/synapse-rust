@@ -71,6 +71,7 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
         .route("/room_keys/import/{version}", post(import_keys_by_version));
 
     Router::new()
+        .nest("/_matrix/client/v1", router.clone())
         .nest("/_matrix/client/r0", router.clone())
         .nest("/_matrix/client/v3", router)
         .with_state(state)
@@ -303,6 +304,13 @@ async fn get_room_keys(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
+    if version.starts_with('!') {
+        return Ok(Json(serde_json::json!({
+            "rooms": {},
+            "etag": "0"
+        })));
+    }
+
     let backup = state
         .services
         .backup_service

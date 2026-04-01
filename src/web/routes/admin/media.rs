@@ -8,6 +8,13 @@ use axum::{
 use serde_json::{json, Value};
 use sqlx::Row;
 
+fn quarantine_status_to_bool(value: Option<String>) -> bool {
+    matches!(
+        value.as_deref(),
+        Some("quarantined") | Some("true") | Some("1") | Some("yes")
+    )
+}
+
 pub fn create_media_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/media", get(get_all_media))
@@ -40,7 +47,7 @@ pub async fn get_all_media(
         .unwrap_or(0);
 
     let media = sqlx::query(
-        "SELECT media_id, media_type, upload_name, created_ts, last_access_ts, media_length, user_id, quarantined FROM media ORDER BY created_ts DESC LIMIT $1 OFFSET $2"
+        "SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status FROM media_metadata ORDER BY created_ts DESC LIMIT $1 OFFSET $2"
     )
     .bind(limit)
     .bind(offset)
@@ -53,13 +60,13 @@ pub async fn get_all_media(
         .map(|row| {
             json!({
                 "media_id": row.get::<Option<String>, _>("media_id"),
-                "media_type": row.get::<Option<String>, _>("media_type"),
-                "upload_name": row.get::<Option<String>, _>("upload_name"),
+                "media_type": row.get::<Option<String>, _>("content_type"),
+                "upload_name": row.get::<Option<String>, _>("file_name"),
                 "created_ts": row.get::<Option<i64>, _>("created_ts"),
-                "last_access_ts": row.get::<Option<i64>, _>("last_access_ts"),
-                "media_length": row.get::<Option<i64>, _>("media_length"),
-                "user_id": row.get::<Option<String>, _>("user_id"),
-                "quarantined": row.get::<Option<bool>, _>("quarantined").unwrap_or(false)
+                "last_access_ts": row.get::<Option<i64>, _>("last_accessed_at"),
+                "media_length": row.get::<Option<i64>, _>("size"),
+                "user_id": row.get::<Option<String>, _>("uploader_user_id"),
+                "quarantined": quarantine_status_to_bool(row.get::<Option<String>, _>("quarantine_status"))
             })
         })
         .collect();
@@ -76,7 +83,7 @@ pub async fn get_media_info(
     Path(media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let media = sqlx::query(
-        "SELECT media_id, media_type, upload_name, created_ts, last_access_ts, media_length, user_id, quarantined FROM media WHERE media_id = $1"
+        "SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status FROM media_metadata WHERE media_id = $1"
     )
     .bind(&media_id)
     .fetch_optional(&*state.services.user_storage.pool)
@@ -86,13 +93,13 @@ pub async fn get_media_info(
     match media {
         Some(row) => Ok(Json(json!({
             "media_id": row.get::<Option<String>, _>("media_id"),
-            "media_type": row.get::<Option<String>, _>("media_type"),
-            "upload_name": row.get::<Option<String>, _>("upload_name"),
+            "media_type": row.get::<Option<String>, _>("content_type"),
+            "upload_name": row.get::<Option<String>, _>("file_name"),
             "created_ts": row.get::<Option<i64>, _>("created_ts"),
-            "last_access_ts": row.get::<Option<i64>, _>("last_access_ts"),
-            "media_length": row.get::<Option<i64>, _>("media_length"),
-            "user_id": row.get::<Option<String>, _>("user_id"),
-            "quarantined": row.get::<Option<bool>, _>("quarantined").unwrap_or(false)
+            "last_access_ts": row.get::<Option<i64>, _>("last_accessed_at"),
+            "media_length": row.get::<Option<i64>, _>("size"),
+            "user_id": row.get::<Option<String>, _>("uploader_user_id"),
+            "quarantined": quarantine_status_to_bool(row.get::<Option<String>, _>("quarantine_status"))
         }))),
         None => Err(ApiError::not_found("Media not found".to_string())),
     }
@@ -104,7 +111,7 @@ pub async fn delete_media(
     State(state): State<AppState>,
     Path(media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("DELETE FROM media WHERE media_id = $1")
+    let result = sqlx::query("DELETE FROM media_metadata WHERE media_id = $1")
         .bind(&media_id)
         .execute(&*state.services.user_storage.pool)
         .await
@@ -122,12 +129,12 @@ pub async fn get_media_quota(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let total_size: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(media_length), 0) FROM media")
+    let total_size: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
         .fetch_one(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let total_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media")
+    let total_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_metadata")
         .fetch_one(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -147,7 +154,7 @@ pub async fn get_user_media(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let media = sqlx::query(
-        "SELECT media_id, media_type, upload_name, created_ts, media_length FROM media WHERE user_id = $1 ORDER BY created_ts DESC"
+        "SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts FROM media_metadata WHERE uploader_user_id = $1 ORDER BY created_ts DESC"
     )
     .bind(&user_id)
     .fetch_all(&*state.services.user_storage.pool)
@@ -159,10 +166,10 @@ pub async fn get_user_media(
         .map(|row| {
             json!({
                 "media_id": row.get::<Option<String>, _>("media_id"),
-                "media_type": row.get::<Option<String>, _>("media_type"),
-                "upload_name": row.get::<Option<String>, _>("upload_name"),
+                "media_type": row.get::<Option<String>, _>("content_type"),
+                "upload_name": row.get::<Option<String>, _>("file_name"),
                 "created_ts": row.get::<Option<i64>, _>("created_ts"),
-                "media_length": row.get::<Option<i64>, _>("media_length")
+                "media_length": row.get::<Option<i64>, _>("size")
             })
         })
         .collect();
@@ -178,7 +185,7 @@ pub async fn delete_user_media(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("DELETE FROM media WHERE user_id = $1")
+    let result = sqlx::query("DELETE FROM media_metadata WHERE uploader_user_id = $1")
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)
         .await

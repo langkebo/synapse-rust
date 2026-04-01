@@ -11,10 +11,10 @@
 | 类别 | 当前状态 | 风险 |
 |---|---|---|
 | unified schema | 存在 `00000000_unified_schema_v6.sql` | thread/retention/room summary/space 主链已收口，仍需持续约束后续增量同步 |
-| 增量迁移 | `migrations/*.sql` 按日期累积 | 同一表可能散落多份定义 |
+| 根目录迁移 | `migrations/*.sql` 仍保留 sqlx 历史链与兼容入口 | 历史迁移与治理目录并存，需避免口径分叉 |
 | rollback 目录 | `migrations/rollback/` 已建立并为新增迁移配套回滚脚本 | 仍需持续补齐“新增迁移必有回滚/声明不可逆”的门禁 |
-| incremental 目录 | `migrations/incremental/` 已建立 | 迁移治理按批次渐进推进，暂不影响 sqlx 默认入口 |
-| hotfix 目录 | `migrations/hotfix/` 已建立 | 仍需约束 hotfix 在下一次常规发布前收敛 |
+| incremental 目录 | `migrations/incremental/` 已建立并采用版本化治理命名 | 迁移治理按批次渐进推进，需与 manifest 和 layout audit 统一扫描 |
+| hotfix 目录 | `migrations/hotfix/` 已建立并采用版本化治理命名 | 仍需约束 hotfix 在下一次常规发布前收敛 |
 | archive 目录 | `migrations/archive/` 已建立 | 历史脚本归档需按批次推进，避免影响现有迁移链 |
 
 ## 3. 目标目录模型
@@ -22,20 +22,29 @@
 ```text
 migrations/
   00000000_unified_schema_v6.sql
+  20260330000010_add_audit_events.sql
+  20260330000010_add_audit_events.undo.sql
   incremental/
-    YYYYMMDDHHMMSS_description.sql
+    V{version}__{Jira编号}_{简短描述}.sql
   rollback/
     YYYYMMDDHHMMSS_description.rollback.sql
+    V{version}__{Jira编号}_{简短描述}.down.sql
+    V{version}__{Jira编号}_{简短描述}.undo.sql
   hotfix/
-    YYYYMMDDHHMMSS_description.hotfix.sql
+    V{version}__{Jira编号}_{简短描述}.sql
+  archive/
+    ...
 ```
 
 ## 4. 治理原则
 
 1. 所有结构变更必须同时更新 unified schema 与增量迁移。
-2. 每个增量迁移必须配套 rollback 脚本或明确声明不可逆。
-3. hotfix 在下一次常规发布前必须并入正式迁移。
-4. 所有新增表必须补齐索引, 约束, 验证 SQL, 以及最小回归测试。
+2. 迁移治理命名以 `MIGRATION_INDEX.md` 为唯一规范源，治理目录使用 `V{version}__...` 版本化格式。
+3. 每个增量迁移必须配套 rollback 脚本或明确声明不可逆。
+4. hotfix 在下一次常规发布前必须并入正式迁移。
+5. 所有新增表必须补齐索引, 约束, 验证 SQL, 以及最小回归测试。
+6. `db-migration-gate.yml` 是唯一迁移治理门禁，`ci.yml` 只承担通用构建、测试与基础迁移初始化。
+7. Rust 运行时数据库初始化默认视为兼容入口，只有显式设置 `SYNAPSE_ENABLE_RUNTIME_DB_INIT=true` 时才允许执行。
 
 ## 5. 门禁清单
 
@@ -53,11 +62,14 @@ migrations/
 当前落地状态:
 
 - GATE-DB-004 已接入 `scripts/check_schema_table_coverage.py`
+- GATE-DB-004/目录治理/manifest 校验统一归口到 `db-migration-gate.yml`
 - GATE-DB-006 已接入 `scripts/run_pg_amcheck.py`
 - GATE-DB-007 已接入 `scripts/generate_logical_checksum_report.py`
 - GATE-DB-007 在 MR/CI 中为“报告框架”模式；主从对比通过 `db-replica-consistency.yml` 定时/手动执行（依赖 secrets 提供主从连接）
 - GATE-DB-008 已接入 `scripts/check_external_evidence_complete.py`，要求提交 `docs/db/DIAGNOSIS_EXTERNAL_EVIDENCE_*.md`
 - `db-migration-gate.yml` 当前已串联 retention / room summary / thread / db schema smoke tests，用于验证关键缺表与 unified schema 闭环
+- `ci.yml` 保留 `sqlx migrate run` 作为通用测试前置，不承担迁移治理口径定义
+- Rust 运行时初始化默认关闭，生产与 CI 应以 `docker/db_migrate.sh` 作为迁移执行入口
 
 ## 6. PostgreSQL 等价检查说明
 

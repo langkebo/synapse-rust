@@ -255,3 +255,76 @@ pub type VoipConfig = crate::common::config::VoipConfig;
 - [x] `cargo clippy --all-features -- -D warnings` 通过
 - [x] 所有模块 import 正常工作
 - [x] 运行时功能无异常
+
+---
+
+## 七、验证记录 (2026-03-30)
+
+### 7.1 routes/mod.rs 拆分状态：✅ 已完成
+
+| 项目 | 目标 | 实际 | 状态 |
+|------|------|------|------|
+| 行数 | < 2000 | **481** | ✅ |
+| extractors/ | 已拆分 | ✅ auth, json, pagination | ✅ |
+| handlers/ | 已拆分 | ✅ 10 个文件 | ✅ |
+
+### 7.2 config.rs 拆分状态：❌ 进行中
+
+| 项目 | 目标 | 实际 | 状态 |
+|------|------|------|------|
+| 行数 | < 2000 | **3938** | ❌ |
+| config/ 目录 | 已创建 | ✅ 存在 | ✅ |
+| 子模块拆分 | 按域拆分 | ❌ 尚未完成 | ❌ |
+
+### 7.3 config.rs 拆分难点
+
+1. **大量配置类型交叉引用**：`Config` 结构体引用所有子配置，任何拆分都需要仔细处理
+2. **serde 默认值分散**：多个 `default_xxx()` 函数需要一起迁移
+3. **重复定义**：文件中存在同名类型（如 `OidcConfig`）出现多次
+4. **兼容层复杂**：需要同时保持 `config.rs` 和新 `config/` 目录的同步
+
+### 7.4 建议的后续方案
+
+**方案 A（保守）**：保持 `config.rs` 不变，仅作为归档
+- 文档说明 config.rs 已归档，不再作为活跃开发目标
+- 所有新配置继续添加到 `config.rs` 末尾
+
+**方案 B（渐进式）**：
+1. 将 config.rs 重命名为 `config/legacy.rs`
+2. 创建新的 `config/mod.rs`，使用 `pub use legacy::*` 导出所有类型
+3. 逐步将小型配置（如 error, voip, push）迁移到独立文件
+4. 每次迁移后验证编译
+
+**方案 C（完整重构）**：
+1. 分析所有配置类型的依赖关系
+2. 按依赖层级拆分（无依赖 → 低依赖 → 高依赖）
+3. 创建独立的 `config/domain/` 子目录
+4. 需要 2-3 周时间完成
+
+### 7.5 config.rs 结构分析
+
+```
+config.rs (3938 行)
+├── Error Types (~20 行)
+├── VoIpConfig (~70 行) - 无依赖
+├── PushConfig (~100 行) - 包含 Apns/Fcm/WebPush
+├── UrlPreviewConfig (~50 行) - 无依赖
+├── OidcConfig (~80 行) - 有重复定义
+├── SamlConfig (~200 行) - 有重复定义
+├── RetentionConfig (~40 行) - 无依赖
+├── Config (主配置 ~80 行) - 依赖所有子配置
+├── SearchConfig (~30 行) - 无依赖
+├── RateLimitConfig (~100 行) - 无依赖
+├── ServerConfig (~200 行) - 无依赖
+├── DatabaseConfig (~30 行) - 无依赖
+├── RedisConfig (~30 行) - 无依赖
+├── LoggingConfig (~20 行) - 无依赖
+├── FederationConfig (~50 行) - 包含 TrustedKeyServer
+├── SecurityConfig (~100 行) - 有重复定义
+├── AdminRegistrationConfig (~30 行) - 无依赖
+├── WorkerConfig (~100 行) - 包含子配置
+├── SmtpConfig (~50 行) - 无依赖
+├── MediaStoreConfig (~100 行) - 无依赖
+├── ListenersConfig (~150 行) - 有重复定义
+└── 其他 (~1500 行) - 注释掉的配置/待实现
+```

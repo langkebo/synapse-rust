@@ -185,7 +185,7 @@ async fn proxy_validate(
                 proxy_granting_ticket: None,
             };
             Ok((
-                [(header::CONTENT_TYPE, "application/xml")],
+                [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
                 response.to_xml(),
             ))
         }
@@ -195,7 +195,7 @@ async fn proxy_validate(
                 description: "Proxy ticket not found or invalid".to_string(),
             };
             Ok((
-                [(header::CONTENT_TYPE, "application/xml")],
+                [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
                 response.to_xml(),
             ))
         }
@@ -219,7 +219,7 @@ async fn proxy(
     };
 
     Ok((
-        [(header::CONTENT_TYPE, "application/xml")],
+        [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
         response.to_xml(),
     ))
 }
@@ -240,7 +240,7 @@ async fn p3_service_validate(
         .await?;
 
     Ok((
-        [(header::CONTENT_TYPE, "application/xml")],
+        [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
         response.to_xml(),
     ))
 }
@@ -251,8 +251,8 @@ async fn logout(
 ) -> Result<impl IntoResponse, ApiError> {
     let _ = query;
     Ok((
-        [(header::CONTENT_TYPE, "text/html")],
-        "<html><body><h1>Logged out successfully</h1></body></html>",
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        "<!doctype html><html><head><meta charset=\"utf-8\"></head><body><h1>Logged out successfully</h1></body></html>",
     ))
 }
 

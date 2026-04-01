@@ -7,12 +7,9 @@
 
 set -euo pipefail
 
-# 配置
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="/app"
-MIGRATIONS_DIR="$PROJECT_ROOT/migrations"
 LOG_DIR="$PROJECT_ROOT/logs"
-HEALTHCHECK_ENDPOINT="${HEALTHCHECK_ENDPOINT:-http://localhost:8008/_matrix/federation/v1/version}"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -113,31 +110,23 @@ run_migrations() {
     log_debug "确保数据库连接处于干净状态..."
     psql "$DATABASE_URL" -c "ABORT;" >/dev/null 2>&1 || true
     
-    # 使用 db_migrate.sh 执行迁移
-    if [ -f "$PROJECT_ROOT/scripts/db_migrate.sh" ] || [ -f "$SCRIPT_DIR/db_migrate.sh" ]; then
+    if [ -f "$SCRIPT_DIR/db_migrate.sh" ]; then
         log_info "使用迁移脚本执行..."
-        
-        local migrate_script="$PROJECT_ROOT/scripts/db_migrate.sh"
-        if [ ! -f "$migrate_script" ]; then
-            migrate_script="$SCRIPT_DIR/db_migrate.sh"
-        fi
-        
-        # 设置单独的环境变量，避免 set -e 影响
+
         set +e
-        bash "$migrate_script" migrate 2>&1 | tee "$log_file"
+        bash "$SCRIPT_DIR/db_migrate.sh" migrate 2>&1 | tee "$log_file"
         local exit_code=${PIPESTATUS[0]}
         set -e
-        
+
         if [ $exit_code -eq 0 ]; then
             log_success "迁移执行成功"
             return 0
         else
             log_error "迁移执行失败 (exit code: $exit_code)"
-            
-            # 尝试恢复连接状态
+
             log_info "尝试恢复数据库连接状态..."
             psql "$DATABASE_URL" -c "ABORT;" >/dev/null 2>&1 || true
-            
+
             if [ "${STOP_ON_MIGRATION_FAILURE:-true}" = "true" ]; then
                 log_error "迁移失败，退出"
                 exit 1
@@ -221,7 +210,6 @@ start_application() {
     # 设置配置文件路径
     export SYNAPSE_CONFIG_PATH="${SYNAPSE_CONFIG_PATH:-/app/config/homeserver.yaml}"
     
-    # 如果配置文件存在，复制到工作目录
     if [ -f "$SYNAPSE_CONFIG_PATH" ]; then
         log_info "使用配置文件: $SYNAPSE_CONFIG_PATH"
     else
@@ -229,7 +217,6 @@ start_application() {
         exit 1
     fi
     
-    # 执行传入的命令或默认启动命令
     if [ $# -gt 0 ]; then
         log_info "执行命令: $*"
         exec "$@"
@@ -245,31 +232,25 @@ main() {
     log_info "synapse-rust 容器初始化"
     log_info "=========================================="
     
-    # 等待数据库
     if ! wait_for_db; then
         log_error "数据库连接失败，退出"
         exit 1
     fi
-    
-    # 等待 Redis (跳过检查)
-    log_warning "Redis 检查已跳过"
-    # if ! wait_for_redis; then
-    #     log_warning "Redis 连接失败，继续启动..."
-    # fi
-    
-    # 执行迁移（如果启用）
+
+    if ! wait_for_redis; then
+        log_warning "Redis 连接失败，继续启动..."
+    fi
+
     if ! run_migrations; then
         log_error "迁移失败，退出"
         exit 1
     fi
-    
-    # 验证迁移
+
     if ! verify_migrations; then
         log_error "迁移验证失败，退出"
         exit 1
     fi
 
-    # 修复媒体目录权限
     log_info "修复媒体目录权限..."
     mkdir -p /app/data/media
     chmod -R 755 /app/data/media 2>/dev/null || true
@@ -279,7 +260,6 @@ main() {
     log_info "启动应用服务"
     log_info "=========================================="
     
-    # 启动应用
     start_application "$@"
 }
 

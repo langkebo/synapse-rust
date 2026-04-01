@@ -1,20 +1,19 @@
-# ============================================================================
-# Synapse Rust Homeserver Configuration
-# ============================================================================
-
 server:
-  name: "cjystx.top"
+  name: "${SERVER_NAME:-localhost}"
   host: "0.0.0.0"
   port: 8008
-  public_baseurl: "https://cjystx.top:8443"
+  public_baseurl: "${PUBLIC_BASEURL:-http://localhost:28008}"
   signing_key_path: "/app/data/signing.key"
-  server_name: "cjystx.top"
+  macaroon_secret_key: "${MACAROON_SECRET:?MACAROON_SECRET is required}"
+  form_secret: "${FORM_SECRET:?FORM_SECRET is required}"
+  server_name: "${SERVER_NAME:-localhost}"
+  registration_shared_secret: "${REGISTRATION_SECRET:?REGISTRATION_SECRET is required}"
   max_upload_size: 10485760
   max_image_resolution: 8000000
   enable_registration: true
   enable_registration_captcha: false
   background_tasks_interval: 300
-  expire_access_token: false
+  expire_access_token: true
   expire_access_token_lifetime: 86400
   refresh_token_lifetime: 604800
   refresh_token_sliding_window_size: 3600
@@ -35,9 +34,9 @@ rate_limit:
 database:
   host: "db"
   port: 5432
-  username: "synapse"
-  password: "ypSgEf1Y8YzivoBsRFnHvH4JLwn2nspX"
-  name: "synapse"
+  username: "${DB_USER:-synapse}"
+  password: "${DB_PASSWORD:?DB_PASSWORD is required}"
+  name: "${DB_NAME:-synapse}"
   pool_size: 20
   max_size: 50
   min_idle: 10
@@ -46,14 +45,14 @@ database:
 redis:
   host: "redis"
   port: 6379
-  key_prefix: "synapse:"
+  key_prefix: "${REDIS_KEY_PREFIX:-synapse:}"
   pool_size: 20
   enabled: true
   connection_timeout_ms: 5000
   command_timeout_ms: 3000
 
 logging:
-  level: "info"
+  level: "${RUST_LOG:-info}"
   format: "text"
 
 search:
@@ -63,15 +62,15 @@ search:
 federation:
   enabled: true
   allow_ingress: true
-  server_name: "cjystx.top"
+  server_name: "${SERVER_NAME:-localhost}"
   federation_port: 8448
   connection_pool_size: 100
   max_transaction_payload: 10485760
-  signing_key_path: "/app/data/keys/signing.key"
-  key_id: "ed25519:testkb1OUw"
+  signing_key: "${FEDERATION_SIGNING_KEY:?FEDERATION_SIGNING_KEY is required}"
+  key_id: "${FEDERATION_KEY_ID:-ed25519:local}"
 
 security:
-  secret: "758ce19bd0f21445b48c6172c18aa38b6595b39f12462b7f3c23674a3057e655"
+  secret: "${SECRET_KEY:?SECRET_KEY is required}"
   expiry_time: 86400
   refresh_token_expiry: 604800
   argon2_m_cost: 65536
@@ -88,7 +87,7 @@ registration:
 
 admin_registration:
   enabled: true
-  shared_secret: "change-me-admin-registration-secret"
+  shared_secret: "${ADMIN_SECRET:?ADMIN_SECRET is required}"
   nonce_timeout_seconds: 60
 
 worker:
@@ -96,7 +95,8 @@ worker:
 
 cors:
   allowed_origins:
-    - "*"
+    - "http://localhost:28008"
+    - "${PUBLIC_BASEURL:-http://localhost:28008}"
   allow_credentials: true
   allowed_methods:
     - "GET"
@@ -105,15 +105,24 @@ cors:
     - "DELETE"
     - "OPTIONS"
   allowed_headers:
-    - "*"
+    - "Authorization"
+    - "Content-Type"
+    - "Accept"
+    - "Origin"
+    - "X-Requested-With"
   max_age_seconds: 3600
 
 identity_server_url: "https://vector.im"
 
 voip:
-  enabled: true
+  turn_uris:
+    - "turn:turn.example.com:3478?transport=udp"
+    - "turn:turn.example.com:3478?transport=tcp"
+  turn_shared_secret: "test_turn_shared_secret"
+  turn_user_lifetime: "1h"
+  turn_allow_guests: true
   stun_uris:
-    - "stun:stun.l.google.com:19302"
+    - "stun:stun.example.com:3478"
 
 url_preview:
   enabled: false
@@ -152,23 +161,5 @@ prometheus:
   include_namespace: true
 
 app_service:
-  enabled: true
-  appservice:
-    - id: "openclaw"
-      url: "http://host.docker.internal:8080"
-      as_token: "openclaw_as_token_change_this"
-      hs_token: "openclaw_hs_token_change_this"
-      sender_localpart: "openclaw"
-      rate_limited: false
-      protocols:
-        - "openclaw"
-      namespaces:
-        users:
-          - exclusive: true
-            regex: "@openclaw_.*:cjystx.top"
-        rooms:
-          - exclusive: false
-            regex: "!openclaw_.*:cjystx.top"
-        aliases:
-          - exclusive: false
-            regex: "#openclaw_.*:cjystx.top"
+  enabled: false
+  appservice: []

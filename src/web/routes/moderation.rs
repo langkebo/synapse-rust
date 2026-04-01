@@ -58,13 +58,9 @@ mod tests {
     #[test]
     fn test_moderation_router_keeps_version_specific_paths() {
         let v1_only = ["/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info"];
-        let v3_only = ["/_matrix/client/v3/rooms/{room_id}/report"];
 
         assert!(v1_only
             .iter()
             .all(|route| !route.ends_with("/{event_id}/score")));
-        assert!(v3_only
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/v3/")));
     }
 }

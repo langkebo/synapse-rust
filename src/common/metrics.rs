@@ -191,6 +191,13 @@ pub struct MetricsCollector {
     histograms: Arc<parking_lot::Mutex<HashMap<String, Histogram>>>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct MetricInventory {
+    pub total_counters: usize,
+    pub total_gauges: usize,
+    pub total_histograms: usize,
+}
+
 impl MetricsCollector {
     pub fn new() -> Self {
         Self {
@@ -315,6 +322,14 @@ impl MetricsCollector {
         }
 
         metrics
+    }
+
+    pub fn inventory(&self) -> MetricInventory {
+        MetricInventory {
+            total_counters: self.counters.lock().len(),
+            total_gauges: self.gauges.lock().len(),
+            total_histograms: self.histograms.lock().len(),
+        }
     }
 
     pub fn to_prometheus_format(&self) -> String {

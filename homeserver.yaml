@@ -26,10 +26,10 @@ server:
   warmup_pool: true
 
 database:
-  host: "192.168.139.3"
+  host: "192.168.97.3"
   port: 5432
   username: "synapse"
-  password: "change-me-db-password"
+  password: "ypSgEf1Y8YzivoBsRFnHvH4JLwn2nspX"
   name: "synapse"
   pool_size: 10
   max_size: 20
@@ -37,7 +37,7 @@ database:
   connection_timeout: 30
 
 redis:
-  host: "localhost"
+  host: "192.168.97.2"
   port: 6379
   key_prefix: "synapse:"
   pool_size: 10
@@ -60,7 +60,7 @@ federation:
   # signing_key: ""
 
 security:
-  secret: "change-me-jwt-secret"
+  secret: "change_me_jwt_secret_which_is_very_long_at_least_32_bytes_12345"
   expiry_time: 3600
   refresh_token_expiry: 604800
 

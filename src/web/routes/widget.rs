@@ -81,8 +81,16 @@ pub fn create_widget_router() -> Router<AppState> {
             delete(delete_widget),
         )
         .route(
+            "/_matrix/client/v1/widgets/{widget_id}/config",
+            get(get_widget_config),
+        )
+        .route(
             "/_matrix/client/v1/rooms/{room_id}/widgets",
             get(get_room_widgets),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/{room_id}/widgets/jitsi/config",
+            get(get_jitsi_config),
         )
         .route(
             "/_matrix/client/v1/widgets/{widget_id}/permissions",
@@ -119,6 +127,18 @@ async fn create_widget(
     auth_user: AuthenticatedUser,
     Json(body): Json<CreateWidgetBody>,
 ) -> Result<Json<WidgetResponse>, ApiError> {
+    if let Some(room_id) = body.room_id.as_deref() {
+        let room_exists = state
+            .services
+            .room_storage
+            .room_exists(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to validate room: {}", e)))?;
+        if !room_exists {
+            return Err(ApiError::not_found("Room not found"));
+        }
+    }
+
     let request = CreateWidgetRequest {
         room_id: body.room_id,
         widget_type: body.widget_type,
@@ -202,6 +222,40 @@ async fn get_room_widgets(
         total: widgets.len(),
         widgets,
     }))
+}
+
+async fn get_widget_config(
+    State(state): State<AppState>,
+    Path(widget_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let widget = state
+        .services
+        .widget_service
+        .get_widget(&widget_id)
+        .await?
+        .ok_or(ApiError::not_found("Widget not found"))?;
+
+    Ok(Json(json!({
+        "widget_id": widget.widget_id,
+        "room_id": widget.room_id,
+        "url": widget.url,
+        "name": widget.name,
+        "data": widget.data,
+        "type": widget.widget_type
+    })))
+}
+
+async fn get_jitsi_config(
+    State(_state): State<AppState>,
+    Path(room_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Ok(Json(json!({
+        "conf_id": format!("{}_jitsi_conference", room_id.replace("!", "").replace(":", "_")),
+        "name": "Jitsi Conference",
+        "domain": "meet.jit.si",
+        "app_id": null,
+        "jwt": null
+    })))
 }
 
 async fn set_widget_permission(

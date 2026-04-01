@@ -48,11 +48,11 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             key_id VARCHAR(255) NOT NULL,
             secret_key TEXT NOT NULL,
             public_key TEXT NOT NULL,
-            created_at BIGINT NOT NULL,
+            created_ts BIGINT NOT NULL,
             expires_at BIGINT NOT NULL,
-            key_json JSONB,
-            ts_added_ms BIGINT,
-            ts_valid_until_ms BIGINT,
+            key_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+            ts_added_ms BIGINT NOT NULL,
+            ts_valid_until_ms BIGINT NOT NULL,
             PRIMARY KEY (server_name, key_id)
         )
     "#).execute(&pool).await.expect("Failed to create federation_signing_keys table");
@@ -125,6 +125,41 @@ fn test_should_rotate_keys() {
         let days_until_expiry = (key.expires_at - now) / (24 * 60 * 60 * 1000);
         
         assert!(days_until_expiry >= 6, "Key should have at least 6 days until expiry, got {} days", days_until_expiry);
+    });
+}
+
+#[test]
+fn test_load_or_create_key_recovers_missing_signing_key_table() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = match setup_test_database().await {
+            Some(pool) => Arc::new(pool),
+            None => return,
+        };
+
+        sqlx::query("DROP TABLE IF EXISTS federation_signing_keys CASCADE")
+            .execute(&*pool)
+            .await
+            .expect("Failed to drop federation_signing_keys table");
+
+        let id = unique_id();
+        let server_name = format!("test{}.example.com", id);
+        let manager = KeyRotationManager::new(&pool, &server_name);
+
+        manager
+            .load_or_create_key()
+            .await
+            .expect("Failed to recreate federation_signing_keys table");
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM federation_signing_keys WHERE server_name = $1",
+        )
+        .bind(&server_name)
+        .fetch_one(&*pool)
+        .await
+        .expect("Failed to count federation signing keys");
+
+        assert_eq!(count, 1);
     });
 }
 

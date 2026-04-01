@@ -111,8 +111,8 @@ BEGIN
         trust_level TEXT NOT NULL DEFAULT 'unverified',
         verified_by_device_id TEXT,
         verified_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL,
+        created_ts BIGINT NOT NULL,
+        updated_ts BIGINT,
         CONSTRAINT uq_device_trust_status_user_device UNIQUE (user_id, device_id)
     );
 
@@ -123,8 +123,8 @@ BEGIN
         master_key_id TEXT,
         is_trusted BOOLEAN NOT NULL DEFAULT FALSE,
         trusted_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL,
+        created_ts BIGINT NOT NULL,
+        updated_ts BIGINT,
         CONSTRAINT uq_cross_signing_trust_user_target UNIQUE (user_id, target_user_id)
     );
 
@@ -136,8 +136,8 @@ BEGIN
         to_device TEXT,
         method TEXT NOT NULL,
         state TEXT NOT NULL,
-        created_at BIGINT NOT NULL,
-        updated_at BIGINT NOT NULL
+        created_ts BIGINT NOT NULL,
+        updated_ts BIGINT
     );
 
     CREATE TABLE IF NOT EXISTS verification_sas (
@@ -375,8 +375,8 @@ BEGIN
         algorithm TEXT NOT NULL,
         auth_data TEXT NOT NULL,
         key_count BIGINT NOT NULL DEFAULT 0,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
+        updated_ts BIGINT DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
         CONSTRAINT pk_secure_key_backups PRIMARY KEY (user_id, backup_id),
         CONSTRAINT fk_secure_key_backups_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
     );
@@ -387,7 +387,7 @@ BEGIN
         room_id TEXT NOT NULL,
         session_id TEXT NOT NULL,
         encrypted_key TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
         CONSTRAINT pk_secure_backup_session_keys PRIMARY KEY (user_id, backup_id, room_id, session_id),
         CONSTRAINT fk_secure_backup_session_keys_backup FOREIGN KEY (user_id, backup_id) REFERENCES secure_key_backups(user_id, backup_id) ON DELETE CASCADE,
         CONSTRAINT fk_secure_backup_session_keys_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
@@ -446,7 +446,7 @@ CREATE INDEX IF NOT EXISTS idx_cross_signing_trust_user_trusted
 ON cross_signing_trust(user_id, is_trusted);
 
 CREATE INDEX IF NOT EXISTS idx_verification_requests_to_user_state
-ON verification_requests(to_user, state, updated_at DESC);
+ON verification_requests(to_user, state, updated_ts DESC);
 
 CREATE INDEX IF NOT EXISTS idx_moderation_actions_user_created
 ON moderation_actions(user_id, created_ts DESC);
@@ -512,7 +512,7 @@ ON scheduled_notifications(scheduled_for)
 WHERE is_sent = FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_secure_key_backups_user_created
-ON secure_key_backups(user_id, created_at DESC);
+ON secure_key_backups(user_id, created_ts DESC);
 
 CREATE INDEX IF NOT EXISTS idx_secure_backup_session_keys_backup
 ON secure_backup_session_keys(user_id, backup_id);

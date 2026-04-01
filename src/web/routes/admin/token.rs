@@ -69,7 +69,7 @@ pub async fn get_registration_tokens(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
     let tokens = sqlx::query(
-        "SELECT token, uses_allowed, pending, completed, expiry_time, created_ts FROM registration_tokens ORDER BY created_ts DESC"
+        "SELECT token, max_uses, uses_count, expires_at, created_ts FROM registration_tokens ORDER BY created_ts DESC"
     )
     .fetch_all(&*state.services.user_storage.pool)
     .await
@@ -78,12 +78,14 @@ pub async fn get_registration_tokens(
     let token_list: Vec<Value> = tokens
         .iter()
         .map(|row| {
+            let max_uses = row.get::<i32, _>("max_uses");
+            let uses_allowed = if max_uses == 0 { None } else { Some(max_uses) };
             json!({
                 "token": row.get::<Option<String>, _>("token"),
-                "uses_allowed": row.get::<Option<i32>, _>("uses_allowed"),
-                "pending": row.get::<Option<i32>, _>("pending").unwrap_or(0),
-                "completed": row.get::<Option<i32>, _>("completed").unwrap_or(0),
-                "expiry_time": row.get::<Option<i64>, _>("expiry_time"),
+                "uses_allowed": uses_allowed,
+                "pending": 0,
+                "completed": row.get::<i32, _>("uses_count"),
+                "expiry_time": row.get::<Option<i64>, _>("expires_at"),
                 "created_ts": row.get::<Option<i64>, _>("created_ts")
             })
         })
@@ -94,7 +96,7 @@ pub async fn get_registration_tokens(
 
 #[axum::debug_handler]
 pub async fn create_registration_token(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Json(body): Json<CreateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -102,21 +104,23 @@ pub async fn create_registration_token(
     let token = body
         .token
         .unwrap_or_else(|| crate::common::random_string(body.length.unwrap_or(16)));
+    let max_uses = body.uses_allowed.unwrap_or(0);
 
     sqlx::query(
-        "INSERT INTO registration_tokens (token, uses_allowed, pending, completed, expiry_time, created_ts) VALUES ($1, $2, 0, 0, $3, $4)"
+        "INSERT INTO registration_tokens (token, max_uses, uses_count, is_used, is_enabled, created_ts, updated_ts, expires_at, created_by) VALUES ($1, $2, 0, FALSE, TRUE, $3, $3, $4, $5)"
     )
     .bind(&token)
-    .bind(body.uses_allowed)
-    .bind(body.expiry_time)
+    .bind(max_uses)
     .bind(now)
+    .bind(body.expiry_time)
+    .bind(admin.user_id)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({
         "token": token,
-        "uses_allowed": body.uses_allowed,
+        "uses_allowed": if max_uses == 0 { None } else { Some(max_uses) },
         "pending": 0,
         "completed": 0,
         "expiry_time": body.expiry_time,
@@ -131,7 +135,7 @@ pub async fn get_registration_token(
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let result = sqlx::query(
-        "SELECT token, uses_allowed, pending, completed, expiry_time, created_ts FROM registration_tokens WHERE token = $1"
+        "SELECT token, max_uses, uses_count, expires_at, created_ts FROM registration_tokens WHERE token = $1"
     )
     .bind(&token)
     .fetch_optional(&*state.services.user_storage.pool)
@@ -139,14 +143,17 @@ pub async fn get_registration_token(
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     match result {
-        Some(row) => Ok(Json(json!({
-            "token": row.get::<Option<String>, _>("token"),
-            "uses_allowed": row.get::<Option<i32>, _>("uses_allowed"),
-            "pending": row.get::<Option<i32>, _>("pending").unwrap_or(0),
-            "completed": row.get::<Option<i32>, _>("completed").unwrap_or(0),
-            "expiry_time": row.get::<Option<i64>, _>("expiry_time"),
-            "created_ts": row.get::<Option<i64>, _>("created_ts")
-        }))),
+        Some(row) => {
+            let max_uses = row.get::<i32, _>("max_uses");
+            Ok(Json(json!({
+                "token": row.get::<Option<String>, _>("token"),
+                "uses_allowed": if max_uses == 0 { None } else { Some(max_uses) },
+                "pending": 0,
+                "completed": row.get::<i32, _>("uses_count"),
+                "expiry_time": row.get::<Option<i64>, _>("expires_at"),
+                "created_ts": row.get::<Option<i64>, _>("created_ts")
+            })))
+        }
         None => Err(ApiError::not_found("Token not found".to_string())),
     }
 }
@@ -178,24 +185,28 @@ pub async fn update_registration_token(
     Json(body): Json<UpdateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let result = sqlx::query(
-        "UPDATE registration_tokens SET uses_allowed = COALESCE($2, uses_allowed), expiry_time = COALESCE($3, expiry_time) WHERE token = $1 RETURNING token, uses_allowed, pending, completed, expiry_time, created_ts"
+        "UPDATE registration_tokens SET max_uses = COALESCE($2, max_uses), expires_at = COALESCE($3, expires_at), updated_ts = $4 WHERE token = $1 RETURNING token, max_uses, uses_count, expires_at, created_ts"
     )
     .bind(&token)
     .bind(body.uses_allowed)
     .bind(body.expiry_time)
+    .bind(chrono::Utc::now().timestamp_millis())
     .fetch_optional(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     match result {
-        Some(row) => Ok(Json(json!({
-            "token": row.get::<Option<String>, _>("token"),
-            "uses_allowed": row.get::<Option<i32>, _>("uses_allowed"),
-            "pending": row.get::<Option<i32>, _>("pending").unwrap_or(0),
-            "completed": row.get::<Option<i32>, _>("completed").unwrap_or(0),
-            "expiry_time": row.get::<Option<i64>, _>("expiry_time"),
-            "created_ts": row.get::<Option<i64>, _>("created_ts")
-        }))),
+        Some(row) => {
+            let max_uses = row.get::<i32, _>("max_uses");
+            Ok(Json(json!({
+                "token": row.get::<Option<String>, _>("token"),
+                "uses_allowed": if max_uses == 0 { None } else { Some(max_uses) },
+                "pending": 0,
+                "completed": row.get::<i32, _>("uses_count"),
+                "expiry_time": row.get::<Option<i64>, _>("expires_at"),
+                "created_ts": row.get::<Option<i64>, _>("created_ts")
+            })))
+        }
         None => Err(ApiError::not_found("Token not found".to_string())),
     }
 }
@@ -207,7 +218,7 @@ pub async fn get_user_tokens(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let tokens = sqlx::query(
-        "SELECT id, token_hash, device_id, created_ts, expires_at, is_revoked FROM access_tokens WHERE user_id = $1 ORDER BY created_ts DESC"
+        "SELECT id, token, device_id, created_ts, expires_at, is_revoked FROM access_tokens WHERE user_id = $1 ORDER BY created_ts DESC"
     )
     .bind(&user_id)
     .fetch_all(&*state.services.token_storage.pool)

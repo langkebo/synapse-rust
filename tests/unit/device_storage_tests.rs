@@ -49,9 +49,8 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             device_key JSONB,
             last_seen_ts BIGINT,
             last_seen_ip TEXT,
-            created_at BIGINT NOT NULL,
             first_seen_ts BIGINT NOT NULL,
-            created_ts BIGINT,
+            created_ts BIGINT NOT NULL,
             appservice_id TEXT,
             ignored_user_list TEXT
         )

@@ -8,7 +8,7 @@ import urllib.request
 SERVER = "http://localhost:28008"
 USERNAME = "admin"
 PASSWORD = "Admin@123"
-SHARED_SECRET = "change-me-admin-registration-secret"
+SHARED_SECRET = "change-me-registration-secret"
 ADMIN = True
 
 def main():
@@ -20,10 +20,10 @@ def main():
     print(f"Got nonce: {nonce}")
 
     # 构建 message
-    # 格式: nonce\x00username\x00password\x00admin\x00\x00\x00 (for admin with no user_type)
+    # 格式: nonce\x00username\x00password\x00admin|notadmin
     message = f"{nonce}\x00{USERNAME}\x00{PASSWORD}\x00"
     if ADMIN:
-        message += "admin\x00\x00\x00"
+        message += "admin"
     else:
         message += "notadmin"
 

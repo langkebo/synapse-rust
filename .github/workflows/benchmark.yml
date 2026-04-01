@@ -87,13 +87,19 @@ jobs:
           check_artifacts: true
           search_artifacts: true
 
+      - name: Download current results
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-results
+          path: current
+
       - name: Compare results
         run: |
-          if [ -f baseline/benchmark.txt ]; then
+          if [ -f baseline/benchmark.txt ] && [ -f current/benchmark.txt ]; then
             echo "## Performance Comparison" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "Comparing with baseline..." >> $GITHUB_STEP_SUMMARY
-            diff baseline/benchmark.txt benchmark.txt || true
+            diff baseline/benchmark.txt current/benchmark.txt || true
           else
             echo "No baseline found for comparison"
           fi

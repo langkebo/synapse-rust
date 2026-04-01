@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod federation;
 pub mod media;
 pub mod notification;
@@ -13,6 +14,7 @@ pub mod user;
 use crate::web::routes::AppState;
 use axum::Router;
 
+pub use audit::create_audit_router;
 pub use federation::create_federation_router;
 pub use media::create_media_router;
 pub use notification::create_notification_router;
@@ -27,6 +29,7 @@ pub use user::create_user_router;
 
 pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
     Router::new()
+        .merge(create_audit_router(state.clone()))
         .merge(create_user_router(state.clone()))
         .merge(create_room_router(state.clone()))
         .merge(create_server_router(state.clone()))

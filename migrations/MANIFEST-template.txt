@@ -1,0 +1,82 @@
+# Migration Manifest Template
+#
+# 按 OPTIMIZATION_PLAN.md Section 6.5 要求生成
+# 用于发布时的 SHA-256 防篡改校验
+#
+# 使用方法:
+#   python3 scripts/generate_migration_manifest.py --release v6.0.5 --output MANIFEST-v6.0.5.txt
+#
+# 验证方法:
+#   python3 scripts/verify_migration_manifest.py MANIFEST-v6.0.5.txt
+
+---
+Manifest Version: v1.0
+Release Version: {VERSION}
+Generated Date: {YYYY-MM-DD HH:MM:SS}
+Git Commit: {COMMIT_SHA}
+Jira Ticket: {JIRA_ID}
+Owner: {TEAM_NAME}
+---
+
+# Migration Scripts
+
+| Filename | Size (bytes) | SHA-256 | Type | Applied |
+|----------|-------------|---------|------|--------|
+| 00000000_unified_schema_v6.sql | {SIZE} | {SHA256} | baseline | {YES/NO} |
+| 99999999_unified_incremental_migration.sql | {SIZE} | {SHA256} | incremental | {YES/NO} |
+| {migration_file_1}.sql | {SIZE} | {SHA256} | incremental | {YES/NO} |
+| {migration_file_2}.sql | {SIZE} | {SHA256} | incremental | {YES/NO} |
+
+---
+
+# Rollback Scripts
+
+| Filename | Size (bytes) | SHA-256 | Associated Migration |
+|----------|-------------|---------|---------------------|
+| {rollback_file_1}.rollback.sql | {SIZE} | {SHA256} | {migration_file_1}.sql |
+| {rollback_file_2}.rollback.sql | {SIZE} | {SHA256} | {migration_file_2}.sql |
+
+---
+
+# Archive Scripts
+
+| Filename | Size (bytes) | SHA-256 | Archived Date | Replacement |
+|----------|-------------|---------|---------------|-------------|
+| {archived_file}.sql | {SIZE} | {SHA256} | {YYYY-MM-DD} | unified_schema_v6.sql |
+
+---
+
+# Verification Commands
+
+```bash
+# Verify SHA-256 checksums
+python3 scripts/verify_migration_manifest.py MANIFEST-{VERSION}.txt
+
+# Apply migrations in order
+psql -U synapse -d synapse -f 00000000_unified_schema_v6.sql
+psql -U synapse -d synapse -f 99999999_unified_incremental_migration.sql
+
+# Verify schema
+python3 scripts/run_pg_amcheck.py
+python3 scripts/generate_logical_checksum_report.py
+```
+
+---
+
+# Sign-off
+
+| Role | Name | Date | Signature |
+|------|------|------|-----------|
+| Backend Owner | | | |
+| DBA | | | |
+| SRE | | | |
+| QA | | | |
+
+---
+
+# Notes
+
+{ADDITIONAL_NOTES}
+
+---
+End of Manifest

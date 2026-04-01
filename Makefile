@@ -53,7 +53,7 @@ migrate-check:
 
 migrate-status:
 	@echo "Migration status:"
-	@PGPASSWORD=synapse psql "$(FLYWAY_URL)" -c "SELECT * FROM schema_migrations ORDER BY installed_rank DESC LIMIT 10;"
+	@PGPASSWORD=synapse psql "$(FLYWAY_URL)" -c "SELECT version, name, success, applied_ts, executed_at FROM schema_migrations ORDER BY COALESCE(applied_ts, FLOOR(EXTRACT(EPOCH FROM executed_at) * 1000)::BIGINT) DESC NULLS LAST, id DESC LIMIT 10;"
 
 migrate-undo:
 	@echo "Undoing last migration..."
@@ -67,7 +67,7 @@ migrate-baseline:
 
 migrate-audit:
 	@echo "Migration audit log:"
-	@PGPASSWORD=synapse psql "$(FLYWAY_URL)" -c "SELECT version, description, installed_on, execution_time_ms FROM schema_migrations ORDER BY installed_on DESC LIMIT 20;"
+	@PGPASSWORD=synapse psql "$(FLYWAY_URL)" -c "SELECT version, name, description, execution_time_ms, applied_ts, executed_at, success FROM schema_migrations ORDER BY COALESCE(applied_ts, FLOOR(EXTRACT(EPOCH FROM executed_at) * 1000)::BIGINT) DESC NULLS LAST, id DESC LIMIT 20;"
 
 # Flyway Commands (optional)
 flyway-info:

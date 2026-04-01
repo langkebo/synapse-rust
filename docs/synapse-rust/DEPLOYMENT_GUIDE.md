@@ -62,8 +62,8 @@ cargo build --release
 # 创建数据库
 createdb synapse
 
-# 运行数据库迁移
-cargo run --bin migrate
+# 运行数据库迁移（唯一推荐入口）
+bash docker/db_migrate.sh migrate
 ```
 
 ### 4. 配置环境变量
@@ -194,6 +194,13 @@ CREATE USER synapse WITH PASSWORD 'your_password';
 CREATE DATABASE synapse OWNER synapse;
 GRANT ALL PRIVILEGES ON DATABASE synapse TO synapse;
 ```
+
+### 迁移入口与环境变量
+
+- 迁移执行入口以 `bash docker/db_migrate.sh migrate` 为准；CI 治理口径以 `.github/workflows/db-migration-gate.yml` 为准。
+- `SYNAPSE_ENABLE_RUNTIME_DB_INIT`：运行时数据库初始化兼容开关，默认关闭；生产与 CI 不应依赖该路径执行迁移。
+- `SYNAPSE_SKIP_DB_INIT`：强制跳过运行时数据库初始化（即使显式开启 `SYNAPSE_ENABLE_RUNTIME_DB_INIT` 也会被跳过），用于确保服务启动不触发兼容逻辑。
+- `RUN_MIGRATIONS`：Docker 入口控制开关；容器启动时是否调用统一迁移入口执行 `migrate`。
 
 ---
 

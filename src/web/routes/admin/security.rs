@@ -1,7 +1,9 @@
+use super::audit::{record_audit_event, resolve_request_id};
 use crate::common::ApiError;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
+    http::HeaderMap,
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -53,9 +55,10 @@ pub struct RateLimitRequest {
 
 #[axum::debug_handler]
 pub async fn shadow_ban_user(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     sqlx::query("UPDATE users SET is_shadow_banned = true WHERE user_id = $1")
         .bind(&user_id)
@@ -63,20 +66,43 @@ pub async fn shadow_ban_user(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
+    record_audit_event(
+        &state,
+        &admin.user_id,
+        "admin.user.shadow_ban",
+        "user",
+        &user_id,
+        resolve_request_id(&headers),
+        json!({ "is_shadow_banned": true }),
+    )
+    .await?;
+
     Ok(Json(json!({})))
 }
 
 #[axum::debug_handler]
 pub async fn unshadow_ban_user(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     sqlx::query("UPDATE users SET is_shadow_banned = false WHERE user_id = $1")
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    record_audit_event(
+        &state,
+        &admin.user_id,
+        "admin.user.unshadow_ban",
+        "user",
+        &user_id,
+        resolve_request_id(&headers),
+        json!({ "is_shadow_banned": false }),
+    )
+    .await?;
 
     Ok(Json(json!({})))
 }
@@ -108,9 +134,10 @@ pub async fn get_user_rate_limit(
 
 #[axum::debug_handler]
 pub async fn set_user_rate_limit(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<RateLimitRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let messages_per_second = body.messages_per_second.unwrap_or(5.0);
@@ -126,6 +153,20 @@ pub async fn set_user_rate_limit(
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
+    record_audit_event(
+        &state,
+        &admin.user_id,
+        "admin.user.rate_limit.set",
+        "user",
+        &user_id,
+        resolve_request_id(&headers),
+        json!({
+            "messages_per_second": messages_per_second,
+            "burst_count": burst_count
+        }),
+    )
+    .await?;
+
     Ok(Json(json!({
         "messages_per_second": messages_per_second,
         "burst_count": burst_count
@@ -134,15 +175,27 @@ pub async fn set_user_rate_limit(
 
 #[axum::debug_handler]
 pub async fn delete_user_rate_limit(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     sqlx::query("DELETE FROM rate_limits WHERE user_id = $1")
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    record_audit_event(
+        &state,
+        &admin.user_id,
+        "admin.user.rate_limit.delete",
+        "user",
+        &user_id,
+        resolve_request_id(&headers),
+        json!({}),
+    )
+    .await?;
 
     Ok(Json(json!({})))
 }
@@ -161,9 +214,10 @@ pub async fn set_user_override_rate_limit(
     admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
+    headers: HeaderMap,
     body: Json<RateLimitRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    set_user_rate_limit(admin, State(state), Path(user_id), body).await
+    set_user_rate_limit(admin, State(state), Path(user_id), headers, body).await
 }
 
 #[axum::debug_handler]
@@ -171,6 +225,7 @@ pub async fn delete_user_override_rate_limit(
     admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    delete_user_rate_limit(admin, State(state), Path(user_id)).await
+    delete_user_rate_limit(admin, State(state), Path(user_id), headers).await
 }

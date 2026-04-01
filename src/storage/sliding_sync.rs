@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use tokio::sync::OnceCell;
+
+static SLIDING_SYNC_SCHEMA_READY: OnceCell<()> = OnceCell::const_new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SlidingSyncToken {
@@ -48,6 +51,29 @@ pub struct SlidingSyncRoom {
     pub timestamp: i64,
     pub created_ts: i64,
     pub updated_ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct AdminRoomTokenSyncEntry {
+    pub user_id: String,
+    pub device_id: String,
+    pub conn_id: Option<String>,
+    pub list_key: Option<String>,
+    pub pos: Option<i64>,
+    pub token_created_ts: Option<i64>,
+    pub token_expires_at: Option<i64>,
+    pub room_timestamp: i64,
+    pub room_updated_ts: i64,
+    pub bump_stamp: i64,
+    pub highlight_count: i32,
+    pub notification_count: i32,
+    pub is_dm: bool,
+    pub is_encrypted: bool,
+    pub is_tombstoned: bool,
+    pub invited: bool,
+    pub name: Option<String>,
+    pub avatar: Option<String>,
+    pub is_expired: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +144,7 @@ impl SlidingSyncStorage {
         device_id: &str,
         conn_id: Option<&str>,
     ) -> Result<SlidingSyncToken, sqlx::Error> {
+        self.ensure_schema().await?;
         let now = chrono::Utc::now().timestamp_millis();
         let expires_at = now + 7 * 24 * 3600 * 1000;
 
@@ -149,6 +176,7 @@ impl SlidingSyncStorage {
         device_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Option<SlidingSyncToken>, sqlx::Error> {
+        self.ensure_schema().await?;
         sqlx::query_as::<_, SlidingSyncToken>(
             r#"
             SELECT * FROM sliding_sync_tokens 
@@ -169,6 +197,7 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
         pos: &str,
     ) -> Result<bool, sqlx::Error> {
+        self.ensure_schema().await?;
         let result: Option<(bool,)> = sqlx::query_as(
             r#"
             SELECT (pos = $4) FROM sliding_sync_tokens 
@@ -197,6 +226,7 @@ impl SlidingSyncStorage {
         room_subscription: Option<&serde_json::Value>,
         ranges: &[(u32, u32)],
     ) -> Result<SlidingSyncList, sqlx::Error> {
+        self.ensure_schema().await?;
         let now = chrono::Utc::now().timestamp_millis();
         let sort_json = serde_json::to_value(sort).unwrap_or(serde_json::json!([]));
         let filters_json =
@@ -236,6 +266,7 @@ impl SlidingSyncStorage {
         device_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Vec<SlidingSyncList>, sqlx::Error> {
+        self.ensure_schema().await?;
         sqlx::query_as::<_, SlidingSyncList>(
             r#"
             SELECT * FROM sliding_sync_lists 
@@ -257,6 +288,7 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
         list_key: &str,
     ) -> Result<(), sqlx::Error> {
+        self.ensure_schema().await?;
         sqlx::query(
             r#"
             DELETE FROM sliding_sync_lists 
@@ -292,6 +324,7 @@ impl SlidingSyncStorage {
         avatar: Option<&str>,
         timestamp: i64,
     ) -> Result<SlidingSyncRoom, sqlx::Error> {
+        self.ensure_schema().await?;
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, SlidingSyncRoom>(
@@ -345,6 +378,7 @@ impl SlidingSyncStorage {
         start: u32,
         end: u32,
     ) -> Result<Vec<SlidingSyncRoom>, sqlx::Error> {
+        self.ensure_schema().await?;
         sqlx::query_as::<_, SlidingSyncRoom>(
             r#"
             SELECT * FROM sliding_sync_rooms 
@@ -370,6 +404,7 @@ impl SlidingSyncStorage {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error> {
+        self.ensure_schema().await?;
         sqlx::query_as::<_, SlidingSyncRoom>(
             r#"
             SELECT * FROM sliding_sync_rooms 
@@ -391,6 +426,7 @@ impl SlidingSyncStorage {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<(), sqlx::Error> {
+        self.ensure_schema().await?;
         sqlx::query(
             r#"
             DELETE FROM sliding_sync_rooms 
@@ -416,6 +452,7 @@ impl SlidingSyncStorage {
         highlight_count: i32,
         notification_count: i32,
     ) -> Result<(), sqlx::Error> {
+        self.ensure_schema().await?;
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -446,6 +483,7 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
         bump_stamp: i64,
     ) -> Result<(), sqlx::Error> {
+        self.ensure_schema().await?;
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -468,6 +506,7 @@ impl SlidingSyncStorage {
     }
 
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
+        self.ensure_schema().await?;
         let now = chrono::Utc::now().timestamp_millis();
 
         let result = sqlx::query(
@@ -481,6 +520,189 @@ impl SlidingSyncStorage {
         .await?;
 
         Ok(result.rows_affected())
+    }
+
+    pub async fn list_room_token_sync(
+        &self,
+        room_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<AdminRoomTokenSyncEntry>, sqlx::Error> {
+        self.ensure_schema().await?;
+        let now = chrono::Utc::now().timestamp_millis();
+
+        sqlx::query_as::<_, AdminRoomTokenSyncEntry>(
+            r#"
+            SELECT
+                rooms.user_id,
+                rooms.device_id,
+                rooms.conn_id,
+                rooms.list_key,
+                tokens.pos,
+                tokens.created_ts AS token_created_ts,
+                tokens.expires_at AS token_expires_at,
+                rooms.timestamp AS room_timestamp,
+                rooms.updated_ts AS room_updated_ts,
+                rooms.bump_stamp,
+                rooms.highlight_count,
+                rooms.notification_count,
+                rooms.is_dm,
+                rooms.is_encrypted,
+                rooms.is_tombstoned,
+                rooms.invited,
+                rooms.name,
+                rooms.avatar,
+                COALESCE(tokens.expires_at IS NOT NULL AND tokens.expires_at < $2, FALSE) AS is_expired
+            FROM sliding_sync_rooms rooms
+            LEFT JOIN sliding_sync_tokens tokens
+                ON tokens.user_id = rooms.user_id
+               AND tokens.device_id = rooms.device_id
+               AND COALESCE(tokens.conn_id, '') = COALESCE(rooms.conn_id, '')
+            WHERE rooms.room_id = $1
+            ORDER BY rooms.updated_ts DESC, rooms.user_id ASC, rooms.device_id ASC, rooms.conn_id ASC
+            LIMIT $3 OFFSET $4
+            "#,
+        )
+        .bind(room_id)
+        .bind(now)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn count_room_token_sync(&self, room_id: &str) -> Result<i64, sqlx::Error> {
+        self.ensure_schema().await?;
+        sqlx::query_scalar("SELECT COUNT(*) FROM sliding_sync_rooms WHERE room_id = $1")
+            .bind(room_id)
+            .fetch_one(&*self.pool)
+            .await
+    }
+
+    async fn ensure_schema(&self) -> Result<(), sqlx::Error> {
+        SLIDING_SYNC_SCHEMA_READY
+            .get_or_try_init(|| async {
+                sqlx::query("CREATE SEQUENCE IF NOT EXISTS sliding_sync_pos_seq")
+                    .execute(&*self.pool)
+                    .await?;
+
+                sqlx::query(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS sliding_sync_lists (
+                        id BIGSERIAL PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        device_id TEXT NOT NULL,
+                        conn_id TEXT,
+                        list_key TEXT NOT NULL,
+                        sort JSONB DEFAULT '[]',
+                        filters JSONB DEFAULT '{}',
+                        room_subscription JSONB DEFAULT '{}',
+                        ranges JSONB DEFAULT '[]',
+                        created_ts BIGINT NOT NULL,
+                        updated_ts BIGINT NOT NULL
+                    )
+                    "#,
+                )
+                .execute(&*self.pool)
+                .await?;
+
+                sqlx::query(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS sliding_sync_tokens (
+                        id BIGSERIAL PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        device_id TEXT NOT NULL,
+                        conn_id TEXT,
+                        token TEXT NOT NULL,
+                        pos BIGINT NOT NULL,
+                        created_ts BIGINT NOT NULL,
+                        expires_at BIGINT
+                    )
+                    "#,
+                )
+                .execute(&*self.pool)
+                .await?;
+
+                sqlx::query(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS sliding_sync_rooms (
+                        id BIGSERIAL PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        device_id TEXT NOT NULL,
+                        room_id TEXT NOT NULL,
+                        conn_id TEXT,
+                        list_key TEXT,
+                        bump_stamp BIGINT DEFAULT 0,
+                        highlight_count INTEGER DEFAULT 0,
+                        notification_count INTEGER DEFAULT 0,
+                        is_dm BOOLEAN DEFAULT FALSE,
+                        is_encrypted BOOLEAN DEFAULT FALSE,
+                        is_tombstoned BOOLEAN DEFAULT FALSE,
+                        invited BOOLEAN DEFAULT FALSE,
+                        name TEXT,
+                        avatar TEXT,
+                        timestamp BIGINT DEFAULT 0,
+                        created_ts BIGINT NOT NULL,
+                        updated_ts BIGINT NOT NULL
+                    )
+                    "#,
+                )
+                .execute(&*self.pool)
+                .await?;
+
+                sqlx::query(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_lists_unique ON sliding_sync_lists(user_id, device_id, COALESCE(conn_id, ''), list_key)",
+                )
+                .execute(&*self.pool)
+                .await?;
+
+                sqlx::query(
+                    "CREATE INDEX IF NOT EXISTS idx_sliding_sync_lists_user_device ON sliding_sync_lists(user_id, device_id)",
+                )
+                .execute(&*self.pool)
+                .await?;
+
+                sqlx::query(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_tokens_unique ON sliding_sync_tokens(user_id, device_id, COALESCE(conn_id, ''))",
+                )
+                .execute(&*self.pool)
+                .await?;
+
+                sqlx::query(
+                    "CREATE INDEX IF NOT EXISTS idx_sliding_sync_tokens_user ON sliding_sync_tokens(user_id, device_id)",
+                )
+                .execute(&*self.pool)
+                .await?;
+
+                sqlx::query(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_rooms_unique ON sliding_sync_rooms(user_id, device_id, room_id, COALESCE(conn_id, ''))",
+                )
+                .execute(&*self.pool)
+                .await?;
+
+                sqlx::query(
+                    "CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_user_device ON sliding_sync_rooms(user_id, device_id)",
+                )
+                .execute(&*self.pool)
+                .await?;
+
+                sqlx::query(
+                    "CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_bump_stamp ON sliding_sync_rooms(bump_stamp DESC)",
+                )
+                .execute(&*self.pool)
+                .await?;
+
+                sqlx::query(
+                    "CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_room_id ON sliding_sync_rooms(room_id, updated_ts DESC)",
+                )
+                .execute(&*self.pool)
+                .await?;
+
+                Ok::<(), sqlx::Error>(())
+            })
+            .await?;
+
+        Ok(())
     }
 }
 

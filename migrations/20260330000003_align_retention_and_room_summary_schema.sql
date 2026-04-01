@@ -100,15 +100,39 @@ ALTER TABLE server_retention_policy
     ADD COLUMN IF NOT EXISTS min_lifetime BIGINT NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS expire_on_clients BOOLEAN NOT NULL DEFAULT FALSE;
 
-UPDATE server_retention_policy
-SET
-    max_lifetime = COALESCE(max_lifetime, max_lifetime_days::BIGINT * 86400000),
-    min_lifetime = COALESCE(min_lifetime, min_lifetime_days::BIGINT * 86400000),
-    updated_ts = COALESCE(updated_ts, created_ts, 0)
-WHERE
-    max_lifetime IS NULL
-    OR min_lifetime = 0
-    OR updated_ts IS NULL;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'server_retention_policy'
+          AND column_name = 'max_lifetime_days'
+    ) AND EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'server_retention_policy'
+          AND column_name = 'min_lifetime_days'
+    ) THEN
+        EXECUTE $stmt$
+            UPDATE server_retention_policy
+            SET
+                max_lifetime = COALESCE(max_lifetime, max_lifetime_days::BIGINT * 86400000),
+                min_lifetime = COALESCE(min_lifetime, min_lifetime_days::BIGINT * 86400000),
+                updated_ts = COALESCE(updated_ts, created_ts, 0)
+            WHERE
+                max_lifetime IS NULL
+                OR min_lifetime = 0
+                OR updated_ts IS NULL
+        $stmt$;
+    ELSE
+        UPDATE server_retention_policy
+        SET updated_ts = COALESCE(updated_ts, created_ts, 0)
+        WHERE updated_ts IS NULL;
+    END IF;
+END
+$$;
 
 INSERT INTO server_retention_policy (id, max_lifetime, min_lifetime, expire_on_clients, created_ts, updated_ts)
 VALUES (1, NULL, 0, FALSE, 0, 0)

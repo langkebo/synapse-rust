@@ -26,6 +26,15 @@ pub struct Room {
     pub is_flagged: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Receipt {
+    pub user_id: String,
+    pub event_id: String,
+    pub receipt_type: String,
+    pub ts: i64,
+    pub data: serde_json::Value,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct RoomRecord {
     room_id: String,
@@ -36,9 +45,9 @@ struct RoomRecord {
     join_rule: Option<String>,
     creator: Option<String>,
     room_version: Option<String>,
-    encryption: Option<String>,
     is_public: Option<bool>,
     member_count: Option<i64>,
+    is_encrypted: Option<bool>,
     history_visibility: Option<String>,
     created_ts: i64,
 }
@@ -53,9 +62,9 @@ struct RoomWithMembersRecord {
     join_rule: Option<String>,
     creator: Option<String>,
     room_version: Option<String>,
-    encryption: Option<String>,
     is_public: Option<bool>,
     member_count: Option<i64>,
+    is_encrypted: Option<bool>,
     history_visibility: Option<String>,
     created_ts: i64,
     joined_members: Option<i64>,
@@ -67,6 +76,14 @@ pub struct RoomStorage {
 }
 
 impl RoomStorage {
+    fn encryption_from_is_encrypted(is_encrypted: Option<bool>) -> Option<String> {
+        if is_encrypted.unwrap_or(false) {
+            Some("m.megolm.v1.aes-sha2".to_string())
+        } else {
+            None
+        }
+    }
+
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
@@ -79,11 +96,43 @@ impl RoomStorage {
         version: &str,
         is_public: bool,
     ) -> Result<Room, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
+        Self::create_room_with_executor(
+            &*self.pool, room_id, creator, join_rule, version, is_public,
+        )
+        .await
+    }
+
+    pub async fn create_room_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        room_id: &str,
+        creator: &str,
+        join_rule: &str,
+        version: &str,
+        is_public: bool,
+    ) -> Result<Room, sqlx::Error> {
+        Self::create_room_with_executor(
+            &mut **tx, room_id, creator, join_rule, version, is_public,
+        )
+        .await
+    }
+
+    async fn create_room_with_executor<'a, E>(
+        executor: E,
+        room_id: &str,
+        creator: &str,
+        join_rule: &str,
+        version: &str,
+        is_public: bool,
+    ) -> Result<Room, sqlx::Error>
+    where
+        E: sqlx::Executor<'a, Database = Postgres>,
+    {
+        let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, member_count, history_visibility, created_ts, last_activity_ts)
-            VALUES ($1, $2, $3, $4, $5, 1, 'joined', $6, $6)
+            INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, history_visibility, created_ts, last_activity_ts)
+            VALUES ($1, $2, $3, $4, $5, 'joined', $6, $6)
             "#,
         )
         .bind(room_id)
@@ -92,8 +141,9 @@ impl RoomStorage {
         .bind(version)
         .bind(is_public)
         .bind(now)
-        .execute(&*self.pool)
+        .execute(executor)
         .await?;
+
         Ok(Room {
             room_id: room_id.to_string(),
             name: None,
@@ -117,9 +167,17 @@ impl RoomStorage {
     pub async fn get_room(&self, room_id: &str) -> Result<Option<Room>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRecord>(
             r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules as join_rule, creator, room_version,
-                  encryption, is_public, member_count, history_visibility, created_ts
-            FROM rooms WHERE room_id = $1
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator, r.room_version,
+                  COALESCE(rs.member_count, joined.joined_members, 0) as member_count, rs.is_encrypted as is_encrypted, r.is_public, r.history_visibility, r.created_ts
+            FROM rooms r
+            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
+            LEFT JOIN (
+                SELECT room_id, COUNT(*)::BIGINT AS joined_members
+                FROM room_memberships
+                WHERE membership = 'join'
+                GROUP BY room_id
+            ) joined ON joined.room_id = r.room_id
+            WHERE r.room_id = $1
             "#,
         )
         .bind(room_id)
@@ -137,7 +195,7 @@ impl RoomStorage {
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator,
                 room_version: row.room_version.unwrap_or_else(|| "1".to_string()),
-                encryption: row.encryption,
+                encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
                 history_visibility: row
@@ -160,10 +218,11 @@ impl RoomStorage {
 
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules as join_rule, creator, room_version,
-                  encryption, is_public, member_count, history_visibility, created_ts
-            FROM rooms
-            WHERE room_id = ANY($1)
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator, r.room_version,
+                  r.is_public, rs.member_count as member_count, rs.is_encrypted as is_encrypted, r.history_visibility, r.created_ts
+            FROM rooms r
+            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
+            WHERE r.room_id = ANY($1)
             "#,
         )
         .bind(room_ids)
@@ -184,7 +243,7 @@ impl RoomStorage {
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator.clone(),
                 room_version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
-                encryption: row.encryption.clone(),
+                encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
                 history_visibility: row
@@ -214,10 +273,12 @@ impl RoomStorage {
     pub async fn get_public_rooms(&self, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules as join_rule, creator, room_version,
-                  encryption, is_public, member_count, history_visibility, created_ts
-            FROM rooms WHERE is_public = TRUE
-            ORDER BY created_ts DESC
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator, r.room_version,
+                  r.is_public, rs.member_count as member_count, rs.is_encrypted as is_encrypted, r.history_visibility, r.created_ts
+            FROM rooms r
+            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
+            WHERE r.is_public = TRUE
+            ORDER BY r.created_ts DESC
             LIMIT $1
             "#,
         )
@@ -238,7 +299,7 @@ impl RoomStorage {
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator.clone(),
                 room_version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
-                encryption: row.encryption.clone(),
+                encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
                 history_visibility: row
@@ -261,11 +322,12 @@ impl RoomStorage {
         let rows: Vec<RoomWithMembersRecord> = sqlx::query_as(
             r#"
             SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator,
-                   r.room_version, r.encryption, r.is_public, r.member_count, r.history_visibility,
+                   r.room_version, r.is_public, rs.member_count as member_count, rs.is_encrypted as is_encrypted, r.history_visibility,
                    r.created_ts, COUNT(rm.user_id) as joined_members
             FROM rooms r
             LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
-            GROUP BY r.room_id
+            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
+            GROUP BY r.room_id, rs.member_count, rs.is_encrypted
             ORDER BY r.created_ts DESC
             LIMIT $1 OFFSET $2
             "#,
@@ -290,7 +352,7 @@ impl RoomStorage {
                             .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                         creator_user_id: row.creator.clone(),
                         room_version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
-                        encryption: row.encryption.clone(),
+                        encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                         is_public: row.is_public.unwrap_or(false),
                         member_count: row.member_count.unwrap_or(0),
                         history_visibility: row
@@ -423,10 +485,15 @@ impl RoomStorage {
     pub async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            UPDATE rooms SET member_count = member_count + 1 WHERE room_id = $1
+            UPDATE room_summaries
+            SET member_count = member_count + 1,
+                joined_member_count = joined_member_count + 1,
+                updated_ts = $2
+            WHERE room_id = $1
             "#,
         )
         .bind(room_id)
+        .bind(chrono::Utc::now().timestamp_millis())
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -435,10 +502,15 @@ impl RoomStorage {
     pub async fn decrement_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            UPDATE rooms SET member_count = member_count - 1 WHERE room_id = $1 AND member_count > 0
+            UPDATE room_summaries
+            SET member_count = GREATEST(member_count - 1, 0),
+                joined_member_count = GREATEST(joined_member_count - 1, 0),
+                updated_ts = $2
+            WHERE room_id = $1
             "#,
         )
         .bind(room_id)
+        .bind(chrono::Utc::now().timestamp_millis())
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -805,6 +877,36 @@ impl RoomStorage {
         Ok(())
     }
 
+    pub async fn get_receipts(
+        &self,
+        room_id: &str,
+        receipt_type: &str,
+        event_id: &str,
+    ) -> Result<Vec<Receipt>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String, String, String, i64, serde_json::Value)>(
+            r#"
+            SELECT user_id, event_id, receipt_type, ts, data FROM event_receipts
+            WHERE room_id = $1 AND receipt_type = $2 AND event_id = $3
+            "#,
+        )
+        .bind(room_id)
+        .bind(receipt_type)
+        .bind(event_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(user_id, event_id, receipt_type, ts, data)| Receipt {
+                user_id,
+                event_id,
+                receipt_type,
+                ts,
+                data,
+            })
+            .collect())
+    }
+
     pub async fn get_rooms_map(
         &self,
         room_ids: &[String],
@@ -829,12 +931,13 @@ impl RoomStorage {
         let rows: Vec<RoomWithMembersRecord> = sqlx::query_as(
             r#"
             SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator,
-                   r.room_version, r.encryption, r.is_public, r.member_count, r.history_visibility,
+                   r.room_version, r.is_public, rs.member_count as member_count, rs.is_encrypted as is_encrypted, r.history_visibility,
                    r.created_ts, COUNT(rm.user_id) as joined_members
             FROM rooms r
             LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
             WHERE r.room_id = ANY($1)
-            GROUP BY r.room_id
+            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
+            GROUP BY r.room_id, rs.member_count, rs.is_encrypted
             "#,
         )
         .bind(room_ids)
@@ -856,7 +959,7 @@ impl RoomStorage {
                         .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                     creator_user_id: row.creator.clone(),
                     room_version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
-                    encryption: row.encryption.clone(),
+                    encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                     is_public: row.is_public.unwrap_or(false),
                     member_count: row.member_count.unwrap_or(0),
                     history_visibility: row
@@ -900,10 +1003,12 @@ impl RoomStorage {
     ) -> Result<Vec<(Room, Vec<String>)>, sqlx::Error> {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT room_id, name, topic, avatar_url, canonical_alias, join_rules as join_rule, creator, room_version,
-                  encryption, is_public, member_count, history_visibility, created_ts
-            FROM rooms WHERE is_public = TRUE
-            ORDER BY created_ts DESC
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator, r.room_version,
+                  r.is_public, rs.member_count as member_count, rs.is_encrypted as is_encrypted, r.history_visibility, r.created_ts
+            FROM rooms r
+            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
+            WHERE r.is_public = TRUE
+            ORDER BY r.created_ts DESC
             LIMIT $1 OFFSET $2
             "#,
         )
@@ -930,7 +1035,7 @@ impl RoomStorage {
                         .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                     creator_user_id: row.creator.clone(),
                     room_version: row.room_version.clone().unwrap_or_else(|| "1".to_string()),
-                    encryption: row.encryption.clone(),
+                    encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                     is_public: row.is_public.unwrap_or(false),
                     member_count: row.member_count.unwrap_or(0),
                     history_visibility: row
@@ -1007,10 +1112,15 @@ impl RoomStorage {
 
         let result = sqlx::query(
             r#"
-            UPDATE rooms SET member_count = member_count + 1 WHERE room_id = ANY($1)
+            UPDATE room_summaries
+            SET member_count = member_count + 1,
+                joined_member_count = joined_member_count + 1,
+                updated_ts = $2
+            WHERE room_id = ANY($1)
             "#,
         )
         .bind(room_ids)
+        .bind(chrono::Utc::now().timestamp_millis())
         .execute(&*self.pool)
         .await?;
 
@@ -1027,10 +1137,15 @@ impl RoomStorage {
 
         let result = sqlx::query(
             r#"
-            UPDATE rooms SET member_count = member_count - 1 WHERE room_id = ANY($1) AND member_count > 0
+            UPDATE room_summaries
+            SET member_count = GREATEST(member_count - 1, 0),
+                joined_member_count = GREATEST(joined_member_count - 1, 0),
+                updated_ts = $2
+            WHERE room_id = ANY($1)
             "#,
         )
         .bind(room_ids)
+        .bind(chrono::Utc::now().timestamp_millis())
         .execute(&*self.pool)
         .await?;
 

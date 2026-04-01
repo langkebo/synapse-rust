@@ -47,13 +47,13 @@ pub struct DeviceTrustStatus {
     pub trust_level: DeviceTrustLevel,
     pub verified_by_device_id: Option<String>,
     pub verified_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 impl DeviceTrustStatus {
     pub fn new(user_id: &str, device_id: &str) -> Self {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         Self {
             id: 0,
             user_id: user_id.to_string(),
@@ -61,8 +61,8 @@ impl DeviceTrustStatus {
             trust_level: DeviceTrustLevel::Unverified,
             verified_by_device_id: None,
             verified_at: None,
-            created_at: now,
-            updated_at: now,
+            created_ts: now,
+            updated_ts: now,
         }
     }
 
@@ -70,14 +70,14 @@ impl DeviceTrustStatus {
         self.trust_level = DeviceTrustLevel::Verified;
         self.verified_by_device_id = Some(verified_by.to_string());
         self.verified_at = Some(Utc::now());
-        self.updated_at = Utc::now();
+        self.updated_ts = Utc::now().timestamp_millis();
     }
 
     pub fn block(&mut self) {
         self.trust_level = DeviceTrustLevel::Blocked;
         self.verified_by_device_id = None;
         self.verified_at = None;
-        self.updated_at = Utc::now();
+        self.updated_ts = Utc::now().timestamp_millis();
     }
 }
 
@@ -164,7 +164,7 @@ pub struct DeviceVerificationRequest {
     pub request_token: String,
     pub commitment: Option<String>,
     pub pubkey: Option<String>,
-    pub created_at: DateTime<Utc>,
+    pub created_ts: i64,
     pub expires_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
 }
@@ -188,7 +188,7 @@ impl DeviceVerificationRequest {
             request_token: token.to_string(),
             commitment: None,
             pubkey: None,
-            created_at: now,
+            created_ts: now.timestamp_millis(),
             expires_at: now + chrono::Duration::minutes(expires_minutes),
             completed_at: None,
         }
@@ -270,7 +270,7 @@ pub struct E2eeSecurityEvent {
     pub event_data: Option<serde_json::Value>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
-    pub created_at: DateTime<Utc>,
+    pub created_ts: i64,
 }
 
 impl E2eeSecurityEvent {
@@ -283,7 +283,7 @@ impl E2eeSecurityEvent {
             event_data: None,
             ip_address: None,
             user_agent: None,
-            created_at: Utc::now(),
+            created_ts: Utc::now().timestamp_millis(),
         }
     }
 
@@ -317,8 +317,8 @@ pub struct CrossSigningTrust {
     pub master_key_id: Option<String>,
     pub is_trusted: bool,
     pub trusted_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
 }
 
 /// Security summary for a user

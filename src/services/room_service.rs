@@ -26,6 +26,17 @@ pub struct CreateRoomConfig {
     pub room_type: Option<String>,
 }
 
+pub struct RoomServiceConfig {
+    pub room_storage: RoomStorage,
+    pub member_storage: RoomMemberStorage,
+    pub event_storage: EventStorage,
+    pub user_storage: UserStorage,
+    pub room_summary_service: Arc<RoomSummaryService>,
+    pub validator: Arc<Validator>,
+    pub server_name: String,
+    pub task_queue: Option<Arc<RedisTaskQueue>>,
+}
+
 pub struct RoomService {
     room_storage: RoomStorage,
     member_storage: RoomMemberStorage,
@@ -39,25 +50,16 @@ pub struct RoomService {
 }
 
 impl RoomService {
-    pub fn new(
-        room_storage: RoomStorage,
-        member_storage: RoomMemberStorage,
-        event_storage: EventStorage,
-        user_storage: UserStorage,
-        room_summary_service: Arc<RoomSummaryService>,
-        validator: Arc<Validator>,
-        server_name: String,
-        task_queue: Option<Arc<RedisTaskQueue>>,
-    ) -> Self {
+    pub fn new(config: RoomServiceConfig) -> Self {
         Self {
-            room_storage,
-            member_storage,
-            event_storage,
-            user_storage,
-            room_summary_service,
-            validator,
-            server_name,
-            task_queue,
+            room_storage: config.room_storage,
+            member_storage: config.member_storage,
+            event_storage: config.event_storage,
+            user_storage: config.user_storage,
+            room_summary_service: config.room_summary_service,
+            validator: config.validator,
+            server_name: config.server_name,
+            task_queue: config.task_queue,
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -354,11 +356,19 @@ impl RoomService {
         user_id: &str,
         join_rule: &str,
         is_public: bool,
-        _tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<()> {
-        self.room_storage
-            .create_room(room_id, user_id, join_rule, "1", is_public)
-            .await
+        let result = if let Some(tx) = tx {
+            self.room_storage
+                .create_room_in_tx(tx, room_id, user_id, join_rule, "1", is_public)
+                .await
+        } else {
+            self.room_storage
+                .create_room(room_id, user_id, join_rule, "1", is_public)
+                .await
+        };
+
+        result
             .map(|_| ())
             .map_err(|e| ApiError::internal(format!("Failed to create room: {}", e)))
     }

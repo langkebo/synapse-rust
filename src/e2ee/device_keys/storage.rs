@@ -17,20 +17,23 @@ impl DeviceKeyStorage {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS device_keys (
-                user_id VARCHAR(255) NOT NULL,
-                device_id VARCHAR(255) NOT NULL,
-                algorithm VARCHAR(255) NOT NULL,
-                key_id VARCHAR(255) NOT NULL,
+                id BIGSERIAL,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                algorithm TEXT NOT NULL,
+                key_id TEXT NOT NULL,
                 public_key TEXT NOT NULL,
-                signatures TEXT,
-                display_name VARCHAR(255),
-                key_data TEXT NOT NULL,
+                key_data TEXT,
+                signatures JSONB,
                 added_ts BIGINT NOT NULL,
-                ts_added_ms BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000,
-                ts_updated_ms BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000,
-                last_seen_ts BIGINT,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT,
+                ts_updated_ms BIGINT,
                 is_verified BOOLEAN DEFAULT FALSE,
-                PRIMARY KEY (user_id, device_id, key_id)
+                is_blocked BOOLEAN DEFAULT FALSE,
+                display_name TEXT,
+                CONSTRAINT pk_device_keys PRIMARY KEY (id),
+                CONSTRAINT uq_device_keys_user_device_key UNIQUE (user_id, device_id, key_id)
             )
             "#,
         )
@@ -77,12 +80,13 @@ impl DeviceKeyStorage {
 
         let result = sqlx::query(
             r#"
-            INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_added_ms, ts_updated_ms, key_data)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, key_data, added_ts, created_ts, updated_ts, ts_updated_ms)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9, $9)
             ON CONFLICT (user_id, device_id, key_id) DO UPDATE
             SET public_key = EXCLUDED.public_key,
                 signatures = EXCLUDED.signatures,
                 display_name = EXCLUDED.display_name,
+                updated_ts = EXCLUDED.updated_ts,
                 ts_updated_ms = EXCLUDED.ts_updated_ms,
                 key_data = EXCLUDED.key_data
             "#
@@ -94,10 +98,8 @@ impl DeviceKeyStorage {
         .bind(&key.public_key)
         .bind(&key.signatures)
         .bind(&key.display_name)
-        .bind(now_ms)
-        .bind(now_ms)
-        .bind(now_ms)
         .bind(&key_data)
+        .bind(now_ms)
         .execute(&*self.pool)
         .await;
 
@@ -141,11 +143,11 @@ impl DeviceKeyStorage {
                         .unwrap_or(serde_json::json!({}))
                 }),
             created_ts: chrono::DateTime::from_timestamp_millis(
-                row.get::<i64, _>("added_ts") / 1000,
+                row.get::<i64, _>("added_ts"),
             )
             .unwrap_or_default(),
             updated_ts: chrono::DateTime::from_timestamp_millis(
-                row.get::<i64, _>("ts_updated_ms") / 1000,
+                row.get::<i64, _>("ts_updated_ms"),
             )
             .unwrap_or_default(),
         }

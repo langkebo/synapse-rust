@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 const DEFAULT_CACHE_TTL_SECONDS: i64 = 3600;
+const RUNTIME_DB_INIT_ENV: &str = "SYNAPSE_ENABLE_RUNTIME_DB_INIT";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Environment {
@@ -108,6 +109,17 @@ impl DatabaseInitService {
             }
         }
 
+        if !Self::runtime_db_init_enabled() {
+            let message = format!(
+                "运行时数据库初始化默认已禁用；请使用 docker/db_migrate.sh 与 db-migration-gate.yml 作为迁移主链，如需兼容启用请设置 {}=true",
+                RUNTIME_DB_INIT_ENV
+            );
+            info!("{}", message);
+            report.steps.push(message);
+            report.skipped = true;
+            return Ok(report);
+        }
+
         info!("开始执行数据库迁移...");
         match self.step_migrations().await {
             Ok(msg) => {
@@ -209,6 +221,12 @@ impl DatabaseInitService {
             debug!("数据库初始化完成: success={}", report.success);
         }
         Ok(report)
+    }
+
+    fn runtime_db_init_enabled() -> bool {
+        std::env::var(RUNTIME_DB_INIT_ENV)
+            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false)
     }
 
     async fn check_cache_valid(&self) -> Result<bool, sqlx::Error> {
@@ -1261,7 +1279,71 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
-        // Ensure sliding_sync_rooms table for caching room sync state
+        sqlx::query("CREATE SEQUENCE IF NOT EXISTS sliding_sync_pos_seq")
+            .execute(&*self.pool)
+            .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS sliding_sync_lists (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                conn_id TEXT,
+                list_key TEXT NOT NULL,
+                sort JSONB DEFAULT '[]',
+                filters JSONB DEFAULT '{}',
+                room_subscription JSONB DEFAULT '{}',
+                ranges JSONB DEFAULT '[]',
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_lists_unique ON sliding_sync_lists(user_id, device_id, COALESCE(conn_id, ''), list_key)",
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_sliding_sync_lists_user_device ON sliding_sync_lists(user_id, device_id)",
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS sliding_sync_tokens (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                conn_id TEXT,
+                token TEXT NOT NULL,
+                pos BIGINT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                expires_at BIGINT
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_tokens_unique ON sliding_sync_tokens(user_id, device_id, COALESCE(conn_id, ''))",
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_sliding_sync_tokens_user ON sliding_sync_tokens(user_id, device_id)",
+        )
+        .execute(&*self.pool)
+        .await?;
+
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS sliding_sync_rooms (
@@ -1314,6 +1396,14 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_room_id ON sliding_sync_rooms(room_id, updated_ts DESC)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
         // Create thread_subscriptions table
         sqlx::query(
             r#"
@@ -1343,6 +1433,7 @@ impl DatabaseInitService {
         .await?;
 
         // Create space_children table (with all fields including those added via migration)
+        // First ensure the table exists, then add any missing columns
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS space_children (
@@ -1353,13 +1444,78 @@ impl DatabaseInitService {
                 is_suggested BOOLEAN DEFAULT FALSE,
                 via_servers JSONB DEFAULT '[]',
                 added_ts BIGINT NOT NULL,
-                "order" TEXT DEFAULT '',
-                suggested BOOLEAN DEFAULT FALSE,
-                added_by TEXT DEFAULT '',
-                removed_ts BIGINT,
                 CONSTRAINT pk_space_children PRIMARY KEY (id),
                 CONSTRAINT uq_space_children_space_room UNIQUE (space_id, room_id)
             )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Add missing columns if they don't exist (for databases created before this migration)
+        sqlx::query(
+            r#"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'space_children'
+                    AND column_name = 'order'
+                ) THEN
+                    ALTER TABLE space_children ADD COLUMN "order" TEXT DEFAULT '';
+                END IF;
+            END $$;
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'space_children'
+                    AND column_name = 'suggested'
+                ) THEN
+                    ALTER TABLE space_children ADD COLUMN suggested BOOLEAN DEFAULT FALSE;
+                END IF;
+            END $$;
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'space_children'
+                    AND column_name = 'added_by'
+                ) THEN
+                    ALTER TABLE space_children ADD COLUMN added_by TEXT DEFAULT '';
+                END IF;
+            END $$;
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'space_children'
+                    AND column_name = 'removed_ts'
+                ) THEN
+                    ALTER TABLE space_children ADD COLUMN removed_ts BIGINT;
+                END IF;
+            END $$;
             "#,
         )
         .execute(&*self.pool)

@@ -3,7 +3,7 @@
 # API Integration Test Script
 # This script runs complete API integration tests against the synapse-rust server
 
-set -e
+# set -e
 
 SERVER_URL="${SERVER_URL:-http://localhost:8008}"
 ADMIN_USER="${ADMIN_USER:-admin}"

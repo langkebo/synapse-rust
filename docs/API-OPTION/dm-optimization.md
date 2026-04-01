@@ -2,11 +2,14 @@
 
 ## 一、当前实现
 
-`src/web/routes/dm.rs` 当前只有 5 个路由，结构如下：
+`src/web/routes/dm.rs` 当前有 7 个路由，结构如下：
 
 ```rust
 /_matrix/client/r0/create_dm
+/_matrix/client/v3/create_dm      // 新增 v3 创建别名
+/_matrix/client/r0/direct         // 兼容路由
 /_matrix/client/v3/direct
+/_matrix/client/r0/direct/{room_id}  // 兼容路由
 /_matrix/client/v3/direct/{room_id}
 /_matrix/client/v3/rooms/{room_id}/dm
 /_matrix/client/v3/rooms/{room_id}/dm/partner
@@ -29,7 +32,7 @@ DM 在 Matrix 中更多是基于房间、账户数据和成员关系表达，不
 
 1. 保留当前 r0 `create_dm` 兼容入口
 2. 保持 v3 的查询接口不变
-3. 如果未来需要补 v3 的创建入口，优先做**新增别名 + 内部共享 handler**
+3. 当前已经补齐 `v3` 的创建别名，继续保持**新增别名 + 内部共享 handler** 的兼容策略
 
 ---
 
@@ -60,9 +63,9 @@ pub fn create_dm_router(state: AppState) -> Router<AppState> {
 - 保持现有行为不变
 - 不引入新的 Matrix 兼容风险
 
-### 3.2 可选增强方案
+### 3.2 已落地的兼容增强
 
-如果后续确认客户端需要 v3 版创建接口，可以考虑增加别名：
+当前代码已经提供 v3 版创建别名：
 
 ```rust
 Router::new()
@@ -70,11 +73,35 @@ Router::new()
     .route("/_matrix/client/v3/create_dm", post(create_dm_room))
 ```
 
-注意：
-
-- 这应视为**新增兼容能力**
+当前约束：
+- 这属于**新增兼容能力**
 - 不能直接删除 r0 入口
-- 需要确认客户端是否真的会使用该 v3 别名
+- 仍应保留 r0 与 v3 共享同一 handler 的实现方式
+
+### 3.3 增强的 fallback 机制
+
+当用户的 `m.direct` account data 为空时，代码会通过 `build_direct_map_from_memberships` 函数自动从用户的房间成员关系构建 DM 列表：
+
+```rust
+async fn build_direct_map_from_memberships(
+    state: &AppState,
+    user_id: &str,
+) -> Result<Map<String, Value>, ApiError> {
+    // 遍历用户所有房间
+    // 筛选成员数为 2 的房间（1个自己 + 1个对方）
+    // 自动识别 DM 伙伴并构建 m.direct 映射
+}
+```
+
+此机制解决了以下问题：
+- ✅ 用户直接加入的 DM 房间（不在 m.direct 中）也能被正确识别
+- ✅ `get_dm_rooms`、`check_room_dm`、`get_dm_partner_route` 均支持 fallback
+
+### 3.4 单元测试覆盖
+
+[dm.rs:394-434](file:///Users/ljf/Desktop/hu/synapse-rust/src/web/routes/dm.rs#L394-L434) 包含单元测试：
+- `test_direct_map_helpers_preserve_matrix_shape` - 验证 m.direct 数据结构正确性
+- `test_parse_dm_users_requires_string_array` - 验证用户解析逻辑
 
 ---
 
@@ -95,7 +122,7 @@ Router::new()
 | 代码调整优先级 | 低 |
 | 是否需要立即重构 | 否 |
 | 推荐动作 | 仅整理 v3 子路由结构 |
-| 若后续扩展 | 新增 v3 创建别名，但保留 r0 |
+| 当前兼容状态 | 已新增 v3 创建别名，并保留 r0 |
 
 ---
 
@@ -106,4 +133,4 @@ DM 模块当前最优策略不是“合并所有版本”，而是：
 1. **保留 r0 创建入口**
 2. **保留 v3 查询入口**
 3. **在代码内部做轻量整理**
-4. **后续按实际客户端需求再决定是否补 v3 创建别名**
+4. **继续保留 r0/v3 双入口与共享 handler**

@@ -309,11 +309,10 @@ impl KeyBackupService {
             r#"
             SELECT room_id, COALESCE(COUNT(*), 0) as count
             FROM backup_keys
-            WHERE user_id = $1 AND backup_id = $2
+            WHERE backup_id = $1
             GROUP BY room_id
             "#,
         )
-        .bind(user_id)
         .bind(&backup.backup_id)
         .fetch_all(&*self.storage.pool)
         .await?;

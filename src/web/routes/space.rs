@@ -103,8 +103,8 @@ pub struct SpaceResponse {
 impl From<crate::storage::space::Space> for SpaceResponse {
     fn from(space: crate::storage::space::Space) -> Self {
         Self {
-            space_id: space.space_id.clone(),
-            room_id: space.space_id,
+            space_id: space.room_id.clone(),
+            room_id: space.room_id,
             name: space.name,
             topic: space.topic,
             avatar_url: space.avatar_url,
@@ -117,6 +117,18 @@ impl From<crate::storage::space::Space> for SpaceResponse {
             parent_space_id: space.parent_space_id,
         }
     }
+}
+
+async fn resolve_space_by_room(
+    state: &AppState,
+    space_room_id: &str,
+) -> Result<crate::storage::space::Space, ApiError> {
+    state
+        .services
+        .space_service
+        .get_space_by_room(space_room_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Space not found"))
 }
 
 #[derive(Debug, Serialize)]
@@ -199,12 +211,7 @@ pub async fn get_space(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let space = state
-        .services
-        .space_service
-        .get_space(&space_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Space not found"))?;
+    let space = resolve_space_by_room(&state, &space_id).await?;
 
     Ok(Json(SpaceResponse::from(space)))
 }
@@ -253,10 +260,11 @@ pub async fn update_space(
         request = request.is_public(is_public);
     }
 
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let space = state
         .services
         .space_service
-        .update_space(&space_id, &request, &auth_user.user_id)
+        .update_space(&space.space_id, &request, &auth_user.user_id)
         .await?;
 
     Ok(Json(SpaceResponse::from(space)))
@@ -267,10 +275,11 @@ pub async fn delete_space(
     Path(space_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    let space = resolve_space_by_room(&state, &space_id).await?;
     state
         .services
         .space_service
-        .delete_space(&space_id, &auth_user.user_id)
+        .delete_space(&space.space_id, &auth_user.user_id)
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
@@ -285,8 +294,9 @@ pub async fn add_child(
     body.validate()
         .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let request = AddChildRequest {
-        space_id,
+        space_id: space.space_id,
         room_id: body.room_id,
         sender: auth_user.user_id.clone(),
         is_suggested: body.suggested.unwrap_or(false),
@@ -303,10 +313,11 @@ pub async fn remove_child(
     Path((space_id, room_id)): Path<(String, String)>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    let space = resolve_space_by_room(&state, &space_id).await?;
     state
         .services
         .space_service
-        .remove_child(&space_id, &room_id, &auth_user.user_id)
+        .remove_child(&space.space_id, &room_id, &auth_user.user_id)
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
@@ -316,10 +327,11 @@ pub async fn get_space_children(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let children = state
         .services
         .space_service
-        .get_space_children(&space_id)
+        .get_space_children(&space.space_id)
         .await?;
 
     let response: Vec<SpaceChildResponse> =
@@ -332,10 +344,11 @@ pub async fn get_space_members(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let members = state
         .services
         .space_service
-        .get_space_members(&space_id)
+        .get_space_members(&space.space_id)
         .await?;
 
     let response: Vec<SpaceMemberResponse> =
@@ -348,16 +361,17 @@ pub async fn get_space_rooms(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let children = state
         .services
         .space_service
-        .get_space_children(&space_id)
+        .get_space_children(&space.space_id)
         .await?;
 
     let rooms: Vec<String> = children.into_iter().map(|c| c.room_id).collect();
 
     Ok(Json(serde_json::json!({
-        "space_id": space_id,
+        "space_id": space.room_id,
         "rooms": rooms,
     })))
 }
@@ -367,10 +381,11 @@ pub async fn get_space_state(
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let space_state = state
         .services
         .space_service
-        .get_space_state(&space_id, auth_user.user_id.as_deref())
+        .get_space_state(&space.space_id, auth_user.user_id.as_deref())
         .await?;
 
     Ok(Json(space_state))
@@ -385,10 +400,11 @@ pub async fn invite_user(
     body.validate()
         .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let member = state
         .services
         .space_service
-        .invite_user(&space_id, &body.user_id, &auth_user.user_id)
+        .invite_user(&space.space_id, &body.user_id, &auth_user.user_id)
         .await?;
 
     Ok((StatusCode::CREATED, Json(SpaceMemberResponse::from(member))))
@@ -399,10 +415,11 @@ pub async fn join_space(
     Path(space_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let member = state
         .services
         .space_service
-        .join_space(&space_id, &auth_user.user_id)
+        .join_space(&space.space_id, &auth_user.user_id)
         .await?;
 
     Ok(Json(SpaceMemberResponse::from(member)))
@@ -413,10 +430,11 @@ pub async fn leave_space(
     Path(space_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    let space = resolve_space_by_room(&state, &space_id).await?;
     state
         .services
         .space_service
-        .leave_space(&space_id, &auth_user.user_id)
+        .leave_space(&space.space_id, &auth_user.user_id)
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
@@ -462,10 +480,11 @@ pub async fn get_space_hierarchy(
 ) -> Result<impl IntoResponse, ApiError> {
     let max_depth = query.max_depth.unwrap_or(1);
 
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let hierarchy = state
         .services
         .space_service
-        .get_space_hierarchy(&space_id, max_depth)
+        .get_space_hierarchy(&space.space_id, max_depth)
         .await?;
 
     let response = SpaceHierarchyResponse {
@@ -489,10 +508,11 @@ pub async fn get_space_summary(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let summary = state
         .services
         .space_service
-        .get_space_summary(&space_id)
+        .get_space_summary(&space.space_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Space summary not found"))?;
 
@@ -542,11 +562,12 @@ pub async fn get_space_hierarchy_v1(
     let suggested_only = query.suggested_only.unwrap_or(false);
     let user_id_str = user_id.as_ref().map(|u| u.0.as_str());
 
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let response = state
         .services
         .space_service
         .get_space_hierarchy_v1(
-            &space_id,
+            &space.space_id,
             max_depth,
             suggested_only,
             query.limit,
@@ -577,10 +598,11 @@ pub async fn get_space_tree_path(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let path = state
         .services
         .space_service
-        .get_space_tree_path(&space_id)
+        .get_space_tree_path(&space.space_id)
         .await?;
 
     let response: Vec<SpaceResponse> = path.into_iter().map(SpaceResponse::from).collect();
@@ -595,10 +617,11 @@ pub async fn get_space_summary_with_children(
 ) -> Result<impl IntoResponse, ApiError> {
     let user_id_str = user_id.as_ref().map(|u| u.0.as_str());
 
+    let space = resolve_space_by_room(&state, &space_id).await?;
     let summary = state
         .services
         .space_service
-        .get_space_summary_with_children(&space_id, user_id_str)
+        .get_space_summary_with_children(&space.space_id, user_id_str)
         .await?;
 
     Ok(Json(summary))

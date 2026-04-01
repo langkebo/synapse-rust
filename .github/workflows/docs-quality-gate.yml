@@ -22,19 +22,38 @@ jobs:
       - name: Install markdownlint
         run: npm i -g markdownlint-cli
 
-      - name: markdownlint
+      - name: markdownlint - DB Reports
         run: markdownlint -c .markdownlint.json docs/db/DIAGNOSIS_REPORT.md
+
+      - name: markdownlint - Top-level Implementation Docs
+        run: |
+          markdownlint -c .markdownlint.json \
+            docs/OPTIMIZATION_PLAN.md \
+            docs/API-TEST-OPTIMIZATION-PLAN.md \
+            docs/db/MIGRATION_GOVERNANCE.md \
+            docs/CHANGELOG-DB.md \
+            docs/ROLLBACK_RUNBOOK.md
 
       - name: Install aspell
         run: |
           sudo apt-get update
           sudo apt-get install -y aspell aspell-en
 
-      - name: aspell
+      - name: aspell - DB Reports
         run: |
           bash scripts/check_doc_spelling.sh docs/db/DIAGNOSIS_REPORT.md
 
-      - name: lychee
+      - name: lychee - DB Reports
         uses: lycheeverse/lychee-action@v1.10.0
         with:
           args: --base . --exclude-loopback docs/db/DIAGNOSIS_REPORT.md
+
+      - name: lychee - Top-level Implementation Docs
+        uses: lycheeverse/lychee-action@v1.10.0
+        with:
+          args: --base . --exclude-loopback \
+            docs/OPTIMIZATION_PLAN.md \
+            docs/API-TEST-OPTIMIZATION-PLAN.md \
+            docs/db/MIGRATION_GOVERNANCE.md \
+            docs/CHANGELOG-DB.md \
+            docs/ROLLBACK_RUNBOOK.md

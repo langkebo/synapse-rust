@@ -541,8 +541,33 @@ pub async fn app_service_room_alias_query(
     Ok(Json(serde_json::json!({})))
 }
 
+pub async fn app_service_query(
+    State(state): State<AppState>,
+    Path(as_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let service = state
+        .services
+        .app_service_manager
+        .get(&as_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Application service not found"))?;
+
+    Ok(Json(serde_json::json!({
+        "id": service.as_id,
+        "url": service.url,
+        "name": service.name,
+        "description": service.description,
+        "is_enabled": service.is_enabled,
+        "protocols": service.protocols
+    })))
+}
+
 pub fn create_app_service_router(state: AppState) -> Router<AppState> {
     Router::new()
+        .route(
+            "/_matrix/client/v1/user/{user_id}/appservice",
+            get(get_user_appservice),
+        )
         .route("/_matrix/app/v1/ping", post(app_service_ping))
         .route(
             "/_matrix/app/v1/transactions/{as_id}/{txn_id}",
@@ -556,6 +581,7 @@ pub fn create_app_service_router(state: AppState) -> Router<AppState> {
             "/_matrix/app/v1/rooms/{alias}",
             get(app_service_room_alias_query),
         )
+        .route("/_matrix/app/v1/{as_id}", get(app_service_query))
         .route("/_synapse/admin/v1/appservices", get(list_app_services))
         .route("/_synapse/admin/v1/appservices", post(register_app_service))
         .route(
@@ -616,4 +642,16 @@ pub fn create_app_service_router(state: AppState) -> Router<AppState> {
             get(get_statistics),
         )
         .with_state(state)
+}
+
+#[axum::debug_handler]
+async fn get_user_appservice(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Ok(Json(serde_json::json!({
+        "user_id": user_id,
+        "appservices": []
+    })))
 }
