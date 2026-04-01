@@ -97,7 +97,12 @@ impl RoomStorage {
         is_public: bool,
     ) -> Result<Room, sqlx::Error> {
         Self::create_room_with_executor(
-            &*self.pool, room_id, creator, join_rule, version, is_public,
+            &*self.pool,
+            room_id,
+            creator,
+            join_rule,
+            version,
+            is_public,
         )
         .await
     }
@@ -111,10 +116,8 @@ impl RoomStorage {
         version: &str,
         is_public: bool,
     ) -> Result<Room, sqlx::Error> {
-        Self::create_room_with_executor(
-            &mut **tx, room_id, creator, join_rule, version, is_public,
-        )
-        .await
+        Self::create_room_with_executor(&mut **tx, room_id, creator, join_rule, version, is_public)
+            .await
     }
 
     async fn create_room_with_executor<'a, E>(

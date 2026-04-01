@@ -446,10 +446,21 @@ pub async fn send_server_notice(
 pub async fn get_server_notices(
     _admin: AdminUser,
     State(state): State<AppState>,
+    Query(query): Query<ServerNoticesQuery>,
 ) -> Result<Json<Value>, ApiError> {
+    let limit = query.limit.unwrap_or(10).min(50) as i64;
+    let offset = query.from.unwrap_or(0) as i64;
+
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM server_notices")
+        .fetch_one(&*state.services.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
     let notices = sqlx::query(
-        "SELECT id, user_id, event_id, content, sent_ts FROM server_notices ORDER BY sent_ts DESC LIMIT 100"
+        "SELECT id, user_id, event_id, content, sent_ts FROM server_notices ORDER BY sent_ts DESC LIMIT $1 OFFSET $2"
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(&*state.services.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -467,9 +478,13 @@ pub async fn get_server_notices(
         })
         .collect();
 
-    Ok(Json(
-        json!({ "notices": notice_list, "total": notice_list.len() }),
-    ))
+    Ok(Json(json!({ "notices": notice_list, "total": total })))
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ServerNoticesQuery {
+    pub limit: Option<u32>,
+    pub from: Option<u32>,
 }
 
 #[axum::debug_handler]

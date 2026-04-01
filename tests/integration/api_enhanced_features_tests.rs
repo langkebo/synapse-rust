@@ -195,9 +195,15 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .await
             .unwrap();
         let v3_protocols_json: Value = serde_json::from_slice(&body).unwrap();
-        assert!(v3_protocols_json.is_object(), "Expected protocols response to be an object");
+        assert!(
+            v3_protocols_json.is_object(),
+            "Expected protocols response to be an object"
+        );
         let protocols = v3_protocols_json.as_object().unwrap();
-        assert!(protocols.contains_key("irc"), "Expected 'irc' protocol to be present");
+        assert!(
+            protocols.contains_key("irc"),
+            "Expected 'irc' protocol to be present"
+        );
 
         let r0_protocols_request = Request::builder()
             .uri("/_matrix/client/r0/thirdparty/protocols")
@@ -214,7 +220,10 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .await
             .unwrap();
         let r0_protocols_json: Value = serde_json::from_slice(&body).unwrap();
-        assert!(r0_protocols_json.is_object(), "Expected protocols response to be an object");
+        assert!(
+            r0_protocols_json.is_object(),
+            "Expected protocols response to be an object"
+        );
 
         let v3_protocol_request = Request::builder()
             .uri("/_matrix/client/v3/thirdparty/protocol/test")

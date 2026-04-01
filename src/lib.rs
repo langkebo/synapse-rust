@@ -7,6 +7,7 @@ pub mod server;
 pub mod services;
 pub mod storage;
 pub mod tasks;
+pub mod test_utils;
 pub mod web;
 pub mod worker;
 

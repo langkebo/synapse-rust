@@ -237,8 +237,7 @@ async fn test_admin_flow() {
         .await
         .unwrap();
     assert!(
-        response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::OK,
+        response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::OK,
         "Expected 404 (not implemented) or 200 for IP block, got: {}",
         response.status()
     );
@@ -252,8 +251,7 @@ async fn test_admin_flow() {
         .await
         .unwrap();
     assert!(
-        response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::OK,
+        response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::OK,
         "Expected 404 (not implemented) or 200 for IP blocks list, got: {}",
         response.status()
     );
@@ -283,7 +281,7 @@ async fn test_worker_admin_routes_reject_regular_user_but_allow_authenticated_cl
         return;
     };
 
-    let admin_token = create_test_user(&app).await;
+    let (admin_token, _) = get_admin_token(&app).await;
     let user_token = create_test_user(&app).await;
 
     let admin_whoami_request = Request::builder()
@@ -301,14 +299,7 @@ async fn test_worker_admin_routes_reject_regular_user_but_allow_authenticated_cl
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    let admin_user_id = json["user_id"].as_str().unwrap().to_string();
-
-    let pool = super::get_test_pool().await.unwrap();
-    sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
-        .bind(&admin_user_id)
-        .execute(&*pool)
-        .await
-        .unwrap();
+    let _admin_user_id = json["user_id"].as_str().unwrap().to_string();
     let worker_id = format!("worker-{}", rand::random::<u32>());
 
     let register_request = Request::builder()
@@ -360,8 +351,7 @@ async fn test_worker_admin_routes_reject_regular_user_but_allow_authenticated_cl
         .await
         .unwrap();
     assert!(
-        response.status() == StatusCode::CREATED
-            || response.status() == StatusCode::FORBIDDEN,
+        response.status() == StatusCode::CREATED || response.status() == StatusCode::FORBIDDEN,
         "Expected 201 or 403 for worker registration, got: {}",
         response.status()
     );
@@ -653,32 +643,8 @@ async fn test_admin_room_make_admin_accepts_put_and_updates_power_levels() {
         return;
     };
 
-    let admin_token = create_test_user(&app).await;
+    let (admin_token, _) = get_admin_token(&app).await;
     let user_token = create_test_user(&app).await;
-
-    let admin_whoami_request = Request::builder()
-        .uri("/_matrix/client/v3/account/whoami")
-        .header("Authorization", format!("Bearer {}", admin_token))
-        .body(Body::empty())
-        .unwrap();
-    let admin_whoami_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_whoami_request)
-            .await
-            .unwrap();
-    assert_eq!(admin_whoami_response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(admin_whoami_response.into_body(), 1024)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    let admin_user_id = json["user_id"].as_str().unwrap().to_string();
-
-    let pool = super::get_test_pool().await.unwrap();
-    sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
-        .bind(&admin_user_id)
-        .execute(&*pool)
-        .await
-        .unwrap();
 
     let whoami_request = Request::builder()
         .uri("/_matrix/client/v3/account/whoami")
@@ -721,10 +687,9 @@ async fn test_admin_room_make_admin_accepts_put_and_updates_power_levels() {
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "user_id": user_id }).to_string()))
         .unwrap();
-    let make_admin_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), make_admin_request)
-            .await
-            .unwrap();
+    let make_admin_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), make_admin_request)
+        .await
+        .unwrap();
     assert_eq!(make_admin_response.status(), StatusCode::OK);
 
     let power_levels_request = Request::builder()
@@ -735,10 +700,9 @@ async fn test_admin_room_make_admin_accepts_put_and_updates_power_levels() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let power_levels_response =
-        ServiceExt::<Request<Body>>::oneshot(app, power_levels_request)
-            .await
-            .unwrap();
+    let power_levels_response = ServiceExt::<Request<Body>>::oneshot(app, power_levels_request)
+        .await
+        .unwrap();
     assert_eq!(power_levels_response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(power_levels_response.into_body(), 2048)
@@ -900,7 +864,10 @@ async fn test_admin_device_management_supports_delete_compat_routes() {
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    let device_id = json["devices"][0]["device_id"].as_str().unwrap().to_string();
+    let device_id = json["devices"][0]["device_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let delete_device_request = Request::builder()
         .method("POST")

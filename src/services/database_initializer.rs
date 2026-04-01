@@ -12,6 +12,13 @@ pub enum Environment {
     Production,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatabaseInitMode {
+    Auto,
+    Strict,
+    Compatible,
+}
+
 impl Environment {
     pub fn from_env() -> Self {
         std::env::var("RUST_ENV")
@@ -41,6 +48,7 @@ pub struct DatabaseInitService {
     schema_validator: SchemaValidator,
     cache_ttl_seconds: i64,
     environment: Environment,
+    mode: DatabaseInitMode,
 }
 
 impl DatabaseInitService {
@@ -57,6 +65,7 @@ impl DatabaseInitService {
             schema_validator: SchemaValidator::new(pool),
             cache_ttl_seconds: DEFAULT_CACHE_TTL_SECONDS,
             environment: Environment::from_env(),
+            mode: DatabaseInitMode::Auto,
         }
     }
 
@@ -74,7 +83,13 @@ impl DatabaseInitService {
             schema_validator: SchemaValidator::new(pool),
             cache_ttl_seconds: ttl_seconds,
             environment: Environment::from_env(),
+            mode: DatabaseInitMode::Auto,
         }
+    }
+
+    pub fn with_mode(mut self, mode: DatabaseInitMode) -> Self {
+        self.mode = mode;
+        self
     }
 
     /// Initializes the database by running connection test, schema validation,
@@ -109,7 +124,7 @@ impl DatabaseInitService {
             }
         }
 
-        if !Self::runtime_db_init_enabled() {
+        let Some(mode) = self.resolved_mode() else {
             let message = format!(
                 "运行时数据库初始化默认已禁用；请使用 docker/db_migrate.sh 与 db-migration-gate.yml 作为迁移主链，如需兼容启用请设置 {}=true",
                 RUNTIME_DB_INIT_ENV
@@ -118,7 +133,7 @@ impl DatabaseInitService {
             report.steps.push(message);
             report.skipped = true;
             return Ok(report);
-        }
+        };
 
         info!("开始执行数据库迁移...");
         match self.step_migrations().await {
@@ -134,29 +149,12 @@ impl DatabaseInitService {
             }
         }
 
-        match self.step_create_e2ee_tables().await {
-            Ok(msg) => report.steps.push(msg),
-            Err(e) => {
-                report.success = false;
-                report.errors.push(format!("E2EE表创建失败: {}", e));
-            }
-        }
-
-        // 创建 E2EE 核心表 (Olm, Megolm, Cross-signing, Backup keys)
-        match self.step_create_e2ee_core_tables().await {
-            Ok(msg) => report.steps.push(msg),
-            Err(e) => {
-                report.success = false;
-                report.errors.push(format!("E2EE核心表创建失败: {}", e));
-            }
-        }
-
-        match self.step_ensure_additional_tables().await {
-            Ok(msg) => report.steps.push(msg),
-            Err(e) => {
-                report.success = false;
-                report.errors.push(format!("附加表检查失败: {}", e));
-            }
+        if mode == DatabaseInitMode::Strict {
+            let message =
+                "严格模式仅执行 migrations/*.sql；运行时 DDL 已禁用并由迁移链路兜底".to_string();
+            info!("{}", message);
+            report.steps.push(message);
+            return Ok(report);
         }
 
         let should_skip_validation = self.check_cache_valid().await?;
@@ -180,32 +178,14 @@ impl DatabaseInitService {
             }
         };
 
-        if let Some(ref status) = report.schema_status {
-            if !status.is_healthy {
-                match self.step_schema_repair().await {
-                    Ok(repairs) => report.repairs_performed = repairs,
-                    Err(e) => {
-                        report.success = false;
-                        report.errors.push(format!("Schema修复失败: {}", e));
-                    }
-                };
-            }
-        }
-
         match self.step_index_validation().await {
             Ok(issues) => {
                 if !issues.is_empty() {
                     if self.environment.is_development() {
-                        info!("发现 {} 个缺失的索引，正在创建...", issues.len());
+                        info!("发现 {} 个缺失的索引", issues.len());
                     } else {
-                        debug!("发现 {} 个缺失的索引，正在创建...", issues.len());
+                        debug!("发现 {} 个缺失的索引", issues.len());
                     }
-                    match self.step_create_indexes().await {
-                        Ok(created) => report
-                            .steps
-                            .push(format!("已创建 {} 个索引", created.len())),
-                        Err(e) => report.errors.push(format!("索引创建失败: {}", e)),
-                    };
                 }
             }
             Err(e) => report.errors.push(format!("索引验证失败: {}", e)),
@@ -227,6 +207,16 @@ impl DatabaseInitService {
         std::env::var(RUNTIME_DB_INIT_ENV)
             .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
             .unwrap_or(false)
+    }
+
+    fn resolved_mode(&self) -> Option<DatabaseInitMode> {
+        match self.mode {
+            DatabaseInitMode::Auto => {
+                Self::runtime_db_init_enabled().then_some(DatabaseInitMode::Compatible)
+            }
+            DatabaseInitMode::Strict => Some(DatabaseInitMode::Strict),
+            DatabaseInitMode::Compatible => Some(DatabaseInitMode::Compatible),
+        }
     }
 
     async fn check_cache_valid(&self) -> Result<bool, sqlx::Error> {
@@ -391,7 +381,13 @@ impl DatabaseInitService {
             .map_err(|e| sqlx::Error::Configuration(e.to_string().into()))?
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == "sql"))
+            .filter(|path| {
+                path.extension().is_some_and(|ext| ext == "sql")
+                    && path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| !name.ends_with(".undo.sql"))
+            })
             .collect();
 
         migration_files.sort();
@@ -408,7 +404,7 @@ impl DatabaseInitService {
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown");
 
-            let version = filename.split('_').next().unwrap_or(filename);
+            let version = filename.trim_end_matches(".sql");
 
             match self.is_migration_executed(version).await {
                 Ok(true) => {
@@ -432,8 +428,9 @@ impl DatabaseInitService {
             };
 
             let checksum = Self::calculate_checksum(&sql);
+            let normalized_sql = Self::normalize_migration_sql(&sql);
             let start_time = std::time::Instant::now();
-            let statements = self.split_sql_statements(&sql);
+            let statements = self.split_sql_statements(&normalized_sql);
             let mut file_success = true;
 
             for statement in statements {
@@ -473,7 +470,7 @@ impl DatabaseInitService {
                 info!("迁移 {} 执行成功 ({}ms)", filename, execution_time_ms);
                 success_count += 1;
             } else {
-                skip_count += 1;
+                error_count += 1;
             }
         }
 
@@ -613,6 +610,13 @@ impl DatabaseInitService {
         statements
     }
 
+    fn normalize_migration_sql(sql: &str) -> String {
+        sql.replace("table_schema = 'public'", "table_schema = current_schema()")
+            .replace("table_schema='public'", "table_schema = current_schema()")
+            .replace("schemaname = 'public'", "schemaname = current_schema()")
+            .replace("schemaname='public'", "schemaname = current_schema()")
+    }
+
     fn find_dollar_tag_end(chars: &[char], start: usize) -> Option<usize> {
         let mut i = start + 1;
         while i < chars.len() {
@@ -634,6 +638,8 @@ impl DatabaseInitService {
         self.schema_validator.validate_all().await
     }
 
+    #[cfg(feature = "runtime-ddl")]
+    #[allow(dead_code)]
     async fn step_schema_repair(&self) -> Result<Vec<String>, sqlx::Error> {
         self.schema_validator.repair_missing_columns().await
     }
@@ -642,10 +648,14 @@ impl DatabaseInitService {
         self.schema_validator.validate_indexes().await
     }
 
+    #[cfg(feature = "runtime-ddl")]
+    #[allow(dead_code)]
     async fn step_create_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
         self.schema_validator.create_missing_indexes().await
     }
 
+    #[cfg(feature = "runtime-ddl")]
+    #[allow(dead_code)]
     async fn step_create_e2ee_tables(&self) -> Result<String, sqlx::Error> {
         sqlx::query(
             r#"
@@ -685,6 +695,8 @@ impl DatabaseInitService {
 
     /// 创建 E2EE 核心表 - 包括 Olm 和 Megolm 会话表
     /// 这些表在迁移文件中定义，确保在迁移失败时也能创建
+    #[cfg(feature = "runtime-ddl")]
+    #[allow(dead_code)]
     async fn step_create_e2ee_core_tables(&self) -> Result<String, sqlx::Error> {
         // Create olm_accounts table
         sqlx::query(
@@ -832,6 +844,8 @@ impl DatabaseInitService {
         Ok("E2EE核心表创建完成".to_string())
     }
 
+    #[cfg(feature = "runtime-ddl")]
+    #[allow(dead_code)]
     async fn step_ensure_additional_tables(&self) -> Result<String, sqlx::Error> {
         // Ensure typing table exists
         sqlx::query(

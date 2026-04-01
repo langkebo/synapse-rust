@@ -396,11 +396,11 @@ pub async fn delete_user_device_admin(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
     let result = sqlx::query("DELETE FROM devices WHERE user_id = $1 AND device_id = $2")
-    .bind(&user.user_id)
-    .bind(&device_id)
-    .execute(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .bind(&user.user_id)
+        .bind(&device_id)
+        .execute(&*state.services.device_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
@@ -461,10 +461,10 @@ pub async fn logout_user_devices(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
     let result = sqlx::query("DELETE FROM devices WHERE user_id = $1")
-    .bind(&user.user_id)
-    .execute(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .bind(&user.user_id)
+        .execute(&*state.services.device_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({
         "devices_deleted": result.rows_affected()
@@ -906,11 +906,12 @@ pub async fn invalidate_user_sessions(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
     let canonical_user_id = user.user_id;
-    let sessions_removed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM devices WHERE user_id = $1")
-        .bind(&canonical_user_id)
-        .fetch_one(&*state.services.device_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let sessions_removed: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM devices WHERE user_id = $1")
+            .bind(&canonical_user_id)
+            .fetch_one(&*state.services.device_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     state
         .services

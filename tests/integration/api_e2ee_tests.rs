@@ -408,7 +408,15 @@ async fn test_device_verification_v3_accepts_alias_fields_and_round_trips_status
         ServiceExt::<Request<Body>>::oneshot(app.clone(), request_verification_request)
             .await
             .unwrap();
-    assert_eq!(request_verification_response.status(), StatusCode::OK);
+    if request_verification_response.status() != StatusCode::OK {
+        let body = axum::body::to_bytes(request_verification_response.into_body(), 8192)
+            .await
+            .unwrap();
+        panic!(
+            "request_device_verification failed: {:?}",
+            String::from_utf8_lossy(&body)
+        );
+    }
 
     let request_verification_body =
         axum::body::to_bytes(request_verification_response.into_body(), 4096)
@@ -463,7 +471,15 @@ async fn test_device_verification_v3_accepts_alias_fields_and_round_trips_status
     let respond_response = ServiceExt::<Request<Body>>::oneshot(app, respond_request)
         .await
         .unwrap();
-    assert_eq!(respond_response.status(), StatusCode::OK);
+    if respond_response.status() != StatusCode::OK {
+        let body = axum::body::to_bytes(respond_response.into_body(), 8192)
+            .await
+            .unwrap();
+        panic!(
+            "respond_device_verification failed: {:?}",
+            String::from_utf8_lossy(&body)
+        );
+    }
 
     let respond_body = axum::body::to_bytes(respond_response.into_body(), 4096)
         .await

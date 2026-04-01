@@ -17,31 +17,14 @@ fn test_mutex() -> &'static tokio::sync::Mutex<()> {
     TEST_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
-fn test_database_url() -> String {
-    std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| "postgresql://synapse:synapse@localhost:5432/synapse".to_string())
-}
-
-async fn dedicated_pool() -> Arc<sqlx::PgPool> {
-    Arc::new(
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(10))
-            .connect(&test_database_url())
-            .await
-            .expect("failed to create dedicated test pool"),
-    )
-}
-
-async fn setup_test_app() -> Option<axum::Router> {
-    if !super::init_test_database().await {
-        return None;
-    }
-    let container = ServiceContainer::new_test();
+async fn setup_test_app() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+    let pool = synapse_rust::test_utils::prepare_isolated_test_pool()
+        .await
+        .ok()?;
+    let container = ServiceContainer::new_test_with_pool(pool.clone());
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(create_router(state))
+    Some((create_router(state), pool))
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> Option<(String, String)> {
@@ -78,12 +61,10 @@ async fn register_user(app: &axum::Router, username: &str) -> Option<(String, St
     ))
 }
 
-async fn promote_to_admin(user_id: &str) {
-    let pool = dedicated_pool().await;
-
+async fn promote_to_admin(pool: &sqlx::PgPool, user_id: &str) {
     sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
         .bind(user_id)
-        .execute(&*pool)
+        .execute(pool)
         .await
         .expect("failed to promote user to admin");
 }
@@ -142,7 +123,7 @@ async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &s
 #[tokio::test]
 async fn test_admin_room_event_reads_from_events_table() {
     let _guard = test_mutex().lock().await;
-    let Some(app) = setup_test_app().await else {
+    let Some((app, pool)) = setup_test_app().await else {
         return;
     };
 
@@ -150,7 +131,7 @@ async fn test_admin_room_event_reads_from_events_table() {
         register_user(&app, &format!("admin_room_event_{}", rand::random::<u32>()))
             .await
             .expect("failed to register admin user");
-    promote_to_admin(&admin_user_id).await;
+    promote_to_admin(&pool, &admin_user_id).await;
 
     let room_id = create_room(&app, &admin_token, "Admin Room Event").await;
     let first_event_id = send_message(&app, &admin_token, &room_id, "admin-room-event-1").await;
@@ -183,19 +164,20 @@ async fn test_admin_room_event_reads_from_events_table() {
 #[tokio::test]
 async fn test_admin_room_reports_follow_current_event_report_schema() {
     let _guard = test_mutex().lock().await;
-    let Some(app) = setup_test_app().await else {
+    let Some((app, pool)) = setup_test_app().await else {
         return;
     };
 
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("admin_room_report_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin user");
-    promote_to_admin(&admin_user_id).await;
+    let (admin_token, admin_user_id) = register_user(
+        &app,
+        &format!("admin_room_report_{}", rand::random::<u32>()),
+    )
+    .await
+    .expect("failed to register admin user");
+    promote_to_admin(&pool, &admin_user_id).await;
 
     let room_id = create_room(&app, &admin_token, "Admin Room Report").await;
     let event_id = send_message(&app, &admin_token, &room_id, "admin-room-report-1").await;
-    let pool = dedicated_pool().await;
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
@@ -244,9 +226,9 @@ async fn test_admin_room_reports_follow_current_event_report_schema() {
 }
 
 #[tokio::test]
-async fn test_admin_audit_endpoints_work_without_precreated_table() {
+async fn test_admin_audit_endpoints_fail_if_audit_table_missing() {
     let _guard = test_mutex().lock().await;
-    let Some(app) = setup_test_app().await else {
+    let Some((app, pool)) = setup_test_app().await else {
         return;
     };
 
@@ -254,13 +236,13 @@ async fn test_admin_audit_endpoints_work_without_precreated_table() {
         register_user(&app, &format!("admin_audit_{}", rand::random::<u32>()))
             .await
             .expect("failed to register admin user");
-    promote_to_admin(&admin_user_id).await;
+    promote_to_admin(&pool, &admin_user_id).await;
 
-    let (_, target_user_id) = register_user(&app, &format!("audit_target_{}", rand::random::<u32>()))
-        .await
-        .expect("failed to register target user");
+    let (_, target_user_id) =
+        register_user(&app, &format!("audit_target_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register target user");
 
-    let pool = dedicated_pool().await;
     sqlx::query("DROP TABLE IF EXISTS audit_events")
         .execute(&*pool)
         .await
@@ -281,7 +263,7 @@ async fn test_admin_audit_endpoints_work_without_precreated_table() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
     let request = Request::builder()
         .uri("/_synapse/admin/v1/audit/events?from=0&limit=10")
@@ -293,22 +275,13 @@ async fn test_admin_audit_endpoints_work_without_precreated_table() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    let events = json["events"].as_array().unwrap();
-
-    assert!(events.iter().any(|event| {
-        event["action"] == "admin.user.shadow_ban" && event["resource_id"] == target_user_id
-    }));
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[tokio::test]
 async fn test_admin_room_token_sync_returns_sliding_sync_state() {
     let _guard = test_mutex().lock().await;
-    let Some(app) = setup_test_app().await else {
+    let Some((app, pool)) = setup_test_app().await else {
         return;
     };
 
@@ -316,10 +289,9 @@ async fn test_admin_room_token_sync_returns_sliding_sync_state() {
         register_user(&app, &format!("admin_token_sync_{}", rand::random::<u32>()))
             .await
             .expect("failed to register admin user");
-    promote_to_admin(&admin_user_id).await;
+    promote_to_admin(&pool, &admin_user_id).await;
 
     let room_id = create_room(&app, &admin_token, "Admin Room Token Sync").await;
-    let pool = dedicated_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let conn_id = Some("admin-room-token-sync-conn");
 

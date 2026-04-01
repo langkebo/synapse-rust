@@ -21,8 +21,10 @@
 | API 集成测试（环境恢复后）    | ✅ 421 passed, 0 failed, 171 skipped                   | 2026-03-31     |
 | **API 集成测试（最新）**   | **✅ 397 passed, 0 failed, 155 skipped**               | **2026-03-31** |
 | **API 集成测试（最新，dev）** | **✅ 476 passed, 0 failed, 39 missing, 39 skipped**                            | **2026-04-01** |
+| **Rust 集成测试（tests/integration）** | **✅ 233 passed, 0 failed** | **2026-04-01** |
+| **Rust 全量测试（workspace/all-targets/all-features）** | **✅ 通过（严格模式迁移初始化 + 独立 schema）** | **2026-04-01** |
 | 定向修复代码验证           | ✅ `cargo test --no-run` 通过；Docker 测试环境已恢复并完成全量 API 回归 | 2026-03-31     |
-| Clippy             | ✅ 0 warnings                                          | 2026-03-30     |
+| Clippy             | ✅ `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过 | 2026-04-01     |
 
 ***
 
@@ -33,6 +35,15 @@
 - 跳过数为 39，主要原因是联邦签名请求限制与破坏性测试跳过
 - 当前缺口以 MISSING 为主（39 项），集中在 SSO/OpenID、少量房间管理与账号数据补齐
 - 后续工作重点：按 Matrix Client 核心路径优先级继续将 MISSING 收敛为 PASS
+
+### 1.5 Rust 测试稳定性修复摘要（2026-04-01）
+
+- 修复路由合并冲突导致的启动 panic（重复注册 `/rooms/{room_id}/relations/{event_id}`）
+- 修复受限环境对 `/app` 目录写入导致的 500（媒体/语音落盘默认回退到 `./data/media`）
+- 将测试链路切换为“严格模式”迁移初始化：每个测例独立 schema、独立 search_path，并只执行 `migrations/*.sql`
+- 收敛运行时 DDL：保留脚本迁移为主链，移除 presence 订阅表的按需建表，避免 audit/feature_flags/event_relations 等测试再依赖运行时兜底
+- 修复 Admin 房间搜索 count SQL 字段错误（`type` → `event_type`；`creation_ts` → `created_ts as creation_ts`）
+- 修复 server notices 列表默认返回过大导致测试读取超限（增加分页默认 limit）
 
 ### 1.4 skip 收敛专项进展
 

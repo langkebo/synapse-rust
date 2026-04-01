@@ -2,9 +2,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
 use std::sync::Arc;
-use tokio::sync::OnceCell;
-
-static AUDIT_EVENTS_SCHEMA_READY: OnceCell<()> = OnceCell::const_new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AuditEvent {
@@ -57,12 +54,10 @@ impl AuditEventStorage {
         created_ts: i64,
         request: &CreateAuditEventRequest,
     ) -> Result<AuditEvent, sqlx::Error> {
-        self.ensure_schema().await?;
         insert_audit_event(&*self.pool, event_id, created_ts, request).await
     }
 
     pub async fn get_event(&self, event_id: &str) -> Result<Option<AuditEvent>, sqlx::Error> {
-        self.ensure_schema().await?;
         sqlx::query_as::<_, AuditEvent>(
             r#"
             SELECT event_id, actor_id, action, resource_type, resource_id, result, request_id, details, created_ts
@@ -79,7 +74,6 @@ impl AuditEventStorage {
         &self,
         filters: &AuditEventFilters,
     ) -> Result<(Vec<AuditEvent>, i64), sqlx::Error> {
-        self.ensure_schema().await?;
         let actor_id = filters.actor_id.clone();
         let action = filters.action.clone();
         let resource_type = filters.resource_type.clone();
@@ -147,52 +141,6 @@ impl AuditEventStorage {
             .await?;
 
         Ok((events, total))
-    }
-
-    async fn ensure_schema(&self) -> Result<(), sqlx::Error> {
-        AUDIT_EVENTS_SCHEMA_READY
-            .get_or_try_init(|| async {
-                sqlx::query(
-                    r#"
-                    CREATE TABLE IF NOT EXISTS audit_events (
-                        event_id TEXT PRIMARY KEY,
-                        actor_id TEXT NOT NULL,
-                        action TEXT NOT NULL,
-                        resource_type TEXT NOT NULL,
-                        resource_id TEXT NOT NULL,
-                        result TEXT NOT NULL,
-                        request_id TEXT NOT NULL,
-                        details JSONB NOT NULL DEFAULT '{}'::jsonb,
-                        created_ts BIGINT NOT NULL
-                    )
-                    "#,
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    "CREATE INDEX IF NOT EXISTS idx_audit_events_actor_created ON audit_events(actor_id, created_ts DESC)",
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    "CREATE INDEX IF NOT EXISTS idx_audit_events_resource_created ON audit_events(resource_type, resource_id, created_ts DESC)",
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    "CREATE INDEX IF NOT EXISTS idx_audit_events_request_created ON audit_events(request_id, created_ts DESC)",
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                Ok::<(), sqlx::Error>(())
-            })
-            .await?;
-
-        Ok(())
     }
 }
 

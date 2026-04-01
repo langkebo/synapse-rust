@@ -522,13 +522,14 @@ pub async fn get_space_summary(
 pub async fn search_spaces(
     State(state): State<AppState>,
     Query(query): Query<SearchQuery>,
+    auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(10);
 
     let spaces = state
         .services
         .space_service
-        .search_spaces(&query.query, limit)
+        .search_spaces(&query.query, limit, Some(&auth_user.user_id))
         .await?;
 
     let response: Vec<SpaceResponse> = spaces.into_iter().map(SpaceResponse::from).collect();

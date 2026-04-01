@@ -113,8 +113,7 @@ async fn test_admin_input_validation() {
         .await
         .unwrap();
     assert!(
-        response.status() == StatusCode::BAD_REQUEST
-            || response.status() == StatusCode::NOT_FOUND,
+        response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND,
         "Expected 400 or 404 for IP block validation, got: {}",
         response.status()
     );
@@ -227,8 +226,7 @@ async fn test_client_input_validation() {
     // The implementation currently succeeds with 200 when inviting non-existent user
     // (implementation bug - should return 404). Accepting both for test to pass.
     assert!(
-        response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::OK,
+        response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::OK,
         "Expected 404 or 200 for invite non-existent user, got: {}",
         response.status()
     );

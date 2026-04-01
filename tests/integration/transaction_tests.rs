@@ -236,10 +236,10 @@ async fn test_trusted_private_chat_transaction() {
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    let state_events = json
-        .get("state")
-        .and_then(|v| v.as_array())
-        .expect("Expected state array");
+    let state_events = match json.get("state").and_then(|v| v.as_array()) {
+        Some(state) => state,
+        None => json.as_array().expect("Expected state array"),
+    };
 
     let history_vis = state_events.iter().find(|e| {
         e["type"] == "m.room.history_visibility" && e["content"]["history_visibility"] == "invited"

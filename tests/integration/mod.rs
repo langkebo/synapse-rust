@@ -37,11 +37,6 @@ mod coverage_tests;
 mod schema_validation_tests;
 
 use std::sync::Arc;
-use synapse_rust::services::DatabaseInitService;
-use tokio::sync::OnceCell;
-
-static TEST_POOL: OnceCell<Option<Arc<sqlx::PgPool>>> = OnceCell::const_new();
-static TEST_DB_READY: OnceCell<bool> = OnceCell::const_new();
 
 fn integration_tests_required() -> bool {
     if let Ok(value) = std::env::var("INTEGRATION_TESTS_REQUIRED") {
@@ -51,110 +46,106 @@ fn integration_tests_required() -> bool {
     std::env::var("CI").is_ok()
 }
 
-fn candidate_database_urls() -> Vec<String> {
-    let mut urls = Vec::new();
-
-    for key in ["TEST_DATABASE_URL", "DATABASE_URL"] {
-        if let Ok(value) = std::env::var(key) {
-            if !urls.iter().any(|existing| existing == &value) {
-                urls.push(value);
-            }
-        }
-    }
-
-    for fallback in [
-        "postgresql://synapse:synapse@localhost:5432/synapse",
-        "postgresql://synapse:synapse@localhost:5432/synapse_test",
-        "postgresql://synapse:secret@localhost:5432/synapse_test",
-    ] {
-        let fallback = fallback.to_string();
-        if !urls.iter().any(|existing| existing == &fallback) {
-            urls.push(fallback);
-        }
-    }
-
-    urls
-}
-
 async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
-    let pool = TEST_POOL
-        .get_or_init(|| async {
-            let mut errors = Vec::new();
-
-            for database_url in candidate_database_urls() {
-                match sqlx::postgres::PgPoolOptions::new()
-                    .max_connections(5)
-                    .acquire_timeout(std::time::Duration::from_secs(10))
-                    .connect(&database_url)
-                    .await
-                {
-                    Ok(pool) => return Some(Arc::new(pool)),
-                    Err(error) => {
-                        errors.push(format!("{} -> {}", database_url, error));
-                    }
-                }
-            }
-
+    match synapse_rust::test_utils::prepare_isolated_test_pool().await {
+        Ok(pool) => Some(pool),
+        Err(error) => {
             eprintln!(
-                "Skipping integration tests because test database is unavailable: {}",
-                errors.join(" | ")
+                "Skipping integration tests because isolated schema setup failed: {}",
+                error
             );
             if integration_tests_required() {
                 panic!(
-                    "Integration tests require a working PostgreSQL test database, but none of the candidate URLs connected successfully. Errors: {}",
-                    errors.join(" | ")
+                    "Integration tests require strict migration initialization to succeed, but isolated schema setup failed: {}",
+                    error
                 );
             }
             None
-        })
-        .await;
-
-    let Some(pool) = pool else {
-        return None;
-    };
-
-    let ready = TEST_DB_READY
-        .get_or_init(|| async {
-            let init_service = DatabaseInitService::new(pool.clone());
-            match init_service.initialize().await {
-                Ok(report) if report.success => true,
-                Ok(report) => {
-                    eprintln!(
-                        "Skipping integration tests because database initialization errors: {:?}",
-                        report.errors
-                    );
-                    if integration_tests_required() {
-                        panic!(
-                            "Integration tests require database initialization to succeed, but it reported errors: {:?}",
-                            report.errors
-                        );
-                    }
-                    false
-                }
-                Err(error) => {
-                    eprintln!(
-                        "Skipping integration tests because database initialization failed: {}",
-                        error
-                    );
-                    if integration_tests_required() {
-                        panic!(
-                            "Integration tests require database initialization to succeed, but initialization failed: {}",
-                            error
-                        );
-                    }
-                    false
-                }
-            }
-        })
-        .await;
-
-    if !*ready {
-        return None;
+        }
     }
-
-    Some(pool.clone())
 }
 
 async fn init_test_database() -> bool {
-    get_test_pool().await.is_some()
+    match get_test_pool().await {
+        Some(pool) => {
+            synapse_rust::test_utils::enqueue_prepared_test_pool(pool);
+            true
+        }
+        None => false,
+    }
+}
+
+pub fn clear_test_cache() {}
+
+pub async fn setup_test_app() -> Option<axum::Router> {
+    use synapse_rust::cache::CacheManager;
+    use synapse_rust::services::ServiceContainer;
+    use synapse_rust::web::routes::state::AppState;
+
+    let pool = get_test_pool().await?;
+    let container = ServiceContainer::new_test_with_pool(pool);
+    let cache = std::sync::Arc::new(CacheManager::new(Default::default()));
+    let state = AppState::new(container, cache);
+
+    Some(synapse_rust::web::create_router(state))
+}
+
+pub async fn get_admin_token(app: &axum::Router) -> (String, String) {
+    use axum::body::Body;
+    use hyper::Request;
+    use tower::ServiceExt;
+
+    let admin_secret = std::env::var("ADMIN_REGISTRATION_SECRET")
+        .unwrap_or_else(|_| "admin_secret_key".to_string());
+
+    let username = format!("admin_{}", rand::random::<u32>());
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/register_admin")
+        .header("Content-Type", "application/json")
+        .header("X-Admin-Secret", &admin_secret)
+        .body(Body::from(
+            serde_json::json!({
+                "username": &username,
+                "password": "AdminTest@123"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.clone().oneshot(request).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let token = json["access_token"].as_str().unwrap().to_string();
+    (token, username)
+}
+
+pub async fn create_test_user(app: &axum::Router) -> String {
+    use axum::body::Body;
+    use hyper::Request;
+    use tower::ServiceExt;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "username": format!("user_{}", rand::random::<u32>()),
+                "password": "UserTest@123",
+                "device_id": "TESTDEVICE"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.clone().oneshot(request).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    json["access_token"].as_str().unwrap().to_string()
 }

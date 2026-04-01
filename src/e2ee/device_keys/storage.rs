@@ -142,14 +142,10 @@ impl DeviceKeyStorage {
                         .cloned()
                         .unwrap_or(serde_json::json!({}))
                 }),
-            created_ts: chrono::DateTime::from_timestamp_millis(
-                row.get::<i64, _>("added_ts"),
-            )
-            .unwrap_or_default(),
-            updated_ts: chrono::DateTime::from_timestamp_millis(
-                row.get::<i64, _>("ts_updated_ms"),
-            )
-            .unwrap_or_default(),
+            created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
+                .unwrap_or_default(),
+            updated_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("ts_updated_ms"))
+                .unwrap_or_default(),
         }
     }
 

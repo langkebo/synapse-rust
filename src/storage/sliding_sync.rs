@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
-use tokio::sync::OnceCell;
-
-static SLIDING_SYNC_SCHEMA_READY: OnceCell<()> = OnceCell::const_new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SlidingSyncToken {
@@ -580,128 +577,6 @@ impl SlidingSyncStorage {
     }
 
     async fn ensure_schema(&self) -> Result<(), sqlx::Error> {
-        SLIDING_SYNC_SCHEMA_READY
-            .get_or_try_init(|| async {
-                sqlx::query("CREATE SEQUENCE IF NOT EXISTS sliding_sync_pos_seq")
-                    .execute(&*self.pool)
-                    .await?;
-
-                sqlx::query(
-                    r#"
-                    CREATE TABLE IF NOT EXISTS sliding_sync_lists (
-                        id BIGSERIAL PRIMARY KEY,
-                        user_id TEXT NOT NULL,
-                        device_id TEXT NOT NULL,
-                        conn_id TEXT,
-                        list_key TEXT NOT NULL,
-                        sort JSONB DEFAULT '[]',
-                        filters JSONB DEFAULT '{}',
-                        room_subscription JSONB DEFAULT '{}',
-                        ranges JSONB DEFAULT '[]',
-                        created_ts BIGINT NOT NULL,
-                        updated_ts BIGINT NOT NULL
-                    )
-                    "#,
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    r#"
-                    CREATE TABLE IF NOT EXISTS sliding_sync_tokens (
-                        id BIGSERIAL PRIMARY KEY,
-                        user_id TEXT NOT NULL,
-                        device_id TEXT NOT NULL,
-                        conn_id TEXT,
-                        token TEXT NOT NULL,
-                        pos BIGINT NOT NULL,
-                        created_ts BIGINT NOT NULL,
-                        expires_at BIGINT
-                    )
-                    "#,
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    r#"
-                    CREATE TABLE IF NOT EXISTS sliding_sync_rooms (
-                        id BIGSERIAL PRIMARY KEY,
-                        user_id TEXT NOT NULL,
-                        device_id TEXT NOT NULL,
-                        room_id TEXT NOT NULL,
-                        conn_id TEXT,
-                        list_key TEXT,
-                        bump_stamp BIGINT DEFAULT 0,
-                        highlight_count INTEGER DEFAULT 0,
-                        notification_count INTEGER DEFAULT 0,
-                        is_dm BOOLEAN DEFAULT FALSE,
-                        is_encrypted BOOLEAN DEFAULT FALSE,
-                        is_tombstoned BOOLEAN DEFAULT FALSE,
-                        invited BOOLEAN DEFAULT FALSE,
-                        name TEXT,
-                        avatar TEXT,
-                        timestamp BIGINT DEFAULT 0,
-                        created_ts BIGINT NOT NULL,
-                        updated_ts BIGINT NOT NULL
-                    )
-                    "#,
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_lists_unique ON sliding_sync_lists(user_id, device_id, COALESCE(conn_id, ''), list_key)",
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    "CREATE INDEX IF NOT EXISTS idx_sliding_sync_lists_user_device ON sliding_sync_lists(user_id, device_id)",
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_tokens_unique ON sliding_sync_tokens(user_id, device_id, COALESCE(conn_id, ''))",
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    "CREATE INDEX IF NOT EXISTS idx_sliding_sync_tokens_user ON sliding_sync_tokens(user_id, device_id)",
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_rooms_unique ON sliding_sync_rooms(user_id, device_id, room_id, COALESCE(conn_id, ''))",
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    "CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_user_device ON sliding_sync_rooms(user_id, device_id)",
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    "CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_bump_stamp ON sliding_sync_rooms(bump_stamp DESC)",
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                sqlx::query(
-                    "CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_room_id ON sliding_sync_rooms(room_id, updated_ts DESC)",
-                )
-                .execute(&*self.pool)
-                .await?;
-
-                Ok::<(), sqlx::Error>(())
-            })
-            .await?;
-
         Ok(())
     }
 }
