@@ -24,6 +24,10 @@ docker/nginx/ssl/
 docker_build*.log
 test_*.log
 
+# 本地测试产物（不入库）
+test-results/
+docker/test-results/
+
 # 测试媒体文件
 docker/data/media/test/
 docker/data/media/*.jpg
