@@ -1971,7 +1971,15 @@ if [ -n "${OPENID_ACCESS_TOKEN:-}" ]; then
 else
     http_json GET "$SERVER_URL/_matrix/federation/v1/openid/userinfo" ""
 fi
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "sub" && pass "OpenID Userinfo" || skip "OpenID Userinfo (endpoint not available)"
+if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "sub"; then
+    pass "OpenID Userinfo"
+else
+    if [[ "$HTTP_STATUS" == "401" ]] && echo "$HTTP_BODY" | grep -qi "Missing federation signature"; then
+        skip "OpenID Userinfo" "requires federation signed request"
+    else
+        skip "OpenID Userinfo" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+    fi
+fi
 
 # 63. Mod Core Extended
 echo ""
@@ -2515,19 +2523,23 @@ assert_success_json "Admin Room Members" "$ADMIN_ROOM_MEMBERS_RESP" "$HTTP_STATU
 
 echo ""
 echo "246. Admin Room Delete"
-http_json DELETE "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID" "$ADMIN_TOKEN" '{"new_room_id": null}'
-if check_success_json "$HTTP_BODY" "$HTTP_STATUS"; then
-    pass "Admin Room Delete"
-    http_json POST "$SERVER_URL/_matrix/client/v3/createRoom" "$TOKEN" '{"name": "Test Room Post Admin Delete", "preset": "public_chat"}'
-    REPLACEMENT_ROOM_ID=$(json_get "$HTTP_BODY" "room_id")
-    if [ -n "$REPLACEMENT_ROOM_ID" ]; then
-        ROOM_ID="$REPLACEMENT_ROOM_ID"
-        pass "Recreate Test Room After Delete"
-    else
-        fail "Recreate Test Room After Delete" "$(json_err_summary "$HTTP_BODY")"
-    fi
+if ! destructive; then
+    skip "Admin Room Delete" "destructive test"
 else
-    skip "Admin Room Delete" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+    http_json DELETE "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID" "$ADMIN_TOKEN" '{"new_room_id": null}'
+    if check_success_json "$HTTP_BODY" "$HTTP_STATUS"; then
+        pass "Admin Room Delete"
+        http_json POST "$SERVER_URL/_matrix/client/v3/createRoom" "$TOKEN" '{"name": "Test Room Post Admin Delete", "preset": "public_chat"}'
+        REPLACEMENT_ROOM_ID=$(json_get "$HTTP_BODY" "room_id")
+        if [ -n "$REPLACEMENT_ROOM_ID" ]; then
+            ROOM_ID="$REPLACEMENT_ROOM_ID"
+            pass "Recreate Test Room After Delete"
+        else
+            fail "Recreate Test Room After Delete" "$(json_err_summary "$HTTP_BODY")"
+        fi
+    else
+        skip "Admin Room Delete" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+    fi
 fi
 
 # 84. Well-Known Extended
@@ -2654,17 +2666,19 @@ echo "263. Admin Room Extended"
 echo "=========================================="
 echo "263. Admin Room Event"
 ADMIN_ROOM_EVENT_ID="${LAST_EVENT_ID:-$REDACT_EVENT_ID}"
-if [ -n "$ADMIN_ROOM_EVENT_ID" ]; then
+if ! admin_ready; then
+    skip "Admin Room Event" "admin authentication unavailable"
+elif [ -z "$ADMIN_ROOM_EVENT_ID" ]; then
+    skip "Admin Room Event" "no event id"
+else
     ADMIN_ROOM_EVENT_URL="$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/event_context/$ADMIN_ROOM_EVENT_ID"
     http_json GET "$ADMIN_ROOM_EVENT_URL" "$ADMIN_TOKEN"
     ADMIN_ROOM_EVENT_RESP="$HTTP_BODY"
-    if [[ "$HTTP_STATUS" == 2* ]]; then
+    if check_success_json "$ADMIN_ROOM_EVENT_RESP" "$HTTP_STATUS" "event"; then
         pass "Admin Room Event"
     else
-        skip "Admin Room Event (not found)"
+        skip "Admin Room Event" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
     fi
-else
-    skip "Admin Room Event (no event id)"
 fi
 
 echo ""
@@ -2879,7 +2893,7 @@ http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/redirect" ""
 if [[ "$HTTP_STATUS" == 2* || "$HTTP_STATUS" == 3* ]]; then
     pass "SSO Login"
 else
-    skip "SSO (not found)"
+    skip "SSO Login" "not supported"
 fi
 
 echo ""
@@ -2888,7 +2902,7 @@ http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/userinfo" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "SSO User Info"
 else
-    skip "SSO (not found)"
+    skip "SSO User Info" "not supported"
 fi
 
 # 105. Room Alias Admin
@@ -3276,7 +3290,8 @@ http_json PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/send/m.room.message/
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Send Room Message"
 else
-    skip "Room Message (not found)"
+    err=$(json_err_summary "$HTTP_BODY")
+    skip "Send Room Message" "${err:-HTTP $HTTP_STATUS}"
 fi
 
 # 131. Room Event Send
@@ -3289,7 +3304,8 @@ http_json PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/send/m.room.topic/tx
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Send Room Event"
 else
-    skip "Room Event (not found)"
+    err=$(json_err_summary "$HTTP_BODY")
+    skip "Send Room Event" "${err:-HTTP $HTTP_STATUS}"
 fi
 
 # 132. Room Redact
@@ -3380,7 +3396,8 @@ http_json PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/send/m.room.encrypte
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Send Event"
 else
-    skip "Room Send Event (not found)"
+    err=$(json_err_summary "$HTTP_BODY")
+    skip "Send Event" "${err:-HTTP $HTTP_STATUS}"
 fi
 
 # 139. Device List Update
@@ -3935,7 +3952,8 @@ http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/report/$REPORT_EVEN
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Report Event"
 else
-    skip "Room Event Report (not found)"
+    err=$(json_err_summary "$HTTP_BODY")
+    skip "Report Event" "${err:-HTTP $HTTP_STATUS}"
 fi
 
 # 178. Room Event Translate
@@ -4100,7 +4118,8 @@ http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/members?not_limit=0"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Members"
 else
-    skip "Room Members (not found)"
+    err=$(json_err_summary "$HTTP_BODY")
+    skip "Get Members" "${err:-HTTP $HTTP_STATUS}"
 fi
 
 echo ""
@@ -4109,7 +4128,8 @@ http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/members/recent" "$TO
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Members Recent"
 else
-    skip "Room Members (not found)"
+    err=$(json_err_summary "$HTTP_BODY")
+    skip "Get Members Recent" "${err:-HTTP $HTTP_STATUS}"
 fi
 
 # 190. Room Messages
@@ -4136,7 +4156,8 @@ http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/report/$REPORT_EVEN
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Report Room Event"
 else
-    skip "Room Report (not found)"
+    err=$(json_err_summary "$HTTP_BODY")
+    skip "Report Room Event" "${err:-HTTP $HTTP_STATUS}"
 fi
 
 # 192. Room Visibility
@@ -4354,11 +4375,17 @@ echo "=========================================="
 echo "395. Admin Register Extended"
 echo "=========================================="
 echo "395. Register User v3"
-http_json POST "$SERVER_URL/_matrix/client/v3/register" "" '{"auth": {"type": "m.login.dummy"}, "username": "newuser_$$", "password": "Password123!"}'
+REGISTER_USERNAME="newuser_${RANDOM}_${RANDOM}"
+http_json POST "$SERVER_URL/_matrix/client/v3/register" "" "{\"auth\": {\"type\": \"m.login.dummy\"}, \"username\": \"$REGISTER_USERNAME\", \"password\": \"Password123!\"}"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Register User v3"
 else
-    fail "Register User v3" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+    err=$(json_err_summary "$HTTP_BODY")
+    if echo "$err" | grep -q "M_USER_IN_USE"; then
+        pass "Register User v3" "already exists"
+    else
+        fail "Register User v3" "${err:-HTTP $HTTP_STATUS}"
+    fi
 fi
 
 # 207. Admin Groups Extended

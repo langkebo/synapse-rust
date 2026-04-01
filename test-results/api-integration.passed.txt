@@ -2,8 +2,8 @@ Health endpoint
 Versions endpoint
 Login (User: @testuser1:cjystx.top)
 Ensure Second User (@testuser2:cjystx.top)	already exists
-Second Device Login	api-integration-device2-29486
-Admin Login (User: @admin_test_1775026768_4691:cjystx.top)
+Second Device Login	api-integration-device2-16968
+Admin Login (User: @admin_test_1775032547_17214:cjystx.top)
 Capabilities
 Create Test Room
 Create Second Room
@@ -161,7 +161,9 @@ Room Hierarchy
 Create Key Backup
 Get Key Backup
 Send To Device
+Events
 Room Version
+VoIP TURN Server
 Admin User Login
 Admin User Logout
 Admin User Devices
@@ -230,8 +232,6 @@ Room Read Markers
 List User Sessions
 Admin Room State
 Admin Room Members
-Admin Room Delete
-Recreate Test Room After Delete
 Well-Known Client
 Well-Known Server
 Identity Store Invite
@@ -248,10 +248,12 @@ Admin Get Room
 Server Version
 Rust Synapse Version
 Get Capabilities
+Admin Room Event
 Admin Room Token Sync
 Get Relations
 Get Relation Types
 Get Receipts
+Get Space Rooms
 Send Server Notice
 Admin Stats Users
 Admin Stats Rooms
@@ -270,7 +272,7 @@ Get Rate Limit
 Admin Version
 Get Presence
 Set Presence
-Create Friend Group	group_1775026786823_c8b99361-2f31-4f74-ba9d-3e4cc592219f
+Create Friend Group	group_1775032562492_d0d83c3c-0bb6-4f4d-af16-da760c98daff
 List Friend Groups
 Get Vault Data
 Set Vault Data
@@ -282,6 +284,7 @@ Get Event Thread
 Get Auto-Discovery
 Create Filter
 Get Room Rendered
+Evict User
 Get Group Details
 Get State v2
 Search Messages
@@ -290,15 +293,13 @@ Get Replacement Event
 Claim Keys
 Get Global Tags
 Get Presence Bulk
-Send Room Message
-Send Room Event
 Redact Event
 Upgrade Room
 Get Room Tombstone
 Get Room External IDs
 Get Event Relations
 Get Aggregation Groups
-Send Event
+Update Device List
 Forward Keys
 Room Search v1
 Room Initial Sync
@@ -337,7 +338,9 @@ Get Read Markers
 Get Room Key Count
 Get Group Friends
 Get User Groups
+Get User Appservice
 Get Event Reactions
+Report Event
 Translate Event
 Get Event URL
 Convert Event
@@ -350,9 +353,9 @@ Get Unread Count
 Sync Room
 Get Room State v1
 Get Room State Event
-Get Members
 Get Members Recent
 Get Messages
+Report Room Event
 Get Room Visibility
 Get Room Users
 Search Room v3
@@ -366,6 +369,7 @@ Leave Room
 Kick User
 Ban User
 Unban User
+Register User v3
 Rename Friend Group
 Resolve Alias
 Get Metadata
@@ -388,6 +392,7 @@ Search v3
 Get User Filter
 Room Sync v3
 Forward Room Keys
+Report Room v3
 Set State Key
 Typing v3
 Upload Signatures
@@ -441,6 +446,8 @@ Room Keys Keys Room Session Put
 Room Keys Backup Get
 Room Keys Backup Put
 Room Keys Version Delete
+Get All User Account Data (r0)
+Get All User Account Data (v3)
 Space Room Parents
 Space Statistics
 Space Search
