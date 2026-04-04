@@ -152,7 +152,7 @@ impl VoiceMessageStorage {
             r#"
             INSERT INTO voice_messages (event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_ts, created_ts
+            RETURNING id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_at AS processed_ts, created_ts
             "#,
         )
         .bind(&message.event_id)
@@ -174,7 +174,7 @@ impl VoiceMessageStorage {
     pub async fn get_message(&self, event_id: &str) -> Result<Option<VoiceMessage>, sqlx::Error> {
         let row = sqlx::query(
             r#"
-            SELECT id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_ts, created_ts
+            SELECT id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_at AS processed_ts, created_ts
             FROM voice_messages
             WHERE event_id = $1
             "#,
@@ -194,7 +194,7 @@ impl VoiceMessageStorage {
     ) -> Result<Vec<VoiceMessage>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_ts, created_ts
+            SELECT id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_at AS processed_ts, created_ts
             FROM voice_messages
             WHERE user_id = $1
             ORDER BY created_ts DESC
@@ -218,7 +218,7 @@ impl VoiceMessageStorage {
     ) -> Result<Vec<VoiceMessage>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_ts, created_ts
+            SELECT id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_at AS processed_ts, created_ts
             FROM voice_messages
             WHERE room_id = $1
             ORDER BY created_ts DESC
@@ -242,7 +242,7 @@ impl VoiceMessageStorage {
     ) -> Result<Vec<VoiceMessage>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_ts, created_ts
+            SELECT id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_at AS processed_ts, created_ts
             FROM voice_messages
             ORDER BY created_ts DESC
             LIMIT $1 OFFSET $2
@@ -301,7 +301,7 @@ impl VoiceMessageStorage {
     pub async fn get_recent_messages(&self, limit: i64) -> Result<Vec<VoiceMessage>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_ts, created_ts
+            SELECT id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_at AS processed_ts, created_ts
             FROM voice_messages
             ORDER BY created_ts DESC
             LIMIT $1
@@ -333,7 +333,7 @@ impl VoiceMessageStorage {
 
         let rows = sqlx::query(
             r#"
-            SELECT id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_ts, created_ts
+            SELECT id, event_id, room_id, user_id, media_id, duration_ms, waveform, mime_type, file_size, transcription, encryption, is_processed, processed_at AS processed_ts, created_ts
             FROM voice_messages
             WHERE user_id = $1 AND created_ts >= $2 AND created_ts <= $3
             ORDER BY created_ts DESC

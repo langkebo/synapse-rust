@@ -10,6 +10,10 @@ use crate::common::ApiError;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
 
+fn thirdparty_unsupported_error() -> ApiError {
+    ApiError::unrecognized("Third-party bridge APIs are not supported".to_string())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThirdPartyProtocol {
     pub user_fields: Vec<String>,
@@ -60,60 +64,11 @@ pub fn create_thirdparty_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
-fn build_irc_protocol() -> ThirdPartyProtocol {
-    let mut field_types = HashMap::new();
-    field_types.insert(
-        "channel".to_string(),
-        FieldType {
-            regexp: "^[#&][^ ,]+$".to_string(),
-            placeholder: "Channel name (e.g., #matrix)".to_string(),
-        },
-    );
-    field_types.insert(
-        "nickname".to_string(),
-        FieldType {
-            regexp: "^[a-zA-Z0-9_\\-\\[\\]]{1,32}$".to_string(),
-            placeholder: "Nickname".to_string(),
-        },
-    );
-    field_types.insert(
-        "server".to_string(),
-        FieldType {
-            regexp: "^[a-zA-Z0-9.-]+$".to_string(),
-            placeholder: "Server name (e.g., irc.libera.chat)".to_string(),
-        },
-    );
-
-    let mut instances = HashMap::new();
-    instances.insert("network".to_string(), "irc.libera.chat".to_string());
-    instances.insert("channel".to_string(), "#matrix".to_string());
-
-    ThirdPartyProtocol {
-        user_fields: vec!["nickname".to_string(), "server".to_string()],
-        location_fields: vec!["channel".to_string(), "server".to_string()],
-        icon: "mxc://atrix.li/irc.png".to_string(),
-        field_types,
-        instances: vec![ProtocolInstance {
-            network_id: "libera".to_string(),
-            desc: "Libera.Chat IRC Network".to_string(),
-            icon: "mxc://atrix.li/libera.png".to_string(),
-            fields: instances,
-        }],
-    }
-}
-
-fn build_protocols_index() -> HashMap<String, ThirdPartyProtocol> {
-    let mut protocols = HashMap::new();
-    protocols.insert("irc".to_string(), build_irc_protocol());
-    protocols
-}
-
 async fn get_protocols(
     State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,
-) -> Json<serde_json::Value> {
-    let protocols = build_protocols_index();
-    Json(serde_json::to_value(protocols).unwrap_or_default())
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(thirdparty_unsupported_error())
 }
 
 async fn get_protocol(
@@ -121,15 +76,8 @@ async fn get_protocol(
     _auth_user: AuthenticatedUser,
     Path(protocol): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let protocols = build_protocols_index();
-    if let Some(p) = protocols.get(&protocol) {
-        Ok(Json(serde_json::to_value(p).unwrap_or_default()))
-    } else {
-        Err(ApiError::not_found(format!(
-            "Protocol '{}' not found. Available protocols: irc",
-            protocol
-        )))
-    }
+    let _ = protocol;
+    Err(thirdparty_unsupported_error())
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,50 +94,16 @@ async fn get_location(
     Path(protocol): Path<String>,
     Query(query): Query<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    if protocol != "irc" {
-        return Err(ApiError::not_found(format!(
-            "Protocol '{}' not found. Available protocols: irc",
-            protocol
-        )));
-    }
-
-    let mut results = Vec::new();
-    let server = query
-        .server
-        .clone()
-        .unwrap_or_else(|| "irc.libera.chat".to_string());
-
-    if let Some(ref channel) = query.channel {
-        results.push(serde_json::json!({
-            "alias": format!("#{} on {}", channel.replace("#", ""), server),
-            "protocol": "irc",
-            "fields": {
-                "channel": channel,
-                "server": server
-            }
-        }));
-    }
-
-    if query.channel.is_none() && query.server.is_none() && query.search.is_none() {
-        results.push(serde_json::json!({
-            "alias": "#matrix on irc.libera.chat",
-            "protocol": "irc",
-            "fields": {
-                "channel": "#matrix",
-                "server": "irc.libera.chat"
-            }
-        }));
-    }
-
-    Ok(Json(results))
+    let _ = (protocol, query);
+    Err(thirdparty_unsupported_error())
 }
 
 async fn get_location_by_alias(
     State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,
     Query(_query): Query<LocationQuery>,
-) -> Json<Vec<serde_json::Value>> {
-    Json(vec![])
+) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
+    Err(thirdparty_unsupported_error())
 }
 
 #[derive(Debug, Deserialize)]
@@ -206,50 +120,16 @@ async fn get_user(
     Path(protocol): Path<String>,
     Query(query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    if protocol != "irc" {
-        return Err(ApiError::not_found(format!(
-            "Protocol '{}' not found. Available protocols: irc",
-            protocol
-        )));
-    }
-
-    let mut results = Vec::new();
-    let server = query
-        .server
-        .clone()
-        .unwrap_or_else(|| "irc.libera.chat".to_string());
-
-    if let Some(ref nickname) = query.nickname {
-        results.push(serde_json::json!({
-            "userid": format!("{}@{}", nickname, server),
-            "protocol": "irc",
-            "fields": {
-                "nickname": nickname,
-                "server": server
-            }
-        }));
-    }
-
-    if query.nickname.is_none() && query.userid.is_none() && query.search.is_none() {
-        results.push(serde_json::json!({
-            "userid": "NickServ@irc.libera.chat",
-            "protocol": "irc",
-            "fields": {
-                "nickname": "NickServ",
-                "server": "irc.libera.chat"
-            }
-        }));
-    }
-
-    Ok(Json(results))
+    let _ = (protocol, query);
+    Err(thirdparty_unsupported_error())
 }
 
 async fn get_user_by_id(
     State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,
     Query(_query): Query<UserQuery>,
-) -> Json<Vec<serde_json::Value>> {
-    Json(vec![])
+) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
+    Err(thirdparty_unsupported_error())
 }
 
 #[cfg(test)]

@@ -355,21 +355,38 @@ async fn upload_voice_message(
 
 #[axum::debug_handler]
 async fn voice_transcription(
-    _state: State<AppState>,
+    State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let _mxc = body
-        .get("mxc")
+    let event_id = body
+        .get("event_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("mxc is required".to_string()))?;
+        .map(str::to_string)
+        .or_else(|| {
+            body.get("mxc")
+                .and_then(|v| v.as_str())
+                .and_then(extract_voice_message_id_from_mxc)
+        })
+        .ok_or_else(|| ApiError::bad_request("event_id or mxc is required".to_string()))?;
 
-    Ok(Json(serde_json::json!({
-        "text": "Voice transcription is not yet implemented. This is a placeholder response.",
-        "confidence": 0.0,
-        "language": "en",
-        "status": "not_implemented"
-    })))
+    if let Err(e) = validate_message_id(&event_id) {
+        return Err(ApiError::bad_request(e));
+    }
+
+    Err(ApiError::unrecognized(format!(
+        "Voice transcription is not supported for event '{}'",
+        event_id
+    )))
+}
+
+fn extract_voice_message_id_from_mxc(mxc: &str) -> Option<String> {
+    let trimmed = mxc.strip_prefix("mxc://").unwrap_or(mxc);
+    let candidate = trimmed.rsplit('/').next()?.trim();
+    if candidate.is_empty() {
+        return None;
+    }
+    Some(candidate.to_string())
 }
 
 #[axum::debug_handler]

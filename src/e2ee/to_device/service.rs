@@ -42,12 +42,11 @@ impl ToDeviceService {
 
                 if let Some(device_map) = devices.as_object() {
                     for (device_id, content) in device_map {
-                        // In a real implementation, we might want to extract the message type
-                        // from the content or pass it separately.
+                        // Extract message type from content, default to generic type if missing
                         let msg_type = content
                             .get("type")
                             .and_then(|t| t.as_str())
-                            .unwrap_or("m.room.message");
+                            .unwrap_or("m.to_device");
                         self.storage
                             .add_message(user_id, device_id, msg_type, content.clone())
                             .await?;

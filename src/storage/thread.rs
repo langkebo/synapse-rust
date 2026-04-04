@@ -261,6 +261,46 @@ impl ThreadStorage {
         }
     }
 
+    pub async fn list_all_thread_roots(
+        &self,
+        limit: Option<i32>,
+        from: Option<String>,
+    ) -> Result<Vec<ThreadRoot>, sqlx::Error> {
+        let limit = limit.unwrap_or(50);
+
+        if let Some(from) = from {
+            sqlx::query_as::<_, ThreadRoot>(
+                r#"
+                SELECT id, room_id, root_event_id, sender, thread_id, reply_count,
+                       last_reply_event_id, last_reply_sender, last_reply_ts,
+                       participants, is_fetched, created_ts, updated_ts
+                FROM thread_roots
+                WHERE thread_id > $1
+                ORDER BY thread_id ASC
+                LIMIT $2
+                "#,
+            )
+            .bind(from)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        } else {
+            sqlx::query_as::<_, ThreadRoot>(
+                r#"
+                SELECT id, room_id, root_event_id, sender, thread_id, reply_count,
+                       last_reply_event_id, last_reply_sender, last_reply_ts,
+                       participants, is_fetched, created_ts, updated_ts
+                FROM thread_roots
+                ORDER BY last_reply_ts DESC NULLS LAST, created_ts DESC
+                LIMIT $1
+                "#,
+            )
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        }
+    }
+
     pub async fn create_thread_reply(
         &self,
         params: CreateThreadReplyParams,
@@ -509,6 +549,28 @@ impl ThreadStorage {
         .bind(thread_id)
         .bind(user_id)
         .fetch_optional(&*self.pool)
+        .await
+    }
+
+    pub async fn get_user_thread_subscriptions(
+        &self,
+        user_id: &str,
+        limit: Option<i32>,
+    ) -> Result<Vec<ThreadSubscription>, sqlx::Error> {
+        let limit = limit.unwrap_or(50);
+
+        sqlx::query_as::<_, ThreadSubscription>(
+            r#"
+            SELECT id, room_id, thread_id, user_id, notification_level, is_muted, subscribed_ts, updated_ts
+            FROM thread_subscriptions
+            WHERE user_id = $1
+            ORDER BY updated_ts DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
         .await
     }
 

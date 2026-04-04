@@ -117,7 +117,9 @@ fn test_get_voice_stats() {
             duration_ms: 10000,
         };
 
+        let before_save_ts = chrono::Utc::now().timestamp();
         voice_service.save_voice_message(params).await.unwrap();
+        let after_save_ts = chrono::Utc::now().timestamp();
 
         let stats = voice_service
             .get_user_stats(&user_id, None, None)
@@ -127,6 +129,58 @@ fn test_get_voice_stats() {
         assert_eq!(stats["total_file_size"], 1024);
         assert_eq!(stats["total_message_count"], 1);
 
+        let last_active_ts: i64 = sqlx::query_scalar(
+            r#"
+            SELECT last_active_ts
+            FROM voice_usage_stats
+            WHERE user_id = $1
+            ORDER BY created_ts DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(&user_id)
+        .fetch_one(&pool)
+        .await
+        .expect("voice_usage_stats row should exist");
+        assert!(
+            (before_save_ts..=after_save_ts).contains(&last_active_ts),
+            "expected last_active_ts {last_active_ts} to be within save window {before_save_ts}..={after_save_ts}"
+        );
+
         std::fs::remove_dir_all(&voice_path).ok();
+    });
+}
+
+#[test]
+fn test_voice_usage_stats_schema_uses_last_active_ts() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = match setup_test_database().await {
+            Some(pool) => pool,
+            None => return,
+        };
+
+        let columns: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'voice_usage_stats'
+            ORDER BY ordinal_position
+            "#,
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("voice_usage_stats columns should be queryable");
+
+        assert!(
+            columns.iter().any(|column| column == "last_active_ts"),
+            "voice_usage_stats should contain last_active_ts, got columns: {:?}",
+            columns
+        );
+        assert!(
+            columns.iter().all(|column| column != "last_activity_ts"),
+            "voice_usage_stats should not contain legacy last_activity_ts, got columns: {:?}",
+            columns
+        );
     });
 }

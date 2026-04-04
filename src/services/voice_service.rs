@@ -70,16 +70,18 @@ impl VoiceStorage {
             r#"
             CREATE TABLE IF NOT EXISTS voice_messages (
                 id BIGSERIAL PRIMARY KEY,
-                message_id VARCHAR(255) NOT NULL UNIQUE,
+                event_id VARCHAR(255) NOT NULL UNIQUE,
                 user_id VARCHAR(255) NOT NULL,
-                room_id VARCHAR(255),
-                session_id VARCHAR(255),
-                file_path VARCHAR(512) NOT NULL,
-                content_type VARCHAR(100) NOT NULL,
+                room_id VARCHAR(255) NOT NULL,
+                media_id VARCHAR(255),
                 duration_ms INT NOT NULL,
-                file_size BIGINT NOT NULL,
-                waveform_data TEXT,
-                transcribe_text TEXT,
+                waveform TEXT,
+                mime_type VARCHAR(100),
+                file_size BIGINT,
+                transcription TEXT,
+                encryption JSONB,
+                is_processed BOOLEAN DEFAULT FALSE,
+                processed_at BIGINT,
                 created_ts BIGINT NOT NULL
             )
             "#,
@@ -99,7 +101,6 @@ impl VoiceStorage {
                 total_duration_ms BIGINT DEFAULT 0,
                 total_file_size BIGINT DEFAULT 0,
                 message_count BIGINT DEFAULT 0,
-                last_activity_ts BIGINT,
                 last_active_ts BIGINT,
                 created_ts BIGINT,
                 updated_ts BIGINT,
@@ -207,15 +208,14 @@ impl VoiceStorage {
         let now = chrono::Utc::now().timestamp();
         sqlx::query(
             r#"
-            INSERT INTO voice_usage_stats (user_id, room_id, date, period_start, period_end, total_duration_ms, total_file_size, message_count, last_activity_ts, last_active_ts, created_ts)
+            INSERT INTO voice_usage_stats (user_id, room_id, date, period_start, period_end, total_duration_ms, total_file_size, message_count, last_active_ts, created_ts, updated_ts)
             VALUES ($1, NULL, $2, $2, $2 + INTERVAL '1 day', $3, $4, 1, $5, $5, $5)
             ON CONFLICT (user_id, room_id, period_start) DO UPDATE SET
                 total_duration_ms = voice_usage_stats.total_duration_ms + EXCLUDED.total_duration_ms,
                 total_file_size = voice_usage_stats.total_file_size + EXCLUDED.total_file_size,
                 message_count = voice_usage_stats.message_count + 1,
-                last_activity_ts = EXCLUDED.last_activity_ts,
                 last_active_ts = EXCLUDED.last_active_ts,
-                updated_ts = EXCLUDED.last_activity_ts
+                updated_ts = EXCLUDED.updated_ts
             "#,
         )
         .bind(user_id)
@@ -564,6 +564,14 @@ impl VoiceService {
             )));
         }
         Ok(None)
+    }
+
+    pub async fn get_voice_message_info(&self, event_id: &str) -> ApiResult<Option<VoiceMessageInfo>> {
+        let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
+        voice_storage
+            .get_voice_message(event_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))
     }
 
     pub async fn delete_voice_message(&self, user_id: &str, event_id: &str) -> ApiResult<bool> {

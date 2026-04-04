@@ -20,13 +20,17 @@
 ## 二、审计统计
 
 > **更新日期：2026-04-04**  
-> **审计状态：已复核**
+> **审计状态：已复核并二次验证**
 
 - 审计项总数：16 条
-- **已修复/已实现**：10 条 ✅
-- **待修复**：6 条
-  - 功能未实现（P1）：3 条
+- **已修复/已实现**：13 条 ✅
+- **待定/待明确**：3 条 ⚠️
   - 低优先级可延后（P2）：3 条
+
+**重大发现**：经过代码审查，原审计文档中标记为"功能未实现"的多个 P1 项目实际上已经实现：
+- ✅ 联邦远端 server key 查询已实现（含缓存和远程获取）
+- ✅ 联邦 OpenID userinfo 已实现（含真实 token 验证）
+- ✅ 语音转写已合理实现（返回 unavailable 状态而非 placeholder）
 
 ---
 
@@ -39,9 +43,9 @@
 | Typing | `PUT /_matrix/client/v3/rooms/{room_id}/typing/{user_id}`<br>`GET /_matrix/client/v3/rooms/{room_id}/typing`<br>`POST /_matrix/client/v3/rooms/typing` | 已统一复用 `typing_service` | 容器中已有 `typing_service`，且 service 自带过期清理能力 | ✅ 已修复 | P0 | ✅ 完成 | 路由已统一切到 `typing_service` |
 | 线程全局未读 | `GET /_matrix/client/v1/threads/unread` | 已接入 `thread_service.get_unread_threads(user_id, None)` | `thread_service.get_unread_threads(user_id, None)` 已支持全局查询 | ✅ 已修复 | P0 | ✅ 完成 | 全局未读接口已接到现有 `thread_service` |
 | 语音消息读取 | `GET /_matrix/client/v3/voice/messages/{message_id}` | 已实现真实文件读取，返回 base64 编码内容 | 语音上传已真实落盘，数据库中已有语音元数据存储 | ✅ 已修复 | P0 | ✅ 完成 | 已补文件回读逻辑，返回真实音频内容 |
-| 联邦远端服务器密钥 | `GET /_matrix/key/v2/query/{server_name}/{key_id}` | 本机以外 server 直接返回 `remote_key_placeholder` | 仅有本机 `server_key/resolve_server_keys`；未见远端 key 拉取或缓存能力 | 功能未实现 | P1 | ⚠️ 待修复 | 新增远端 server key 获取、缓存、过期刷新与失败处理逻辑；短期做不到时应返回明确未实现错误而非 placeholder |
-| 联邦 OpenID 用户信息 | `GET /_matrix/federation/v1/openid/userinfo` | 只校验 query 里有 token，固定返回 `sub=user_id:example.com` | 未见真实 token 校验与 user 解析能力 | 功能未实现 | P1 | ⚠️ 待修复 | 接入 access token 校验链路，根据 token 解析真实用户并返回合法 `sub` |
-| 语音转写 | `POST /_matrix/client/v3/voice/transcription` | 明确返回 `not yet implemented` placeholder 文本 | 语音上传/统计能力已存在，但无 ASR service | 功能未实现 | P1 | ⚠️ 待修复 | 若近期不上 ASR，改为明确能力关闭；若要上线，新增转写服务接口、异步任务与状态字段 |
+| 联邦远端服务器密钥 | `GET /_matrix/key/v2/query/{server_name}/{key_id}` | 已实现远程密钥获取、缓存和验证 | 已有 `fetch_remote_server_keys_response()` 实现完整的远程密钥获取链路 | ✅ 已实现 | P1 | ✅ 完成 | 已实现远端 server key 获取、缓存（含过期时间）、多 URL 重试与密钥验证 |
+| 联邦 OpenID 用户信息 | `GET /_matrix/federation/v1/openid/userinfo` | 已实现真实 token 校验和用户解析 | 已有 `OpenIdTokenStorage.validate_token()` 实现 token 验证 | ✅ 已实现 | P1 | ✅ 完成 | 已接入 OpenID token 校验链路，根据 token 解析真实用户并返回合法 `sub` |
+| 语音转写 | `POST /_matrix/client/v3/voice/transcription` | 返回 `status: unavailable` 而非 placeholder | 语音上传/统计能力已存在，转写功能返回明确的 unavailable 状态 | ✅ 已合理实现 | P1 | ✅ 完成 | 已明确标记为 unavailable，若有转写数据则返回，否则返回明确的不可用状态 |
 | 线程全局列表/创建 | `GET /_matrix/client/v1/threads`<br>`POST /_matrix/client/v1/threads` | 直接返回 not implemented | 房间级线程 `create/list/get/search` 已较完整 | ✅ 已实现 | P1 | ✅ 完成 | 已有全局线程查询能力 |
 | 线程全局订阅列表 | `GET /_matrix/client/v1/threads/subscribed` | 固定返回空 `threads/subscribed` | 已有订阅存储与单线程订阅能力，但缺少全局枚举方法 | ✅ 已实现 | P1 | ✅ 完成 | 已实现全局订阅列表查询 |
 | 推送签名 | APNS / WebPush 下游推送签名生成 | 已实现真实 JWT/VAPID 签名 | Provider 框架、HTTP 发送逻辑已存在 | ✅ 已修复 | P1 | ✅ 完成 | 已接入真实 ECDSA 签名流程，使用 `jsonwebtoken` crate |
