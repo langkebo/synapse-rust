@@ -341,7 +341,7 @@ async fn list_connections(
         .storage
         .get_user_connections(&auth.user_id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get connections: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get connections: {}", e)))?;
 
     Ok(Json(
         connections
@@ -360,17 +360,17 @@ async fn create_connection(
 
     let conn = state
         .storage
-        .create_connection(
-            &auth.user_id,
-            &req.name,
-            &req.provider,
-            &req.base_url,
-            encrypted_key.as_deref(),
-            req.config,
-            req.is_default,
-        )
+        .create_connection(crate::storage::openclaw::CreateConnectionParams {
+            user_id: &auth.user_id,
+            name: &req.name,
+            provider: &req.provider,
+            base_url: &req.base_url,
+            encrypted_api_key: encrypted_key.as_deref(),
+            config: req.config,
+            is_default: req.is_default,
+        })
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to create connection: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create connection: {}", e)))?;
 
     Ok(Json(ConnectionResponse::from(conn)))
 }
@@ -384,7 +384,7 @@ async fn get_connection(
         .storage
         .get_connection(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get connection: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Connection not found"))?;
 
     if conn.user_id != auth.user_id {
@@ -404,7 +404,7 @@ async fn update_connection(
         .storage
         .get_connection(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get connection: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Connection not found"))?;
 
     if existing.user_id != auth.user_id {
@@ -415,17 +415,17 @@ async fn update_connection(
 
     let conn = state
         .storage
-        .update_connection(
+        .update_connection(crate::storage::openclaw::UpdateConnectionParams {
             id,
-            req.name.as_deref(),
-            req.base_url.as_deref(),
-            encrypted_key.as_deref(),
-            req.config,
-            req.is_default,
-            req.is_active,
-        )
+            name: req.name.as_deref(),
+            base_url: req.base_url.as_deref(),
+            encrypted_api_key: encrypted_key.as_deref(),
+            config: req.config,
+            is_default: req.is_default,
+            is_active: req.is_active,
+        })
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to update connection: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to update connection: {}", e)))?;
 
     Ok(Json(ConnectionResponse::from(conn)))
 }
@@ -439,7 +439,7 @@ async fn delete_connection(
         .storage
         .get_connection(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get connection: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Connection not found"))?;
 
     if existing.user_id != auth.user_id {
@@ -450,7 +450,7 @@ async fn delete_connection(
         .storage
         .delete_connection(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to delete connection: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete connection: {}", e)))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -464,7 +464,7 @@ async fn test_connection(
         .storage
         .get_connection(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get connection: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Connection not found"))?;
 
     if conn.user_id != auth.user_id {
@@ -492,7 +492,7 @@ async fn list_conversations(
         .storage
         .get_user_conversations(&auth.user_id, query.limit, query.offset)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get conversations: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get conversations: {}", e)))?;
 
     Ok(Json(PaginatedResponse {
         total: conversations.len() as i64,
@@ -512,17 +512,17 @@ async fn create_conversation(
 ) -> Result<Json<ConversationResponse>, ApiError> {
     let conv = state
         .storage
-        .create_conversation(
-            &auth.user_id,
-            req.connection_id,
-            req.title.as_deref(),
-            req.model_id.as_deref(),
-            req.system_prompt.as_deref(),
-            req.temperature,
-            req.max_tokens,
-        )
+        .create_conversation(crate::storage::openclaw::CreateConversationParams {
+            user_id: &auth.user_id,
+            connection_id: req.connection_id,
+            title: req.title.as_deref(),
+            model_id: req.model_id.as_deref(),
+            system_prompt: req.system_prompt.as_deref(),
+            temperature: req.temperature,
+            max_tokens: req.max_tokens,
+        })
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to create conversation: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create conversation: {}", e)))?;
 
     Ok(Json(ConversationResponse::from(conv)))
 }
@@ -536,7 +536,7 @@ async fn get_conversation(
         .storage
         .get_conversation(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get conversation: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
 
     if conv.user_id != auth.user_id {
@@ -556,7 +556,7 @@ async fn update_conversation(
         .storage
         .get_conversation(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get conversation: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
 
     if existing.user_id != auth.user_id {
@@ -574,7 +574,7 @@ async fn update_conversation(
             req.is_pinned,
         )
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to update conversation: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to update conversation: {}", e)))?;
 
     Ok(Json(ConversationResponse::from(conv)))
 }
@@ -588,7 +588,7 @@ async fn delete_conversation(
         .storage
         .get_conversation(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get conversation: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
 
     if existing.user_id != auth.user_id {
@@ -599,7 +599,7 @@ async fn delete_conversation(
         .storage
         .delete_conversation(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to delete conversation: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete conversation: {}", e)))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -614,7 +614,7 @@ async fn list_messages(
         .storage
         .get_conversation(conversation_id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get conversation: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
 
     if conv.user_id != auth.user_id {
@@ -625,7 +625,7 @@ async fn list_messages(
         .storage
         .get_conversation_messages(conversation_id, query.limit, query.before)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get messages: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get messages: {}", e)))?;
 
     Ok(Json(PaginatedResponse {
         total: messages.len() as i64,
@@ -645,7 +645,7 @@ async fn send_message(
         .storage
         .get_conversation(conversation_id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get conversation: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
 
     if conv.user_id != auth.user_id {
@@ -665,7 +665,7 @@ async fn send_message(
             req.tool_call_id.as_deref(),
         )
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to create message: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create message: {}", e)))?;
 
     Ok(Json(MessageResponse::from(msg)))
 }
@@ -679,7 +679,7 @@ async fn delete_message(
         .storage
         .delete_message(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to delete message: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete message: {}", e)))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -698,7 +698,7 @@ async fn list_generations(
             query.offset,
         )
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get generations: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get generations: {}", e)))?;
 
     Ok(Json(PaginatedResponse {
         total: generations.len() as i64,
@@ -720,7 +720,7 @@ async fn create_generation(
         .storage
         .create_generation(&auth.user_id, req.conversation_id, &req.r#type, &req.prompt)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to create generation: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create generation: {}", e)))?;
 
     Ok(Json(GenerationResponse::from(gen)))
 }
@@ -734,7 +734,7 @@ async fn get_generation(
         .storage
         .get_generation(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get generation: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get generation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Generation not found"))?;
 
     if gen.user_id != auth.user_id {
@@ -753,7 +753,7 @@ async fn delete_generation(
         .storage
         .get_generation(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get generation: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get generation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Generation not found"))?;
 
     if existing.user_id != auth.user_id {
@@ -764,7 +764,7 @@ async fn delete_generation(
         .storage
         .delete_generation(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to delete generation: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete generation: {}", e)))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -777,7 +777,7 @@ async fn list_chat_roles(
         .storage
         .get_user_chat_roles(&auth.user_id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get chat roles: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get chat roles: {}", e)))?;
 
     Ok(Json(
         roles.into_iter().map(ChatRoleResponse::from).collect(),
@@ -791,20 +791,20 @@ async fn create_chat_role(
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
     let role = state
         .storage
-        .create_chat_role(
-            &auth.user_id,
-            &req.name,
-            req.description.as_deref(),
-            &req.system_message,
-            req.model_id.as_deref(),
-            req.avatar_url.as_deref(),
-            req.category.as_deref(),
-            req.temperature,
-            req.max_tokens,
-            req.is_public,
-        )
+        .create_chat_role(crate::storage::openclaw::CreateChatRoleParams {
+            user_id: &auth.user_id,
+            name: &req.name,
+            description: req.description.as_deref(),
+            system_message: &req.system_message,
+            model_id: req.model_id.as_deref(),
+            avatar_url: req.avatar_url.as_deref(),
+            category: req.category.as_deref(),
+            temperature: req.temperature,
+            max_tokens: req.max_tokens,
+            is_public: req.is_public,
+        })
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to create chat role: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create chat role: {}", e)))?;
 
     Ok(Json(ChatRoleResponse::from(role)))
 }
@@ -818,7 +818,7 @@ async fn get_chat_role(
         .storage
         .get_chat_role(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get chat role: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get chat role: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
 
     if !role.is_public && role.user_id != auth.user_id {
@@ -838,7 +838,7 @@ async fn update_chat_role(
         .storage
         .get_chat_role(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get chat role: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get chat role: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
 
     if existing.user_id != auth.user_id {
@@ -847,20 +847,20 @@ async fn update_chat_role(
 
     let role = state
         .storage
-        .update_chat_role(
+        .update_chat_role(crate::storage::openclaw::UpdateChatRoleParams {
             id,
-            req.name.as_deref(),
-            req.description.as_deref(),
-            req.system_message.as_deref(),
-            req.model_id.as_deref(),
-            req.avatar_url.as_deref(),
-            req.category.as_deref(),
-            req.temperature,
-            req.max_tokens,
-            req.is_public,
-        )
+            name: req.name.as_deref(),
+            description: req.description.as_deref(),
+            system_message: req.system_message.as_deref(),
+            model_id: req.model_id.as_deref(),
+            avatar_url: req.avatar_url.as_deref(),
+            category: req.category.as_deref(),
+            temperature: req.temperature,
+            max_tokens: req.max_tokens,
+            is_public: req.is_public,
+        })
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to update chat role: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to update chat role: {}", e)))?;
 
     Ok(Json(ChatRoleResponse::from(role)))
 }
@@ -874,7 +874,7 @@ async fn delete_chat_role(
         .storage
         .get_chat_role(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to get chat role: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get chat role: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
 
     if existing.user_id != auth.user_id {
@@ -885,7 +885,7 @@ async fn delete_chat_role(
         .storage
         .delete_chat_role(id)
         .await
-        .map_err(|e| ApiError::internal(&format!("Failed to delete chat role: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete chat role: {}", e)))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
