@@ -392,7 +392,7 @@ async fn get_voice_message(
             })))
         }
         Ok(None) => Err(ApiError::not_found("Voice message not found".to_string())),
-        Err(e) => Err(ApiError::internal(e.to_string())),
+        Err(e) => Err(e),
     }
 }
 
