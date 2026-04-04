@@ -24,8 +24,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate critical schema contracts
-        run: python3 scripts/check_schema_contract_coverage.py
+      - name: Validate critical schema contracts with threshold
+        run: |
+          mkdir -p artifacts
+          python3 scripts/check_schema_contract_coverage.py \
+            --threshold 90 \
+            --report artifacts/contract_coverage_report.md
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contract-coverage-report
+          path: artifacts/contract_coverage_report.md
 
   migration-layout-audit:
     name: Migration Layout Audit

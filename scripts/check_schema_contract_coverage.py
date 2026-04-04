@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
+"""
+Schema Contract Coverage Checker
+
+Validates that migration files define expected tables, columns, indexes, and constraints.
+Enhanced version with coverage threshold support and detailed reporting.
+
+Usage:
+    python3 check_schema_contract_coverage.py [--threshold PERCENT] [--report OUTPUT]
+"""
+import argparse
 import pathlib
 import re
 import sys
+from typing import Dict, List, Set, Tuple
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MIGRATIONS_DIR = ROOT / "migrations"
@@ -20,7 +31,7 @@ CONSTRAINT_PATTERN = re.compile(
 )
 COLUMN_PATTERN = re.compile(r"^([a-z_][a-z0-9_]*)\s+", re.IGNORECASE)
 
-TABLE_CONTRACTS: dict[str, dict[str, list[str]]] = {
+TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
     "room_summary_state": {
         "columns": ["room_id", "event_type", "state_key", "event_id", "content", "updated_ts"],
         "indexes": ["idx_room_summary_state_room"],
@@ -320,14 +331,14 @@ TABLE_CONTRACTS: dict[str, dict[str, list[str]]] = {
 }
 
 
-def iter_sql_files() -> list[pathlib.Path]:
+def iter_sql_files() -> List[pathlib.Path]:
     return sorted(MIGRATIONS_DIR.rglob("*.sql"))
 
 
-def collect_schema_metadata() -> tuple[dict[str, set[str]], dict[str, set[str]], dict[str, set[str]]]:
-    table_columns: dict[str, set[str]] = {}
-    table_constraints: dict[str, set[str]] = {}
-    table_indexes: dict[str, set[str]] = {}
+def collect_schema_metadata() -> Tuple[Dict[str, Set[str]], Dict[str, Set[str]], Dict[str, Set[str]]]:
+    table_columns: Dict[str, Set[str]] = {}
+    table_constraints: Dict[str, Set[str]] = {}
+    table_indexes: Dict[str, Set[str]] = {}
 
     for path in iter_sql_files():
         text = path.read_text()
@@ -369,50 +380,128 @@ def print_contract_scope_note() -> None:
     )
 
 
-def main() -> int:
-    table_columns, table_indexes, table_constraints = collect_schema_metadata()
-    failures: list[str] = []
-    print_contract_scope_note()
+def calculate_coverage(
+    table_columns: Dict[str, Set[str]],
+    table_indexes: Dict[str, Set[str]],
+    table_constraints: Dict[str, Set[str]]
+) -> Tuple[int, int, List[str]]:
+    """Calculate coverage percentage and return (passed, total, failures)."""
+    total_checks = 0
+    passed_checks = 0
+    failures: List[str] = []
 
     for table_name, contract in sorted(TABLE_CONTRACTS.items()):
+        # Check table existence
+        total_checks += 1
         if table_name not in table_columns:
             failures.append(f"- {table_name}: missing table definition")
             continue
+        passed_checks += 1
 
-        missing_columns = sorted(
-            column
-            for column in contract.get("columns", [])
-            if column.lower() not in table_columns[table_name]
-        )
-        if missing_columns:
-            failures.append(f"- {table_name}: missing columns {', '.join(missing_columns)}")
+        # Check columns
+        for column in contract.get("columns", []):
+            total_checks += 1
+            if column.lower() in table_columns[table_name]:
+                passed_checks += 1
+            else:
+                failures.append(f"- {table_name}: missing column '{column}'")
 
-        missing_indexes = sorted(
-            index
-            for index in contract.get("indexes", [])
-            if index.lower() not in table_indexes.get(table_name, set())
-        )
-        if missing_indexes:
-            failures.append(f"- {table_name}: missing indexes {', '.join(missing_indexes)}")
+        # Check indexes
+        for index in contract.get("indexes", []):
+            total_checks += 1
+            if index.lower() in table_indexes.get(table_name, set()):
+                passed_checks += 1
+            else:
+                failures.append(f"- {table_name}: missing index '{index}'")
 
-        missing_constraints = sorted(
-            constraint
-            for constraint in contract.get("constraints", [])
-            if constraint.lower() not in table_constraints.get(table_name, set())
-        )
-        if missing_constraints:
-            failures.append(
-                f"- {table_name}: missing constraints {', '.join(missing_constraints)}"
-            )
+        # Check constraints
+        for constraint in contract.get("constraints", []):
+            total_checks += 1
+            if constraint.lower() in table_constraints.get(table_name, set()):
+                passed_checks += 1
+            else:
+                failures.append(f"- {table_name}: missing constraint '{constraint}'")
+
+    return passed_checks, total_checks, failures
+
+
+def generate_coverage_report(
+    passed: int,
+    total: int,
+    failures: List[str],
+    output_path: str
+) -> None:
+    """Generate detailed coverage report in Markdown format."""
+    coverage_pct = (passed / total * 100) if total > 0 else 0
+
+    with open(output_path, 'w') as f:
+        f.write("# Schema Contract Coverage Report\n\n")
+        f.write(f"> Generated: {pathlib.Path.cwd()}\n\n")
+        f.write("## Summary\n\n")
+        f.write(f"- **Coverage**: {coverage_pct:.1f}% ({passed}/{total} checks passed)\n")
+        f.write(f"- **Tables Checked**: {len(TABLE_CONTRACTS)}\n")
+        f.write(f"- **Status**: {'✅ PASS' if not failures else '❌ FAIL'}\n\n")
+
+        if failures:
+            f.write("## Failures\n\n")
+            for failure in failures:
+                f.write(f"{failure}\n")
+            f.write("\n")
+
+        f.write("## Contract Details\n\n")
+        for table_name, contract in sorted(TABLE_CONTRACTS.items()):
+            f.write(f"### {table_name}\n\n")
+            if "columns" in contract:
+                f.write(f"- Columns: {len(contract['columns'])}\n")
+            if "indexes" in contract:
+                f.write(f"- Indexes: {len(contract['indexes'])}\n")
+            if "constraints" in contract:
+                f.write(f"- Constraints: {len(contract['constraints'])}\n")
+            f.write("\n")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Check schema contract coverage with threshold support"
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=90.0,
+        help="Minimum coverage percentage required (default: 90.0)"
+    )
+    parser.add_argument(
+        "--report",
+        type=str,
+        help="Generate detailed coverage report to file"
+    )
+    args = parser.parse_args()
+
+    table_columns, table_indexes, table_constraints = collect_schema_metadata()
+    passed, total, failures = calculate_coverage(table_columns, table_indexes, table_constraints)
+
+    coverage_pct = (passed / total * 100) if total > 0 else 0
+
+    print_contract_scope_note()
+    print(f"\nCoverage: {coverage_pct:.1f}% ({passed}/{total} checks passed)")
+    print(f"Threshold: {args.threshold}%")
+
+    if args.report:
+        generate_coverage_report(passed, total, failures, args.report)
+        print(f"Report generated: {args.report}")
 
     if failures:
-        print("Schema contract coverage failed:")
+        print("\nSchema contract coverage failures:")
         for failure in failures:
             print(failure)
+
+    if coverage_pct < args.threshold:
+        print(f"\n❌ Coverage {coverage_pct:.1f}% is below threshold {args.threshold}%")
         return 1
 
+    print(f"\n✅ Coverage {coverage_pct:.1f}% meets threshold {args.threshold}%")
     print(
-        "Schema contract coverage passed: "
+        f"Schema contract coverage passed: "
         f"{len(TABLE_CONTRACTS)} tables checked for columns, indexes, and constraints."
     )
     return 0
