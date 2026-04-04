@@ -189,21 +189,13 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_protocols_request)
                 .await
                 .unwrap();
-        assert_eq!(v3_protocols_response.status(), StatusCode::OK);
+        assert_eq!(v3_protocols_response.status(), StatusCode::BAD_REQUEST);
 
         let body = axum::body::to_bytes(v3_protocols_response.into_body(), 1024)
             .await
             .unwrap();
         let v3_protocols_json: Value = serde_json::from_slice(&body).unwrap();
-        assert!(
-            v3_protocols_json.is_object(),
-            "Expected protocols response to be an object"
-        );
-        let protocols = v3_protocols_json.as_object().unwrap();
-        assert!(
-            protocols.contains_key("irc"),
-            "Expected 'irc' protocol to be present"
-        );
+        assert_eq!(v3_protocols_json["errcode"], "M_UNRECOGNIZED");
 
         let r0_protocols_request = Request::builder()
             .uri("/_matrix/client/r0/thirdparty/protocols")
@@ -214,16 +206,13 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_protocols_request)
                 .await
                 .unwrap();
-        assert_eq!(r0_protocols_response.status(), StatusCode::OK);
+        assert_eq!(r0_protocols_response.status(), StatusCode::BAD_REQUEST);
 
         let body = axum::body::to_bytes(r0_protocols_response.into_body(), 1024)
             .await
             .unwrap();
         let r0_protocols_json: Value = serde_json::from_slice(&body).unwrap();
-        assert!(
-            r0_protocols_json.is_object(),
-            "Expected protocols response to be an object"
-        );
+        assert_eq!(r0_protocols_json["errcode"], "M_UNRECOGNIZED");
 
         let v3_protocol_request = Request::builder()
             .uri("/_matrix/client/v3/thirdparty/protocol/test")
@@ -234,7 +223,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_protocol_request)
                 .await
                 .unwrap();
-        assert_eq!(v3_protocol_response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(v3_protocol_response.status(), StatusCode::BAD_REQUEST);
 
         let r0_protocol_request = Request::builder()
             .uri("/_matrix/client/r0/thirdparty/protocol/test")
@@ -245,7 +234,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_protocol_request)
                 .await
                 .unwrap();
-        assert_eq!(r0_protocol_response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(r0_protocol_response.status(), StatusCode::BAD_REQUEST);
 
         let v3_location_request = Request::builder()
             .uri("/_matrix/client/v3/thirdparty/location?alias=%23demo:localhost")
@@ -256,13 +245,13 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_location_request)
                 .await
                 .unwrap();
-        assert_eq!(v3_location_response.status(), StatusCode::OK);
+        assert_eq!(v3_location_response.status(), StatusCode::BAD_REQUEST);
 
         let body = axum::body::to_bytes(v3_location_response.into_body(), 1024)
             .await
             .unwrap();
         let v3_location_json: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(v3_location_json, json!([]));
+        assert_eq!(v3_location_json["errcode"], "M_UNRECOGNIZED");
 
         let r0_location_request = Request::builder()
             .uri("/_matrix/client/r0/thirdparty/location?alias=%23demo:localhost")
@@ -273,6 +262,32 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .await
             .unwrap();
         assert_eq!(r0_location_response.status(), StatusCode::NOT_FOUND);
+    });
+}
+
+#[test]
+fn test_client_config_endpoint_returns_explicit_unsupported_error() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let app = match setup_test_app().await {
+            Some(app) => app,
+            None => return,
+        };
+
+        let request = Request::builder()
+            .uri("/_matrix/client/v1/config/client")
+            .body(Body::empty())
+            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["errcode"], "M_UNRECOGNIZED");
     });
 }
 

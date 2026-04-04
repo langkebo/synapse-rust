@@ -1,7 +1,6 @@
 use super::{NotificationPayload, PushProvider, PushResult};
 use async_trait::async_trait;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
+use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -43,6 +42,13 @@ struct EncryptedPayload {
     content: Vec<u8>,
     server_public_key: Vec<u8>,
     salt: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct VapidClaims {
+    aud: String,
+    exp: i64,
+    sub: String,
 }
 
 #[derive(Debug)]
@@ -104,29 +110,27 @@ impl WebPushProvider {
             url.host_str().unwrap_or("localhost")
         );
 
-        let header = URL_SAFE_NO_PAD.encode(
-            serde_json::json!({
-                "typ": "JWT",
-                "alg": "ES256",
-            })
-            .to_string(),
-        );
+        if !self.config.vapid_private_key.contains("BEGIN") {
+            return Err("WebPush VAPID private key must be PEM encoded".to_string());
+        }
 
         let now = chrono::Utc::now().timestamp();
         let exp = now + 12 * 60 * 60;
 
-        let claims = URL_SAFE_NO_PAD.encode(
-            serde_json::json!({
-                "aud": origin,
-                "exp": exp,
-                "sub": self.config.subject,
-            })
-            .to_string(),
-        );
+        let claims = VapidClaims {
+            aud: origin,
+            exp,
+            sub: self.config.subject.clone(),
+        };
 
-        let _signing_input = format!("{}.{}", header, claims);
+        let mut header = Header::new(Algorithm::ES256);
+        header.typ = Some("JWT".to_string());
 
-        Ok(format!("{}.{}.signature_placeholder", header, claims))
+        let encoding_key = EncodingKey::from_ec_pem(self.config.vapid_private_key.as_bytes())
+            .map_err(|e| format!("Invalid WebPush VAPID private key: {}", e))?;
+
+        encode(&header, &claims, &encoding_key)
+            .map_err(|e| format!("Failed to sign VAPID JWT: {}", e))
     }
 
     async fn send_to_endpoint(
@@ -250,6 +254,12 @@ impl PushProvider for WebPushProvider {
 mod tests {
     use super::*;
 
+    const TEST_EC_PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/GwGC9O9l7Sbthjv\n\
+v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
++cK8VH35KLhR93tYV48MUdE2UOl6yw7TLogf3lqlu+HohfI+xhYOfC6i\n\
+-----END PRIVATE KEY-----\n";
+
     #[test]
     fn test_webpush_config_default() {
         let config = WebPushConfig::default();
@@ -289,6 +299,25 @@ mod tests {
         let subscription = provider.parse_subscription(subscription_json).unwrap();
         assert_eq!(subscription.endpoint, "https://push.example.com/abc123");
         assert_eq!(subscription.keys.p256dh, "test_p256dh");
+    }
+
+    #[test]
+    fn test_generate_vapid_jwt_signs_real_token() {
+        let provider = WebPushProvider::new(WebPushConfig {
+            vapid_public_key: "test_public_key".to_string(),
+            vapid_private_key: TEST_EC_PRIVATE_KEY.to_string(),
+            subject: "mailto:test@example.com".to_string(),
+            ..Default::default()
+        });
+
+        let jwt = provider
+            .generate_vapid_jwt("https://push.example.com/abc123")
+            .expect("vapid jwt should be signed");
+        let segments: Vec<&str> = jwt.split('.').collect();
+
+        assert_eq!(segments.len(), 3);
+        assert!(segments.iter().all(|segment| !segment.is_empty()));
+        assert!(!jwt.contains("placeholder"));
     }
 
     #[tokio::test]
