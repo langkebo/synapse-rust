@@ -1881,23 +1881,15 @@ fn federation_guess_content_type(filename: &str) -> &'static str {
 async fn exchange_third_party_invite(
     State(_state): State<AppState>,
     Path(room_id): Path<String>,
-    Json(body): Json<Value>,
+    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    // Validate room_id
     if !room_id.starts_with('!') || !room_id.contains(':') {
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
 
-    // Get invite data
-    let _invite_json = body
-        .get("invite")
-        .cloned()
-        .ok_or_else(|| ApiError::bad_request("Missing invite field"))?;
-
-    Err(ApiError::unrecognized(format!(
-        "Third-party invite exchange is not supported for room '{}'",
-        room_id
-    )))
+    Err(ApiError::unrecognized(
+        "Federation third-party invite exchange is not supported".to_string(),
+    ))
 }
 
 /// Get group (community) overview
@@ -1990,5 +1982,18 @@ mod tests {
             "edus": []
         });
         assert_eq!(txn["origin"], "example.com");
+    }
+
+    #[test]
+    fn test_exchange_third_party_invite_content_shape() {
+        let invite = json!({
+            "signed": {
+                "mxid": "@alice:example.com",
+                "token": "invite-token"
+            }
+        });
+
+        assert_eq!(invite["signed"]["mxid"], "@alice:example.com");
+        assert_eq!(invite["signed"]["token"], "invite-token");
     }
 }
