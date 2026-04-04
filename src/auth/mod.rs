@@ -188,6 +188,10 @@ impl AuthService {
             )));
         }
 
+        self.device_storage
+            .record_device_list_change_best_effort(&user_id, Some(&device_id), "changed")
+            .await;
+
         let access_token = self
             .generate_access_token(&user_id, &device_id, user.is_admin)
             .await?;

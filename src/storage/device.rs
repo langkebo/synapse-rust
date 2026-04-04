@@ -65,45 +65,15 @@ impl DeviceStorage {
         Ok(stream_id)
     }
 
-    async fn record_device_list_change_tx(
+    pub async fn record_device_list_change_best_effort(
         &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         user_id: &str,
         device_id: Option<&str>,
         change_type: &str,
-    ) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
-        let row = sqlx::query(
-            r#"
-            INSERT INTO device_lists_stream (user_id, device_id, created_ts)
-            VALUES ($1, $2, $3)
-            RETURNING stream_id
-            "#,
-        )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(now)
-        .fetch_one(&mut **tx)
-        .await?;
-
-        use sqlx::Row;
-        let stream_id: i64 = row.get("stream_id");
-
-        sqlx::query(
-            r#"
-            INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
-            VALUES ($1, $2, $3, $4, $5)
-            "#,
-        )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(change_type)
-        .bind(stream_id)
-        .bind(now)
-        .execute(&mut **tx)
-        .await?;
-
-        Ok(stream_id)
+    ) {
+        let _ = self
+            .record_device_list_change(user_id, device_id, change_type)
+            .await;
     }
 
     pub async fn create_device(
@@ -145,7 +115,7 @@ impl DeviceStorage {
         display_name: Option<&str>,
     ) -> Result<Device, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let device = sqlx::query_as::<_, Device>(
+        sqlx::query_as::<_, Device>(
             r#"
             INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -159,13 +129,7 @@ impl DeviceStorage {
         .bind(now)
         .bind(now)
         .fetch_one(&mut **tx)
-        .await?;
-
-        let _ = self
-            .record_device_list_change_tx(tx, user_id, Some(device_id), "changed")
-            .await;
-
-        Ok(device)
+        .await
     }
 
     pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
