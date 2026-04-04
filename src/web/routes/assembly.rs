@@ -79,10 +79,7 @@ pub fn create_router(state: AppState) -> Router {
             get(handlers::get_server_version),
         )
         .route("/_matrix/server_version", get(handlers::get_server_version))
-        .route(
-            "/_matrix/client/v1/config/client",
-            get(get_client_config),
-        )
+        .route("/_matrix/client/v1/config/client", get(get_client_config))
         .route("/_matrix/client/v3/pushrules/", get(get_push_rules_default))
         .route(
             "/_matrix/client/v3/pushrules/global/",

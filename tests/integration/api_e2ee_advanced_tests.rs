@@ -458,11 +458,7 @@ async fn test_e2ee_cross_signing_flow() {
         .body(Body::empty())
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(security_summary_request)
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(security_summary_request).await.unwrap();
     assert_eq!(
         response.status(),
         StatusCode::OK,

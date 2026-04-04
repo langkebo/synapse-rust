@@ -136,7 +136,8 @@ async fn test_admin_room_lifecycle_management() {
         let json: Value = serde_json::from_slice(&body).unwrap();
         // 如果返回 200，应该显示房间已被删除或阻止
         assert!(
-            json["blocked"].as_bool().unwrap_or(false) || json["deleted"].as_bool().unwrap_or(false),
+            json["blocked"].as_bool().unwrap_or(false)
+                || json["deleted"].as_bool().unwrap_or(false),
             "Room should be marked as blocked or deleted"
         );
     }
@@ -381,7 +382,10 @@ async fn test_admin_room_list_and_search() {
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     let results = json["results"].as_array().unwrap();
-    assert!(results.len() >= 3, "Search should find at least 3 rooms with 'Bulk' in name");
+    assert!(
+        results.len() >= 3,
+        "Search should find at least 3 rooms with 'Bulk' in name"
+    );
 
     // 5. 测试分页查询
     let paginated_request = Request::builder()

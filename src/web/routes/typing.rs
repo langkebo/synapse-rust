@@ -54,7 +54,11 @@ pub async fn get_typing_users(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let typing = state.services.typing_service.get_typing_users(&room_id).await?;
+    let typing = state
+        .services
+        .typing_service
+        .get_typing_users(&room_id)
+        .await?;
     let users: Vec<String> = typing.into_keys().collect();
     Ok(Json(json!({ "typing": users })))
 }
@@ -92,7 +96,11 @@ pub async fn bulk_get_typing(
 
     let mut result = serde_json::Map::new();
     for room_id in room_ids {
-        let typing = state.services.typing_service.get_typing_users(&room_id).await?;
+        let typing = state
+            .services
+            .typing_service
+            .get_typing_users(&room_id)
+            .await?;
         let users: Vec<String> = typing.into_keys().collect();
         result.insert(room_id, json!({ "typing": users }));
     }

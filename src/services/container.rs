@@ -164,7 +164,8 @@ impl ServiceContainer {
         let encryption_key = generate_encryption_key();
         let megolm_service = MegolmService::new(megolm_storage, cache.clone(), encryption_key);
         let key_request_storage = crate::e2ee::key_request::KeyRequestStorage::new(pool.as_ref());
-        let key_request_service = KeyRequestService::new(key_request_storage, megolm_service.clone());
+        let key_request_service =
+            KeyRequestService::new(key_request_storage, megolm_service.clone());
         let cross_signing_storage = crate::e2ee::cross_signing::CrossSigningStorage::new(pool);
         let cross_signing_service = CrossSigningService::new(cross_signing_storage);
         let key_backup_storage = crate::e2ee::backup::KeyBackupStorage::new(pool);

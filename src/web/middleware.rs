@@ -1142,77 +1142,18 @@ fn canonical_federation_request_bytes(
     destination: &str,
     content: Option<&Value>,
 ) -> Vec<u8> {
-    let mut obj = serde_json::Map::new();
-    obj.insert("method".to_string(), Value::String(method.to_string()));
-    obj.insert("uri".to_string(), Value::String(uri.to_string()));
-    obj.insert("origin".to_string(), Value::String(origin.to_string()));
-    obj.insert(
-        "destination".to_string(),
-        Value::String(destination.to_string()),
+    let result = crate::federation::signing::canonical_federation_request_bytes(
+        method,
+        uri,
+        origin,
+        destination,
+        content,
     );
-    if let Some(content) = content {
-        obj.insert("content".to_string(), content.clone());
-    }
-    let result = canonical_json_bytes(&Value::Object(obj));
     tracing::debug!(
         "Canonical request bytes: {}",
         String::from_utf8_lossy(&result)
     );
     result
-}
-
-fn canonical_json_bytes(value: &Value) -> Vec<u8> {
-    canonical_json_string(value).into_bytes()
-}
-
-fn canonical_json_string(value: &Value) -> String {
-    match value {
-        Value::Null => "null".to_string(),
-        Value::Bool(b) => {
-            if *b {
-                "true".to_string()
-            } else {
-                "false".to_string()
-            }
-        }
-        Value::Number(n) => n.to_string(),
-        Value::String(s) => serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string()),
-        Value::Array(arr) => {
-            let mut out = String::from("[");
-            let mut first = true;
-            for v in arr {
-                if !first {
-                    out.push(',');
-                }
-                first = false;
-                out.push_str(&canonical_json_string(v));
-            }
-            out.push(']');
-            out
-        }
-        Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort();
-
-            let mut out = String::from("{");
-            let mut first = true;
-            for k in keys {
-                if !first {
-                    out.push(',');
-                }
-                first = false;
-                out.push_str(&serde_json::to_string(k).unwrap_or_else(|_| "\"\"".to_string()));
-                out.push(':');
-                if let Some(v) = map.get(k) {
-                    out.push_str(&canonical_json_string(v));
-                } else {
-                    out.push_str("null");
-                }
-            }
-            out.push('}');
-            out
-        }
-    }
 }
 
 async fn verify_federation_signature_with_cache(
@@ -1633,11 +1574,16 @@ pub async fn request_id_middleware(request: Request<Body>, next: Next) -> Respon
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cache::{CacheConfig, CacheManager};
     use crate::common::config::{
         RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule,
     };
+    use crate::services::ServiceContainer;
     use crate::test_utils::{env_lock, EnvGuard};
+    use crate::web::routes::AppState;
     use crate::web::utils::ip::extract_client_ip;
+    use ed25519_dalek::Signer;
+    use std::sync::Arc;
     use std::time::Duration;
 
     #[test]
@@ -1792,6 +1738,67 @@ mod tests {
 
         let key = extract_verify_key_from_server_keys(&body, "example.org", "ed25519:abc");
         assert_eq!(key, Some("SGVsbG9Xb3JsZA".to_string()));
+    }
+
+    #[test]
+    fn test_parse_x_matrix_authorization_header() {
+        let params = parse_x_matrix_authorization(
+            r#"X-Matrix origin="test.example.com", key="ed25519:test", sig="abc123""#,
+        )
+        .expect("header should parse");
+
+        assert_eq!(params.origin, "test.example.com");
+        assert_eq!(params.key, "ed25519:test");
+        assert_eq!(params.sig, "abc123");
+    }
+
+    #[tokio::test]
+    async fn test_verify_federation_signature_with_local_config_key() {
+        let signing_key_bytes = [7u8; 32];
+        let signing_key_b64 =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key_bytes);
+        let key_id = "ed25519:test".to_string();
+        let origin = "test.example.com".to_string();
+        let body = serde_json::json!({
+            "invite": {
+                "display_name": "Bridge Invite"
+            }
+        });
+        let uri = "/_matrix/federation/v1/exchange_third_party_invite/!room:test.example.com";
+
+        let mut services = ServiceContainer::new_test();
+        services.config.federation.enabled = true;
+        services.config.federation.allow_ingress = true;
+        services.config.federation.server_name = origin.clone();
+        services.config.federation.key_id = Some(key_id.clone());
+        services.config.federation.signing_key = Some(signing_key_b64);
+        services.server_name = origin.clone();
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let state = AppState::new(services, cache);
+
+        let signed_bytes =
+            canonical_federation_request_bytes("PUT", uri, &origin, &origin, Some(&body));
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_bytes);
+        let signature = signing_key.sign(&signed_bytes);
+        let signature_b64 =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(signature.to_bytes());
+
+        let header = format!(
+            "X-Matrix origin=\"{}\", key=\"{}\", sig=\"{}\"",
+            origin, key_id, signature_b64
+        );
+        let params = parse_x_matrix_authorization(&header).expect("header should parse");
+
+        verify_federation_signature_with_cache(
+            &state,
+            &params.origin,
+            &params.key,
+            &params.sig,
+            &signed_bytes,
+        )
+        .await
+        .expect("signature should verify against local config key");
     }
 
     #[test]

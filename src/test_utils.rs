@@ -140,13 +140,13 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         Duration::from_secs(30),
         DatabaseInitService::new(pool.clone())
             .with_mode(DatabaseInitMode::Strict)
-            .initialize()
+            .initialize(),
     )
-        .await
-        .map_err(|_| format!("database initialization timed out after 30 seconds for {schema_name}"))?
-        .map_err(|error| {
-            format!("strict migration initialization failed for {schema_name}: {error}")
-        })?;
+    .await
+    .map_err(|_| format!("database initialization timed out after 30 seconds for {schema_name}"))?
+    .map_err(|error| {
+        format!("strict migration initialization failed for {schema_name}: {error}")
+    })?;
 
     if !report.success {
         return Err(format!(
