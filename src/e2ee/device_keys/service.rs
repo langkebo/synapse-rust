@@ -68,10 +68,12 @@ impl DeviceKeyService {
         request: KeyUploadRequest,
     ) -> Result<KeyUploadResponse, ApiError> {
         let mut one_time_key_counts = serde_json::Map::new();
+        let mut record_target: Option<(String, String)> = None;
 
         if let Some(ref device_keys) = request.device_keys {
             let user_id = device_keys.user_id.clone();
             let device_id = device_keys.device_id.clone();
+            record_target = Some((user_id.clone(), device_id.clone()));
 
             if let Some(keys) = device_keys.keys.as_object() {
                 for (key_id, public_key) in keys {
@@ -107,6 +109,10 @@ impl DeviceKeyService {
             } else {
                 (String::new(), String::new())
             };
+
+            if record_target.is_none() && !user_id.is_empty() && !device_id.is_empty() {
+                record_target = Some((user_id.clone(), device_id.clone()));
+            }
 
             if let Some(keys) = one_time_keys.as_object() {
                 for (key_id, key_data) in keys {
@@ -149,6 +155,12 @@ impl DeviceKeyService {
                     serde_json::Value::Number(count.into()),
                 );
             }
+        }
+
+        if let Some((user_id, device_id)) = record_target {
+            self.storage
+                .record_device_list_change_best_effort(&user_id, Some(&device_id), "changed")
+                .await;
         }
 
         Ok(KeyUploadResponse {
@@ -202,6 +214,10 @@ impl DeviceKeyService {
 
         let cache_key = format!("device_keys:{}:{}", user_id, device_id);
         self.cache.delete(&cache_key).await;
+
+        self.storage
+            .record_device_list_change_best_effort(user_id, Some(device_id), "deleted")
+            .await;
 
         Ok(())
     }

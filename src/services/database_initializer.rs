@@ -433,6 +433,7 @@ impl DatabaseInitService {
             let start_time = std::time::Instant::now();
             let statements = self.split_sql_statements(&normalized_sql);
             let mut file_success = true;
+            let mut conn = self.pool.acquire().await?;
 
             for statement in statements {
                 let trimmed = statement.trim();
@@ -441,15 +442,15 @@ impl DatabaseInitService {
                 }
 
                 // Set statement timeout to 30 seconds to prevent indefinite hangs
-                let timeout_result = sqlx::query("SET LOCAL statement_timeout = '30s'")
-                    .execute(&*self.pool)
+                let timeout_result = sqlx::query("SET statement_timeout = '30s'")
+                    .execute(&mut *conn)
                     .await;
 
                 if let Err(e) = timeout_result {
                     debug!("无法设置 statement_timeout: {}", e);
                 }
 
-                match sqlx::raw_sql(trimmed).execute(&*self.pool).await {
+                match sqlx::raw_sql(trimmed).execute(&mut *conn).await {
                     Ok(_) => {}
                     Err(e) => {
                         let err_str = e.to_string();
@@ -463,13 +464,13 @@ impl DatabaseInitService {
                             let preview: String = trimmed.chars().take(100).collect();
                             warn!("迁移 {} 语句超时 (30s): {}", filename, preview);
                             file_success = false;
-                            let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
                             break;
                         } else {
                             let preview: String = trimmed.chars().take(100).collect();
                             warn!("迁移 {} 语句执行失败: {} - {}", filename, preview, e);
                             file_success = false;
-                            let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
                             break;
                         }
                     }

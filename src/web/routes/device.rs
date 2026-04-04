@@ -228,7 +228,7 @@ pub async fn get_device_list_updates(
     let to = body
         .get("to")
         .and_then(parse_stream_id)
-        .unwrap_or_else(|| 0);
+        .unwrap_or(0);
 
     let max_stream_id: i64 = sqlx::query_scalar(
         r#"

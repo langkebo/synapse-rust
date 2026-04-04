@@ -13,6 +13,46 @@ impl DeviceKeyStorage {
         Self { pool: pool.clone() }
     }
 
+    pub async fn record_device_list_change_best_effort(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+    ) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let row = sqlx::query(
+            r#"
+            INSERT INTO device_lists_stream (user_id, device_id, created_ts)
+            VALUES ($1, $2, $3)
+            RETURNING stream_id
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await;
+
+        let Ok(row) = row else {
+            return;
+        };
+
+        let stream_id: i64 = row.get("stream_id");
+        let _ = sqlx::query(
+            r#"
+            INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(change_type)
+        .bind(stream_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await;
+    }
+
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
