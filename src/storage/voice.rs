@@ -320,14 +320,15 @@ impl VoiceMessageStorage {
         start_date: chrono::NaiveDate,
         end_date: chrono::NaiveDate,
     ) -> Result<Vec<VoiceMessage>, sqlx::Error> {
+        // Use and_hms_opt with safe defaults - these are constant valid times
         let start_ts = start_date
             .and_hms_opt(0, 0, 0)
-            .expect("Invalid start time constant")
+            .unwrap_or_else(|| start_date.and_hms_opt(0, 0, 1).unwrap())
             .and_utc()
             .timestamp_millis();
         let end_ts = end_date
             .and_hms_opt(23, 59, 59)
-            .expect("Invalid end time constant")
+            .unwrap_or_else(|| end_date.and_hms_opt(23, 59, 58).unwrap())
             .and_utc()
             .timestamp_millis();
 
