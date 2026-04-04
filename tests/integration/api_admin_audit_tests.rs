@@ -14,10 +14,8 @@ use tower::ServiceExt;
 type HmacSha256 = Hmac<sha2::Sha256>;
 
 async fn setup_test_app() -> Option<axum::Router> {
-    if !super::init_test_database().await {
-        return None;
-    }
-    let container = ServiceContainer::new_test();
+    let pool = super::get_test_pool().await?;
+    let container = ServiceContainer::new_test_with_pool(pool);
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
     Some(create_router(state))
@@ -29,9 +27,10 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
+            .await
+            .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), 1024)
@@ -76,9 +75,10 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
+            .await
+            .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), 4096)

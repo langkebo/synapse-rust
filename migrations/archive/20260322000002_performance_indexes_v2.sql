@@ -14,7 +14,7 @@ SET TIME ZONE 'UTC';
 -- 已有: idx_events_room_time, idx_events_sender_time, idx_events_type_room
 
 -- 添加缺失的复合索引
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_type_sender 
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_events_type_sender 
 ON events(event_type, sender);
 
 -- ============================================================================
@@ -23,7 +23,7 @@ ON events(event_type, sender);
 
 -- 检查 user_threepids 表结构
 -- 添加第三方 ID 验证状态查询索引
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_threepids_medium_address 
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_threepids_medium_address 
 ON user_threepids(medium, address);
 
 -- ============================================================================
@@ -31,7 +31,7 @@ ON user_threepids(medium, address);
 -- ============================================================================
 
 -- 优化: 令牌有效性检查
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tokens_user_revoked 
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_tokens_user_revoked 
 ON access_tokens(user_id, is_revoked) 
 WHERE is_revoked = FALSE;
 

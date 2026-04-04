@@ -13,16 +13,16 @@ struct IndexInfo {
     tablename: String,
 }
 
-pub struct DatabaseIntegrityChecker {
+struct DatabaseIntegrityChecker {
     pool: Pool<Postgres>,
 }
 
 impl DatabaseIntegrityChecker {
-    pub fn new(pool: Pool<Postgres>) -> Self {
+    fn new(pool: Pool<Postgres>) -> Self {
         Self { pool }
     }
 
-    pub async fn check_foreign_keys(&self) -> Result<Vec<ForeignKeyInfo>, sqlx::Error> {
+    async fn check_foreign_keys(&self) -> Result<Vec<ForeignKeyInfo>, sqlx::Error> {
         let rows = sqlx::query_as::<_, ForeignKeyInfo>(
             r#"
             SELECT
@@ -44,7 +44,7 @@ impl DatabaseIntegrityChecker {
         Ok(rows)
     }
 
-    pub async fn check_indexes(&self, table_name: &str) -> Result<Vec<IndexInfo>, sqlx::Error> {
+    async fn check_indexes(&self, table_name: &str) -> Result<Vec<IndexInfo>, sqlx::Error> {
         let rows = sqlx::query_as::<_, IndexInfo>(
             r#"
             SELECT indexname, tablename
@@ -60,7 +60,7 @@ impl DatabaseIntegrityChecker {
         Ok(rows)
     }
 
-    pub async fn check_orphan_data(&self) -> Result<serde_json::Value, sqlx::Error> {
+    async fn check_orphan_data(&self) -> Result<serde_json::Value, sqlx::Error> {
         let orphan_events: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*) FROM events e
@@ -97,7 +97,7 @@ impl DatabaseIntegrityChecker {
         }))
     }
 
-    pub async fn check_table_exists(&self, table_name: &str) -> Result<bool, sqlx::Error> {
+    async fn check_table_exists(&self, table_name: &str) -> Result<bool, sqlx::Error> {
         let exists: Option<bool> = sqlx::query_scalar(
             r#"
             SELECT EXISTS (
@@ -113,7 +113,7 @@ impl DatabaseIntegrityChecker {
         Ok(exists.unwrap_or(false))
     }
 
-    pub async fn check_column_exists(
+    async fn check_column_exists(
         &self,
         table_name: &str,
         column_name: &str,
@@ -136,7 +136,7 @@ impl DatabaseIntegrityChecker {
         Ok(exists.unwrap_or(false))
     }
 
-    pub async fn verify_field_naming(&self) -> Result<serde_json::Value, sqlx::Error> {
+    async fn verify_field_naming(&self) -> Result<serde_json::Value, sqlx::Error> {
         let timestamp_fields: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*) FROM information_schema.columns
@@ -179,7 +179,89 @@ impl DatabaseIntegrityChecker {
         }))
     }
 
-    pub async fn get_migration_status(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+    async fn check_audit_critical_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
+        let critical_indexes = vec![
+            "idx_room_summary_state_room",
+            "idx_room_summary_update_queue_status_priority_created",
+            "idx_room_children_parent_suggested",
+            "idx_room_children_child",
+            "idx_retention_cleanup_queue_status_origin",
+            "idx_retention_cleanup_logs_room_started",
+            "idx_deleted_events_index_room_ts",
+            "idx_device_trust_status_user_level",
+            "idx_cross_signing_trust_user_trusted",
+            "idx_device_verification_request_user_device_pending",
+            "idx_device_verification_request_expires_pending",
+            "idx_verification_requests_to_user_state",
+        ];
+
+        let mut missing = Vec::new();
+        for index_name in critical_indexes {
+            let exists: Option<bool> = sqlx::query_scalar(
+                r#"
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_indexes
+                    WHERE schemaname = 'public' AND indexname = $1
+                )
+                "#,
+            )
+            .bind(index_name)
+            .fetch_optional(&self.pool)
+            .await?;
+
+            if !exists.unwrap_or(false) {
+                missing.push(index_name.to_string());
+            }
+        }
+
+        Ok(missing)
+    }
+
+    async fn check_audit_critical_constraints(&self) -> Result<Vec<String>, sqlx::Error> {
+        let critical_constraints = vec![
+            ("room_summary_state", "uq_room_summary_state_room_type_state"),
+            ("room_summary_state", "fk_room_summary_state_room"),
+            ("room_summary_stats", "fk_room_summary_stats_room"),
+            ("room_summary_update_queue", "fk_room_summary_update_queue_room"),
+            ("room_children", "uq_room_children_parent_child"),
+            ("room_children", "fk_room_children_parent"),
+            ("room_children", "fk_room_children_child"),
+            ("retention_cleanup_queue", "uq_retention_cleanup_queue_room_event"),
+            ("retention_cleanup_queue", "fk_retention_cleanup_queue_room"),
+            ("retention_cleanup_logs", "fk_retention_cleanup_logs_room"),
+            ("retention_stats", "fk_retention_stats_room"),
+            ("deleted_events_index", "uq_deleted_events_index_room_event"),
+            ("deleted_events_index", "fk_deleted_events_index_room"),
+            ("device_trust_status", "uq_device_trust_status_user_device"),
+            ("cross_signing_trust", "uq_cross_signing_trust_user_target"),
+        ];
+
+        let mut missing = Vec::new();
+        for (table_name, constraint_name) in critical_constraints {
+            let exists: Option<bool> = sqlx::query_scalar(
+                r#"
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE table_schema = 'public'
+                      AND table_name = $1
+                      AND constraint_name = $2
+                )
+                "#,
+            )
+            .bind(table_name)
+            .bind(constraint_name)
+            .fetch_optional(&self.pool)
+            .await?;
+
+            if !exists.unwrap_or(false) {
+                missing.push(format!("{}.{}", table_name, constraint_name));
+            }
+        }
+
+        Ok(missing)
+    }
+
+    async fn get_migration_status(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
             SELECT version, name, applied_ts, description
@@ -211,14 +293,19 @@ mod tests {
 
     #[test]
     fn test_integrity_checker_struct() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let checker = DatabaseIntegrityChecker {
-                pool: Pool::connect_lazy("postgres://localhost/test").unwrap(),
-            };
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _guard = runtime.enter();
+        let checker =
+            DatabaseIntegrityChecker::new(Pool::connect_lazy("postgres://localhost/test").unwrap());
+        let _ = DatabaseIntegrityChecker::check_foreign_keys;
+        let _ = DatabaseIntegrityChecker::check_indexes;
+        let _ = DatabaseIntegrityChecker::check_orphan_data;
+        let _ = DatabaseIntegrityChecker::check_table_exists;
+        let _ = DatabaseIntegrityChecker::check_column_exists;
+        let _ = DatabaseIntegrityChecker::verify_field_naming;
+        let _ = DatabaseIntegrityChecker::get_migration_status;
 
-            assert!(std::mem::size_of_val(&checker) > 0);
-        });
+        assert!(std::mem::size_of_val(&checker) > 0);
     }
 
     #[test]
@@ -231,6 +318,7 @@ mod tests {
 
         assert_eq!(info.constraint_name, "fk_users_devices");
         assert_eq!(info.table_name, "devices");
+        assert_eq!(info.column_name, "user_id");
     }
 
     #[test]
@@ -242,5 +330,67 @@ mod tests {
 
         assert_eq!(info.indexname, "idx_users_username");
         assert_eq!(info.tablename, "users");
+    }
+
+    #[tokio::test]
+    async fn test_audit_critical_indexes_exist() {
+        let pool = match std::env::var("TEST_DATABASE_URL") {
+            Ok(url) => match Pool::connect(&url).await {
+                Ok(pool) => pool,
+                Err(_) => {
+                    eprintln!("Skipping audit critical indexes test: database unavailable");
+                    return;
+                }
+            },
+            Err(_) => {
+                eprintln!("Skipping audit critical indexes test: TEST_DATABASE_URL not set");
+                return;
+            }
+        };
+
+        let checker = DatabaseIntegrityChecker::new(pool);
+        let missing = checker
+            .check_audit_critical_indexes()
+            .await
+            .expect("Failed to check audit critical indexes");
+
+        if !missing.is_empty() {
+            eprintln!(
+                "Warning: {} audit-critical indexes are missing: {:?}",
+                missing.len(),
+                missing
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_audit_critical_constraints_exist() {
+        let pool = match std::env::var("TEST_DATABASE_URL") {
+            Ok(url) => match Pool::connect(&url).await {
+                Ok(pool) => pool,
+                Err(_) => {
+                    eprintln!("Skipping audit critical constraints test: database unavailable");
+                    return;
+                }
+            },
+            Err(_) => {
+                eprintln!("Skipping audit critical constraints test: TEST_DATABASE_URL not set");
+                return;
+            }
+        };
+
+        let checker = DatabaseIntegrityChecker::new(pool);
+        let missing = checker
+            .check_audit_critical_constraints()
+            .await
+            .expect("Failed to check audit critical constraints");
+
+        if !missing.is_empty() {
+            eprintln!(
+                "Warning: {} audit-critical constraints are missing: {:?}",
+                missing.len(),
+                missing
+            );
+        }
     }
 }

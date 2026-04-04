@@ -122,30 +122,10 @@ pub(crate) async fn report_event(
     let reason = body.get("reason").and_then(|v| v.as_str());
     let score = body.get("score").and_then(|v| v.as_i64()).unwrap_or(-100) as i32;
 
-    let event = state
-        .services
-        .event_storage
-        .get_event(&event_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
-
-    if event.room_id != room_id {
-        return Err(ApiError::bad_request(
-            "Event does not belong to the specified room".to_string(),
-        ));
-    }
-
     let report_id = state
         .services
         .event_storage
-        .report_event(
-            &event_id,
-            &room_id,
-            &event.user_id,
-            &auth_user.user_id,
-            reason,
-            score,
-        )
+        .report_event(&event_id, &room_id, "", &auth_user.user_id, reason, score)
         .await?;
 
     Ok(Json(json!({

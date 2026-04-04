@@ -112,6 +112,7 @@ fn create_test_config() -> Config {
             enabled: true,
             shared_secret: "test_shared_secret".to_string(),
             nonce_timeout_seconds: 60,
+            allow_external_access: false,
         },
         worker: WorkerConfig::default(),
         cors: CorsConfig::default(),

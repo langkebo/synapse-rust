@@ -1546,6 +1546,8 @@ pub struct AdminRegistrationConfig {
     pub shared_secret: String,
     #[serde(default = "default_admin_registration_nonce_timeout")]
     pub nonce_timeout_seconds: u64,
+    #[serde(default = "default_admin_registration_allow_external_access")]
+    pub allow_external_access: bool,
 }
 
 fn default_admin_registration_enabled() -> bool {
@@ -1560,12 +1562,17 @@ fn default_admin_registration_nonce_timeout() -> u64 {
     60
 }
 
+fn default_admin_registration_allow_external_access() -> bool {
+    false
+}
+
 impl Default for AdminRegistrationConfig {
     fn default() -> Self {
         Self {
             enabled: default_admin_registration_enabled(),
             shared_secret: default_admin_registration_shared_secret(),
             nonce_timeout_seconds: default_admin_registration_nonce_timeout(),
+            allow_external_access: default_admin_registration_allow_external_access(),
         }
     }
 }

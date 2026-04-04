@@ -7,20 +7,21 @@
 
 ## 一、入口基线
 
-当前仓库存在 4 个实际测试入口：
+当前仓库存在 5 个实际测试入口，其中 `performance_manual` 属于显式启用的手动性能入口：
 
 | 类型 | 入口 | 证据 |
 |------|------|------|
-| 显式测试入口 | `unit` | [Cargo.toml:L153-L155](file:///Users/ljf/Desktop/hu/synapse-rust/Cargo.toml#L153-L155) |
-| 显式测试入口 | `integration` | [Cargo.toml:L149-L151](file:///Users/ljf/Desktop/hu/synapse-rust/Cargo.toml#L149-L151) |
-| 显式测试入口 | `e2e` | [Cargo.toml](file:///Users/ljf/Desktop/hu/synapse-rust/Cargo.toml) |
+| 显式测试入口 | `integration` | [Cargo.toml:L140-L142](file:///Users/ljf/Desktop/hu/synapse-rust/Cargo.toml#L140-L142) |
+| 显式测试入口 | `unit` | [Cargo.toml:L144-L146](file:///Users/ljf/Desktop/hu/synapse-rust/Cargo.toml#L144-L146) |
+| 显式测试入口 | `e2e` | [Cargo.toml:L148-L150](file:///Users/ljf/Desktop/hu/synapse-rust/Cargo.toml#L148-L150) |
+| 条件测试入口 | `performance_manual` | [Cargo.toml:L152-L155](file:///Users/ljf/Desktop/hu/synapse-rust/Cargo.toml#L152-L155) |
 | 根目录自动发现 | `tests/friend_federation_test.rs` | [friend_federation_test.rs:L5-L6](file:///Users/ljf/Desktop/hu/synapse-rust/tests/friend_federation_test.rs#L5-L6) |
 
 补充说明：
 
 - `tests/unit/` 是否执行，取决于 [unit/mod.rs](file:///Users/ljf/Desktop/hu/synapse-rust/tests/unit/mod.rs)
 - `tests/integration/` 是否执行，取决于 [integration/mod.rs](file:///Users/ljf/Desktop/hu/synapse-rust/tests/integration/mod.rs)
-- `tests/e2e/` 已有独立入口，`tests/performance/`、`tests/example/` 当前仍没有独立入口
+- `tests/e2e/` 已有独立入口，`tests/performance/` 的手动套件通过 `performance_manual` 接入，`tests/example/` 当前仍没有独立入口
 
 ---
 
@@ -31,7 +32,7 @@
 | `tests/unit/` | 部分接线 | 由 `tests/unit/mod.rs` 显式引入的文件会执行，未引入文件不会执行 |
 | `tests/integration/` | 部分接线 | 由 `tests/integration/mod.rs` 显式引入的文件会执行，未引入文件不会执行 |
 | `tests/e2e/` | 已接线 | 目录已在 `Cargo.toml` 中注册为独立 `e2e` 测试入口 |
-| `tests/performance/` | 未接线 | 目录存在但未在 `Cargo.toml` 中注册 |
+| `tests/performance/` | 已部分接线 | `mod.rs` 作为 `performance_manual` 入口执行手动性能测试，Criterion 基准已迁入 `benches/` |
 | `tests/example/` | 未接线 | 子目录文件不会被自动发现 |
 | `tests/common/` | 辅助模块部分接线 | 只有 `common/mod.rs` 被引入，其他辅助文件未显式接线 |
 | `tests/` 根目录 | 部分接线 | `friend_federation_test.rs` 自动发现；`api_tests.json` 不是 Rust 测试入口 |
@@ -183,15 +184,15 @@
 - `e2e_scenarios.rs`
 - `user_flow_tests.rs`
 
-### 4.4 `tests/performance/` 整组未接线
+### 4.4 `tests/performance/` 已拆分为手动性能测试与 Criterion 基准入口
 
-证据：`Cargo.toml` 未声明对应 `[[test]]`
+证据：`Cargo.toml` 已声明 `performance_manual` 测试入口，并为 `benches/performance_api_benchmarks.rs`、`benches/performance_federation_benchmarks.rs` 声明 `[[bench]]`
 
 - `mod.rs`
 - `api_load_tests.rs`
-- `benchmarks.rs`
-- `federation_benchmarks.rs`
 - `query_performance_tests.rs`
+- `benches/performance_api_benchmarks.rs`
+- `benches/performance_federation_benchmarks.rs`
 
 ### 4.5 `tests/example/` 未接线
 
@@ -210,7 +211,7 @@
 ## 五、直接结论
 
 1. 当前测试“存在量”仍显著大于“执行量”，但首批关键未接线测试已补入主入口。
-2. `e2e` 已纳入常规测试入口，`performance` 目录目前仍不参与常规 `cargo test` 执行。
+2. `e2e` 已纳入常规测试入口，`performance_manual` 仅在显式启用 `performance-tests` feature 时执行，Criterion 基准与常规测试链路分离。
 3. `unit` 与 `integration` 目录内仍有多组文件未纳入入口。
 4. 后续所有测试完成度结论必须区分：
    - 文件存在
@@ -222,10 +223,10 @@
 
 ## 六、整改建议
 
-1. 下一批优先处理未接线测试：`performance/*`
-2. 将 `performance` 明确拆分为手动性能测试与 Criterion 基准入口，避免与常规测试链路混用
+1. 已为 `performance_manual` 与 Criterion 基准建立分离链路：`Benchmark` 工作流自动执行指定 bench，手动触发时可按需运行 `performance_manual`
+2. 保持 `performance` 与常规回归测试链路分离，避免把手动性能套件计入主通过率
 3. 为测试报告增加“接线状态”字段，避免把未执行文件计入完成度
-4. 在 CI 中区分主回归套件与可选/手动套件
+4. 后续如需进一步收敛，可继续清理历史 bench 脚本与重复 CI 测试链路
 
 ---
 
@@ -242,6 +243,7 @@
 - `tests/integration/federation_error_tests.rs`
 - `tests/integration/missing_features_tests.rs`
 - `tests/e2e/mod.rs`
+- `tests/performance/mod.rs`
 
 验证方式：
 
@@ -254,3 +256,7 @@
 - `cargo test --test integration federation_error -- --nocapture`
 - `cargo test --test integration missing_features -- --nocapture`
 - `cargo test --test e2e -- --nocapture`
+- `cargo test --features performance-tests --test performance_manual -- --nocapture`
+- `cargo bench --bench performance_api_benchmarks --no-run`
+- `cargo bench --bench performance_federation_benchmarks --no-run`
+- `Benchmark` 工作流支持 `workflow_dispatch` 手动触发 `performance_manual`

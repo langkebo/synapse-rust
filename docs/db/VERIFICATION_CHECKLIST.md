@@ -40,7 +40,7 @@
 - [x] SQL vs Rust 差异报告已生成
 - [x] 每个差异有明确的 SQL 版本和 Rust 版本对比
 - [x] 差异按严重程度分类（P0/P1/P2）
-- [x] 问题已在 `docs/db/COMPLETION_REPORT.md` 中记录
+- [x] 问题已回链到当前事实源，并保留历史记录定位
 
 ### 2.2 字段命名规范检查
 
@@ -130,7 +130,7 @@
 - [x] `docs/db/sql_table_inventory.md` 存在且完整 (9.8KB, 154表)
 - [x] `docs/db/rust_table_inventory.md` 存在且完整 (9.2KB, 21表)
 - [x] `docs/db/rust_model_inventory.md` 存在且完整 (4.8KB, 51模型)
-- [x] `docs/db/COMPLETION_REPORT.md` 存在且完整 (6.9KB)
+- [x] `docs/db/CAPABILITY_STATUS_BASELINE_2026-04-02.md` 作为当前事实源入口已建立
 - [x] 检查项已并入当前验收文档，无额外重复文件
 
 ### 变更管理

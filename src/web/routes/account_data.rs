@@ -13,20 +13,20 @@ fn create_account_data_compat_router() -> Router<AppState> {
         .route("/user/{user_id}/account_data/", get(list_account_data))
         .route(
             "/user/{user_id}/account_data/{type}",
-            get(get_account_data).put(set_account_data),
+            get(get_account_data).put(set_account_data).delete(delete_account_data),
         )
         .route(
             "/user/{user_id}/rooms/{room_id}/account_data/{type}",
-            get(get_room_account_data).put(set_room_account_data),
+            get(get_room_account_data).put(set_room_account_data).delete(delete_room_account_data),
         )
         .route(
             "/user/{user_id}/filter",
             put(create_filter).post(create_filter),
         )
-        .route("/user/{user_id}/filter/{filter_id}", get(get_filter))
+        .route("/user/{user_id}/filter/{filter_id}", get(get_filter).delete(delete_filter))
         .route(
             "/user/{user_id}/openid/request_token",
-            get(get_openid_token),
+            get(get_openid_token).post(get_openid_token),
         )
 }
 
@@ -265,6 +265,84 @@ async fn get_filter(
         )),
         None => Err(ApiError::not_found("Filter not found".to_string())),
     }
+}
+
+async fn delete_account_data(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, data_type)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden(
+            "Cannot delete account data for other users".to_string(),
+        ));
+    }
+
+    let result = sqlx::query("DELETE FROM account_data WHERE user_id = $1 AND data_type = $2")
+        .bind(&user_id)
+        .bind(&data_type)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to delete account data: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Account data not found".to_string()));
+    }
+
+    Ok(Json(json!({})))
+}
+
+async fn delete_room_account_data(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, room_id, data_type)): Path<(String, String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden(
+            "Cannot delete room account data for other users".to_string(),
+        ));
+    }
+
+    let result = sqlx::query(
+        "DELETE FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3",
+    )
+    .bind(&user_id)
+    .bind(&room_id)
+    .bind(&data_type)
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to delete room account data: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Room account data not found".to_string()));
+    }
+
+    Ok(Json(json!({})))
+}
+
+async fn delete_filter(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, filter_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden(
+            "Cannot delete filter for other users".to_string(),
+        ));
+    }
+
+    let result = sqlx::query("DELETE FROM filters WHERE filter_id = $1 AND user_id = $2")
+        .bind(&filter_id)
+        .bind(&user_id)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to delete filter: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Filter not found".to_string()));
+    }
+
+    Ok(Json(json!({})))
 }
 
 async fn get_openid_token(

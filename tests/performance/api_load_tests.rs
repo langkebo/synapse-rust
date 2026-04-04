@@ -191,7 +191,10 @@ mod api_performance_tests {
 
         latencies.sort();
         let p99_index = (latencies.len() as f64 * 0.99) as usize;
-        println!("API Latency P99: {:?}", latencies[p99_index.min(latencies.len() - 1)]);
+        println!(
+            "API Latency P99: {:?}",
+            latencies[p99_index.min(latencies.len() - 1)]
+        );
     }
 
     // ==================== Helper Functions ====================

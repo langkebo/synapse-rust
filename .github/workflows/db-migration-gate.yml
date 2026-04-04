@@ -113,19 +113,9 @@ jobs:
           PGPASSWORD: synapse
         run: |
           psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260328000003_add_invite_restrictions_and_device_verification_request.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000001_add_thread_replies_and_receipts.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000002_align_thread_schema_and_relations.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000003_align_retention_and_room_summary_schema.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000004_align_space_schema_and_add_space_events.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000005_align_remaining_schema_exceptions.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000006_align_notifications_push_and_misc_exceptions.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000007_align_uploads_and_user_settings_exceptions.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000008_align_background_update_exceptions.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000009_align_beacon_and_call_exceptions.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000010_add_audit_events.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000011_add_feature_flags.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260404000001_consolidated_schema_alignment.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260404000002_consolidated_minor_features.sql
           psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000012_add_federation_signing_keys.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000013_align_legacy_timestamp_columns.sql
           psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/V260329_000__SYS_0001__create_migration_audit_table.sql
           psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/V260330_001__MIG-XXX__add_missing_schema_tables.sql
 

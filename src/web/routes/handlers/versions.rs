@@ -21,10 +21,13 @@ pub async fn get_client_versions() -> impl axum::response::IntoResponse {
 }
 
 /// 获取服务端版本
-pub async fn get_server_version() -> impl axum::response::IntoResponse {
+pub async fn get_server_version(
+    State(state): State<AppState>,
+) -> impl axum::response::IntoResponse {
     Json(json!({
-        "server_version": "0.1.0",
-        "python_version": "3.11"
+        "server_version": env!("CARGO_PKG_VERSION"),
+        "python_version": "Rust",
+        "server_name": state.services.config.server.name
     }))
 }
 

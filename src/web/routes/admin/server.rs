@@ -11,6 +11,7 @@ use sqlx::Row;
 
 pub fn create_server_router(_state: AppState) -> Router<AppState> {
     Router::new()
+        .route("/_synapse/admin/info", get(get_admin_info))
         .route("/_synapse/admin/v1/server_version", get(get_server_version))
         .route(
             "/_synapse/admin/v1/purge_media_cache",
@@ -31,6 +32,15 @@ pub fn create_server_router(_state: AppState) -> Router<AppState> {
             get(get_experimental_features),
         )
         .route("/_synapse/admin/v1/backups", get(get_backups))
+}
+
+#[axum::debug_handler]
+pub async fn get_admin_info(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "server_name": state.services.config.server.name,
+        "server_version": env!("CARGO_PKG_VERSION"),
+        "implementation": "synapse-rust"
+    })))
 }
 
 #[axum::debug_handler]

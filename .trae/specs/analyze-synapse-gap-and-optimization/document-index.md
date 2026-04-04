@@ -42,16 +42,16 @@
 |------|------|------|
 | [SYNAPSE_COMPARISON.md](file:///Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/SYNAPSE_COMPARISON.md) | Synapse 对比报告 | 保留，但后续改为引用能力矩阵而非直接给出总完成度 |
 | [API_COVERAGE_REPORT.md](file:///Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/API_COVERAGE_REPORT.md) | 路由覆盖报告 | 保留，明确仅代表覆盖率，不代表行为兼容度 |
-| [API_TEST_REPORT.md](file:///Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/API_TEST_REPORT.md) | 测试结果报告 | 保留，标明时间点与测试前提 |
+| [API_TEST_REPORT.md](file:///Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/API_TEST_REPORT.md) | 测试结果报告 | 保留为历史测试记录，需标明时间点与前提条件 |
 | [E2EE_ANALYSIS.md](file:///Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/E2EE_ANALYSIS.md) | E2EE 专题 | 保留，后续按验证状态收敛 |
 | [CORE_FEATURES_ANALYSIS.md](file:///Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/CORE_FEATURES_ANALYSIS.md) | 核心功能分析 | 保留，标注为阶段性分析 |
-| [FEATURE_IMPROVEMENT_REPORT.md](file:///Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/FEATURE_IMPROVEMENT_REPORT.md) | 特性补强建议 | 保留为改进输入 |
+| [FEATURE_IMPROVEMENT_REPORT.md](file:///Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/FEATURE_IMPROVEMENT_REPORT.md) | 特性补强建议 | 保留为历史改进记录，后续仅作追溯 |
 
 ### 2.4 P4 历史材料
 
 | 文档 | 原因 | 处理建议 |
 |------|------|------|
-| [COMPLETION_REPORT.md](file:///Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/COMPLETION_REPORT.md) | 含“100%”“生产就绪”等高结论性措辞，易与当前基线冲突 | 转为历史结论文档，后续修订或归档 |
+| [COMPLETION_REPORT.md](file:///Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/COMPLETION_REPORT.md) | 含“100%”“生产就绪”等高结论性措辞，易与当前基线冲突 | 归档为历史结论文档，仅供追溯 |
 | [MISSING_FEATURES.md](file:///Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/MISSING_FEATURES.md) | 需与统一能力总表对齐 | 修订后再恢复为正式引用 |
 | 单轮 rerun / 分析报告 | 时间点强、环境依赖强 | 统一标记为阶段性材料 |
 

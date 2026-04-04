@@ -91,15 +91,9 @@ jobs:
           psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v6.sql
           for migration in \
             migrations/20260328000003_add_invite_restrictions_and_device_verification_request.sql \
-            migrations/20260330000001_add_thread_replies_and_receipts.sql \
-            migrations/20260330000002_align_thread_schema_and_relations.sql \
-            migrations/20260330000003_align_retention_and_room_summary_schema.sql \
-            migrations/20260330000004_align_space_schema_and_add_space_events.sql \
-            migrations/20260330000005_align_remaining_schema_exceptions.sql \
-            migrations/20260330000006_align_notifications_push_and_misc_exceptions.sql \
-            migrations/20260330000007_align_uploads_and_user_settings_exceptions.sql \
-            migrations/20260330000008_align_background_update_exceptions.sql \
-            migrations/20260330000009_align_beacon_and_call_exceptions.sql; do
+            migrations/20260404000001_consolidated_schema_alignment.sql \
+            migrations/20260404000002_consolidated_minor_features.sql \
+            migrations/20260330000012_add_federation_signing_keys.sql; do
             psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f "$migration"
           done
 

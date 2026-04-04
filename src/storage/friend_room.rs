@@ -721,7 +721,8 @@ impl FriendRoomStorage {
         self.ensure_user_exists(sender_id).await?;
         self.ensure_user_exists(receiver_id).await?;
 
-        self.create_friend_request(sender_id, receiver_id, message).await
+        self.create_friend_request(sender_id, receiver_id, message)
+            .await
     }
 
     pub async fn get_mutual_friends(
@@ -750,7 +751,11 @@ impl FriendRoomStorage {
                 if let Some(friends) = content.get("friends").and_then(|f| f.as_array()) {
                     return Ok(friends
                         .iter()
-                        .filter_map(|f| f.get("user_id").and_then(|u| u.as_str()).map(|s| s.to_string()))
+                        .filter_map(|f| {
+                            f.get("user_id")
+                                .and_then(|u| u.as_str())
+                                .map(|s| s.to_string())
+                        })
                         .collect());
                 }
             }

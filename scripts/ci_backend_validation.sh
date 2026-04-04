@@ -176,7 +176,7 @@ run_rust_checks() {
     cd "$ROOT_DIR"
     cargo fmt --all -- --check
     cargo check --locked
-    cargo test --locked
+    TEST_THREADS="${TEST_THREADS:-4}" TEST_RETRIES="${TEST_RETRIES:-2}" bash scripts/run_ci_tests.sh
 }
 
 run_migration_checks() {

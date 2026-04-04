@@ -491,7 +491,10 @@ mod tests {
             .description("Only Description Update");
 
         assert!(request.url.is_none());
-        assert_eq!(request.description, Some("Only Description Update".to_string()));
+        assert_eq!(
+            request.description,
+            Some("Only Description Update".to_string())
+        );
         assert!(request.rate_limited.is_none());
         assert!(request.is_enabled.is_none());
     }
@@ -579,7 +582,10 @@ mod tests {
                 "rooms": []
             })),
         };
-        assert_eq!(request.description, Some("A full bridge service".to_string()));
+        assert_eq!(
+            request.description,
+            Some("A full bridge service".to_string())
+        );
         assert_eq!(request.rate_limited, Some(true));
         assert!(request.namespaces.is_some());
     }

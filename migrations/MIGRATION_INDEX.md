@@ -86,10 +86,11 @@ bash docker/db_migrate.sh validate
 
 ### 回滚执行顺序
 ```bash
-# 按日期顺序回滚（逆序）
-psql -U synapse -d synapse -f migrations/rollback/20260330000009_...rollback.sql
-psql -U synapse -d synapse -f migrations/rollback/20260330000008_...rollback.sql
-# ...
+# 对于合并迁移，使用对应的 undo 文件
+psql -U synapse -d synapse -f migrations/20260404000002_consolidated_minor_features.undo.sql
+psql -U synapse -d synapse -f migrations/20260404000001_consolidated_schema_alignment.undo.sql
+
+# 历史归档迁移的回滚文件位于 migrations/archive/
 ```
 
 ## 迁移生命周期标签

@@ -1,6 +1,6 @@
 # Synapse Rust 测试策略与质量保证
 
-本文档描述 synapse-rust 项目的测试策略、质量标准和执行规范，基于优化计划文档第五章的要求制定。
+本文档描述 synapse-rust 项目的测试策略、质量标准和执行规范。当前正式能力口径请以 `docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md` 为准；本文档主要说明测试分层、门禁边界与执行方式。
 
 ## 一、测试分层架构
 
@@ -27,9 +27,37 @@
 
 ---
 
-## 二、运行测试
+## 二、测试门禁分层
 
-### 2.1 所有测试
+### 2.1 门禁分类总表
+
+| 分类 | 入口 | 作用 | 是否阻断发布 | 备注 |
+|-----|------|------|-------------|------|
+| 主门禁 | `cargo fmt --all -- --check` / `cargo clippy --all-features --locked -- -D warnings` / `cargo test --doc --locked` / `cargo test --all-features --locked -- --test-threads=4` | 保障格式、静态检查、文档测试与常规回归 | 是 | 当前发布判断以此类结果为准 |
+| 扩展验证 | `cargo test --test e2e`、覆盖率、专项能力验证、Criterion 基准 | 补充用户路径、覆盖率与专项能力证据 | 否（默认） | 可用于能力升级为“已实现并验证”的补证 |
+| 手动分析 | `cargo test --features performance-tests --test performance_manual -- --nocapture` | 手动性能分析与人工观察 | 否 | 不计入常规发布门禁 |
+
+### 2.2 分类规则
+
+- 主门禁用于判断“当前提交是否具备基本发布条件”。
+- 扩展验证用于补齐联邦、E2EE、AppService、Worker 等能力域的专项证据。
+- 手动分析用于性能、压测、人工排查，不得直接替代主门禁。
+- 任何测试结果若要支撑“已实现并验证”，必须明确对应入口、产物与适用范围。
+
+### 2.3 当前入口归类
+
+| 测试入口 | 分类 | 说明 |
+|---------|------|------|
+| `cargo test --all-features` | 主门禁 | 当前常规回归主入口 |
+| `cargo test --test e2e` | 扩展验证 | 真实流程默认仍受环境条件控制 |
+| `cargo tarpaulin --output-dir coverage/ --html` | 扩展验证 | 提供覆盖率证据，不单独阻断发布 |
+| `cargo bench --bench performance_api_benchmarks --no-run` | 扩展验证 | 性能专项基准 |
+| `cargo bench --bench performance_federation_benchmarks --no-run` | 扩展验证 | 联邦性能专项基准 |
+| `cargo test --features performance-tests --test performance_manual -- --nocapture` | 手动分析 | 手动性能套件 |
+
+## 三、运行测试
+
+### 3.1 所有测试
 
 ```bash
 # 运行所有测试
@@ -50,7 +78,9 @@ cargo test --test e2e
 - `tests/e2e/mod.rs` 已接入独立测试入口 `e2e`
 - `tests/unit/` 与 `tests/integration/` 的实际执行范围仍受各自 `mod.rs` 接线控制
 - `user_flow_tests.rs` 依赖运行中的服务与 `E2E_RUN=1`，默认不会执行真实 HTTP 流程
-- `tests/performance/` 当前仍视为手动套件与基准资产，不参与常规 `cargo test`
+- `tests/performance/mod.rs` 已拆分为手动性能测试入口 `performance_manual`，仅在显式启用 `--features performance-tests` 时执行
+- Criterion 基准入口已拆分为 `performance_api_benchmarks` 与 `performance_federation_benchmarks`，对应 `benches/` 目录下的独立基准文件
+- `performance_manual` 属于手动验证套件，不计入常规发布门禁
 
 ### 2.2 代码覆盖率
 
@@ -69,7 +99,17 @@ open coverage/tarpaulin-report.html
 
 ### 2.3 性能基准测试
 
-当前 `tests/performance/` 中同时包含普通性能测试样例与 Criterion 基准代码，尚未收敛为标准 `cargo bench` 入口。发布门禁不应把该目录计入常规测试通过率；如需执行，需先完成基准目录重构。
+```bash
+# 手动性能测试
+cargo test --features performance-tests --test performance_manual -- --nocapture
+
+# Criterion 基准
+cargo bench --bench performance_api_benchmarks --no-run
+cargo bench --bench performance_federation_benchmarks --no-run
+```
+
+发布门禁不应把 `performance_manual` 计入常规 `cargo test` 通过率；该入口属于手动性能套件。
+GitHub Actions 中已将 Criterion 基准与 `performance_manual` 分离；后者通过 `Benchmark` 工作流的手动触发入口按需执行。
 
 **性能质量门禁**：
 - 搜索API P95延迟：≤500ms
@@ -127,7 +167,11 @@ open coverage/tarpaulin-report.html
 
 ### 4.1 基准测试位置
 
-当前性能资产位于 `tests/performance/`，其中 `benchmarks.rs` 与 `federation_benchmarks.rs` 为基准代码，`api_load_tests.rs` 与 `query_performance_tests.rs` 为手动性能测试样例。
+当前性能资产分为手动性能测试与 Criterion 基准两类：
+
+- `mod.rs`、`api_load_tests.rs`、`query_performance_tests.rs` 组成手动性能测试入口 `performance_manual`
+- `benches/performance_api_benchmarks.rs` 对应 Criterion 基准 `performance_api_benchmarks`
+- `benches/performance_federation_benchmarks.rs` 对应 Criterion 基准 `performance_federation_benchmarks`
 
 ### 4.2 性能指标定义
 
@@ -180,50 +224,27 @@ cargo criterion --output-file BENCHMARK RESULTS.md
 
 ### 5.1 CI测试流程
 
-```yaml
-# .github/workflows/test.yml
-name: Tests
+当前以两个工作流为主：
 
-on: [push, pull_request]
+- `.github/workflows/ci.yml`
+  - `repo-sanity`：扫描私钥、危险制品与仓库异常文件
+  - `test`：执行 `cargo fmt --all -- --check`、`cargo clippy --all-features --locked -- -D warnings`、数据库迁移、doc test 与全量测试
+  - `security-audit`：执行 RustSec 审计
+  - `build`：执行 release 构建
+  - `coverage`：执行 tarpaulin 覆盖率
+  - `quality-evidence`：收集测试与质量证据
+- `.github/workflows/benchmark.yml`
+  - 运行 `performance_api_benchmarks` 与 `performance_federation_benchmarks`
+  - 通过手动触发入口按需执行 `performance_manual`
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: synapse
-          POSTGRES_PASSWORD: synapse
-          POSTGRES_DB: synapse_test
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+建议核验命令：
 
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Build
-        run: cargo build --all-features
-        
-      - name: Clippy
-        run: cargo clippy --all-features -- -D warnings
-        
-      - name: Unit Tests
-        run: cargo test --lib --all-features
-        
-      - name: Integration Tests
-        run: cargo test --test integration --all-features
-        
-      - name: Code Coverage
-        run: |
-          cargo install cargo-tarpaulin
-          cargo tarpaulin --all-features --out Xml
-          curl -s -L https://coveralls.io/github/USER/REPO | \
-            sh -s $(git rev-parse HEAD) || true
+```bash
+ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml"); YAML.load_file(".github/workflows/benchmark.yml"); puts "workflow yaml: OK"'
+cargo fmt --all -- --check
+cargo clippy --all-features --locked -- -D warnings
+cargo test --doc --locked
+cargo test --all-features --locked -- --test-threads=4
 ```
 
 ### 5.2 测试执行时间

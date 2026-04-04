@@ -250,7 +250,12 @@ mod e2e_tests {
             .await
             .expect("Failed to parse friends response");
 
-        friends_response.data?.friends.iter().find(|f| f.user_id == other_user_id).and_then(|f| f.dm_room_id.clone())
+        friends_response
+            .data?
+            .friends
+            .iter()
+            .find(|f| f.user_id == other_user_id)
+            .and_then(|f| f.dm_room_id.clone())
     }
 
     async fn send_message_to_room(
@@ -279,11 +284,7 @@ mod e2e_tests {
             .expect("Failed to parse send message response")
     }
 
-    async fn redact_event(
-        access_token: &str,
-        room_id: &str,
-        event_id: &str,
-    ) -> serde_json::Value {
+    async fn redact_event(access_token: &str, room_id: &str, event_id: &str) -> serde_json::Value {
         let client = Client::new();
         let response = client
             .put(format!(
@@ -411,11 +412,18 @@ mod e2e_tests {
             )
             .await;
 
-            assert!(!msg_response.event_id.is_empty(), "Event ID should not be empty");
+            assert!(
+                !msg_response.event_id.is_empty(),
+                "Event ID should not be empty"
+            );
 
             // Redact (delete) the message
-            let redact_response = redact_event(&alice.access_token, &dm_room_id, &msg_response.event_id).await;
-            assert_eq!(redact_response["event_id"], msg_response.event_id, "Redaction should return same event ID");
+            let redact_response =
+                redact_event(&alice.access_token, &dm_room_id, &msg_response.event_id).await;
+            assert_eq!(
+                redact_response["event_id"], msg_response.event_id,
+                "Redaction should return same event ID"
+            );
 
             println!("✅ E2E test passed: Private chat flow (using Matrix rooms)");
         });

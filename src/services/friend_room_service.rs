@@ -103,7 +103,10 @@ impl FriendRoomService {
             .map_err(|e| {
                 let error_msg = e.to_string();
                 if error_msg.contains("foreign key") {
-                    ApiError::database(format!("Failed to create friend request: user not found - {}", error_msg))
+                    ApiError::database(format!(
+                        "Failed to create friend request: user not found - {}",
+                        error_msg
+                    ))
                 } else {
                     ApiError::database(format!("Failed to create friend request: {}", error_msg))
                 }
@@ -506,6 +509,50 @@ impl FriendRoomService {
         Ok(())
     }
 
+    /// 更新好友显示名
+    pub async fn update_friend_displayname(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+        displayname: &str,
+    ) -> ApiResult<()> {
+        let friend_room = self.create_friend_list_room(user_id).await?;
+
+        if !self
+            .friend_storage
+            .is_friend(&friend_room, friend_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to check friendship: {}", e)))?
+        {
+            return Err(ApiError::not_found(format!(
+                "Friend {} not found in list",
+                friend_id
+            )));
+        }
+
+        let mut content = self
+            .friend_storage
+            .get_friend_list_content(&friend_room)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?
+            .unwrap_or_else(|| json!({ "friends": [] }));
+
+        if let Some(friends) = content.get_mut("friends").and_then(|f| f.as_array_mut()) {
+            for friend in friends.iter_mut() {
+                if friend.get("user_id").and_then(|u| u.as_str()) == Some(friend_id) {
+                    friend["displayname"] = json!(displayname);
+                    friend["displayname_updated_ts"] = json!(chrono::Utc::now().timestamp_millis());
+                    break;
+                }
+            }
+        }
+
+        self.send_state_event(&friend_room, user_id, "m.friends.list", "", content)
+            .await?;
+
+        Ok(())
+    }
+
     /// 获取好友详细信息
     pub async fn get_friend_info(
         &self,
@@ -558,13 +605,16 @@ impl FriendRoomService {
         let _friend_room = self.create_friend_list_room(user_id).await?;
 
         let mut suggestions: Vec<serde_json::Value> = Vec::new();
-        let mut suggested_user_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut suggested_user_ids: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         let mutual_suggestions = self
             .friend_storage
             .get_friend_suggestions_from_mutual_friends(user_id, 10)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to get mutual friend suggestions: {}", e)))?;
+            .map_err(|e| {
+                ApiError::database(format!("Failed to get mutual friend suggestions: {}", e))
+            })?;
 
         for suggestion in mutual_suggestions {
             if let Some(uid) = suggestion.get("user_id").and_then(|u| u.as_str()) {
@@ -578,7 +628,9 @@ impl FriendRoomService {
                 .friend_storage
                 .get_friend_suggestions_from_shared_rooms(user_id, 10 - suggestions.len() as i64)
                 .await
-                .map_err(|e| ApiError::database(format!("Failed to get shared room suggestions: {}", e)))?;
+                .map_err(|e| {
+                    ApiError::database(format!("Failed to get shared room suggestions: {}", e))
+                })?;
 
             for suggestion in room_suggestions {
                 if let Some(uid) = suggestion.get("user_id").and_then(|u| u.as_str()) {
@@ -593,7 +645,9 @@ impl FriendRoomService {
         suggestions.sort_by(|a, b| {
             let score_a = Self::calculate_suggestion_score(a);
             let score_b = Self::calculate_suggestion_score(b);
-            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+            score_b
+                .partial_cmp(&score_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         suggestions.truncate(20);
@@ -604,19 +658,33 @@ impl FriendRoomService {
     fn calculate_suggestion_score(suggestion: &serde_json::Value) -> f64 {
         let mut score = 0.0;
 
-        if let Some(mutual_count) = suggestion.get("mutual_friends_count").and_then(|c| c.as_i64()) {
+        if let Some(mutual_count) = suggestion
+            .get("mutual_friends_count")
+            .and_then(|c| c.as_i64())
+        {
             score += mutual_count as f64 * 2.0;
         }
 
-        if let Some(room_count) = suggestion.get("shared_rooms_count").and_then(|c| c.as_i64()) {
+        if let Some(room_count) = suggestion
+            .get("shared_rooms_count")
+            .and_then(|c| c.as_i64())
+        {
             score += room_count as f64 * 1.0;
         }
 
-        if suggestion.get("display_name").and_then(|d| d.as_str()).is_some() {
+        if suggestion
+            .get("display_name")
+            .and_then(|d| d.as_str())
+            .is_some()
+        {
             score += 0.5;
         }
 
-        if suggestion.get("avatar_url").and_then(|a| a.as_str()).is_some() {
+        if suggestion
+            .get("avatar_url")
+            .and_then(|a| a.as_str())
+            .is_some()
+        {
             score += 0.3;
         }
 
@@ -915,7 +983,10 @@ impl FriendRoomService {
             .map_err(|e| {
                 let error_msg = e.to_string();
                 if error_msg.contains("foreign key") {
-                    ApiError::database(format!("Failed to create friend request: user not found - {}", error_msg))
+                    ApiError::database(format!(
+                        "Failed to create friend request: user not found - {}",
+                        error_msg
+                    ))
                 } else {
                     ApiError::database(format!("Failed to create friend request: {}", error_msg))
                 }

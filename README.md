@@ -1,6 +1,6 @@
 # synapse-rust
 
-用 Rust 实现的 Matrix Homeserver（可运行，当前处于能力收敛与验证阶段）。
+用 Rust 实现的 Matrix Homeserver（当前处于能力收敛与验证阶段）。
 
 ## 功能概览
 
@@ -86,8 +86,10 @@ cargo run --release
 
 - 当前阶段正式分析与优化方案：`docs/synapse-rust/SYSTEM_GAP_ANALYSIS_AND_OPTIMIZATION_PLAN_2026-04-02.md`
 - 第一版能力总表：`docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md`
+- 文档索引：`docs/synapse-rust/PROJECT_REVIEW_INDEX_2026-04-03.md`
+- 项目整改行动清单：`docs/synapse-rust/PROJECT_REVIEW_ACTION_BACKLOG_2026-04-03.md`
+- 项目审查与优化完善方案：`docs/synapse-rust/PROJECT_REVIEW_AND_OPTIMIZATION_PLAN_2026-04-03.md`
 - API 参考：`docs/synapse-rust/API_DOCUMENTATION.md`
-- 工程收口计划：`docs/API-OPTION/engineering-optimization-plan.md`
 - 部署指南：`docs/synapse-rust/DEPLOYMENT_GUIDE.md`
 - 迁移索引：`migrations/MIGRATION_INDEX.md`
 - 迁移治理：`docs/db/MIGRATION_GOVERNANCE.md`
@@ -171,7 +173,7 @@ client.sendReadReceipt(event);
 > ⚠️ 任务追踪已整合到 GitHub Issues 和项目看板
 
 - **任务看板**: [HuLa Project Board](https://github.com/hu-matrix/hula/projects)
-- **完成度报告**: [COMPLETION_REPORT.md](docs/synapse-rust/COMPLETION_REPORT.md)
 - **当前正式分析**: [SYSTEM_GAP_ANALYSIS_AND_OPTIMIZATION_PLAN_2026-04-02.md](docs/synapse-rust/SYSTEM_GAP_ANALYSIS_AND_OPTIMIZATION_PLAN_2026-04-02.md)
 - **能力状态基线**: [CAPABILITY_STATUS_BASELINE_2026-04-02.md](docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md)
+- **文档索引**: [PROJECT_REVIEW_INDEX_2026-04-03.md](docs/synapse-rust/PROJECT_REVIEW_INDEX_2026-04-03.md)
 - **测试接线清单**: [.trae/specs/analyze-synapse-gap-and-optimization/test-execution-inventory.md](.trae/specs/analyze-synapse-gap-and-optimization/test-execution-inventory.md)

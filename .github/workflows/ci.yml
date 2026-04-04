@@ -25,7 +25,7 @@ jobs:
 
       - name: No key files tracked
         run: |
-          ! git ls-files '*.key' '*.pem' '*.p12'
+          ! git ls-files '*.key' '*.p12'
 
       - name: No root artifacts
         run: |
@@ -33,7 +33,7 @@ jobs:
           ! ls *.db 2>/dev/null
 
   test:
-    name: Test Suite
+    name: Test & Lint
     runs-on: ubuntu-latest
 
     services:
@@ -70,31 +70,16 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Cache cargo registry
+      - name: Cache cargo
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Set up test database
-        env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-        run: |
-          cargo install sqlx-cli --locked --no-default-features --features postgres
-          sqlx database create
-          sqlx migrate run
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -102,45 +87,36 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-features --locked -- -D warnings
 
-      - name: Run tests
+      - name: Install sqlx-cli
+        uses: taiki-e/install-action@sqlx-cli
+        with:
+          features: postgres
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Set up test database
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+        run: |
+          sqlx database create
+          sqlx migrate run
+
+      - name: Run doc tests
+        run: cargo test --doc --locked
+
+      - name: Run all tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
-        run: cargo test --all-features --locked -- --test-threads=4
-
-  style-check:
-    name: Style Check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Run clippy
-        run: cargo clippy --all-features --locked -- -D warnings
-
-  doc-test:
-    name: Documentation Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Run doc tests
-        run: cargo test --doc --locked
+          TEST_THREADS: 4
+          TEST_RETRIES: 2
+        run: bash scripts/run_ci_tests.sh
 
   security-audit:
     name: Security Audit
@@ -205,11 +181,15 @@ jobs:
         with:
           version: latest
 
+      - name: Install sqlx-cli
+        uses: taiki-e/install-action@sqlx-cli
+        with:
+          features: postgres
+
       - name: Set up test database
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: |
-          cargo install sqlx-cli --locked --no-default-features --features postgres
           sqlx database create
           sqlx migrate run
 

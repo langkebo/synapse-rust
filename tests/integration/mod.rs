@@ -2,10 +2,16 @@ mod api_account_data_routes_tests;
 mod api_admin_audit_tests;
 mod api_admin_federation_tests;
 mod api_admin_regression_tests;
+mod api_admin_room_lifecycle_tests;
 mod api_admin_tests;
+mod api_admin_user_lifecycle_tests;
+mod api_appservice_basic_tests;
+mod api_appservice_p1_tests;
+mod api_appservice_tests;
 mod api_auth_routes_tests;
 mod api_device_presence_tests;
 mod api_device_routes_tests;
+mod api_e2ee_advanced_tests;
 mod api_e2ee_tests;
 mod api_enhanced_features_tests;
 mod api_feature_flags_tests;
@@ -41,6 +47,18 @@ mod schema_validation_tests;
 
 use std::sync::Arc;
 
+pub fn with_local_connect_info(
+    mut request: hyper::Request<axum::body::Body>,
+) -> hyper::Request<axum::body::Body> {
+    use axum::extract::ConnectInfo;
+    use std::net::SocketAddr;
+    let local_addr: SocketAddr = "127.0.0.1:65530"
+        .parse()
+        .expect("valid loopback socket addr");
+    request.extensions_mut().insert(ConnectInfo(local_addr));
+    request
+}
+
 fn integration_tests_required() -> bool {
     if let Ok(value) = std::env::var("INTEGRATION_TESTS_REQUIRED") {
         let value = value.trim().to_ascii_lowercase();
@@ -49,7 +67,7 @@ fn integration_tests_required() -> bool {
     std::env::var("CI").is_ok()
 }
 
-async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
+pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
     match synapse_rust::test_utils::prepare_isolated_test_pool().await {
         Ok(pool) => Some(pool),
         Err(error) => {
@@ -98,27 +116,63 @@ pub async fn get_admin_token(app: &axum::Router) -> (String, String) {
     use hyper::Request;
     use tower::ServiceExt;
 
-    let admin_secret = std::env::var("ADMIN_REGISTRATION_SECRET")
-        .unwrap_or_else(|_| "admin_secret_key".to_string());
-
     let username = format!("admin_{}", rand::random::<u32>());
 
-    let request = Request::builder()
+    // Step 1: Get nonce
+    let nonce_request = Request::builder()
+        .method("GET")
+        .uri("/_synapse/admin/v1/register/nonce")
+        .body(Body::empty())
+        .unwrap();
+
+    let nonce_response = app
+        .clone()
+        .oneshot(with_local_connect_info(nonce_request))
+        .await
+        .unwrap();
+    let nonce_body = axum::body::to_bytes(nonce_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let nonce_json: serde_json::Value = serde_json::from_slice(&nonce_body).unwrap();
+    let nonce = nonce_json["nonce"].as_str().unwrap();
+
+    // Step 2: Calculate HMAC
+    let shared_secret = std::env::var("REGISTRATION_SHARED_SECRET")
+        .unwrap_or_else(|_| "test_shared_secret".to_string());
+
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    type HmacSha256 = Hmac<Sha256>;
+
+    let mac_content = format!("{}\0{}\0{}\0admin", nonce, username, "AdminTest@123");
+    let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes()).unwrap();
+    mac.update(mac_content.as_bytes());
+    let mac_result = mac.finalize();
+    let mac_hex = hex::encode(mac_result.into_bytes());
+
+    // Step 3: Register admin user
+    let register_request = Request::builder()
         .method("POST")
-        .uri("/_synapse/admin/v1/register_admin")
+        .uri("/_synapse/admin/v1/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Secret", &admin_secret)
         .body(Body::from(
             serde_json::json!({
+                "nonce": nonce,
                 "username": &username,
-                "password": "AdminTest@123"
+                "password": "AdminTest@123",
+                "admin": true,
+                "mac": mac_hex
             })
             .to_string(),
         ))
         .unwrap();
 
-    let response = app.clone().oneshot(request).await.unwrap();
-    let body = axum::body::to_bytes(response.into_body(), 1024)
+    let response = app
+        .clone()
+        .oneshot(with_local_connect_info(register_request))
+        .await
+        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
         .await
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();

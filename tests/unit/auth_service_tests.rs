@@ -23,9 +23,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database() -> Option<Pool<Postgres>> {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| {
-            "postgresql://synapse:secret@localhost:5432/synapse_test".to_string()
-        });
+        .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
 
     let pool = match sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
@@ -48,7 +46,8 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         .await
         .ok();
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE users (
             user_id VARCHAR(255) PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
@@ -68,7 +67,8 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             creation_ts BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
             updated_ts BIGINT
         )
-    "#)
+    "#,
+    )
     .execute(&pool)
     .await
     .expect("Failed to create users table");
@@ -101,7 +101,9 @@ fn test_auth_service_register_invalid_username() {
 
         let id = unique_id();
         let invalid_username = format!("user@{}", id);
-        let result = auth.register(&invalid_username, "password", false, None).await;
+        let result = auth
+            .register(&invalid_username, "password", false, None)
+            .await;
         assert!(matches!(result, Err(ApiError::BadRequest(_))));
 
         let result = auth.register("", "password", false, None).await;
@@ -284,24 +286,40 @@ fn test_no_migration_for_argon2_hash() {
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
-        let auth = AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
+        let auth = AuthService::new(
+            &pool,
+            cache.clone(),
+            metrics.clone(),
+            &security,
+            "localhost",
+        );
 
         let id = unique_id();
         let username = format!("argon2_user_{}", id);
         let password = "argon2_password";
         let user_id = format!("@{}:localhost", username);
 
-        let (user, _, _, _) = auth.register(&username, password, false, None).await
+        let (user, _, _, _) = auth
+            .register(&username, password, false, None)
+            .await
             .expect("Registration should succeed");
 
-        let initial_hash = user.password_hash.clone().expect("Password hash should exist");
-        assert!(!is_legacy_hash(&initial_hash), "New user should have Argon2 hash");
+        let initial_hash = user
+            .password_hash
+            .clone()
+            .expect("Password hash should exist");
+        assert!(
+            !is_legacy_hash(&initial_hash),
+            "New user should have Argon2 hash"
+        );
 
-        let _ = auth.login(&username, password, None, None).await
+        let _ = auth
+            .login(&username, password, None, None)
+            .await
             .expect("Login should succeed");
 
         let updated_user = sqlx::query_as::<_, (Option<String>,)>(
-            "SELECT password_hash FROM users WHERE user_id = $1"
+            "SELECT password_hash FROM users WHERE user_id = $1",
         )
         .bind(&user_id)
         .fetch_one(&*pool)
@@ -309,7 +327,10 @@ fn test_no_migration_for_argon2_hash() {
         .expect("Failed to fetch user");
 
         let current_hash = updated_user.0.expect("Password hash should exist");
-        assert_eq!(initial_hash, current_hash, "Hash should not change for Argon2 users");
+        assert_eq!(
+            initial_hash, current_hash,
+            "Hash should not change for Argon2 users"
+        );
     });
 }
 

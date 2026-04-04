@@ -14,14 +14,17 @@ use tower::ServiceExt;
 
 type HmacSha256 = Hmac<Sha256>;
 
-async fn setup_test_app() -> Option<axum::Router> {
-    if !super::init_test_database().await {
-        return None;
-    }
-    let container = ServiceContainer::new_test();
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+    let pool = super::get_test_pool().await?;
+    let container = ServiceContainer::new_test_with_pool(pool.clone());
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(create_router(state))
+    Some((create_router(state), pool))
+}
+
+async fn setup_test_app() -> Option<axum::Router> {
+    let (app, _) = setup_test_app_with_pool().await?;
+    Some(app)
 }
 
 async fn get_admin_token(app: &axum::Router) -> (String, String) {
@@ -31,9 +34,10 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
+            .await
+            .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), 1024)
@@ -79,9 +83,10 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
+            .await
+            .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), 1024)
@@ -276,6 +281,52 @@ async fn test_admin_flow() {
 }
 
 #[tokio::test]
+async fn test_admin_info_is_public() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .uri("/_synapse/admin/info")
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["server_version"], env!("CARGO_PKG_VERSION"));
+    assert!(json["server_name"].is_string());
+}
+
+#[tokio::test]
+async fn test_matrix_server_version_endpoint() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .uri("/_matrix/server_version")
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["server_version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(json["python_version"], "Rust");
+}
+
+#[tokio::test]
 async fn test_worker_admin_routes_reject_regular_user_but_allow_authenticated_claim() {
     let Some(app) = setup_test_app().await else {
         return;
@@ -395,6 +446,60 @@ async fn test_worker_admin_routes_reject_regular_user_but_allow_authenticated_cl
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["assigned_worker_id"], worker_id);
     assert_eq!(json["status"], "running");
+}
+
+#[tokio::test]
+async fn test_promoting_existing_user_in_db_does_not_upgrade_existing_token_to_admin() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let user_token = create_test_user(&app).await;
+
+    let whoami_request = Request::builder()
+        .uri("/_matrix/client/v3/account/whoami")
+        .header("Authorization", format!("Bearer {}", user_token))
+        .body(Body::empty())
+        .unwrap();
+    let whoami_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), whoami_request)
+        .await
+        .unwrap();
+    assert_eq!(whoami_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(whoami_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let user_id = json["user_id"].as_str().unwrap().to_string();
+
+    sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&*pool)
+        .await
+        .unwrap();
+
+    let stale_token_request = Request::builder()
+        .uri("/_synapse/admin/v1/status")
+        .header("Authorization", format!("Bearer {}", user_token))
+        .body(Body::empty())
+        .unwrap();
+    let stale_token_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), stale_token_request)
+            .await
+            .unwrap();
+    assert_eq!(stale_token_response.status(), StatusCode::FORBIDDEN);
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let fresh_admin_request = Request::builder()
+        .uri("/_synapse/admin/v1/status")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let fresh_admin_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), fresh_admin_request)
+            .await
+            .unwrap();
+    assert_eq!(fresh_admin_response.status(), StatusCode::OK);
 }
 
 #[tokio::test]

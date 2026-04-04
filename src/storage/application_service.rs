@@ -15,7 +15,6 @@ pub struct ApplicationService {
     pub sender_localpart: String,
     pub is_enabled: bool,
     pub rate_limited: bool,
-    #[sqlx(json)]
     pub protocols: Vec<String>,
     pub namespaces: serde_json::Value,
     pub created_ts: i64,
@@ -159,7 +158,7 @@ impl ApplicationServiceStorage {
         request: RegisterApplicationServiceRequest,
     ) -> Result<ApplicationService, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        let protocols = serde_json::json!(request.protocols.clone().unwrap_or_default());
+        let protocols = request.protocols.clone().unwrap_or_default();
         let namespaces = request.namespaces.unwrap_or(serde_json::json!({
             "users": [],
             "aliases": [],
@@ -182,7 +181,7 @@ impl ApplicationServiceStorage {
         .bind(&request.hs_token)
         .bind(&request.sender)
         .bind(request.rate_limited.unwrap_or(false))
-        .bind(protocols)
+        .bind(&protocols)
         .bind(&namespaces)
         .bind(now)
         .bind(&request.description)
@@ -315,17 +314,14 @@ impl ApplicationServiceStorage {
         as_id: &str,
         request: &UpdateApplicationServiceRequest,
     ) -> Result<ApplicationService, sqlx::Error> {
-        let protocols = request
-            .protocols
-            .as_ref()
-            .map(|value| serde_json::json!(value));
+        let protocols = request.protocols.clone();
         sqlx::query_as::<_, ApplicationService>(
             r#"
             UPDATE application_services SET
                 url = COALESCE($2, url),
                 description = COALESCE($3, description),
                 rate_limited = COALESCE($4, rate_limited),
-                protocols = COALESCE($5::jsonb, protocols),
+                protocols = COALESCE($5::text[], protocols),
                 is_enabled = COALESCE($6, is_enabled),
                 updated_ts = $7
             WHERE as_id = $1

@@ -89,6 +89,7 @@ admin_registration:
   enabled: true
   shared_secret: "${ADMIN_SECRET:?ADMIN_SECRET is required}"
   nonce_timeout_seconds: 60
+  allow_external_access: true
 
 worker:
   enabled: false

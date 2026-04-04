@@ -3,10 +3,21 @@ use crate::web::routes::MatrixJson;
 use crate::ApiError;
 use axum::{
     extract::{Path, Query, State},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::{HashMap, HashSet};
+
+fn parse_stream_id(value: &Value) -> Option<i64> {
+    if let Some(n) = value.as_i64() {
+        return Some(n);
+    }
+    let s = value.as_str()?;
+    let s = s.strip_prefix('s').unwrap_or(s);
+    s.parse::<i64>().ok()
+}
 
 fn create_e2ee_compat_router() -> Router<AppState> {
     Router::new()
@@ -21,6 +32,10 @@ fn create_e2ee_compat_router() -> Router<AppState> {
         .route(
             "/room_keys/request",
             post(create_room_key_request).get(get_room_key_requests),
+        )
+        .route(
+            "/room_keys/request/{request_id}",
+            delete(delete_room_key_request),
         )
         .route(
             "/rooms/{room_id}/keys/distribution",
@@ -198,11 +213,156 @@ async fn key_changes(
 
 #[axum::debug_handler]
 async fn device_list_update(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    MatrixJson(_body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(json!({})))
+    let users = body
+        .get("users")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| ApiError::bad_request("Missing users array".to_string()))?
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect::<Vec<String>>();
+
+    let since = body
+        .get("since")
+        .or_else(|| body.get("from"))
+        .and_then(parse_stream_id);
+
+    let mut changed: Vec<Value> = Vec::new();
+    let mut left: Vec<String> = Vec::new();
+
+    if since.is_none() {
+        for user_id in &users {
+            let devices = state
+                .services
+                .device_storage
+                .get_user_devices(user_id)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get devices: {}", e)))?;
+
+            if devices.is_empty() {
+                left.push(user_id.clone());
+            } else {
+                for device in devices {
+                    changed.push(json!({
+                        "user_id": user_id,
+                        "device_id": device.device_id,
+                        "device_data": {
+                            "display_name": device.display_name,
+                            "last_seen_ts": device.last_seen_ts,
+                            "last_seen_ip": device.last_seen_ip,
+                        }
+                    }));
+                }
+            }
+        }
+
+        return Ok(Json(json!({
+            "changed": changed,
+            "left": left
+        })));
+    }
+
+    let since = since.unwrap_or(0);
+    let to = body.get("to").and_then(parse_stream_id).unwrap_or(0);
+
+    let max_stream_id: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(MAX(stream_id), 0) FROM device_lists_stream
+        "#,
+    )
+    .fetch_one(&*state.services.device_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get device list stream position: {}", e)))?;
+
+    let to = if to > 0 { to } else { max_stream_id };
+
+    let change_rows = sqlx::query_as::<_, (String, Option<String>, String, i64)>(
+        r#"
+        SELECT user_id, device_id, change_type, stream_id
+        FROM device_lists_changes
+        WHERE stream_id > $1
+          AND stream_id <= $2
+          AND user_id = ANY($3)
+        ORDER BY stream_id ASC
+        "#,
+    )
+    .bind(since)
+    .bind(to)
+    .bind(&users)
+    .fetch_all(&*state.services.device_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get device list changes: {}", e)))?;
+
+    let mut latest: HashMap<(String, String), String> = HashMap::new();
+    for (user_id, device_id, change_type, _stream_id) in change_rows {
+        let Some(device_id) = device_id else {
+            continue;
+        };
+        latest.insert((user_id, device_id), change_type);
+    }
+
+    let mut deleted: Vec<Value> = Vec::new();
+    for ((user_id, device_id), change_type) in latest {
+        if change_type == "deleted" {
+            deleted.push(json!({
+                "user_id": user_id,
+                "device_id": device_id
+            }));
+            continue;
+        }
+
+        let row = sqlx::query_as::<_, (Option<String>, Option<i64>, Option<String>)>(
+            r#"
+            SELECT display_name, last_seen_ts, last_seen_ip
+            FROM devices
+            WHERE user_id = $1 AND device_id = $2
+            "#,
+        )
+        .bind(&user_id)
+        .bind(&device_id)
+        .fetch_optional(&*state.services.device_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get device data: {}", e)))?;
+
+        if let Some((display_name, last_seen_ts, last_seen_ip)) = row {
+            changed.push(json!({
+                "user_id": user_id,
+                "device_id": device_id,
+                "device_data": {
+                    "display_name": display_name,
+                    "last_seen_ts": last_seen_ts,
+                    "last_seen_ip": last_seen_ip,
+                }
+            }));
+        }
+    }
+
+    let existing_users: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT DISTINCT user_id FROM devices WHERE user_id = ANY($1)
+        "#,
+    )
+    .bind(&users)
+    .fetch_all(&*state.services.device_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to resolve left users: {}", e)))?;
+
+    let existing: HashSet<String> = existing_users.into_iter().collect();
+    for user_id in &users {
+        if !existing.contains(user_id) {
+            left.push(user_id.clone());
+        }
+    }
+
+    Ok(Json(json!({
+        "changed": changed,
+        "deleted": deleted,
+        "left": left,
+        "stream_id": to
+    })))
 }
 
 #[axum::debug_handler]
@@ -326,22 +486,139 @@ async fn upload_device_signing(
 
 #[axum::debug_handler]
 async fn create_room_key_request(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    MatrixJson(_body): MatrixJson<Value>,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(serde_json::json!({})))
+    let device_id = auth_user
+        .device_id
+        .as_deref()
+        .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
+    let body: CreateRoomKeyRequestBody = serde_json::from_value(body)
+        .map_err(|e| ApiError::bad_request(format!("Invalid room key request: {}", e)))?;
+
+    let request = state
+        .services
+        .key_request_service
+        .create_request(
+            &auth_user.user_id,
+            device_id,
+            &body.room_id,
+            &body.session_id,
+            &body.algorithm,
+            body.request_type.as_deref(),
+            body.request_id.as_deref(),
+        )
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "request_id": request.request_id
+    })))
 }
 
 #[axum::debug_handler]
 async fn get_room_key_requests(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Query(_params): Query<std::collections::HashMap<String, String>>,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Query(params): Query<GetRoomKeyRequestsQuery>,
 ) -> Result<Json<Value>, ApiError> {
+    let mut requests = state
+        .services
+        .key_request_service
+        .get_requests(&auth_user.user_id, params.status.as_deref())
+        .await?;
+
+    if let Some(room_id) = params.room_id.as_deref() {
+        requests.retain(|request| request.room_id == room_id);
+    }
+
+    if let Some(session_id) = params.session_id.as_deref() {
+        requests.retain(|request| request.session_id == session_id);
+    }
+
+    if let Some(limit) = params.limit {
+        requests.truncate(limit);
+    }
+
     Ok(Json(serde_json::json!({
-        "requests": []
+        "requests": requests
+            .into_iter()
+            .map(serialize_room_key_request)
+            .collect::<Vec<_>>()
     })))
+}
+
+#[axum::debug_handler]
+async fn delete_room_key_request(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(request_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let existing = state
+        .services
+        .key_request_service
+        .get_request(&request_id)
+        .await?;
+
+    let request = existing.ok_or_else(|| ApiError::not_found("Room key request not found".to_string()))?;
+
+    if request.user_id != auth_user.user_id {
+        return Err(ApiError::forbidden(
+            "Cannot delete another user's room key request".to_string(),
+        ));
+    }
+
+    state
+        .services
+        .key_request_service
+        .cancel_request(&request_id)
+        .await?;
+
+    Ok(Json(serde_json::json!({})))
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateRoomKeyRequestBody {
+    algorithm: String,
+    room_id: String,
+    session_id: String,
+    request_type: Option<String>,
+    request_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct GetRoomKeyRequestsQuery {
+    status: Option<String>,
+    room_id: Option<String>,
+    session_id: Option<String>,
+    limit: Option<usize>,
+}
+
+fn serialize_room_key_request(request: crate::e2ee::key_request::KeyRequestInfo) -> Value {
+    let action = request.action;
+    let status = if action == "cancellation" || action == "cancelled" {
+        "cancelled"
+    } else if request.is_fulfilled {
+        "fulfilled"
+    } else {
+        "pending"
+    };
+
+    serde_json::json!({
+        "request_id": request.request_id,
+        "user_id": request.user_id,
+        "device_id": request.device_id,
+        "room_id": request.room_id,
+        "session_id": request.session_id,
+        "algorithm": request.algorithm,
+        "request_type": action.clone(),
+        "action": action,
+        "status": status,
+        "created_ts": request.created_ts,
+        "is_fulfilled": request.is_fulfilled,
+        "fulfilled_by_device": request.fulfilled_by_device,
+        "fulfilled_ts": request.fulfilled_ts,
+    })
 }
 
 // =====================================================
@@ -712,11 +989,47 @@ mod tests {
             "/keys/changes",
             "/keys/signatures/upload",
             "/keys/device_signing/upload",
+            "/room_keys/request",
+            "/room_keys/request/{request_id}",
             "/rooms/{room_id}/keys/distribution",
             "/sendToDevice/{event_type}/{transaction_id}",
         ];
 
-        assert_eq!(shared_paths.len(), 8);
+        assert_eq!(shared_paths.len(), 10);
         assert!(shared_paths.iter().all(|path| path.starts_with('/')));
+    }
+
+    #[test]
+    fn test_serialize_room_key_request_statuses() {
+        let pending = super::serialize_room_key_request(crate::e2ee::key_request::KeyRequestInfo {
+            request_id: "req-1".to_string(),
+            user_id: "@alice:example.org".to_string(),
+            device_id: "DEVICE".to_string(),
+            room_id: "!room:example.org".to_string(),
+            session_id: "sess-1".to_string(),
+            algorithm: "m.megolm.v1.aes-sha2".to_string(),
+            action: "request".to_string(),
+            created_ts: 1,
+            is_fulfilled: false,
+            fulfilled_by_device: None,
+            fulfilled_ts: None,
+        });
+        let cancelled = super::serialize_room_key_request(crate::e2ee::key_request::KeyRequestInfo {
+            request_id: "req-2".to_string(),
+            user_id: "@alice:example.org".to_string(),
+            device_id: "DEVICE".to_string(),
+            room_id: "!room:example.org".to_string(),
+            session_id: "sess-2".to_string(),
+            algorithm: "m.megolm.v1.aes-sha2".to_string(),
+            action: "cancellation".to_string(),
+            created_ts: 2,
+            is_fulfilled: true,
+            fulfilled_by_device: None,
+            fulfilled_ts: None,
+        });
+
+        assert_eq!(pending["status"], "pending");
+        assert_eq!(pending["request_type"], "request");
+        assert_eq!(cancelled["status"], "cancelled");
     }
 }

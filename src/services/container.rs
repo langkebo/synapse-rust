@@ -11,6 +11,7 @@ use crate::common::*;
 use crate::e2ee::backup::KeyBackupService;
 use crate::e2ee::cross_signing::CrossSigningService;
 use crate::e2ee::device_keys::DeviceKeyService;
+use crate::e2ee::key_request::KeyRequestService;
 use crate::e2ee::megolm::MegolmService;
 use crate::e2ee::to_device::ToDeviceService;
 use crate::e2ee::verification::VerificationService;
@@ -37,6 +38,7 @@ pub struct ServiceContainer {
     pub presence_service: PresenceStorage,
     pub auth_service: AuthService,
     pub device_keys_service: DeviceKeyService,
+    pub key_request_service: KeyRequestService,
     pub megolm_service: MegolmService,
     pub cross_signing_service: CrossSigningService,
     pub backup_service: KeyBackupService,
@@ -161,6 +163,8 @@ impl ServiceContainer {
         let megolm_storage = crate::e2ee::megolm::MegolmSessionStorage::new(pool);
         let encryption_key = generate_encryption_key();
         let megolm_service = MegolmService::new(megolm_storage, cache.clone(), encryption_key);
+        let key_request_storage = crate::e2ee::key_request::KeyRequestStorage::new(pool.as_ref());
+        let key_request_service = KeyRequestService::new(key_request_storage, megolm_service.clone());
         let cross_signing_storage = crate::e2ee::cross_signing::CrossSigningStorage::new(pool);
         let cross_signing_service = CrossSigningService::new(cross_signing_storage);
         let key_backup_storage = crate::e2ee::backup::KeyBackupStorage::new(pool);
@@ -270,7 +274,11 @@ impl ServiceContainer {
             );
         let email_verification_storage = EmailVerificationStorage::new(pool);
         let event_auth_chain = EventAuthChain::new();
-        let server_name = config.server.name.clone();
+        let server_name = if config.federation.server_name.is_empty() {
+            config.server.name.clone()
+        } else {
+            config.federation.server_name.clone()
+        };
         let key_rotation_manager = KeyRotationManager::new(pool, &server_name);
         let device_sync_manager =
             DeviceSyncManager::new(pool, Some(cache.clone()), task_queue.clone());
@@ -460,6 +468,7 @@ impl ServiceContainer {
             presence_service,
             auth_service,
             device_keys_service,
+            key_request_service,
             megolm_service,
             cross_signing_service,
             backup_service,
@@ -686,6 +695,7 @@ fn build_test_config() -> Config {
             enabled: true,
             shared_secret: "test_shared_secret".to_string(),
             nonce_timeout_seconds: 60,
+            allow_external_access: false,
         },
         builtin_oidc: crate::common::config::BuiltinOidcConfig::default(),
         worker: WorkerConfig::default(),

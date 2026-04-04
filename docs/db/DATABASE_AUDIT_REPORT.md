@@ -229,7 +229,7 @@ psql -U synapse -d synapse -f migrations/99999999_unified_incremental_migration.
 | `rust_table_inventory.md` | Rust 动态创建表清单 (21 表) |
 | `rust_model_inventory.md` | Rust 模型清单 (51 模型) |
 | `FIELD_MAPPING_REPORT.md` | 字段映射报告 |
-| `COMPLETION_REPORT.md` | 完成报告 |
+| `CAPABILITY_STATUS_BASELINE_2026-04-02.md` | 正式能力状态基线（当前事实源入口） |
 | `VERIFICATION_CHECKLIST.md` | 验收清单 |
 
 ---

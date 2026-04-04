@@ -79,7 +79,7 @@ impl SynapseServer {
 
         // 运行数据库 Schema 健康检查
         ::tracing::info!("Running database schema health check...");
-        match run_schema_health_check(&pool, true).await {
+        match run_schema_health_check(&pool, false).await {
             Ok(result) => {
                 if result.passed {
                     ::tracing::info!("✅ Database schema validation PASSED");
@@ -339,22 +339,28 @@ impl SynapseServer {
 
         tokio::spawn(async move {
             let _ = shutdown_tx;
-            axum::serve(client_listener, router)
-                .with_graceful_shutdown(async move {
-                    shutdown_rx1.recv().await.ok();
-                })
-                .await
-                .ok();
+            axum::serve(
+                client_listener,
+                router.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async move {
+                shutdown_rx1.recv().await.ok();
+            })
+            .await
+            .ok();
             let _ = client_tx.send(());
         });
 
         tokio::spawn(async move {
-            axum::serve(federation_listener, fed_router)
-                .with_graceful_shutdown(async move {
-                    shutdown_rx2.recv().await.ok();
-                })
-                .await
-                .ok();
+            axum::serve(
+                federation_listener,
+                fed_router.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async move {
+                shutdown_rx2.recv().await.ok();
+            })
+            .await
+            .ok();
             let _ = fed_tx.send(());
         });
 

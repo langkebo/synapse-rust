@@ -204,6 +204,7 @@ impl OidcService {
         &self,
         code: &str,
         redirect_uri: &str,
+        code_verifier: Option<&str>,
     ) -> Result<OidcTokenResponse, ApiError> {
         let default_token = format!("{}/token", self.config.issuer);
         let token_endpoint = self
@@ -214,12 +215,15 @@ impl OidcService {
             .map(|s| s.as_str())
             .unwrap_or(&default_token);
 
-        let params = [
+        let mut params = vec![
             ("grant_type", "authorization_code"),
             ("code", code),
             ("redirect_uri", redirect_uri),
-            ("client_id", &self.config.client_id),
+            ("client_id", self.config.client_id.as_str()),
         ];
+        if let Some(code_verifier) = code_verifier {
+            params.push(("code_verifier", code_verifier));
+        }
 
         let mut request = self.http_client.post(token_endpoint).form(&params);
 
@@ -378,6 +382,8 @@ impl OidcService {
 mod tests {
     use super::*;
     use crate::common::config::OidcAttributeMapping;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn create_test_config() -> OidcConfig {
         OidcConfig {
@@ -499,5 +505,41 @@ mod tests {
 
         let user = service.map_user(&user_info);
         assert_eq!(user.localpart, "user123");
+    }
+
+    #[tokio::test]
+    async fn test_exchange_code_sends_pkce_verifier() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "access-token",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+                "refresh_token": "refresh-token",
+                "scope": "openid profile email"
+            })))
+            .mount(&server)
+            .await;
+
+        let mut config = create_test_config();
+        config.issuer = server.uri();
+        config.token_endpoint = Some(format!("{}/token", server.uri()));
+        let service = OidcService::new(Arc::new(config));
+
+        let response = service
+            .exchange_code(
+                "auth-code",
+                "https://matrix.example.com/callback",
+                Some("verifier-123"),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.access_token, "access-token");
+
+        let requests = server.received_requests().await.unwrap();
+        let body = String::from_utf8_lossy(&requests[0].body);
+        assert!(body.contains("code_verifier=verifier-123"));
     }
 }

@@ -21,7 +21,10 @@ mod invite_blocklist_tests {
         match get_test_pool_async().await {
             Ok(pool) => Some(pool),
             Err(error) => {
-                eprintln!("Skipping invite blocklist tests because test database is unavailable: {}", error);
+                eprintln!(
+                    "Skipping invite blocklist tests because test database is unavailable: {}",
+                    error
+                );
                 None
             }
         }
@@ -252,11 +255,7 @@ mod invite_blocklist_tests {
     #[test]
     fn test_room_id_format_validation() {
         // Test that room IDs follow Matrix format
-        let valid_rooms = vec![
-            "!room:localhost",
-            "!room:example.com",
-            "!abc123:matrix.org",
-        ];
+        let valid_rooms = vec!["!room:localhost", "!room:example.com", "!abc123:matrix.org"];
 
         for room in valid_rooms {
             assert!(room.starts_with('!'), "Room ID should start with !");

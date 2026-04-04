@@ -132,6 +132,14 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/friends/{user_id}/info",
             get(get_friend_info),
         )
+        .route(
+            "/_matrix/client/v1/friends/{user_id}/displayname",
+            put(update_friend_displayname),
+        )
+        .route(
+            "/_matrix/client/r0/friends/{user_id}/displayname",
+            put(update_friend_displayname),
+        )
         // 好友分组
         .route("/_matrix/client/v1/friends/groups", get(get_friend_groups))
         .route(
@@ -209,6 +217,11 @@ pub struct UpdateNoteRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateStatusRequest {
     pub status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateDisplaynameRequest {
+    pub displayname: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -427,6 +440,29 @@ async fn get_friend_info(
         .ok_or_else(|| ApiError::not_found(format!("Friend {} not found", friend_id)))?;
 
     Ok(Json(info))
+}
+
+async fn update_friend_displayname(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(friend_id): Path<String>,
+    Json(body): Json<UpdateDisplaynameRequest>,
+) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&friend_id)?;
+
+    if body.displayname.is_empty() || body.displayname.len() > 256 {
+        return Err(ApiError::bad_request(
+            "Display name must be between 1 and 256 characters".to_string(),
+        ));
+    }
+
+    state
+        .services
+        .friend_room_service
+        .update_friend_displayname(&auth_user.user_id, &friend_id, &body.displayname)
+        .await?;
+
+    Ok(Json(json!({})))
 }
 
 async fn get_received_requests(

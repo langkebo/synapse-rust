@@ -31,8 +31,8 @@ impl VerificationStorage {
         .bind(&request.from_device)
         .bind(&request.to_user)
         .bind(&request.to_device)
-        .bind(serde_json::to_string(&request.method).unwrap_or_default())
-        .bind(serde_json::to_string(&request.state).unwrap_or_default())
+        .bind(serialize_method(&request.method))
+        .bind(serialize_state(&request.state))
         .bind(request.created_ts)
         .bind(request.updated_ts)
         .execute(self.pool.as_ref())
@@ -76,8 +76,8 @@ impl VerificationStorage {
                 from_device,
                 to_user,
                 to_device,
-                method: serde_json::from_str(&method).unwrap_or(VMethod::Sas),
-                state: serde_json::from_str(&state).unwrap_or(VerificationState::Requested),
+                method: parse_method(&method),
+                state: parse_state(&state),
                 created_ts,
                 updated_ts,
             }))
@@ -96,7 +96,7 @@ impl VerificationStorage {
         sqlx::query(
             "UPDATE verification_requests SET state = $1, updated_ts = $2 WHERE transaction_id = $3"
         )
-        .bind(serde_json::to_string(&state).unwrap_or_default())
+        .bind(serialize_state(&state))
         .bind(now)
         .bind(transaction_id)
         .execute(&*self.pool)
@@ -120,8 +120,8 @@ impl VerificationStorage {
         .bind(&sas.tx_id)
         .bind(&sas.from_device)
         .bind(&sas.to_device)
-        .bind(serde_json::to_string(&sas.method).unwrap_or_default())
-        .bind(serde_json::to_string(&sas.state).unwrap_or_default())
+        .bind(serialize_method(&sas.method))
+        .bind(serialize_state(&sas.state))
         .bind(serde_json::to_value(&sas.exchange_hashes).unwrap_or_default())
         .bind(&sas.commitment)
         .bind(&sas.pubkey)
@@ -148,7 +148,7 @@ impl VerificationStorage {
         .bind(&qr.tx_id)
         .bind(&qr.from_device)
         .bind(&qr.to_device)
-        .bind(serde_json::to_string(&qr.state).unwrap_or_default())
+        .bind(serialize_state(&qr.state))
         .bind(&qr.qr_code_data)
         .bind(&qr.scanned_data)
         .execute(&*self.pool)
@@ -195,8 +195,8 @@ impl VerificationStorage {
                         from_device,
                         to_user,
                         to_device,
-                        method: serde_json::from_str(&method).unwrap_or(VMethod::Sas),
-                        state: serde_json::from_str(&state).unwrap_or(VerificationState::Requested),
+                        method: parse_method(&method),
+                        state: parse_state(&state),
                         created_ts,
                         updated_ts,
                     }
@@ -216,5 +216,65 @@ impl VerificationStorage {
             })?;
 
         Ok(())
+    }
+}
+
+fn serialize_method(method: &VMethod) -> &'static str {
+    match method {
+        VMethod::Sas => "sas",
+        VMethod::Qr => "qr",
+        VMethod::Emoji => "emoji",
+        VMethod::Decimal => "decimal",
+    }
+}
+
+fn serialize_state(state: &VerificationState) -> &'static str {
+    match state {
+        VerificationState::Requested => "requested",
+        VerificationState::Ready => "ready",
+        VerificationState::Pending => "pending",
+        VerificationState::Done => "done",
+        VerificationState::Cancelled => "cancelled",
+    }
+}
+
+fn parse_method(value: &str) -> VMethod {
+    match value.trim_matches('"') {
+        "sas" => VMethod::Sas,
+        "qr" => VMethod::Qr,
+        "emoji" => VMethod::Emoji,
+        "decimal" => VMethod::Decimal,
+        _ => serde_json::from_str(value).unwrap_or(VMethod::Sas),
+    }
+}
+
+fn parse_state(value: &str) -> VerificationState {
+    match value.trim_matches('"') {
+        "requested" => VerificationState::Requested,
+        "ready" => VerificationState::Ready,
+        "pending" => VerificationState::Pending,
+        "done" => VerificationState::Done,
+        "cancelled" | "canceled" => VerificationState::Cancelled,
+        _ => serde_json::from_str(value).unwrap_or(VerificationState::Requested),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_method, parse_state, serialize_method, serialize_state};
+    use crate::e2ee::verification::models::{VerificationMethod, VerificationState};
+
+    #[test]
+    fn serializes_plain_enum_values() {
+        assert_eq!(serialize_method(&VerificationMethod::Sas), "sas");
+        assert_eq!(serialize_state(&VerificationState::Requested), "requested");
+    }
+
+    #[test]
+    fn parses_plain_and_json_encoded_values() {
+        assert_eq!(parse_method("sas"), VerificationMethod::Sas);
+        assert_eq!(parse_method("\"qr\""), VerificationMethod::Qr);
+        assert_eq!(parse_state("pending"), VerificationState::Pending);
+        assert_eq!(parse_state("\"cancelled\""), VerificationState::Cancelled);
     }
 }

@@ -379,10 +379,11 @@ async fn get_historical_key(
     let row = sqlx::query_as::<_, HistoricalKeyRow>(
         r#"
         SELECT public_key FROM federation_signing_keys
-        WHERE key_id = $1 AND expires_at < $2
+        WHERE server_name = $1 AND key_id = $2 AND expires_at < $3
         ORDER BY created_ts DESC LIMIT 1
         "#,
     )
+    .bind(origin)
     .bind(key_id)
     .bind(chrono::Utc::now().timestamp_millis())
     .fetch_optional(state.services.user_storage.pool.as_ref())
@@ -1364,8 +1365,10 @@ async fn get_federation_verify_key(
         }
     }
 
-    if origin == state.services.server_name {
-        if let Some(key) = get_local_verify_key(state, key_id) {
+    if origin == state.services.server_name
+        || origin == state.services.config.federation.server_name
+    {
+        if let Some(key) = get_local_verify_key(state, key_id).await {
             let key_str = base64::engine::general_purpose::STANDARD_NO_PAD.encode(key);
             let ttl = 3600u64;
             let _ = state.cache.set(&cache_key, &key_str, ttl).await;
@@ -1380,7 +1383,10 @@ async fn get_federation_verify_key(
         .map_err(|_| ApiError::unauthorized("Invalid public key".to_string()))
 }
 
-fn get_local_verify_key(state: &crate::web::routes::AppState, key_id: &str) -> Option<[u8; 32]> {
+async fn get_local_verify_key(
+    state: &crate::web::routes::AppState,
+    key_id: &str,
+) -> Option<[u8; 32]> {
     let config = &state.services.config.federation;
 
     if !config.enabled {
@@ -1389,15 +1395,61 @@ fn get_local_verify_key(state: &crate::web::routes::AppState, key_id: &str) -> O
 
     let config_key_id = config.key_id.as_deref().unwrap_or("ed25519:1");
     if key_id != config_key_id {
+        if state
+            .services
+            .key_rotation_manager
+            .load_or_create_key()
+            .await
+            .is_err()
+        {
+            return None;
+        }
+
+        let current_key = state
+            .services
+            .key_rotation_manager
+            .get_current_key()
+            .await
+            .ok()
+            .flatten()?;
+
+        if current_key.key_id != key_id {
+            return None;
+        }
+
+        return decode_ed25519_public_key(&current_key.public_key).ok();
+    }
+
+    if let Some(signing_key) = config.signing_key.as_deref() {
+        let signing_key_bytes = decode_base64_32(signing_key)?;
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_bytes);
+        let verifying_key = signing_key.verifying_key();
+        return Some(*verifying_key.as_bytes());
+    }
+
+    if state
+        .services
+        .key_rotation_manager
+        .load_or_create_key()
+        .await
+        .is_err()
+    {
         return None;
     }
 
-    let signing_key = config.signing_key.as_deref()?;
-    let signing_key_bytes = decode_base64_32(signing_key)?;
-    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_bytes);
-    let verifying_key = signing_key.verifying_key();
+    let current_key = state
+        .services
+        .key_rotation_manager
+        .get_current_key()
+        .await
+        .ok()
+        .flatten()?;
 
-    Some(*verifying_key.as_bytes())
+    if current_key.key_id != key_id {
+        return None;
+    }
+
+    decode_ed25519_public_key(&current_key.public_key).ok()
 }
 
 async fn fetch_federation_verify_key(origin: &str, key_id: &str) -> Result<String, ApiError> {
@@ -1584,6 +1636,7 @@ mod tests {
     use crate::common::config::{
         RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule,
     };
+    use crate::test_utils::{env_lock, EnvGuard};
     use crate::web::utils::ip::extract_client_ip;
     use std::time::Duration;
 
@@ -1788,23 +1841,25 @@ mod tests {
 
     #[test]
     fn test_cors_security_report_development_mode() {
-        std::env::set_var("RUST_ENV", "development");
-        std::env::remove_var("ALLOWED_ORIGINS");
+        let _env_lock = env_lock();
+        let mut env_guard = EnvGuard::new();
+        env_guard.set("RUST_ENV", "development");
+        env_guard.remove("ALLOWED_ORIGINS");
 
         let report = check_cors_security();
 
         assert!(report.is_development_mode);
         assert!(report.has_issues());
         assert!(!report.warnings.is_empty());
-
-        std::env::remove_var("RUST_ENV");
     }
 
     #[test]
     fn test_cors_security_report_production_with_wildcard() {
         std::thread::spawn(|| {
-            std::env::set_var("RUST_ENV", "production");
-            std::env::set_var("ALLOWED_ORIGINS", "*");
+            let _env_lock = env_lock();
+            let mut env_guard = EnvGuard::new();
+            env_guard.set("RUST_ENV", "production");
+            env_guard.set("ALLOWED_ORIGINS", "*");
 
             let report = check_cors_security();
 
@@ -1831,9 +1886,11 @@ mod tests {
 
     #[test]
     fn test_cors_security_report_production_no_origins() {
-        std::env::set_var("RUST_ENV", "production");
-        std::env::remove_var("ALLOWED_ORIGINS");
-        std::env::remove_var("CORS_ORIGIN_PATTERN");
+        let _env_lock = env_lock();
+        let mut env_guard = EnvGuard::new();
+        env_guard.set("RUST_ENV", "production");
+        env_guard.remove("ALLOWED_ORIGINS");
+        env_guard.remove("CORS_ORIGIN_PATTERN");
 
         let report = check_cors_security();
 
@@ -1841,14 +1898,14 @@ mod tests {
         assert!(report.allowed_origins.is_empty());
         assert!(!report.has_pattern);
         assert!(!report.errors.is_empty());
-
-        std::env::remove_var("RUST_ENV");
     }
 
     #[test]
     fn test_cors_security_report_production_with_specific_origins() {
-        std::env::set_var("RUST_ENV", "production");
-        std::env::set_var(
+        let _env_lock = env_lock();
+        let mut env_guard = EnvGuard::new();
+        env_guard.set("RUST_ENV", "production");
+        env_guard.set(
             "ALLOWED_ORIGINS",
             "https://example.com,https://app.example.com",
         );
@@ -1867,9 +1924,6 @@ mod tests {
 
         let validation = validate_cors_config_for_production();
         assert!(validation.is_ok());
-
-        std::env::remove_var("RUST_ENV");
-        std::env::remove_var("ALLOWED_ORIGINS");
     }
 
     #[test]
@@ -1973,20 +2027,22 @@ mod tests {
 
     #[test]
     fn test_validate_bind_address_for_dev_mode_local() {
-        std::env::set_var("RUST_ENV", "development");
+        let _env_lock = env_lock();
+        let mut env_guard = EnvGuard::new();
+        env_guard.set("RUST_ENV", "development");
 
         assert!(validate_bind_address_for_dev_mode("127.0.0.1").is_ok());
         assert!(validate_bind_address_for_dev_mode("localhost").is_ok());
         assert!(validate_bind_address_for_dev_mode("::1").is_ok());
         assert!(validate_bind_address_for_dev_mode("0.0.0.0").is_ok());
         assert!(validate_bind_address_for_dev_mode("127.0.0.5").is_ok());
-
-        std::env::remove_var("RUST_ENV");
     }
 
     #[test]
     fn test_validate_bind_address_for_dev_mode_non_local() {
-        std::env::set_var("RUST_ENV", "development");
+        let _env_lock = env_lock();
+        let mut env_guard = EnvGuard::new();
+        env_guard.set("RUST_ENV", "development");
 
         let result = validate_bind_address_for_dev_mode("192.168.1.1");
         assert!(result.is_err());
@@ -1996,19 +2052,17 @@ mod tests {
 
         let result = validate_bind_address_for_dev_mode("example.com");
         assert!(result.is_err());
-
-        std::env::remove_var("RUST_ENV");
     }
 
     #[test]
     fn test_validate_bind_address_for_production_mode() {
-        std::env::set_var("RUST_ENV", "production");
+        let _env_lock = env_lock();
+        let mut env_guard = EnvGuard::new();
+        env_guard.set("RUST_ENV", "production");
 
         assert!(validate_bind_address_for_dev_mode("0.0.0.0").is_ok());
         assert!(validate_bind_address_for_dev_mode("192.168.1.1").is_ok());
         assert!(validate_bind_address_for_dev_mode("example.com").is_ok());
-
-        std::env::remove_var("RUST_ENV");
     }
 
     #[test]

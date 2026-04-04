@@ -114,7 +114,7 @@ ENV RUST_LOG=info \
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
-    CMD curl -sf http://localhost:8008/_matrix/federation/v1/version || exit 1
+    CMD /app/scripts/healthcheck.sh
 
 # 暴露端口
 EXPOSE 8008 8448 9090

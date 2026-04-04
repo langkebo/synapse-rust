@@ -1,73 +1,71 @@
 #![cfg(test)]
 
 use serde_json::json;
-    use sqlx::{Pool, Postgres};
-    use std::sync::Arc;
-    use tokio::runtime::Runtime;
+use sqlx::{Pool, Postgres};
+use std::sync::Arc;
+use tokio::runtime::Runtime;
 
-    use synapse_rust::cache::{CacheConfig, CacheManager};
-    use synapse_rust::common::validation::Validator;
-    use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
-    use synapse_rust::services::room_summary_service::RoomSummaryService;
-    use synapse_rust::services::sync_service::SyncService;
-    use synapse_rust::services::PresenceStorage;
-    use synapse_rust::storage::device::DeviceStorage;
-    use synapse_rust::storage::event::EventStorage;
-    use synapse_rust::storage::membership::RoomMemberStorage;
-    use synapse_rust::storage::room::RoomStorage;
-    use synapse_rust::storage::room_summary::RoomSummaryStorage;
-    use synapse_rust::storage::user::UserStorage;
+use synapse_rust::cache::{CacheConfig, CacheManager};
+use synapse_rust::common::validation::Validator;
+use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
+use synapse_rust::services::room_summary_service::RoomSummaryService;
+use synapse_rust::services::sync_service::SyncService;
+use synapse_rust::services::PresenceStorage;
+use synapse_rust::storage::device::DeviceStorage;
+use synapse_rust::storage::event::EventStorage;
+use synapse_rust::storage::membership::RoomMemberStorage;
+use synapse_rust::storage::room::RoomStorage;
+use synapse_rust::storage::room_summary::RoomSummaryStorage;
+use synapse_rust::storage::user::UserStorage;
 
-    async fn setup_test_database() -> Option<Pool<Postgres>> {
-        let database_url = std::env::var("TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("DATABASE_URL"))
-            .unwrap_or_else(|_| {
-                "postgresql://synapse:secret@localhost:5432/synapse_test".to_string()
-            });
+async fn setup_test_database() -> Option<Pool<Postgres>> {
+    let database_url = std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
 
-        let pool = match sqlx::postgres::PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(10))
-            .connect(&database_url)
-            .await
-        {
-            Ok(pool) => pool,
-            Err(error) => {
-                eprintln!(
-                    "Skipping sync service tests because test database is unavailable: {}",
-                    error
-                );
-                return None;
-            }
-        };
+    let pool = match sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .connect(&database_url)
+        .await
+    {
+        Ok(pool) => pool,
+        Err(error) => {
+            eprintln!(
+                "Skipping sync service tests because test database is unavailable: {}",
+                error
+            );
+            return None;
+        }
+    };
 
-        sqlx::query("DROP TABLE IF EXISTS presence CASCADE")
-            .execute(&pool)
-            .await
-            .ok();
-        sqlx::query("DROP TABLE IF EXISTS typing CASCADE")
-            .execute(&pool)
-            .await
-            .ok();
-        sqlx::query("DROP TABLE IF EXISTS events CASCADE")
-            .execute(&pool)
-            .await
-            .ok();
-        sqlx::query("DROP TABLE IF EXISTS room_memberships CASCADE")
-            .execute(&pool)
-            .await
-            .ok();
-        sqlx::query("DROP TABLE IF EXISTS rooms CASCADE")
-            .execute(&pool)
-            .await
-            .ok();
-        sqlx::query("DROP TABLE IF EXISTS users CASCADE")
-            .execute(&pool)
-            .await
-            .ok();
+    sqlx::query("DROP TABLE IF EXISTS presence CASCADE")
+        .execute(&pool)
+        .await
+        .ok();
+    sqlx::query("DROP TABLE IF EXISTS typing CASCADE")
+        .execute(&pool)
+        .await
+        .ok();
+    sqlx::query("DROP TABLE IF EXISTS events CASCADE")
+        .execute(&pool)
+        .await
+        .ok();
+    sqlx::query("DROP TABLE IF EXISTS room_memberships CASCADE")
+        .execute(&pool)
+        .await
+        .ok();
+    sqlx::query("DROP TABLE IF EXISTS rooms CASCADE")
+        .execute(&pool)
+        .await
+        .ok();
+    sqlx::query("DROP TABLE IF EXISTS users CASCADE")
+        .execute(&pool)
+        .await
+        .ok();
 
-        sqlx::query(
-            r#"
+    sqlx::query(
+        r#"
             CREATE TABLE users (
                 user_id VARCHAR(255) PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE,
@@ -83,13 +81,13 @@ use serde_json::json;
                 generation BIGINT DEFAULT 0
             )
             "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create users table");
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create users table");
 
-        sqlx::query(
-            r#"
+    sqlx::query(
+        r#"
             CREATE TABLE presence (
                 user_id VARCHAR(255) PRIMARY KEY,
                 presence TEXT,
@@ -99,13 +97,13 @@ use serde_json::json;
                 updated_ts BIGINT
             )
             "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create presence table");
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create presence table");
 
-        sqlx::query(
-            r#"
+    sqlx::query(
+        r#"
             CREATE TABLE rooms (
                 room_id VARCHAR(255) PRIMARY KEY,
                 is_public BOOLEAN DEFAULT FALSE,
@@ -124,13 +122,13 @@ use serde_json::json;
                 member_count BIGINT DEFAULT 0
             )
             "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create rooms table");
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create rooms table");
 
-        sqlx::query(
-            r#"
+    sqlx::query(
+        r#"
             CREATE TABLE room_memberships (
                 room_id VARCHAR(255) NOT NULL,
                 user_id VARCHAR(255) NOT NULL,
@@ -153,13 +151,13 @@ use serde_json::json;
                 PRIMARY KEY (room_id, user_id)
             )
             "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create room_memberships table");
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create room_memberships table");
 
-        sqlx::query(
-            r#"
+    sqlx::query(
+        r#"
             CREATE TABLE events (
                 event_id VARCHAR(255) PRIMARY KEY,
                 room_id VARCHAR(255) NOT NULL,
@@ -179,114 +177,117 @@ use serde_json::json;
                 unsigned JSONB
             )
             "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create events table");
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create events table");
 
-        Some(pool)
-    }
+    Some(pool)
+}
 
-    async fn create_test_user(pool: &Pool<Postgres>, user_id: &str, username: &str) {
-        sqlx::query(
-            r#"
+async fn create_test_user(pool: &Pool<Postgres>, user_id: &str, username: &str) {
+    sqlx::query(
+        r#"
             INSERT INTO users (user_id, username, created_ts)
             VALUES ($1, $2, $3)
             "#,
-        )
-        .bind(user_id)
-        .bind(username)
-        .bind(chrono::Utc::now().timestamp_millis())
-        .execute(pool)
-        .await
-        .expect("Failed to create test user");
-    }
+    )
+    .bind(user_id)
+    .bind(username)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(pool)
+    .await
+    .expect("Failed to create test user");
+}
 
-    fn create_room_service(
-        pool: &Arc<Pool<Postgres>>,
-        room_storage: RoomStorage,
-        member_storage: RoomMemberStorage,
-        event_storage: EventStorage,
-        user_storage: UserStorage,
-    ) -> RoomService {
-        let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
-        let room_summary_service = Arc::new(RoomSummaryService::new(
-            room_summary_storage,
-            Arc::new(event_storage.clone()),
-            Some(Arc::new(member_storage.clone())),
-        ));
+fn create_room_service(
+    pool: &Arc<Pool<Postgres>>,
+    room_storage: RoomStorage,
+    member_storage: RoomMemberStorage,
+    event_storage: EventStorage,
+    user_storage: UserStorage,
+) -> RoomService {
+    let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
+    let room_summary_service = Arc::new(RoomSummaryService::new(
+        room_summary_storage,
+        Arc::new(event_storage.clone()),
+        Some(Arc::new(member_storage.clone())),
+    ));
 
-        RoomService::new(synapse_rust::services::room_service::RoomServiceConfig {
-            room_storage,
+    RoomService::new(synapse_rust::services::room_service::RoomServiceConfig {
+        room_storage,
+        member_storage,
+        event_storage,
+        user_storage,
+        room_summary_service,
+        validator: Arc::new(Validator::default()),
+        server_name: "localhost".to_string(),
+        task_queue: None,
+    })
+}
+
+#[test]
+fn test_sync_success() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = match setup_test_database().await {
+            Some(pool) => Arc::new(pool),
+            None => return,
+        };
+        create_test_user(&pool, "@alice:localhost", "alice").await;
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+        let member_storage = RoomMemberStorage::new(&pool, "localhost");
+        let event_storage = EventStorage::new(&pool, "localhost".to_string());
+        let room_storage = RoomStorage::new(&pool);
+        let user_storage = UserStorage::new(&pool, cache.clone());
+
+        let room_service = create_room_service(
+            &pool,
+            room_storage.clone(),
+            member_storage.clone(),
+            event_storage.clone(),
+            user_storage.clone(),
+        );
+
+        let sync_service = SyncService::new(
+            presence_storage,
             member_storage,
             event_storage,
-            user_storage,
-            room_summary_service,
-            validator: Arc::new(Validator::default()),
-            server_name: "localhost".to_string(),
-            task_queue: None,
-        })
-    }
+            room_storage,
+            DeviceStorage::new(&pool),
+        );
 
-    #[test]
-    fn test_sync_success() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let pool = match setup_test_database().await {
-                Some(pool) => Arc::new(pool),
-                None => return,
-            };
-            create_test_user(&pool, "@alice:localhost", "alice").await;
+        // Create a room and send a message
+        let config = CreateRoomConfig {
+            name: Some("Test Room".to_string()),
+            ..Default::default()
+        };
+        let room_val = room_service
+            .create_room("@alice:localhost", config)
+            .await
+            .unwrap();
+        let room_id = room_val["room_id"].as_str().unwrap();
 
-            let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-            let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
-            let member_storage = RoomMemberStorage::new(&pool, "localhost");
-            let event_storage = EventStorage::new(&pool, "localhost".to_string());
-            let room_storage = RoomStorage::new(&pool);
-            let user_storage = UserStorage::new(&pool, cache.clone());
+        let content = json!({"msgtype": "m.text", "body": "Hello"});
+        room_service
+            .send_message(room_id, "@alice:localhost", "m.room.message", &content)
+            .await
+            .unwrap();
 
-            let room_service = create_room_service(
-                &pool,
-                room_storage.clone(),
-                member_storage.clone(),
-                event_storage.clone(),
-                user_storage.clone(),
-            );
+        let result = sync_service
+            .sync("@alice:localhost", 0, false, "online", None)
+            .await;
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert!(val["rooms"]["join"].is_object());
 
-            let sync_service = SyncService::new(
-                presence_storage,
-                member_storage,
-                event_storage,
-                room_storage,
-                DeviceStorage::new(&pool),
-            );
-
-            // Create a room and send a message
-            let config = CreateRoomConfig {
-                name: Some("Test Room".to_string()),
-                ..Default::default()
-            };
-            let room_val = room_service
-                .create_room("@alice:localhost", config)
-                .await
-                .unwrap();
-            let room_id = room_val["room_id"].as_str().unwrap();
-
-            let content = json!({"msgtype": "m.text", "body": "Hello"});
-            room_service
-                .send_message(room_id, "@alice:localhost", "m.room.message", &content)
-                .await
-                .unwrap();
-
-            let result = sync_service
-                .sync("@alice:localhost", 0, false, "online", None)
-                .await;
-            assert!(result.is_ok());
-            let val = result.unwrap();
-            assert!(val["rooms"]["join"].is_object());
-
-            assert!(val["rooms"]["join"].as_object().unwrap().contains_key(room_id));
-            let room_data = &val["rooms"]["join"][room_id];
-            assert_eq!(room_data["timeline"]["events"].as_array().unwrap().len(), 1);
-        });
-    }
+        assert!(val["rooms"]["join"]
+            .as_object()
+            .unwrap()
+            .contains_key(room_id));
+        let room_data = &val["rooms"]["join"][room_id];
+        assert_eq!(room_data["timeline"]["events"].as_array().unwrap().len(), 1);
+    });
+}

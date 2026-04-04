@@ -133,9 +133,12 @@ mod tests {
             empty_timeout: Some(300),
             max_participants: Some(100),
             node_id: None,
-            metadata: Some(serde_json::json!({
-                "matrix_room_id": "!abc:example.com"
-            }).to_string()),
+            metadata: Some(
+                serde_json::json!({
+                    "matrix_room_id": "!abc:example.com"
+                })
+                .to_string(),
+            ),
         };
 
         assert_eq!(create_room.name, "matrix_room_!abc:example.com");

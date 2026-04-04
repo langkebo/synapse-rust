@@ -1,0 +1,132 @@
+version: '3.8'
+
+services:
+  # Homeserver 1
+  homeserver1:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: synapse-rust-server1
+    environment:
+      - SERVER_NAME=server1.test
+      - DATABASE_URL=postgresql://postgres:password@db1:5432/synapse1
+      - REDIS_URL=redis://redis1:6379
+      - FEDERATION_PORT=8448
+      - REGISTRATION_SHARED_SECRET=test_shared_secret_1
+      - RUST_LOG=info
+    ports:
+      - "8008:8008"
+      - "8448:8448"
+    depends_on:
+      db1:
+        condition: service_healthy
+      redis1:
+        condition: service_healthy
+    networks:
+      federation_test:
+        aliases:
+          - server1.test
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/_matrix/client/versions"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Homeserver 2
+  homeserver2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: synapse-rust-server2
+    environment:
+      - SERVER_NAME=server2.test
+      - DATABASE_URL=postgresql://postgres:password@db2:5432/synapse2
+      - REDIS_URL=redis://redis2:6379
+      - FEDERATION_PORT=8448
+      - REGISTRATION_SHARED_SECRET=test_shared_secret_2
+      - RUST_LOG=info
+    ports:
+      - "8009:8008"
+      - "8449:8448"
+    depends_on:
+      db2:
+        condition: service_healthy
+      redis2:
+        condition: service_healthy
+    networks:
+      federation_test:
+        aliases:
+          - server2.test
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/_matrix/client/versions"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Database for homeserver1
+  db1:
+    image: postgres:15
+    container_name: synapse-rust-db1
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=synapse1
+    volumes:
+      - db1_data:/var/lib/postgresql/data
+    networks:
+      - federation_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Database for homeserver2
+  db2:
+    image: postgres:15
+    container_name: synapse-rust-db2
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=synapse2
+    volumes:
+      - db2_data:/var/lib/postgresql/data
+    networks:
+      - federation_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis for homeserver1
+  redis1:
+    image: redis:7
+    container_name: synapse-rust-redis1
+    networks:
+      - federation_test
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis for homeserver2
+  redis2:
+    image: redis:7
+    container_name: synapse-rust-redis2
+    networks:
+      - federation_test
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+networks:
+  federation_test:
+    driver: bridge
+
+volumes:
+  db1_data:
+  db2_data:

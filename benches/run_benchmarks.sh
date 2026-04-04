@@ -77,11 +77,11 @@ generate_report() {
 show_menu() {
     echo ""
     echo -e "${BLUE}Select an option:${NC}"
-    echo "  1) Run validation benchmarks"
-    echo "  2) Run string operation benchmarks"
-    echo "  3) Run data structure benchmarks"
-    echo "  4) Run serialization benchmarks"
-    echo "  5) Run all benchmarks"
+    echo "  1) Run API benchmarks"
+    echo "  2) Run federation benchmarks"
+    echo "  3) Run all Criterion benchmarks"
+    echo "  4) Run manual performance tests"
+    echo "  5) Run all performance suites"
     echo "  6) Compare results (baseline vs optimized)"
     echo "  7) Quick benchmark run (fast mode)"
     echo "  8) Full benchmark run (accurate mode)"
@@ -92,13 +92,15 @@ show_menu() {
 # Quick benchmark run (fast mode, less accurate)
 run_quick() {
     echo -e "${YELLOW}Running quick benchmarks...${NC}"
-    cargo bench --bench database_bench -- --sample-size 10 --warm-up-time 1 --measurement-time 1
+    cargo bench --bench performance_api_benchmarks -- --sample-size 10 --warm-up-time 1 --measurement-time 1
+    cargo bench --bench performance_federation_benchmarks -- --sample-size 10 --warm-up-time 1 --measurement-time 1
 }
 
 # Full benchmark run (accurate mode)
 run_full() {
     echo -e "${YELLOW}Running full benchmarks...${NC}"
-    cargo bench --bench database_bench -- --sample-size 100 --warm-up-time 3 --measurement-time 5
+    cargo bench --bench performance_api_benchmarks -- --sample-size 100 --warm-up-time 3 --measurement-time 5
+    cargo bench --bench performance_federation_benchmarks -- --sample-size 100 --warm-up-time 3 --measurement-time 5
 }
 
 # Parse command line arguments
@@ -117,12 +119,22 @@ if [ $# -gt 0 ]; then
             fi
             generate_report "$2" "$3" "$4"
             ;;
-        "validation"|"string"|"data"|"serialization"|"all")
-            run_benchmark "database_bench" "$RESULTS_DIR/benchmark_results.json"
+        "api")
+            run_benchmark "performance_api_benchmarks" "$RESULTS_DIR/benchmark_results.json"
+            ;;
+        "federation")
+            run_benchmark "performance_federation_benchmarks" "$RESULTS_DIR/benchmark_results.json"
+            ;;
+        "manual")
+            cargo test --features performance-tests --test performance_manual -- --nocapture
+            ;;
+        "all")
+            run_benchmark "performance_api_benchmarks" "$RESULTS_DIR/benchmark_results.json"
+            run_benchmark "performance_federation_benchmarks" "$RESULTS_DIR/benchmark_results.json"
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [quick|full|compare|validation|string|data|serialization|all]"
+            echo "Usage: $0 [quick|full|compare|api|federation|manual|all]"
             exit 1
             ;;
     esac
@@ -134,8 +146,23 @@ show_menu
 read -p "Enter choice [1-8, q]: " choice
 
 case $choice in
-    1|2|3|4|5)
-        run_benchmark "database_bench" "$RESULTS_DIR/benchmark_results.json"
+    1)
+        run_benchmark "performance_api_benchmarks" "$RESULTS_DIR/benchmark_results.json"
+        ;;
+    2)
+        run_benchmark "performance_federation_benchmarks" "$RESULTS_DIR/benchmark_results.json"
+        ;;
+    3)
+        run_benchmark "performance_api_benchmarks" "$RESULTS_DIR/benchmark_results.json"
+        run_benchmark "performance_federation_benchmarks" "$RESULTS_DIR/benchmark_results.json"
+        ;;
+    4)
+        cargo test --features performance-tests --test performance_manual -- --nocapture
+        ;;
+    5)
+        run_benchmark "performance_api_benchmarks" "$RESULTS_DIR/benchmark_results.json"
+        run_benchmark "performance_federation_benchmarks" "$RESULTS_DIR/benchmark_results.json"
+        cargo test --features performance-tests --test performance_manual -- --nocapture
         ;;
     6)
         echo "Enter path to baseline results:"

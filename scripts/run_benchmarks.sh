@@ -34,25 +34,12 @@ run_benchmarks() {
     echo "[2/5] 运行基准测试..."
     echo ""
     
-    # 数据库基准
-    echo "--- 数据库基准 ---"
-    cargo bench --bench database_bench || echo "数据库基准测试失败"
+    echo "--- API Criterion 基准 ---"
+    cargo bench --bench performance_api_benchmarks || echo "API 基准测试失败"
     
     echo ""
-    echo "--- 缓存基准 ---"
-    cargo bench --bench cache_benchmarks || echo "缓存基准测试失败"
-    
-    echo ""
-    echo "--- 并发基准 ---"
-    cargo bench --bench concurrency_benchmarks || echo "并发基准测试失败"
-    
-    echo ""
-    echo "--- 指标基准 ---"
-    cargo bench --bench metrics_benchmarks || echo "指标基准测试失败"
-    
-    echo ""
-    echo "--- 集合基准 ---"
-    cargo bench --bench collections_benchmarks || echo "集合基准测试失败"
+    echo "--- Federation Criterion 基准 ---"
+    cargo bench --bench performance_federation_benchmarks || echo "联邦基准测试失败"
 }
 
 # 运行单元测试

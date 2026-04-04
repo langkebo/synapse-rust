@@ -186,7 +186,9 @@ mod federation_error_tests {
             ("@user2:test".to_string(), 50),
         ]));
 
-        let conflicts = chain.detect_state_conflicts_advanced(&events, power_levels).await;
+        let conflicts = chain
+            .detect_state_conflicts_advanced(&events, power_levels)
+            .await;
 
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].winning_event, "$1");

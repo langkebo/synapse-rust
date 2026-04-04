@@ -488,3 +488,130 @@ async fn test_device_verification_v3_accepts_alias_fields_and_round_trips_status
     assert_eq!(respond_json["success"], true);
     assert_eq!(respond_json["trust_level"], "verified");
 }
+
+#[tokio::test]
+async fn test_verification_request_listing_and_cancellation_flow() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (alice_token, alice_user_id) =
+        register_user(&app, &format!("verify_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("verify_bob_{}", rand::random::<u32>())).await;
+    let (mallory_token, _) =
+        register_user(&app, &format!("verify_mallory_{}", rand::random::<u32>())).await;
+
+    let start_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v1/keys/device_signing/verify_start")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "from_device": "ALICE",
+                "to_user": bob_user_id,
+                "to_device": "BOB",
+                "method": "m.sas.v1"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let start_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), start_request)
+        .await
+        .unwrap();
+    assert_eq!(start_response.status(), StatusCode::OK);
+
+    let start_body = axum::body::to_bytes(start_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let start_json: Value = serde_json::from_slice(&start_body).unwrap();
+    let transaction_id = start_json["transaction_id"].as_str().unwrap().to_string();
+
+    let pending_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v1/keys/device_signing/requests")
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .body(Body::empty())
+        .unwrap();
+    let pending_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), pending_request)
+        .await
+        .unwrap();
+    assert_eq!(pending_response.status(), StatusCode::OK);
+
+    let pending_body = axum::body::to_bytes(pending_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let pending_json: Value = serde_json::from_slice(&pending_body).unwrap();
+    let requests = pending_json["requests"].as_array().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["transaction_id"], transaction_id);
+    assert_eq!(requests[0]["from_user"], alice_user_id);
+    assert_eq!(requests[0]["to_user"], bob_user_id);
+    assert_eq!(requests[0]["state"], "requested");
+
+    let forbidden_cancel_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v1/keys/device_signing/verify_cancel")
+        .header("Authorization", format!("Bearer {}", mallory_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "transaction_id": transaction_id,
+                "code": "m.user",
+                "reason": "Mallory should not cancel"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let forbidden_cancel_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_cancel_request)
+            .await
+            .unwrap();
+    assert_eq!(forbidden_cancel_response.status(), StatusCode::FORBIDDEN);
+
+    let cancel_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v1/keys/device_signing/verify_cancel")
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "transaction_id": transaction_id,
+                "code": "m.user",
+                "reason": "Cancelled by receiver"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let cancel_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), cancel_request)
+        .await
+        .unwrap();
+    assert_eq!(cancel_response.status(), StatusCode::OK);
+
+    let cancel_body = axum::body::to_bytes(cancel_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let cancel_json: Value = serde_json::from_slice(&cancel_body).unwrap();
+    assert_eq!(cancel_json["transaction_id"], transaction_id);
+    assert_eq!(cancel_json["state"], "cancelled");
+    assert_eq!(cancel_json["code"], "m.user");
+
+    let post_cancel_list_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v1/keys/device_signing/requests")
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .body(Body::empty())
+        .unwrap();
+    let post_cancel_list_response =
+        ServiceExt::<Request<Body>>::oneshot(app, post_cancel_list_request)
+            .await
+            .unwrap();
+    assert_eq!(post_cancel_list_response.status(), StatusCode::OK);
+
+    let post_cancel_body = axum::body::to_bytes(post_cancel_list_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let post_cancel_json: Value = serde_json::from_slice(&post_cancel_body).unwrap();
+    assert_eq!(post_cancel_json["requests"], json!([]));
+}

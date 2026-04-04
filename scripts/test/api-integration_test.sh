@@ -19,6 +19,16 @@ set +H
 
 TEST_ENV="${TEST_ENV:-dev}"
 SERVER_URL="${SERVER_URL:-http://localhost:8008}"
+API_INTEGRATION_PROFILE="${API_INTEGRATION_PROFILE:-core}"
+if [ "${1:-}" = "--profile" ] && [ -n "${2:-}" ]; then
+    API_INTEGRATION_PROFILE="$2"
+    shift 2
+fi
+if [ "$API_INTEGRATION_PROFILE" != "core" ] && [ "$API_INTEGRATION_PROFILE" != "full" ] && [ "$API_INTEGRATION_PROFILE" != "optional" ]; then
+    echo "Unknown profile: $API_INTEGRATION_PROFILE (expected: core|full|optional)"
+    exit 2
+fi
+
 TEST_USER="${TEST_USER:-testuser1}"
 TEST_PASS="${TEST_PASS:-Test@123}"
 TEST_USER2="${TEST_USER2:-testuser2}"
@@ -41,6 +51,7 @@ echo "Complete API Integration Test"
 echo "=========================================="
 echo "Server: $SERVER_URL"
 echo "Test Environment: $TEST_ENV"
+echo "Profile: $API_INTEGRATION_PROFILE"
 echo ""
 
 if [ "$ADMIN_SHARED_SECRET" = "change-me-admin-shared-secret" ] && [ -f "docker/.env" ]; then
@@ -264,6 +275,103 @@ http_json() {
     rm -f "$tmp"
 }
 
+FEDERATION_SIGNING_READY=0
+FEDERATION_SERVER_NAME=""
+FEDERATION_KEY_ID=""
+FEDERATION_SIGNING_KEY=""
+FEDERATION_SIGNER_BIN="${FEDERATION_SIGNER_BIN:-$(pwd)/target/debug/federation_sign_request}"
+
+db_sql_value() {
+    local sql="$1"
+    docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -A -c "$sql" 2>/dev/null | head -n1 | tr -d '\r'
+}
+
+url_path_and_query() {
+    python3 -c 'import sys,urllib.parse; u=urllib.parse.urlparse(sys.argv[1]); p=u.path or "/"; q=("?"+u.query) if u.query else ""; print(p+q)' "$1" 2>/dev/null
+}
+
+ensure_federation_signer() {
+    if [ -x "$FEDERATION_SIGNER_BIN" ]; then
+        return 0
+    fi
+    cargo build -q --bin federation_sign_request >/dev/null 2>&1
+    [ -x "$FEDERATION_SIGNER_BIN" ]
+}
+
+federation_prepare_signing() {
+    if [ "${FEDERATION_SIGNING_READY:-0}" = "1" ]; then
+        return 0
+    fi
+
+    http_json GET "$SERVER_URL/_matrix/key/v2/server" ""
+    if [[ "$HTTP_STATUS" != 2* ]]; then
+        return 1
+    fi
+
+    FEDERATION_SERVER_NAME=$(python3 -c 'import json,sys; j=json.loads(sys.argv[1]); print(j.get("server_name",""))' "$HTTP_BODY" 2>/dev/null)
+    FEDERATION_KEY_ID=$(python3 -c 'import json,sys; j=json.loads(sys.argv[1]); vk=j.get("verify_keys") or {}; print(next(iter(vk.keys()), ""))' "$HTTP_BODY" 2>/dev/null)
+
+    if [ -z "$FEDERATION_SERVER_NAME" ] && [ -n "$USER_ID" ]; then
+        FEDERATION_SERVER_NAME="${USER_ID#*:}"
+    fi
+
+    if [ -z "$FEDERATION_SERVER_NAME" ] || [ -z "$FEDERATION_KEY_ID" ]; then
+        return 1
+    fi
+
+    FEDERATION_SIGNING_KEY=$(db_sql_value "SELECT secret_key FROM federation_signing_keys WHERE server_name='$FEDERATION_SERVER_NAME' AND key_id='$FEDERATION_KEY_ID' ORDER BY created_ts DESC LIMIT 1;")
+    if [ -z "$FEDERATION_SIGNING_KEY" ]; then
+        return 1
+    fi
+
+    ensure_federation_signer || return 1
+
+    FEDERATION_SIGNING_READY=1
+    return 0
+}
+
+federation_http_json() {
+    local name="$1"
+    local method="$2"
+    local url="$3"
+    local data="${4:-}"
+
+    if ! federation_prepare_signing; then
+        skip "$name" "requires federation signed request"
+        return 1
+    fi
+
+    local uri
+    uri=$(url_path_and_query "$url")
+    if [ -z "$uri" ]; then
+        skip "$name" "requires federation signed request"
+        return 1
+    fi
+
+    local sig
+    if [ -n "$data" ]; then
+        sig=$(FEDERATION_SIGNING_KEY="$FEDERATION_SIGNING_KEY" "$FEDERATION_SIGNER_BIN" "$method" "$uri" "$FEDERATION_SERVER_NAME" "$FEDERATION_SERVER_NAME" "$data" 2>/dev/null || true)
+    else
+        sig=$(FEDERATION_SIGNING_KEY="$FEDERATION_SIGNING_KEY" "$FEDERATION_SIGNER_BIN" "$method" "$uri" "$FEDERATION_SERVER_NAME" "$FEDERATION_SERVER_NAME" 2>/dev/null || true)
+    fi
+
+    if [ -z "$sig" ]; then
+        skip "$name" "requires federation signed request"
+        return 1
+    fi
+
+    local tmp
+    tmp=$(mktemp)
+    local args=(-s -X "$method" "$url" -H "Authorization: X-Matrix origin=\"$FEDERATION_SERVER_NAME\",key=\"$FEDERATION_KEY_ID\",sig=\"$sig\"")
+    if [ -n "$data" ]; then
+        args+=(-H "Content-Type: application/json" -d "$data")
+    fi
+    HTTP_STATUS=$(curl "${args[@]}" -o "$tmp" -w "%{http_code}")
+    HTTP_BODY=$(cat "$tmp")
+    rm -f "$tmp"
+    return 0
+}
+
 db_sql() {
     local sql="$1"
     docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -c "$sql" 2>/dev/null || true
@@ -298,6 +406,13 @@ sys.exit(0 if (isinstance(d, dict) and key in d) else 1)
 ' "$2" 2>/dev/null
 }
 
+json_is_valid() {
+    printf '%s' "$1" | python3 -c '
+import json, sys
+json.load(sys.stdin)
+' 2>/dev/null
+}
+
 ASSERT_ERROR=""
 check_success_json() {
     local body="$1"
@@ -306,6 +421,17 @@ check_success_json() {
     ASSERT_ERROR=""
     if [[ "$status" != 2* ]]; then
         ASSERT_ERROR="HTTP $status"
+        return 1
+    fi
+    if [ -z "$body" ]; then
+        if [ "$status" = "204" ]; then
+            return 0
+        fi
+        ASSERT_ERROR="Empty body"
+        return 1
+    fi
+    if ! json_is_valid "$body"; then
+        ASSERT_ERROR="Invalid JSON"
         return 1
     fi
     local err
@@ -391,6 +517,95 @@ print_reason_summary() {
             [ -n "$reason" ] && echo " - [$count] $reason"
         done <<< "$reason_summary"
         echo ""
+    fi
+}
+
+finalize() {
+    echo ""
+    echo "=========================================="
+    echo "Test Summary"
+    echo "=========================================="
+    echo -e "Passed: \033[0;32m$PASSED\033[0m"
+    echo -e "Failed: \033[0;31m$FAILED\033[0m"
+    echo -e "Missing: \033[0;35m$MISSING\033[0m"
+    echo -e "Skipped: \033[0;33m$SKIPPED\033[0m"
+    echo ""
+    echo "Artifacts:"
+    echo " - Passed list: $PASSED_LIST_FILE"
+    echo " - Failed list: $FAILED_LIST_FILE"
+    echo " - Missing list: $MISSING_LIST_FILE"
+    echo " - Skipped list: $SKIPPED_LIST_FILE"
+    echo ""
+
+    print_result_file "Failed Cases" "$FAILED_LIST_FILE"
+    print_result_file "Missing Cases" "$MISSING_LIST_FILE"
+    print_result_file "Skipped Cases" "$SKIPPED_LIST_FILE"
+    print_reason_summary "Failed Reasons" "$FAILED_LIST_FILE"
+    print_reason_summary "Missing Reasons" "$MISSING_LIST_FILE"
+    print_reason_summary "Skipped Reasons" "$SKIPPED_LIST_FILE"
+
+    if [ "$FAILED" -eq 0 ] && [ "$MISSING" -eq 0 ]; then
+        echo "✓ All tests passed!"
+        exit 0
+    else
+        echo "✗ Some tests failed!"
+        exit 1
+    fi
+}
+
+run_optional_profile() {
+    echo ""
+    echo "=========================================="
+    echo "Optional Profile"
+    echo "=========================================="
+
+    echo ""
+    echo "Admin Federation Rewrite"
+    if admin_ready; then
+        http_json POST "$SERVER_URL/_synapse/admin/v1/federation/rewrite" "$ADMIN_TOKEN" '{"from": "localhost", "to": "localhost"}'
+        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rewritten" && pass "Admin Federation Rewrite" || skip "Admin Federation Rewrite (requires federation destination data)"
+    else
+        skip "Admin Federation Rewrite" "admin authentication unavailable"
+    fi
+
+    echo ""
+    echo "SSO Login"
+    http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/redirect" ""
+    if [[ "$HTTP_STATUS" == 2* ]] || [[ "$HTTP_STATUS" == 3* ]]; then
+        pass "SSO Login"
+    else
+        skip "SSO Login" "not supported"
+    fi
+
+    echo ""
+    echo "SSO User Info"
+    http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/userinfo" "$TOKEN"
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        pass "SSO User Info"
+    else
+        skip "SSO User Info" "not supported"
+    fi
+
+    echo ""
+    echo "Reset Password"
+    skip "Reset Password" "destructive test"
+
+    echo ""
+    echo "Identity Lookup"
+    http_json POST "$SERVER_URL/_matrix/identity/v1/lookup" "" '{"addresses": ["test@example.com"]}'
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        pass "Identity Lookup"
+    else
+        skip "Identity Lookup" "external service"
+    fi
+
+    echo ""
+    echo "Identity Request"
+    http_json POST "$SERVER_URL/_matrix/identity/v1/requestToken" "" '{"email": "test@example.com", "client_secret": "test", "send_attempt": 1}'
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        pass "Identity Request"
+    else
+        skip "Identity Request" "external service"
     fi
 }
 
@@ -578,6 +793,11 @@ else
     ADMIN_TOKEN=""
     ADMIN_USER_ID=""
     skip "Admin Login (unavailable)"
+fi
+
+if [ "$API_INTEGRATION_PROFILE" = "optional" ]; then
+    run_optional_profile
+    finalize
 fi
 
 echo ""
@@ -1475,13 +1695,17 @@ if admin_ready; then
 
     echo ""
     echo "111. Admin Federation Rewrite"
-    http_json POST "$SERVER_URL/_synapse/admin/v1/federation/rewrite" "$ADMIN_TOKEN" '{"from": "localhost", "to": "localhost"}'
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rewritten" && pass "Admin Federation Rewrite" || skip "Admin Federation Rewrite (requires federation destination data)"
+    if [ "$API_INTEGRATION_PROFILE" = "full" ]; then
+        http_json POST "$SERVER_URL/_synapse/admin/v1/federation/rewrite" "$ADMIN_TOKEN" '{"from": "localhost", "to": "localhost"}'
+        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rewritten" && pass "Admin Federation Rewrite" || skip "Admin Federation Rewrite (requires federation destination data)"
+    fi
 else
     skip "Admin Federation Destinations" "admin authentication unavailable"
     skip "Admin Federation Destination Details" "admin authentication unavailable"
     skip "Admin Federation Resolve" "admin authentication unavailable"
-    skip "Admin Federation Rewrite" "admin authentication unavailable"
+    if [ "$API_INTEGRATION_PROFILE" = "full" ]; then
+        skip "Admin Federation Rewrite" "admin authentication unavailable"
+    fi
 fi
 
 # 37. Registration Tokens
@@ -1644,14 +1868,29 @@ echo "=========================================="
 echo ""
 echo "128. Get Thread"
 if [ -n "$ROOM_ID" ]; then
-    THREAD_ID=$(echo "$MSG_RESP" | grep -o '"event_id":"[^"]*"' | cut -d'"' -f4)
-    if [ -n "$THREAD_ID" ]; then
-        THREAD_ENC=$(echo "$THREAD_ID" | sed 's/\$/%24/g' | sed 's/\!/%21/g' | sed 's/:/%3A/g')
-        http_json GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads/$THREAD_ENC" "$TOKEN"
-        if [[ "$HTTP_STATUS" == 2* ]]; then
-            pass "Get Thread"
+    THREAD_ROOT_ID=$(echo "$MSG_RESP" | grep -o '"event_id":"[^"]*"' | cut -d'"' -f4)
+    if [ -n "$THREAD_ROOT_ID" ]; then
+        CREATE_THREAD_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"root_event_id\":\"$THREAD_ROOT_ID\",\"content\":{\"body\":\"integration thread\"}}")
+        THREAD_ID=$(echo "$CREATE_THREAD_RESP" | grep -o '"thread_id":"[^"]*"' | cut -d'"' -f4)
+        if [ -n "$THREAD_ID" ]; then
+            THREAD_REPLY_ID="\$thread_reply_$(date +%s%N 2>/dev/null || date +%s)"
+            curl -s -X POST "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads/$THREAD_ID/replies" \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{\"event_id\":\"$THREAD_REPLY_ID\",\"root_event_id\":\"$THREAD_ROOT_ID\",\"content\":{\"msgtype\":\"m.text\",\"body\":\"thread reply\"}}" \
+                > /dev/null
+            THREAD_ENC=$(echo "$THREAD_ID" | sed 's/\$/%24/g' | sed 's/\!/%21/g' | sed 's/:/%3A/g')
+            http_json GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads/$THREAD_ENC" "$TOKEN"
+            if [[ "$HTTP_STATUS" == 2* ]]; then
+                pass "Get Thread"
+            else
+                missing "Get Thread" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+            fi
         else
-            skip "Get Thread (not found)"
+            missing "Get Thread" "thread creation failed"
         fi
     else
         skip "Get Thread (no event id)"
@@ -1965,16 +2204,15 @@ echo "=========================================="
 echo "170. OpenID Connect"
 echo "=========================================="
 echo "170. OpenID Userinfo"
+OPENID_REQ_OK=0
 if [ -n "${OPENID_ACCESS_TOKEN:-}" ]; then
-    http_json GET "$SERVER_URL/_matrix/federation/v1/openid/userinfo?access_token=$OPENID_ACCESS_TOKEN" ""
+    federation_http_json "OpenID Userinfo" GET "$SERVER_URL/_matrix/federation/v1/openid/userinfo?access_token=$OPENID_ACCESS_TOKEN" && OPENID_REQ_OK=1 || true
 else
-    http_json GET "$SERVER_URL/_matrix/federation/v1/openid/userinfo" ""
+    federation_http_json "OpenID Userinfo" GET "$SERVER_URL/_matrix/federation/v1/openid/userinfo" && OPENID_REQ_OK=1 || true
 fi
-if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "sub"; then
-    pass "OpenID Userinfo"
-else
-    if [[ "$HTTP_STATUS" == "401" ]] && echo "$HTTP_BODY" | grep -qi "Missing federation signature"; then
-        skip "OpenID Userinfo" "requires federation signed request"
+if [ "$OPENID_REQ_OK" = "1" ]; then
+    if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "sub"; then
+        pass "OpenID Userinfo"
     else
         skip "OpenID Userinfo" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
     fi
@@ -2007,15 +2245,23 @@ echo "174. Admin User Actions"
 echo "=========================================="
 echo "174. Admin User Login"
 ADMIN_USER_ID_ENC=$(url_encode "$ADMIN_USER_ID")
-curl -s -X POST "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/login" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"password": "'"$TEST_PASS"'"}' | grep -q "access_token\|user_id" && pass "Admin User Login" || skip "Admin User Login (endpoint not available)"
+if admin_ready; then
+    curl -s -X POST "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/login" \
+        -H "Authorization: Bearer $ADMIN_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"password": "'"$TEST_PASS"'"}' | grep -q "access_token\\|user_id" && pass "Admin User Login" || fail "Admin User Login" "request failed"
+else
+    skip "Admin User Login" "admin authentication unavailable"
+fi
 
 echo ""
 echo "175. Admin User Logout"
-curl -s -X POST "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/logout" \
-    -H "Authorization: Bearer $TOKEN" && pass "Admin User Logout" || skip "Admin User Logout (endpoint not available)"
+if admin_ready; then
+    curl -s -X POST "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/logout" \
+        -H "Authorization: Bearer $ADMIN_TOKEN" && pass "Admin User Logout" || fail "Admin User Logout" "request failed"
+else
+    skip "Admin User Logout" "admin authentication unavailable"
+fi
 
 echo ""
 echo "176. Admin User Devices"
@@ -2063,24 +2309,48 @@ check_success_json "$HTTP_BODY" "$HTTP_STATUS" "version" && pass "Federation Ver
 
 echo ""
 echo "181. Federation Backfill"
-http_json GET "$SERVER_URL/_matrix/federation/v1/backfill/$ROOM_ID" "$TOKEN"
-federation_smoke "Federation Backfill" "$HTTP_STATUS" "$HTTP_BODY"
+if [ -n "$MSG_EVENT_ID" ]; then
+    if federation_http_json "Federation Backfill" GET "$SERVER_URL/_matrix/federation/v1/backfill/$ROOM_ID" "{\"v\":[\"$MSG_EVENT_ID\"],\"limit\":10}"; then
+        federation_smoke "Federation Backfill" "$HTTP_STATUS" "$HTTP_BODY"
+    fi
+else
+    skip "Federation Backfill" "no event_id"
+fi
 
 echo ""
 echo "182. Federation Get Event"
-curl -s "$SERVER_URL/_matrix/federation/v1/event/test_event_id" -H "Authorization: Bearer $TOKEN" && pass "Federation Get Event" || skip "Federation Get Event (endpoint not available)"
+if [ -n "$MSG_EVENT_ID" ]; then
+    MSG_EVENT_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$MSG_EVENT_ID" 2>/dev/null)
+    if federation_http_json "Federation Get Event" GET "$SERVER_URL/_matrix/federation/v1/event/$MSG_EVENT_ID_ENC"; then
+        federation_smoke "Federation Get Event" "$HTTP_STATUS" "$HTTP_BODY"
+    fi
+else
+    skip "Federation Get Event" "no event_id"
+fi
 
 echo ""
 echo "183. Federation Event Auth"
-curl -s "$SERVER_URL/_matrix/federation/v1/event_auth/$ROOM_ID" -H "Authorization: Bearer $TOKEN" && pass "Federation Event Auth" || skip "Federation Event Auth (endpoint not available)"
+if [ -n "$MSG_EVENT_ID" ]; then
+    ROOM_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ROOM_ID" 2>/dev/null)
+    MSG_EVENT_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$MSG_EVENT_ID" 2>/dev/null)
+    if federation_http_json "Federation Event Auth" GET "$SERVER_URL/_matrix/federation/v1/get_event_auth/$ROOM_ID_ENC/$MSG_EVENT_ID_ENC"; then
+        federation_smoke "Federation Event Auth" "$HTTP_STATUS" "$HTTP_BODY"
+    fi
+else
+    skip "Federation Event Auth" "no event_id"
+fi
 
 echo ""
 echo "184. Federation Get Joining Rules"
-curl -s "$SERVER_URL/_matrix/federation/v1/get_joining_rules/$ROOM_ID" -H "Authorization: Bearer $TOKEN" && pass "Federation Get Joining Rules" || skip "Federation Get Joining Rules (endpoint not available)"
+if federation_http_json "Federation Get Joining Rules" GET "$SERVER_URL/_matrix/federation/v1/get_joining_rules/$ROOM_ID"; then
+    federation_smoke "Federation Get Joining Rules" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "185. Federation Keys Query"
-curl -s "$SERVER_URL/_matrix/federation/v1/keys/query" -H "Authorization: Bearer $TOKEN" && pass "Federation Keys Query" || skip "Federation Keys Query (endpoint not available)"
+if federation_http_json "Federation Keys Query" POST "$SERVER_URL/_matrix/federation/v1/keys/query" '{"device_keys": {}}'; then
+    federation_smoke "Federation Keys Query" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "186. Federation Keys Claim"
@@ -2098,11 +2368,19 @@ curl -s -X POST "$SERVER_URL/_matrix/federation/v1/keys/upload" \
 
 echo ""
 echo "188. Federation Make Join"
-curl -s "$SERVER_URL/_matrix/federation/v1/make_join/$ROOM_ID/$USER_ID" -H "Authorization: Bearer $TOKEN" && pass "Federation Make Join" || skip "Federation Make Join (endpoint not available)"
+ROOM_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ROOM_ID" 2>/dev/null)
+USER_ID_ENC=$(url_encode "$USER_ID")
+if federation_http_json "Federation Make Join" GET "$SERVER_URL/_matrix/federation/v1/make_join/$ROOM_ID_ENC/$USER_ID_ENC"; then
+    federation_smoke "Federation Make Join" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "189. Federation Make Leave"
-curl -s "$SERVER_URL/_matrix/federation/v1/make_leave/$ROOM_ID/$USER_ID" -H "Authorization: Bearer $TOKEN" && pass "Federation Make Leave" || skip "Federation Make Leave (endpoint not available)"
+ROOM_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ROOM_ID" 2>/dev/null)
+USER_ID_ENC=$(url_encode "$USER_ID")
+if federation_http_json "Federation Make Leave" GET "$SERVER_URL/_matrix/federation/v1/make_leave/$ROOM_ID_ENC/$USER_ID_ENC"; then
+    federation_smoke "Federation Make Leave" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "190. Federation Members"
@@ -2642,11 +2920,13 @@ echo "=========================================="
 echo "260. Version Extended"
 echo "=========================================="
 echo "260. Server Version"
-curl -s "$SERVER_URL/_matrix/client/versions" && pass "Server Version" || fail "Server Version"
+http_json GET "$SERVER_URL/_matrix/client/versions" ""
+check_success_json "$HTTP_BODY" "$HTTP_STATUS" "versions" && pass "Server Version" || fail "Server Version" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 echo ""
 echo "261. Rust Synapse Version"
-curl -s "$SERVER_URL/_synapse/admin/info" && pass "Rust Synapse Version" || skip "Rust Synapse Version (endpoint not available)"
+http_json GET "$SERVER_URL/_synapse/admin/info" ""
+check_success_json "$HTTP_BODY" "$HTTP_STATUS" && pass "Rust Synapse Version" || skip "Rust Synapse Version (endpoint not available)"
 
 # 90. Capabilities
 echo ""
@@ -2654,7 +2934,8 @@ echo "=========================================="
 echo "262. Capabilities"
 echo "=========================================="
 echo "262. Get Capabilities"
-curl -s "$SERVER_URL/_matrix/client/v3/capabilities" -H "Authorization: Bearer $TOKEN" && pass "Get Capabilities" || fail "Get Capabilities"
+http_json GET "$SERVER_URL/_matrix/client/v3/capabilities" "$TOKEN"
+check_success_json "$HTTP_BODY" "$HTTP_STATUS" "capabilities" && pass "Get Capabilities" || fail "Get Capabilities" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 # 91. Admin Room Extended
 echo ""
@@ -2810,7 +3091,8 @@ echo "=========================================="
 echo "274. Room Tags"
 echo "=========================================="
 echo "274. Get Room Tags"
-curl -s "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags" -H "Authorization: Bearer $TOKEN" && pass "Get Room Tags" || skip "Room Tags (endpoint not available)"
+http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags" "$TOKEN"
+check_success_json "$HTTP_BODY" "$HTTP_STATUS" "tags" && pass "Get Room Tags" || skip "Room Tags (endpoint not available)"
 
 # 100. User Directory
 echo ""
@@ -2888,25 +3170,27 @@ else
 fi
 
 # 104. SSOS
-echo ""
-echo "=========================================="
-echo "281. SSOS"
-echo "=========================================="
-echo "281. SSO Login"
-http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/redirect" ""
-if [[ "$HTTP_STATUS" == 2* || "$HTTP_STATUS" == 3* ]]; then
-    pass "SSO Login"
-else
-    skip "SSO Login" "not supported"
-fi
+if [ "$API_INTEGRATION_PROFILE" = "full" ]; then
+    echo ""
+    echo "=========================================="
+    echo "281. SSOS"
+    echo "=========================================="
+    echo "281. SSO Login"
+    http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/redirect" ""
+    if [[ "$HTTP_STATUS" == 2* || "$HTTP_STATUS" == 3* ]]; then
+        pass "SSO Login"
+    else
+        skip "SSO Login" "not supported"
+    fi
 
-echo ""
-echo "282. SSO User Info"
-http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/userinfo" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]]; then
-    pass "SSO User Info"
-else
-    skip "SSO User Info" "not supported"
+    echo ""
+    echo "282. SSO User Info"
+    http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/userinfo" "$TOKEN"
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        pass "SSO User Info"
+    else
+        skip "SSO User Info" "not supported"
+    fi
 fi
 
 # 105. Room Alias Admin
@@ -3095,12 +3379,14 @@ else
 fi
 
 # 115. Admin Reset Password
-echo ""
-echo "=========================================="
-echo "296. Admin Reset Password"
-echo "=========================================="
-echo "296. Reset Password"
-skip "Reset Password" "destructive test"
+if [ "$API_INTEGRATION_PROFILE" = "full" ]; then
+    echo ""
+    echo "=========================================="
+    echo "296. Admin Reset Password"
+    echo "=========================================="
+    echo "296. Reset Password"
+    skip "Reset Password" "destructive test"
+fi
 
 # 116. Room Key Backward
 echo ""
@@ -4230,43 +4516,28 @@ else
     skip "Room Search (not found)"
 fi
 
-# 195. Federation Extended
-echo ""
-echo "=========================================="
-echo "381. Federation Extended"
-echo "=========================================="
-echo "381. Federation Get Groups"
-skip "Federation Get Groups" "non-standard Matrix endpoint"
-
-echo ""
-echo "382. Federation Groups"
-http_json GET "$SERVER_URL/_matrix/federation/v1/groups/test_group" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]]; then
-    pass "Federation Groups"
-else
-    skip "Federation Groups" "not supported"
-fi
-
 # 196. Identity Extended
-echo ""
-echo "=========================================="
-echo "383. Identity Extended"
-echo "=========================================="
-echo "383. Identity Lookup"
-http_json POST "$SERVER_URL/_matrix/identity/v1/lookup" "" '{"addresses": ["test@example.com"]}'
-if [[ "$HTTP_STATUS" == 2* ]]; then
-    pass "Identity Lookup"
-else
-    skip "Identity Lookup" "external service"
-fi
+if [ "$API_INTEGRATION_PROFILE" = "full" ]; then
+    echo ""
+    echo "=========================================="
+    echo "383. Identity Extended"
+    echo "=========================================="
+    echo "383. Identity Lookup"
+    http_json POST "$SERVER_URL/_matrix/identity/v1/lookup" "" '{"addresses": ["test@example.com"]}'
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        pass "Identity Lookup"
+    else
+        skip "Identity Lookup" "external service"
+    fi
 
-echo ""
-echo "384. Identity Request"
-http_json POST "$SERVER_URL/_matrix/identity/v1/requestToken" "" '{"email": "test@example.com", "client_secret": "test", "send_attempt": 1}'
-if [[ "$HTTP_STATUS" == 2* ]]; then
-    pass "Identity Request"
-else
-    skip "Identity Request" "external service"
+    echo ""
+    echo "384. Identity Request"
+    http_json POST "$SERVER_URL/_matrix/identity/v1/requestToken" "" '{"email": "test@example.com", "client_secret": "test", "send_attempt": 1}'
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        pass "Identity Request"
+    else
+        skip "Identity Request" "external service"
+    fi
 fi
 
 # 197. Media Extended
@@ -5158,8 +5429,9 @@ echo "=========================================="
 echo "514. Federation Extended"
 echo "=========================================="
 echo "514. Federation User Devices"
-http_json GET "$SERVER_URL/_matrix/federation/v1/user/devices/$USER_ID" ""
-federation_smoke "Federation User Devices" "$HTTP_STATUS" "$HTTP_BODY"
+if federation_http_json "Federation User Devices" GET "$SERVER_URL/_matrix/federation/v1/user/devices/$USER_ID"; then
+    federation_smoke "Federation User Devices" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "515. Federation v1"
@@ -5173,8 +5445,9 @@ federation_smoke "Federation Version" "$HTTP_STATUS" "$HTTP_BODY"
 
 echo ""
 echo "517. Federation OpenID UserInfo"
-http_json GET "$SERVER_URL/_matrix/federation/v1/openid/userinfo" ""
-federation_smoke "Federation OpenID UserInfo" "$HTTP_STATUS" "$HTTP_BODY"
+if federation_http_json "Federation OpenID UserInfo" GET "$SERVER_URL/_matrix/federation/v1/openid/userinfo?access_token=${OPENID_ACCESS_TOKEN:-test}"; then
+    federation_smoke "Federation OpenID UserInfo" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "518. Federation PublicRooms"
@@ -5183,13 +5456,16 @@ federation_smoke "Federation PublicRooms" "$HTTP_STATUS" "$HTTP_BODY"
 
 echo ""
 echo "519. Federation Query Directory"
-http_json GET "$SERVER_URL/_matrix/federation/v1/query/directory" ""
-federation_smoke "Federation Query Directory" "$HTTP_STATUS" "$HTTP_BODY"
+ROOM_ALIAS_Q_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${ROOM_ALIAS:-#test:cjystx.top}" 2>/dev/null)
+if federation_http_json "Federation Query Directory" GET "$SERVER_URL/_matrix/federation/v1/query/directory?room_alias=$ROOM_ALIAS_Q_ENC"; then
+    federation_smoke "Federation Query Directory" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "520. Federation Query Profile"
-http_json GET "$SERVER_URL/_matrix/federation/v1/query/profile/$USER_ID" ""
-federation_smoke "Federation Query Profile" "$HTTP_STATUS" "$HTTP_BODY"
+if federation_http_json "Federation Query Profile" GET "$SERVER_URL/_matrix/federation/v1/query/profile/$USER_ID"; then
+    federation_smoke "Federation Query Profile" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "521. Federation Query Destination"
@@ -5198,53 +5474,71 @@ federation_smoke "Federation Query Destination" "$HTTP_STATUS" "$HTTP_BODY"
 
 echo ""
 echo "522. Federation Query Auth"
-http_json GET "$SERVER_URL/_matrix/federation/v1/query/auth" ""
-federation_smoke "Federation Query Auth" "$HTTP_STATUS" "$HTTP_BODY"
+if federation_http_json "Federation Query Auth" GET "$SERVER_URL/_matrix/federation/v1/query/auth"; then
+    federation_smoke "Federation Query Auth" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "523. Federation Thirdparty Invite"
-http_json POST "$SERVER_URL/_matrix/federation/v1/thirdparty/invite" "" "{}"
-federation_smoke "Federation Thirdparty Invite" "$HTTP_STATUS" "$HTTP_BODY"
+if federation_http_json "Federation Thirdparty Invite" POST "$SERVER_URL/_matrix/federation/v1/thirdparty/invite" "{\"room_id\":\"$ROOM_ID\",\"invitee\":\"${TARGET_USER_ID:-$USER_ID}\",\"sender\":\"$USER_ID\"}"; then
+    federation_smoke "Federation Thirdparty Invite" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "524. Federation Keys Query"
-http_json GET "$SERVER_URL/_matrix/federation/v1/keys/query" ""
-federation_smoke "Federation Keys Query" "$HTTP_STATUS" "$HTTP_BODY"
+if federation_http_json "Federation Keys Query" POST "$SERVER_URL/_matrix/federation/v1/keys/query" '{"device_keys": {}}'; then
+    federation_smoke "Federation Keys Query" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "525. Federation Keys Claim"
-http_json POST "$SERVER_URL/_matrix/federation/v1/keys/claim" "" '{"one_time_keys": {}}'
-federation_smoke "Federation Keys Claim" "$HTTP_STATUS" "$HTTP_BODY"
+if federation_http_json "Federation Keys Claim" POST "$SERVER_URL/_matrix/federation/v1/keys/claim" '{"one_time_keys": {}}'; then
+    federation_smoke "Federation Keys Claim" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "526. Federation Keys Upload"
-http_json POST "$SERVER_URL/_matrix/federation/v1/keys/upload" "" '{}'
-federation_smoke "Federation Keys Upload" "$HTTP_STATUS" "$HTTP_BODY"
+if federation_http_json "Federation Keys Upload" POST "$SERVER_URL/_matrix/federation/v1/keys/upload" '{}'; then
+    federation_smoke "Federation Keys Upload" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "527. Federation Timestamp to Event"
-http_json GET "$SERVER_URL/_matrix/federation/v1/timestamp_to_event/test_room" ""
-federation_smoke "Federation Timestamp to Event" "$HTTP_STATUS" "$HTTP_BODY"
+FED_ROOM_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ROOM_ID" 2>/dev/null)
+FED_TS=$(python3 -c 'import time; print(int(time.time()*1000))' 2>/dev/null)
+if federation_http_json "Federation Timestamp to Event" GET "$SERVER_URL/_matrix/federation/v1/timestamp_to_event/$FED_ROOM_ID_ENC?ts=$FED_TS"; then
+    federation_smoke "Federation Timestamp to Event" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "528. Federation v2 Invite"
-http_json POST "$SERVER_URL/_matrix/federation/v2/invite/test_room/test_event" "" '{}'
-federation_smoke "Federation v2 Invite" "$HTTP_STATUS" "$HTTP_BODY"
+FED_INVITE_EVENT_ID=$(python3 -c 'import secrets,sys; print("$"+"fedinvite"+secrets.token_hex(8)+":" + sys.argv[1])' "$USER_DOMAIN" 2>/dev/null)
+FED_INVITE_EVENT_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$FED_INVITE_EVENT_ID" 2>/dev/null)
+if federation_http_json "Federation v2 Invite" PUT "$SERVER_URL/_matrix/federation/v2/invite/$FED_ROOM_ID_ENC/$FED_INVITE_EVENT_ID_ENC" "{\"origin\":\"${USER_DOMAIN}\",\"event\":{\"sender\":\"$USER_ID\",\"state_key\":\"${TARGET_USER_ID:-$USER_ID}\",\"origin_server_ts\":$FED_TS,\"content\":{\"membership\":\"invite\"}}}"; then
+    federation_smoke "Federation v2 Invite" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "529. Federation v2 Send Join"
-http_json PUT "$SERVER_URL/_matrix/federation/v2/send_join/test_room/test_event" "" '{}'
-federation_smoke "Federation v2 Send Join" "$HTTP_STATUS" "$HTTP_BODY"
+FED_JOIN_EVENT_ID=$(python3 -c 'import secrets,sys; print("$"+"fedjoin"+secrets.token_hex(8)+":" + sys.argv[1])' "$USER_DOMAIN" 2>/dev/null)
+FED_JOIN_EVENT_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$FED_JOIN_EVENT_ID" 2>/dev/null)
+if federation_http_json "Federation v2 Send Join" PUT "$SERVER_URL/_matrix/federation/v2/send_join/$FED_ROOM_ID_ENC/$FED_JOIN_EVENT_ID_ENC" "{\"origin\":\"${USER_DOMAIN}\",\"sender\":\"$USER_ID\"}"; then
+    federation_smoke "Federation v2 Send Join" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "530. Federation v2 Send Leave"
-http_json PUT "$SERVER_URL/_matrix/federation/v2/send_leave/test_room/test_event" "" '{}'
-federation_smoke "Federation v2 Send Leave" "$HTTP_STATUS" "$HTTP_BODY"
+FED_LEAVE_EVENT_ID=$(python3 -c 'import secrets,sys; print("$"+"fedleave"+secrets.token_hex(8)+":" + sys.argv[1])' "$USER_DOMAIN" 2>/dev/null)
+FED_LEAVE_EVENT_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$FED_LEAVE_EVENT_ID" 2>/dev/null)
+if federation_http_json "Federation v2 Send Leave" PUT "$SERVER_URL/_matrix/federation/v2/send_leave/$FED_ROOM_ID_ENC/$FED_LEAVE_EVENT_ID_ENC" "{\"sender\":\"$USER_ID\"}"; then
+    federation_smoke "Federation v2 Send Leave" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "531. Federation v2 Key Clone"
-http_json POST "$SERVER_URL/_matrix/federation/v2/key/clone" "" '{}'
-federation_smoke "Federation v2 Key Clone" "$HTTP_STATUS" "$HTTP_BODY"
+if federation_http_json "Federation v2 Key Clone" POST "$SERVER_URL/_matrix/federation/v2/key/clone" '{}'; then
+    federation_smoke "Federation v2 Key Clone" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "532. Federation v2 Query"
@@ -5258,8 +5552,9 @@ federation_smoke "Federation v2 Server" "$HTTP_STATUS" "$HTTP_BODY"
 
 echo ""
 echo "534. Federation v2 User Keys Query"
-http_json POST "$SERVER_URL/_matrix/federation/v2/user/keys/query" "" '{"users": {}}'
-federation_smoke "Federation v2 User Keys Query" "$HTTP_STATUS" "$HTTP_BODY"
+if federation_http_json "Federation v2 User Keys Query" POST "$SERVER_URL/_matrix/federation/v2/user/keys/query" '{"users": {}}'; then
+    federation_smoke "Federation v2 User Keys Query" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "535. Federation Hierarchy"
@@ -5280,8 +5575,9 @@ echo ""
 echo "536. Federation Room Auth"
 if [ -n "$ROOM_ID" ]; then
     FED_ROOM_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ROOM_ID" 2>/dev/null)
-    http_json GET "$SERVER_URL/_matrix/federation/v1/room_auth/$FED_ROOM_ID_ENC" ""
-    federation_smoke "Federation Room Auth" "$HTTP_STATUS" "$HTTP_BODY"
+    if federation_http_json "Federation Room Auth" GET "$SERVER_URL/_matrix/federation/v1/room_auth/$FED_ROOM_ID_ENC"; then
+        federation_smoke "Federation Room Auth" "$HTTP_STATUS" "$HTTP_BODY"
+    fi
 else
     skip "Federation Room Auth" "no room_id"
 fi
@@ -5291,8 +5587,9 @@ echo "537. Federation Make Join"
 if [ -n "$ROOM_ID" ] && [ -n "$USER_ID" ]; then
     FED_ROOM_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ROOM_ID" 2>/dev/null)
     FED_USER_ID_ENC=$(url_encode "$USER_ID")
-    http_json GET "$SERVER_URL/_matrix/federation/v1/make_join/$FED_ROOM_ID_ENC/$FED_USER_ID_ENC" ""
-    federation_smoke "Federation Make Join" "$HTTP_STATUS" "$HTTP_BODY"
+    if federation_http_json "Federation Make Join" GET "$SERVER_URL/_matrix/federation/v1/make_join/$FED_ROOM_ID_ENC/$FED_USER_ID_ENC"; then
+        federation_smoke "Federation Make Join" "$HTTP_STATUS" "$HTTP_BODY"
+    fi
 else
     skip "Federation Make Join" "missing room_id/user_id"
 fi
@@ -5302,21 +5599,25 @@ echo "538. Federation Make Leave"
 if [ -n "$ROOM_ID" ] && [ -n "$USER_ID" ]; then
     FED_ROOM_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ROOM_ID" 2>/dev/null)
     FED_USER_ID_ENC=$(url_encode "$USER_ID")
-    http_json GET "$SERVER_URL/_matrix/federation/v1/make_leave/$FED_ROOM_ID_ENC/$FED_USER_ID_ENC" ""
-    federation_smoke "Federation Make Leave" "$HTTP_STATUS" "$HTTP_BODY"
+    if federation_http_json "Federation Make Leave" GET "$SERVER_URL/_matrix/federation/v1/make_leave/$FED_ROOM_ID_ENC/$FED_USER_ID_ENC"; then
+        federation_smoke "Federation Make Leave" "$HTTP_STATUS" "$HTTP_BODY"
+    fi
 else
     skip "Federation Make Leave" "missing room_id/user_id"
 fi
 
 echo ""
 echo "539. Federation Exchange Third Party Invite"
-http_json GET "$SERVER_URL/_matrix/federation/v1/exchange_third_party_invite/test_room" ""
-federation_smoke "Federation Exchange Third Party Invite" "$HTTP_STATUS" "$HTTP_BODY"
+if federation_http_json "Federation Exchange Third Party Invite" PUT "$SERVER_URL/_matrix/federation/v1/exchange_third_party_invite/$FED_ROOM_ID_ENC" '{"invite": {}}'; then
+    federation_smoke "Federation Exchange Third Party Invite" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "540. Federation Knock"
-http_json POST "$SERVER_URL/_matrix/federation/v1/knock/test_room/test_user" "" '{}'
-federation_smoke "Federation Knock" "$HTTP_STATUS" "$HTTP_BODY"
+FED_KNOCK_USER_ID_ENC=$(url_encode "${TARGET_USER_ID:-$USER_ID}")
+if federation_http_json "Federation Knock" PUT "$SERVER_URL/_matrix/federation/v1/knock/$FED_ROOM_ID_ENC/$FED_KNOCK_USER_ID_ENC"; then
+    federation_smoke "Federation Knock" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 # ================================================================================
 # New Representative Tests (Based on API_TEST_REPORT.md optimization)
@@ -5466,7 +5767,9 @@ echo "=========================================="
 if admin_ready; then
     echo "552. Admin Delete User"
     if destructive; then
-        DELETE_TEST_USER_ID_ENC=$(url_encode "@delete_test:${USER_DOMAIN}")
+        DELETE_TEST_USER_ID="@delete_test:${USER_DOMAIN}"
+        DELETE_TEST_USER_ID_ENC=$(url_encode "$DELETE_TEST_USER_ID")
+        http_json PUT "$SERVER_URL/_synapse/admin/v2/users/$DELETE_TEST_USER_ID_ENC" "$ADMIN_TOKEN" '{"password":"DeleteTest123!","admin":false}'
         http_json DELETE "$SERVER_URL/_synapse/admin/v1/users/$DELETE_TEST_USER_ID_ENC" "$ADMIN_TOKEN"
         ADMIN_DEL_USER_RESP="$HTTP_BODY"
         if check_success_json "$ADMIN_DEL_USER_RESP" "$HTTP_STATUS"; then
@@ -5803,88 +6106,65 @@ echo "=========================================="
 echo "119. Federation Extended Representative Tests"
 echo "=========================================="
 echo "571. Federation State"
-echo "NOTE: Federation endpoints require signed requests; unauthenticated calls may return M_UNAUTHORIZED."
-http_json GET "$SERVER_URL/_matrix/federation/v1/state/$ROOM_ID" ""
-FED_STATE_RESP="$HTTP_BODY"
-if check_success_json "$FED_STATE_RESP" "$HTTP_STATUS" "state" "auth_chain"; then
-    pass "Federation State"
-else
-    err=$(json_err_summary "$FED_STATE_RESP")
-    if echo "$err" | grep -q "M_UNAUTHORIZED"; then
-        skip "Federation State" "requires federation signed request"
+if federation_http_json "Federation State" GET "$SERVER_URL/_matrix/federation/v1/state/$ROOM_ID"; then
+    FED_STATE_RESP="$HTTP_BODY"
+    if check_success_json "$FED_STATE_RESP" "$HTTP_STATUS" "state"; then
+        pass "Federation State"
     else
+        err=$(json_err_summary "$FED_STATE_RESP")
         fail "Federation State" "${err:-HTTP $HTTP_STATUS}"
     fi
 fi
 
 echo ""
 echo "572. Federation State IDs"
-http_json GET "$SERVER_URL/_matrix/federation/v1/state_ids/$ROOM_ID" ""
-FED_STATE_IDS_RESP="$HTTP_BODY"
-if check_success_json "$FED_STATE_IDS_RESP" "$HTTP_STATUS" "state_ids" "pdu_events"; then
-    pass "Federation State IDs"
-else
-    err=$(json_err_summary "$FED_STATE_IDS_RESP")
-    if echo "$err" | grep -q "M_UNAUTHORIZED"; then
-        skip "Federation State IDs" "requires federation signed request"
+if federation_http_json "Federation State IDs" GET "$SERVER_URL/_matrix/federation/v1/state_ids/$ROOM_ID"; then
+    FED_STATE_IDS_RESP="$HTTP_BODY"
+    if check_success_json "$FED_STATE_IDS_RESP" "$HTTP_STATUS" "state_ids"; then
+        pass "Federation State IDs"
     else
+        err=$(json_err_summary "$FED_STATE_IDS_RESP")
         fail "Federation State IDs" "${err:-HTTP $HTTP_STATUS}"
     fi
 fi
 
 echo ""
 echo "573. Federation Backfill"
-http_json GET "$SERVER_URL/_matrix/federation/v1/backfill/$ROOM_ID?limit=10" ""
-FED_BACKFILL_RESP="$HTTP_BODY"
-if check_success_json "$FED_BACKFILL_RESP" "$HTTP_STATUS" "origin" "origin_server_ts"; then
-    pass "Federation Backfill"
-else
-    err=$(json_err_summary "$FED_BACKFILL_RESP")
-    if echo "$err" | grep -q "M_UNAUTHORIZED"; then
-        skip "Federation Backfill" "requires federation signed request"
-    else
-        fail "Federation Backfill" "${err:-HTTP $HTTP_STATUS}"
+if [ -n "$MSG_EVENT_ID" ]; then
+    if federation_http_json "Federation Backfill" GET "$SERVER_URL/_matrix/federation/v1/backfill/$ROOM_ID" "{\"v\":[\"$MSG_EVENT_ID\"],\"limit\":10}"; then
+        FED_BACKFILL_RESP="$HTTP_BODY"
+        if check_success_json "$FED_BACKFILL_RESP" "$HTTP_STATUS" "origin" "pdus" "limit"; then
+            pass "Federation Backfill"
+        else
+            err=$(json_err_summary "$FED_BACKFILL_RESP")
+            fail "Federation Backfill" "${err:-HTTP $HTTP_STATUS}"
+        fi
     fi
-fi
-
-echo ""
-echo "574. Federation Groups"
-http_json GET "$SERVER_URL/_matrix/federation/v1/groups/@admin:cjystx.top" ""
-FED_GROUPS_RESP="$HTTP_BODY"
-if check_success_json "$FED_GROUPS_RESP" "$HTTP_STATUS" "profile" "user"; then
-    pass "Federation Groups"
 else
-    err=$(json_err_summary "$FED_GROUPS_RESP")
-    if echo "$err" | grep -q "M_UNAUTHORIZED"; then
-        skip "Federation Groups" "requires federation signed request"
-    else
-        fail "Federation Groups" "${err:-HTTP $HTTP_STATUS}"
-    fi
+    skip "Federation Backfill" "no event_id"
 fi
 
 echo ""
 echo "575. Federation User Devices"
-http_json GET "$SERVER_URL/_matrix/federation/v1/user/devices/@admin:cjystx.top" ""
-FED_DEVICES_RESP="$HTTP_BODY"
-if check_success_json "$FED_DEVICES_RESP" "$HTTP_STATUS" "devices" "user_id"; then
-    pass "Federation User Devices"
-else
-    err=$(json_err_summary "$FED_DEVICES_RESP")
-    if echo "$err" | grep -q "M_UNAUTHORIZED"; then
-        skip "Federation User Devices" "requires federation signed request"
+if federation_http_json "Federation User Devices" GET "$SERVER_URL/_matrix/federation/v1/user/devices/@admin:cjystx.top"; then
+    FED_DEVICES_RESP="$HTTP_BODY"
+    if check_success_json "$FED_DEVICES_RESP" "$HTTP_STATUS" "devices" "user_id"; then
+        pass "Federation User Devices"
     else
+        err=$(json_err_summary "$FED_DEVICES_RESP")
         fail "Federation User Devices" "${err:-HTTP $HTTP_STATUS}"
     fi
 fi
 
 echo ""
 echo "576. Federation OpenID Userinfo"
-http_json GET "$SERVER_URL/_matrix/federation/v1/openid/userinfo" ""
-FED_OPENID_RESP="$HTTP_BODY"
-if check_success_json "$FED_OPENID_RESP" "$HTTP_STATUS" "sub"; then
-    pass "Federation OpenID Userinfo"
-else
-    skip "Federation OpenID Userinfo (requires valid OpenID token)"
+if federation_http_json "Federation OpenID Userinfo" GET "$SERVER_URL/_matrix/federation/v1/openid/userinfo?access_token=${OPENID_ACCESS_TOKEN:-test}"; then
+    FED_OPENID_RESP="$HTTP_BODY"
+    if check_success_json "$FED_OPENID_RESP" "$HTTP_STATUS" "sub"; then
+        pass "Federation OpenID Userinfo"
+    else
+        skip "Federation OpenID Userinfo (requires valid OpenID token)"
+    fi
 fi
 
 echo ""
@@ -5950,9 +6230,12 @@ fi
 
 echo ""
 echo "581. App Service Query"
+if admin_ready; then
+    http_json POST "$SERVER_URL/_synapse/admin/v1/appservices" "$ADMIN_TOKEN" '{"id":"test_as","url":"http://localhost:9999","as_token":"as_token_test_as","hs_token":"hs_token_test_as","sender_localpart":"asbot","description":"api-integration test appservice"}'
+fi
 http_json GET "$SERVER_URL/_matrix/app/v1/test_as" "$TOKEN"
 AS_QUERY_RESP="$HTTP_BODY"
-if check_success_json "$AS_QUERY_RESP" "$HTTP_STATUS"; then
+if check_success_json "$AS_QUERY_RESP" "$HTTP_STATUS" "id"; then
     pass "App Service Query"
 else
     skip "App Service Query" "$ASSERT_ERROR"
@@ -6001,34 +6284,4 @@ fi
 
 echo ""
 
-# Summary
-echo ""
-echo "=========================================="
-echo "Test Summary"
-echo "=========================================="
-echo -e "Passed: \033[0;32m$PASSED\033[0m"
-echo -e "Failed: \033[0;31m$FAILED\033[0m"
-echo -e "Missing: \033[0;35m$MISSING\033[0m"
-echo -e "Skipped: \033[0;33m$SKIPPED\033[0m"
-echo ""
-echo "Artifacts:"
-echo " - Passed list: $PASSED_LIST_FILE"
-echo " - Failed list: $FAILED_LIST_FILE"
-echo " - Missing list: $MISSING_LIST_FILE"
-echo " - Skipped list: $SKIPPED_LIST_FILE"
-echo ""
-
-print_result_file "Failed Cases" "$FAILED_LIST_FILE"
-print_result_file "Missing Cases" "$MISSING_LIST_FILE"
-print_result_file "Skipped Cases" "$SKIPPED_LIST_FILE"
-print_reason_summary "Failed Reasons" "$FAILED_LIST_FILE"
-print_reason_summary "Missing Reasons" "$MISSING_LIST_FILE"
-print_reason_summary "Skipped Reasons" "$SKIPPED_LIST_FILE"
-
-if [ "$FAILED" -eq 0 ] && [ "$MISSING" -eq 0 ]; then
-    echo "✓ All tests passed!"
-    exit 0
-else
-    echo "✗ Some tests failed!"
-    exit 1
-fi
+finalize
