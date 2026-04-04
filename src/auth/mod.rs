@@ -498,9 +498,12 @@ impl AuthService {
             .map_err(|e| ApiError::internal(format!("Failed to delete devices: {}", e)))?;
 
         // Mark user as fully logged out - this will invalidate all cached JWT tokens
-        // by setting a special flag that validate_token will check
+        // issued before this time by setting a special flag that validate_token will check
         let logout_marker = format!("user:logout_all:{}", user_id);
-        self.cache.set_raw(&logout_marker, "true", 3600).await;
+        let now = Utc::now().timestamp();
+        self.cache
+            .set_raw(&logout_marker, &now.to_string(), 3600)
+            .await;
 
         Ok(())
     }
@@ -593,9 +596,13 @@ impl AuthService {
 
         // Check if user has been logged out from all devices
         let logout_marker = format!("user:logout_all:{}", claims.sub);
-        if self.cache.get_raw(&logout_marker).is_some() {
-            ::tracing::debug!(target: "token_validation", "User has been logged out from all devices");
-            return Err(ApiError::unauthorized("Token has been revoked".to_string()));
+        if let Some(marker_val) = self.cache.get_raw(&logout_marker) {
+            if let Ok(logout_ts) = marker_val.parse::<i64>() {
+                if claims.iat < logout_ts {
+                    ::tracing::debug!(target: "token_validation", "User has been logged out from all devices (token issued before logout)");
+                    return Err(ApiError::unauthorized("Token has been revoked".to_string()));
+                }
+            }
         }
 
         let cached_token = self.cache.get_token(token).await;

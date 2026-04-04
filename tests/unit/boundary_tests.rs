@@ -1,10 +1,8 @@
-#![allow(clippy::module_inception)]
-
 // Boundary Condition Tests
 // These tests verify edge cases and boundary conditions for API inputs
 
 #[cfg(test)]
-mod boundary_tests {
+mod boundary_suite {
     use serde_json::json;
 
     // ==================== String Length Boundary Tests ====================

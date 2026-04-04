@@ -100,7 +100,7 @@ impl PresenceStorage {
         target_id: &str,
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             INSERT INTO presence_subscriptions (subscriber_id, target_id, created_ts)
             VALUES ($1, $2, $3)
@@ -111,8 +111,30 @@ impl PresenceStorage {
         .bind(target_id)
         .bind(now)
         .execute(&*self.pool)
-        .await?;
-        Ok(())
+        .await;
+
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let err_msg = e.to_string();
+                if err_msg.contains("column \"subscriber_id\" does not exist") {
+                    return sqlx::query(
+                        r#"
+                        INSERT INTO presence_subscriptions (user_id, friend_id, created_ts)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (user_id, friend_id) DO NOTHING
+                        "#,
+                    )
+                    .bind(subscriber_id)
+                    .bind(target_id)
+                    .bind(now)
+                    .execute(&*self.pool)
+                    .await
+                    .map(|_| ());
+                }
+                Err(e)
+            }
+        }
     }
 
     pub async fn remove_subscription(
@@ -120,7 +142,7 @@ impl PresenceStorage {
         subscriber_id: &str,
         target_id: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             DELETE FROM presence_subscriptions
             WHERE subscriber_id = $1 AND target_id = $2
@@ -129,12 +151,32 @@ impl PresenceStorage {
         .bind(subscriber_id)
         .bind(target_id)
         .execute(&*self.pool)
-        .await?;
-        Ok(())
+        .await;
+
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let err_msg = e.to_string();
+                if err_msg.contains("column \"subscriber_id\" does not exist") {
+                    return sqlx::query(
+                        r#"
+                        DELETE FROM presence_subscriptions
+                        WHERE user_id = $1 AND friend_id = $2
+                        "#,
+                    )
+                    .bind(subscriber_id)
+                    .bind(target_id)
+                    .execute(&*self.pool)
+                    .await
+                    .map(|_| ());
+                }
+                Err(e)
+            }
+        }
     }
 
     pub async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String,)>(
+        let result = sqlx::query_as::<_, (String,)>(
             r#"
             SELECT target_id FROM presence_subscriptions
             WHERE subscriber_id = $1
@@ -142,13 +184,34 @@ impl PresenceStorage {
         )
         .bind(subscriber_id)
         .fetch_all(&*self.pool)
-        .await?;
+        .await;
 
-        Ok(rows.into_iter().map(|row| row.0).collect())
+        match result {
+            Ok(rows) => Ok(rows.into_iter().map(|row| row.0).collect()),
+            Err(e) => {
+                let err_msg = e.to_string();
+                if err_msg.contains("column \"subscriber_id\" does not exist") {
+                    let fallback_result = sqlx::query_as::<_, (String,)>(
+                        r#"
+                        SELECT friend_id FROM presence_subscriptions
+                        WHERE user_id = $1
+                        "#,
+                    )
+                    .bind(subscriber_id)
+                    .fetch_all(&*self.pool)
+                    .await;
+                    return match fallback_result {
+                        Ok(rows) => Ok(rows.into_iter().map(|row| row.0).collect()),
+                        Err(e2) => Err(e2),
+                    };
+                }
+                Err(e)
+            }
+        }
     }
 
     pub async fn get_subscribers(&self, target_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String,)>(
+        let result = sqlx::query_as::<_, (String,)>(
             r#"
             SELECT subscriber_id FROM presence_subscriptions
             WHERE target_id = $1
@@ -156,9 +219,30 @@ impl PresenceStorage {
         )
         .bind(target_id)
         .fetch_all(&*self.pool)
-        .await?;
+        .await;
 
-        Ok(rows.into_iter().map(|row| row.0).collect())
+        match result {
+            Ok(rows) => Ok(rows.into_iter().map(|row| row.0).collect()),
+            Err(e) => {
+                let err_msg = e.to_string();
+                if err_msg.contains("column \"subscriber_id\" does not exist") {
+                    let fallback_result = sqlx::query_as::<_, (String,)>(
+                        r#"
+                        SELECT user_id FROM presence_subscriptions
+                        WHERE friend_id = $1
+                        "#,
+                    )
+                    .bind(target_id)
+                    .fetch_all(&*self.pool)
+                    .await;
+                    return match fallback_result {
+                        Ok(rows) => Ok(rows.into_iter().map(|row| row.0).collect()),
+                        Err(e2) => Err(e2),
+                    };
+                }
+                Err(e)
+            }
+        }
     }
 
     pub async fn get_presence_batch(
@@ -169,7 +253,7 @@ impl PresenceStorage {
             return Ok(Vec::new());
         }
 
-        let rows = sqlx::query_as::<_, (String, String, Option<String>)>(
+        let result = sqlx::query_as::<_, (String, String, Option<String>)>(
             r#"
             SELECT user_id, presence, status_msg
             FROM presence
@@ -178,8 +262,11 @@ impl PresenceStorage {
         )
         .bind(user_ids)
         .fetch_all(&*self.pool)
-        .await?;
+        .await;
 
-        Ok(rows)
+        match result {
+            Ok(rows) => Ok(rows),
+            Err(e) => Err(e),
+        }
     }
 }

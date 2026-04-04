@@ -4,7 +4,7 @@
 //! Run with: cargo bench --bench performance_database_benchmarks
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 

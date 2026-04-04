@@ -933,7 +933,11 @@ async fn store_secure_backup_keys(
                             .get("is_verified")
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false),
-                        session_key: k.get("session_key")?.as_str()?.to_string(),
+                        session_key: k
+                            .get("session_key")
+                            .or_else(|| k.get("session_data").and_then(|sd| sd.get("session_key")))
+                            .and_then(|v| v.as_str())?
+                            .to_string(),
                     })
                 })
                 .collect()
@@ -947,7 +951,7 @@ async fn store_secure_backup_keys(
         .await?;
 
     Ok(Json(serde_json::json!({
-        "key_count": key_count
+        "count": key_count
     })))
 }
 
@@ -971,7 +975,7 @@ async fn restore_secure_backup(
 
     Ok(Json(serde_json::json!({
         "success": response.success,
-        "key_count": response.key_count,
+        "restored_keys": response.key_count,
         "message": response.message
     })))
 }

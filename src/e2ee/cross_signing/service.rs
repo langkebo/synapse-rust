@@ -156,34 +156,74 @@ impl CrossSigningService {
     pub async fn upload_device_signing_key(
         &self,
         user_id: &str,
-        device_id: &str,
+        _device_id: &str,
         key: &serde_json::Value,
     ) -> Result<(), ApiError> {
-        let key_type = key["type"]
-            .as_str()
-            .ok_or_else(|| ApiError::bad_request("Missing key type".to_string()))?;
-        let algorithm = key["algorithm"]
-            .as_str()
-            .ok_or_else(|| ApiError::bad_request("Missing algorithm".to_string()))?;
-        let public_key = key["key"]
-            .as_str()
-            .ok_or_else(|| ApiError::bad_request("Missing public key".to_string()))?;
+        let usage = key.get("usage").and_then(|v| v.as_array());
+        let key_type = if let Some(u) = usage {
+            u.first().and_then(|v| v.as_str()).unwrap_or("unknown")
+        } else {
+            key.get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+        };
+
+        let keys = key.get("keys").and_then(|v| v.as_object());
+        let (_algorithm, public_key) = if let Some(k_map) = keys {
+            if let Some((k, v)) = k_map.iter().next() {
+                let parts: Vec<&str> = k.splitn(2, ':').collect();
+                if parts.len() == 2 {
+                    (parts[0].to_string(), v.as_str().unwrap_or("").to_string())
+                } else {
+                    ("ed25519".to_string(), v.as_str().unwrap_or("").to_string())
+                }
+            } else {
+                ("".to_string(), "".to_string())
+            }
+        } else {
+            (
+                key.get("algorithm")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                key.get("key")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            )
+        };
+
+        if public_key.is_empty() {
+            return Err(ApiError::bad_request(
+                "Missing algorithm or public key".to_string(),
+            ));
+        }
 
         let signatures = key
             .get("signatures")
             .cloned()
             .unwrap_or(serde_json::json!({}));
 
-        let device_key = DeviceKeyInfo {
+        let cross_signing_key = CrossSigningKey {
+            id: uuid::Uuid::new_v4(),
             user_id: user_id.to_string(),
-            device_id: device_id.to_string(),
             key_type: key_type.to_string(),
-            algorithm: algorithm.to_string(),
-            public_key: public_key.to_string(),
+            public_key,
+            usage: usage
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default(),
             signatures,
             created_ts: Utc::now(),
+            updated_ts: Utc::now(),
         };
-        self.storage.save_device_key(&device_key).await?;
+
+        self.storage
+            .create_cross_signing_key(&cross_signing_key)
+            .await?;
         Ok(())
     }
 

@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-mod qr_login_tests {
+mod qr_login_suite {
     use synapse_rust::storage::qr_login::QrLoginStorage;
     use sqlx::postgres::PgPoolOptions;
     use std::sync::Arc;
