@@ -77,7 +77,7 @@ impl KeyRequestStorage {
             SELECT request_id, user_id, device_id, room_id, session_id, algorithm, 
                    action, created_ts, is_fulfilled, fulfilled_by_device, fulfilled_ts
             FROM e2ee_key_requests
-            WHERE user_id = $1 AND is_fulfilled = FALSE
+            WHERE user_id = $1
             ORDER BY created_ts DESC
             LIMIT 100
             "#,
@@ -87,22 +87,7 @@ impl KeyRequestStorage {
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| KeyRequestInfo {
-                request_id: r.get("request_id"),
-                user_id: r.get("user_id"),
-                device_id: r.get("device_id"),
-                room_id: r.get("room_id"),
-                session_id: r.get("session_id"),
-                algorithm: r.get("algorithm"),
-                action: r.get("action"),
-                created_ts: r.get("created_ts"),
-                is_fulfilled: r.get::<Option<bool>, _>("is_fulfilled").unwrap_or(false),
-                fulfilled_by_device: r.get("fulfilled_by_device"),
-                fulfilled_ts: r.get("fulfilled_ts"),
-            })
-            .collect())
+        Ok(rows.into_iter().map(map_request_row).collect())
     }
 
     pub async fn get_all_pending_requests(&self) -> Result<Vec<KeyRequestInfo>, ApiError> {
@@ -120,22 +105,7 @@ impl KeyRequestStorage {
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| KeyRequestInfo {
-                request_id: r.get("request_id"),
-                user_id: r.get("user_id"),
-                device_id: r.get("device_id"),
-                room_id: r.get("room_id"),
-                session_id: r.get("session_id"),
-                algorithm: r.get("algorithm"),
-                action: r.get("action"),
-                created_ts: r.get("created_ts"),
-                is_fulfilled: r.get::<Option<bool>, _>("is_fulfilled").unwrap_or(false),
-                fulfilled_by_device: r.get("fulfilled_by_device"),
-                fulfilled_ts: r.get("fulfilled_ts"),
-            })
-            .collect())
+        Ok(rows.into_iter().map(map_request_row).collect())
     }
 
     pub async fn fulfill_request(&self, request_id: &str, device_id: &str) -> Result<(), ApiError> {
@@ -201,5 +171,21 @@ impl KeyRequestStorage {
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         Ok(result.rows_affected())
+    }
+}
+
+fn map_request_row(r: sqlx::postgres::PgRow) -> KeyRequestInfo {
+    KeyRequestInfo {
+        request_id: r.get("request_id"),
+        user_id: r.get("user_id"),
+        device_id: r.get("device_id"),
+        room_id: r.get("room_id"),
+        session_id: r.get("session_id"),
+        algorithm: r.get("algorithm"),
+        action: r.get("action"),
+        created_ts: r.get("created_ts"),
+        is_fulfilled: r.get::<Option<bool>, _>("is_fulfilled").unwrap_or(false),
+        fulfilled_by_device: r.get("fulfilled_by_device"),
+        fulfilled_ts: r.get("fulfilled_ts"),
     }
 }

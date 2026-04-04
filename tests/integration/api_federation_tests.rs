@@ -88,3 +88,74 @@ async fn test_federation_public_rooms() {
 
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn test_server_keys_endpoint_returns_verify_keys_without_config_signing_key() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .uri("/_matrix/key/v2/server")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(json["server_name"], "test.example.com");
+    assert!(json["verify_keys"]
+        .as_object()
+        .is_some_and(|keys| !keys.is_empty()));
+}
+
+#[tokio::test]
+async fn test_local_key_query_reuses_server_key_response() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .uri("/_matrix/key/v2/server")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    let key_id = json["verify_keys"]
+        .as_object()
+        .and_then(|keys| keys.keys().next().cloned())
+        .unwrap();
+
+    let request = Request::builder()
+        .uri(format!("/_matrix/key/v2/query/test.example.com/{}", key_id))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(json["server_name"], "test.example.com");
+    assert!(json["verify_keys"].get(&key_id).is_some());
+}

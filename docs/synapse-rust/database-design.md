@@ -2063,7 +2063,7 @@ users ────── user_account_data
 
 ## 4. 索引设计
 
-根据 COMPLETION_REPORT.md：
+根据 CAPABILITY_STATUS_BASELINE_2026-04-02.md：
 
 | 索引类型 | 数量 |
 |----------|------|
@@ -2168,7 +2168,7 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
 ### 7.3 PostgreSQL 优化参数
 
-根据 COMPLETION_REPORT.md:
+根据 CAPABILITY_STATUS_BASELINE_2026-04-02.md：
 
 | 参数 | 优化前 | 优化后 |
 |------|--------|--------|
@@ -2282,8 +2282,8 @@ CREATE INDEX rooms_is_public_idx ON rooms(is_public);
 | Rust 表清单 | docs/db/rust_table_inventory.md |
 | 模型清单 | docs/db/rust_model_inventory.md |
 | 字段映射报告 | docs/db/FIELD_MAPPING_REPORT.md |
-| 完成报告 | docs/db/COMPLETION_REPORT.md |
-| 审计报告 | docs/db/DATABASE_AUDIT_REPORT.md |
+| `CAPABILITY_STATUS_BASELINE_2026-04-02.md` | 正式能力状态基线 |
+| `DATABASE_AUDIT_REPORT.md` | 审计报告 |
 
 ### 11.2 关键文件
 

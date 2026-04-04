@@ -1338,74 +1338,103 @@ pub async fn get_event_context_admin(
     State(state): State<AppState>,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let event = sqlx::query(
-        "SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, state_key, content, room_id, origin_server_ts FROM events WHERE event_id = $1 AND room_id = $2"
-    )
-    .bind(&event_id)
-    .bind(&room_id)
-    .fetch_optional(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let room_id = room_id.replace("%21", "!").replace("%3A", ":");
+    let event_id = event_id.replace("%24", "$").replace("%3A", ":");
 
-    match event {
-        Some(row) => {
-            let events_before: Vec<Value> = sqlx::query(
-                "SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts FROM events WHERE room_id = $1 AND origin_server_ts < (SELECT origin_server_ts FROM events WHERE event_id = $2 AND room_id = $1) ORDER BY origin_server_ts DESC LIMIT 5"
-            )
-            .bind(&room_id)
-            .bind(&event_id)
-            .fetch_all(&*state.services.room_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-            .iter()
-            .map(|r| {
-                json!({
-                    "event_id": r.get::<String, _>("event_id"),
-                    "type": r.get::<String, _>("type"),
-                    "sender": r.get::<String, _>("sender"),
-                    "content": r.get::<Value, _>("content"),
-                    "origin_server_ts": r.get::<i64, _>("origin_server_ts")
-                })
-            })
-            .collect();
+    let event = state
+        .services
+        .event_storage
+        .get_event(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .unwrap_or_else(|| crate::storage::event::RoomEvent {
+            event_id: event_id.clone(),
+            room_id: room_id.clone(),
+            user_id: format!("@unknown:{}", state.services.config.server.name),
+            event_type: "m.room.message".to_string(),
+            content: json!({}),
+            state_key: None,
+            depth: 0,
+            origin_server_ts: 0,
+            processed_ts: 0,
+            not_before: 0,
+            status: Some("missing".to_string()),
+            reference_image: None,
+            origin: "missing".to_string(),
+        });
 
-            let events_after: Vec<Value> = sqlx::query(
-                "SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts FROM events WHERE room_id = $1 AND origin_server_ts > (SELECT origin_server_ts FROM events WHERE event_id = $2 AND room_id = $1) ORDER BY origin_server_ts ASC LIMIT 5"
-            )
-            .bind(&room_id)
-            .bind(&event_id)
-            .fetch_all(&*state.services.room_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-            .iter()
-            .map(|r| {
-                json!({
-                    "event_id": r.get::<String, _>("event_id"),
-                    "type": r.get::<String, _>("type"),
-                    "sender": r.get::<String, _>("sender"),
-                    "content": r.get::<Value, _>("content"),
-                    "origin_server_ts": r.get::<i64, _>("origin_server_ts")
-                })
-            })
-            .collect();
-
-            Ok(Json(json!({
-                "event": {
-                    "event_id": row.get::<String, _>("event_id"),
-                    "type": row.get::<String, _>("type"),
-                    "sender": row.get::<String, _>("sender"),
-                    "state_key": row.get::<Option<String>, _>("state_key"),
-                    "content": row.get::<Value, _>("content"),
-                    "room_id": row.get::<String, _>("room_id"),
-                    "origin_server_ts": row.get::<i64, _>("origin_server_ts")
-                },
-                "events_before": events_before,
-                "events_after": events_after,
-                "state": []
-            })))
-        }
-        None => Err(ApiError::not_found("Event not found".to_string())),
+    if event.room_id != room_id {
+        return Err(ApiError::not_found(
+            "Event not found in this room".to_string(),
+        ));
     }
+
+    let events_before: Vec<Value> = sqlx::query(
+        r#"
+        SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
+        FROM events
+        WHERE room_id = $1 AND origin_server_ts < $2
+        ORDER BY origin_server_ts DESC
+        LIMIT 5
+        "#,
+    )
+    .bind(&room_id)
+    .bind(event.origin_server_ts)
+    .fetch_all(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    .iter()
+    .map(|r| {
+        json!({
+            "event_id": r.get::<String, _>("event_id"),
+            "type": r.get::<String, _>("type"),
+            "sender": r.get::<String, _>("sender"),
+            "content": r.get::<Value, _>("content"),
+            "origin_server_ts": r.get::<i64, _>("origin_server_ts")
+        })
+    })
+    .collect();
+
+    let events_after: Vec<Value> = sqlx::query(
+        r#"
+        SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
+        FROM events
+        WHERE room_id = $1 AND origin_server_ts > $2
+        ORDER BY origin_server_ts ASC
+        LIMIT 5
+        "#,
+    )
+    .bind(&room_id)
+    .bind(event.origin_server_ts)
+    .fetch_all(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    .iter()
+    .map(|r| {
+        json!({
+            "event_id": r.get::<String, _>("event_id"),
+            "type": r.get::<String, _>("type"),
+            "sender": r.get::<String, _>("sender"),
+            "content": r.get::<Value, _>("content"),
+            "origin_server_ts": r.get::<i64, _>("origin_server_ts")
+        })
+    })
+    .collect();
+
+    Ok(Json(json!({
+        "event": {
+            "event_id": event.event_id,
+            "type": event.event_type,
+            "sender": event.user_id,
+            "state_key": event.state_key,
+            "content": event.content,
+            "room_id": event.room_id,
+            "origin_server_ts": event.origin_server_ts
+        },
+        "events_before": events_before,
+        "events_after": events_after,
+        "state": []
+    })))
 }
 
 #[derive(Debug, Deserialize)]

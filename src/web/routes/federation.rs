@@ -179,19 +179,19 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
     public.merge(protected)
 }
 
-async fn federation_version(State(state): State<AppState>) -> Json<Value> {
+async fn federation_version(State(_state): State<AppState>) -> Json<Value> {
     Json(json!({
-        "version": state.services.config.server.expire_access_token_lifetime.to_string(), // Just an example, maybe use a real version
+        "version": env!("CARGO_PKG_VERSION"),
         "server": {
-            "name": "Synapse Rust",
-            "version": "0.1.0"
+            "name": "synapse-rust",
+            "version": env!("CARGO_PKG_VERSION")
         }
     }))
 }
 
 async fn federation_discovery(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
-        "version": "0.1.0",
+        "version": env!("CARGO_PKG_VERSION"),
         "server_name": state.services.server_name,
         "capabilities": {
             "m.change_password": true,
@@ -1208,13 +1208,37 @@ async fn keys_upload(
     })))
 }
 
-async fn server_key(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
     let config = &state.services.config.federation;
     if !config.enabled {
         return Err(ApiError::not_found("Federation disabled".to_string()));
     }
 
-    // 从配置获取签名密钥
+    if let Some(current_key) = state
+        .services
+        .key_rotation_manager
+        .get_current_key()
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to load federation signing key: {}", e)))?
+    {
+        return state
+            .services
+            .key_rotation_manager
+            .get_server_keys_response()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to build server key response: {}", e)))
+            .or_else(|_| {
+                Ok(json!({
+                    "server_name": config.server_name,
+                    "verify_keys": {
+                        current_key.key_id: { "key": current_key.public_key }
+                    },
+                    "old_verify_keys": {},
+                    "valid_until_ts": current_key.expires_at
+                }))
+            });
+    }
+
     let key_id = config
         .key_id
         .clone()
@@ -1238,22 +1262,41 @@ async fn server_key(State(state): State<AppState>) -> Result<Json<Value>, ApiErr
 
     let valid_until = chrono::Utc::now().timestamp_millis() + 3600 * 1000;
 
-    Ok(Json(json!({
+    Ok(json!({
         "server_name": config.server_name,
         "verify_keys": {
             key_id: { "key": verify_key }
         },
         "old_verify_keys": {},
         "valid_until_ts": valid_until
-    })))
+    }))
+}
+
+async fn server_key(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    if state.services.config.federation.signing_key.is_none() {
+        state
+            .services
+            .key_rotation_manager
+            .load_or_create_key()
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!(
+                    "Failed to initialize federation signing key: {}",
+                    e
+                ))
+            })?;
+    }
+
+    Ok(Json(resolve_server_keys(&state).await?))
 }
 
 async fn key_query(
     State(state): State<AppState>,
     Path((server_name, key_id)): Path<(String, String)>,
 ) -> Json<Value> {
-    // If it's us, return our key, otherwise we would normally proxy/cache
-    if server_name == state.services.server_name {
+    if server_name == state.services.server_name
+        || server_name == state.services.config.federation.server_name
+    {
         return server_key(State(state))
             .await
             .unwrap_or_else(|e| Json(json!({ "errcode": e.code(), "error": e.message() })));
@@ -1370,10 +1413,19 @@ async fn timestamp_to_event(
     }
 
     // 获取 timestamp 参数
-    let timestamp = params
-        .get("ts")
-        .and_then(|v| v.as_i64())
-        .ok_or_else(|| ApiError::bad_request("Missing 'ts' parameter"))?;
+    let timestamp = match params.get("ts") {
+        Some(v) => {
+            if let Some(ts) = v.as_i64() {
+                ts
+            } else if let Some(s) = v.as_str() {
+                s.parse::<i64>()
+                    .map_err(|_| ApiError::bad_request("Invalid 'ts' parameter"))?
+            } else {
+                return Err(ApiError::bad_request("Invalid 'ts' parameter"));
+            }
+        }
+        None => return Err(ApiError::bad_request("Missing 'ts' parameter")),
+    };
 
     // 验证房间存在
     let _room = state
@@ -1708,17 +1760,27 @@ async fn get_group(
         return Err(ApiError::bad_request("Invalid group_id format"));
     }
 
-    let profile = state
+    let profile = match state
         .services
         .registration_service
         .get_profile(&group_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get group profile: {}", e)))?;
+    {
+        Ok(profile) => Some(profile),
+        Err(ApiError::NotFound(_)) => None,
+        Err(e) => return Err(e),
+    };
 
     Ok(Json(json!({
         "group_id": group_id,
-        "name": profile.get("displayname").and_then(|v| v.as_str()).unwrap_or(&group_id),
-        "avatar_url": profile.get("avatar_url"),
+        "name": profile
+            .as_ref()
+            .and_then(|p| p.get("displayname").and_then(|v| v.as_str()))
+            .unwrap_or(&group_id),
+        "avatar_url": profile
+            .as_ref()
+            .and_then(|p| p.get("avatar_url").cloned())
+            .unwrap_or(Value::Null),
         "short_description": null,
         "long_description": null,
         "number_of_members": 0,

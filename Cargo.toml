@@ -10,6 +10,7 @@ description = "Matrix Homeserver implemented in Rust"
 default = ["server"]
 server = ["dep:axum", "dep:tower-http", "dep:tower_governor"]
 runtime-ddl = []
+performance-tests = []
 
 [dependencies]
 tokio = { version = "1.49", features = ["full", "test-util"] }
@@ -124,25 +125,15 @@ incremental = false
 inherits = "release"
 debug = true
 
-# [[bench]]
-# name = "database_bench"
-# harness = false
+[[bench]]
+name = "performance_api_benchmarks"
+path = "benches/performance_api_benchmarks.rs"
+harness = false
 
-# [[bench]]
-# name = "cache_benchmarks"
-# harness = false
-
-# [[bench]]
-# name = "concurrency_benchmarks"
-# harness = false
-
-# [[bench]]
-# name = "metrics_benchmarks"
-# harness = false
-
-# [[bench]]
-# name = "collections_benchmarks"
-# harness = false
+[[bench]]
+name = "performance_federation_benchmarks"
+path = "benches/performance_federation_benchmarks.rs"
+harness = false
 
 [workspace]
 
@@ -157,3 +148,8 @@ path = "tests/unit/mod.rs"
 [[test]]
 name = "e2e"
 path = "tests/e2e/mod.rs"
+
+[[test]]
+name = "performance_manual"
+path = "tests/performance/mod.rs"
+required-features = ["performance-tests"]

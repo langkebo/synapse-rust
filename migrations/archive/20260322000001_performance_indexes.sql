@@ -40,21 +40,21 @@ $$ LANGUAGE plpgsql;
 
 -- 优化: 范围查询 (room_id + origin_server_ts DESC)
 -- 用于获取房间历史消息
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_room_time
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_events_room_time
 ON events(room_id, origin_server_ts DESC);
 
 -- 优化: sender + origin_server_ts 查询
 -- 用于获取用户发送的消息
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_sender_time
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_events_sender_time
 ON events(sender, origin_server_ts DESC);
 
 -- 优化: event_type + room_id 查询
 -- 用于统计房间内特定类型事件
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_type_room
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_events_type_room
 ON events(event_type, room_id);
 
 -- 优化: event_type + sender 查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_type_sender
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_events_type_sender
 ON events(event_type, sender);
 
 -- ============================================================================
@@ -63,11 +63,11 @@ ON events(event_type, sender);
 -- ============================================================================
 
 -- 优化: 用户在房间中的成员关系查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_memberships_user_room
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_memberships_user_room
 ON room_memberships(user_id, room_id);
 
 -- 优化: 房间成员查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_memberships_room_membership
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_memberships_room_membership
 ON room_memberships(room_id, membership);
 
 -- ============================================================================
@@ -75,11 +75,11 @@ ON room_memberships(room_id, membership);
 -- ============================================================================
 
 -- 优化: 用户推送设备查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pushers_user
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_pushers_user
 ON pushers(user_id);
 
 -- 优化: 推送有效性查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pushers_enabled
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_pushers_enabled
 ON pushers(is_enabled)
 WHERE is_enabled = TRUE;
 
@@ -88,11 +88,11 @@ WHERE is_enabled = TRUE;
 -- ============================================================================
 
 -- 优化: 用户设备列表查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_devices_user_id
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_devices_user_id
 ON devices(user_id);
 
 -- 优化: 设备最后访问时间查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_devices_last_seen
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_devices_last_seen
 ON devices(last_seen_ts DESC);
 
 -- ============================================================================
@@ -100,11 +100,11 @@ ON devices(last_seen_ts DESC);
 -- ============================================================================
 
 -- 优化: 用户第三方 ID 查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_threepids_user
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_user_threepids_user
 ON user_threepids(user_id);
 
 -- 优化: 第三方 ID 验证状态查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_threepids_medium_address
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_threepids_medium_address
 ON user_threepids(medium, address);
 
 -- ============================================================================
@@ -112,11 +112,11 @@ ON user_threepids(medium, address);
 -- ============================================================================
 
 -- 优化: 用户令牌查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_access_tokens_user_id
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_access_tokens_user_id
 ON access_tokens(user_id);
 
 -- 优化: 令牌有效性检查
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_access_tokens_valid
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_access_tokens_valid
 ON access_tokens(is_revoked)
 WHERE is_revoked = FALSE;
 
@@ -125,15 +125,15 @@ WHERE is_revoked = FALSE;
 -- ============================================================================
 
 -- 优化: 用户通知查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notifications_user_id
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_notifications_user_id
 ON notifications(user_id);
 
 -- 优化: 房间通知查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notifications_room
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_notifications_room
 ON notifications(room_id);
 
 -- 优化: 通知时间戳查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notifications_ts
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_notifications_ts
 ON notifications(ts DESC);
 
 -- ============================================================================
@@ -141,7 +141,7 @@ ON notifications(ts DESC);
 -- ============================================================================
 
 -- 优化: 用户在线状态查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_presence_user_status
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_presence_user_status
 ON presence(user_id, presence);
 
 -- ============================================================================
@@ -149,11 +149,11 @@ ON presence(user_id, presence);
 -- ============================================================================
 
 -- 优化: 事件回执查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_event_receipts_event
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_event_receipts_event
 ON event_receipts(event_id);
 
 -- 优化: 房间回执查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_event_receipts_room
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_event_receipts_room
 ON event_receipts(room_id);
 
 -- ============================================================================
@@ -161,7 +161,7 @@ ON event_receipts(room_id);
 -- ============================================================================
 
 -- 优化: 阅读标记查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_read_markers_room_user
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_read_markers_room_user
 ON read_markers(room_id, user_id);
 
 -- ============================================================================
@@ -169,7 +169,7 @@ ON read_markers(room_id, user_id);
 -- ============================================================================
 
 -- 优化: 房间状态查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_room_state_events_room
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_room_state_events_room
 ON room_state_events(room_id);
 
 -- ============================================================================
@@ -177,11 +177,11 @@ ON room_state_events(room_id);
 -- ============================================================================
 
 -- 优化: 房间事件查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_room_events_room
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_room_events_room
 ON room_events(room_id);
 
 -- 优化: 事件查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_room_events_event
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_room_events_event
 ON room_events(event_id);
 
 -- ============================================================================
@@ -189,11 +189,11 @@ ON room_events(event_id);
 -- ============================================================================
 
 -- 优化: Sliding Sync 房间查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sliding_sync_rooms_user_device
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_sliding_sync_rooms_user_device
 ON sliding_sync_rooms(user_id, device_id);
 
 -- 优化: Sliding Sync 房间唯一性
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sliding_sync_rooms_unique
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_sliding_sync_rooms_unique
 ON sliding_sync_rooms(user_id, room_id);
 
 -- ============================================================================
@@ -201,7 +201,7 @@ ON sliding_sync_rooms(user_id, room_id);
 -- ============================================================================
 
 -- 优化: 密钥备份查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_key_backups_user
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_key_backups_user
 ON key_backups(user_id);
 
 -- ============================================================================
@@ -209,11 +209,11 @@ ON key_backups(user_id);
 -- ============================================================================
 
 -- 优化: 备份密钥查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_backup_keys_backup
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_backup_keys_backup
 ON backup_keys(backup_id);
 
 -- 优化: 房间密钥备份查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_backup_keys_room
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_backup_keys_room
 ON backup_keys(room_id);
 
 -- ============================================================================
@@ -221,11 +221,11 @@ ON backup_keys(room_id);
 -- ============================================================================
 
 -- 优化: E2EE 密钥请求查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_e2ee_key_requests_user
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_e2ee_key_requests_user
 ON e2ee_key_requests(user_id);
 
 -- 优化: 待处理密钥请求查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_e2ee_key_requests_pending
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_e2ee_key_requests_pending
 ON e2ee_key_requests(is_fulfilled)
 WHERE is_fulfilled = FALSE;
 
@@ -234,11 +234,11 @@ WHERE is_fulfilled = FALSE;
 -- ============================================================================
 
 -- 优化: Olm 会话查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_olm_sessions_user_device
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_olm_sessions_user_device
 ON olm_sessions(user_id, device_id);
 
 -- 优化: Olm 会话过期查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_olm_sessions_expires
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_olm_sessions_expires
 ON olm_sessions(expires_at)
 WHERE expires_at IS NOT NULL;
 
@@ -247,11 +247,11 @@ WHERE expires_at IS NOT NULL;
 -- ============================================================================
 
 -- 优化: Megolm 会话查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_megolm_sessions_room
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_megolm_sessions_room
 ON megolm_sessions(room_id);
 
 -- 优化: Megolm 会话唯一性查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_megolm_sessions_session
+CREATE INDEX IF NOT EXISTS CONCURRENTLY IF NOT EXISTS idx_megolm_sessions_session
 ON megolm_sessions(session_id);
 
 -- ============================================================================

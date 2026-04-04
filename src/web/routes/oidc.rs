@@ -13,7 +13,102 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use validator::Validate;
+
+const OIDC_AUTH_SESSION_TTL_SECONDS: u64 = 600;
+
+#[derive(Debug, Clone)]
+struct OidcAuthSession {
+    nonce: String,
+    code_verifier: String,
+    code_challenge: String,
+    code_challenge_method: String,
+    redirect_uri: String,
+    expires_at: u64,
+}
+
+static OIDC_AUTH_SESSIONS: OnceLock<Mutex<HashMap<String, OidcAuthSession>>> = OnceLock::new();
+
+fn oidc_auth_sessions() -> &'static Mutex<HashMap<String, OidcAuthSession>> {
+    OIDC_AUTH_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn current_unix_ts() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn cleanup_expired_oidc_sessions(sessions: &mut HashMap<String, OidcAuthSession>, now: u64) {
+    sessions.retain(|_, session| session.expires_at >= now);
+}
+
+fn store_oidc_auth_session(
+    state: &str,
+    nonce: &str,
+    code_verifier: &str,
+    code_challenge: &str,
+    code_challenge_method: &str,
+    redirect_uri: &str,
+) -> Result<(), ApiError> {
+    let now = current_unix_ts();
+    let mut sessions = oidc_auth_sessions()
+        .lock()
+        .map_err(|_| ApiError::internal("Failed to acquire OIDC auth session lock".to_string()))?;
+    cleanup_expired_oidc_sessions(&mut sessions, now);
+    sessions.insert(
+        state.to_string(),
+        OidcAuthSession {
+            nonce: nonce.to_string(),
+            code_verifier: code_verifier.to_string(),
+            code_challenge: code_challenge.to_string(),
+            code_challenge_method: code_challenge_method.to_string(),
+            redirect_uri: redirect_uri.to_string(),
+            expires_at: now + OIDC_AUTH_SESSION_TTL_SECONDS,
+        },
+    );
+    Ok(())
+}
+
+fn consume_oidc_auth_session(state: &str) -> Result<OidcAuthSession, ApiError> {
+    let now = current_unix_ts();
+    let mut sessions = oidc_auth_sessions()
+        .lock()
+        .map_err(|_| ApiError::internal("Failed to acquire OIDC auth session lock".to_string()))?;
+    cleanup_expired_oidc_sessions(&mut sessions, now);
+    let session = sessions.remove(state).ok_or_else(|| {
+        ApiError::unauthorized("OIDC state is missing, expired, or already used".to_string())
+    })?;
+    if session.expires_at < now {
+        return Err(ApiError::unauthorized(
+            "OIDC authorization session expired".to_string(),
+        ));
+    }
+    Ok(session)
+}
+
+fn validate_state_pkce_binding(auth_session: &OidcAuthSession) -> Result<(), ApiError> {
+    if auth_session.code_challenge_method != "S256" {
+        return Err(ApiError::unauthorized(
+            "Unsupported OIDC PKCE challenge method".to_string(),
+        ));
+    }
+    if auth_session.code_verifier.len() < 43 || auth_session.code_verifier.len() > 128 {
+        return Err(ApiError::unauthorized(
+            "Invalid OIDC PKCE verifier length".to_string(),
+        ));
+    }
+    if !OidcService::verify_pkce(&auth_session.code_verifier, &auth_session.code_challenge) {
+        return Err(ApiError::unauthorized(
+            "OIDC state/PKCE binding validation failed".to_string(),
+        ));
+    }
+    Ok(())
+}
 
 pub fn create_oidc_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -240,6 +335,7 @@ async fn oidc_token(
         redirect_uri,
         refresh_token,
         scope,
+        code_verifier,
         ..
     } = body;
 
@@ -252,7 +348,7 @@ async fn oidc_token(
 
             // 使用 OIDC 服务兑换令牌
             let token_response = oidc_service
-                .exchange_code(&code, &redirect_uri)
+                .exchange_code(&code, &redirect_uri, code_verifier.as_deref())
                 .await
                 .map_err(|e| ApiError::internal(format!("Token exchange failed: {}", e)))?;
 
@@ -437,6 +533,14 @@ async fn oidc_authorize(
 
     // 生成 PKCE code_verifier 和 code_challenge
     let (code_verifier, code_challenge) = OidcService::generate_pkce();
+    store_oidc_auth_session(
+        &state_value,
+        &nonce_value,
+        &code_verifier,
+        &code_challenge,
+        "S256",
+        &redirect_uri,
+    )?;
 
     // 生成授权 URL (包含 PKCE)
     let authorization_url = oidc_service
@@ -607,7 +711,7 @@ async fn oidc_callback(
 
     let OidcCallbackRequest {
         code,
-        state: _callback_state,
+        state: callback_state,
         error,
         error_description,
     } = query.0;
@@ -625,22 +729,35 @@ async fn oidc_callback(
     let code = code.ok_or_else(|| {
         ApiError::bad_request("Missing 'code' parameter in OIDC callback".to_string())
     })?;
+    let callback_state = callback_state.ok_or_else(|| {
+        ApiError::bad_request("Missing 'state' parameter in OIDC callback".to_string())
+    })?;
+    let auth_session = consume_oidc_auth_session(&callback_state)?;
+    validate_state_pkce_binding(&auth_session)?;
 
     // 获取配置的回调 URL
-    let callback_url = oidc_service
-        .get_config()
-        .callback_url
-        .clone()
-        .unwrap_or_else(|| {
-            format!(
-                "https://{}/_matrix/client/v3/oidc/callback",
-                state.services.server_name
-            )
-        });
+    let callback_url = if auth_session.redirect_uri.is_empty() {
+        oidc_service
+            .get_config()
+            .callback_url
+            .clone()
+            .unwrap_or_else(|| {
+                format!(
+                    "https://{}/_matrix/client/v3/oidc/callback",
+                    state.services.server_name
+                )
+            })
+    } else {
+        auth_session.redirect_uri.clone()
+    };
 
     // 兑换令牌
     let token_response = oidc_service
-        .exchange_code(&code, &callback_url)
+        .exchange_code(
+            &code,
+            &callback_url,
+            Some(auth_session.code_verifier.as_str()),
+        )
         .await
         .map_err(|e| ApiError::internal(format!("Token exchange failed: {}", e)))?;
 
@@ -654,10 +771,11 @@ async fn oidc_callback(
     let oidc_user = oidc_service.map_user(&user_info);
 
     tracing::info!(
-        "OIDC callback successful for sub: {}, localpart: {}, email: {:?}",
+        "OIDC callback successful for sub: {}, localpart: {}, email: {:?}, nonce_len: {}",
         oidc_user.subject,
         oidc_user.localpart,
-        oidc_user.email
+        oidc_user.email,
+        auth_session.nonce.len()
     );
 
     // 创建或登录 Matrix 用户
@@ -762,6 +880,77 @@ async fn oidc_callback(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_oidc_auth_session_roundtrip() {
+        let state = format!("state_{}", OidcService::generate_state());
+        let (code_verifier, code_challenge) = OidcService::generate_pkce();
+        store_oidc_auth_session(
+            &state,
+            "nonce",
+            &code_verifier,
+            &code_challenge,
+            "S256",
+            "https://example.com/callback",
+        )
+        .unwrap();
+
+        let session = consume_oidc_auth_session(&state).unwrap();
+        assert_eq!(session.nonce, "nonce");
+        assert_eq!(session.code_verifier, code_verifier);
+        assert_eq!(session.code_challenge, code_challenge);
+        assert_eq!(session.redirect_uri, "https://example.com/callback");
+    }
+
+    #[test]
+    fn test_oidc_auth_session_is_one_time_use() {
+        let state = format!("state_{}", OidcService::generate_state());
+        let (code_verifier, code_challenge) = OidcService::generate_pkce();
+        store_oidc_auth_session(
+            &state,
+            "nonce",
+            &code_verifier,
+            &code_challenge,
+            "S256",
+            "https://example.com/callback",
+        )
+        .unwrap();
+
+        let _ = consume_oidc_auth_session(&state).unwrap();
+        let error = consume_oidc_auth_session(&state).unwrap_err();
+        assert!(error.to_string().contains("state is missing"));
+    }
+
+    #[test]
+    fn test_validate_state_pkce_binding_accepts_valid_binding() {
+        let (code_verifier, code_challenge) = OidcService::generate_pkce();
+        let session = OidcAuthSession {
+            nonce: "nonce".to_string(),
+            code_verifier,
+            code_challenge,
+            code_challenge_method: "S256".to_string(),
+            redirect_uri: "https://example.com/callback".to_string(),
+            expires_at: current_unix_ts() + 60,
+        };
+
+        assert!(validate_state_pkce_binding(&session).is_ok());
+    }
+
+    #[test]
+    fn test_validate_state_pkce_binding_rejects_mismatched_challenge() {
+        let (code_verifier, _) = OidcService::generate_pkce();
+        let session = OidcAuthSession {
+            nonce: "nonce".to_string(),
+            code_verifier,
+            code_challenge: "invalid_challenge".to_string(),
+            code_challenge_method: "S256".to_string(),
+            redirect_uri: "https://example.com/callback".to_string(),
+            expires_at: current_unix_ts() + 60,
+        };
+
+        let error = validate_state_pkce_binding(&session).unwrap_err();
+        assert!(error.to_string().contains("binding validation failed"));
+    }
 
     #[test]
     fn test_oidc_userinfo_response() {

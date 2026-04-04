@@ -10,7 +10,7 @@ mod e2e_user_registration_tests {
         println!("=== E2E: Complete User Registration Flow ===");
 
         let username = "testuser_e2e";
-        let password = "TestPassword123!";
+        let _password = "TestPassword123!";
         let server_name = "localhost";
 
         println!("Step 1: Register user");
@@ -121,8 +121,8 @@ mod e2e_room_tests {
     fn test_direct_message_flow() {
         println!("=== E2E: Direct Message Flow ===");
 
-        let sender = "@alice:localhost";
-        let recipient = "@bob:localhost";
+        let _sender = "@alice:localhost";
+        let _recipient = "@bob:localhost";
 
         println!("Step 1: Create DM room");
         let dm_room_id = "!dm_room:localhost";
@@ -143,8 +143,8 @@ mod e2e_room_tests {
     fn test_room_invitation_flow() {
         println!("=== E2E: Room Invitation Flow ===");
 
-        let inviter = "@alice:localhost";
-        let invitee = "@bob:localhost";
+        let _inviter = "@alice:localhost";
+        let _invitee = "@bob:localhost";
 
         println!("Step 1: Create room");
         let room_id = "!room:localhost";
@@ -173,8 +173,8 @@ mod e2e_room_tests {
     fn test_room_ban_unban_flow() {
         println!("=== E2E: Room Ban/Unban Flow ===");
 
-        let admin = "@admin:localhost";
-        let user = "@user:localhost";
+        let _admin = "@admin:localhost";
+        let _user = "@user:localhost";
 
         println!("Step 1: Admin creates room");
         let room_id = "!room:localhost";
@@ -206,14 +206,12 @@ mod e2e_room_tests {
 
 #[cfg(test)]
 mod e2e_federation_tests {
-    use serde_json::json;
-
     #[test]
     fn test_cross_server_room_join() {
         println!("=== E2E: Cross-Server Room Join ===");
 
-        let local_server = "server1.local";
-        let remote_server = "server2.local";
+        let _local_server = "server1.local";
+        let _remote_server = "server2.local";
 
         println!("Step 1: Local server creates room");
         let room_id = "!room:server1.local";
@@ -238,8 +236,8 @@ mod e2e_federation_tests {
     fn test_federated_message_delivery() {
         println!("=== E2E: Federated Message Delivery ===");
 
-        let sender_server = "server1.local";
-        let receiver_server = "server2.local";
+        let _sender_server = "server1.local";
+        let _receiver_server = "server2.local";
 
         println!("Step 1: Sender sends message");
         let message_sent = true;
@@ -263,14 +261,12 @@ mod e2e_federation_tests {
 
 #[cfg(test)]
 mod e2e_encryption_tests {
-    use serde_json::json;
-
     #[test]
     fn test_end_to_end_encryption_flow() {
         println!("=== E2E: End-to-End Encryption Flow ===");
 
-        let alice = "@alice:localhost";
-        let bob = "@bob:localhost";
+        let _alice = "@alice:localhost";
+        let _bob = "@bob:localhost";
 
         println!("Step 1: Alice uploads device keys");
         let keys_uploaded = true;
@@ -327,8 +323,8 @@ mod e2e_space_tests {
     fn test_space_creation_and_management() {
         println!("=== E2E: Space Creation and Management ===");
 
-        let user_id = "@user:localhost";
-        let space_name = "My Space";
+        let _user_id = "@user:localhost";
+        let _space_name = "My Space";
 
         println!("Step 1: Create space");
         let space_id = "!space:localhost";
@@ -392,8 +388,8 @@ mod e2e_thread_tests {
     fn test_thread_creation_and_reply() {
         println!("=== E2E: Thread Creation and Reply ===");
 
-        let user_id = "@user:localhost";
-        let room_id = "!room:localhost";
+        let _user_id = "@user:localhost";
+        let _room_id = "!room:localhost";
 
         println!("Step 1: Send message to start thread");
         let root_event_id = "$event1:localhost";
@@ -421,7 +417,7 @@ mod e2e_thread_tests {
     fn test_thread_subscription() {
         println!("=== E2E: Thread Subscription ===");
 
-        let user_id = "@user:localhost";
+        let _user_id = "@user:localhost";
 
         println!("Step 1: Subscribe to thread");
         let subscribed = true;
@@ -447,7 +443,7 @@ mod e2e_search_tests {
     fn test_room_search_flow() {
         println!("=== E2E: Room Search Flow ===");
 
-        let query = "test query";
+        let _query = "test query";
 
         println!("Step 1: Search rooms");
         let rooms_result = json!({
@@ -472,7 +468,7 @@ mod e2e_search_tests {
     fn test_global_search_flow() {
         println!("=== E2E: Global Search Flow ===");
 
-        let query = "important message";
+        let _query = "important message";
 
         println!("Step 1: Perform global search");
         let search_result = json!({
@@ -524,7 +520,7 @@ mod e2e_media_tests {
     fn test_url_preview_flow() {
         println!("=== E2E: URL Preview Flow ===");
 
-        let url = "https://example.com";
+        let _url = "https://example.com";
 
         println!("Step 1: Request URL preview");
         let preview_response = json!({

@@ -6,10 +6,90 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::Mutex as TokioMutex;
 
 static PREPARED_TEST_POOLS: Lazy<Mutex<VecDeque<Arc<PgPool>>>> =
     Lazy::new(|| Mutex::new(VecDeque::new()));
+static TEST_ENV_LOCK: Lazy<TokioMutex<()>> = Lazy::new(|| TokioMutex::new(()));
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+pub struct EnvLockGuard {
+    _guard: tokio::sync::MutexGuard<'static, ()>,
+}
+
+pub struct EnvGuard {
+    original_values: Vec<(String, Option<String>)>,
+}
+
+impl EnvGuard {
+    pub fn new() -> Self {
+        Self {
+            original_values: Vec::new(),
+        }
+    }
+
+    pub fn set<K, V>(&mut self, key: K, value: V)
+    where
+        K: Into<String>,
+        V: Into<String>,
+    {
+        let key = key.into();
+        let value = value.into();
+        self.capture_original_value(&key);
+        std::env::set_var(&key, &value);
+    }
+
+    pub fn remove<K>(&mut self, key: K)
+    where
+        K: Into<String>,
+    {
+        let key = key.into();
+        self.capture_original_value(&key);
+        std::env::remove_var(&key);
+    }
+
+    fn capture_original_value(&mut self, key: &str) {
+        if self
+            .original_values
+            .iter()
+            .any(|(existing_key, _)| existing_key == key)
+        {
+            return;
+        }
+
+        self.original_values
+            .push((key.to_string(), std::env::var(key).ok()));
+    }
+}
+
+impl Default for EnvGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        for (key, value) in self.original_values.iter().rev() {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+}
+
+pub fn env_lock() -> EnvLockGuard {
+    EnvLockGuard {
+        _guard: TEST_ENV_LOCK.blocking_lock(),
+    }
+}
+
+pub async fn env_lock_async() -> EnvLockGuard {
+    EnvLockGuard {
+        _guard: TEST_ENV_LOCK.lock().await,
+    }
+}
 
 pub fn enqueue_prepared_test_pool(pool: Arc<PgPool>) {
     PREPARED_TEST_POOLS.lock().unwrap().push_back(pool);
@@ -25,7 +105,7 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 
     let admin_pool = PgPoolOptions::new()
         .max_connections(1)
-        .acquire_timeout(Duration::from_secs(10))
+        .acquire_timeout(Duration::from_secs(5))
         .connect(&database_url)
         .await
         .map_err(|error| format!("failed to connect admin pool: {error}"))?;
@@ -39,7 +119,7 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let pool = PgPoolOptions::new()
         .max_connections(10)
         .min_connections(1)
-        .acquire_timeout(Duration::from_secs(15))
+        .acquire_timeout(Duration::from_secs(10))
         .idle_timeout(Some(Duration::from_secs(300)))
         .max_lifetime(Some(Duration::from_secs(900)))
         .after_connect(move |connection, _meta| {
@@ -54,10 +134,16 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .map_err(|error| format!("failed to connect isolated pool for {schema_name}: {error}"))?;
 
     let pool = Arc::new(pool);
-    let report = DatabaseInitService::new(pool.clone())
-        .with_mode(DatabaseInitMode::Strict)
-        .initialize()
+
+    // Set a timeout for the entire initialization process
+    let report = tokio::time::timeout(
+        Duration::from_secs(30),
+        DatabaseInitService::new(pool.clone())
+            .with_mode(DatabaseInitMode::Strict)
+            .initialize()
+    )
         .await
+        .map_err(|_| format!("database initialization timed out after 30 seconds for {schema_name}"))?
         .map_err(|error| {
             format!("strict migration initialization failed for {schema_name}: {error}")
         })?;

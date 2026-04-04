@@ -48,14 +48,14 @@ fn create_voip_compat_router() -> Router<AppState> {
 }
 
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
+    let mut router = Router::new()
         .without_v07_checks()
         .route(
             "/",
             get(|| async {
                 Json(json!({
                     "msg": "Synapse Rust Matrix Server",
-                    "version": "0.1.0"
+                    "version": env!("CARGO_PKG_VERSION")
                 }))
             }),
         )
@@ -125,9 +125,17 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_event_report_router(state.clone()))
         .merge(create_feature_flags_router())
         .merge(create_background_update_router(state.clone()))
-        .merge(create_module_router())
-        .merge(create_saml_router())
-        .merge(create_oidc_router(state.clone()))
+        .merge(create_module_router());
+
+    // Optional authentication capabilities - only expose when enabled
+    if state.services.saml_service.is_enabled() {
+        router = router.merge(create_saml_router());
+    }
+    if state.services.oidc_service.is_some() {
+        router = router.merge(create_oidc_router(state.clone()));
+    }
+
+    router
         .merge(cas_routes())
         .merge(create_captcha_router())
         .merge(create_push_notification_router())

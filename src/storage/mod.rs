@@ -34,6 +34,7 @@ pub mod membership;
 pub mod moderation;
 pub mod module;
 pub mod monitoring;
+pub mod openclaw;
 pub mod openid_token;
 pub mod performance;
 pub mod pool_monitor;
@@ -92,6 +93,7 @@ pub use self::monitoring::{
     DuplicateEntry, ForeignKeyViolation, NullConstraintViolation, OrphanedRecord,
     PerformanceMetrics, VacuumStats,
 };
+pub use self::openclaw::*;
 pub use self::openid_token::*;
 pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
 pub use self::pool_monitor::{

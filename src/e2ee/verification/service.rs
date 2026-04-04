@@ -228,6 +228,22 @@ impl VerificationService {
         Ok(true)
     }
 
+    /// List pending verifications for the receiving user
+    pub async fn get_pending_verifications(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<VerificationRequest>, ApiError> {
+        self.storage.get_pending_verifications(user_id).await
+    }
+
+    /// Get verification request by transaction ID
+    pub async fn get_request(
+        &self,
+        transaction_id: &str,
+    ) -> Result<Option<VerificationRequest>, ApiError> {
+        self.storage.get_request(transaction_id).await
+    }
+
     /// Cancel verification
     pub async fn cancel_verification(
         &self,
@@ -235,7 +251,9 @@ impl VerificationService {
         code: &str,
         reason: &str,
     ) -> Result<(), ApiError> {
-        self.storage.delete_request(transaction_id).await?;
+        self.storage
+            .update_state(transaction_id, VerificationState::Cancelled)
+            .await?;
         tracing::info!(
             "Verification {} cancelled: {} - {}",
             transaction_id,

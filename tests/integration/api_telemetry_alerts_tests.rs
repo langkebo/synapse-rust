@@ -30,9 +30,10 @@ async fn get_admin_token(app: &axum::Router) -> String {
         .uri("/_synapse/admin/v1/register/nonce")
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
+            .await
+            .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), 1024)
@@ -76,9 +77,10 @@ async fn get_admin_token(app: &axum::Router) -> String {
             .to_string(),
         ))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
+            .await
+            .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), 4096)

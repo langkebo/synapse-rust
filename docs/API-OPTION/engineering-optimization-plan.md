@@ -334,7 +334,7 @@ let id = params.get("id")
 
 #### 4.1.1 README 链接有效性
 
-经核查，`docs/synapse-rust/implementation-guide.md` 实际存在，非死链；`MISSING_FEATURES.md` 与 `COMPLETION_REPORT.md` 均存在。README 中引用的文档全部有效。
+经核查，`docs/synapse-rust/implementation-guide.md` 实际存在，非死链；`MISSING_FEATURES.md` 与 `COMPLETION_REPORT.md` 均存在，但后两者应视为历史材料，仅用于追溯，不再承担当前状态口径。README 中引用的文档全部有效。
 
 #### 4.1.2 创建文档索引
 
@@ -494,7 +494,7 @@ grep -R "BEGIN RSA PRIVATE KEY" . --include="*.key" --include="*.pem" --include=
 - [x] docs/README.md 文档索引存在
 - [x] 无敏感文件驻留仓库
 - [x] 根目录无构建产物
-- [x] README 所有链接有效（implementation-guide/MISSING_FEATURES/COMPLETION_REPORT 均已验证存在）
+- [x] README 所有链接有效（implementation-guide/MISSING_FEATURES/COMPLETION_REPORT 均已验证存在；其中 COMPLETION_REPORT 现作为历史材料）
 
 ---
 
@@ -585,7 +585,7 @@ grep -R "BEGIN RSA PRIVATE KEY" . --include="*.key" --include="*.pem" --include=
 经核查，README 引用以下文件均存在，非死链：
 - `docs/synapse-rust/implementation-guide.md` ✅
 - `docs/synapse-rust/MISSING_FEATURES.md` ✅
-- `docs/synapse-rust/COMPLETION_REPORT.md` ✅
+- `docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md` ✅
 
 #### P0: fmt / clippy / test 全量通过 ✅
 
