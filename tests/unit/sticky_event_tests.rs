@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-mod sticky_event_tests {
+mod sticky_event_suite {
     use synapse_rust::storage::sticky_event::{StickyEvent, StickyEventStorage};
     use sqlx::postgres::PgPoolOptions;
     use std::sync::Arc;

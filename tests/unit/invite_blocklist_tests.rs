@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-mod invite_blocklist_tests {
+mod invite_blocklist_suite {
     use crate::common::get_test_pool_async;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};

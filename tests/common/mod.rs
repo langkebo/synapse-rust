@@ -2,7 +2,6 @@
 
 use sqlx::{PgPool, Pool, Postgres};
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
 use synapse_rust::services::database_initializer::initialize_database;
 use synapse_rust::test_utils::{env_lock_async, EnvGuard};
 
@@ -51,10 +50,13 @@ pub async fn get_test_pool_async() -> Result<Arc<Pool<Postgres>>, String> {
 
     for database_url in candidate_database_urls() {
         match sqlx::postgres::PgPoolOptions::new()
-            .max_connections(5)
-            .min_connections(1)
-            .acquire_timeout(Duration::from_secs(30))
-            .idle_timeout(Duration::from_secs(600))
+            .max_connections(synapse_rust::test_utils::configured_test_pool_max_connections())
+            .min_connections(synapse_rust::test_utils::configured_test_pool_min_connections())
+            .acquire_timeout(synapse_rust::test_utils::configured_test_pool_acquire_timeout())
+            .idle_timeout(synapse_rust::test_utils::configured_test_pool_idle_timeout())
+            .max_lifetime(Some(
+                synapse_rust::test_utils::configured_test_pool_max_lifetime(),
+            ))
             .connect(&database_url)
             .await
         {

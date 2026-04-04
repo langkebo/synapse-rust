@@ -64,6 +64,7 @@ pub fn create_user_router(_state: AppState) -> Router<AppState> {
             "/_synapse/admin/v2/users/{user_id}",
             put(create_or_update_user_v2),
         )
+        .route("/_synapse/admin/v2/users/{user_id}", delete(delete_user))
         .route("/_synapse/admin/v1/user_stats", get(get_user_stats))
         .route(
             "/_synapse/admin/v1/users/{user_id}/stats",
@@ -512,7 +513,7 @@ pub async fn get_users_v2(
         .iter()
         .map(|row| {
             json!({
-                "name": row.get::<Option<String>, _>("username"),
+                "name": row.get::<Option<String>, _>("user_id"),
                 "user_id": row.get::<Option<String>, _>("user_id"),
                 "creation_ts": row.get::<Option<i64>, _>("created_ts"),
                 "admin": row.get::<Option<bool>, _>("is_admin").unwrap_or(false),
@@ -531,7 +532,7 @@ pub async fn get_users_v2(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let next_token = if (offset + limit) < total_count {
-        Some(offset + limit)
+        Some((offset + limit).to_string())
     } else {
         None
     };
@@ -561,7 +562,7 @@ pub async fn get_user_v2(
             let devices = sqlx::query(
                 "SELECT device_id, display_name, last_seen_ts, user_id FROM devices WHERE user_id = $1"
             )
-            .bind(&u.username)
+            .bind(&u.user_id)
             .fetch_all(&*state.services.device_storage.pool)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -578,8 +579,8 @@ pub async fn get_user_v2(
                 .collect();
 
             Ok(Json(json!({
-                "name": u.username,
-                "user_id": u.username,
+                "name": u.user_id,
+                "user_id": u.user_id,
                 "is_guest": u.is_guest,
                 "admin": u.is_admin,
                 "deactivated": u.is_deactivated,

@@ -216,10 +216,7 @@ mod tests {
         let start = Instant::now();
         let mut grouped: HashMap<String, Vec<String>> = HashMap::new();
         for (room_id, event_id) in events {
-            grouped
-                .entry(room_id)
-                .or_insert_with(Vec::new)
-                .push(event_id);
+            grouped.entry(room_id).or_default().push(event_id);
         }
         let duration = start.elapsed();
 
@@ -295,7 +292,7 @@ mod batch_query_correctness_tests {
                 .into_iter()
                 .collect();
 
-        let query_ids = vec!["id_1".to_string(), "id_4".to_string(), "id_2".to_string()];
+        let query_ids = ["id_1".to_string(), "id_4".to_string(), "id_2".to_string()];
 
         let found: HashSet<String> = query_ids
             .iter()

@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   repo-sanity:
@@ -91,9 +92,7 @@ jobs:
         run: cargo clippy --all-features --locked -- -D warnings
 
       - name: Install sqlx-cli
-        uses: taiki-e/install-action@sqlx-cli
-        with:
-          features: postgres
+        run: cargo install sqlx-cli --locked --no-default-features --features postgres
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
@@ -128,11 +127,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Run security audit
         continue-on-error: true
-        uses: rustsec/audit-check@v1.4.1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
 
   build:
     name: Build Check
@@ -180,14 +182,10 @@ jobs:
           components: llvm-tools-preview
 
       - name: Install tarpaulin
-        uses: taiki-e/install-action@cargo-tarpaulin
-        with:
-          version: latest
+        run: cargo install cargo-tarpaulin --locked
 
       - name: Install sqlx-cli
-        uses: taiki-e/install-action@sqlx-cli
-        with:
-          features: postgres
+        run: cargo install sqlx-cli --locked --no-default-features --features postgres
 
       - name: Set up test database
         env:

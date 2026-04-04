@@ -252,7 +252,7 @@ mod tests {
             .lock()
             .unwrap()
             .entry("!room:test".to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push("@user:remote.test".to_string());
 
         assert!(server.received_invite("!room:test", "@user:remote.test"));

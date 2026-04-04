@@ -567,11 +567,11 @@ impl ServiceContainer {
                 });
             Arc::new(
                 sqlx::postgres::PgPoolOptions::new()
-                    .max_connections(10)
-                    .min_connections(0)
-                    .acquire_timeout(std::time::Duration::from_secs(10))
-                    .idle_timeout(Some(std::time::Duration::from_secs(600)))
-                    .max_lifetime(Some(std::time::Duration::from_secs(1800)))
+                    .max_connections(crate::test_utils::configured_test_pool_max_connections())
+                    .min_connections(crate::test_utils::configured_test_pool_min_connections())
+                    .acquire_timeout(crate::test_utils::configured_test_pool_acquire_timeout())
+                    .idle_timeout(Some(crate::test_utils::configured_test_pool_idle_timeout()))
+                    .max_lifetime(Some(crate::test_utils::configured_test_pool_max_lifetime()))
                     .connect_lazy(&db_url)
                     .expect("Failed to create test database pool"),
             )
@@ -595,6 +595,8 @@ fn build_test_config() -> Config {
     let user = std::env::var("DATABASE_USER").unwrap_or_else(|_| "synapse".to_string());
     let pass = std::env::var("DATABASE_PASSWORD").unwrap_or_else(|_| "synapse".to_string());
     let name = std::env::var("DATABASE_NAME").unwrap_or_else(|_| "synapse".to_string());
+    let test_pool_max_connections = crate::test_utils::configured_test_pool_max_connections();
+    let test_pool_min_connections = crate::test_utils::configured_test_pool_min_connections();
 
     Config {
         server: ServerConfig {
@@ -631,10 +633,10 @@ fn build_test_config() -> Config {
             username: user,
             password: pass,
             name,
-            pool_size: 10,
-            max_size: 20,
-            min_idle: Some(5),
-            connection_timeout: 30,
+            pool_size: test_pool_max_connections,
+            max_size: test_pool_max_connections,
+            min_idle: Some(test_pool_min_connections),
+            connection_timeout: crate::test_utils::configured_test_pool_acquire_timeout().as_secs(),
         },
         redis: RedisConfig {
             host: "localhost".to_string(),

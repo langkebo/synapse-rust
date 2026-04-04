@@ -87,7 +87,7 @@ impl SecureBackupService {
         session_keys: Vec<SessionKeyData>,
     ) -> Result<i64, ApiError> {
         // 1. Get backup auth data
-        let auth_data_str: Option<String> = sqlx::query_scalar(
+        let auth_data_str: String = sqlx::query_scalar(
             "SELECT auth_data FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
         )
         .bind(user_id)
@@ -97,8 +97,6 @@ impl SecureBackupService {
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
-        let auth_data_str =
-            auth_data_str.ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
         let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str)
             .map_err(|e| ApiError::internal(format!("Invalid auth data: {}", e)))?;
 

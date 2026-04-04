@@ -21,11 +21,19 @@ echo "RUST_TEST_SHUFFLE_SEED=$RUST_TEST_SHUFFLE_SEED"
 run_cargo_test_with_retries() {
   local attempt=1
   local max_attempts=$((TEST_RETRIES + 1))
+  local cargo_test_cmd=(cargo test --all-features --locked -- --test-threads="$TEST_THREADS")
+
+  if rustc -V | grep -q "nightly"; then
+    cargo_test_cmd=(cargo test --all-features --locked -Z unstable-options -- --shuffle --test-threads="$TEST_THREADS")
+    echo "Using nightly cargo test shuffle fallback"
+  else
+    echo "Stable toolchain detected; running cargo test fallback without --shuffle"
+  fi
 
   while [ "$attempt" -le "$max_attempts" ]; do
     echo "cargo test attempt ${attempt}/${max_attempts}"
 
-    if cargo test --all-features --locked -- --shuffle --test-threads="$TEST_THREADS"; then
+    if "${cargo_test_cmd[@]}"; then
       return 0
     fi
 

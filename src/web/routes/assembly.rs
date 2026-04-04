@@ -103,7 +103,6 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_directory_router(state.clone()))
         .merge(create_room_router())
         .merge(create_sync_router())
-        .merge(create_presence_router())
         .merge(create_moderation_router())
         .merge(create_device_router())
         .merge(create_voice_router(state.clone()))
@@ -138,7 +137,7 @@ pub fn create_router(state: AppState) -> Router {
         router = router.merge(create_oidc_router(state.clone()));
     }
 
-    router
+    router = router
         .merge(cas_routes())
         .merge(create_captcha_router())
         .merge(create_push_notification_router())
@@ -164,6 +163,9 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_rendezvous_router(state.clone()))
         .merge(create_ai_connection_router())
         .route("/_matrix/client/v3/createRoom", post(create_room))
+        .merge(create_presence_router());
+
+    router
         .layer(axum::middleware::from_fn(cors_middleware))
         .layer(axum::middleware::from_fn(security_headers_middleware))
         .layer(CompressionLayer::new())

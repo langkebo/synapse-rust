@@ -2,12 +2,13 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use futures::future::join_all;
 use hmac::{Hmac, Mac};
 use serde_json::{json, Value};
 use sha2::Sha256;
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::ServiceContainer;
+use synapse_rust::services::{PresenceStorage, ServiceContainer};
 use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
@@ -114,9 +115,10 @@ async fn get_admin_token(app: &axum::Router) -> String {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
+            .await
+            .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), 1024)
@@ -401,4 +403,60 @@ async fn test_presence_list_after_session_invalidation_and_relogin() {
         .await
         .unwrap();
     assert_eq!(presence_response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_presence_routes_remain_stable_under_concurrency() {
+    let Some(pool) = super::get_test_pool().await else {
+        return;
+    };
+    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let presence = PresenceStorage::new(pool.clone(), cache);
+    let suffix = rand::random::<u32>();
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut user_ids = Vec::new();
+
+    for index in 0..24 {
+        let username = format!("presence_concurrent_{}_{}", suffix, index);
+        let user_id = format!("@{}:localhost", username);
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts, generation) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(&user_id)
+        .bind(&username)
+        .bind(now)
+        .bind(1_i64)
+        .execute(&*pool)
+        .await
+        .unwrap();
+        user_ids.push(user_id);
+    }
+
+    let mut handles = Vec::new();
+    for user_id in user_ids {
+        let presence = presence.clone();
+        handles.push(tokio::spawn(async move {
+            for iteration in 0..5 {
+                let state = if iteration % 2 == 0 {
+                    "online"
+                } else {
+                    "unavailable"
+                };
+                presence
+                    .set_presence(&user_id, state, Some("stable under concurrency"))
+                    .await
+                    .unwrap();
+                let current = presence.get_presence(&user_id).await.unwrap();
+                assert!(current.is_some());
+                let (presence_state, status_msg) = current.unwrap();
+                assert_eq!(presence_state, state);
+                assert_eq!(status_msg.as_deref(), Some("stable under concurrency"));
+            }
+        }));
+    }
+
+    for result in join_all(handles).await {
+        result.unwrap();
+    }
 }

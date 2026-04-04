@@ -40,15 +40,16 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
 
         async move {
             let token = token_result?;
-            let (user_id, device_id, is_admin) =
-                state.services.auth_service.validate_token(&token).await?;
-
-            Ok(AuthenticatedUser {
-                user_id,
-                device_id,
-                is_admin,
-                access_token: token,
-            })
+            let result = state.services.auth_service.validate_token(&token).await;
+            match result {
+                Ok((user_id, device_id, is_admin)) => Ok(AuthenticatedUser {
+                    user_id,
+                    device_id,
+                    is_admin,
+                    access_token: token,
+                }),
+                Err(e) => Err(e),
+            }
         }
     }
 }

@@ -1,7 +1,5 @@
 #![cfg(test)]
-#![allow(clippy::module_inception)]
-
-mod retention_storage_tests {
+mod retention_storage_suite {
     use crate::common::get_test_pool_async;
     use std::time::{SystemTime, UNIX_EPOCH};
     use synapse_rust::storage::retention::{

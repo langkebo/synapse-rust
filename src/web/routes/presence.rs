@@ -7,28 +7,25 @@ use axum::{
     Router,
 };
 
-fn create_presence_compat_router() -> Router<AppState> {
-    Router::new().route(
-        "/presence/{user_id}/status",
-        get(get_presence).put(set_presence),
-    )
-}
-
-fn create_presence_list_router() -> Router<AppState> {
-    Router::new()
-        .route("/", post(presence_list))
-        .route("/{user_id}", get(get_presence_list))
-}
-
 pub fn create_presence_router() -> Router<AppState> {
-    let compat_router = create_presence_compat_router();
-    let list_router = create_presence_list_router();
-
     Router::new()
-        .nest("/_matrix/client/v1", compat_router.clone())
-        .nest("/_matrix/client/r0", compat_router.clone())
-        .nest("/_matrix/client/v3", compat_router)
-        .nest("/_matrix/client/v3/presence/list", list_router)
+        .route(
+            "/_matrix/client/v1/presence/{user_id}/status",
+            get(get_presence).put(set_presence),
+        )
+        .route(
+            "/_matrix/client/r0/presence/{user_id}/status",
+            get(get_presence).put(set_presence),
+        )
+        .route(
+            "/_matrix/client/v3/presence/{user_id}/status",
+            get(get_presence).put(set_presence),
+        )
+        .route("/_matrix/client/v3/presence/list", post(presence_list))
+        .route(
+            "/_matrix/client/v3/presence/list/{user_id}",
+            get(get_presence_list),
+        )
 }
 
 #[cfg(test)]

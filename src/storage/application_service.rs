@@ -204,14 +204,13 @@ impl ApplicationServiceStorage {
                 ) {
                     sqlx::query(
                         r#"
-                        INSERT INTO application_service_user_namespaces (as_id, namespace_pattern, exclusive, regex, created_ts)
-                        VALUES ($1, $2, $3, $4, $5)
+                        INSERT INTO application_service_user_namespaces (as_id, namespace, is_exclusive, created_ts)
+                        VALUES ($1, $2, $3, $4)
                         "#,
                     )
                     .bind(&service.as_id)
                     .bind(regex)
                     .bind(exclusive)
-                    .bind(regex)
                     .bind(now)
                     .execute(&*self.pool)
                     .await?;
@@ -227,14 +226,13 @@ impl ApplicationServiceStorage {
                 ) {
                     sqlx::query(
                         r#"
-                        INSERT INTO application_service_room_alias_namespaces (as_id, namespace_pattern, exclusive, regex, created_ts)
-                        VALUES ($1, $2, $3, $4, $5)
+                        INSERT INTO application_service_room_alias_namespaces (as_id, namespace, is_exclusive, created_ts)
+                        VALUES ($1, $2, $3, $4)
                         "#,
                     )
                     .bind(&service.as_id)
                     .bind(regex)
                     .bind(exclusive)
-                    .bind(regex)
                     .bind(now)
                     .execute(&*self.pool)
                     .await?;
@@ -250,14 +248,13 @@ impl ApplicationServiceStorage {
                 ) {
                     sqlx::query(
                         r#"
-                        INSERT INTO application_service_room_namespaces (as_id, namespace_pattern, exclusive, regex, created_ts)
-                        VALUES ($1, $2, $3, $4, $5)
+                        INSERT INTO application_service_room_namespaces (as_id, namespace, is_exclusive, created_ts)
+                        VALUES ($1, $2, $3, $4)
                         "#,
                     )
                     .bind(&service.as_id)
                     .bind(regex)
                     .bind(exclusive)
-                    .bind(regex)
                     .bind(now)
                     .execute(&*self.pool)
                     .await?;
@@ -415,27 +412,34 @@ impl ApplicationServiceStorage {
         as_id: &str,
         room_id: &str,
         event_type: &str,
-        sender: &str,
-        content: serde_json::Value,
-        state_key: Option<&str>,
+        _sender: &str,
+        _content: serde_json::Value,
+        _state_key: Option<&str>,
     ) -> Result<ApplicationServiceEvent, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query_as::<_, ApplicationServiceEvent>(
             r#"
             INSERT INTO application_service_events (
-                event_id, as_id, room_id, event_type, sender, content, state_key, origin_server_ts
+                event_id, as_id, room_id, event_type, processed, processed_ts, created_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING *
+            VALUES ($1, $2, $3, $4, FALSE, NULL, $5)
+            RETURNING
+                event_id,
+                as_id,
+                room_id,
+                event_type,
+                ''::text AS sender,
+                '{}'::jsonb AS content,
+                NULL::text AS state_key,
+                created_ts AS origin_server_ts,
+                processed_ts,
+                NULL::text AS transaction_id
             "#,
         )
         .bind(event_id)
         .bind(as_id)
         .bind(room_id)
         .bind(event_type)
-        .bind(sender)
-        .bind(&content)
-        .bind(state_key)
         .bind(now)
         .fetch_one(&*self.pool)
         .await
@@ -447,7 +451,23 @@ impl ApplicationServiceStorage {
         limit: i64,
     ) -> Result<Vec<ApplicationServiceEvent>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceEvent>(
-            r#"SELECT * FROM application_service_events WHERE as_id = $1 AND processed_ts IS NULL ORDER BY origin_server_ts ASC LIMIT $2"#
+            r#"
+            SELECT
+                event_id,
+                as_id,
+                room_id,
+                event_type,
+                ''::text AS sender,
+                '{}'::jsonb AS content,
+                NULL::text AS state_key,
+                created_ts AS origin_server_ts,
+                processed_ts,
+                NULL::text AS transaction_id
+            FROM application_service_events
+            WHERE as_id = $1 AND processed_ts IS NULL
+            ORDER BY created_ts ASC
+            LIMIT $2
+            "#,
         )
         .bind(as_id)
         .bind(limit)
@@ -581,7 +601,7 @@ impl ApplicationServiceStorage {
 
     pub async fn is_user_in_namespace(&self, user_id: &str) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query(
-            r#"SELECT as_id FROM application_service_user_namespaces WHERE $1 ~ regex"#,
+            r#"SELECT as_id FROM application_service_user_namespaces WHERE $1 ~ namespace"#,
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -595,7 +615,7 @@ impl ApplicationServiceStorage {
         alias: &str,
     ) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query(
-            r#"SELECT as_id FROM application_service_room_alias_namespaces WHERE $1 ~ regex"#,
+            r#"SELECT as_id FROM application_service_room_alias_namespaces WHERE $1 ~ namespace"#,
         )
         .bind(alias)
         .fetch_optional(&*self.pool)
@@ -609,7 +629,7 @@ impl ApplicationServiceStorage {
         room_id: &str,
     ) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query(
-            r#"SELECT as_id FROM application_service_room_namespaces WHERE $1 ~ regex"#,
+            r#"SELECT as_id FROM application_service_room_namespaces WHERE $1 ~ namespace"#,
         )
         .bind(room_id)
         .fetch_optional(&*self.pool)
@@ -623,7 +643,17 @@ impl ApplicationServiceStorage {
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceNamespace>(
-            r#"SELECT * FROM application_service_user_namespaces WHERE as_id = $1"#,
+            r#"
+            SELECT
+                id,
+                as_id,
+                namespace AS namespace_pattern,
+                is_exclusive AS exclusive,
+                namespace AS regex,
+                created_ts
+            FROM application_service_user_namespaces
+            WHERE as_id = $1
+            "#,
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
@@ -635,7 +665,17 @@ impl ApplicationServiceStorage {
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceNamespace>(
-            r#"SELECT * FROM application_service_room_alias_namespaces WHERE as_id = $1"#,
+            r#"
+            SELECT
+                id,
+                as_id,
+                namespace AS namespace_pattern,
+                is_exclusive AS exclusive,
+                namespace AS regex,
+                created_ts
+            FROM application_service_room_alias_namespaces
+            WHERE as_id = $1
+            "#,
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
@@ -647,7 +687,17 @@ impl ApplicationServiceStorage {
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceNamespace>(
-            r#"SELECT * FROM application_service_room_namespaces WHERE as_id = $1"#,
+            r#"
+            SELECT
+                id,
+                as_id,
+                namespace AS namespace_pattern,
+                is_exclusive AS exclusive,
+                namespace AS regex,
+                created_ts
+            FROM application_service_room_namespaces
+            WHERE as_id = $1
+            "#,
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
