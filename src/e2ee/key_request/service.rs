@@ -34,7 +34,10 @@ pub struct KeyRequestService {
 
 impl KeyRequestService {
     pub fn new(storage: KeyRequestStorage, megolm_service: MegolmService) -> Self {
-        Self { storage, megolm_service }
+        Self {
+            storage,
+            megolm_service,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -83,9 +86,16 @@ impl KeyRequestService {
         _requesting_device_id: &str,
     ) -> Result<String, ApiError> {
         let request = self
-            .create_request(user_id, device_id, room_id, session_id, algorithm, Some("request"), None)
-            .await
-            ?;
+            .create_request(
+                user_id,
+                device_id,
+                room_id,
+                session_id,
+                algorithm,
+                Some("request"),
+                None,
+            )
+            .await?;
         Ok(request.request_id)
     }
 
@@ -111,7 +121,11 @@ impl KeyRequestService {
                 return Ok(None);
             }
 
-            if let Ok(sessions) = self.megolm_service.get_room_sessions(&request.room_id).await {
+            if let Ok(sessions) = self
+                .megolm_service
+                .get_room_sessions(&request.room_id)
+                .await
+            {
                 if sessions.iter().any(|s| s.session_id == request.session_id) {
                     let _ = (request_id, device_id);
                     let _ = request;
@@ -189,7 +203,9 @@ fn request_matches_status(request: &KeyRequestInfo, status: KeyRequestStatusFilt
     match status {
         KeyRequestStatusFilter::Pending => !request.is_fulfilled,
         KeyRequestStatusFilter::Fulfilled => {
-            request.is_fulfilled && request.action != "cancellation" && request.action != "cancelled"
+            request.is_fulfilled
+                && request.action != "cancellation"
+                && request.action != "cancelled"
         }
         KeyRequestStatusFilter::Cancelled => {
             request.action == "cancellation" || request.action == "cancelled"

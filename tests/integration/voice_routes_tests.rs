@@ -214,7 +214,10 @@ async fn test_voice_transcription_endpoint_returns_explicit_unsupported_error() 
         .await
         .unwrap();
     if upload_status != StatusCode::OK {
-        eprintln!("voice upload error body: {}", String::from_utf8_lossy(&body));
+        eprintln!(
+            "voice upload error body: {}",
+            String::from_utf8_lossy(&body)
+        );
     }
     assert_eq!(upload_status, StatusCode::OK);
 
@@ -290,7 +293,10 @@ async fn test_voice_stats_endpoint_reflects_uploaded_message() {
         .await
         .unwrap();
     if upload_status != StatusCode::OK {
-        eprintln!("voice upload error body: {}", String::from_utf8_lossy(&body));
+        eprintln!(
+            "voice upload error body: {}",
+            String::from_utf8_lossy(&body)
+        );
     }
     assert_eq!(upload_status, StatusCode::OK);
 

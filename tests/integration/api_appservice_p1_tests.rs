@@ -95,10 +95,7 @@ async fn test_appservice_transaction_push() {
         .unwrap();
     let events_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let events = events_json.as_array().unwrap();
-    assert!(
-        !events.is_empty(),
-        "Should have at least one pending event"
-    );
+    assert!(!events.is_empty(), "Should have at least one pending event");
     assert_eq!(events[0]["as_id"], as_id);
     assert_eq!(events[0]["event_type"], "m.room.message");
 }

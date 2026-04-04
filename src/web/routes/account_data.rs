@@ -13,17 +13,24 @@ fn create_account_data_compat_router() -> Router<AppState> {
         .route("/user/{user_id}/account_data/", get(list_account_data))
         .route(
             "/user/{user_id}/account_data/{type}",
-            get(get_account_data).put(set_account_data).delete(delete_account_data),
+            get(get_account_data)
+                .put(set_account_data)
+                .delete(delete_account_data),
         )
         .route(
             "/user/{user_id}/rooms/{room_id}/account_data/{type}",
-            get(get_room_account_data).put(set_room_account_data).delete(delete_room_account_data),
+            get(get_room_account_data)
+                .put(set_room_account_data)
+                .delete(delete_room_account_data),
         )
         .route(
             "/user/{user_id}/filter",
             put(create_filter).post(create_filter),
         )
-        .route("/user/{user_id}/filter/{filter_id}", get(get_filter).delete(delete_filter))
+        .route(
+            "/user/{user_id}/filter/{filter_id}",
+            get(get_filter).delete(delete_filter),
+        )
         .route(
             "/user/{user_id}/openid/request_token",
             get(get_openid_token).post(get_openid_token),
@@ -314,7 +321,9 @@ async fn delete_room_account_data(
     .map_err(|e| ApiError::internal(format!("Failed to delete room account data: {}", e)))?;
 
     if result.rows_affected() == 0 {
-        return Err(ApiError::not_found("Room account data not found".to_string()));
+        return Err(ApiError::not_found(
+            "Room account data not found".to_string(),
+        ));
     }
 
     Ok(Json(json!({})))

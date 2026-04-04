@@ -566,7 +566,10 @@ impl VoiceService {
         Ok(None)
     }
 
-    pub async fn get_voice_message_info(&self, event_id: &str) -> ApiResult<Option<VoiceMessageInfo>> {
+    pub async fn get_voice_message_info(
+        &self,
+        event_id: &str,
+    ) -> ApiResult<Option<VoiceMessageInfo>> {
         let voice_storage = VoiceStorage::new(&self.pool, self.cache.clone());
         voice_storage
             .get_voice_message(event_id)

@@ -524,7 +524,9 @@ impl ThreadService {
                 .storage
                 .get_thread_summary(&subscription.room_id, &subscription.thread_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get subscribed thread: {}", e)))?
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to get subscribed thread: {}", e))
+                })?
             {
                 threads.push(summary);
             }

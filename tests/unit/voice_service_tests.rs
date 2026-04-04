@@ -6,9 +6,7 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::voice_service::{
-    VoiceMessageUploadParams, VoiceService, VoiceStorage,
-};
+use synapse_rust::services::voice_service::{VoiceMessageUploadParams, VoiceService, VoiceStorage};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -19,9 +17,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database() -> Option<Pool<Postgres>> {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| {
-            "postgresql://synapse:secret@localhost:5432/synapse_test".to_string()
-        });
+        .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
 
     let pool = match sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)

@@ -70,20 +70,24 @@ fn bench_room_query(c: &mut Criterion) {
     group.bench_function("by_room_id", |b| {
         b.to_async(&rt).iter(|| async {
             let room_id = black_box("!bench_room_1:benchmark.local");
-            sqlx::query("SELECT room_id, creator, created_ts, is_public FROM rooms WHERE room_id = $1")
-                .bind(room_id)
-                .fetch_optional(&pool)
-                .await
-                .unwrap()
+            sqlx::query(
+                "SELECT room_id, creator, created_ts, is_public FROM rooms WHERE room_id = $1",
+            )
+            .bind(room_id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap()
         })
     });
 
     group.bench_function("public_rooms_list", |b| {
         b.to_async(&rt).iter(|| async {
-            sqlx::query("SELECT room_id, creator, created_ts FROM rooms WHERE is_public = true LIMIT 20")
-                .fetch_all(&pool)
-                .await
-                .unwrap()
+            sqlx::query(
+                "SELECT room_id, creator, created_ts FROM rooms WHERE is_public = true LIMIT 20",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap()
         })
     });
 
@@ -121,7 +125,7 @@ fn bench_event_query(c: &mut Criterion) {
                  FROM events
                  WHERE room_id = $1
                  ORDER BY origin_server_ts DESC
-                 LIMIT 50"
+                 LIMIT 50",
             )
             .bind(room_id)
             .fetch_all(&pool)
@@ -140,7 +144,7 @@ fn bench_event_query(c: &mut Criterion) {
                 "SELECT event_id, sender, event_type, content, origin_server_ts
                  FROM events
                  WHERE room_id = $1 AND origin_server_ts BETWEEN $2 AND $3
-                 ORDER BY origin_server_ts DESC"
+                 ORDER BY origin_server_ts DESC",
             )
             .bind(room_id)
             .bind(one_day_ago)
@@ -169,11 +173,13 @@ fn bench_device_query(c: &mut Criterion) {
     group.bench_function("by_user_id", |b| {
         b.to_async(&rt).iter(|| async {
             let user_id = black_box("@bench_user_1:benchmark.local");
-            sqlx::query("SELECT device_id, display_name, last_seen_ts FROM devices WHERE user_id = $1")
-                .bind(user_id)
-                .fetch_all(&pool)
-                .await
-                .unwrap()
+            sqlx::query(
+                "SELECT device_id, display_name, last_seen_ts FROM devices WHERE user_id = $1",
+            )
+            .bind(user_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap()
         })
     });
 
@@ -223,7 +229,7 @@ fn bench_batch_insert(c: &mut Criterion) {
                         sqlx::query(
                             "INSERT INTO devices (device_id, user_id, display_name, last_seen_ts)
                              VALUES ($1, $2, $3, $4)
-                             ON CONFLICT (device_id, user_id) DO UPDATE SET last_seen_ts = $4"
+                             ON CONFLICT (device_id, user_id) DO UPDATE SET last_seen_ts = $4",
                         )
                         .bind(&device_id)
                         .bind(user_id)
