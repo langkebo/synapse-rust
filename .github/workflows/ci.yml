@@ -31,6 +31,9 @@ jobs:
         run: |
           ! ls axum_test.rs 2>/dev/null
           ! ls *.db 2>/dev/null
+      
+      - name: No placeholder strings in non-test code
+        run: bash scripts/quality/check_no_placeholder_strings.sh
 
   test:
     name: Test & Lint

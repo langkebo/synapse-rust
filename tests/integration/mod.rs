@@ -15,6 +15,7 @@ mod api_e2ee_advanced_tests;
 mod api_e2ee_tests;
 mod api_enhanced_features_tests;
 mod api_feature_flags_tests;
+mod api_federation_signature_auth_tests;
 mod api_federation_tests;
 mod api_friend_room_routes_tests;
 mod api_input_validation_tests;

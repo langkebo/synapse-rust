@@ -619,7 +619,8 @@ async fn delete_room_key_request(
         .get_request(&request_id)
         .await?;
 
-    let request = existing.ok_or_else(|| ApiError::not_found("Room key request not found".to_string()))?;
+    let request =
+        existing.ok_or_else(|| ApiError::not_found("Room key request not found".to_string()))?;
 
     if request.user_id != auth_user.user_id {
         return Err(ApiError::forbidden(
@@ -1073,19 +1074,20 @@ mod tests {
             fulfilled_by_device: None,
             fulfilled_ts: None,
         });
-        let cancelled = super::serialize_room_key_request(crate::e2ee::key_request::KeyRequestInfo {
-            request_id: "req-2".to_string(),
-            user_id: "@alice:example.org".to_string(),
-            device_id: "DEVICE".to_string(),
-            room_id: "!room:example.org".to_string(),
-            session_id: "sess-2".to_string(),
-            algorithm: "m.megolm.v1.aes-sha2".to_string(),
-            action: "cancellation".to_string(),
-            created_ts: 2,
-            is_fulfilled: true,
-            fulfilled_by_device: None,
-            fulfilled_ts: None,
-        });
+        let cancelled =
+            super::serialize_room_key_request(crate::e2ee::key_request::KeyRequestInfo {
+                request_id: "req-2".to_string(),
+                user_id: "@alice:example.org".to_string(),
+                device_id: "DEVICE".to_string(),
+                room_id: "!room:example.org".to_string(),
+                session_id: "sess-2".to_string(),
+                algorithm: "m.megolm.v1.aes-sha2".to_string(),
+                action: "cancellation".to_string(),
+                created_ts: 2,
+                is_fulfilled: true,
+                fulfilled_by_device: None,
+                fulfilled_ts: None,
+            });
 
         assert_eq!(pending["status"], "pending");
         assert_eq!(pending["request_type"], "request");

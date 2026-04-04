@@ -341,10 +341,9 @@ async fn test_global_thread_routes_return_real_data() {
         ))
         .unwrap();
 
-    let subscribe_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), subscribe_request)
-            .await
-            .unwrap();
+    let subscribe_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), subscribe_request)
+        .await
+        .unwrap();
     assert_eq!(subscribe_response.status(), StatusCode::OK);
 
     let subscribed_request = Request::builder()
@@ -354,10 +353,9 @@ async fn test_global_thread_routes_return_real_data() {
         .body(Body::empty())
         .unwrap();
 
-    let subscribed_response =
-        ServiceExt::<Request<Body>>::oneshot(app, subscribed_request)
-            .await
-            .unwrap();
+    let subscribed_response = ServiceExt::<Request<Body>>::oneshot(app, subscribed_request)
+        .await
+        .unwrap();
     assert_eq!(subscribed_response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(subscribed_response.into_body(), 4096)
@@ -375,7 +373,6 @@ async fn test_global_thread_routes_return_real_data() {
         .unwrap()
         .iter()
         .any(|subscription| {
-            subscription["thread_id"] == thread_id
-                && subscription["notification_level"] == "all"
+            subscription["thread_id"] == thread_id && subscription["notification_level"] == "all"
         }));
 }

@@ -98,7 +98,8 @@ fn register_error_response(status: u16, errcode: &str, error: impl Into<String>)
     .unwrap_or_else(|_| r#"{"errcode":"M_UNKNOWN","error":"Internal error"}"#.to_string());
 
     let mut response = Response::new(Body::from(body));
-    *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    *response.status_mut() =
+        StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     response.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,
         axum::http::HeaderValue::from_static("application/json"),
@@ -342,15 +343,13 @@ async fn register(
 
     // 验证 nonce
     let nonce_valid = {
-        let mut nonces = NONCES.lock().map_err(|_| {
-            register_error_response(500, "M_UNKNOWN", "Lock poisoned")
-        })?;
+        let mut nonces = NONCES
+            .lock()
+            .map_err(|_| register_error_response(500, "M_UNKNOWN", "Lock poisoned"))?;
         if let Some(data) = nonces.get(&payload.nonce) {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .map_err(|_| {
-                    register_error_response(500, "M_UNKNOWN", "System time error")
-                })?
+                .map_err(|_| register_error_response(500, "M_UNKNOWN", "System time error"))?
                 .as_secs();
             if now <= data.expires_at {
                 nonces.remove(&payload.nonce); // 使用后删除

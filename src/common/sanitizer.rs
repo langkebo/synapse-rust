@@ -12,19 +12,16 @@ static DANGEROUS_TAGS: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// 危险的事件处理器模式
-static DANGEROUS_EVENTS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)on\w+\s*=").expect("DANGEROUS_EVENTS regex is valid")
-});
+static DANGEROUS_EVENTS: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)on\w+\s*=").expect("DANGEROUS_EVENTS regex is valid"));
 
 /// JavaScript URL 模式
-static JAVASCRIPT_URLS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)javascript\s*:").expect("JAVASCRIPT_URLS regex is valid")
-});
+static JAVASCRIPT_URLS: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)javascript\s*:").expect("JAVASCRIPT_URLS regex is valid"));
 
 /// 数据 URL 模式（可能包含恶意内容）
-static DATA_URLS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)data\s*:").expect("DATA_URLS regex is valid")
-});
+static DATA_URLS: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)data\s*:").expect("DATA_URLS regex is valid"));
 
 /// 内容净化器配置
 #[derive(Debug, Clone)]

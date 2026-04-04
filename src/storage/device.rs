@@ -348,12 +348,13 @@ impl DeviceStorage {
             return Ok(0);
         }
 
-        let rows_affected = sqlx::query("DELETE FROM devices WHERE user_id = $1 AND device_id = ANY($2)")
-            .bind(user_id)
-            .bind(device_ids)
-            .execute(&*self.pool)
-            .await
-            .map(|result| result.rows_affected())?;
+        let rows_affected =
+            sqlx::query("DELETE FROM devices WHERE user_id = $1 AND device_id = ANY($2)")
+                .bind(user_id)
+                .bind(device_ids)
+                .execute(&*self.pool)
+                .await
+                .map(|result| result.rows_affected())?;
 
         if rows_affected > 0 {
             for device_id in device_ids {

@@ -264,7 +264,10 @@ async fn test_admin_user_list_pagination_and_limits() {
 
     // 验证有 next_token（如果有更多用户）
     if json["total"].as_u64().unwrap() > 2 {
-        assert!(json["next_token"].is_string(), "Should have next_token for pagination");
+        assert!(
+            json["next_token"].is_string(),
+            "Should have next_token for pagination"
+        );
     }
 
     // 4. 测试边界条件：limit = 0（应该返回错误或默认值）

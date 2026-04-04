@@ -1637,7 +1637,11 @@ async fn query_directory(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing room_alias parameter"))?;
 
-    let room_id = state.services.room_service.get_room_by_alias(room_alias).await?;
+    let room_id = state
+        .services
+        .room_service
+        .get_room_by_alias(room_alias)
+        .await?;
     let room_id = room_id.ok_or_else(|| ApiError::not_found("Room alias not found"))?;
     let server_name = room_alias
         .split(':')
@@ -1686,7 +1690,9 @@ async fn fetch_remote_server_keys_response(
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(3))
         .build()
-        .map_err(|e| ApiError::internal(format!("Failed to build federation HTTP client: {}", e)))?;
+        .map_err(|e| {
+            ApiError::internal(format!("Failed to build federation HTTP client: {}", e))
+        })?;
 
     let urls = [
         format!("https://{}/_matrix/key/v2/server", server_name),

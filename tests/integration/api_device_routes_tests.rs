@@ -49,7 +49,11 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         .await
         .unwrap();
     if status != StatusCode::OK {
-        panic!("register failed: status={} body={}", status, String::from_utf8_lossy(&body));
+        panic!(
+            "register failed: status={} body={}",
+            status,
+            String::from_utf8_lossy(&body)
+        );
     }
     let json: Value = serde_json::from_slice(&body).unwrap();
 

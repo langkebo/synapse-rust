@@ -219,14 +219,23 @@ impl DatabaseIntegrityChecker {
 
     async fn check_audit_critical_constraints(&self) -> Result<Vec<String>, sqlx::Error> {
         let critical_constraints = vec![
-            ("room_summary_state", "uq_room_summary_state_room_type_state"),
+            (
+                "room_summary_state",
+                "uq_room_summary_state_room_type_state",
+            ),
             ("room_summary_state", "fk_room_summary_state_room"),
             ("room_summary_stats", "fk_room_summary_stats_room"),
-            ("room_summary_update_queue", "fk_room_summary_update_queue_room"),
+            (
+                "room_summary_update_queue",
+                "fk_room_summary_update_queue_room",
+            ),
             ("room_children", "uq_room_children_parent_child"),
             ("room_children", "fk_room_children_parent"),
             ("room_children", "fk_room_children_child"),
-            ("retention_cleanup_queue", "uq_retention_cleanup_queue_room_event"),
+            (
+                "retention_cleanup_queue",
+                "uq_retention_cleanup_queue_room_event",
+            ),
             ("retention_cleanup_queue", "fk_retention_cleanup_queue_room"),
             ("retention_cleanup_logs", "fk_retention_cleanup_logs_room"),
             ("retention_stats", "fk_retention_stats_room"),

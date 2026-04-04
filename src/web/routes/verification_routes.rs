@@ -30,8 +30,14 @@ fn create_verification_compat_router() -> Router<AppState> {
         )
         .route("/keys/device_signing/verify_mac", post(verification_mac))
         .route("/keys/device_signing/verify_done", post(verification_done))
-        .route("/keys/device_signing/verify_cancel", post(verification_cancel))
-        .route("/keys/device_signing/requests", get(list_verification_requests))
+        .route(
+            "/keys/device_signing/verify_cancel",
+            post(verification_cancel),
+        )
+        .route(
+            "/keys/device_signing/requests",
+            get(list_verification_requests),
+        )
         .route("/keys/qr_code/show", get(show_qr_code))
         .route("/keys/qr_code/scan", post(scan_qr_code))
 }
@@ -376,7 +382,9 @@ fn generate_decimal_from_emoji(emojis: &[String]) -> u32 {
     (decimal % 900000) + 100000
 }
 
-fn serialize_verification_request(request: crate::e2ee::verification::VerificationRequest) -> Value {
+fn serialize_verification_request(
+    request: crate::e2ee::verification::VerificationRequest,
+) -> Value {
     json!({
         "transaction_id": request.transaction_id,
         "from_user": request.from_user,

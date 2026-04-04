@@ -400,9 +400,7 @@ impl SchemaValidator {
         Ok(index_map)
     }
 
-    pub async fn get_table_constraints(
-        &self,
-    ) -> Result<HashMap<String, Vec<String>>, sqlx::Error> {
+    pub async fn get_table_constraints(&self) -> Result<HashMap<String, Vec<String>>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String, String)>(
             r#"
             SELECT tc.table_name, tc.constraint_name
@@ -595,7 +593,8 @@ impl SchemaValidator {
         missing_indexes.sort();
         missing_indexes.dedup();
 
-        let is_valid = missing_tables.is_empty() && missing_columns.is_empty() && missing_indexes.is_empty();
+        let is_valid =
+            missing_tables.is_empty() && missing_columns.is_empty() && missing_indexes.is_empty();
 
         Ok(SchemaValidationResult {
             is_valid,

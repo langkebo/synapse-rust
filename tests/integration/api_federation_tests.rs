@@ -78,7 +78,6 @@ async fn request_openid_token(app: &axum::Router, token: &str, user_id: &str) ->
     json["access_token"].as_str().unwrap().to_string()
 }
 
-
 #[tokio::test]
 async fn test_federation_version() {
     let Some(app) = setup_test_app().await else {
