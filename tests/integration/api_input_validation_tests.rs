@@ -31,9 +31,10 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
+            .await
+            .unwrap();
 
     let body = axum::body::to_bytes(response.into_body(), 1024)
         .await
@@ -77,15 +78,54 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
+            .await
+            .unwrap();
 
     let body = axum::body::to_bytes(response.into_body(), 1024)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     (json["access_token"].as_str().unwrap().to_string(), username)
+}
+
+#[tokio::test]
+async fn test_admin_registration_nonce_rejects_remote_forwarded_ip() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .uri("/_synapse/admin/v1/register/nonce")
+        .header("x-forwarded-for", "8.8.8.8")
+        .body(Body::empty())
+        .unwrap();
+
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app, super::with_local_connect_info(request))
+            .await
+            .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_admin_registration_nonce_allows_local_forwarded_ip() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .uri("/_synapse/admin/v1/register/nonce")
+        .header("x-forwarded-for", "127.0.0.1")
+        .body(Body::empty())
+        .unwrap();
+
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app, super::with_local_connect_info(request))
+            .await
+            .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]

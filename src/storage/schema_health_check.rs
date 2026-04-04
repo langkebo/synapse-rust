@@ -1,6 +1,6 @@
 //! 数据库 Schema 健康检查模块
 //!
-//! 提供启动时的 Schema 验证和索引自动修复功能
+//! 提供启动时的 Schema 验证，不在服务启动阶段执行运行时索引修复。
 //!
 //! 使用方法:
 //! ```rust,ignore
@@ -9,13 +9,16 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let pool = create_pool().await?;
-//!     run_schema_health_check(&pool, true).await?;
+//!     run_schema_health_check(&pool, false).await?;
 //!     Ok(())
 //! }
 //! ```
 
 use sqlx::{Pool, Postgres};
 use tracing::{error, info, warn};
+
+const AUTO_REPAIR_DISABLED_MESSAGE: &str =
+    "Schema health check detected missing indexes. Apply the managed migrations via docker/db_migrate.sh instead of repairing schema at runtime.";
 
 /// 核心表定义
 const CORE_TABLES: &[&str] = &[
@@ -208,21 +211,18 @@ pub async fn run_schema_health_check(
     if !result.missing_indexes.is_empty() {
         result.passed = false;
         warn!("Missing indexes: {:?}", result.missing_indexes);
+        result
+            .warnings
+            .push(AUTO_REPAIR_DISABLED_MESSAGE.to_string());
 
-        // 4. 自动修复索引
         if auto_repair {
-            info!("Attempting to repair missing indexes...");
-            result.repaired_indexes = repair_indexes(pool, &result.missing_indexes).await?;
-            if !result.repaired_indexes.is_empty() {
-                info!(
-                    "Successfully repaired indexes: {:?}",
-                    result.repaired_indexes
-                );
-            }
+            warn!(
+                "Runtime schema index repair requested but disabled; use docker/db_migrate.sh to apply managed migrations"
+            );
         }
     }
 
-    // 5. 检查字段命名一致性（警告）
+    // 4. 检查字段命名一致性（警告）
     result.warnings = check_field_naming_issues(pool).await?;
     if !result.warnings.is_empty() {
         warn!("Field naming issues found: {:?}", result.warnings);
@@ -306,50 +306,6 @@ async fn check_missing_indexes(
     }
 
     Ok(missing)
-}
-
-/// 修复缺失的索引
-async fn repair_indexes(
-    pool: &Pool<Postgres>,
-    missing_indexes: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
-    let mut repaired = Vec::new();
-
-    let index_definitions: std::collections::HashMap<&str, (&str, &str, Option<&str>)> =
-        REQUIRED_INDEXES
-            .iter()
-            .map(|(name, table, cols, where_clause)| (*name, (*table, *cols, *where_clause)))
-            .collect();
-
-    for index_name in missing_indexes {
-        if let Some((table, columns, where_clause)) = index_definitions.get(index_name.as_str()) {
-            let sql = if let Some(cond) = where_clause {
-                format!(
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS {} ON {} ({}) WHERE {}",
-                    index_name, table, columns, cond
-                )
-            } else {
-                format!(
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS {} ON {} ({})",
-                    index_name, table, columns
-                )
-            };
-
-            info!("Creating index: {}", index_name);
-
-            match sqlx::query(&sql).execute(pool).await {
-                Ok(_) => {
-                    repaired.push(index_name.clone());
-                    info!("✅ Created index: {}", index_name);
-                }
-                Err(e) => {
-                    error!("Failed to create index {}: {}", index_name, e);
-                }
-            }
-        }
-    }
-
-    Ok(repaired)
 }
 
 /// 检查字段命名问题（警告级别）

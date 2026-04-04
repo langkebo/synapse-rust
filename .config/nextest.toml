@@ -1,0 +1,4 @@
+[profile.ci]
+fail-fast = false
+retries = 2
+flaky-result = "fail"

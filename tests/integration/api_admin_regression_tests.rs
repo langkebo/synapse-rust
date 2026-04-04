@@ -226,7 +226,7 @@ async fn test_admin_room_reports_follow_current_event_report_schema() {
 }
 
 #[tokio::test]
-async fn test_admin_audit_endpoints_fail_if_audit_table_missing() {
+async fn test_admin_audit_endpoints_remain_available_when_schema_audit_table_missing() {
     let _guard = test_mutex().lock().await;
     let Some((app, pool)) = setup_test_app().await else {
         return;
@@ -263,7 +263,7 @@ async fn test_admin_audit_endpoints_fail_if_audit_table_missing() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(response.status(), StatusCode::OK);
 
     let request = Request::builder()
         .uri("/_synapse/admin/v1/audit/events?from=0&limit=10")
@@ -275,7 +275,7 @@ async fn test_admin_audit_endpoints_fail_if_audit_table_missing() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]

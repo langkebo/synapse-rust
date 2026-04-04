@@ -25,6 +25,87 @@ impl DeviceStorage {
         Self { pool: pool.clone() }
     }
 
+    async fn record_device_list_change(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let row = sqlx::query(
+            r#"
+            INSERT INTO device_lists_stream (user_id, device_id, created_ts)
+            VALUES ($1, $2, $3)
+            RETURNING stream_id
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        use sqlx::Row;
+        let stream_id: i64 = row.get("stream_id");
+
+        sqlx::query(
+            r#"
+            INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(change_type)
+        .bind(stream_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(stream_id)
+    }
+
+    async fn record_device_list_change_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let row = sqlx::query(
+            r#"
+            INSERT INTO device_lists_stream (user_id, device_id, created_ts)
+            VALUES ($1, $2, $3)
+            RETURNING stream_id
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(now)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        use sqlx::Row;
+        let stream_id: i64 = row.get("stream_id");
+
+        sqlx::query(
+            r#"
+            INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(change_type)
+        .bind(stream_id)
+        .bind(now)
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(stream_id)
+    }
+
     pub async fn create_device(
         &self,
         device_id: &str,
@@ -32,7 +113,7 @@ impl DeviceStorage {
         display_name: Option<&str>,
     ) -> Result<Device, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query_as::<_, Device>(
+        let device = sqlx::query_as::<_, Device>(
             r#"
             INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -46,7 +127,13 @@ impl DeviceStorage {
         .bind(now)
         .bind(now)
         .fetch_one(&*self.pool)
-        .await
+        .await?;
+
+        let _ = self
+            .record_device_list_change(user_id, Some(device_id), "changed")
+            .await;
+
+        Ok(device)
     }
 
     /// Creates a new device in the database within a transaction.
@@ -58,7 +145,7 @@ impl DeviceStorage {
         display_name: Option<&str>,
     ) -> Result<Device, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query_as::<_, Device>(
+        let device = sqlx::query_as::<_, Device>(
             r#"
             INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -72,7 +159,13 @@ impl DeviceStorage {
         .bind(now)
         .bind(now)
         .fetch_one(&mut **tx)
-        .await
+        .await?;
+
+        let _ = self
+            .record_device_list_change_tx(tx, user_id, Some(device_id), "changed")
+            .await;
+
+        Ok(device)
     }
 
     pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
@@ -113,7 +206,42 @@ impl DeviceStorage {
         .bind(device_id)
         .execute(&*self.pool)
         .await?;
+
+        if let Some(device) = self.get_device(device_id).await? {
+            let _ = self
+                .record_device_list_change(&device.user_id, Some(device_id), "changed")
+                .await;
+        }
         Ok(())
+    }
+
+    pub async fn update_user_device_display_name(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        display_name: &str,
+    ) -> Result<u64, sqlx::Error> {
+        let rows_affected = sqlx::query(
+            r#"
+            UPDATE devices
+            SET display_name = $1
+            WHERE device_id = $2 AND user_id = $3
+            "#,
+        )
+        .bind(display_name)
+        .bind(device_id)
+        .bind(user_id)
+        .execute(&*self.pool)
+        .await
+        .map(|result| result.rows_affected())?;
+
+        if rows_affected > 0 {
+            let _ = self
+                .record_device_list_change(user_id, Some(device_id), "changed")
+                .await;
+        }
+
+        Ok(rows_affected)
     }
 
     pub async fn update_device_last_seen(&self, device_id: &str) -> Result<(), sqlx::Error> {
@@ -131,6 +259,7 @@ impl DeviceStorage {
     }
 
     pub async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error> {
+        let existing = self.get_device(device_id).await?;
         let result = sqlx::query(
             r#"
             DELETE FROM devices WHERE device_id = $1
@@ -141,12 +270,56 @@ impl DeviceStorage {
         .await;
 
         match result {
-            Ok(_) => Ok(()),
+            Ok(res) => {
+                if res.rows_affected() > 0 {
+                    if let Some(device) = existing {
+                        let _ = self
+                            .record_device_list_change(&device.user_id, Some(device_id), "deleted")
+                            .await;
+                    }
+                }
+                Ok(())
+            }
             Err(e) => Err(e),
         }
     }
 
+    pub async fn delete_user_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<u64, sqlx::Error> {
+        let rows_affected = sqlx::query(
+            r#"
+            DELETE FROM devices
+            WHERE device_id = $1 AND user_id = $2
+            "#,
+        )
+        .bind(device_id)
+        .bind(user_id)
+        .execute(&*self.pool)
+        .await
+        .map(|result| result.rows_affected())?;
+
+        if rows_affected > 0 {
+            let _ = self
+                .record_device_list_change(user_id, Some(device_id), "deleted")
+                .await;
+        }
+
+        Ok(rows_affected)
+    }
+
     pub async fn delete_user_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        let device_ids: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT device_id FROM devices WHERE user_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
         let result = sqlx::query(
             r#"
             DELETE FROM devices WHERE user_id = $1
@@ -157,7 +330,16 @@ impl DeviceStorage {
         .await;
 
         match result {
-            Ok(_) => Ok(()),
+            Ok(res) => {
+                if res.rows_affected() > 0 {
+                    for device_id in device_ids {
+                        let _ = self
+                            .record_device_list_change(user_id, Some(&device_id), "deleted")
+                            .await;
+                    }
+                }
+                Ok(())
+            }
             Err(e) => Err(e),
         }
     }
@@ -167,11 +349,57 @@ impl DeviceStorage {
             return Ok(0);
         }
 
-        sqlx::query("DELETE FROM devices WHERE device_id = ANY($1)")
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            r#"
+            SELECT user_id, device_id FROM devices WHERE device_id = ANY($1)
+            "#,
+        )
+        .bind(device_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let rows_affected = sqlx::query("DELETE FROM devices WHERE device_id = ANY($1)")
             .bind(device_ids)
             .execute(&*self.pool)
             .await
-            .map(|result| result.rows_affected())
+            .map(|result| result.rows_affected())?;
+
+        if rows_affected > 0 {
+            for (user_id, device_id) in rows {
+                let _ = self
+                    .record_device_list_change(&user_id, Some(&device_id), "deleted")
+                    .await;
+            }
+        }
+
+        Ok(rows_affected)
+    }
+
+    pub async fn delete_user_devices_batch(
+        &self,
+        user_id: &str,
+        device_ids: &[String],
+    ) -> Result<u64, sqlx::Error> {
+        if device_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let rows_affected = sqlx::query("DELETE FROM devices WHERE user_id = $1 AND device_id = ANY($2)")
+            .bind(user_id)
+            .bind(device_ids)
+            .execute(&*self.pool)
+            .await
+            .map(|result| result.rows_affected())?;
+
+        if rows_affected > 0 {
+            for device_id in device_ids {
+                let _ = self
+                    .record_device_list_change(user_id, Some(device_id.as_str()), "deleted")
+                    .await;
+            }
+        }
+
+        Ok(rows_affected)
     }
 
     pub async fn device_exists(&self, device_id: &str) -> Result<bool, sqlx::Error> {

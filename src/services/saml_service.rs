@@ -4,11 +4,39 @@ use crate::common::xml_parser::{parse_saml_metadata, parse_saml_response};
 use crate::storage::saml::*;
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Utc};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::info;
+
+const SAML_REQUEST_TTL_SECONDS: u64 = 600;
+const SAML_CLOCK_SKEW_SECONDS: i64 = 300;
+
+#[derive(Debug, Clone)]
+struct SamlPendingRequest {
+    request_id: String,
+    expires_at: u64,
+}
+
+static SAML_PENDING_REQUESTS: OnceLock<Mutex<HashMap<String, SamlPendingRequest>>> =
+    OnceLock::new();
+
+fn saml_pending_requests() -> &'static Mutex<HashMap<String, SamlPendingRequest>> {
+    SAML_PENDING_REQUESTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn current_unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn cleanup_expired_saml_requests(requests: &mut HashMap<String, SamlPendingRequest>, now: u64) {
+    requests.retain(|_, request| request.expires_at >= now);
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SamlAuthRequest {
@@ -80,6 +108,7 @@ impl SamlService {
         relay_state: Option<&str>,
     ) -> Result<SamlAuthRequest, ApiError> {
         let request_id = Self::generate_request_id();
+        self.store_pending_request(&request_id, relay_state)?;
 
         let metadata = self.get_idp_metadata().await?;
 
@@ -112,7 +141,8 @@ impl SamlService {
 
         let (name_id, issuer, attributes, session_index) = Self::parse_saml_assertion(&decoded)?;
 
-        self.validate_response(&issuer, &decoded)?;
+        let expected_in_response_to = self.consume_pending_request(relay_state)?;
+        self.validate_response(&issuer, &decoded, expected_in_response_to.as_deref())?;
 
         let user = self.map_user(&name_id, &issuer, &attributes)?;
 
@@ -356,7 +386,12 @@ impl SamlService {
         })
     }
 
-    fn validate_response(&self, issuer: &str, _response: &str) -> Result<(), ApiError> {
+    fn validate_response(
+        &self,
+        issuer: &str,
+        response: &str,
+        expected_in_response_to: Option<&str>,
+    ) -> Result<(), ApiError> {
         if !self.config.allowed_idp_entity_ids.is_empty()
             && !self
                 .config
@@ -365,6 +400,26 @@ impl SamlService {
                 .any(|id| id == issuer)
         {
             return Err(ApiError::unauthorized("IdP not allowed"));
+        }
+
+        Self::validate_response_time_window(response)?;
+        Self::validate_response_audience(response, &self.config.sp_entity_id)?;
+        Self::validate_response_status(response)?;
+        Self::validate_response_destination(
+            response,
+            &self.config.get_sp_acs_url(&self.server_name),
+        )?;
+        Self::validate_response_recipient(
+            response,
+            &self.config.get_sp_acs_url(&self.server_name),
+        )?;
+        Self::validate_response_issuer(response, issuer)?;
+
+        let in_response_to = Self::extract_in_response_to(response)?;
+        if let Some(expected_in_response_to) = expected_in_response_to {
+            if in_response_to != expected_in_response_to {
+                return Err(ApiError::unauthorized("Unexpected InResponseTo"));
+            }
         }
 
         Ok(())
@@ -478,6 +533,226 @@ impl SamlService {
         Err(ApiError::bad_request("No InResponseTo in SAML response"))
     }
 
+    fn extract_attribute_values(xml: &str, attribute: &str) -> Vec<String> {
+        let pattern = format!(r#"{attribute}="([^"]+)""#);
+        Regex::new(&pattern)
+            .ok()
+            .map(|regex| {
+                regex
+                    .captures_iter(xml)
+                    .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn extract_audiences(xml: &str) -> Vec<String> {
+        Regex::new(r#"<(?:\w+:)?Audience>\s*([^<]+?)\s*</(?:\w+:)?Audience>"#)
+            .ok()
+            .map(|regex| {
+                regex
+                    .captures_iter(xml)
+                    .filter_map(|captures| {
+                        captures
+                            .get(1)
+                            .map(|value| value.as_str().trim().to_string())
+                    })
+                    .filter(|value| !value.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn parse_saml_timestamp(value: &str) -> Result<DateTime<Utc>, ApiError> {
+        DateTime::parse_from_rfc3339(value)
+            .map(|value| value.with_timezone(&Utc))
+            .map_err(|_| ApiError::unauthorized(format!("Invalid SAML timestamp: {}", value)))
+    }
+
+    fn validate_response_time_window(response: &str) -> Result<(), ApiError> {
+        let now = Utc::now();
+        let skew = chrono::Duration::seconds(SAML_CLOCK_SKEW_SECONDS);
+
+        for not_before in Self::extract_attribute_values(response, "NotBefore") {
+            let not_before = Self::parse_saml_timestamp(&not_before)?;
+            if now + skew < not_before {
+                return Err(ApiError::unauthorized("SAML response is not yet valid"));
+            }
+        }
+
+        for not_on_or_after in Self::extract_attribute_values(response, "NotOnOrAfter") {
+            let not_on_or_after = Self::parse_saml_timestamp(&not_on_or_after)?;
+            if now - skew >= not_on_or_after {
+                return Err(ApiError::unauthorized("SAML response has expired"));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_response_audience(response: &str, expected_audience: &str) -> Result<(), ApiError> {
+        let audiences = Self::extract_audiences(response);
+        if audiences.is_empty() {
+            return Err(ApiError::unauthorized("Missing SAML audience"));
+        }
+        if audiences
+            .iter()
+            .any(|audience| audience == expected_audience)
+        {
+            return Ok(());
+        }
+        Err(ApiError::unauthorized("SAML audience mismatch"))
+    }
+
+    fn extract_status_codes(xml: &str) -> Vec<String> {
+        Regex::new(r#"<(?:\w+:)?StatusCode[^>]*\sValue="([^"]+)""#)
+            .ok()
+            .map(|regex| {
+                regex
+                    .captures_iter(xml)
+                    .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn extract_response_destination(xml: &str) -> Option<String> {
+        Regex::new(r#"<(?:\w+:)?Response[^>]*\sDestination="([^"]+)""#)
+            .ok()
+            .and_then(|regex| {
+                regex
+                    .captures(xml)
+                    .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+            })
+    }
+
+    fn extract_subject_confirmation_recipients(xml: &str) -> Vec<String> {
+        Regex::new(r#"<(?:\w+:)?SubjectConfirmationData[^>]*\sRecipient="([^"]+)""#)
+            .ok()
+            .map(|regex| {
+                regex
+                    .captures_iter(xml)
+                    .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn extract_response_issuers(xml: &str) -> Vec<String> {
+        Regex::new(r#"<(?:\w+:)?Response[^>]*>[\s\S]*?<(?:(?:\w+):)?Issuer>\s*([^<]+?)\s*</(?:(?:\w+):)?Issuer>"#)
+            .ok()
+            .and_then(|regex| {
+                regex
+                    .captures(xml)
+                    .and_then(|captures| captures.get(1).map(|value| value.as_str().trim().to_string()))
+            })
+            .map(|issuer| vec![issuer])
+            .unwrap_or_default()
+    }
+
+    fn validate_response_status(response: &str) -> Result<(), ApiError> {
+        let status_codes = Self::extract_status_codes(response);
+        if status_codes.is_empty() {
+            return Err(ApiError::unauthorized("Missing SAML status code"));
+        }
+        if status_codes
+            .iter()
+            .any(|status| status.ends_with(":Success"))
+        {
+            return Ok(());
+        }
+        Err(ApiError::unauthorized("SAML status is not success"))
+    }
+
+    fn validate_response_destination(
+        response: &str,
+        expected_destination: &str,
+    ) -> Result<(), ApiError> {
+        if let Some(destination) = Self::extract_response_destination(response) {
+            if destination != expected_destination {
+                return Err(ApiError::unauthorized("SAML destination mismatch"));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_response_recipient(
+        response: &str,
+        expected_recipient: &str,
+    ) -> Result<(), ApiError> {
+        let recipients = Self::extract_subject_confirmation_recipients(response);
+        if recipients.is_empty() {
+            return Ok(());
+        }
+        if recipients
+            .iter()
+            .any(|recipient| recipient == expected_recipient)
+        {
+            return Ok(());
+        }
+        Err(ApiError::unauthorized("SAML recipient mismatch"))
+    }
+
+    fn validate_response_issuer(response: &str, expected_issuer: &str) -> Result<(), ApiError> {
+        let response_issuers = Self::extract_response_issuers(response);
+        if response_issuers.is_empty() {
+            return Ok(());
+        }
+        if response_issuers
+            .iter()
+            .any(|issuer| issuer == expected_issuer)
+        {
+            return Ok(());
+        }
+        Err(ApiError::unauthorized("SAML response issuer mismatch"))
+    }
+
+    fn store_pending_request(
+        &self,
+        request_id: &str,
+        relay_state: Option<&str>,
+    ) -> Result<(), ApiError> {
+        let Some(relay_state) = relay_state else {
+            return Ok(());
+        };
+
+        let now = current_unix_seconds();
+        let mut requests = saml_pending_requests()
+            .lock()
+            .map_err(|_| ApiError::internal("Failed to acquire SAML request lock"))?;
+        cleanup_expired_saml_requests(&mut requests, now);
+        requests.insert(
+            relay_state.to_string(),
+            SamlPendingRequest {
+                request_id: request_id.to_string(),
+                expires_at: now + SAML_REQUEST_TTL_SECONDS,
+            },
+        );
+        Ok(())
+    }
+
+    fn consume_pending_request(
+        &self,
+        relay_state: Option<&str>,
+    ) -> Result<Option<String>, ApiError> {
+        let Some(relay_state) = relay_state else {
+            return Ok(None);
+        };
+
+        let now = current_unix_seconds();
+        let mut requests = saml_pending_requests()
+            .lock()
+            .map_err(|_| ApiError::internal("Failed to acquire SAML request lock"))?;
+        cleanup_expired_saml_requests(&mut requests, now);
+        let request = requests
+            .remove(relay_state)
+            .ok_or_else(|| ApiError::unauthorized("Unknown or expired RelayState"))?;
+        if request.expires_at < now {
+            return Err(ApiError::unauthorized("Expired SAML request"));
+        }
+        Ok(Some(request.request_id))
+    }
+
     fn generate_request_id() -> String {
         format!("id_{}", uuid::Uuid::new_v4().to_string().replace("-", ""))
     }
@@ -535,6 +810,7 @@ impl SamlIdpManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::saml::SamlStorage;
 
     fn create_test_config() -> SamlConfig {
         SamlConfig {
@@ -568,6 +844,19 @@ mod tests {
             allowed_idp_entity_ids: Vec::new(),
             timeout: 10,
         }
+    }
+
+    fn create_test_service() -> SamlService {
+        let pool = Arc::new(
+            sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse")
+                .expect("valid lazy postgres url"),
+        );
+        let storage = Arc::new(SamlStorage::new(&pool));
+        SamlService::new(
+            Arc::new(create_test_config()),
+            storage,
+            "localhost".to_string(),
+        )
     }
 
     #[test]
@@ -646,5 +935,199 @@ mod tests {
         assert_eq!(issuer, "https://idp.example.com");
         assert_eq!(attributes.get("uid").unwrap().first().unwrap(), "testuser");
         assert_eq!(session_index, Some("session123".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_validate_response_accepts_valid_constraints() {
+        let service = create_test_service();
+        let acs_url = service.config.get_sp_acs_url(&service.server_name);
+        let xml = format!(
+            r#"<samlp:Response InResponseTo="id_123">
+                <samlp:Status>
+                    <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>
+                </samlp:Status>
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+                <saml:Assertion>
+                    <saml:Conditions NotBefore="{}" NotOnOrAfter="{}">
+                        <saml:AudienceRestriction>
+                            <saml:Audience>https://matrix.example.com</saml:Audience>
+                        </saml:AudienceRestriction>
+                    </saml:Conditions>
+                    <saml:Subject>
+                        <saml:SubjectConfirmation>
+                            <saml:SubjectConfirmationData Recipient="{}"/>
+                        </saml:SubjectConfirmation>
+                    </saml:Subject>
+                </saml:Assertion>
+            </samlp:Response>"#,
+            (Utc::now() - chrono::Duration::minutes(1)).to_rfc3339(),
+            (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
+            acs_url
+        );
+
+        assert!(service
+            .validate_response("https://idp.example.com", &xml, Some("id_123"))
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_validate_response_rejects_wrong_audience() {
+        let service = create_test_service();
+        let acs_url = service.config.get_sp_acs_url(&service.server_name);
+        let xml = format!(
+            r#"<samlp:Response InResponseTo="id_123">
+                <samlp:Status>
+                    <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>
+                </samlp:Status>
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+                <saml:Assertion>
+                    <saml:Conditions NotBefore="{}" NotOnOrAfter="{}">
+                        <saml:AudienceRestriction>
+                            <saml:Audience>https://another.example.com</saml:Audience>
+                        </saml:AudienceRestriction>
+                    </saml:Conditions>
+                    <saml:Subject>
+                        <saml:SubjectConfirmation>
+                            <saml:SubjectConfirmationData Recipient="{}"/>
+                        </saml:SubjectConfirmation>
+                    </saml:Subject>
+                </saml:Assertion>
+            </samlp:Response>"#,
+            (Utc::now() - chrono::Duration::minutes(1)).to_rfc3339(),
+            (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
+            acs_url
+        );
+
+        let error = service
+            .validate_response("https://idp.example.com", &xml, Some("id_123"))
+            .unwrap_err();
+        assert!(error.to_string().contains("audience"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_response_rejects_mismatched_in_response_to() {
+        let service = create_test_service();
+        let acs_url = service.config.get_sp_acs_url(&service.server_name);
+        let xml = format!(
+            r#"<samlp:Response InResponseTo="id_actual">
+                <samlp:Status>
+                    <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>
+                </samlp:Status>
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+                <saml:Assertion>
+                    <saml:Conditions NotBefore="{}" NotOnOrAfter="{}">
+                        <saml:AudienceRestriction>
+                            <saml:Audience>https://matrix.example.com</saml:Audience>
+                        </saml:AudienceRestriction>
+                    </saml:Conditions>
+                    <saml:Subject>
+                        <saml:SubjectConfirmation>
+                            <saml:SubjectConfirmationData Recipient="{}"/>
+                        </saml:SubjectConfirmation>
+                    </saml:Subject>
+                </saml:Assertion>
+            </samlp:Response>"#,
+            (Utc::now() - chrono::Duration::minutes(1)).to_rfc3339(),
+            (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
+            acs_url
+        );
+
+        let error = service
+            .validate_response("https://idp.example.com", &xml, Some("id_expected"))
+            .unwrap_err();
+        assert!(error.to_string().contains("InResponseTo"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_response_rejects_non_success_status() {
+        let service = create_test_service();
+        let acs_url = service.config.get_sp_acs_url(&service.server_name);
+        let xml = format!(
+            r#"<samlp:Response InResponseTo="id_123">
+                <samlp:Status>
+                    <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Responder"/>
+                </samlp:Status>
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+                <saml:Assertion>
+                    <saml:Conditions NotBefore="{}" NotOnOrAfter="{}">
+                        <saml:AudienceRestriction>
+                            <saml:Audience>https://matrix.example.com</saml:Audience>
+                        </saml:AudienceRestriction>
+                    </saml:Conditions>
+                    <saml:Subject>
+                        <saml:SubjectConfirmation>
+                            <saml:SubjectConfirmationData Recipient="{}"/>
+                        </saml:SubjectConfirmation>
+                    </saml:Subject>
+                </saml:Assertion>
+            </samlp:Response>"#,
+            (Utc::now() - chrono::Duration::minutes(1)).to_rfc3339(),
+            (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
+            acs_url
+        );
+
+        let error = service
+            .validate_response("https://idp.example.com", &xml, Some("id_123"))
+            .unwrap_err();
+        assert!(error.to_string().contains("status is not success"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_response_rejects_mismatched_destination() {
+        let service = create_test_service();
+        let xml = format!(
+            r#"<samlp:Response InResponseTo="id_123" Destination="https://matrix.example.com/wrong">
+                <samlp:Status>
+                    <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>
+                </samlp:Status>
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+                <saml:Assertion>
+                    <saml:Conditions NotBefore="{}" NotOnOrAfter="{}">
+                        <saml:AudienceRestriction>
+                            <saml:Audience>https://matrix.example.com</saml:Audience>
+                        </saml:AudienceRestriction>
+                    </saml:Conditions>
+                </saml:Assertion>
+            </samlp:Response>"#,
+            (Utc::now() - chrono::Duration::minutes(1)).to_rfc3339(),
+            (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339()
+        );
+
+        let error = service
+            .validate_response("https://idp.example.com", &xml, Some("id_123"))
+            .unwrap_err();
+        assert!(error.to_string().contains("destination mismatch"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_response_rejects_mismatched_recipient() {
+        let service = create_test_service();
+        let xml = format!(
+            r#"<samlp:Response InResponseTo="id_123">
+                <samlp:Status>
+                    <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>
+                </samlp:Status>
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+                <saml:Assertion>
+                    <saml:Conditions NotBefore="{}" NotOnOrAfter="{}">
+                        <saml:AudienceRestriction>
+                            <saml:Audience>https://matrix.example.com</saml:Audience>
+                        </saml:AudienceRestriction>
+                    </saml:Conditions>
+                    <saml:Subject>
+                        <saml:SubjectConfirmation>
+                            <saml:SubjectConfirmationData Recipient="https://matrix.example.com/invalid"/>
+                        </saml:SubjectConfirmation>
+                    </saml:Subject>
+                </saml:Assertion>
+            </samlp:Response>"#,
+            (Utc::now() - chrono::Duration::minutes(1)).to_rfc3339(),
+            (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339()
+        );
+
+        let error = service
+            .validate_response("https://idp.example.com", &xml, Some("id_123"))
+            .unwrap_err();
+        assert!(error.to_string().contains("recipient mismatch"));
     }
 }

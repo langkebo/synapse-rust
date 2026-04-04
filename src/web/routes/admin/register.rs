@@ -7,9 +7,12 @@
 
 use crate::auth::AuthService;
 use crate::web::routes::AppState;
+use crate::web::utils::ip::extract_client_ip;
 use axum::{
     body::Body,
+    extract::ConnectInfo,
     extract::State,
+    http::HeaderMap,
     response::Response,
     routing::{get, post},
     Json, Router,
@@ -18,7 +21,10 @@ use hmac::{Hmac, Mac};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
+use url::Url;
 use validator::Validate;
 
 // HMAC 类型
@@ -84,6 +90,20 @@ struct RegisterError {
     error: String,
 }
 
+fn register_error_response(status: u16, errcode: &str, error: impl Into<String>) -> Response<Body> {
+    Response::builder()
+        .status(status)
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&RegisterError {
+                errcode: errcode.to_string(),
+                error: error.into(),
+            })
+            .unwrap(),
+        ))
+        .unwrap()
+}
+
 /// 生成随机 nonce
 fn generate_nonce() -> String {
     let mut rng = rand::thread_rng();
@@ -138,39 +158,127 @@ fn verify_mac(
     expected == mac_hex
 }
 
+fn extract_registration_client_ip(headers: &HeaderMap) -> Option<String> {
+    let priority = vec![
+        "x-forwarded-for".to_string(),
+        "x-real-ip".to_string(),
+        "forwarded".to_string(),
+    ];
+    extract_client_ip(headers, &priority)
+}
+
+fn is_local_client_ip(ip: &str) -> bool {
+    if ip.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    ip.parse::<IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
+}
+
+fn is_local_registration_origin(value: &str) -> bool {
+    if value.eq_ignore_ascii_case("null") {
+        return false;
+    }
+    let Ok(url) = Url::parse(value) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    let normalized_host = host.trim_matches(|c| c == '[' || c == ']');
+    normalized_host
+        .parse::<IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
+}
+
+fn ensure_local_admin_registration_request(
+    headers: &HeaderMap,
+    connect_info: &ConnectInfo<SocketAddr>,
+    allow_external_access: bool,
+) -> Result<(), Box<Response<Body>>> {
+    if allow_external_access {
+        return Ok(());
+    }
+
+    let remote_ip = connect_info.0.ip();
+    if !remote_ip.is_loopback() {
+        return Err(Box::new(register_error_response(
+            403,
+            "M_FORBIDDEN",
+            "Admin registration is only available from localhost",
+        )));
+    }
+
+    if let Some(client_ip) = extract_registration_client_ip(headers) {
+        if !is_local_client_ip(&client_ip) {
+            return Err(Box::new(register_error_response(
+                403,
+                "M_FORBIDDEN",
+                "Admin registration is only available from localhost",
+            )));
+        }
+    }
+
+    if let Some(origin) = headers.get("origin").and_then(|value| value.to_str().ok()) {
+        if !is_local_registration_origin(origin) {
+            return Err(Box::new(register_error_response(
+                403,
+                "M_FORBIDDEN",
+                "Admin registration origin is not allowed",
+            )));
+        }
+    }
+
+    if let Some(referer) = headers.get("referer").and_then(|value| value.to_str().ok()) {
+        if !is_local_registration_origin(referer) {
+            return Err(Box::new(register_error_response(
+                403,
+                "M_FORBIDDEN",
+                "Admin registration origin is not allowed",
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 /// 获取 nonce
-async fn get_nonce(State(state): State<AppState>) -> Result<Json<NonceResponse>, Response<Body>> {
+async fn get_nonce(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    connect_info: ConnectInfo<SocketAddr>,
+) -> Result<Json<NonceResponse>, Response<Body>> {
     let config = &state.services.config;
 
     // 检查是否启用
     if !config.admin_registration.enabled {
-        return Err(Response::builder()
-            .status(400)
-            .header("Content-Type", "application/json")
-            .body(Body::from(
-                serde_json::to_string(&RegisterError {
-                    errcode: "M_UNKNOWN".to_string(),
-                    error: "Admin registration is not enabled".to_string(),
-                })
-                .unwrap(),
-            ))
-            .unwrap());
+        return Err(register_error_response(
+            400,
+            "M_UNKNOWN",
+            "Admin registration is not enabled",
+        ));
     }
 
     // 检查 shared_secret
     if config.admin_registration.shared_secret.is_empty() {
-        return Err(Response::builder()
-            .status(400)
-            .header("Content-Type", "application/json")
-            .body(Body::from(
-                serde_json::to_string(&RegisterError {
-                    errcode: "M_UNKNOWN".to_string(),
-                    error: "Shared secret is not configured".to_string(),
-                })
-                .unwrap(),
-            ))
-            .unwrap());
+        return Err(register_error_response(
+            400,
+            "M_UNKNOWN",
+            "Shared secret is not configured",
+        ));
     }
+
+    ensure_local_admin_registration_request(
+        &headers,
+        &connect_info,
+        config.admin_registration.allow_external_access,
+    )
+    .map_err(|response| *response)?;
 
     let nonce = generate_nonce();
     let now = SystemTime::now()
@@ -197,39 +305,36 @@ async fn get_nonce(State(state): State<AppState>) -> Result<Json<NonceResponse>,
 /// 注册管理员账号
 async fn register(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    connect_info: ConnectInfo<SocketAddr>,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, Response<Body>> {
     // Validate input
     if let Err(e) = payload.validate() {
-        return Err(Response::builder()
-            .status(400)
-            .header("Content-Type", "application/json")
-            .body(Body::from(
-                serde_json::to_string(&RegisterError {
-                    errcode: "M_INVALID_PARAM".to_string(),
-                    error: format!("Validation error: {}", e),
-                })
-                .unwrap(),
-            ))
-            .unwrap());
+        return Err(register_error_response(
+            400,
+            "M_INVALID_PARAM",
+            format!("Validation error: {}", e),
+        ));
     }
 
     let config = &state.services.config;
 
     // 检查是否启用
     if !config.admin_registration.enabled {
-        return Err(Response::builder()
-            .status(400)
-            .header("Content-Type", "application/json")
-            .body(Body::from(
-                serde_json::to_string(&RegisterError {
-                    errcode: "M_UNKNOWN".to_string(),
-                    error: "Admin registration is not enabled".to_string(),
-                })
-                .unwrap(),
-            ))
-            .unwrap());
+        return Err(register_error_response(
+            400,
+            "M_UNKNOWN",
+            "Admin registration is not enabled",
+        ));
     }
+
+    ensure_local_admin_registration_request(
+        &headers,
+        &connect_info,
+        config.admin_registration.allow_external_access,
+    )
+    .map_err(|response| *response)?;
 
     // 验证 nonce
     let nonce_valid = {
@@ -251,17 +356,11 @@ async fn register(
     };
 
     if !nonce_valid {
-        return Err(Response::builder()
-            .status(400)
-            .header("Content-Type", "application/json")
-            .body(Body::from(
-                serde_json::to_string(&RegisterError {
-                    errcode: "M_UNKNOWN".to_string(),
-                    error: "Unrecognised nonce".to_string(),
-                })
-                .unwrap(),
-            ))
-            .unwrap());
+        return Err(register_error_response(
+            400,
+            "M_UNKNOWN",
+            "Unrecognised nonce",
+        ));
     }
 
     // 验证 HMAC
@@ -274,17 +373,7 @@ async fn register(
         &payload.user_type,
         &payload.mac,
     ) {
-        return Err(Response::builder()
-            .status(400)
-            .header("Content-Type", "application/json")
-            .body(Body::from(
-                serde_json::to_string(&RegisterError {
-                    errcode: "M_UNKNOWN".to_string(),
-                    error: "HMAC incorrect".to_string(),
-                })
-                .unwrap(),
-            ))
-            .unwrap());
+        return Err(register_error_response(400, "M_UNKNOWN", "HMAC incorrect"));
     }
 
     // 创建用户
@@ -368,5 +457,40 @@ async fn register(
                     .unwrap())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_local_registration_origin() {
+        assert!(is_local_registration_origin("http://localhost:8008"));
+        assert!(is_local_registration_origin("https://127.0.0.1:8448"));
+        assert!(is_local_registration_origin("http://[::1]:8008"));
+        assert!(!is_local_registration_origin("https://example.com"));
+        assert!(!is_local_registration_origin("null"));
+    }
+
+    #[test]
+    fn test_ensure_local_admin_registration_request_rejects_non_local_origin() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "https://evil.example.com".parse().unwrap());
+        let connect_info = ConnectInfo("127.0.0.1:8008".parse::<SocketAddr>().unwrap());
+
+        let result = ensure_local_admin_registration_request(&headers, &connect_info, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ensure_local_admin_registration_request_accepts_local_origin() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "http://localhost:3000".parse().unwrap());
+        headers.insert("referer", "http://127.0.0.1:3000/setup".parse().unwrap());
+        let connect_info = ConnectInfo("127.0.0.1:8008".parse::<SocketAddr>().unwrap());
+
+        let result = ensure_local_admin_registration_request(&headers, &connect_info, false);
+        assert!(result.is_ok());
     }
 }

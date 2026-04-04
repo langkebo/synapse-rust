@@ -4,6 +4,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::create_router;
@@ -21,6 +22,11 @@ async fn setup_test_app() -> Option<axum::Router> {
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
+    let suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let username = format!("{}_{}", username, suffix);
     let request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/r0/register")
@@ -38,11 +44,13 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), 1024)
         .await
         .unwrap();
+    if status != StatusCode::OK {
+        panic!("register failed: status={} body={}", status, String::from_utf8_lossy(&body));
+    }
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     (
@@ -72,6 +80,30 @@ async fn get_first_device_id(app: &axum::Router, token: &str, path: &str) -> Str
         .as_str()
         .unwrap()
         .to_string()
+}
+
+async fn get_device_response(
+    app: &axum::Router,
+    token: &str,
+    device_id: &str,
+    path_prefix: &str,
+) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!("{}/{}", path_prefix, device_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
+    (status, json)
 }
 
 #[tokio::test]
@@ -144,6 +176,30 @@ async fn test_devices_routes_round_trip_across_versions() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert!(json["changed"].as_array().is_some());
+
+    let update_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/keys/device_list/update")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "users": [user_id]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let update_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), update_request)
+        .await
+        .unwrap();
+    assert_eq!(update_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(update_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["changed"].as_array().is_some());
 }
 
 #[tokio::test]
@@ -161,7 +217,7 @@ async fn test_delete_devices_alias_is_shared() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "device_ids": [device_id]
+                "devices": [device_id]
             })
             .to_string(),
         ))
@@ -183,4 +239,43 @@ async fn test_delete_devices_alias_is_shared() {
         .await
         .unwrap();
     assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_delete_devices_only_removes_current_users_devices() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token_a, _) = register_user(&app, "device_routes_owner_a").await;
+    let (token_b, _) = register_user(&app, "device_routes_owner_b").await;
+
+    let device_a = get_first_device_id(&app, &token_a, "/_matrix/client/v3/devices").await;
+    let device_b = get_first_device_id(&app, &token_b, "/_matrix/client/v3/devices").await;
+
+    let delete_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/delete_devices")
+        .header("Authorization", format!("Bearer {}", token_a))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_ids": [device_a, device_b]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request)
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let (owner_status, _) =
+        get_device_response(&app, &token_a, &device_a, "/_matrix/client/v3/devices").await;
+    assert_eq!(owner_status, StatusCode::NOT_FOUND);
+
+    let (other_status, other_body) =
+        get_device_response(&app, &token_b, &device_b, "/_matrix/client/v3/devices").await;
+    assert_eq!(other_status, StatusCode::OK);
+    assert_eq!(other_body["device_id"], device_b);
 }

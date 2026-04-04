@@ -2,6 +2,264 @@ use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+struct TableContract {
+    columns: &'static [&'static str],
+    indexes: &'static [&'static str],
+    constraints: &'static [&'static str],
+}
+
+const TABLE_CONTRACTS: &[(&str, TableContract)] = &[
+    (
+        "room_summary_state",
+        TableContract {
+            columns: &[
+                "room_id",
+                "event_type",
+                "state_key",
+                "event_id",
+                "content",
+                "updated_ts",
+            ],
+            indexes: &["idx_room_summary_state_room"],
+            constraints: &[
+                "uq_room_summary_state_room_type_state",
+                "fk_room_summary_state_room",
+            ],
+        },
+    ),
+    (
+        "room_summary_stats",
+        TableContract {
+            columns: &[
+                "room_id",
+                "total_events",
+                "total_state_events",
+                "total_messages",
+                "total_media",
+                "storage_size",
+                "last_updated_ts",
+            ],
+            indexes: &[],
+            constraints: &["fk_room_summary_stats_room"],
+        },
+    ),
+    (
+        "room_summary_update_queue",
+        TableContract {
+            columns: &[
+                "room_id",
+                "event_id",
+                "event_type",
+                "state_key",
+                "priority",
+                "status",
+                "created_ts",
+                "processed_ts",
+                "error_message",
+                "retry_count",
+            ],
+            indexes: &["idx_room_summary_update_queue_status_priority_created"],
+            constraints: &["fk_room_summary_update_queue_room"],
+        },
+    ),
+    (
+        "room_children",
+        TableContract {
+            columns: &[
+                "parent_room_id",
+                "child_room_id",
+                "state_key",
+                "content",
+                "suggested",
+                "created_ts",
+                "updated_ts",
+            ],
+            indexes: &[
+                "idx_room_children_parent_suggested",
+                "idx_room_children_child",
+            ],
+            constraints: &[
+                "uq_room_children_parent_child",
+                "fk_room_children_parent",
+                "fk_room_children_child",
+            ],
+        },
+    ),
+    (
+        "retention_cleanup_queue",
+        TableContract {
+            columns: &[
+                "room_id",
+                "event_id",
+                "event_type",
+                "origin_server_ts",
+                "scheduled_ts",
+                "status",
+                "created_ts",
+                "processed_ts",
+                "error_message",
+                "retry_count",
+            ],
+            indexes: &["idx_retention_cleanup_queue_status_origin"],
+            constraints: &[
+                "uq_retention_cleanup_queue_room_event",
+                "fk_retention_cleanup_queue_room",
+            ],
+        },
+    ),
+    (
+        "retention_cleanup_logs",
+        TableContract {
+            columns: &[
+                "room_id",
+                "events_deleted",
+                "state_events_deleted",
+                "media_deleted",
+                "bytes_freed",
+                "started_ts",
+                "completed_ts",
+                "status",
+                "error_message",
+            ],
+            indexes: &["idx_retention_cleanup_logs_room_started"],
+            constraints: &["fk_retention_cleanup_logs_room"],
+        },
+    ),
+    (
+        "retention_stats",
+        TableContract {
+            columns: &[
+                "room_id",
+                "total_events",
+                "events_in_retention",
+                "events_expired",
+                "last_cleanup_ts",
+                "next_cleanup_ts",
+            ],
+            indexes: &[],
+            constraints: &["fk_retention_stats_room"],
+        },
+    ),
+    (
+        "deleted_events_index",
+        TableContract {
+            columns: &["room_id", "event_id", "deletion_ts", "reason"],
+            indexes: &["idx_deleted_events_index_room_ts"],
+            constraints: &[
+                "uq_deleted_events_index_room_event",
+                "fk_deleted_events_index_room",
+            ],
+        },
+    ),
+    (
+        "device_trust_status",
+        TableContract {
+            columns: &[
+                "user_id",
+                "device_id",
+                "trust_level",
+                "verified_by_device_id",
+                "verified_at",
+                "created_ts",
+                "updated_ts",
+            ],
+            indexes: &["idx_device_trust_status_user_level"],
+            constraints: &["uq_device_trust_status_user_device"],
+        },
+    ),
+    (
+        "cross_signing_trust",
+        TableContract {
+            columns: &[
+                "user_id",
+                "target_user_id",
+                "master_key_id",
+                "is_trusted",
+                "trusted_at",
+                "created_ts",
+                "updated_ts",
+            ],
+            indexes: &["idx_cross_signing_trust_user_trusted"],
+            constraints: &["uq_cross_signing_trust_user_target"],
+        },
+    ),
+    (
+        "device_verification_request",
+        TableContract {
+            columns: &[
+                "user_id",
+                "new_device_id",
+                "requesting_device_id",
+                "verification_method",
+                "status",
+                "request_token",
+                "commitment",
+                "pubkey",
+                "created_ts",
+                "expires_at",
+                "completed_at",
+            ],
+            indexes: &[
+                "idx_device_verification_request_user_device_pending",
+                "idx_device_verification_request_expires_pending",
+            ],
+            constraints: &[],
+        },
+    ),
+    (
+        "verification_requests",
+        TableContract {
+            columns: &[
+                "transaction_id",
+                "from_user",
+                "from_device",
+                "to_user",
+                "to_device",
+                "method",
+                "state",
+                "created_ts",
+                "updated_ts",
+            ],
+            indexes: &["idx_verification_requests_to_user_state"],
+            constraints: &[],
+        },
+    ),
+    (
+        "verification_sas",
+        TableContract {
+            columns: &[
+                "tx_id",
+                "from_device",
+                "to_device",
+                "method",
+                "state",
+                "exchange_hashes",
+                "commitment",
+                "pubkey",
+                "sas_bytes",
+                "mac",
+            ],
+            indexes: &[],
+            constraints: &[],
+        },
+    ),
+    (
+        "verification_qr",
+        TableContract {
+            columns: &[
+                "tx_id",
+                "from_device",
+                "to_device",
+                "state",
+                "qr_code_data",
+                "scanned_data",
+            ],
+            indexes: &[],
+            constraints: &[],
+        },
+    ),
+];
+
 pub struct SchemaValidator {
     pool: Arc<Pool<Postgres>>,
 }
@@ -19,10 +277,12 @@ pub struct TableSchema {
     pub columns: Vec<ColumnInfo>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TableSchemaInfo {
     pub table_name: String,
     pub missing_columns: Vec<String>,
+    pub missing_indexes: Vec<String>,
+    pub missing_constraints: Vec<String>,
 }
 
 impl SchemaValidator {
@@ -120,6 +380,51 @@ impl SchemaValidator {
         Ok(schema_map)
     }
 
+    pub async fn get_table_indexes(&self) -> Result<HashMap<String, Vec<String>>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String, String)>(
+            r#"
+            SELECT tablename, indexname
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+            ORDER BY tablename, indexname
+            "#,
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut index_map: HashMap<String, Vec<String>> = HashMap::new();
+        for (table_name, index_name) in rows {
+            index_map.entry(table_name).or_default().push(index_name);
+        }
+
+        Ok(index_map)
+    }
+
+    pub async fn get_table_constraints(
+        &self,
+    ) -> Result<HashMap<String, Vec<String>>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String, String)>(
+            r#"
+            SELECT tc.table_name, tc.constraint_name
+            FROM information_schema.table_constraints tc
+            WHERE tc.table_schema = 'public'
+            ORDER BY tc.table_name, tc.constraint_name
+            "#,
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut constraint_map: HashMap<String, Vec<String>> = HashMap::new();
+        for (table_name, constraint_name) in rows {
+            constraint_map
+                .entry(table_name)
+                .or_default()
+                .push(constraint_name);
+        }
+
+        Ok(constraint_map)
+    }
+
     pub async fn validate_required_columns(
         &self,
         requirements: &[(&str, &str)],
@@ -200,36 +505,104 @@ impl SchemaValidator {
 
     pub async fn validate_all(&self) -> Result<SchemaValidationResult, sqlx::Error> {
         let report = self.check_schema_consistency().await?;
+        let table_names = self.get_all_tables().await?;
+        let table_columns = self.get_schema_map().await?;
+        let table_indexes = self.get_table_indexes().await?;
+        let table_constraints = self.get_table_constraints().await?;
 
         let mut schema_info = Vec::new();
-        let tables_to_check = vec![
-            "rooms",
-            "users",
-            "presence",
-            "federation_signing_keys",
-            "notifications",
-        ];
+        let mut missing_tables = report.missing_tables;
+        let mut missing_columns = report.missing_columns;
+        let mut missing_indexes = Vec::new();
 
-        for table in tables_to_check {
-            let columns = self.get_table_columns(table).await?;
-            let column_names: Vec<String> = columns.iter().map(|c| c.column_name.clone()).collect();
-            let missing: Vec<String> = column_names
+        for (table_name, contract) in TABLE_CONTRACTS {
+            if !table_names.iter().any(|name| name == table_name) {
+                missing_tables.push((*table_name).to_string());
+                schema_info.push(TableSchemaInfo {
+                    table_name: (*table_name).to_string(),
+                    missing_columns: contract.columns.iter().map(|c| (*c).to_string()).collect(),
+                    missing_indexes: contract.indexes.iter().map(|i| (*i).to_string()).collect(),
+                    missing_constraints: contract
+                        .constraints
+                        .iter()
+                        .map(|c| (*c).to_string())
+                        .collect(),
+                });
+                continue;
+            }
+
+            let actual_columns = table_columns.get(*table_name);
+            let actual_indexes = table_indexes.get(*table_name);
+            let actual_constraints = table_constraints.get(*table_name);
+
+            let table_missing_columns: Vec<String> = contract
+                .columns
                 .iter()
-                .filter(|c| !column_names.contains(c))
-                .cloned()
+                .filter(|column| {
+                    !actual_columns
+                        .map(|columns| columns.iter().any(|name| name == **column))
+                        .unwrap_or(false)
+                })
+                .map(|column| (*column).to_string())
                 .collect();
-            schema_info.push(TableSchemaInfo {
-                table_name: table.to_string(),
-                missing_columns: missing,
-            });
+
+            let table_missing_indexes: Vec<String> = contract
+                .indexes
+                .iter()
+                .filter(|index| {
+                    !actual_indexes
+                        .map(|indexes| indexes.iter().any(|name| name == **index))
+                        .unwrap_or(false)
+                })
+                .map(|index| (*index).to_string())
+                .collect();
+
+            let table_missing_constraints: Vec<String> = contract
+                .constraints
+                .iter()
+                .filter(|constraint| {
+                    !actual_constraints
+                        .map(|constraints| constraints.iter().any(|name| name == **constraint))
+                        .unwrap_or(false)
+                })
+                .map(|constraint| (*constraint).to_string())
+                .collect();
+
+            missing_columns.extend(
+                table_missing_columns
+                    .iter()
+                    .map(|column| format!("{}.{}", table_name, column)),
+            );
+            missing_indexes.extend(table_missing_indexes.iter().cloned());
+
+            if !table_missing_columns.is_empty()
+                || !table_missing_indexes.is_empty()
+                || !table_missing_constraints.is_empty()
+            {
+                schema_info.push(TableSchemaInfo {
+                    table_name: (*table_name).to_string(),
+                    missing_columns: table_missing_columns,
+                    missing_indexes: table_missing_indexes,
+                    missing_constraints: table_missing_constraints,
+                });
+            }
         }
 
+        missing_tables.sort();
+        missing_tables.dedup();
+        missing_columns.sort();
+        missing_columns.dedup();
+        missing_indexes.sort();
+        missing_indexes.dedup();
+
+        let is_valid = missing_tables.is_empty() && missing_columns.is_empty() && missing_indexes.is_empty();
+
         Ok(SchemaValidationResult {
-            is_valid: report.is_valid,
-            is_healthy: report.is_valid,
-            missing_tables: report.missing_tables,
-            missing_columns: report.missing_columns,
-            missing_indexes: Vec::new(),
+            is_valid,
+            is_healthy: is_valid,
+            missing_tables,
+            missing_columns,
+            missing_indexes,
             schema_info,
         })
     }
@@ -396,6 +769,8 @@ mod tests {
         let info = TableSchemaInfo {
             table_name: "events".to_string(),
             missing_columns: vec!["email".to_string()],
+            missing_indexes: vec![],
+            missing_constraints: vec![],
         };
         assert_eq!(info.table_name, "events");
     }

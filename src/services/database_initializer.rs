@@ -440,6 +440,15 @@ impl DatabaseInitService {
                     continue;
                 }
 
+                // Set statement timeout to 30 seconds to prevent indefinite hangs
+                let timeout_result = sqlx::query("SET LOCAL statement_timeout = '30s'")
+                    .execute(&*self.pool)
+                    .await;
+
+                if let Err(e) = timeout_result {
+                    debug!("无法设置 statement_timeout: {}", e);
+                }
+
                 match sqlx::raw_sql(trimmed).execute(&*self.pool).await {
                     Ok(_) => {}
                     Err(e) => {
@@ -450,6 +459,12 @@ impl DatabaseInitService {
                             || err_str.contains("relation already exists")
                         {
                             debug!("迁移 {} 跳过已存在对象: {}", filename, err_str);
+                        } else if err_str.contains("canceling statement due to statement timeout") {
+                            let preview: String = trimmed.chars().take(100).collect();
+                            warn!("迁移 {} 语句超时 (30s): {}", filename, preview);
+                            file_success = false;
+                            let _ = sqlx::query("ROLLBACK").execute(&*self.pool).await;
+                            break;
                         } else {
                             let preview: String = trimmed.chars().take(100).collect();
                             warn!("迁移 {} 语句执行失败: {} - {}", filename, preview, e);

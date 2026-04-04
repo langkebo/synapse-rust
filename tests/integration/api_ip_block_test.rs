@@ -31,9 +31,10 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
+            .await
+            .unwrap();
 
     let body = axum::body::to_bytes(response.into_body(), 1024)
         .await
@@ -77,9 +78,10 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
+            .await
+            .unwrap();
 
     let body = axum::body::to_bytes(response.into_body(), 1024)
         .await

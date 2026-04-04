@@ -1,0 +1,2 @@
+-- Consolidated into 20260404000002_consolidated_minor_features.undo.sql
+-- Intentionally left as a no-op placeholder to avoid duplicate rollback DDL.

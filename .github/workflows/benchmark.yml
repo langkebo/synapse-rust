@@ -7,11 +7,24 @@ on:
     branches: [main, develop]
   schedule:
     - cron: '0 0 * * 0'
+  workflow_dispatch:
+    inputs:
+      run_benchmarks:
+        description: Run Criterion benchmarks
+        required: false
+        default: true
+        type: boolean
+      run_performance_manual:
+        description: Run manual performance test target
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   benchmark:
     name: Run benchmarks
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_benchmarks == 'true'
     permissions:
       contents: read
       pages: write
@@ -41,7 +54,9 @@ jobs:
 
       - name: Run benchmarks
         run: |
-          cargo bench --locked -- --output-format bencher | tee benchmark.txt
+          : > benchmark.txt
+          cargo bench --locked --bench performance_api_benchmarks -- --output-format bencher | tee -a benchmark.txt
+          cargo bench --locked --bench performance_federation_benchmarks -- --output-format bencher | tee -a benchmark.txt
 
       - name: Analyze results
         run: |
@@ -104,32 +119,10 @@ jobs:
             echo "No baseline found for comparison"
           fi
 
-  check:
-    name: Code quality check
+  performance-manual:
+    name: Run manual performance tests
     runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.93.0
-          components: rustfmt, clippy
-
-      - name: Run cargo check
-        run: cargo check --all-features --locked
-
-      - name: Run cargo fmt
-        run: cargo fmt --all -- --check
-
-      - name: Run cargo clippy
-        run: cargo clippy --all-features --locked -- -D warnings
-
-  test:
-    name: Run tests
-    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_performance_manual == 'true'
 
     steps:
       - name: Checkout repository
@@ -140,8 +133,8 @@ jobs:
         with:
           toolchain: 1.93.0
 
-      - name: Run tests
-        run: cargo test --lib --locked
+      - name: Run manual performance suite
+        run: cargo test --features performance-tests --test performance_manual -- --nocapture
 
   benchmark-report:
     name: Generate benchmark report

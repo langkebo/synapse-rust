@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
+use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::validation::Validator;
 use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
 use synapse_rust::services::room_summary_service::RoomSummaryService;
@@ -14,7 +15,6 @@ use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::room::RoomStorage;
 use synapse_rust::storage::room_summary::RoomSummaryStorage;
 use synapse_rust::storage::user::UserStorage;
-use synapse_rust::cache::{CacheConfig, CacheManager};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -25,9 +25,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database() -> Option<Pool<Postgres>> {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| {
-            "postgresql://synapse:secret@localhost:5432/synapse_test".to_string()
-        });
+        .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
 
     let pool = match sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
@@ -62,7 +60,8 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         .await
         .ok();
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE users (
             user_id VARCHAR(255) PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
@@ -77,12 +76,14 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             updated_ts BIGINT,
             generation BIGINT DEFAULT 0
         )
-    "#)
+    "#,
+    )
     .execute(&pool)
     .await
     .expect("Failed to create users table");
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE rooms (
             room_id VARCHAR(255) PRIMARY KEY,
             is_public BOOLEAN DEFAULT FALSE,
@@ -100,12 +101,14 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             encryption TEXT,
             member_count BIGINT DEFAULT 0
         )
-    "#)
+    "#,
+    )
     .execute(&pool)
     .await
     .expect("Failed to create rooms table");
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE room_memberships (
             room_id VARCHAR(255) NOT NULL,
             user_id VARCHAR(255) NOT NULL,
@@ -127,12 +130,14 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             join_reason TEXT,
             PRIMARY KEY (room_id, user_id)
         )
-    "#)
+    "#,
+    )
     .execute(&pool)
     .await
     .expect("Failed to create room_memberships table");
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE events (
             event_id VARCHAR(255) PRIMARY KEY,
             room_id VARCHAR(255) NOT NULL,
@@ -151,7 +156,8 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             origin TEXT,
             unsigned JSONB
         )
-    "#)
+    "#,
+    )
     .execute(&pool)
     .await
     .expect("Failed to create events table");
@@ -205,10 +211,10 @@ fn test_room_service_creation() {
             Some(pool) => Arc::new(pool),
             None => return,
         };
-        
+
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
-        
+
         assert_eq!(room_service.server_name, "localhost");
     });
 }
@@ -270,10 +276,7 @@ fn test_join_room_success() {
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
-        let room_val = room_service
-            .create_room(&alice_id, config)
-            .await
-            .unwrap();
+        let room_val = room_service.create_room(&alice_id, config).await.unwrap();
         let room_id = room_val["room_id"].as_str().unwrap();
 
         let result = room_service.join_room(room_id, &bob_id).await;
@@ -305,10 +308,7 @@ fn test_send_message_success() {
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
-        let room_val = room_service
-            .create_room(&alice_id, config)
-            .await
-            .unwrap();
+        let room_val = room_service.create_room(&alice_id, config).await.unwrap();
         let room_id = room_val["room_id"].as_str().unwrap();
 
         let content = json!({"msgtype": "m.text", "body": "Hello world"});
@@ -350,15 +350,10 @@ fn test_invite_user_success() {
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
-        let room_val = room_service
-            .create_room(&alice_id, config)
-            .await
-            .unwrap();
+        let room_val = room_service.create_room(&alice_id, config).await.unwrap();
         let room_id = room_val["room_id"].as_str().unwrap();
 
-        let result = room_service
-            .invite_user(room_id, &alice_id, &bob_id)
-            .await;
+        let result = room_service.invite_user(room_id, &alice_id, &bob_id).await;
         assert!(result.is_ok());
 
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
@@ -391,10 +386,7 @@ fn test_ban_user_success() {
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
-        let room_val = room_service
-            .create_room(&alice_id, config)
-            .await
-            .unwrap();
+        let room_val = room_service.create_room(&alice_id, config).await.unwrap();
         let room_id = room_val["room_id"].as_str().unwrap();
 
         let result = room_service
@@ -430,16 +422,13 @@ fn test_upgrade_room_success() {
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
-        let room_val = room_service
-            .create_room(&alice_id, config)
-            .await
-            .unwrap();
+        let room_val = room_service.create_room(&alice_id, config).await.unwrap();
         let old_room_id = room_val["room_id"].as_str().unwrap();
 
         let result = room_service
             .upgrade_room(old_room_id, "11", &alice_id)
             .await;
-        
+
         assert!(result.is_ok());
         let new_room_id = result.unwrap();
         assert!(!new_room_id.is_empty());
@@ -466,7 +455,7 @@ fn test_upgrade_room_not_found() {
         let result = room_service
             .upgrade_room("!nonexistent:localhost", "11", &alice_id)
             .await;
-        
+
         assert!(result.is_err());
     });
 }
