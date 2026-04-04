@@ -136,8 +136,16 @@ jobs:
             --output drift_report.txt \
             --exit-code || true
 
+          # Generate detailed markdown report
+          python scripts/db/diff_schema.py \
+            expected_schema.json \
+            actual_schema.json \
+            --format markdown \
+            --output drift_report.md \
+            --exit-code || true
+
           echo "## Schema Drift Report" >> $GITHUB_STEP_SUMMARY
-          cat drift_report.txt >> $GITHUB_STEP_SUMMARY
+          cat drift_report.md >> $GITHUB_STEP_SUMMARY
 
           if grep -q "BLOCKER" drift_report.txt; then
             echo "drift_detected=true" >> $GITHUB_OUTPUT
@@ -152,7 +160,9 @@ jobs:
         if: always()
         with:
           name: drift-report
-          path: drift_report.txt
+          path: |
+            drift_report.txt
+            drift_report.md
           retention-days: 30
 
       - name: Fail on blockers
