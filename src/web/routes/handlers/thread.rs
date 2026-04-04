@@ -1,7 +1,8 @@
 use crate::common::error::ApiError;
 use crate::services::thread_service::{
     CreateReplyRequest, CreateThreadRequest, GetThreadRequest, ListThreadsRequest, MarkReadRequest,
-    SubscribeRequest, ThreadDetailResponse, ThreadListResponse, UnreadThreadsResponse,
+    SubscribeRequest, SubscribedThreadsResponse, ThreadDetailResponse, ThreadListResponse,
+    UnreadThreadsResponse,
 };
 use crate::web::routes::{AppState, AuthenticatedUser, OptionalAuthenticatedUser};
 use axum::{
@@ -561,33 +562,50 @@ async fn redact_reply(
 }
 
 async fn list_threads_global(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    _query: Query<ListQuery>,
-) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_found(
-        "Global threads not implemented yet. Use room-specific endpoints.".to_string(),
-    ))
+    query: Query<ListQuery>,
+) -> Result<Json<ThreadListResponse>, ApiError> {
+    let response = state
+        .services
+        .thread_service
+        .list_all_threads(query.limit, query.from.clone())
+        .await?;
+    Ok(Json(response))
 }
 
 async fn create_thread_global(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Json(_body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_found(
-        "Global thread creation not implemented yet. Use room-specific endpoints.".to_string(),
-    ))
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<CreateThreadBody>,
+) -> Result<Json<ThreadResponse>, ApiError> {
+    let room_id = body
+        .room_id
+        .ok_or_else(|| ApiError::bad_request("room_id is required".to_string()))?;
+    let request = CreateThreadRequest {
+        room_id,
+        root_event_id: body.root_event_id,
+    };
+
+    let thread = state
+        .services
+        .thread_service
+        .create_thread(&auth_user.user_id, request)
+        .await?;
+
+    Ok(Json(ThreadResponse::from(thread)))
 }
 
 async fn get_subscribed_threads(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    Ok(Json(json!({
-        "threads": [],
-        "subscribed": []
-    })))
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<SubscribedThreadsResponse>, ApiError> {
+    let response = state
+        .services
+        .thread_service
+        .get_subscribed_threads(&auth_user.user_id, Some(50))
+        .await?;
+    Ok(Json(response))
 }
 
 async fn get_unread_threads_global(

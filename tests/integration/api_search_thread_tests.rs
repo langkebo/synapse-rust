@@ -264,3 +264,118 @@ async fn test_get_thread_returns_real_thread_details() {
     assert_eq!(json["replies"].as_array().unwrap().len(), 1);
     assert_eq!(json["replies"][0]["thread_id"], thread_id);
 }
+
+#[tokio::test]
+async fn test_global_thread_routes_return_real_data() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+    let token = super::create_test_user(&app).await;
+    let room_id = create_room(&app, &token).await;
+    let root_event_id = send_message(&app, &token, &room_id, "global_thread_root_txn").await;
+
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v1/threads")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room_id": room_id,
+                "root_event_id": root_event_id,
+                "content": {
+                    "body": "global thread"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(create_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let create_json: Value = serde_json::from_slice(&body).unwrap();
+    let thread_id = create_json["thread_id"].as_str().unwrap().to_string();
+
+    let list_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v1/threads")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let list_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_request)
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(list_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let list_json: Value = serde_json::from_slice(&body).unwrap();
+    let threads = list_json["threads"].as_array().unwrap();
+
+    assert!(threads
+        .iter()
+        .any(|thread| thread["thread_id"] == thread_id && thread["room_id"] == room_id));
+    assert!(list_json["total"].as_i64().unwrap_or_default() >= 1);
+
+    let subscribe_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_matrix/client/v1/rooms/{}/threads/{}/subscribe",
+            room_id, thread_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "notification_level": "all"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let subscribe_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), subscribe_request)
+            .await
+            .unwrap();
+    assert_eq!(subscribe_response.status(), StatusCode::OK);
+
+    let subscribed_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v1/threads/subscribed")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let subscribed_response =
+        ServiceExt::<Request<Body>>::oneshot(app, subscribed_request)
+            .await
+            .unwrap();
+    assert_eq!(subscribed_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(subscribed_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let subscribed_json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert!(subscribed_json["threads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|thread| thread["thread_id"] == thread_id));
+    assert!(subscribed_json["subscribed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|subscription| {
+            subscription["thread_id"] == thread_id
+                && subscription["notification_level"] == "all"
+        }));
+}

@@ -89,6 +89,16 @@ impl KeyRequestService {
         Ok(request.request_id)
     }
 
+    /// Fulfill a key request by sharing the session key
+    ///
+    /// NOTE: This method is intentionally not implemented.
+    /// To fully implement this feature, we need to:
+    /// 1. Extract the actual Megolm session key from the session
+    /// 2. Encrypt the session key for the requesting device
+    /// 3. Handle key forwarding chains properly
+    ///
+    /// This method is not currently called by any route handler.
+    /// It's a placeholder for future E2EE key sharing functionality.
     pub async fn fulfill_request(
         &self,
         request_id: &str,
@@ -103,16 +113,11 @@ impl KeyRequestService {
 
             if let Ok(sessions) = self.megolm_service.get_room_sessions(&request.room_id).await {
                 if sessions.iter().any(|s| s.session_id == request.session_id) {
-                    self.storage.fulfill_request(request_id, device_id).await?;
-
-                    return Ok(Some(KeyShareResponse {
-                        room_id: request.room_id,
-                        session_id: request.session_id,
-                        session_key: "session_key_placeholder".to_string(),
-                        sender_key: request.user_id.clone(),
-                        algorithm: request.algorithm,
-                        forwarding_curve25519_key: None,
-                    }));
+                    let _ = (request_id, device_id);
+                    let _ = request;
+                    return Err(ApiError::unrecognized(
+                        "E2EE room key request fulfillment is not supported".to_string(),
+                    ));
                 }
             }
         }

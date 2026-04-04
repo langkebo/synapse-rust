@@ -1,7 +1,6 @@
 use super::{NotificationPayload, PushProvider, PushResult};
 use async_trait::async_trait;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
+use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::Client;
 use serde::Serialize;
 use std::time::Duration;
@@ -63,6 +62,12 @@ struct ApnsAlert {
     body: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct ApnsJwtClaims {
+    iss: String,
+    iat: i64,
+}
+
 #[derive(Debug)]
 pub struct ApnsProvider {
     config: ApnsConfig,
@@ -112,35 +117,40 @@ impl ApnsProvider {
     }
 
     fn generate_jwt(&self) -> Result<String, String> {
-        if self.config.key_id.is_none()
-            || self.config.team_id.is_none()
-            || self.config.private_key.is_none()
-        {
+        let key_id = self
+            .config
+            .key_id
+            .clone()
+            .ok_or_else(|| "APNS key_id not configured".to_string())?;
+        let team_id = self
+            .config
+            .team_id
+            .clone()
+            .ok_or_else(|| "APNS team_id not configured".to_string())?;
+        let private_key = self
+            .config
+            .private_key
+            .as_deref()
+            .ok_or_else(|| "APNS private_key not configured".to_string())?;
+
+        if !private_key.contains("BEGIN") {
             return Err("APNS JWT credentials not configured".to_string());
         }
 
-        let header = URL_SAFE_NO_PAD.encode(
-            serde_json::json!({
-                "alg": "ES256",
-                "kid": self.config.key_id,
-            })
-            .to_string()
-            .as_bytes(),
-        );
-
         let now = chrono::Utc::now().timestamp();
-        let claims = URL_SAFE_NO_PAD.encode(
-            serde_json::json!({
-                "iss": self.config.team_id,
-                "iat": now,
-            })
-            .to_string()
-            .as_bytes(),
-        );
+        let claims = ApnsJwtClaims {
+            iss: team_id,
+            iat: now,
+        };
 
-        let _signing_input = format!("{}.{}", header, claims);
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some(key_id);
 
-        Ok(format!("{}.{}.signature_placeholder", header, claims))
+        let encoding_key = EncodingKey::from_ec_pem(private_key.as_bytes())
+            .map_err(|e| format!("Invalid APNS EC private key: {}", e))?;
+
+        encode(&header, &claims, &encoding_key)
+            .map_err(|e| format!("Failed to sign APNS JWT: {}", e))
     }
 
     async fn send_request(&self, token: &str, payload: &ApnsPayload) -> Result<(), String> {
@@ -234,6 +244,12 @@ mod tests {
     use super::*;
     use crate::services::push::providers::NotificationCounts;
 
+    const TEST_EC_PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/GwGC9O9l7Sbthjv\n\
+v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
++cK8VH35KLhR93tYV48MUdE2UOl6yw7TLogf3lqlu+HohfI+xhYOfC6i\n\
+-----END PRIVATE KEY-----\n";
+
     #[test]
     fn test_apns_config_default() {
         let config = ApnsConfig::default();
@@ -286,6 +302,24 @@ mod tests {
         assert_eq!(apns_payload.aps.alert.title, "Test");
         assert_eq!(apns_payload.aps.badge, Some(5));
         assert_eq!(apns_payload.aps.sound, Some("default".to_string()));
+    }
+
+    #[test]
+    fn test_generate_jwt_signs_real_token() {
+        let provider = ApnsProvider::new(ApnsConfig {
+            topic: "com.example.app".to_string(),
+            key_id: Some("ABC123DEFG".to_string()),
+            team_id: Some("TEAM123456".to_string()),
+            private_key: Some(TEST_EC_PRIVATE_KEY.to_string()),
+            ..Default::default()
+        });
+
+        let jwt = provider.generate_jwt().expect("jwt should be signed");
+        let segments: Vec<&str> = jwt.split('.').collect();
+
+        assert_eq!(segments.len(), 3);
+        assert!(segments.iter().all(|segment| !segment.is_empty()));
+        assert!(!jwt.contains("placeholder"));
     }
 
     #[tokio::test]

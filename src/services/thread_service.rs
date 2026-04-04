@@ -81,6 +81,12 @@ pub struct UnreadThreadsResponse {
     pub total_threads: i32,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SubscribedThreadsResponse {
+    pub threads: Vec<ThreadSummary>,
+    pub subscribed: Vec<ThreadSubscription>,
+}
+
 #[derive(Clone)]
 pub struct ThreadService {
     storage: Arc<ThreadStorage>,
@@ -344,6 +350,59 @@ impl ThreadService {
         })
     }
 
+    pub async fn list_all_threads(
+        &self,
+        limit: Option<i32>,
+        from: Option<String>,
+    ) -> Result<ThreadListResponse, ApiError> {
+        let roots = self
+            .storage
+            .list_all_thread_roots(limit, from)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to list global threads: {}", e)))?;
+
+        let mut summaries = Vec::new();
+        for root in &roots {
+            let thread_id = root.thread_id.clone().unwrap_or_default();
+            if let Some(summary) = self
+                .storage
+                .get_thread_summary(&root.room_id, &thread_id)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get thread summary: {}", e)))?
+            {
+                summaries.push(summary);
+            } else {
+                summaries.push(ThreadSummary {
+                    id: root.id,
+                    room_id: root.room_id.clone(),
+                    thread_id,
+                    root_event_id: root.root_event_id.clone(),
+                    root_sender: root.sender.clone(),
+                    root_content: serde_json::json!({}),
+                    root_origin_server_ts: root.created_ts,
+                    latest_event_id: root.last_reply_event_id.clone(),
+                    latest_sender: root.last_reply_sender.clone(),
+                    latest_content: None,
+                    latest_origin_server_ts: root.last_reply_ts,
+                    reply_count: root.reply_count as i32,
+                    participants: root.participants.clone().unwrap_or(serde_json::json!([])),
+                    is_frozen: root.is_fetched,
+                    created_ts: root.created_ts,
+                    updated_ts: root.updated_ts.unwrap_or(root.created_ts),
+                });
+            }
+        }
+
+        let next_batch = roots.last().and_then(|r| r.thread_id.clone());
+        let total = summaries.len() as i32;
+
+        Ok(ThreadListResponse {
+            threads: summaries,
+            next_batch,
+            total,
+        })
+    }
+
     pub async fn subscribe(
         &self,
         request: SubscribeRequest,
@@ -445,6 +504,35 @@ impl ThreadService {
             threads,
             total_unread,
             total_threads,
+        })
+    }
+
+    pub async fn get_subscribed_threads(
+        &self,
+        user_id: &str,
+        limit: Option<i32>,
+    ) -> Result<SubscribedThreadsResponse, ApiError> {
+        let subscriptions = self
+            .storage
+            .get_user_thread_subscriptions(user_id, limit)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {}", e)))?;
+
+        let mut threads = Vec::new();
+        for subscription in &subscriptions {
+            if let Some(summary) = self
+                .storage
+                .get_thread_summary(&subscription.room_id, &subscription.thread_id)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get subscribed thread: {}", e)))?
+            {
+                threads.push(summary);
+            }
+        }
+
+        Ok(SubscribedThreadsResponse {
+            threads,
+            subscribed: subscriptions,
         })
     }
 

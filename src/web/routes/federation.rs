@@ -35,6 +35,10 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
             get(query_destination),
         )
         .route(
+            "/_matrix/federation/v1/openid/userinfo",
+            get(openid_userinfo),
+        )
+        .route(
             "/_matrix/federation/v1/room/{room_id}/{event_id}",
             get(get_room_event),
         );
@@ -150,10 +154,6 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route(
             "/_matrix/federation/v1/query/directory",
             get(query_directory),
-        )
-        .route(
-            "/_matrix/federation/v1/openid/userinfo",
-            get(openid_userinfo),
         )
         // Media Federation
         .route(
@@ -1294,22 +1294,15 @@ async fn server_key(State(state): State<AppState>) -> Result<Json<Value>, ApiErr
 async fn key_query(
     State(state): State<AppState>,
     Path((server_name, key_id)): Path<(String, String)>,
-) -> Json<Value> {
+) -> Result<Json<Value>, ApiError> {
     if server_name == state.services.server_name
         || server_name == state.services.config.federation.server_name
     {
-        return server_key(State(state))
-            .await
-            .unwrap_or_else(|e| Json(json!({ "errcode": e.code(), "error": e.message() })));
+        return server_key(State(state)).await;
     }
 
-    Json(json!({
-        "server_name": server_name,
-        "key_id": key_id,
-        "verify_keys": {
-            "ed25519": "remote_key_placeholder"
-        }
-    }))
+    let response = fetch_remote_server_keys_response(&state, &server_name, &key_id).await?;
+    Ok(Json(response))
 }
 
 fn derive_ed25519_verify_key_base64(signing_key: &str) -> Option<String> {
@@ -1661,19 +1654,130 @@ async fn query_directory(
 /// OpenID userinfo
 /// GET /_matrix/federation/v1/openid/userinfo
 async fn openid_userinfo(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let _access_token = params
+    let access_token = params
         .get("access_token")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing access_token parameter"))?;
 
-    // Validate access token and get user
-    // This would need token validation
+    let openid_storage = crate::storage::OpenIdTokenStorage::new(&state.services.user_storage.pool);
+    let token = openid_storage
+        .validate_token(access_token)
+        .await?
+        .ok_or_else(|| ApiError::unauthorized("Invalid or expired OpenID token".to_string()))?;
+
     Ok(Json(json!({
-        "sub": "user_id:example.com"
+        "sub": token.user_id
     })))
+}
+
+async fn fetch_remote_server_keys_response(
+    state: &AppState,
+    server_name: &str,
+    key_id: &str,
+) -> Result<Value, ApiError> {
+    let cache_key = format!("federation:server_keys:{}:{}", server_name, key_id);
+    if let Ok(Some(cached)) = state.cache.get::<Value>(&cache_key).await {
+        return Ok(cached);
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .map_err(|e| ApiError::internal(format!("Failed to build federation HTTP client: {}", e)))?;
+
+    let urls = [
+        format!("https://{}/_matrix/key/v2/server", server_name),
+        format!("http://{}/_matrix/key/v2/server", server_name),
+        format!(
+            "https://{}/_matrix/key/v2/query/{}/{}",
+            server_name, server_name, key_id
+        ),
+        format!(
+            "http://{}/_matrix/key/v2/query/{}/{}",
+            server_name, server_name, key_id
+        ),
+    ];
+
+    for url in urls {
+        let response = match client.get(&url).send().await {
+            Ok(response) if response.status().is_success() => response,
+            _ => continue,
+        };
+
+        let body = match response.json::<Value>().await {
+            Ok(body) => body,
+            Err(_) => continue,
+        };
+
+        let Some(key) = extract_remote_verify_key(&body, server_name, key_id) else {
+            continue;
+        };
+
+        let canonical_response = json!({
+            "server_name": body
+                .get("server_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or(server_name),
+            "valid_until_ts": body
+                .get("valid_until_ts")
+                .and_then(|v| v.as_i64())
+                .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() + 3600 * 1000),
+            "verify_keys": {
+                key_id: {
+                    "key": key
+                }
+            },
+            "old_verify_keys": body
+                .get("old_verify_keys")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+            "signatures": body
+                .get("signatures")
+                .cloned()
+                .unwrap_or_else(|| json!({}))
+        });
+
+        let ttl = state.services.config.federation.key_cache_ttl.max(60);
+        let _ = state.cache.set(&cache_key, &canonical_response, ttl).await;
+        return Ok(canonical_response);
+    }
+
+    Err(ApiError::not_found(format!(
+        "Remote server key '{}' for '{}' not found",
+        key_id, server_name
+    )))
+}
+
+fn extract_remote_verify_key(body: &Value, server_name: &str, key_id: &str) -> Option<String> {
+    if let Some(key) = extract_remote_verify_key_from_object(body, key_id) {
+        return Some(key);
+    }
+
+    let server_keys = body.get("server_keys")?.as_array()?;
+    for entry in server_keys {
+        if entry
+            .get("server_name")
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| value != server_name)
+        {
+            continue;
+        }
+
+        if let Some(key) = extract_remote_verify_key_from_object(entry, key_id) {
+            return Some(key);
+        }
+    }
+
+    None
+}
+
+fn extract_remote_verify_key_from_object(body: &Value, key_id: &str) -> Option<String> {
+    let verify_keys = body.get("verify_keys")?.as_object()?;
+    let entry = verify_keys.get(key_id)?;
+    entry.get("key")?.as_str().map(str::to_string)
 }
 
 /// Media download (federation)
@@ -1784,14 +1888,10 @@ async fn exchange_third_party_invite(
         .cloned()
         .ok_or_else(|| ApiError::bad_request("Missing invite field"))?;
 
-    // Process third-party invite
-    // This would integrate with the 3pid invite system
-    println!("Processing third-party invite for room: {}", room_id);
-
-    Ok(Json(json!({
-        "room_id": room_id,
-        "status": "processed"
-    })))
+    Err(ApiError::unrecognized(format!(
+        "Third-party invite exchange is not supported for room '{}'",
+        room_id
+    )))
 }
 
 /// Get group (community) overview

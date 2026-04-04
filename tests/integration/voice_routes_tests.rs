@@ -2,6 +2,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use base64::Engine as _;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
@@ -175,6 +176,147 @@ async fn test_voice_optimize_endpoint() {
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["status"], "success");
+}
+
+#[tokio::test]
+async fn test_voice_transcription_endpoint_returns_explicit_unsupported_error() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = create_test_user(&app).await;
+    let content = base64::engine::general_purpose::STANDARD
+        .encode(include_bytes!("../../docker/media/test/message.mp3"));
+
+    let upload_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/_matrix/client/r0/voice/upload")
+                .method("POST")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "content": content,
+                        "content_type": "audio/mpeg",
+                        "duration_ms": 1200,
+                        "room_id": "!voice:localhost"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let upload_status = upload_response.status();
+    let body = axum::body::to_bytes(upload_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    if upload_status != StatusCode::OK {
+        eprintln!("voice upload error body: {}", String::from_utf8_lossy(&body));
+    }
+    assert_eq!(upload_status, StatusCode::OK);
+
+    let upload_json: Value = serde_json::from_slice(&body).unwrap();
+    let event_id = upload_json["event_id"].as_str().unwrap().to_string();
+
+    let transcription_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/_matrix/client/v1/voice/transcription")
+                .method("POST")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "event_id": event_id
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(transcription_response.status(), StatusCode::BAD_REQUEST);
+
+    let body = axum::body::to_bytes(transcription_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let transcription_json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(transcription_json["errcode"], "M_UNRECOGNIZED");
+    assert!(transcription_json["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains(upload_json["event_id"].as_str().unwrap()));
+}
+
+#[tokio::test]
+async fn test_voice_stats_endpoint_reflects_uploaded_message() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = create_test_user(&app).await;
+    let content = base64::engine::general_purpose::STANDARD
+        .encode(include_bytes!("../../docker/media/test/message.mp3"));
+
+    let upload_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/_matrix/client/r0/voice/upload")
+                .method("POST")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "content": content,
+                        "content_type": "audio/mpeg",
+                        "duration_ms": 1200,
+                        "room_id": "!voice:localhost"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let upload_status = upload_response.status();
+    let body = axum::body::to_bytes(upload_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    if upload_status != StatusCode::OK {
+        eprintln!("voice upload error body: {}", String::from_utf8_lossy(&body));
+    }
+    assert_eq!(upload_status, StatusCode::OK);
+
+    let stats_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/_matrix/client/r0/voice/stats")
+                .method("GET")
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(stats_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(stats_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let stats_json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(stats_json["total_duration_ms"], 1200);
+    assert!(stats_json["total_file_size"].as_i64().unwrap_or_default() > 0);
+    assert_eq!(stats_json["total_message_count"], 1);
 }
 
 #[tokio::test]

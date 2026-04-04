@@ -9,6 +9,12 @@ use axum::{
 use serde_json::json;
 use tower_http::compression::CompressionLayer;
 
+async fn get_client_config() -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::unrecognized(
+        "Client config endpoint is not supported".to_string(),
+    ))
+}
+
 fn create_client_capabilities_router() -> Router<AppState> {
     Router::new().route("/capabilities", get(handlers::get_capabilities))
 }
@@ -75,7 +81,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/server_version", get(handlers::get_server_version))
         .route(
             "/_matrix/client/v1/config/client",
-            get(|| async { Json(json!({})) }),
+            get(get_client_config),
         )
         .route("/_matrix/client/v3/pushrules/", get(get_push_rules_default))
         .route(
