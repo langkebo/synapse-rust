@@ -80,6 +80,62 @@ pub struct AiChatRole {
     pub updated_ts: i64,
 }
 
+pub struct CreateConnectionParams<'a> {
+    pub user_id: &'a str,
+    pub name: &'a str,
+    pub provider: &'a str,
+    pub base_url: &'a str,
+    pub encrypted_api_key: Option<&'a str>,
+    pub config: Option<serde_json::Value>,
+    pub is_default: bool,
+}
+
+pub struct UpdateConnectionParams<'a> {
+    pub id: i64,
+    pub name: Option<&'a str>,
+    pub base_url: Option<&'a str>,
+    pub encrypted_api_key: Option<&'a str>,
+    pub config: Option<serde_json::Value>,
+    pub is_default: Option<bool>,
+    pub is_active: Option<bool>,
+}
+
+pub struct CreateConversationParams<'a> {
+    pub user_id: &'a str,
+    pub connection_id: Option<i64>,
+    pub title: Option<&'a str>,
+    pub model_id: Option<&'a str>,
+    pub system_prompt: Option<&'a str>,
+    pub temperature: Option<f32>,
+    pub max_tokens: Option<i32>,
+}
+
+pub struct CreateChatRoleParams<'a> {
+    pub user_id: &'a str,
+    pub name: &'a str,
+    pub description: Option<&'a str>,
+    pub system_message: &'a str,
+    pub model_id: Option<&'a str>,
+    pub avatar_url: Option<&'a str>,
+    pub category: Option<&'a str>,
+    pub temperature: Option<f32>,
+    pub max_tokens: Option<i32>,
+    pub is_public: bool,
+}
+
+pub struct UpdateChatRoleParams<'a> {
+    pub id: i64,
+    pub name: Option<&'a str>,
+    pub description: Option<&'a str>,
+    pub system_message: Option<&'a str>,
+    pub model_id: Option<&'a str>,
+    pub avatar_url: Option<&'a str>,
+    pub category: Option<&'a str>,
+    pub temperature: Option<f32>,
+    pub max_tokens: Option<i32>,
+    pub is_public: Option<bool>,
+}
+
 pub struct OpenClawStorage {
     db: Arc<PgPool>,
 }
@@ -91,17 +147,11 @@ impl OpenClawStorage {
 
     pub async fn create_connection(
         &self,
-        user_id: &str,
-        name: &str,
-        provider: &str,
-        base_url: &str,
-        encrypted_api_key: Option<&str>,
-        config: Option<serde_json::Value>,
-        is_default: bool,
+        params: CreateConnectionParams<'_>,
     ) -> Result<OpenClawConnection, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        if is_default {
+        if params.is_default {
             sqlx::query(
                 r#"
                 UPDATE openclaw_connections
@@ -110,26 +160,26 @@ impl OpenClawStorage {
                 "#,
             )
             .bind(now)
-            .bind(user_id)
+            .bind(params.user_id)
             .execute(&*self.db)
             .await?;
         }
 
         let conn = sqlx::query_as::<_, OpenClawConnection>(
             r#"
-            INSERT INTO openclaw_connections 
+            INSERT INTO openclaw_connections
                 (user_id, name, provider, base_url, encrypted_api_key, config, is_default, is_active, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $8)
             RETURNING *
             "#,
         )
-        .bind(user_id)
-        .bind(name)
-        .bind(provider)
-        .bind(base_url)
-        .bind(encrypted_api_key)
-        .bind(&config)
-        .bind(is_default)
+        .bind(params.user_id)
+        .bind(params.name)
+        .bind(params.provider)
+        .bind(params.base_url)
+        .bind(params.encrypted_api_key)
+        .bind(&params.config)
+        .bind(params.is_default)
         .bind(now)
         .fetch_one(&*self.db)
         .await?;
@@ -182,18 +232,12 @@ impl OpenClawStorage {
 
     pub async fn update_connection(
         &self,
-        id: i64,
-        name: Option<&str>,
-        base_url: Option<&str>,
-        encrypted_api_key: Option<&str>,
-        config: Option<serde_json::Value>,
-        is_default: Option<bool>,
-        is_active: Option<bool>,
+        params: UpdateConnectionParams<'_>,
     ) -> Result<OpenClawConnection, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        if let Some(true) = is_default {
-            let conn = self.get_connection(id).await?;
+        if let Some(true) = params.is_default {
+            let conn = self.get_connection(params.id).await?;
             if let Some(c) = conn {
                 sqlx::query(
                     r#"
@@ -212,7 +256,7 @@ impl OpenClawStorage {
         let conn = sqlx::query_as::<_, OpenClawConnection>(
             r#"
             UPDATE openclaw_connections
-            SET 
+            SET
                 name = COALESCE($1, name),
                 base_url = COALESCE($2, base_url),
                 encrypted_api_key = COALESCE($3, encrypted_api_key),
@@ -224,14 +268,14 @@ impl OpenClawStorage {
             RETURNING *
             "#,
         )
-        .bind(name)
-        .bind(base_url)
-        .bind(encrypted_api_key)
-        .bind(&config)
-        .bind(is_default)
-        .bind(is_active)
+        .bind(params.name)
+        .bind(params.base_url)
+        .bind(params.encrypted_api_key)
+        .bind(&params.config)
+        .bind(params.is_default)
+        .bind(params.is_active)
         .bind(now)
-        .bind(id)
+        .bind(params.id)
         .fetch_one(&*self.db)
         .await?;
 
@@ -253,31 +297,25 @@ impl OpenClawStorage {
 
     pub async fn create_conversation(
         &self,
-        user_id: &str,
-        connection_id: Option<i64>,
-        title: Option<&str>,
-        model_id: Option<&str>,
-        system_prompt: Option<&str>,
-        temperature: Option<f32>,
-        max_tokens: Option<i32>,
+        params: CreateConversationParams<'_>,
     ) -> Result<AiConversation, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         let conv = sqlx::query_as::<_, AiConversation>(
             r#"
-            INSERT INTO ai_conversations 
+            INSERT INTO ai_conversations
                 (user_id, connection_id, title, model_id, system_prompt, temperature, max_tokens, is_pinned, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $8)
             RETURNING *
             "#,
         )
-        .bind(user_id)
-        .bind(connection_id)
-        .bind(title)
-        .bind(model_id)
-        .bind(system_prompt)
-        .bind(temperature)
-        .bind(max_tokens)
+        .bind(params.user_id)
+        .bind(params.connection_id)
+        .bind(params.title)
+        .bind(params.model_id)
+        .bind(params.system_prompt)
+        .bind(params.temperature)
+        .bind(params.max_tokens)
         .bind(now)
         .fetch_one(&*self.db)
         .await?;
@@ -593,37 +631,28 @@ impl OpenClawStorage {
 
     pub async fn create_chat_role(
         &self,
-        user_id: &str,
-        name: &str,
-        description: Option<&str>,
-        system_message: &str,
-        model_id: Option<&str>,
-        avatar_url: Option<&str>,
-        category: Option<&str>,
-        temperature: Option<f32>,
-        max_tokens: Option<i32>,
-        is_public: bool,
+        params: CreateChatRoleParams<'_>,
     ) -> Result<AiChatRole, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         let role = sqlx::query_as::<_, AiChatRole>(
             r#"
-            INSERT INTO ai_chat_roles 
+            INSERT INTO ai_chat_roles
                 (user_id, name, description, system_message, model_id, avatar_url, category, temperature, max_tokens, is_public, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
             RETURNING *
             "#,
         )
-        .bind(user_id)
-        .bind(name)
-        .bind(description)
-        .bind(system_message)
-        .bind(model_id)
-        .bind(avatar_url)
-        .bind(category)
-        .bind(temperature)
-        .bind(max_tokens)
-        .bind(is_public)
+        .bind(params.user_id)
+        .bind(params.name)
+        .bind(params.description)
+        .bind(params.system_message)
+        .bind(params.model_id)
+        .bind(params.avatar_url)
+        .bind(params.category)
+        .bind(params.temperature)
+        .bind(params.max_tokens)
+        .bind(params.is_public)
         .bind(now)
         .fetch_one(&*self.db)
         .await?;
@@ -657,23 +686,14 @@ impl OpenClawStorage {
 
     pub async fn update_chat_role(
         &self,
-        id: i64,
-        name: Option<&str>,
-        description: Option<&str>,
-        system_message: Option<&str>,
-        model_id: Option<&str>,
-        avatar_url: Option<&str>,
-        category: Option<&str>,
-        temperature: Option<f32>,
-        max_tokens: Option<i32>,
-        is_public: Option<bool>,
+        params: UpdateChatRoleParams<'_>,
     ) -> Result<AiChatRole, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         let role = sqlx::query_as::<_, AiChatRole>(
             r#"
             UPDATE ai_chat_roles
-            SET 
+            SET
                 name = COALESCE($1, name),
                 description = COALESCE($2, description),
                 system_message = COALESCE($3, system_message),
@@ -688,17 +708,17 @@ impl OpenClawStorage {
             RETURNING *
             "#,
         )
-        .bind(name)
-        .bind(description)
-        .bind(system_message)
-        .bind(model_id)
-        .bind(avatar_url)
-        .bind(category)
-        .bind(temperature)
-        .bind(max_tokens)
-        .bind(is_public)
+        .bind(params.name)
+        .bind(params.description)
+        .bind(params.system_message)
+        .bind(params.model_id)
+        .bind(params.avatar_url)
+        .bind(params.category)
+        .bind(params.temperature)
+        .bind(params.max_tokens)
+        .bind(params.is_public)
         .bind(now)
-        .bind(id)
+        .bind(params.id)
         .fetch_one(&*self.db)
         .await?;
 
