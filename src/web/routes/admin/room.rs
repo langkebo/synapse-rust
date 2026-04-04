@@ -54,6 +54,10 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
             "/_synapse/admin/v1/rooms/{room_id}/make_admin",
             post(make_room_admin).put(make_room_admin),
         )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/purge_history",
+            post(purge_history_by_room),
+        )
         .route("/_synapse/admin/v1/purge_history", post(purge_history))
         .route("/_synapse/admin/v1/purge_room", post(purge_room))
         .route("/_synapse/admin/v1/shutdown_room", post(shutdown_room))
@@ -133,7 +137,10 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
             "/_synapse/admin/v1/rooms/{room_id}/search",
             post(search_room_messages_admin),
         )
-        .route("/_synapse/admin/v1/rooms/search", post(search_all_rooms))
+        .route(
+            "/_synapse/admin/v1/rooms/search",
+            post(search_all_rooms).get(search_all_rooms_query),
+        )
         .route(
             "/_synapse/admin/v1/rooms/{room_id}/forward_extremities",
             get(get_room_forward_extremities),
@@ -563,6 +570,24 @@ pub async fn purge_history(
         "success": true,
         "deleted_events": deleted_count
     })))
+}
+
+#[axum::debug_handler]
+pub async fn purge_history_by_room(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let merged_body = match body {
+        Value::Object(mut map) => {
+            map.insert("room_id".to_string(), Value::String(room_id));
+            Value::Object(map)
+        }
+        _ => json!({ "room_id": room_id }),
+    };
+
+    purge_history(_admin, State(state), Json(merged_body)).await
 }
 
 #[axum::debug_handler]
@@ -1654,6 +1679,22 @@ pub async fn search_all_rooms(
     _admin: AdminUser,
     State(state): State<AppState>,
     Json(body): Json<SearchAllRoomsRequest>,
+) -> Result<Json<Value>, ApiError> {
+    search_all_rooms_impl(&state, body).await
+}
+
+#[axum::debug_handler]
+pub async fn search_all_rooms_query(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<SearchAllRoomsRequest>,
+) -> Result<Json<Value>, ApiError> {
+    search_all_rooms_impl(&state, query).await
+}
+
+async fn search_all_rooms_impl(
+    state: &AppState,
+    body: SearchAllRoomsRequest,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.limit.unwrap_or(50).min(200) as i64;
     let offset = body.offset.unwrap_or(0) as i64;

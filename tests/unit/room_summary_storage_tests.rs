@@ -1,7 +1,5 @@
 #![cfg(test)]
-#![allow(clippy::module_inception)]
-
-mod room_summary_storage_tests {
+mod room_summary_storage_suite {
     use crate::common::get_test_pool_async;
     use std::time::{SystemTime, UNIX_EPOCH};
     use synapse_rust::storage::room_summary::{

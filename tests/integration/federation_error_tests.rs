@@ -3,7 +3,7 @@
 //! This module tests error handling scenarios for federation features.
 
 #[cfg(test)]
-mod federation_error_tests {
+mod federation_event_auth_error_tests {
     use serde_json::json;
     use std::collections::HashMap;
     use synapse_rust::federation::event_auth::{EventAuthChain, EventData};

@@ -1,7 +1,5 @@
 #![cfg(test)]
-#![allow(clippy::module_inception)]
-
-mod thread_storage_tests {
+mod thread_storage_suite {
     use crate::common::get_test_pool_async;
     use sqlx::Row;
     use std::time::{SystemTime, UNIX_EPOCH};

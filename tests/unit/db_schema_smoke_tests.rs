@@ -1,7 +1,5 @@
 #![cfg(test)]
-#![allow(clippy::module_inception)]
-
-mod db_schema_smoke_tests {
+mod db_schema_smoke_suite {
     use crate::common::get_test_pool_async;
     use serde_json::json;
     use std::sync::atomic::{AtomicU64, Ordering};

@@ -389,8 +389,7 @@ BEGIN
         encrypted_key TEXT NOT NULL,
         created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
         CONSTRAINT pk_secure_backup_session_keys PRIMARY KEY (user_id, backup_id, room_id, session_id),
-        CONSTRAINT fk_secure_backup_session_keys_backup FOREIGN KEY (user_id, backup_id) REFERENCES secure_key_backups(user_id, backup_id) ON DELETE CASCADE,
-        CONSTRAINT fk_secure_backup_session_keys_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
+        CONSTRAINT fk_secure_backup_session_keys_backup FOREIGN KEY (user_id, backup_id) REFERENCES secure_key_backups(user_id, backup_id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS application_service_users (

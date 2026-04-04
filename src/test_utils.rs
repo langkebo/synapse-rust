@@ -12,6 +12,11 @@ static PREPARED_TEST_POOLS: Lazy<Mutex<VecDeque<Arc<PgPool>>>> =
     Lazy::new(|| Mutex::new(VecDeque::new()));
 static TEST_ENV_LOCK: Lazy<TokioMutex<()>> = Lazy::new(|| TokioMutex::new(()));
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
+const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 4;
+const DEFAULT_TEST_DB_MIN_CONNECTIONS: u32 = 0;
+const DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_TEST_DB_IDLE_TIMEOUT_SECS: u64 = 60;
+const DEFAULT_TEST_DB_MAX_LIFETIME_SECS: u64 = 300;
 
 pub struct EnvLockGuard {
     _guard: tokio::sync::MutexGuard<'static, ()>,
@@ -99,6 +104,48 @@ pub fn take_prepared_test_pool() -> Option<Arc<PgPool>> {
     PREPARED_TEST_POOLS.lock().unwrap().pop_front()
 }
 
+fn env_u32(key: &str) -> Option<u32> {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.trim().parse::<u32>().ok())
+}
+
+fn env_u64(key: &str) -> Option<u64> {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+}
+
+pub fn configured_test_pool_max_connections() -> u32 {
+    env_u32("TEST_DB_MAX_CONNECTIONS")
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_TEST_DB_MAX_CONNECTIONS)
+}
+
+pub fn configured_test_pool_min_connections() -> u32 {
+    env_u32("TEST_DB_MIN_CONNECTIONS")
+        .map(|value| value.min(configured_test_pool_max_connections()))
+        .unwrap_or(DEFAULT_TEST_DB_MIN_CONNECTIONS)
+}
+
+pub fn configured_test_pool_acquire_timeout() -> Duration {
+    Duration::from_secs(
+        env_u64("TEST_DB_ACQUIRE_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS),
+    )
+}
+
+pub fn configured_test_pool_idle_timeout() -> Duration {
+    Duration::from_secs(
+        env_u64("TEST_DB_IDLE_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_IDLE_TIMEOUT_SECS),
+    )
+}
+
+pub fn configured_test_pool_max_lifetime() -> Duration {
+    Duration::from_secs(
+        env_u64("TEST_DB_MAX_LIFETIME_SECS").unwrap_or(DEFAULT_TEST_DB_MAX_LIFETIME_SECS),
+    )
+}
+
 pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
@@ -117,11 +164,11 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
     let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .min_connections(1)
-        .acquire_timeout(Duration::from_secs(10))
-        .idle_timeout(Some(Duration::from_secs(300)))
-        .max_lifetime(Some(Duration::from_secs(900)))
+        .max_connections(configured_test_pool_max_connections())
+        .min_connections(configured_test_pool_min_connections())
+        .acquire_timeout(configured_test_pool_acquire_timeout())
+        .idle_timeout(Some(configured_test_pool_idle_timeout()))
+        .max_lifetime(Some(configured_test_pool_max_lifetime()))
         .after_connect(move |connection, _meta| {
             let search_path_sql = search_path_sql.clone();
             Box::pin(async move {
