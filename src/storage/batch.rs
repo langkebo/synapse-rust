@@ -142,7 +142,10 @@ impl<T: BatchRow> BatchInserter<T> {
             let semaphore = semaphore.clone();
             let pool = pool.clone();
             async move {
-                let _permit = semaphore.acquire().await.unwrap();
+                let _permit = semaphore
+                    .acquire()
+                    .await
+                    .map_err(|_| sqlx::Error::Protocol("batch semaphore closed".to_string()))?;
                 
                 tokio::time::timeout(
                     self.config.timeout,

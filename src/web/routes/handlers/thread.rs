@@ -591,12 +591,15 @@ async fn get_subscribed_threads(
 }
 
 async fn get_unread_threads_global(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    Ok(Json(json!({
-        "threads": []
-    })))
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<UnreadThreadsResponse>, ApiError> {
+    let response = state
+        .services
+        .thread_service
+        .get_unread_threads(&auth_user.user_id, None)
+        .await?;
+    Ok(Json(response))
 }
 
 #[cfg(test)]

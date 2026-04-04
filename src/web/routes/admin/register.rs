@@ -12,7 +12,7 @@ use axum::{
     body::Body,
     extract::ConnectInfo,
     extract::State,
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
     response::Response,
     routing::{get, post},
     Json, Router,
@@ -91,17 +91,19 @@ struct RegisterError {
 }
 
 fn register_error_response(status: u16, errcode: &str, error: impl Into<String>) -> Response<Body> {
-    Response::builder()
-        .status(status)
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            serde_json::to_string(&RegisterError {
-                errcode: errcode.to_string(),
-                error: error.into(),
-            })
-            .unwrap(),
-        ))
-        .unwrap()
+    let body = serde_json::to_string(&RegisterError {
+        errcode: errcode.to_string(),
+        error: error.into(),
+    })
+    .unwrap_or_else(|_| r#"{"errcode":"M_UNKNOWN","error":"Internal error"}"#.to_string());
+
+    let mut response = Response::new(Body::from(body));
+    *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    response
 }
 
 /// 生成随机 nonce
@@ -109,9 +111,9 @@ fn generate_nonce() -> String {
     let mut rng = rand::thread_rng();
     let bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
     use std::fmt::Write;
-    let mut s = String::new();
+    let mut s = String::with_capacity(64);
     for byte in bytes {
-        write!(&mut s, "{:02x}", byte).unwrap();
+        let _ = write!(&mut s, "{:02x}", byte);
     }
     s
 }
@@ -149,9 +151,9 @@ fn verify_mac(
 
     let expected = {
         use std::fmt::Write;
-        let mut s = String::new();
+        let mut s = String::with_capacity(64);
         for byte in &result.into_bytes().to_vec() {
-            write!(&mut s, "{:02x}", byte).unwrap();
+            let _ = write!(&mut s, "{:02x}", byte);
         }
         s
     };
@@ -283,13 +285,15 @@ async fn get_nonce(
     let nonce = generate_nonce();
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .map_err(|_| register_error_response(500, "M_UNKNOWN", "System time error"))?
         .as_secs();
     let timeout = config.admin_registration.nonce_timeout_seconds;
 
     // 存储 nonce
     {
-        let mut nonces = NONCES.lock().unwrap();
+        let mut nonces = NONCES
+            .lock()
+            .map_err(|_| register_error_response(500, "M_UNKNOWN", "Lock poisoned"))?;
         nonces.insert(
             nonce.clone(),
             NonceData {
@@ -338,11 +342,15 @@ async fn register(
 
     // 验证 nonce
     let nonce_valid = {
-        let mut nonces = NONCES.lock().unwrap();
+        let mut nonces = NONCES.lock().map_err(|_| {
+            register_error_response(500, "M_UNKNOWN", "Lock poisoned")
+        })?;
         if let Some(data) = nonces.get(&payload.nonce) {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .map_err(|_| {
+                    register_error_response(500, "M_UNKNOWN", "System time error")
+                })?
                 .as_secs();
             if now <= data.expires_at {
                 nonces.remove(&payload.nonce); // 使用后删除
@@ -406,17 +414,11 @@ async fn register(
                     .execute(&*state.services.user_storage.pool)
                     .await
                 {
-                    return Err(Response::builder()
-                        .status(500)
-                        .header("Content-Type", "application/json")
-                        .body(Body::from(
-                            serde_json::to_string(&RegisterError {
-                                errcode: "M_UNKNOWN".to_string(),
-                                error: format!("Failed to update admin status: {}", e),
-                            })
-                            .unwrap(),
-                        ))
-                        .unwrap());
+                    return Err(register_error_response(
+                        500,
+                        "M_UNKNOWN",
+                        format!("Failed to update admin status: {}", e),
+                    ));
                 }
             }
 
@@ -432,29 +434,17 @@ async fn register(
         Err(e) => {
             let error_msg = e.to_string();
             if error_msg.contains("already exists") {
-                Err(Response::builder()
-                    .status(400)
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(
-                        serde_json::to_string(&RegisterError {
-                            errcode: "M_UNKNOWN".to_string(),
-                            error: "User already exists".to_string(),
-                        })
-                        .unwrap(),
-                    ))
-                    .unwrap())
+                Err(register_error_response(
+                    400,
+                    "M_UNKNOWN",
+                    "User already exists",
+                ))
             } else {
-                Err(Response::builder()
-                    .status(500)
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(
-                        serde_json::to_string(&RegisterError {
-                            errcode: "M_UNKNOWN".to_string(),
-                            error: format!("Failed to create user: {}", error_msg),
-                        })
-                        .unwrap(),
-                    ))
-                    .unwrap())
+                Err(register_error_response(
+                    500,
+                    "M_UNKNOWN",
+                    format!("Failed to create user: {}", error_msg),
+                ))
             }
         }
     }

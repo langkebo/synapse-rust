@@ -14,17 +14,17 @@ impl ConcurrencyController {
         }
     }
 
-    pub async fn acquire(&self) -> ConcurrencyPermit {
+    pub async fn acquire(&self) -> Result<ConcurrencyPermit, String> {
         let permit = self
             .semaphore
             .clone()
             .acquire_owned()
             .await
-            .expect("Semaphore should not be closed");
-        ConcurrencyPermit {
+            .map_err(|_| format!("Semaphore '{}' closed", self.name))?;
+        Ok(ConcurrencyPermit {
             _permit: permit,
             name: self.name.clone(),
-        }
+        })
     }
 
     pub async fn try_acquire(&self) -> Option<ConcurrencyPermit> {
@@ -85,7 +85,7 @@ impl ConcurrencyLimiter {
 
     pub async fn acquire(&self, name: &str) -> Option<ConcurrencyPermit> {
         if let Some(controller) = self.get_controller(name) {
-            Some(controller.acquire().await)
+            controller.acquire().await.ok()
         } else {
             None
         }
@@ -109,7 +109,7 @@ impl Default for ConcurrencyLimiter {
 #[macro_export]
 macro_rules! with_concurrency_limit {
     ($controller:expr, $block:block) => {{
-        let _permit = $controller.acquire().await;
+        let _permit = $controller.acquire().await.ok();
         $block
     }};
 }
