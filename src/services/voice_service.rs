@@ -549,9 +549,19 @@ impl VoiceService {
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        if let Some(_msg) = message {
-            // Return empty content since we don't store file_path anymore
-            return Ok(Some((Vec::new(), "audio/ogg".to_string())));
+        if let Some(msg) = message {
+            let mime_type = msg.mime_type.unwrap_or_else(|| "audio/ogg".to_string());
+            if let Some(file_path) = self.find_voice_file_path(event_id, &mime_type).await {
+                let content = fs::read(&file_path).await.map_err(|e| {
+                    ApiError::internal(format!("Failed to read voice message file: {}", e))
+                })?;
+                return Ok(Some((content, mime_type)));
+            }
+
+            return Err(ApiError::not_found(format!(
+                "Voice message file not found for event {}",
+                event_id
+            )));
         }
         Ok(None)
     }
@@ -680,6 +690,29 @@ impl VoiceService {
         } else {
             "audio"
         }
+    }
+
+    async fn find_voice_file_path(&self, event_id: &str, mime_type: &str) -> Option<PathBuf> {
+        let file_prefix = event_id.trim_start_matches('$');
+        let expected_extension = self.get_extension_from_content_type(mime_type);
+        let expected_path = self
+            .voice_path
+            .join(format!("{}.{}", file_prefix, expected_extension));
+
+        if fs::metadata(&expected_path).await.is_ok() {
+            return Some(expected_path);
+        }
+
+        let mut entries = fs::read_dir(&self.voice_path).await.ok()?;
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if let Some(file_name) = entry.file_name().to_str() {
+                if file_name.starts_with(file_prefix) {
+                    return Some(entry.path());
+                }
+            }
+        }
+
+        None
     }
 }
 

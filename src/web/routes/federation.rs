@@ -4,6 +4,7 @@ use crate::web::utils::encoding::decode_base64_32;
 use axum::{
     extract::{Json, Path, Query, State},
     middleware,
+    response::IntoResponse,
     routing::{get, post, put},
     Router,
 };
@@ -1634,17 +1635,26 @@ async fn post_public_rooms(
 
 /// Query directory
 /// GET /_matrix/federation/v1/query/directory
-async fn query_directory(Query(params): Query<Value>) -> Result<Json<Value>, ApiError> {
+async fn query_directory(
+    State(state): State<AppState>,
+    Query(params): Query<Value>,
+) -> Result<Json<Value>, ApiError> {
     let room_alias = params
         .get("room_alias")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing room_alias parameter"))?;
 
-    // Return room_id for the alias
-    // Note: This would need the actual room_alias_storage to resolve
+    let room_id = state.services.room_service.get_room_by_alias(room_alias).await?;
+    let room_id = room_id.ok_or_else(|| ApiError::not_found("Room alias not found"))?;
+    let server_name = room_alias
+        .split(':')
+        .nth(1)
+        .filter(|server| !server.is_empty())
+        .unwrap_or(&state.services.server_name);
+
     Ok(Json(json!({
-        "room_id": format!("!{}:example.com", room_alias.trim_start_matches('#')),
-        "servers": ["example.com"]
+        "room_id": room_id,
+        "servers": [server_name]
     })))
 }
 
@@ -1669,35 +1679,31 @@ async fn openid_userinfo(
 /// Media download (federation)
 /// GET /_matrix/federation/v1/media/download/{server_name}/{media_id}
 async fn media_download(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
-) -> Result<Json<Value>, ApiError> {
-    // Validate parameters
+) -> Result<impl IntoResponse, ApiError> {
     if media_id.is_empty() {
         return Err(ApiError::bad_request("Missing media_id"));
     }
 
-    // Get media metadata - simplified response
-    // Actual implementation would fetch from media_service
-    println!("Processing media download: {}/{}", server_name, media_id);
+    let content = state
+        .services
+        .media_service
+        .download_media(&server_name, &media_id)
+        .await?;
+    let content_type = federation_guess_content_type(&media_id).to_string();
+    let headers = federation_media_response_headers(content_type, content.len());
 
-    Ok(Json(json!({
-        "media_id": media_id,
-        "server_name": server_name,
-        "content_type": "image/png",
-        "content_length": 0,
-        "download_name": "media"
-    })))
+    Ok((headers, content))
 }
 
 /// Media thumbnail (federation)
 /// GET /_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}
 async fn media_thumbnail(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
-) -> Result<Json<Value>, ApiError> {
-    // Get thumbnail parameters
+) -> Result<impl IntoResponse, ApiError> {
     let width = params.get("width").and_then(|v| v.as_i64()).unwrap_or(100);
     let height = params.get("height").and_then(|v| v.as_i64()).unwrap_or(100);
     let method = params
@@ -1705,21 +1711,59 @@ async fn media_thumbnail(
         .and_then(|v| v.as_str())
         .unwrap_or("scale");
 
-    // Simplified response
-    println!(
-        "Processing media thumbnail: {}/{} {}x{}",
-        server_name, media_id, width, height
-    );
+    let content = state
+        .services
+        .media_service
+        .get_thumbnail(
+            &server_name,
+            &media_id,
+            width.max(1) as u32,
+            height.max(1) as u32,
+            method,
+        )
+        .await?;
+    let content_type = federation_guess_content_type(&media_id).to_string();
+    let headers = federation_media_response_headers(content_type, content.len());
 
-    Ok(Json(json!({
-        "media_id": media_id,
-        "server_name": server_name,
-        "thumbnail": {
-            "width": width,
-            "height": height,
-            "method": method
-        }
-    })))
+    Ok((headers, content))
+}
+
+fn federation_media_response_headers(
+    content_type: String,
+    content_length: usize,
+) -> [(String, String); 2] {
+    [
+        ("Content-Type".to_string(), content_type),
+        ("Content-Length".to_string(), content_length.to_string()),
+    ]
+}
+
+fn federation_guess_content_type(filename: &str) -> &'static str {
+    let lower = filename.to_ascii_lowercase();
+
+    if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else if lower.ends_with(".svg") {
+        "image/svg+xml"
+    } else if lower.ends_with(".mp4") {
+        "video/mp4"
+    } else if lower.ends_with(".webm") {
+        "video/webm"
+    } else if lower.ends_with(".ogg") {
+        "audio/ogg"
+    } else if lower.ends_with(".mp3") {
+        "audio/mpeg"
+    } else if lower.ends_with(".wav") {
+        "audio/wav"
+    } else {
+        "application/octet-stream"
+    }
 }
 
 /// Exchange third party invite

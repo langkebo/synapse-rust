@@ -200,7 +200,11 @@ async fn handle_socket(
             msg_type: " subscribed".to_string(),
             data: serde_json::json!({ "room_id": room }),
         };
-        let _ = sender.send(Message::Text(serde_json::to_string(&msg).unwrap())).await;
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let _ = sender.send(Message::Text(json)).await;
+        } else {
+            tracing::warn!("Failed to serialize subscription message for user {}", user_id);
+        }
     }
 
     tokio::spawn(async move {
