@@ -193,17 +193,76 @@ async fn claim_keys(
 #[axum::debug_handler]
 async fn key_changes(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let from = params.get("from").and_then(|v| v.as_str()).unwrap_or("0");
-    let to = params.get("to").and_then(|v| v.as_str()).unwrap_or("");
+    let from = params.get("from").and_then(parse_stream_id).unwrap_or(0);
+    let to = params.get("to").and_then(parse_stream_id);
 
-    let (changed, left) = state
-        .services
-        .device_keys_service
-        .get_key_changes(from, to)
-        .await?;
+    let max_stream_id: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(MAX(stream_id), 0) FROM device_lists_stream
+        "#,
+    )
+    .fetch_one(&*state.services.device_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get device list stream position: {}", e)))?;
+
+    let to = to.unwrap_or(max_stream_id);
+
+    let changed_rows = sqlx::query(
+        r#"
+        SELECT DISTINCT user_id
+        FROM device_lists_stream
+        WHERE stream_id > $1
+          AND stream_id <= $2
+          AND user_id != $3
+        ORDER BY user_id
+        LIMIT 100
+        "#,
+    )
+    .bind(from)
+    .bind(to)
+    .bind(&auth_user.user_id)
+    .fetch_all(&*state.services.device_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get key changes: {}", e)))?;
+
+    let changed: Vec<String> = changed_rows
+        .iter()
+        .map(|row| {
+            use sqlx::Row;
+            row.get("user_id")
+        })
+        .collect();
+
+    let left_rows = sqlx::query(
+        r#"
+        SELECT DISTINCT dl.user_id
+        FROM device_lists_stream dl
+        LEFT JOIN room_memberships rm ON rm.user_id = dl.user_id
+        WHERE dl.stream_id > $1
+          AND dl.stream_id <= $2
+          AND dl.user_id != $3
+          AND rm.user_id IS NULL
+        ORDER BY dl.user_id
+        LIMIT 100
+        "#,
+    )
+    .bind(from)
+    .bind(to)
+    .bind(&auth_user.user_id)
+    .fetch_all(&*state.services.device_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get key changes left: {}", e)))?;
+
+    let left: Vec<String> = left_rows
+        .iter()
+        .map(|row| {
+            use sqlx::Row;
+            row.get("user_id")
+        })
+        .collect();
 
     Ok(Json(serde_json::json!({
         "changed": changed,
