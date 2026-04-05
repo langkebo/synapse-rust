@@ -36,6 +36,9 @@ jobs:
       - name: No placeholder strings in non-test code
         run: bash scripts/quality/check_no_placeholder_strings.sh
 
+      - name: No shell routes (empty responses)
+        run: bash scripts/detect_shell_routes.sh
+
   test:
     name: Test & Lint
     runs-on: ubuntu-latest
