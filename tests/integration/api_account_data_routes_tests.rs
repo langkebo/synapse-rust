@@ -390,6 +390,24 @@ async fn test_tags_routes_work_across_v3_and_r0() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["tags"]["m.favourite"]["order"], json!(0.25));
 
+    let global_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/user/{}/tags", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let global_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), global_request)
+        .await
+        .unwrap();
+    assert_eq!(global_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(global_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["tags"][room_id]["m.favourite"]["order"], json!(0.25));
+
     let delete_request = Request::builder()
         .method("DELETE")
         .uri(format!(

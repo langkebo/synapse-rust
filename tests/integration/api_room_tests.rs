@@ -1257,3 +1257,234 @@ async fn test_room_hierarchy_returns_room_summary_for_regular_room() {
     assert_eq!(json["rooms"][0]["room_id"], room_id);
     assert!(json.get("next_batch").is_some());
 }
+
+#[tokio::test]
+async fn test_room_account_data_route_round_trip() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let Some(token) = register_user(
+        &app,
+        &format!("room_route_account_{}", rand::random::<u32>()),
+    )
+    .await
+    else {
+        return;
+    };
+
+    let Some(room_id) = create_room(&app, &token, "Room Route Account Data").await else {
+        return;
+    };
+
+    let content = json!({
+        "tags": {
+            "m.favourite": {
+                "order": 0.5
+            }
+        }
+    });
+
+    let put_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/account_data/com.example.room_state",
+            room_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(content.to_string()))
+        .unwrap();
+    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request)
+        .await
+        .unwrap();
+    assert_eq!(put_response.status(), StatusCode::OK);
+
+    let get_request = Request::builder()
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/account_data/com.example.room_state",
+            room_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app, get_request)
+        .await
+        .unwrap();
+    assert_eq!(get_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(get_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json, content);
+}
+
+#[tokio::test]
+async fn test_room_search_route_returns_room_message_matches() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let Some(token) = register_user(&app, &format!("room_search_{}", rand::random::<u32>())).await
+    else {
+        return;
+    };
+
+    let Some(room_id) = create_room(&app, &token, "Room Search Route").await else {
+        return;
+    };
+
+    let send_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/send/m.room.message/search_txn_{}",
+            room_id,
+            rand::random::<u32>()
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({"msgtype": "m.text", "body": "needle in a room search test"}).to_string(),
+        ))
+        .unwrap();
+    let send_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), send_request)
+        .await
+        .unwrap();
+    assert_eq!(send_response.status(), StatusCode::OK);
+
+    let search_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{}/search", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "search_categories": {
+                    "room_events": {
+                        "search_term": "needle",
+                        "filter": {
+                            "limit": 10
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let search_response = ServiceExt::<Request<Body>>::oneshot(app, search_request)
+        .await
+        .unwrap();
+    assert_eq!(search_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(search_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let results = json["search_categories"]["room_events"]["results"]
+        .as_array()
+        .unwrap();
+    assert!(!results.is_empty());
+    assert_eq!(
+        results[0]["result"]["content"]["body"].as_str(),
+        Some("needle in a room search test")
+    );
+}
+
+#[tokio::test]
+async fn test_room_spaces_route_returns_child_rooms_and_parent_spaces() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let Some(token) = register_user(&app, &format!("room_spaces_{}", rand::random::<u32>())).await
+    else {
+        return;
+    };
+
+    let Some(space_room_id) = create_room(&app, &token, "Parent Space Room").await else {
+        return;
+    };
+    let Some(child_room_id) = create_room(&app, &token, "Child Room").await else {
+        return;
+    };
+
+    let create_space_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/spaces")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room_id": space_room_id,
+                "name": "Parent Space",
+                "is_public": false
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let create_space_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), create_space_request)
+            .await
+            .unwrap();
+    assert_eq!(create_space_response.status(), StatusCode::CREATED);
+
+    let add_child_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_matrix/client/v3/spaces/{}/children",
+            space_room_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room_id": child_room_id,
+                "via_servers": ["localhost"],
+                "suggested": true
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let add_child_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), add_child_request)
+        .await
+        .unwrap();
+    assert_eq!(add_child_response.status(), StatusCode::CREATED);
+
+    let parent_request = Request::builder()
+        .uri(format!("/_matrix/client/v3/rooms/{}/spaces", space_room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let parent_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), parent_request)
+        .await
+        .unwrap();
+    assert_eq!(parent_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(parent_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let parent_json: Value = serde_json::from_slice(&body).unwrap();
+    let parent_rooms = parent_json["rooms"].as_array().unwrap();
+    assert_eq!(parent_rooms.len(), 1);
+    assert_eq!(parent_rooms[0]["room_id"], child_room_id);
+    assert_eq!(parent_rooms[0]["suggested"], true);
+
+    let child_request = Request::builder()
+        .uri(format!("/_matrix/client/v3/rooms/{}/spaces", child_room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let child_response = ServiceExt::<Request<Body>>::oneshot(app, child_request)
+        .await
+        .unwrap();
+    assert_eq!(child_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(child_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let child_json: Value = serde_json::from_slice(&body).unwrap();
+    let child_spaces = child_json["spaces"].as_array().unwrap();
+    assert_eq!(child_spaces.len(), 1);
+    assert_eq!(child_spaces[0]["room_id"], space_room_id);
+}
