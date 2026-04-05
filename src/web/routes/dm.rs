@@ -261,12 +261,15 @@ pub async fn update_dm_room(
     Json(body): Json<UpdateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let mut direct_map = load_direct_map(&state, &auth_user.user_id).await?;
+    let mut updated_users = Vec::new();
+
     if let Some(users) = body.users {
         let users = parse_dm_users(&users)?;
         remove_room_from_direct_map(&mut direct_map, &room_id);
-        for user_id in users {
-            ensure_room_in_direct_map(&mut direct_map, &user_id, &room_id);
+        for user_id in &users {
+            ensure_room_in_direct_map(&mut direct_map, user_id, &room_id);
         }
+        updated_users = users;
         save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
     } else if let Some(content) = body.content {
         let content = content
@@ -277,20 +280,26 @@ pub async fn update_dm_room(
         if let Some(user_id) = content.get("user_id").and_then(|value| value.as_str()) {
             remove_room_from_direct_map(&mut direct_map, &room_id);
             ensure_room_in_direct_map(&mut direct_map, user_id, &room_id);
+            updated_users.push(user_id.to_string());
             save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
         } else if let Some(users) = content.get("users") {
             let users = parse_dm_users(users)?;
             remove_room_from_direct_map(&mut direct_map, &room_id);
-            for user_id in users {
-                ensure_room_in_direct_map(&mut direct_map, &user_id, &room_id);
+            for user_id in &users {
+                ensure_room_in_direct_map(&mut direct_map, user_id, &room_id);
             }
+            updated_users = users;
             save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
         } else {
             save_direct_map(&state, &auth_user.user_id, &content).await?;
         }
     }
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "users": updated_users,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 pub async fn check_room_dm(

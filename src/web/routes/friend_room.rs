@@ -374,7 +374,11 @@ async fn remove_friend(
         .remove_friend(&auth_user.user_id, &friend_id)
         .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "removed": true,
+        "user_id": friend_id,
+        "removed_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 async fn update_friend_note(
@@ -397,7 +401,11 @@ async fn update_friend_note(
         .update_friend_note(&auth_user.user_id, &friend_id, &body.note)
         .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "user_id": friend_id,
+        "note": body.note,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 async fn update_friend_status(
@@ -422,7 +430,11 @@ async fn update_friend_status(
         .update_friend_status(&auth_user.user_id, &friend_id, &body.status)
         .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "user_id": friend_id,
+        "status": body.status,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 async fn get_friend_info(
@@ -462,7 +474,11 @@ async fn update_friend_displayname(
         .update_friend_displayname(&auth_user.user_id, &friend_id, &body.displayname)
         .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "user_id": friend_id,
+        "displayname": body.displayname,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 async fn get_received_requests(
@@ -586,7 +602,11 @@ async fn delete_friend_group(
         .delete_friend_group(&auth_user.user_id, &group_id)
         .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "deleted": true,
+        "group_id": group_id,
+        "deleted_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 async fn rename_friend_group(
@@ -607,7 +627,11 @@ async fn rename_friend_group(
         .rename_friend_group(&auth_user.user_id, &group_id, &body.name)
         .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "group_id": group_id,
+        "name": body.name,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 async fn add_friend_to_group(
@@ -623,7 +647,11 @@ async fn add_friend_to_group(
         .add_friend_to_group(&auth_user.user_id, &group_id, &user_id)
         .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "group_id": group_id,
+        "user_id": user_id,
+        "added_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 async fn remove_friend_from_group(
@@ -639,7 +667,11 @@ async fn remove_friend_from_group(
         .remove_friend_from_group(&auth_user.user_id, &group_id, &user_id)
         .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "group_id": group_id,
+        "user_id": user_id,
+        "removed_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 async fn get_friends_in_group(

@@ -129,7 +129,20 @@ pub async fn update_device(
             }
         })?;
 
-    Ok(Json(json!({})))
+    // Fetch updated device to return confirmation
+    let device = state
+        .services
+        .device_storage
+        .get_device(&device_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get updated device: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Device not found after update".to_string()))?;
+
+    Ok(Json(json!({
+        "device_id": device.device_id,
+        "display_name": device.display_name,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 pub async fn delete_device(

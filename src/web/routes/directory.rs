@@ -80,7 +80,11 @@ pub async fn set_room_alias_handler(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to set alias: {}", e)))?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "alias": room_alias,
+        "created_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 pub async fn remove_room_alias(
@@ -95,7 +99,10 @@ pub async fn remove_room_alias(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to remove alias: {}", e)))?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "removed": true,
+        "alias": room_alias
+    })))
 }
 
 pub async fn get_alias_servers(
@@ -204,9 +211,15 @@ pub async fn set_canonical_alias(
             .update_canonical_alias(&room_id, alias_str)
             .await
             .map_err(|e| ApiError::internal(format!("Failed: {}", e)))?;
-    }
 
-    Ok(Json(json!({})))
+        Ok(Json(json!({
+            "room_id": room_id,
+            "alias": alias_str,
+            "updated_ts": chrono::Utc::now().timestamp_millis()
+        })))
+    } else {
+        Ok(Json(json!({})))
+    }
 }
 
 pub async fn get_canonical_alias(

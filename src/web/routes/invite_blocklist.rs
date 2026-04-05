@@ -49,7 +49,7 @@ pub async fn set_invite_blocklist(
         ));
     }
 
-    let user_ids = body
+    let user_ids: Vec<String> = body
         .get("user_ids")
         .and_then(|v| v.as_array())
         .map(|arr| {
@@ -62,11 +62,15 @@ pub async fn set_invite_blocklist(
     state
         .services
         .invite_blocklist_storage
-        .set_invite_blocklist(&room_id, user_ids)
+        .set_invite_blocklist(&room_id, user_ids.clone())
         .await
         .map_err(|e| ApiError::internal(format!("Failed to set blocklist: {}", e)))?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "blocklist": user_ids,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 /// Get room invite allowlist
@@ -110,7 +114,7 @@ pub async fn set_invite_allowlist(
         ));
     }
 
-    let user_ids = body
+    let user_ids: Vec<String> = body
         .get("user_ids")
         .and_then(|v| v.as_array())
         .map(|arr| {
@@ -123,9 +127,13 @@ pub async fn set_invite_allowlist(
     state
         .services
         .invite_blocklist_storage
-        .set_invite_allowlist(&room_id, user_ids)
+        .set_invite_allowlist(&room_id, user_ids.clone())
         .await
         .map_err(|e| ApiError::internal(format!("Failed to set allowlist: {}", e)))?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "allowlist": user_ids,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }

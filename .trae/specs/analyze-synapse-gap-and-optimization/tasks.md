@@ -54,6 +54,7 @@
   - [ ] 盘点 `src/web/routes/` 中“已鉴权/已校验但返回静态占位结果”的接口模式
   - [ ] 输出接口清单、复用的 `service/storage` 路径、整改优先级与风险评估
   - [ ] 设计自动扫描规则与 CI 阻断策略，定义豁免机制与清理时限
+  - [x] 已完成 `handlers/room.rs` 初扫与优先级清单：`task11_room_rs_placeholder_inventory.md`
 
 - [ ] Task 12: 制定房间域与核心路由拆分方案
   - [ ] 评估 `room.rs`、`middleware.rs`、`e2ee_routes.rs` 的职责聚合与维护风险
