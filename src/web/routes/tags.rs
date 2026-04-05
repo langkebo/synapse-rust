@@ -46,7 +46,7 @@ pub fn create_tags_router(state: AppState) -> Router<AppState> {
 }
 
 async fn get_global_tags(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -54,8 +54,28 @@ async fn get_global_tags(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
+    let tags = get_all_user_tags(&state.services.user_storage.pool, &user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get tags: {}", e)))?;
+
+    let mut rooms_map = serde_json::Map::new();
+    for tag in tags {
+        let room_tags = rooms_map
+            .entry(tag.room_id.clone())
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+
+        if let Some(room_tags_map) = room_tags.as_object_mut() {
+            room_tags_map.insert(
+                tag.tag,
+                serde_json::json!({
+                    "order": tag.order.unwrap_or(0.0)
+                }),
+            );
+        }
+    }
+
     Ok(Json(serde_json::json!({
-        "tags": {}
+        "tags": rooms_map
     })))
 }
 
@@ -142,6 +162,20 @@ async fn get_room_tags(
     )
     .bind(user_id)
     .bind(room_id)
+    .fetch_all(pool)
+    .await
+}
+
+async fn get_all_user_tags(pool: &PgPool, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
+    sqlx::query_as::<_, RoomTag>(
+        r#"
+        SELECT user_id, room_id, tag, order_value, created_ts
+        FROM room_tags
+        WHERE user_id = $1
+        ORDER BY room_id, tag
+        "#,
+    )
+    .bind(user_id)
     .fetch_all(pool)
     .await
 }

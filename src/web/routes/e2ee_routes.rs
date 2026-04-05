@@ -951,7 +951,8 @@ async fn store_secure_backup_keys(
         .await?;
 
     Ok(Json(serde_json::json!({
-        "count": key_count
+        "count": key_count,
+        "key_count": key_count
     })))
 }
 
@@ -976,6 +977,7 @@ async fn restore_secure_backup(
     Ok(Json(serde_json::json!({
         "success": response.success,
         "restored_keys": response.key_count,
+        "key_count": response.key_count,
         "message": response.message
     })))
 }

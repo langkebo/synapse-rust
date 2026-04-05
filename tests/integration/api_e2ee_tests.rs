@@ -57,6 +57,27 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     )
 }
 
+async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "name": name }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["room_id"].as_str().unwrap().to_string()
+}
+
 #[tokio::test]
 async fn test_e2ee_keys() {
     let Some(app) = setup_test_app().await else {
@@ -614,4 +635,153 @@ async fn test_verification_request_listing_and_cancellation_flow() {
         .unwrap();
     let post_cancel_json: Value = serde_json::from_slice(&post_cancel_body).unwrap();
     assert_eq!(post_cancel_json["requests"], json!([]));
+}
+
+#[tokio::test]
+async fn test_room_key_forward_and_backward_routes() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, _) = register_user(&app, &format!("room_keys_{}", rand::random::<u32>())).await;
+    let room_id = create_room(&app, &token, "Room Keys Test").await;
+
+    let create_backup_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/room_keys/version")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "auth_data": {}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let create_backup_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), create_backup_request)
+            .await
+            .unwrap();
+    assert_eq!(create_backup_response.status(), StatusCode::OK);
+
+    let forward_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/room_keys/keys",
+            room_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "sessions": {
+                    "sess1": {
+                        "first_message_index": 0,
+                        "forwarded_count": 0,
+                        "is_verified": true,
+                        "session_data": {
+                            "ciphertext": "abc123"
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let forward_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forward_request)
+        .await
+        .unwrap();
+    let forward_status = forward_response.status();
+    let body = axum::body::to_bytes(forward_response.into_body(), 4096)
+        .await
+        .unwrap();
+    if forward_status != StatusCode::OK {
+        panic!(
+            "forward_room_keys failed with status {}: {:?}",
+            forward_status,
+            String::from_utf8_lossy(&body)
+        );
+    }
+    let forward_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(forward_json["count"], json!(1));
+    assert!(forward_json["version"].as_str().is_some());
+
+    let version_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/rooms/{}/keys/version", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let version_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), version_request)
+        .await
+        .unwrap();
+    assert_eq!(version_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(version_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let version_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_ne!(version_json["version"], json!("0"));
+
+    let count_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/rooms/{}/keys/count", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let count_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), count_request)
+        .await
+        .unwrap();
+    let count_status = count_response.status();
+    let body = axum::body::to_bytes(count_response.into_body(), 4096)
+        .await
+        .unwrap();
+    if count_status != StatusCode::OK {
+        panic!(
+            "get_room_key_count failed with status {}: {:?}",
+            count_status,
+            String::from_utf8_lossy(&body)
+        );
+    }
+    let count_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(count_json["count"], json!(1));
+
+    let get_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/rooms/{}/keys", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request)
+        .await
+        .unwrap();
+    assert_eq!(get_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(get_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let get_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(get_json["room_id"], json!(room_id));
+    assert_eq!(get_json["keys"][0]["session_id"], json!("sess1"));
+
+    let claim_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{}/keys/claim", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "session_ids": ["sess1"] }).to_string()))
+        .unwrap();
+    let claim_response = ServiceExt::<Request<Body>>::oneshot(app, claim_request)
+        .await
+        .unwrap();
+    assert_eq!(claim_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(claim_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let claim_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        claim_json["one_time_keys"][room_id]["sess1"]["session_data"]["ciphertext"],
+        json!("abc123")
+    );
 }

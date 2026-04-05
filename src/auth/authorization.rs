@@ -34,16 +34,19 @@ pub enum Action {
 pub struct AuthorizationService {
     room_member_storage: Arc<crate::storage::RoomMemberStorage>,
     room_storage: Arc<crate::storage::RoomStorage>,
+    device_storage: Arc<crate::storage::DeviceStorage>,
 }
 
 impl AuthorizationService {
     pub fn new(
         room_member_storage: Arc<crate::storage::RoomMemberStorage>,
         room_storage: Arc<crate::storage::RoomStorage>,
+        device_storage: Arc<crate::storage::DeviceStorage>,
     ) -> Self {
         Self {
             room_member_storage,
             room_storage,
+            device_storage,
         }
     }
 
@@ -228,15 +231,32 @@ impl AuthorizationService {
 
     async fn check_device_access(
         &self,
-        _ctx: &AuthorizationContext,
-        _device_id: &str,
+        ctx: &AuthorizationContext,
+        device_id: &str,
         action: &Action,
     ) -> ApiResult<()> {
         match action {
             Action::Read => Ok(()),
             Action::Write | Action::Delete => {
-                // Device ownership should be verified
-                // This is a placeholder - actual implementation would check device ownership
+                let device = self
+                    .device_storage
+                    .get_device(device_id)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+                    .ok_or_else(|| ApiError::not_found("Device not found"))?;
+
+                if device.user_id != ctx.user_id {
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        event = "unauthorized_device_access",
+                        user_id = ctx.user_id,
+                        device_id = device_id,
+                        device_owner = device.user_id,
+                        action = ?action,
+                        "User attempted to modify another user's device"
+                    );
+                    return Err(ApiError::forbidden("Cannot modify another user's device"));
+                }
                 Ok(())
             }
             _ => Ok(()),
@@ -245,15 +265,28 @@ impl AuthorizationService {
 
     async fn check_media_access(
         &self,
-        _ctx: &AuthorizationContext,
-        _media_id: &str,
+        ctx: &AuthorizationContext,
+        media_id: &str,
         action: &Action,
     ) -> ApiResult<()> {
         match action {
             Action::Read => Ok(()),
             Action::Write | Action::Delete => {
-                // Media ownership should be verified
-                // This is a placeholder - actual implementation would check media ownership
+                // Media ownership verification
+                // Note: Media tables don't have direct user_id column in current schema
+                // Media is typically identified by content_id/media_id and stored in local_media_repository
+                // For now, we allow Write/Delete only for admins as a safe default
+                if !ctx.is_admin {
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        event = "unauthorized_media_access",
+                        user_id = ctx.user_id,
+                        media_id = media_id,
+                        action = ?action,
+                        "Non-admin user attempted to modify media"
+                    );
+                    return Err(ApiError::forbidden("Only admins can modify media"));
+                }
                 Ok(())
             }
             _ => Ok(()),

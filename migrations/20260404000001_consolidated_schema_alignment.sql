@@ -1377,6 +1377,6 @@ ON secure_key_backups(user_id, created_ts DESC);
 -- Migration Record
 -- ============================================================================
 
-INSERT INTO schema_migrations (version, description, applied_ts)
-VALUES ('20260404000001', 'Consolidated schema alignment (replaces 20260330000001-20260330000013)', EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
+INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+VALUES ('20260404000001', 'consolidated_schema_alignment', TRUE, 'Consolidated schema alignment (replaces 20260330000001-20260330000013)', EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
 ON CONFLICT (version) DO NOTHING;

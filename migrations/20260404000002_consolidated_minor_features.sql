@@ -70,6 +70,6 @@ ON feature_flag_targets(flag_key, subject_type, subject_id);
 -- Migration Record
 -- ============================================================================
 
-INSERT INTO schema_migrations (version, description, applied_ts)
-VALUES ('20260404000002', 'Consolidated minor features (replaces 20260328000002, 20260330000010, 20260330000011)', EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
+INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+VALUES ('20260404000002', 'consolidated_minor_features', TRUE, 'Consolidated minor features (replaces 20260328000002, 20260330000010, 20260330000011)', EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
 ON CONFLICT (version) DO NOTHING;

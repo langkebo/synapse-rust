@@ -26,9 +26,9 @@ CREATE TABLE IF NOT EXISTS migration_audit (
 );
 
 -- 创建索引
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_migration_audit_version ON migration_audit (version);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_migration_audit_executed_at ON migration_audit (executed_at);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_migration_audit_status ON migration_audit (status);
+CREATE INDEX IF NOT EXISTS idx_migration_audit_version ON migration_audit (version);
+CREATE INDEX IF NOT EXISTS idx_migration_audit_executed_at ON migration_audit (executed_at);
+CREATE INDEX IF NOT EXISTS idx_migration_audit_status ON migration_audit (status);
 
 -- 添加注释
 COMMENT ON TABLE migration_audit IS '记录每次数据库迁移执行的指标，用于性能监控和问题排查';
