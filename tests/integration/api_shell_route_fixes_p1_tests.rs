@@ -1,7 +1,10 @@
 // Integration tests for shell route fixes
 // Tests verify that fixed routes return real business data instead of empty responses
 
-use axum::{body::Body, http::{Request, StatusCode}};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
@@ -10,14 +13,16 @@ use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
-async fn setup_test_app() -> Option<axum::Router> {
+async fn setup_test_app() -> axum::Router {
     if !super::init_test_database().await {
-        return None;
+        panic!(
+            "Shell route fix P1 tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
+        );
     }
     let container = ServiceContainer::new_test();
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(create_router(state))
+    create_router(state)
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String, String) {
@@ -84,13 +89,7 @@ async fn create_room(app: &axum::Router, access_token: &str, name: &str) -> Stri
 
 #[tokio::test]
 async fn test_update_device_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (access_token, _user_id, device_id) = register_user(&app, "alice").await;
 
     // Update device display name
@@ -119,30 +118,39 @@ async fn test_update_device_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains real data, not empty {}
-    assert!(body.get("device_id").is_some(), "Response should contain device_id");
+    assert!(
+        body.get("device_id").is_some(),
+        "Response should contain device_id"
+    );
     assert_eq!(body["device_id"], device_id);
-    assert!(body.get("display_name").is_some(), "Response should contain display_name");
+    assert!(
+        body.get("display_name").is_some(),
+        "Response should contain display_name"
+    );
     assert_eq!(body["display_name"], "My Updated Device");
-    assert!(body.get("updated_ts").is_some(), "Response should contain updated_ts");
-    assert!(body["updated_ts"].is_number(), "updated_ts should be a number");
+    assert!(
+        body.get("updated_ts").is_some(),
+        "Response should contain updated_ts"
+    );
+    assert!(
+        body["updated_ts"].is_number(),
+        "updated_ts should be a number"
+    );
 }
 
 #[tokio::test]
 async fn test_set_typing_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (access_token, user_id, _device_id) = register_user(&app, "bob").await;
     let room_id = create_room(&app, &access_token, "Test Room").await;
 
     // Set typing indicator
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!("/_matrix/client/v3/rooms/{}/typing/{}", room_id, user_id))
+        .uri(&format!(
+            "/_matrix/client/v3/rooms/{}/typing/{}",
+            room_id, user_id
+        ))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", access_token))
         .body(Body::from(
@@ -166,21 +174,24 @@ async fn test_set_typing_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("timeout").is_some(), "Response should contain timeout");
+    assert!(
+        body.get("timeout").is_some(),
+        "Response should contain timeout"
+    );
     assert_eq!(body["timeout"], 30000);
-    assert!(body.get("expires_at").is_some(), "Response should contain expires_at");
-    assert!(body["expires_at"].is_number(), "expires_at should be a number");
+    assert!(
+        body.get("expires_at").is_some(),
+        "Response should contain expires_at"
+    );
+    assert!(
+        body["expires_at"].is_number(),
+        "expires_at should be a number"
+    );
 }
 
 #[tokio::test]
 async fn test_set_room_alias_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (access_token, _user_id, _device_id) = register_user(&app, "charlie").await;
     let room_id = create_room(&app, &access_token, "Test Room").await;
 
@@ -189,7 +200,10 @@ async fn test_set_room_alias_returns_confirmation() {
     // Set room alias - using the correct v3 endpoint format
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!("/_matrix/client/v3/directory/room/{}", urlencoding::encode(&alias)))
+        .uri(&format!(
+            "/_matrix/client/v3/directory/room/{}",
+            urlencoding::encode(&alias)
+        ))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", access_token))
         .body(Body::from(
@@ -212,23 +226,26 @@ async fn test_set_room_alias_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("room_id").is_some(), "Response should contain room_id");
+    assert!(
+        body.get("room_id").is_some(),
+        "Response should contain room_id"
+    );
     assert_eq!(body["room_id"], room_id);
     assert!(body.get("alias").is_some(), "Response should contain alias");
     assert_eq!(body["alias"], alias);
-    assert!(body.get("created_ts").is_some(), "Response should contain created_ts");
-    assert!(body["created_ts"].is_number(), "created_ts should be a number");
+    assert!(
+        body.get("created_ts").is_some(),
+        "Response should contain created_ts"
+    );
+    assert!(
+        body["created_ts"].is_number(),
+        "created_ts should be a number"
+    );
 }
 
 #[tokio::test]
 async fn test_remove_room_alias_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (access_token, _user_id, _device_id) = register_user(&app, "dave").await;
     let room_id = create_room(&app, &access_token, "Test Room").await;
 
@@ -237,7 +254,10 @@ async fn test_remove_room_alias_returns_confirmation() {
     // Set alias first
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!("/_matrix/client/v3/directory/room/{}", urlencoding::encode(&alias)))
+        .uri(&format!(
+            "/_matrix/client/v3/directory/room/{}",
+            urlencoding::encode(&alias)
+        ))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", access_token))
         .body(Body::from(
@@ -255,7 +275,10 @@ async fn test_remove_room_alias_returns_confirmation() {
     // Remove alias
     let request = Request::builder()
         .method("DELETE")
-        .uri(&format!("/_matrix/client/v3/directory/room/{}", urlencoding::encode(&alias)))
+        .uri(&format!(
+            "/_matrix/client/v3/directory/room/{}",
+            urlencoding::encode(&alias)
+        ))
         .header("Authorization", format!("Bearer {}", access_token))
         .body(Body::empty())
         .unwrap();
@@ -272,7 +295,10 @@ async fn test_remove_room_alias_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("removed").is_some(), "Response should contain removed flag");
+    assert!(
+        body.get("removed").is_some(),
+        "Response should contain removed flag"
+    );
     assert_eq!(body["removed"], true);
     assert!(body.get("alias").is_some(), "Response should contain alias");
     assert_eq!(body["alias"], alias);
@@ -280,13 +306,7 @@ async fn test_remove_room_alias_returns_confirmation() {
 
 #[tokio::test]
 async fn test_set_canonical_alias_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (access_token, _user_id, _device_id) = register_user(&app, "eve").await;
     let room_id = create_room(&app, &access_token, "Test Room").await;
 
@@ -295,7 +315,10 @@ async fn test_set_canonical_alias_returns_confirmation() {
     // Set canonical alias - this is a state event, not a directory operation
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!("/_matrix/client/v3/rooms/{}/state/m.room.canonical_alias", room_id))
+        .uri(&format!(
+            "/_matrix/client/v3/rooms/{}/state/m.room.canonical_alias",
+            room_id
+        ))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", access_token))
         .body(Body::from(
@@ -318,9 +341,15 @@ async fn test_set_canonical_alias_returns_confirmation() {
         let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
         // State events return event_id
-        assert!(body.get("event_id").is_some(), "Response should contain event_id");
+        assert!(
+            body.get("event_id").is_some(),
+            "Response should contain event_id"
+        );
     } else {
         // If the endpoint doesn't exist or returns different status, skip this test
-        eprintln!("Skipping canonical alias test: endpoint returned status {}", response.status());
+        eprintln!(
+            "Skipping canonical alias test: endpoint returned status {}",
+            response.status()
+        );
     }
 }

@@ -1,7 +1,7 @@
-# Shell Route Optimization Project - Documentation Index
+# Analyze Synapse Gap & Optimization - Documentation Index
 
-**Project:** synapse-rust Shell Route Remediation  
-**Status:** Phase 1-2 Complete (88% of routes fixed)  
+**Project:** synapse-rust Gap Analysis & Optimization (delivery pack)  
+**Status:** Tasks 1-16 ✅ Complete（含空壳接口治理、房间域拆分、guard 收敛、搜索统一、schema gate、测试/产物治理方案）  
 **Last Updated:** 2026-04-05
 
 ---
@@ -11,12 +11,20 @@
 ### 📊 Project Overview
 - **[spec.md](spec.md)** - Original project specification and requirements
 - **[tasks.md](tasks.md)** - Task breakdown with dependencies and status
-- **[checklist.md](checklist.md)** - Progress tracking checklist (16/24 complete)
+- **[checklist.md](checklist.md)** - Progress tracking checklist
 
 ### 🔍 Analysis & Inventory
 - **[shell-route-inventory.md](shell-route-inventory.md)** - Complete inventory of 25 shell routes with priority classification
 - **[remediation-backlog.md](remediation-backlog.md)** - Detailed remediation backlog and technical debt analysis
-- **[document-index.md](document-index.md)** - Index of all project documentation
+- **[document-index.md](document-index.md)** - Index of current facts and document priority
+
+### 🧭 Task 11-16 Execution Plans (current entry points)
+- **Task 11 (空壳接口治理)**: [task11_scan_and_ci_gate.md](task11_scan_and_ci_gate.md), [task11_room_rs_placeholder_inventory.md](task11_room_rs_placeholder_inventory.md), [task11_other_routes_placeholder_inventory.md](task11_other_routes_placeholder_inventory.md), [task11_placeholder_exemptions.md](task11_placeholder_exemptions.md)
+- **Task 12 (房间域拆分)**: [task12_room_domain_split_plan.md](task12_room_domain_split_plan.md), [task12_route_migration_matrix.md](task12_route_migration_matrix.md), [task12_validation_and_rollback.md](task12_validation_and_rollback.md)
+- **Task 13 (guard + 服务聚合)**: [task13_room_guard_matrix.md](task13_room_guard_matrix.md), [task13_guard_extractor_design.md](task13_guard_extractor_design.md), [task13_service_aggregation_plan.md](task13_service_aggregation_plan.md)
+- **Task 14 (搜索统一)**: [task14_search_architecture_plan.md](task14_search_architecture_plan.md), [task14_search_dsl_and_provider.md](task14_search_dsl_and_provider.md), [task14_search_performance_baseline.md](task14_search_performance_baseline.md)
+- **Task 15 (schema contract + migration gate)**: [task15_schema_dependency_inventory.md](task15_schema_dependency_inventory.md), [task15_schema_contract_test_plan.md](task15_schema_contract_test_plan.md), [task15_migration_gate_design.md](task15_migration_gate_design.md)
+- **Task 16 (测试/产物治理)**: [task16_test_baseline_plan.md](task16_test_baseline_plan.md), [task16_test_organization_rules.md](task16_test_organization_rules.md), [task16_workspace_artifact_governance.md](task16_workspace_artifact_governance.md)
 
 ### ✅ Implementation Reports
 - **[phase1-completion-report.md](phase1-completion-report.md)** - P0+P1 route fixes (5 routes)
@@ -34,215 +42,112 @@
 
 ---
 
-## Project Summary
+## Current Consensus
 
-### What Was Accomplished
+### What This Delivery Pack Represents
 
-**Shell Route Fixes: 22/25 (88%)**
-- Fixed all P0 (critical), P1 (high), and P2 (medium) priority routes
-- Routes now return real business data instead of empty `{}` responses
-- Consistent response patterns: resource_id + updated_fields + timestamps
+This directory is no longer only a shell-route remediation package. It now serves as the working
+delivery pack for Tasks 1-16:
 
-**Integration Tests: 20 tests created**
-- 11/20 tests passing (55%)
-- 4/5 P1 tests passing (80%)
-- Test infrastructure complete and functional
-- Failures are runtime issues, not missing code
+- baseline and gap analysis
+- problem ledger and prioritization
+- compatibility matrix
+- P0 credibility containment
+- core capability convergence plans
+- architecture convergence plans
+- validation and quality gate design
+- documentation single-source governance
+- phased roadmap
+- placeholder route debt governance
+- room-domain split plan
+- guard and service aggregation plan
+- search unification plan
+- schema contract and migration gate design
+- test and artifact governance plan
 
-**Documentation: 14 comprehensive documents**
-- Complete inventory and analysis
-- Implementation reports for each phase
-- Test execution analysis
-- Known issues documented
+### Current Ground Rules
 
-### Key Metrics
-
-**Before:**
-- Shell routes: 25
-- Routes returning empty responses: 100%
-- Client confirmation capability: 0%
-
-**After:**
-- Shell routes: 3 (P3 only)
-- Routes returning empty responses: 12%
-- Client confirmation capability: 88%
-- **88% improvement** in API response quality
-
-### Routes Fixed by Module
-
-| Module | Routes Fixed | Status |
-|--------|--------------|--------|
-| device.rs | 1 | ✅ Complete |
-| typing.rs | 1 | ✅ Complete |
-| directory.rs | 2 | ✅ Complete |
-| directory_reporting.rs | 2 | ✅ Complete |
-| friend_room.rs | 8 | ✅ Complete |
-| push.rs | 5 | ✅ Complete |
-| dm.rs | 1 | ✅ Complete |
-| invite_blocklist.rs | 2 | ✅ Complete |
-| rendezvous.rs | 1 | ✅ Complete |
-| **Total** | **22** | **88%** |
-
-### Test Results by Category
-
-| Category | Tests | Passing | Status |
-|----------|-------|---------|--------|
-| P1 (Critical) | 5 | 4 (80%) | ✅ Mostly Working |
-| P2 Friend | 3 | 0 (0%) | ❌ Routes Not Found |
-| P2 Push | 6 | 4 (67%) | ⚠️ Some Runtime Errors |
-| P2 Misc | 6 | 3 (50%) | ⚠️ Some Runtime Errors |
-| **Total** | **20** | **11 (55%)** | **⚠️ Needs Debugging** |
+- Current capability status must defer to `docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md`
+- Current CI semantics must defer to `docs/synapse-rust/TEST_AND_CI_SEMANTICS_ALIGNMENT_2026-04-05.md`
+- README / testing docs / completion reports in this spec directory are secondary entry points, not primary truth sources
+- Historical shell-route metrics in older reports are retained for traceability only and should not be read as the current release conclusion
 
 ---
 
-## Known Issues
+## Recommended Reading Order
 
-### Runtime Errors (500)
-6 tests failing with runtime errors that need debugging:
-- Room alias creation
-- Invite blocklist/allowlist (2 tests)
-- Push rule creation (2 tests)
-- DM content format variant
+### 1. Decision Layer
 
-### Route Not Found (404)
-3 tests failing because routes are not registered:
-- Friend management routes (may be optional feature)
+1. **[tasks.md](tasks.md)** - authoritative task scope, completion state, and dependency graph
+2. **[checklist.md](checklist.md)** - acceptance checklist for the delivery pack
+3. **[document-index.md](document-index.md)** - document priority and fact-source mapping
 
-### Remaining Work
-3 P3 routes not yet fixed (low priority DELETE operations):
-- directory_reporting.rs::update_report_score
-- dehydrated_device.rs::delete_dehydrated_device
-- rendezvous.rs::delete_session
+### 2. Governance Layer
 
----
+1. **Task 11**: shell/placeholder governance documents
+2. **Task 12**: room-domain split documents
+3. **Task 13**: guard/extractor and service aggregation documents
+4. **Task 14**: search unification documents
+5. **Task 15**: schema contract and migration gate documents
+6. **Task 16**: test and artifact governance documents
 
-## How to Use This Documentation
+### 3. Historical Traceability
 
-### For Understanding the Project
-1. Start with **[spec.md](spec.md)** for project goals and requirements
-2. Review **[shell-route-inventory.md](shell-route-inventory.md)** for complete route analysis
-3. Read **[shell-route-final-summary.md](shell-route-final-summary.md)** for overall results
+The following files remain useful for provenance, but they are no longer the best starting point for
+current status judgment:
 
-### For Implementation Details
-1. Check **[phase1-completion-report.md](phase1-completion-report.md)** for P0+P1 fixes
-2. Check **[phase2-completion-report.md](phase2-completion-report.md)** for P2 fixes
-3. Review code changes in the route files listed above
-
-### For Testing
-1. Read **[integration-test-completion-report.md](integration-test-completion-report.md)** for test implementation
-2. Check **[test-execution-summary.md](test-execution-summary.md)** for test results
-3. Run tests: `cargo test --test integration api_shell_route_fixes`
-
-### For Next Steps
-1. Review **[tasks.md](tasks.md)** for remaining tasks
-2. Check **[checklist.md](checklist.md)** for progress tracking
-3. See **[remediation-backlog.md](remediation-backlog.md)** for technical debt
+- `phase1-completion-report.md`
+- `phase2-completion-report.md`
+- `shell-route-final-summary.md`
+- `integration-test-completion-report.md`
+- `test-execution-summary.md`
 
 ---
 
-## File Organization
+## What Is Already Done
 
-```
-.trae/specs/analyze-synapse-gap-and-optimization/
-├── README.md (this file)
-│
-├── Planning & Specification
-│   ├── spec.md
-│   ├── tasks.md
-│   └── checklist.md
-│
-├── Analysis & Inventory
-│   ├── shell-route-inventory.md
-│   ├── remediation-backlog.md
-│   ├── capability-status-baseline.md
-│   ├── document-index.md
-│   └── document-conflicts.md
-│
-├── Implementation Reports
-│   ├── phase1-completion-report.md
-│   ├── phase2-completion-report.md
-│   └── shell-route-final-summary.md
-│
-└── Testing Documentation
-    ├── integration-test-completion-report.md
-    ├── test-execution-summary.md
-    └── test-execution-inventory.md
-```
+- Tasks 1-16 in `tasks.md` are marked complete
+- Task 11-16 each have standalone execution documents and sub-deliverables
+- governance documents for single source of truth, CI semantics, and false-green / placeholder control have been created in `docs/synapse-rust/`
+- placeholder P0 contract tests and related route inventories have been added as implementation anchors
 
 ---
 
-## Related Files
+## What Still Needs Follow-Through
 
-### Source Code Changes
-```
-src/web/routes/
-├── device.rs (1 route fixed)
-├── typing.rs (1 route fixed)
-├── directory.rs (2 routes fixed)
-├── directory_reporting.rs (2 routes fixed)
-├── friend_room.rs (8 routes fixed)
-├── push.rs (5 routes fixed)
-├── dm.rs (1 route fixed)
-├── invite_blocklist.rs (2 routes fixed)
-└── rendezvous.rs (1 route fixed)
-```
+Even though the planning and governance deliverables are complete, the repository still has
+follow-through work to execute against those plans:
 
-### Test Files
-```
-tests/integration/
-├── api_shell_route_fixes_p1_tests.rs (5 tests)
-├── api_shell_route_fixes_p2_friend_tests.rs (3 tests)
-├── api_shell_route_fixes_p2_push_tests.rs (6 tests)
-└── api_shell_route_fixes_p2_misc_tests.rs (6 tests)
-```
+1. continue cleaning document drift so all secondary docs point back to the capability baseline
+2. keep tightening shell-route / placeholder detection so CI catches more false-success patterns
+3. convert more “implemented” paths into “verified” paths with schema contract tests and route contracts
+4. execute the room split, guard convergence, search unification, and migration gate plans incrementally
 
 ---
 
-## Next Steps
+## Next Action Entry Points
 
-### Immediate Priorities
-1. **Debug Runtime Errors** - Investigate the 6 tests with 500 errors
-2. **Friend Route Registration** - Check if friend routes need to be registered
-3. **CI Integration** - Ensure tests run in CI pipeline
+### If You Want To Continue Engineering Work
 
-### Short Term
-4. **API Documentation** - Update API docs with new response formats (Task #54)
-5. **CI Gate** - Implement shell route detection to prevent regression (Task #55)
+- start from **Task 11** for placeholder governance and CI gate hardening
+- start from **Task 15** for schema contract and migration gate implementation
+- start from **Task 16** for test organization and artifact cleanup
 
-### Long Term
-6. **P3 Routes** - Fix remaining 3 low-priority routes (Task #56)
-7. **Performance Testing** - Verify response time impact is minimal
-8. **Client Updates** - Update client libraries to use new response data
+### If You Want To Continue Documentation Cleanup
+
+- review this directory for any remaining shell-route-era metrics
+- ensure all status statements defer to the 2026-04-02 capability baseline
+- mark old summaries as historical where necessary
 
 ---
 
-## Success Criteria
+## Practical Next Plan
 
-### ✅ Achieved
-- [x] Identified all shell routes (25 routes)
-- [x] Fixed P0, P1, P2 routes (22 routes)
-- [x] Created comprehensive test suite (20 tests)
-- [x] Documented all changes and results
-- [x] Maintained code quality (fmt, clippy, compile)
-
-### ⚠️ Partially Achieved
-- [~] All tests passing (55% passing, needs debugging)
-- [~] 100% route coverage (88% complete, P3 remaining)
-
-### ❌ Not Yet Achieved
-- [ ] API documentation updated
-- [ ] CI gate implemented
-- [ ] All runtime errors resolved
+1. clean remaining drift in secondary docs such as `TESTING.md` and old spec summaries
+2. harden `scripts/detect_shell_routes.sh` so it catches more empty-success patterns with reliable counts
+3. promote Task 15 and Task 16 from design artifacts into executable CI/test wiring
+4. choose one structural pilot between Task 12 and Task 13 instead of parallel large refactors
 
 ---
 
-## Contact & Support
-
-For questions or issues related to this project:
-1. Review the documentation in this directory
-2. Check the test execution reports for known issues
-3. Refer to the remediation backlog for technical details
-
----
-
-**Project Status:** ✅ Phase 1-2 Complete | ⚠️ Debugging Phase | 📋 Documentation Complete
+**Project Status:** Tasks 1-16 delivery pack complete; repository follow-through and evidence hardening continue

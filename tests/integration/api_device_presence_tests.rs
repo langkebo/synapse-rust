@@ -15,14 +15,16 @@ use tower::ServiceExt;
 
 type HmacSha256 = Hmac<Sha256>;
 
-async fn setup_test_app() -> Option<axum::Router> {
+async fn setup_test_app() -> axum::Router {
     if !super::init_test_database().await {
-        return None;
+        panic!(
+            "Device and presence integration tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
+        );
     }
     let container = ServiceContainer::new_test();
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(create_router(state))
+    create_router(state)
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -157,9 +159,7 @@ async fn login_user(app: &axum::Router, username: &str) -> String {
 
 #[tokio::test]
 async fn test_device_management() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, _) = register_user(&app, &format!("user_{}", rand::random::<u32>())).await;
 
     // 1. Get Devices
@@ -232,9 +232,7 @@ async fn test_device_management() {
 
 #[tokio::test]
 async fn test_presence_management() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, user_id) = register_user(&app, &format!("user_{}", rand::random::<u32>())).await;
 
     // 1. Set Presence
@@ -276,9 +274,7 @@ async fn test_presence_management() {
 
 #[tokio::test]
 async fn test_presence_status_shared_across_r0_and_v3() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, user_id) =
         register_user(&app, &format!("presence_shared_{}", rand::random::<u32>())).await;
 
@@ -320,9 +316,7 @@ async fn test_presence_status_shared_across_r0_and_v3() {
 
 #[tokio::test]
 async fn test_presence_list_boundary_is_preserved() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, _) = register_user(&app, &format!("presence_list_{}", rand::random::<u32>())).await;
 
     let v3_request = Request::builder()
@@ -363,9 +357,7 @@ async fn test_presence_list_boundary_is_preserved() {
 
 #[tokio::test]
 async fn test_presence_list_after_session_invalidation_and_relogin() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let admin_token = get_admin_token(&app).await;
     let username = format!("presence_relogin_{}", rand::random::<u32>());
     let (_, user_id) = register_user(&app, &username).await;

@@ -5,7 +5,7 @@ use axum::{
     http::HeaderMap,
 };
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 pub(crate) async fn sync(
     State(state): State<AppState>,
@@ -77,12 +77,7 @@ pub(crate) async fn get_events(
         .services
         .sync_service
         .get_events(&user_id, from, timeout)
-        .await
-        .unwrap_or(json!({
-            "start": from,
-            "end": from,
-            "chunk": []
-        }));
+        .await?;
 
     Ok(Json(result))
 }

@@ -70,10 +70,26 @@ pub async fn get_test_pool_async() -> Result<Arc<Pool<Postgres>>, String> {
         }
     }
 
-    Err(format!(
+    let message = format!(
         "Failed to connect to any configured test database: {}",
         errors.join(" | ")
-    ))
+    );
+    if db_tests_required() {
+        panic!("{message}");
+    }
+    Err(message)
+}
+
+fn db_tests_required() -> bool {
+    for key in ["DB_TESTS_REQUIRED", "INTEGRATION_TESTS_REQUIRED"] {
+        if let Ok(value) = std::env::var(key) {
+            let value = value.trim().to_ascii_lowercase();
+            if value == "1" || value == "true" || value == "yes" || value == "required" {
+                return true;
+            }
+        }
+    }
+    std::env::var("CI").is_ok()
 }
 
 async fn ensure_test_schema(pool: &PgPool) -> Result<(), String> {

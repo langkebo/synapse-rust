@@ -144,7 +144,7 @@ async fn get_account_data(
                     }
                 })))
             } else {
-                Ok(Json(json!({})))
+                Err(ApiError::not_found("Account data not found".to_string()))
             }
         }
     }
