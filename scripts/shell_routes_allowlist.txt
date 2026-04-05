@@ -1,0 +1,122 @@
+# Shell Routes Allowlist
+# This file contains shell routes that are known and tracked
+# Format: filename:line_number
+# New shell routes not in this list will cause CI to fail
+
+# Account compatibility routes
+account_compat.rs:157
+account_compat.rs:199
+account_compat.rs:228
+account_compat.rs:285
+account_compat.rs:412
+account_compat.rs:441
+account_compat.rs:464
+
+# Account data routes
+account_data.rs:109
+account_data.rs:147
+account_data.rs:183
+account_data.rs:299
+account_data.rs:329
+account_data.rs:354
+
+# Device routes
+device.rs:167
+device.rs:184
+
+# Auth compatibility routes
+auth_compat.rs:340
+auth_compat.rs:353
+
+# Dehydrated device routes (P3 - DELETE operation)
+dehydrated_device.rs:167
+
+# Admin notification routes
+admin/notification.rs:276
+admin/notification.rs:532
+admin/notification.rs:637
+
+# Admin security routes
+admin/security.rs:80
+admin/security.rs:107
+admin/security.rs:200
+
+# Admin token routes
+admin/token.rs:177
+admin/token.rs:263
+admin/token.rs:315
+
+# Admin media routes
+admin/media.rs:124
+
+# Admin server routes
+admin/server.rs:93
+
+# Admin user routes
+admin/user.rs:333
+admin/user.rs:410
+admin/user.rs:640
+admin/user.rs:682
+
+# Admin federation routes
+admin/federation.rs:169
+admin/federation.rs:184
+admin/federation.rs:349
+admin/federation.rs:364
+admin/federation.rs:403
+
+# Admin report routes
+admin/report.rs:125
+
+# Admin room routes
+admin/room.rs:544
+
+# Directory reporting routes (P3 - DELETE operation)
+directory_reporting.rs:155
+directory_reporting.rs:278
+directory_reporting.rs:291
+
+# Rendezvous routes (P3 - DELETE operation)
+rendezvous.rs:202
+
+# Push routes
+push.rs:279
+push.rs:432
+push.rs:584
+
+# Directory routes
+directory.rs:221
+
+# Presence routes
+presence.rs:80
+handlers/presence.rs:80
+
+# Room routes (main)
+room.rs:476
+room.rs:545
+room.rs:589
+room.rs:803
+room.rs:883
+room.rs:1077
+room.rs:1476
+room.rs:1500
+room.rs:1653
+room.rs:1751
+room.rs:3505
+room.rs:3594
+room.rs:3655
+
+# Room routes (handlers)
+handlers/room.rs:476
+handlers/room.rs:545
+handlers/room.rs:589
+handlers/room.rs:803
+handlers/room.rs:883
+handlers/room.rs:1077
+handlers/room.rs:1476
+handlers/room.rs:1500
+handlers/room.rs:1653
+handlers/room.rs:1751
+handlers/room.rs:3505
+handlers/room.rs:3594
+handlers/room.rs:3655
