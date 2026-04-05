@@ -173,26 +173,47 @@ impl BackupKeyStorage {
     }
 
     pub async fn upload_backup_key(&self, params: BackupKeyInsertParams) -> Result<(), ApiError> {
+        let mut tx = self.pool.begin().await?;
+
         sqlx::query(
             r#"
-            INSERT INTO backup_keys (user_id, backup_id, room_id, session_id, first_message_index, forwarded_count, is_verified, backup_data)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ON CONFLICT (user_id, backup_id, room_id, session_id, first_message_index) DO UPDATE SET
-                forwarded_count = EXCLUDED.forwarded_count,
-                is_verified = EXCLUDED.is_verified,
-                backup_data = EXCLUDED.backup_data
-            "#
+            DELETE FROM backup_keys
+            WHERE backup_id IN (
+                SELECT kb.backup_id
+                FROM key_backups kb
+                WHERE kb.user_id = $1
+                  AND (kb.backup_id_text = $2 OR kb.version::text = $2)
+            )
+              AND room_id = $3
+              AND session_id = $4
+            "#,
         )
         .bind(&params.user_id)
         .bind(&params.backup_id)
         .bind(&params.room_id)
         .bind(&params.session_id)
-        .bind(params.first_message_index)
-        .bind(params.forwarded_count)
-        .bind(params.is_verified)
-        .bind(&params.backup_data)
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO backup_keys (backup_id, room_id, session_id, session_data, created_ts)
+            SELECT kb.backup_id, $3, $4, $5, $6
+            FROM key_backups kb
+            WHERE kb.user_id = $1
+              AND (kb.backup_id_text = $2 OR kb.version::text = $2)
+            "#,
+        )
+        .bind(&params.user_id)
+        .bind(&params.backup_id)
+        .bind(&params.room_id)
+        .bind(&params.session_id)
+        .bind(&params.backup_data)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
 
         Ok(())
     }
@@ -204,10 +225,18 @@ impl BackupKeyStorage {
     ) -> Result<Vec<BackupKeyInfo>, ApiError> {
         let rows = sqlx::query_as::<_, BackupKeyInfo>(
             r#"
-            SELECT user_id, backup_id, room_id, session_id, first_message_index,
-                   forwarded_count, is_verified, backup_data
-            FROM backup_keys
-            WHERE user_id = $1 AND room_id = $2
+            SELECT
+                kb.user_id,
+                COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
+                bk.room_id,
+                bk.session_id,
+                0::BIGINT AS first_message_index,
+                0::BIGINT AS forwarded_count,
+                FALSE AS is_verified,
+                bk.session_data
+            FROM backup_keys bk
+            JOIN key_backups kb ON kb.backup_id = bk.backup_id
+            WHERE kb.user_id = $1 AND bk.room_id = $2
             "#,
         )
         .bind(user_id)
@@ -226,10 +255,20 @@ impl BackupKeyStorage {
     ) -> Result<Vec<BackupKeyInfo>, ApiError> {
         let rows = sqlx::query_as::<_, BackupKeyInfo>(
             r#"
-            SELECT user_id, backup_id, room_id, session_id, first_message_index,
-                   forwarded_count, is_verified, backup_data
-            FROM backup_keys
-            WHERE user_id = $1 AND backup_id = $2 AND room_id = $3
+            SELECT
+                kb.user_id,
+                COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
+                bk.room_id,
+                bk.session_id,
+                0::BIGINT AS first_message_index,
+                0::BIGINT AS forwarded_count,
+                FALSE AS is_verified,
+                bk.session_data
+            FROM backup_keys bk
+            JOIN key_backups kb ON kb.backup_id = bk.backup_id
+            WHERE kb.user_id = $1
+              AND (kb.backup_id_text = $2 OR kb.version::text = $2)
+              AND bk.room_id = $3
             "#,
         )
         .bind(user_id)
@@ -249,10 +288,18 @@ impl BackupKeyStorage {
     ) -> Result<Option<BackupKeyInfo>, ApiError> {
         let row = sqlx::query_as::<_, BackupKeyInfo>(
             r#"
-            SELECT user_id, backup_id, room_id, session_id, first_message_index,
-                   forwarded_count, is_verified, backup_data
-            FROM backup_keys
-            WHERE user_id = $1 AND room_id = $2 AND session_id = $3
+            SELECT
+                kb.user_id,
+                COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
+                bk.room_id,
+                bk.session_id,
+                0::BIGINT AS first_message_index,
+                0::BIGINT AS forwarded_count,
+                FALSE AS is_verified,
+                bk.session_data
+            FROM backup_keys bk
+            JOIN key_backups kb ON kb.backup_id = bk.backup_id
+            WHERE kb.user_id = $1 AND bk.room_id = $2 AND bk.session_id = $3
             "#,
         )
         .bind(user_id)
@@ -273,10 +320,21 @@ impl BackupKeyStorage {
     ) -> Result<Option<BackupKeyInfo>, ApiError> {
         let row = sqlx::query_as::<_, BackupKeyInfo>(
             r#"
-            SELECT user_id, backup_id, room_id, session_id, first_message_index,
-                   forwarded_count, is_verified, backup_data
-            FROM backup_keys
-            WHERE user_id = $1 AND backup_id = $2 AND room_id = $3 AND session_id = $4
+            SELECT
+                kb.user_id,
+                COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
+                bk.room_id,
+                bk.session_id,
+                0::BIGINT AS first_message_index,
+                0::BIGINT AS forwarded_count,
+                FALSE AS is_verified,
+                bk.session_data
+            FROM backup_keys bk
+            JOIN key_backups kb ON kb.backup_id = bk.backup_id
+            WHERE kb.user_id = $1
+              AND (kb.backup_id_text = $2 OR kb.version::text = $2)
+              AND bk.room_id = $3
+              AND bk.session_id = $4
             "#,
         )
         .bind(user_id)
@@ -297,8 +355,12 @@ impl BackupKeyStorage {
     ) -> Result<(), ApiError> {
         sqlx::query(
             r#"
-            DELETE FROM backup_keys
-            WHERE user_id = $1 AND room_id = $2 AND session_id = $3
+            DELETE FROM backup_keys bk
+            USING key_backups kb
+            WHERE kb.backup_id = bk.backup_id
+              AND kb.user_id = $1
+              AND bk.room_id = $2
+              AND bk.session_id = $3
             "#,
         )
         .bind(user_id)

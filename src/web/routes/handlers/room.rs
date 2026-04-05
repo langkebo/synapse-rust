@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::e2ee::backup::models::BackupKeyInfo;
 use crate::services::CreateRoomConfig;
 use crate::storage::CreateEventParams;
 use crate::web::routes::{
@@ -12,6 +13,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{types::JsonValue, Row};
+use std::collections::HashSet;
 
 pub(crate) async fn get_single_event(
     State(state): State<AppState>,
@@ -1678,8 +1680,8 @@ pub(crate) async fn get_room_membership(
 pub(crate) async fn set_room_account_data(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _data_type)): Path<(String, String)>,
-    Json(_body): Json<Value>,
+    Path((room_id, data_type)): Path<(String, String)>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -1693,14 +1695,45 @@ pub(crate) async fn set_room_account_data(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let _ = auth_user;
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to manage room account data".to_string(),
+        ));
+    }
+
+    let now = chrono::Utc::now().timestamp_millis();
+
+    sqlx::query(
+        r#"
+        INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
+        VALUES ($1, $2, $3, $4, $5, $5)
+        ON CONFLICT (user_id, room_id, data_type)
+        DO UPDATE SET data = EXCLUDED.data, updated_ts = EXCLUDED.updated_ts
+        "#,
+    )
+    .bind(&auth_user.user_id)
+    .bind(&room_id)
+    .bind(&data_type)
+    .bind(&body)
+    .bind(now)
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
     Ok(Json(json!({})))
 }
 
 pub(crate) async fn get_room_account_data(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _data_type)): Path<(String, String)>,
+    Path((room_id, data_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -1714,8 +1747,38 @@ pub(crate) async fn get_room_account_data(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let _ = auth_user;
-    Ok(Json(json!({})))
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to view room account data".to_string(),
+        ));
+    }
+
+    let result = sqlx::query(
+        "SELECT data FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3",
+    )
+    .bind(&auth_user.user_id)
+    .bind(&room_id)
+    .bind(&data_type)
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    match result {
+        Some(row) => Ok(Json(
+            row.get::<Option<Value>, _>("data")
+                .unwrap_or_else(|| json!({})),
+        )),
+        None => Err(ApiError::not_found(
+            "Room account data not found".to_string(),
+        )),
+    }
 }
 
 pub(crate) async fn get_room_turn_server(
@@ -1735,12 +1798,34 @@ pub(crate) async fn get_room_turn_server(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let _ = auth_user;
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to request TURN credentials".to_string(),
+        ));
+    }
+
+    let voip_service = crate::services::voip_service::VoipService::new(std::sync::Arc::new(
+        state.services.config.voip.clone(),
+    ));
+
+    if !voip_service.is_enabled() {
+        return Err(ApiError::not_found("VoIP/TURN service is not configured"));
+    }
+
+    let creds = voip_service.generate_turn_credentials(&auth_user.user_id)?;
+
     Ok(Json(json!({
-        "uris": [],
-        "username": "",
-        "password": "",
-        "ttl": 86400
+        "uris": creds.uris,
+        "username": creds.username,
+        "password": creds.password,
+        "ttl": creds.ttl
     })))
 }
 
@@ -1808,8 +1893,61 @@ pub(crate) async fn get_room_capabilities(
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-    let _ = auth_user;
-    Ok(Json(json!({})))
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to view room capabilities".to_string(),
+        ));
+    }
+
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+
+    let is_encrypted = sqlx::query(
+        r#"
+        SELECT 1
+        FROM room_events
+        WHERE room_id = $1 AND event_type = 'm.room.encryption'
+        LIMIT 1
+        "#,
+    )
+    .bind(&room_id)
+    .fetch_optional(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to check room encryption: {}", e)))?
+    .is_some();
+
+    let join_rule = if room.is_public { "public" } else { "invite" };
+
+    Ok(Json(json!({
+        "room_id": room_id,
+        "room_version": room.room_version,
+        "capabilities": {
+            "knock": false,
+            "restricted": false,
+            "threading": true,
+            "read_receipts": true,
+            "typing_notifications": true
+        },
+        "features": {
+            "encryption": is_encrypted,
+            "federation": true,
+            "guest_access": false
+        },
+        "join_rule": join_rule
+    })))
 }
 
 pub(crate) async fn get_room_user_fragments(
@@ -1857,6 +1995,132 @@ pub(crate) async fn get_room_service_types(
     })))
 }
 
+async fn latest_room_key_backup_version(
+    state: &AppState,
+    user_id: &str,
+) -> Result<Option<String>, ApiError> {
+    let backups = state
+        .services
+        .backup_service
+        .get_all_backups(user_id)
+        .await?;
+
+    Ok(backups
+        .into_iter()
+        .max_by_key(|backup| backup.version)
+        .map(|backup| backup.version.to_string()))
+}
+
+async fn ensure_room_key_backup_version(
+    state: &AppState,
+    user_id: &str,
+) -> Result<String, ApiError> {
+    if let Some(version) = latest_room_key_backup_version(state, user_id).await? {
+        return Ok(version);
+    }
+
+    state
+        .services
+        .backup_service
+        .create_backup(user_id, "m.megolm.v1.aes-sha2", Some(json!({})))
+        .await
+}
+
+fn room_key_to_json(key: &BackupKeyInfo) -> Value {
+    json!({
+        "session_id": key.session_id,
+        "first_message_index": key.first_message_index,
+        "forwarded_count": key.forwarded_count,
+        "is_verified": key.is_verified,
+        "session_data": key.session_data
+    })
+}
+
+fn normalize_forwarded_room_keys(body: &Value, room_id: &str) -> Vec<Value> {
+    let mut keys = Vec::new();
+
+    if let Some(room_value) = body.get("rooms").and_then(|rooms| rooms.get(room_id)) {
+        keys.extend(extract_forwarded_sessions(room_value));
+    }
+
+    if keys.is_empty() {
+        keys.extend(extract_forwarded_sessions(body));
+    }
+
+    keys
+}
+
+fn extract_forwarded_sessions(value: &Value) -> Vec<Value> {
+    let Some(sessions) = value.get("sessions") else {
+        return Vec::new();
+    };
+
+    match sessions {
+        Value::Array(items) => items.clone(),
+        Value::Object(items) => items
+            .iter()
+            .map(|(session_id, session_value)| {
+                if session_value.get("session_id").is_some() {
+                    session_value.clone()
+                } else {
+                    let mut normalized = session_value.clone();
+                    if let Some(map) = normalized.as_object_mut() {
+                        map.insert("session_id".to_string(), Value::String(session_id.clone()));
+                        if !map.contains_key("session_data") {
+                            map.insert("session_data".to_string(), session_value.clone());
+                        }
+                    }
+                    normalized
+                }
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn requested_room_key_session_ids(body: &Value, room_id: &str) -> Option<HashSet<String>> {
+    let mut session_ids = HashSet::new();
+
+    if let Some(Value::Array(values)) = body.get("session_ids") {
+        for value in values {
+            if let Some(session_id) = value.as_str() {
+                session_ids.insert(session_id.to_string());
+            }
+        }
+    }
+
+    let sessions_source = body
+        .get("rooms")
+        .and_then(|rooms| rooms.get(room_id))
+        .and_then(|room| room.get("sessions"))
+        .or_else(|| body.get("sessions"));
+
+    if let Some(sessions) = sessions_source {
+        match sessions {
+            Value::Array(values) => {
+                for value in values {
+                    if let Some(session_id) = value.as_str() {
+                        session_ids.insert(session_id.to_string());
+                    } else if let Some(session_id) = value.get("session_id").and_then(Value::as_str)
+                    {
+                        session_ids.insert(session_id.to_string());
+                    }
+                }
+            }
+            Value::Object(values) => {
+                session_ids.extend(values.keys().cloned());
+            }
+            _ => {}
+        }
+    }
+
+    if session_ids.is_empty() {
+        None
+    } else {
+        Some(session_ids)
+    }
+}
+
 pub(crate) async fn get_room_keys(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -1872,9 +2136,22 @@ pub(crate) async fn get_room_keys(
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-    let _ = auth_user;
+
+    let version = latest_room_key_backup_version(&state, &auth_user.user_id).await?;
+    let keys = if let Some(version) = version.clone() {
+        state
+            .services
+            .backup_service
+            .get_room_backup_keys(&auth_user.user_id, &room_id, &version)
+            .await?
+    } else {
+        Vec::new()
+    };
+
     Ok(Json(json!({
-        "keys": []
+        "room_id": room_id,
+        "version": version.unwrap_or_else(|| "0".to_string()),
+        "keys": keys.iter().map(room_key_to_json).collect::<Vec<_>>()
     })))
 }
 
@@ -1893,9 +2170,21 @@ pub(crate) async fn get_room_key_count(
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-    let _ = auth_user;
+
+    let version = latest_room_key_backup_version(&state, &auth_user.user_id).await?;
+    let count = if let Some(version) = version {
+        state
+            .services
+            .backup_service
+            .get_room_backup_keys(&auth_user.user_id, &room_id, &version)
+            .await?
+            .len()
+    } else {
+        0
+    };
+
     Ok(Json(json!({
-        "count": 0
+        "count": count
     })))
 }
 
@@ -1903,7 +2192,7 @@ pub(crate) async fn claim_room_keys(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
-    Json(_body): Json<Value>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
@@ -1915,10 +2204,35 @@ pub(crate) async fn claim_room_keys(
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-    let _ = auth_user;
+
+    let version = latest_room_key_backup_version(&state, &auth_user.user_id).await?;
+    let requested_sessions = requested_room_key_session_ids(&body, &room_id);
+    let keys = if let Some(version) = version {
+        state
+            .services
+            .backup_service
+            .get_room_backup_keys(&auth_user.user_id, &room_id, &version)
+            .await?
+    } else {
+        Vec::new()
+    };
+
+    let one_time_keys = keys
+        .into_iter()
+        .filter(|key| {
+            requested_sessions
+                .as_ref()
+                .map(|session_ids| session_ids.contains(&key.session_id))
+                .unwrap_or(true)
+        })
+        .map(|key| (key.session_id.clone(), room_key_to_json(&key)))
+        .collect::<serde_json::Map<_, _>>();
+
     Ok(Json(json!({
         "failures": {},
-        "one_time_keys": {}
+        "one_time_keys": {
+            room_id: one_time_keys
+        }
     })))
 }
 
@@ -1937,9 +2251,13 @@ pub(crate) async fn get_room_keys_version(
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-    let _ = auth_user;
+
+    let version = latest_room_key_backup_version(&state, &auth_user.user_id)
+        .await?
+        .unwrap_or_else(|| "0".to_string());
+
     Ok(Json(json!({
-        "version": "0"
+        "version": version
     })))
 }
 
@@ -2098,7 +2416,7 @@ pub(crate) async fn forward_room_keys(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
-    Json(_body): Json<Value>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
@@ -2110,8 +2428,23 @@ pub(crate) async fn forward_room_keys(
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-    let _ = auth_user;
-    Ok(Json(json!({})))
+
+    let keys = normalize_forwarded_room_keys(&body, &room_id);
+    let version = ensure_room_key_backup_version(&state, &auth_user.user_id).await?;
+
+    if !keys.is_empty() {
+        state
+            .services
+            .backup_service
+            .upload_room_keys_for_room(&auth_user.user_id, &room_id, &version, keys.clone())
+            .await?;
+    }
+
+    Ok(Json(json!({
+        "count": keys.len(),
+        "etag": version,
+        "version": version
+    })))
 }
 
 pub(crate) async fn get_room_rendered(
@@ -2362,10 +2695,70 @@ pub(crate) async fn get_room_spaces(
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-    let _ = auth_user;
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to view related spaces".to_string(),
+        ));
+    }
+
+    let rooms = if let Some(space) = state
+        .services
+        .space_service
+        .get_space_by_room(&room_id)
+        .await?
+    {
+        let children = state
+            .services
+            .space_service
+            .get_space_children(&space.space_id)
+            .await?;
+
+        children
+            .into_iter()
+            .map(|child| {
+                json!({
+                    "room_id": child.room_id,
+                    "via": child.via_servers,
+                    "suggested": child.is_suggested,
+                    "order": child.order
+                })
+            })
+            .collect::<Vec<Value>>()
+    } else {
+        Vec::new()
+    };
+
+    let spaces = state
+        .services
+        .space_service
+        .get_parent_spaces(&room_id)
+        .await?
+        .into_iter()
+        .map(|space| {
+            json!({
+                "room_id": space.room_id,
+                "name": space.name,
+                "topic": space.topic,
+                "avatar_url": space.avatar_url,
+                "join_rule": space.join_rule,
+                "world_readable": space.is_public,
+                "guest_can_join": space.is_public,
+                "room_type": space.room_type
+            })
+        })
+        .collect::<Vec<Value>>();
+
     Ok(Json(json!({
-        "rooms": [],
-        "spaces": []
+        "rooms": rooms,
+        "spaces": spaces
     })))
 }
 
@@ -2392,7 +2785,7 @@ pub(crate) async fn search_room_messages(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
-    Json(_body): Json<Value>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
@@ -2404,9 +2797,90 @@ pub(crate) async fn search_room_messages(
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-    let _ = auth_user;
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to search messages".to_string(),
+        ));
+    }
+
+    let search_term = body
+        .get("search_term")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            body.get("search_categories")
+                .and_then(|value| value.get("room_events"))
+                .and_then(|value| value.get("search_term"))
+                .and_then(Value::as_str)
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::bad_request("Search term cannot be empty"))?;
+
+    let limit = body
+        .get("limit")
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            body.get("search_categories")
+                .and_then(|value| value.get("room_events"))
+                .and_then(|value| value.get("filter"))
+                .and_then(|value| value.get("limit"))
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(10)
+        .min(100) as i64;
+
+    let search_pattern = format!("%{}%", search_term.to_lowercase());
+    let rows = sqlx::query(
+        r#"
+        SELECT event_id, room_id, sender, event_type, content, origin_server_ts
+        FROM events
+        WHERE room_id = $1
+          AND event_type = 'm.room.message'
+          AND LOWER(content::text) LIKE $2
+        ORDER BY origin_server_ts DESC
+        LIMIT $3
+        "#,
+    )
+    .bind(&room_id)
+    .bind(&search_pattern)
+    .bind(limit)
+    .fetch_all(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let results: Vec<Value> = rows
+        .into_iter()
+        .map(|row| {
+            json!({
+                "rank": 1.0,
+                "result": {
+                    "event_id": row.get::<Option<String>, _>("event_id"),
+                    "room_id": row.get::<Option<String>, _>("room_id"),
+                    "sender": row.get::<Option<String>, _>("sender"),
+                    "type": row.get::<Option<String>, _>("event_type"),
+                    "content": row.get::<Option<Value>, _>("content").unwrap_or(Value::Null),
+                    "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts").unwrap_or(0)
+                }
+            })
+        })
+        .collect();
+
     Ok(Json(json!({
-        "search_categories": {}
+        "search_categories": {
+            "room_events": {
+                "count": results.len(),
+                "results": results,
+                "highlights": [search_term]
+            }
+        }
     })))
 }
 
