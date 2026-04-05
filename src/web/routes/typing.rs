@@ -37,15 +37,24 @@ pub async fn set_typing(
             .typing_service
             .set_typing(&room_id, &user_id, timeout)
             .await?;
+
+        let expires_at = chrono::Utc::now().timestamp_millis() + timeout as i64;
+
+        Ok(Json(json!({
+            "timeout": timeout,
+            "expires_at": expires_at
+        })))
     } else {
         state
             .services
             .typing_service
             .clear_typing(&room_id, &user_id)
             .await?;
-    }
 
-    Ok(Json(json!({})))
+        Ok(Json(json!({
+            "typing": false
+        })))
+    }
 }
 
 /// Get typing users in a room

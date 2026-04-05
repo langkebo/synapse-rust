@@ -140,10 +140,12 @@ async fn set_pusher(
         }
     });
 
+    let now = chrono::Utc::now().timestamp_millis();
+
     if kind != "null" {
         sqlx::query(
             r#"
-            INSERT INTO pushers (user_id, device_id, pushkey, pushkey_ts, kind, app_id, app_display_name, 
+            INSERT INTO pushers (user_id, device_id, pushkey, pushkey_ts, kind, app_id, app_display_name,
                                  device_display_name, profile_tag, lang, data, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT (user_id, device_id, pushkey) DO UPDATE SET
@@ -154,7 +156,7 @@ async fn set_pusher(
         .bind(&auth_user.user_id)
         .bind(&auth_user.device_id)
         .bind(&body.pushkey)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(now)
         .bind(&kind)
         .bind(&body.app_id)
         .bind(&body.app_display_name)
@@ -162,11 +164,18 @@ async fn set_pusher(
         .bind(&body.profile_tag)
         .bind(&body.lang)
         .bind(&body.data)
-        .bind(chrono::Utc::now().timestamp_millis())
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(now)
+        .bind(now)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to save pusher: {}", e)))?;
+
+        Ok(Json(json!({
+            "pushkey": body.pushkey,
+            "kind": kind,
+            "app_id": body.app_id,
+            "created_ts": now
+        })))
     } else {
         sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2")
             .bind(&auth_user.user_id)
@@ -174,9 +183,12 @@ async fn set_pusher(
             .execute(&*state.services.user_storage.pool)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to delete pusher: {}", e)))?;
-    }
 
-    Ok(Json(json!({})))
+        Ok(Json(json!({
+            "deleted": true,
+            "pushkey": body.pushkey
+        })))
+    }
 }
 
 async fn get_push_rules(
@@ -311,10 +323,12 @@ async fn set_push_rule(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
+    let now = chrono::Utc::now().timestamp_millis();
+
     sqlx::query(
         r#"
         INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default, priority_class, created_ts)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, extract(epoch from now())::bigint * 1000)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, $8)
         ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
             pattern = $5, conditions = $6, actions = $7
         "#
@@ -326,11 +340,17 @@ async fn set_push_rule(
     .bind(&pattern)
     .bind(&conditions)
     .bind(&actions)
+    .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to save push rule: {}", e)))?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "rule_id": rule_id,
+        "scope": scope,
+        "kind": kind,
+        "created_ts": now
+    })))
 }
 
 async fn create_push_rule(
@@ -359,10 +379,12 @@ async fn create_push_rule(
 
     let _ = (before, after);
 
+    let now = chrono::Utc::now().timestamp_millis();
+
     sqlx::query(
         r#"
         INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default, priority_class, created_ts)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, extract(epoch from now())::bigint * 1000)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, $8)
         ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
             pattern = $5, conditions = $6, actions = $7
         "#
@@ -374,11 +396,17 @@ async fn create_push_rule(
     .bind(&pattern)
     .bind(&conditions)
     .bind(&actions)
+    .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to create push rule: {}", e)))?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "rule_id": rule_id,
+        "scope": scope,
+        "kind": kind,
+        "created_ts": now
+    })))
 }
 
 async fn delete_push_rule(
@@ -428,7 +456,11 @@ async fn set_push_rule_actions(
     .await
     .map_err(|e| ApiError::internal(format!("Failed to update push rule actions: {}", e)))?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "rule_id": rule_id,
+        "actions": actions,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 async fn get_push_rule_enabled(
@@ -478,7 +510,11 @@ async fn set_push_rule_enabled(
     .await
     .map_err(|e| ApiError::internal(format!("Failed to update push rule enabled: {}", e)))?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "rule_id": rule_id,
+        "enabled": enabled,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 async fn get_notifications(

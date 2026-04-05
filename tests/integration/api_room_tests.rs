@@ -10,7 +10,6 @@ use synapse_rust::common::config::{
     RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, VoipConfig, WorkerConfig,
 };
 use synapse_rust::services::ServiceContainer;
-use synapse_rust::storage::room_summary::{CreateRoomSummaryRequest, RoomSummaryStorage};
 use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
@@ -131,12 +130,17 @@ fn create_test_config() -> Config {
 }
 
 async fn setup_test_app() -> Option<axum::Router> {
+    let (app, _pool) = setup_test_app_with_pool().await?;
+    Some(app)
+}
+
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let config = create_test_config();
     let container = ServiceContainer::new(&pool, cache.clone(), config, None);
     let state = AppState::new(container, cache);
-    Some(create_router(state))
+    Some((create_router(state), pool))
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> Option<String> {
@@ -1456,10 +1460,7 @@ async fn test_room_timeline_route_rejects_non_member() {
 
 #[tokio::test]
 async fn test_room_unread_count_route_returns_counts_from_summary() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
-    let Some(pool) = super::get_test_pool().await else {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -1472,30 +1473,20 @@ async fn test_room_unread_count_route_returns_counts_from_summary() {
         return;
     };
 
-    let storage = RoomSummaryStorage::new(&pool);
-    let created_summary = storage
-        .create_summary(CreateRoomSummaryRequest {
-            room_id: room_id.clone(),
-            room_type: Some("m.room".to_string()),
-            name: Some("Room Unread Route".to_string()),
-            topic: None,
-            avatar_url: None,
-            canonical_alias: None,
-            join_rule: Some("invite".to_string()),
-            history_visibility: Some("shared".to_string()),
-            guest_access: Some("forbidden".to_string()),
-            is_direct: Some(false),
-            is_space: Some(false),
-        })
-        .await
-        .unwrap();
-
+    let now = chrono::Utc::now().timestamp_millis();
     sqlx::query(
-        "UPDATE room_summaries SET unread_notifications = $2, unread_highlight = $3 WHERE room_id = $1",
+        r#"
+        INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, origin_server_ts)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        "#,
     )
+    .bind(format!("$unread_{}:localhost", rand::random::<u64>()))
     .bind(&room_id)
-    .bind(7_i64)
-    .bind(2_i64)
+    .bind("@bob:localhost")
+    .bind("@bob:localhost")
+    .bind("m.room.message")
+    .bind(json!({ "msgtype": "m.text", "body": "hello @room" }))
+    .bind(now)
     .execute(&*pool)
     .await
     .unwrap();
@@ -1515,15 +1506,8 @@ async fn test_room_unread_count_route_returns_counts_from_summary() {
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["notification_count"], 7);
-    assert_eq!(json["highlight_count"], 2);
-
-    sqlx::query("DELETE FROM room_summaries WHERE room_id = $1")
-        .bind(&room_id)
-        .execute(&*pool)
-        .await
-        .unwrap();
-    let _ = created_summary;
+    assert_eq!(json["notification_count"], 1);
+    assert_eq!(json["highlight_count"], 1);
 }
 
 #[tokio::test]
