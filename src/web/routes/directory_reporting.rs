@@ -360,7 +360,11 @@ pub(crate) async fn set_room_alias_direct(
         .room_service
         .set_room_alias(room_id, &room_alias, &auth_user.user_id)
         .await?;
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "alias": room_alias,
+        "created_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 #[axum::debug_handler]
@@ -374,7 +378,10 @@ pub(crate) async fn delete_room_alias_direct(
         .room_service
         .remove_room_alias_by_name(&room_alias)
         .await?;
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "removed": true,
+        "alias": room_alias
+    })))
 }
 
 pub(crate) async fn get_public_rooms(
