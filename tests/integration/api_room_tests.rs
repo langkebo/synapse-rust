@@ -337,7 +337,8 @@ async fn test_room_invite_route_succeeds_for_existing_user() {
         return;
     };
 
-    let Some(bob_token) = register_user(&app, &format!("invite_bob_{}", rand::random::<u32>())).await
+    let Some(bob_token) =
+        register_user(&app, &format!("invite_bob_{}", rand::random::<u32>())).await
     else {
         eprintln!("Skipping test: failed to register bob");
         return;
@@ -370,7 +371,9 @@ async fn test_room_invite_route_succeeds_for_existing_user() {
         .body(Body::from(json!({ "user_id": bob_user_id }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -405,7 +408,9 @@ async fn test_room_invite_route_returns_not_found_for_missing_user() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
     let body = axum::body::to_bytes(response.into_body(), 1024)
@@ -1458,8 +1463,7 @@ async fn test_room_unread_count_route_returns_counts_from_summary() {
         return;
     };
 
-    let Some(token) =
-        register_user(&app, &format!("room_unread_{}", rand::random::<u32>())).await
+    let Some(token) = register_user(&app, &format!("room_unread_{}", rand::random::<u32>())).await
     else {
         return;
     };
@@ -1498,10 +1502,7 @@ async fn test_room_unread_count_route_returns_counts_from_summary() {
 
     let unread_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/unread_count",
-            room_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/unread_count", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -1548,10 +1549,7 @@ async fn test_room_unread_count_route_rejects_non_member() {
 
     let unread_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/unread_count",
-            room_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/unread_count", room_id))
         .header("Authorization", format!("Bearer {}", bob_token))
         .body(Body::empty())
         .unwrap();
