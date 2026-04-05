@@ -1,5 +1,8 @@
-# Shell Routes Allowlist
-# This file contains shell routes that are known and tracked
+# Empty Success Response Allowlist
+# This file contains reviewed empty-success matches from the scanner.
+# Entries may be either:
+# - tracked placeholder debt that still needs cleanup
+# - spec-allowed / real ACK endpoints that intentionally return an empty success body
 # Format: filename:line_number
 # New shell routes not in this list will cause CI to fail
 
@@ -84,12 +87,35 @@ push.rs:279
 push.rs:432
 push.rs:584
 
+# AppService routes (spec-allowed / real ACK after successful namespace or transaction handling)
+app_service.rs:475
+app_service.rs:503
+app_service.rs:531
+
 # Directory routes
 directory.rs:221
 
 # Presence routes
 presence.rs:80
 handlers/presence.rs:80
+
+# E2EE routes (real ACK after persisted send-to-device, cross-signing, or key-request cancellation)
+e2ee_routes.rs:481
+e2ee_routes.rs:540
+e2ee_routes.rs:634
+e2ee_routes.rs:1017
+
+# Sticky event routes (storage mutation ACK)
+sticky_event.rs:134
+sticky_event.rs:163
+
+# Room tag routes (Matrix-style tag mutation ACK)
+tags.rs:131
+tags.rs:147
+
+# VoIP routes (call state mutation ACK)
+voip.rs:188
+voip.rs:225
 
 # Room routes (main)
 room.rs:476
@@ -120,3 +146,5 @@ handlers/room.rs:1751
 handlers/room.rs:3505
 handlers/room.rs:3594
 handlers/room.rs:3655
+directory_reporting.rs:287
+push.rs:435

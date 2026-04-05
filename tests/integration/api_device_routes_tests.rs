@@ -11,14 +11,16 @@ use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
-async fn setup_test_app() -> Option<axum::Router> {
+async fn setup_test_app() -> axum::Router {
     if !super::init_test_database().await {
-        return None;
+        panic!(
+            "Device route integration tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
+        );
     }
     let container = ServiceContainer::new_test();
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(create_router(state))
+    create_router(state)
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -112,9 +114,7 @@ async fn get_device_response(
 
 #[tokio::test]
 async fn test_devices_routes_round_trip_across_versions() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, user_id) = register_user(&app, "device_routes_round_trip").await;
     let device_id = get_first_device_id(&app, &token, "/_matrix/client/r0/devices").await;
 
@@ -208,9 +208,7 @@ async fn test_devices_routes_round_trip_across_versions() {
 
 #[tokio::test]
 async fn test_delete_devices_alias_is_shared() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, _) = register_user(&app, "device_routes_delete").await;
     let device_id = get_first_device_id(&app, &token, "/_matrix/client/v3/devices").await;
 
@@ -247,9 +245,7 @@ async fn test_delete_devices_alias_is_shared() {
 
 #[tokio::test]
 async fn test_delete_devices_only_removes_current_users_devices() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token_a, _) = register_user(&app, "device_routes_owner_a").await;
     let (token_b, _) = register_user(&app, "device_routes_owner_b").await;
 

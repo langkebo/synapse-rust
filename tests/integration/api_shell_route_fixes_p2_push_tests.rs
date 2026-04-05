@@ -1,7 +1,10 @@
 // Integration tests for P2 shell route fixes - Push notifications
 // Tests verify push notification operations return confirmation data
 
-use axum::{body::Body, http::{Request, StatusCode}};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
@@ -10,14 +13,16 @@ use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
-async fn setup_test_app() -> Option<axum::Router> {
+async fn setup_test_app() -> axum::Router {
     if !super::init_test_database().await {
-        return None;
+        panic!(
+            "Shell route fix P2 push tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
+        );
     }
     let container = ServiceContainer::new_test();
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(create_router(state))
+    create_router(state)
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String, String) {
@@ -55,13 +60,7 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String, S
 
 #[tokio::test]
 async fn test_set_pusher_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (token, _user_id, _) = register_user(&app, "alice").await;
 
     // Set pusher
@@ -98,25 +97,31 @@ async fn test_set_pusher_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("pushkey").is_some(), "Response should contain pushkey");
+    assert!(
+        body.get("pushkey").is_some(),
+        "Response should contain pushkey"
+    );
     assert_eq!(body["pushkey"], "test_pushkey_123");
     assert!(body.get("kind").is_some(), "Response should contain kind");
     assert_eq!(body["kind"], "http");
-    assert!(body.get("app_id").is_some(), "Response should contain app_id");
+    assert!(
+        body.get("app_id").is_some(),
+        "Response should contain app_id"
+    );
     assert_eq!(body["app_id"], "com.example.app");
-    assert!(body.get("created_ts").is_some(), "Response should contain created_ts");
-    assert!(body["created_ts"].is_number(), "created_ts should be a number");
+    assert!(
+        body.get("created_ts").is_some(),
+        "Response should contain created_ts"
+    );
+    assert!(
+        body["created_ts"].is_number(),
+        "created_ts should be a number"
+    );
 }
 
 #[tokio::test]
 async fn test_delete_pusher_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (token, _user_id, _) = register_user(&app, "bob").await;
 
     // Set pusher first
@@ -176,21 +181,21 @@ async fn test_delete_pusher_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("deleted").is_some(), "Response should contain deleted flag");
+    assert!(
+        body.get("deleted").is_some(),
+        "Response should contain deleted flag"
+    );
     assert_eq!(body["deleted"], true);
-    assert!(body.get("pushkey").is_some(), "Response should contain pushkey");
+    assert!(
+        body.get("pushkey").is_some(),
+        "Response should contain pushkey"
+    );
     assert_eq!(body["pushkey"], "test_pushkey_456");
 }
 
 #[tokio::test]
 async fn test_set_push_rule_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (token, _user_id, _) = register_user(&app, "charlie").await;
 
     // Set push rule
@@ -218,33 +223,42 @@ async fn test_set_push_rule_returns_confirmation() {
         .await
         .expect("Failed to set push rule");
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), 1024)
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 4096)
         .await
         .expect("Failed to read response body");
+    if status != StatusCode::OK {
+        panic!(
+            "set push rule expected 200, got {} body={}",
+            status.as_u16(),
+            String::from_utf8_lossy(&body)
+        );
+    }
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("rule_id").is_some(), "Response should contain rule_id");
+    assert!(
+        body.get("rule_id").is_some(),
+        "Response should contain rule_id"
+    );
     assert_eq!(body["rule_id"], "test_rule");
     assert!(body.get("scope").is_some(), "Response should contain scope");
     assert_eq!(body["scope"], "global");
     assert!(body.get("kind").is_some(), "Response should contain kind");
     assert_eq!(body["kind"], "override");
-    assert!(body.get("created_ts").is_some(), "Response should contain created_ts");
-    assert!(body["created_ts"].is_number(), "created_ts should be a number");
+    assert!(
+        body.get("created_ts").is_some(),
+        "Response should contain created_ts"
+    );
+    assert!(
+        body["created_ts"].is_number(),
+        "created_ts should be a number"
+    );
 }
 
 #[tokio::test]
 async fn test_create_push_rule_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (token, _user_id, _) = register_user(&app, "dave").await;
 
     // Create push rule
@@ -266,33 +280,42 @@ async fn test_create_push_rule_returns_confirmation() {
         .await
         .expect("Failed to create push rule");
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), 1024)
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 4096)
         .await
         .expect("Failed to read response body");
+    if status != StatusCode::OK {
+        panic!(
+            "create push rule expected 200, got {} body={}",
+            status.as_u16(),
+            String::from_utf8_lossy(&body)
+        );
+    }
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("rule_id").is_some(), "Response should contain rule_id");
+    assert!(
+        body.get("rule_id").is_some(),
+        "Response should contain rule_id"
+    );
     assert_eq!(body["rule_id"], "test_rule_2");
     assert!(body.get("scope").is_some(), "Response should contain scope");
     assert_eq!(body["scope"], "global");
     assert!(body.get("kind").is_some(), "Response should contain kind");
     assert_eq!(body["kind"], "content");
-    assert!(body.get("created_ts").is_some(), "Response should contain created_ts");
-    assert!(body["created_ts"].is_number(), "created_ts should be a number");
+    assert!(
+        body.get("created_ts").is_some(),
+        "Response should contain created_ts"
+    );
+    assert!(
+        body["created_ts"].is_number(),
+        "created_ts should be a number"
+    );
 }
 
 #[tokio::test]
 async fn test_set_push_rule_actions_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (token, _user_id, _) = register_user(&app, "eve").await;
 
     // Create push rule first
@@ -340,23 +363,29 @@ async fn test_set_push_rule_actions_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("rule_id").is_some(), "Response should contain rule_id");
+    assert!(
+        body.get("rule_id").is_some(),
+        "Response should contain rule_id"
+    );
     assert_eq!(body["rule_id"], "test_rule_3");
-    assert!(body.get("actions").is_some(), "Response should contain actions");
+    assert!(
+        body.get("actions").is_some(),
+        "Response should contain actions"
+    );
     assert!(body["actions"].is_array(), "actions should be an array");
-    assert!(body.get("updated_ts").is_some(), "Response should contain updated_ts");
-    assert!(body["updated_ts"].is_number(), "updated_ts should be a number");
+    assert!(
+        body.get("updated_ts").is_some(),
+        "Response should contain updated_ts"
+    );
+    assert!(
+        body["updated_ts"].is_number(),
+        "updated_ts should be a number"
+    );
 }
 
 #[tokio::test]
 async fn test_set_push_rule_enabled_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (token, _user_id, _) = register_user(&app, "frank").await;
 
     // Create push rule first
@@ -404,10 +433,22 @@ async fn test_set_push_rule_enabled_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("rule_id").is_some(), "Response should contain rule_id");
+    assert!(
+        body.get("rule_id").is_some(),
+        "Response should contain rule_id"
+    );
     assert_eq!(body["rule_id"], "test_rule_4");
-    assert!(body.get("enabled").is_some(), "Response should contain enabled");
+    assert!(
+        body.get("enabled").is_some(),
+        "Response should contain enabled"
+    );
     assert_eq!(body["enabled"], false);
-    assert!(body.get("updated_ts").is_some(), "Response should contain updated_ts");
-    assert!(body["updated_ts"].is_number(), "updated_ts should be a number");
+    assert!(
+        body.get("updated_ts").is_some(),
+        "Response should contain updated_ts"
+    );
+    assert!(
+        body["updated_ts"].is_number(),
+        "updated_ts should be a number"
+    );
 }

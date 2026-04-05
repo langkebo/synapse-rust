@@ -8,8 +8,12 @@ mod e2e_tests {
 
     const BASE_URL: &str = "http://localhost:8000";
 
-    fn should_run_e2e() -> bool {
-        std::env::var("E2E_RUN").ok().as_deref() == Some("1")
+    fn require_e2e_enabled() {
+        assert_eq!(
+            std::env::var("E2E_RUN").ok().as_deref(),
+            Some("1"),
+            "E2E tests are ignored by default; run with E2E_RUN=1 cargo test --test e2e -- --ignored --nocapture",
+        );
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -304,12 +308,11 @@ mod e2e_tests {
     }
 
     #[test]
+    #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_complete_user_flow() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            if !should_run_e2e() {
-                return;
-            }
+            require_e2e_enabled();
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_e2e", "password123").await;
@@ -342,12 +345,11 @@ mod e2e_tests {
     }
 
     #[test]
+    #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_friend_flow() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            if !should_run_e2e() {
-                return;
-            }
+            require_e2e_enabled();
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_friend", "password123").await;
@@ -377,12 +379,11 @@ mod e2e_tests {
     }
 
     #[test]
+    #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_private_chat_flow() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            if !should_run_e2e() {
-                return;
-            }
+            require_e2e_enabled();
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_chat", "password123").await;
@@ -430,12 +431,11 @@ mod e2e_tests {
     }
 
     #[test]
+    #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_media_upload_and_retrieve() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            if !should_run_e2e() {
-                return;
-            }
+            require_e2e_enabled();
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_media", "password123").await;
@@ -477,12 +477,11 @@ mod e2e_tests {
     }
 
     #[test]
+    #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_multi_user_room() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            if !should_run_e2e() {
-                return;
-            }
+            require_e2e_enabled();
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_multi", "password123").await;
@@ -508,12 +507,11 @@ mod e2e_tests {
     }
 
     #[test]
+    #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_user_login_logout() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            if !should_run_e2e() {
-                return;
-            }
+            require_e2e_enabled();
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_auth", "password123").await;
@@ -530,12 +528,11 @@ mod e2e_tests {
     }
 
     #[test]
+    #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_multiple_rooms() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            if !should_run_e2e() {
-                return;
-            }
+            require_e2e_enabled();
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice = register_user("alice_rooms", "password123").await;

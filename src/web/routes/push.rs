@@ -276,7 +276,10 @@ async fn get_push_rules_scope(
             }
         })))
     } else {
-        Ok(Json(json!({})))
+        Err(ApiError::invalid_input(format!(
+            "Unsupported push rules scope: {}",
+            scope
+        )))
     }
 }
 
@@ -581,7 +584,11 @@ async fn ack_notification(
     .map_err(|e| ApiError::internal(format!("Failed to ack notification: {}", e)))?;
 
     match result {
-        Some(_) => Ok(Json(json!({}))),
+        Some(_) => Ok(Json(json!({
+            "notification_id": notification_id,
+            "is_read": true,
+            "updated_ts": chrono::Utc::now().timestamp_millis()
+        }))),
         None => Err(ApiError::not_found("Notification not found".to_string())),
     }
 }

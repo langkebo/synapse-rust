@@ -1,10 +1,10 @@
 # synapse-rust
 
-用 Rust 实现的 Matrix Homeserver（当前处于能力收敛与验证阶段）。
+用 Rust 实现的 Matrix Homeserver（当前处于能力收敛、测试语义校正与证据对齐阶段）。
 
 ## 功能概览
 
-- Matrix / Synapse 相关能力已广泛铺设，当前按能力域持续收敛与验证
+- Matrix / Synapse 相关能力已广泛铺设，当前以“代码证据 + 测试证据 + CI 语义”持续收敛
 - PostgreSQL 持久化（`sqlx`）
 - Redis 缓存
 - 可选 Elasticsearch 搜索（用于私聊消息搜索）
@@ -84,8 +84,12 @@ cargo run --release
 
 ## 文档
 
+- 当前正式能力状态基线（单一事实源）：`docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md`
+- 项目优化执行路线图：`docs/synapse-rust/PROJECT_OPTIMIZATION_EXECUTION_PLAN_2026-04-05.md`
+- 文档治理与单一事实源规则：`docs/synapse-rust/DOCUMENT_GOVERNANCE_AND_SINGLE_SOURCE_OF_TRUTH_2026-04-05.md`
+- 测试与 CI 语义对齐说明：`docs/synapse-rust/TEST_AND_CI_SEMANTICS_ALIGNMENT_2026-04-05.md`
+- 假绿与占位成功治理规则：`docs/synapse-rust/FALSE_GREEN_AND_PLACEHOLDER_GOVERNANCE_2026-04-05.md`
 - 当前阶段正式分析与优化方案：`docs/synapse-rust/SYSTEM_GAP_ANALYSIS_AND_OPTIMIZATION_PLAN_2026-04-02.md`
-- 第一版能力总表：`docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md`
 - 文档索引：`docs/synapse-rust/PROJECT_REVIEW_INDEX_2026-04-03.md`
 - 项目整改行动清单：`docs/synapse-rust/PROJECT_REVIEW_ACTION_BACKLOG_2026-04-03.md`
 - 项目审查与优化完善方案：`docs/synapse-rust/PROJECT_REVIEW_AND_OPTIMIZATION_PLAN_2026-04-03.md`

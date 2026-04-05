@@ -10,14 +10,16 @@ use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
-async fn setup_test_app() -> Option<axum::Router> {
+async fn setup_test_app() -> axum::Router {
     if !super::init_test_database().await {
-        return None;
+        panic!(
+            "Account data integration tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
+        );
     }
     let container = ServiceContainer::new_test();
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(create_router(state))
+    create_router(state)
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -54,9 +56,7 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
 
 #[tokio::test]
 async fn test_account_data_round_trip_across_v3_and_r0() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, user_id) = register_user(&app, "account_data_routes").await;
     let content = json!({ "theme": "dark", "layout": "compact" });
 
@@ -100,9 +100,7 @@ async fn test_account_data_round_trip_across_v3_and_r0() {
 
 #[tokio::test]
 async fn test_account_data_list_returns_saved_entries() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, user_id) = register_user(&app, "account_data_list_routes").await;
 
     for (data_type, content) in [
@@ -157,9 +155,7 @@ async fn test_account_data_list_returns_saved_entries() {
 
 #[tokio::test]
 async fn test_room_account_data_round_trip_across_versions() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, user_id) = register_user(&app, "room_account_data_routes").await;
     let room_id = "!room:localhost";
     let content = json!({ "tags": { "m.favourite": { "order": 0.1 } } });
@@ -204,9 +200,7 @@ async fn test_room_account_data_round_trip_across_versions() {
 
 #[tokio::test]
 async fn test_filter_round_trip_across_versions() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, user_id) = register_user(&app, "filter_routes").await;
     let filter = json!({
         "room": {
@@ -259,9 +253,7 @@ async fn test_filter_round_trip_across_versions() {
 
 #[tokio::test]
 async fn test_filter_post_route_round_trip() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, user_id) = register_user(&app, "filter_post_routes").await;
     let filter = json!({
         "event_fields": ["type", "content"],
@@ -315,9 +307,7 @@ async fn test_filter_post_route_round_trip() {
 
 #[tokio::test]
 async fn test_openid_request_token_route_is_shared() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, user_id) = register_user(&app, "openid_routes").await;
 
     for path in [
@@ -347,9 +337,7 @@ async fn test_openid_request_token_route_is_shared() {
 
 #[tokio::test]
 async fn test_tags_routes_work_across_v3_and_r0() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, user_id) = register_user(&app, "tags_routes").await;
     let room_id = "!tags-room:localhost";
 

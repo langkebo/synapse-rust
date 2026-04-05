@@ -1230,7 +1230,7 @@ CREATE TABLE IF NOT EXISTS push_rules (
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
     CONSTRAINT pk_push_rules PRIMARY KEY (id),
-    CONSTRAINT uq_push_rules_user_scope_rule UNIQUE (user_id, scope, rule_id)
+    CONSTRAINT uq_push_rules_user_scope_kind_rule UNIQUE (user_id, scope, kind, rule_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_push_rules_user ON push_rules(user_id);
@@ -2138,8 +2138,7 @@ CREATE TABLE IF NOT EXISTS room_invite_blocklist (
     created_ts BIGINT NOT NULL,
     CONSTRAINT pk_room_invite_blocklist PRIMARY KEY (id),
     CONSTRAINT uq_room_invite_blocklist_room_user UNIQUE (room_id, user_id),
-    CONSTRAINT fk_room_invite_blocklist_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
-    CONSTRAINT fk_room_invite_blocklist_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    CONSTRAINT fk_room_invite_blocklist_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_room_invite_blocklist_room ON room_invite_blocklist(room_id);
@@ -2152,8 +2151,7 @@ CREATE TABLE IF NOT EXISTS room_invite_allowlist (
     created_ts BIGINT NOT NULL,
     CONSTRAINT pk_room_invite_allowlist PRIMARY KEY (id),
     CONSTRAINT uq_room_invite_allowlist_room_user UNIQUE (room_id, user_id),
-    CONSTRAINT fk_room_invite_allowlist_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
-    CONSTRAINT fk_room_invite_allowlist_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    CONSTRAINT fk_room_invite_allowlist_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_room_invite_allowlist_room ON room_invite_allowlist(room_id);

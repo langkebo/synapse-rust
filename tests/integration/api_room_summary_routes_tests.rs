@@ -10,14 +10,16 @@ use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
-async fn setup_test_app() -> Option<axum::Router> {
+async fn setup_test_app() -> axum::Router {
     if !super::init_test_database().await {
-        return None;
+        panic!(
+            "Room summary integration tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
+        );
     }
     let container = ServiceContainer::new_test();
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(create_router(state))
+    create_router(state)
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> String {
@@ -83,9 +85,7 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
 
 #[tokio::test]
 async fn test_room_summary_read_routes_share_across_versions() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let token = register_user(&app, "room_summary_routes_shared").await;
     let room_id = create_room(&app, &token, "Shared summary room").await;
 
@@ -128,9 +128,7 @@ async fn test_room_summary_read_routes_share_across_versions() {
 
 #[tokio::test]
 async fn test_room_summary_create_rejects_path_body_mismatch() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let token = register_user(&app, "room_summary_path_body_mismatch").await;
     let room_id = create_room(&app, &token, "Mismatch summary room").await;
 
@@ -156,9 +154,7 @@ async fn test_room_summary_create_rejects_path_body_mismatch() {
 
 #[tokio::test]
 async fn test_room_summary_route_boundaries_are_preserved() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let room_id = "!room-summary-boundary:localhost";
 
     let r0_write_request = Request::builder()
@@ -217,9 +213,7 @@ async fn test_room_summary_route_boundaries_are_preserved() {
 
 #[tokio::test]
 async fn test_room_summary_snapshot_exposes_members_state_and_stats() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
     let (token, user_id) = register_user_with_id(&app, "room_summary_snapshot").await;
     let room_id = create_room(&app, &token, "Snapshot summary room").await;
 

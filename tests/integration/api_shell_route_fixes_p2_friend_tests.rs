@@ -1,7 +1,10 @@
 // Integration tests for P2 shell route fixes - Friend management
 // Tests verify friend management operations return confirmation data
 
-use axum::{body::Body, http::{Request, StatusCode}};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
@@ -78,7 +81,10 @@ async fn accept_friend_request(app: &axum::Router, access_token: &str, requester
     let encoded_user_id = urlencoding::encode(requester_user_id);
     let request = Request::builder()
         .method("POST")
-        .uri(&format!("/_matrix/client/v1/friends/request/{}/accept", encoded_user_id))
+        .uri(&format!(
+            "/_matrix/client/v1/friends/request/{}/accept",
+            encoded_user_id
+        ))
         .header("Authorization", format!("Bearer {}", access_token))
         .body(Body::empty())
         .unwrap();
@@ -111,7 +117,10 @@ async fn test_update_friend_note_returns_confirmation() {
     let encoded_bob_id = urlencoding::encode(&bob_id);
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!("/_matrix/client/v1/friends/{}/note", encoded_bob_id))
+        .uri(&format!(
+            "/_matrix/client/v1/friends/{}/note",
+            encoded_bob_id
+        ))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::from(
@@ -134,12 +143,21 @@ async fn test_update_friend_note_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("user_id").is_some(), "Response should contain user_id");
+    assert!(
+        body.get("user_id").is_some(),
+        "Response should contain user_id"
+    );
     assert_eq!(body["user_id"], bob_id);
     assert!(body.get("note").is_some(), "Response should contain note");
     assert_eq!(body["note"], "Best friend");
-    assert!(body.get("updated_ts").is_some(), "Response should contain updated_ts");
-    assert!(body["updated_ts"].is_number(), "updated_ts should be a number");
+    assert!(
+        body.get("updated_ts").is_some(),
+        "Response should contain updated_ts"
+    );
+    assert!(
+        body["updated_ts"].is_number(),
+        "updated_ts should be a number"
+    );
 }
 
 #[tokio::test]
@@ -163,7 +181,10 @@ async fn test_update_friend_status_returns_confirmation() {
     let encoded_bob_id = urlencoding::encode(&bob_id);
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!("/_matrix/client/v1/friends/{}/status", encoded_bob_id))
+        .uri(&format!(
+            "/_matrix/client/v1/friends/{}/status",
+            encoded_bob_id
+        ))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::from(
@@ -186,12 +207,24 @@ async fn test_update_friend_status_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("user_id").is_some(), "Response should contain user_id");
+    assert!(
+        body.get("user_id").is_some(),
+        "Response should contain user_id"
+    );
     assert_eq!(body["user_id"], bob_id);
-    assert!(body.get("status").is_some(), "Response should contain status");
+    assert!(
+        body.get("status").is_some(),
+        "Response should contain status"
+    );
     assert_eq!(body["status"], "favorite");
-    assert!(body.get("updated_ts").is_some(), "Response should contain updated_ts");
-    assert!(body["updated_ts"].is_number(), "updated_ts should be a number");
+    assert!(
+        body.get("updated_ts").is_some(),
+        "Response should contain updated_ts"
+    );
+    assert!(
+        body["updated_ts"].is_number(),
+        "updated_ts should be a number"
+    );
 }
 
 #[tokio::test]
@@ -215,7 +248,10 @@ async fn test_update_friend_displayname_returns_confirmation() {
     let encoded_bob_id = urlencoding::encode(&bob_id);
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!("/_matrix/client/v1/friends/{}/displayname", encoded_bob_id))
+        .uri(&format!(
+            "/_matrix/client/v1/friends/{}/displayname",
+            encoded_bob_id
+        ))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::from(
@@ -238,10 +274,22 @@ async fn test_update_friend_displayname_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("user_id").is_some(), "Response should contain user_id");
+    assert!(
+        body.get("user_id").is_some(),
+        "Response should contain user_id"
+    );
     assert_eq!(body["user_id"], bob_id);
-    assert!(body.get("displayname").is_some(), "Response should contain displayname");
+    assert!(
+        body.get("displayname").is_some(),
+        "Response should contain displayname"
+    );
     assert_eq!(body["displayname"], "Bobby");
-    assert!(body.get("updated_ts").is_some(), "Response should contain updated_ts");
-    assert!(body["updated_ts"].is_number(), "updated_ts should be a number");
+    assert!(
+        body.get("updated_ts").is_some(),
+        "Response should contain updated_ts"
+    );
+    assert!(
+        body["updated_ts"].is_number(),
+        "updated_ts should be a number"
+    );
 }

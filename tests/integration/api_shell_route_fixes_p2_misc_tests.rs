@@ -1,7 +1,10 @@
 // Integration tests for P2 shell route fixes - DM, Invite control, Rendezvous
 // Tests verify remaining P2 operations return confirmation data
 
-use axum::{body::Body, http::{Request, StatusCode}};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
@@ -10,14 +13,16 @@ use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
-async fn setup_test_app() -> Option<axum::Router> {
+async fn setup_test_app() -> axum::Router {
     if !super::init_test_database().await {
-        return None;
+        panic!(
+            "Shell route fix P2 misc tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
+        );
     }
     let container = ServiceContainer::new_test();
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(create_router(state))
+    create_router(state)
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String, String) {
@@ -114,13 +119,7 @@ async fn create_dm_room(app: &axum::Router, access_token: &str, target_user_id: 
 
 #[tokio::test]
 async fn test_update_dm_room_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (alice_token, _alice_id, _) = register_user(&app, "alice").await;
     let (_bob_token, bob_id, _) = register_user(&app, "bob").await;
 
@@ -153,30 +152,36 @@ async fn test_update_dm_room_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("room_id").is_some(), "Response should contain room_id");
+    assert!(
+        body.get("room_id").is_some(),
+        "Response should contain room_id"
+    );
     assert_eq!(body["room_id"], room_id);
     assert!(body.get("users").is_some(), "Response should contain users");
     assert!(body["users"].is_array(), "users should be an array");
-    assert!(body.get("updated_ts").is_some(), "Response should contain updated_ts");
-    assert!(body["updated_ts"].is_number(), "updated_ts should be a number");
+    assert!(
+        body.get("updated_ts").is_some(),
+        "Response should contain updated_ts"
+    );
+    assert!(
+        body["updated_ts"].is_number(),
+        "updated_ts should be a number"
+    );
 }
 
 #[tokio::test]
 async fn test_set_invite_blocklist_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (token, _user_id, _) = register_user(&app, "charlie").await;
     let room_id = create_room(&app, &token, "Test Room").await;
 
     // Set invite blocklist
     let request = Request::builder()
         .method("POST")
-        .uri(&format!("/_matrix/client/v3/rooms/{}/invite_blocklist", room_id))
+        .uri(&format!(
+            "/_matrix/client/v3/rooms/{}/invite_blocklist",
+            room_id
+        ))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::from(
@@ -191,39 +196,54 @@ async fn test_set_invite_blocklist_returns_confirmation() {
         .await
         .expect("Failed to set invite blocklist");
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), 1024)
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 4096)
         .await
         .expect("Failed to read response body");
+    if status != StatusCode::OK {
+        panic!(
+            "set invite blocklist expected 200, got {} body={}",
+            status.as_u16(),
+            String::from_utf8_lossy(&body)
+        );
+    }
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("room_id").is_some(), "Response should contain room_id");
+    assert!(
+        body.get("room_id").is_some(),
+        "Response should contain room_id"
+    );
     assert_eq!(body["room_id"], room_id);
-    assert!(body.get("blocklist").is_some(), "Response should contain blocklist");
+    assert!(
+        body.get("blocklist").is_some(),
+        "Response should contain blocklist"
+    );
     assert!(body["blocklist"].is_array(), "blocklist should be an array");
     assert_eq!(body["blocklist"].as_array().unwrap().len(), 2);
-    assert!(body.get("updated_ts").is_some(), "Response should contain updated_ts");
-    assert!(body["updated_ts"].is_number(), "updated_ts should be a number");
+    assert!(
+        body.get("updated_ts").is_some(),
+        "Response should contain updated_ts"
+    );
+    assert!(
+        body["updated_ts"].is_number(),
+        "updated_ts should be a number"
+    );
 }
 
 #[tokio::test]
 async fn test_set_invite_allowlist_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (token, _user_id, _) = register_user(&app, "dave").await;
     let room_id = create_room(&app, &token, "Test Room").await;
 
     // Set invite allowlist
     let request = Request::builder()
         .method("POST")
-        .uri(&format!("/_matrix/client/v3/rooms/{}/invite_allowlist", room_id))
+        .uri(&format!(
+            "/_matrix/client/v3/rooms/{}/invite_allowlist",
+            room_id
+        ))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::from(
@@ -238,32 +258,44 @@ async fn test_set_invite_allowlist_returns_confirmation() {
         .await
         .expect("Failed to set invite allowlist");
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), 1024)
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 4096)
         .await
         .expect("Failed to read response body");
+    if status != StatusCode::OK {
+        panic!(
+            "set invite allowlist expected 200, got {} body={}",
+            status.as_u16(),
+            String::from_utf8_lossy(&body)
+        );
+    }
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("room_id").is_some(), "Response should contain room_id");
+    assert!(
+        body.get("room_id").is_some(),
+        "Response should contain room_id"
+    );
     assert_eq!(body["room_id"], room_id);
-    assert!(body.get("allowlist").is_some(), "Response should contain allowlist");
+    assert!(
+        body.get("allowlist").is_some(),
+        "Response should contain allowlist"
+    );
     assert!(body["allowlist"].is_array(), "allowlist should be an array");
     assert_eq!(body["allowlist"].as_array().unwrap().len(), 2);
-    assert!(body.get("updated_ts").is_some(), "Response should contain updated_ts");
-    assert!(body["updated_ts"].is_number(), "updated_ts should be a number");
+    assert!(
+        body.get("updated_ts").is_some(),
+        "Response should contain updated_ts"
+    );
+    assert!(
+        body["updated_ts"].is_number(),
+        "updated_ts should be a number"
+    );
 }
 
 #[tokio::test]
 async fn test_send_rendezvous_message_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
 
     // Create rendezvous session
     let request = Request::builder()
@@ -292,7 +324,10 @@ async fn test_send_rendezvous_message_returns_confirmation() {
     // Send message
     let request = Request::builder()
         .method("POST")
-        .uri(&format!("/_matrix/client/v1/rendezvous/{}/messages", session_id))
+        .uri(&format!(
+            "/_matrix/client/v1/rendezvous/{}/messages",
+            session_id
+        ))
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -317,30 +352,39 @@ async fn test_send_rendezvous_message_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("session_id").is_some(), "Response should contain session_id");
+    assert!(
+        body.get("session_id").is_some(),
+        "Response should contain session_id"
+    );
     assert_eq!(body["session_id"], session_id);
-    assert!(body.get("message_id").is_some(), "Response should contain message_id");
-    assert!(body["message_id"].is_string(), "message_id should be a string");
-    assert!(body.get("sent_ts").is_some(), "Response should contain sent_ts");
+    assert!(
+        body.get("message_id").is_some(),
+        "Response should contain message_id"
+    );
+    assert!(
+        body["message_id"].is_string(),
+        "message_id should be a string"
+    );
+    assert!(
+        body.get("sent_ts").is_some(),
+        "Response should contain sent_ts"
+    );
     assert!(body["sent_ts"].is_number(), "sent_ts should be a number");
 }
 
 #[tokio::test]
 async fn test_empty_blocklist_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (token, _user_id, _) = register_user(&app, "eve").await;
     let room_id = create_room(&app, &token, "Test Room").await;
 
     // Set empty blocklist (clear blocklist)
     let request = Request::builder()
         .method("POST")
-        .uri(&format!("/_matrix/client/v3/rooms/{}/invite_blocklist", room_id))
+        .uri(&format!(
+            "/_matrix/client/v3/rooms/{}/invite_blocklist",
+            room_id
+        ))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::from(
@@ -363,22 +407,25 @@ async fn test_empty_blocklist_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data even for empty list
-    assert!(body.get("room_id").is_some(), "Response should contain room_id");
-    assert!(body.get("blocklist").is_some(), "Response should contain blocklist");
+    assert!(
+        body.get("room_id").is_some(),
+        "Response should contain room_id"
+    );
+    assert!(
+        body.get("blocklist").is_some(),
+        "Response should contain blocklist"
+    );
     assert!(body["blocklist"].is_array(), "blocklist should be an array");
     assert_eq!(body["blocklist"].as_array().unwrap().len(), 0);
-    assert!(body.get("updated_ts").is_some(), "Response should contain updated_ts");
+    assert!(
+        body.get("updated_ts").is_some(),
+        "Response should contain updated_ts"
+    );
 }
 
 #[tokio::test]
 async fn test_update_dm_with_content_returns_confirmation() {
-    let app = match setup_test_app().await {
-        Some(app) => app,
-        None => {
-            eprintln!("Skipping test: database not available");
-            return;
-        }
-    };
+    let app = setup_test_app().await;
     let (alice_token, _alice_id, _) = register_user(&app, "frank").await;
     let (_bob_token, bob_id, _) = register_user(&app, "george").await;
 
@@ -413,7 +460,13 @@ async fn test_update_dm_with_content_returns_confirmation() {
     let body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
 
     // Verify response contains confirmation data
-    assert!(body.get("room_id").is_some(), "Response should contain room_id");
+    assert!(
+        body.get("room_id").is_some(),
+        "Response should contain room_id"
+    );
     assert!(body.get("users").is_some(), "Response should contain users");
-    assert!(body.get("updated_ts").is_some(), "Response should contain updated_ts");
+    assert!(
+        body.get("updated_ts").is_some(),
+        "Response should contain updated_ts"
+    );
 }

@@ -10,21 +10,21 @@ use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
-async fn setup_test_app() -> Option<axum::Router> {
+async fn setup_test_app() -> axum::Router {
     if !super::init_test_database().await {
-        return None;
+        panic!(
+            "Auth route integration tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
+        );
     }
     let container = ServiceContainer::new_test();
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(create_router(state))
+    create_router(state)
 }
 
 #[tokio::test]
 async fn test_register_and_login_routes_work_across_r0_and_v3() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
 
     let r0_register_request = Request::builder()
         .method("GET")
@@ -93,9 +93,7 @@ async fn test_register_and_login_routes_work_across_r0_and_v3() {
 
 #[tokio::test]
 async fn test_auth_router_preserves_qr_and_refresh_boundaries() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
 
     let v1_qr_request = Request::builder()
         .method("GET")
@@ -135,9 +133,7 @@ async fn test_auth_router_preserves_qr_and_refresh_boundaries() {
 
 #[tokio::test]
 async fn test_client_capabilities_and_media_config_routes_work_across_versions() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
 
     let r0_capabilities_request = Request::builder()
         .method("GET")

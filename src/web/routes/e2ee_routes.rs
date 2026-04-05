@@ -455,12 +455,9 @@ async fn room_key_distribution(
             "session_id": s.session_id,
             "session_key": s.session_key
         }))),
-        _ => Ok(Json(serde_json::json!({
-            "room_id": room_id,
-            "algorithm": "m.megolm.v1.aes-sha2",
-            "session_id": "",
-            "session_key": ""
-        }))),
+        None => Err(ApiError::not_found(
+            "Outbound room key distribution not found".to_string(),
+        )),
     }
 }
 

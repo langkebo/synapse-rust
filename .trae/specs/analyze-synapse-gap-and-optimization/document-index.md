@@ -35,6 +35,12 @@
 | [test-execution-inventory.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/test-execution-inventory.md) | 新增 | 测试接线与执行事实源 |
 | [remediation-backlog.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/remediation-backlog.md) | 已建 | 可执行整改台账 |
 | [document-conflicts.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/document-conflicts.md) | 新增 | 冲突口径清单与处理建议 |
+| [task11_scan_and_ci_gate.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task11_scan_and_ci_gate.md) | 已建 | 空壳接口扫描规则与 CI 阻断口径 |
+| [task12_room_domain_split_plan.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task12_room_domain_split_plan.md) | 已建 | 房间域拆分蓝图（模块边界/依赖方向/验收口径） |
+| [task13_guard_extractor_design.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task13_guard_extractor_design.md) | 已建 | guard/extractor 统一模型与错误语义/审计口径 |
+| [task14_search_architecture_plan.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task14_search_architecture_plan.md) | 已建 | 搜索统一分层架构与最小落地路径 |
+| [task15_migration_gate_design.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task15_migration_gate_design.md) | 已建 | migration gate 阻断链路与失败分类口径 |
+| [task16_test_baseline_plan.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task16_test_baseline_plan.md) | 已建 | 三类测试基线的最小阻断集与执行入口 |
 
 ### 2.3 P3 专题分析
 
