@@ -24,6 +24,7 @@ mod media_api_tests;
 mod media_quota_api_tests;
 mod module_api_tests;
 mod msc_tests;
+mod placeholder_scan_tests;
 mod push_api_tests;
 mod rate_limit_api_tests;
 mod reactions_api_tests;

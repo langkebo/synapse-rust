@@ -151,6 +151,53 @@ impl SyncService {
         .await
     }
 
+    pub async fn room_sync(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        timeout: u64,
+        full_state: bool,
+        since: Option<&str>,
+    ) -> ApiResult<serde_json::Value> {
+        let since_token = since.and_then(SyncToken::parse);
+        let is_incremental = since_token.is_some() && !full_state;
+        let since_ts = since_token.as_ref().map(|t| t.stream_id).unwrap_or(0);
+
+        let room_ids = vec![room_id.to_string()];
+        let room_events = self
+            .fetch_events(&room_ids, since_ts, timeout, is_incremental)
+            .await?;
+
+        let events = room_events.get(room_id).cloned().unwrap_or_default();
+        let room_sync = self
+            .build_room_sync(room_id, user_id, events, is_incremental)
+            .await?;
+
+        let mut result = match room_sync {
+            serde_json::Value::Object(map) => map,
+            _ => serde_json::Map::new(),
+        };
+
+        let stream_id = self.get_next_stream_id().await?;
+        result.insert(
+            "next_batch".to_string(),
+            json!(SyncToken {
+                stream_id,
+                room_id: None,
+                event_type: None
+            }
+            .encode()),
+        );
+
+        Ok(serde_json::Value::Object(result))
+    }
+
+    pub async fn room_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
+        let (highlight_count, notification_count) =
+            self.get_unread_counts(room_id, user_id).await?;
+        Ok((notification_count, highlight_count))
+    }
+
     async fn update_presence(&self, user_id: &str, set_presence: &str) -> ApiResult<()> {
         if set_presence != "offline" {
             self.presence_storage

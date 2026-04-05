@@ -226,7 +226,14 @@ async fn send_message(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to send message: {}", e)))?;
 
-    Ok(Json(json!({})))
+    // Generate a message ID based on session and timestamp
+    let message_id = format!("{}_{}", session_id, chrono::Utc::now().timestamp_millis());
+
+    Ok(Json(json!({
+        "session_id": session_id,
+        "message_id": message_id,
+        "sent_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 async fn get_messages(
