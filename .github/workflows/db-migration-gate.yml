@@ -201,6 +201,12 @@ jobs:
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: cargo test --locked --test unit db_schema_smoke_tests -- --test-threads=1
 
+      - name: Run schema contract p0 tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+        run: cargo test --locked --test unit schema_contract_p0 -- --test-threads=1
+
       - name: Run invite blocklist database smoke tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse

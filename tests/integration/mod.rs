@@ -21,6 +21,7 @@ mod api_friend_room_routes_tests;
 mod api_input_validation_tests;
 mod api_ip_block_test;
 mod api_media_routes_tests;
+mod api_placeholder_contract_p0_tests;
 mod api_profile_tests;
 mod api_protocol_alignment_tests;
 mod api_room_placeholder_contract_tests;
@@ -91,6 +92,14 @@ pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
             None
         }
     }
+}
+
+pub async fn require_test_pool() -> Arc<sqlx::PgPool> {
+    get_test_pool().await.unwrap_or_else(|| {
+        panic!(
+            "Integration test requires isolated schema setup. For optional local runs, start PostgreSQL and apply migrations first; in CI this must already succeed."
+        )
+    })
 }
 
 async fn init_test_database() -> bool {

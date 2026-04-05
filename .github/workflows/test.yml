@@ -1,4 +1,4 @@
-name: Rust CI
+name: Manual Coverage Validation
 
 on:
   workflow_dispatch:

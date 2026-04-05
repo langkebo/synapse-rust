@@ -14,14 +14,16 @@ use tower::ServiceExt;
 
 type HmacSha256 = Hmac<Sha256>;
 
-async fn setup_test_app() -> Option<axum::Router> {
+async fn setup_test_app() -> axum::Router {
     if !super::init_test_database().await {
-        return None;
+        panic!(
+            "Protocol alignment integration tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
+        );
     }
     let container = ServiceContainer::new_test();
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(create_router(state))
+    create_router(state)
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -152,9 +154,7 @@ async fn get_admin_token(app: &axum::Router) -> String {
 
 #[tokio::test]
 async fn test_room_summary_sync_populates_members_state_and_stats() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
 
     let (token, user_id) = register_user(&app, "summary_alignment_user").await;
     let room_id = create_room(&app, &token, "Alignment Room").await;
@@ -235,9 +235,7 @@ async fn test_room_summary_sync_populates_members_state_and_stats() {
 
 #[tokio::test]
 async fn test_dm_routes_persist_matrix_direct_account_data() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
 
     let (alice_token, alice_id) = register_user(&app, "dm_alignment_alice").await;
     let (_bob_token, bob_id) = register_user(&app, "dm_alignment_bob").await;
@@ -340,9 +338,7 @@ async fn test_dm_routes_persist_matrix_direct_account_data() {
 
 #[tokio::test]
 async fn test_dm_update_accepts_users_array_and_legacy_content_shorthand() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
 
     let (alice_token, alice_id) = register_user(&app, "dm_update_alice").await;
     let (_bob_token, bob_id) = register_user(&app, "dm_update_bob").await;
@@ -435,9 +431,7 @@ async fn test_dm_update_accepts_users_array_and_legacy_content_shorthand() {
 
 #[tokio::test]
 async fn test_admin_room_search_enforces_matrix_forbidden_and_handles_special_terms() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
 
     let (user_token, _) = register_user(&app, "room_search_non_admin").await;
     let forbidden_request = Request::builder()
@@ -500,9 +494,7 @@ async fn test_admin_room_search_enforces_matrix_forbidden_and_handles_special_te
 
 #[tokio::test]
 async fn test_space_state_and_children_form_a_matrix_style_closure() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
 
     let (token, _user_id) = register_user(&app, "space_alignment_owner").await;
     let parent_room_id = create_room(&app, &token, "Parent Space Room").await;
@@ -625,9 +617,7 @@ async fn test_space_state_and_children_form_a_matrix_style_closure() {
 
 #[tokio::test]
 async fn test_space_search_accepts_query_and_search_term_alias() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
 
     let (token, _user_id) = register_user(&app, "space_search_owner").await;
     let parent_room_id = create_room(&app, &token, "Search Alias Parent Room").await;
@@ -698,9 +688,7 @@ async fn test_space_search_accepts_query_and_search_term_alias() {
 
 #[tokio::test]
 async fn test_admin_pusher_query_requires_existing_user_and_returns_created_pushers() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
 
     let (token, user_id) = register_user(&app, "pusher_alignment_user").await;
     let admin_token = get_admin_token(&app).await;
@@ -766,9 +754,7 @@ async fn test_admin_pusher_query_requires_existing_user_and_returns_created_push
 
 #[tokio::test]
 async fn test_admin_send_server_notice_persists_notice_for_target_user() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
+    let app = setup_test_app().await;
 
     let (_, user_id) = register_user(&app, "server_notice_target").await;
     let admin_token = get_admin_token(&app).await;

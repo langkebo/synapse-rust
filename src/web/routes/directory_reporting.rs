@@ -185,16 +185,12 @@ pub(crate) async fn report_room(
         auth_user.user_id,
         reason
     );
+    let _ = description;
 
-    let report_id = format!("{}_{}", room_id, chrono::Utc::now().timestamp_millis());
-
-    Ok(Json(json!({
-        "report_id": report_id,
-        "room_id": room_id,
-        "reason": reason,
-        "description": description,
-        "status": "submitted"
-    })))
+    Err(ApiError::unrecognized(format!(
+        "Room-level reporting is not supported for {}",
+        room_id
+    )))
 }
 
 pub(crate) async fn get_scanner_info(
@@ -275,7 +271,11 @@ pub(crate) async fn set_room_alias(
         .room_service
         .set_room_alias(&room_id, &room_alias, &auth_user.user_id)
         .await?;
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "alias": room_alias,
+        "created_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 pub(crate) async fn delete_room_alias(
@@ -303,10 +303,7 @@ pub(crate) async fn get_room_by_alias(
         .await?;
     match room_id {
         Some(rid) => Ok(Json(json!({ "room_id": rid }))),
-        None => Ok(Json(json!({
-            "room_id": "",
-            "servers": []
-        }))),
+        None => Err(ApiError::not_found("Room alias not found".to_string())),
     }
 }
 
