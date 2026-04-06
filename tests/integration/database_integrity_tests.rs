@@ -1,4 +1,6 @@
 use sqlx::{Pool, Postgres, Row};
+use std::sync::Arc;
+use synapse_rust::services::database_initializer::{DatabaseInitMode, DatabaseInitService};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct ForeignKeyInfo {
@@ -11,6 +13,12 @@ struct ForeignKeyInfo {
 struct IndexInfo {
     indexname: String,
     tablename: String,
+}
+
+struct OrphanDiagnosticSpec {
+    key: &'static str,
+    count_query: &'static str,
+    sample_query: &'static str,
 }
 
 struct DatabaseIntegrityChecker {
@@ -60,6 +68,36 @@ impl DatabaseIntegrityChecker {
         Ok(rows)
     }
 
+    async fn fetch_orphan_samples(
+        &self,
+        sample_query: &str,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        let rows = sqlx::query(sample_query).fetch_all(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| row.get::<serde_json::Value, _>("sample"))
+            .collect())
+    }
+
+    async fn build_orphan_entry(
+        &self,
+        spec: &OrphanDiagnosticSpec,
+    ) -> Result<serde_json::Value, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(spec.count_query)
+            .fetch_one(&self.pool)
+            .await?;
+        let samples = if count > 0 {
+            self.fetch_orphan_samples(spec.sample_query).await?
+        } else {
+            Vec::new()
+        };
+
+        Ok(serde_json::json!({
+            "count": count,
+            "samples": samples,
+        }))
+    }
+
     async fn check_orphan_data(&self) -> Result<serde_json::Value, sqlx::Error> {
         let orphan_events: i64 = sqlx::query_scalar(
             r#"
@@ -89,11 +127,294 @@ impl DatabaseIntegrityChecker {
         .fetch_one(&self.pool)
         .await?;
 
+        let orphan_memberships_missing_user: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM room_memberships rm
+            WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.user_id = rm.user_id)
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let orphan_memberships_missing_room: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM room_memberships rm
+            WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rm.room_id)
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let room_contract_specs = [
+            OrphanDiagnosticSpec {
+                key: "room_summary_state",
+                count_query: r#"
+                    SELECT COUNT(*) FROM room_summary_state rss
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rss.room_id)
+                "#,
+                sample_query: r#"
+                    SELECT jsonb_build_object(
+                        'id', rss.id,
+                        'room_id', rss.room_id,
+                        'event_type', rss.event_type,
+                        'state_key', rss.state_key,
+                        'event_id', rss.event_id,
+                        'updated_ts', rss.updated_ts
+                    ) AS sample
+                    FROM room_summary_state rss
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rss.room_id)
+                    ORDER BY rss.updated_ts DESC, rss.id DESC
+                    LIMIT 5
+                "#,
+            },
+            OrphanDiagnosticSpec {
+                key: "room_summary_stats",
+                count_query: r#"
+                    SELECT COUNT(*) FROM room_summary_stats rss
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rss.room_id)
+                "#,
+                sample_query: r#"
+                    SELECT jsonb_build_object(
+                        'id', rss.id,
+                        'room_id', rss.room_id,
+                        'total_events', rss.total_events,
+                        'total_messages', rss.total_messages,
+                        'last_updated_ts', rss.last_updated_ts
+                    ) AS sample
+                    FROM room_summary_stats rss
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rss.room_id)
+                    ORDER BY rss.last_updated_ts DESC, rss.id DESC
+                    LIMIT 5
+                "#,
+            },
+            OrphanDiagnosticSpec {
+                key: "room_summary_update_queue",
+                count_query: r#"
+                    SELECT COUNT(*) FROM room_summary_update_queue rsuq
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rsuq.room_id)
+                "#,
+                sample_query: r#"
+                    SELECT jsonb_build_object(
+                        'id', rsuq.id,
+                        'room_id', rsuq.room_id,
+                        'event_id', rsuq.event_id,
+                        'event_type', rsuq.event_type,
+                        'status', rsuq.status,
+                        'created_ts', rsuq.created_ts
+                    ) AS sample
+                    FROM room_summary_update_queue rsuq
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rsuq.room_id)
+                    ORDER BY rsuq.created_ts DESC, rsuq.id DESC
+                    LIMIT 5
+                "#,
+            },
+            OrphanDiagnosticSpec {
+                key: "room_children",
+                count_query: r#"
+                    SELECT COUNT(*) FROM room_children rc
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms parent WHERE parent.room_id = rc.parent_room_id)
+                       OR NOT EXISTS (SELECT 1 FROM rooms child WHERE child.room_id = rc.child_room_id)
+                "#,
+                sample_query: r#"
+                    SELECT jsonb_build_object(
+                        'id', rc.id,
+                        'parent_room_id', rc.parent_room_id,
+                        'child_room_id', rc.child_room_id,
+                        'parent_missing', NOT EXISTS (SELECT 1 FROM rooms parent WHERE parent.room_id = rc.parent_room_id),
+                        'child_missing', NOT EXISTS (SELECT 1 FROM rooms child WHERE child.room_id = rc.child_room_id),
+                        'updated_ts', rc.updated_ts
+                    ) AS sample
+                    FROM room_children rc
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms parent WHERE parent.room_id = rc.parent_room_id)
+                       OR NOT EXISTS (SELECT 1 FROM rooms child WHERE child.room_id = rc.child_room_id)
+                    ORDER BY rc.updated_ts DESC NULLS LAST, rc.id DESC
+                    LIMIT 5
+                "#,
+            },
+            OrphanDiagnosticSpec {
+                key: "retention_cleanup_queue",
+                count_query: r#"
+                    SELECT COUNT(*) FROM retention_cleanup_queue rcq
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rcq.room_id)
+                "#,
+                sample_query: r#"
+                    SELECT jsonb_build_object(
+                        'id', rcq.id,
+                        'room_id', rcq.room_id,
+                        'event_id', rcq.event_id,
+                        'event_type', rcq.event_type,
+                        'status', rcq.status,
+                        'origin_server_ts', rcq.origin_server_ts
+                    ) AS sample
+                    FROM retention_cleanup_queue rcq
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rcq.room_id)
+                    ORDER BY rcq.origin_server_ts DESC, rcq.id DESC
+                    LIMIT 5
+                "#,
+            },
+            OrphanDiagnosticSpec {
+                key: "retention_cleanup_logs",
+                count_query: r#"
+                    SELECT COUNT(*) FROM retention_cleanup_logs rcl
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rcl.room_id)
+                "#,
+                sample_query: r#"
+                    SELECT jsonb_build_object(
+                        'id', rcl.id,
+                        'room_id', rcl.room_id,
+                        'status', rcl.status,
+                        'started_ts', rcl.started_ts,
+                        'completed_ts', rcl.completed_ts
+                    ) AS sample
+                    FROM retention_cleanup_logs rcl
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rcl.room_id)
+                    ORDER BY rcl.started_ts DESC, rcl.id DESC
+                    LIMIT 5
+                "#,
+            },
+            OrphanDiagnosticSpec {
+                key: "retention_stats",
+                count_query: r#"
+                    SELECT COUNT(*) FROM retention_stats rs
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rs.room_id)
+                "#,
+                sample_query: r#"
+                    SELECT jsonb_build_object(
+                        'id', rs.id,
+                        'room_id', rs.room_id,
+                        'total_events', rs.total_events,
+                        'events_expired', rs.events_expired,
+                        'next_cleanup_ts', rs.next_cleanup_ts
+                    ) AS sample
+                    FROM retention_stats rs
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rs.room_id)
+                    ORDER BY rs.next_cleanup_ts DESC NULLS LAST, rs.id DESC
+                    LIMIT 5
+                "#,
+            },
+            OrphanDiagnosticSpec {
+                key: "deleted_events_index",
+                count_query: r#"
+                    SELECT COUNT(*) FROM deleted_events_index dei
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = dei.room_id)
+                "#,
+                sample_query: r#"
+                    SELECT jsonb_build_object(
+                        'id', dei.id,
+                        'room_id', dei.room_id,
+                        'event_id', dei.event_id,
+                        'deletion_ts', dei.deletion_ts,
+                        'reason', dei.reason
+                    ) AS sample
+                    FROM deleted_events_index dei
+                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = dei.room_id)
+                    ORDER BY dei.deletion_ts DESC, dei.id DESC
+                    LIMIT 5
+                "#,
+            },
+        ];
+
+        let mut room_contract_orphans = serde_json::Map::new();
+        let mut room_contract_orphan_total = 0_i64;
+        for spec in room_contract_specs {
+            let entry = self.build_orphan_entry(&spec).await?;
+            room_contract_orphan_total += entry
+                .get("count")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0);
+            room_contract_orphans.insert(spec.key.to_string(), entry);
+        }
+
+        let orphan_event_samples = self
+            .fetch_orphan_samples(
+                r#"
+                SELECT jsonb_build_object(
+                    'event_id', e.event_id,
+                    'room_id', e.room_id,
+                    'event_type', e.event_type,
+                    'origin_server_ts', e.origin_server_ts
+                ) AS sample
+                FROM events e
+                WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = e.room_id)
+                ORDER BY e.origin_server_ts DESC NULLS LAST, e.event_id
+                LIMIT 5
+                "#,
+            )
+            .await?;
+
+        let orphan_membership_user_samples = self
+            .fetch_orphan_samples(
+                r#"
+                SELECT jsonb_build_object(
+                    'event_id', rm.event_id,
+                    'room_id', rm.room_id,
+                    'user_id', rm.user_id,
+                    'membership', rm.membership,
+                    'sender', rm.sender
+                ) AS sample
+                FROM room_memberships rm
+                WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.user_id = rm.user_id)
+                ORDER BY rm.event_id DESC
+                LIMIT 5
+                "#,
+            )
+            .await?;
+
+        let orphan_membership_room_samples = self
+            .fetch_orphan_samples(
+                r#"
+                SELECT jsonb_build_object(
+                    'event_id', rm.event_id,
+                    'room_id', rm.room_id,
+                    'user_id', rm.user_id,
+                    'membership', rm.membership,
+                    'sender', rm.sender
+                ) AS sample
+                FROM room_memberships rm
+                WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rm.room_id)
+                ORDER BY rm.event_id DESC
+                LIMIT 5
+                "#,
+            )
+            .await?;
+
+        let orphan_token_samples = self
+            .fetch_orphan_samples(
+                r#"
+                SELECT jsonb_build_object(
+                    'id', at.id,
+                    'user_id', at.user_id,
+                    'device_id', at.device_id,
+                    'created_ts', at.created_ts,
+                    'expires_at', at.expires_at
+                ) AS sample
+                FROM access_tokens at
+                WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.user_id = at.user_id)
+                ORDER BY at.created_ts DESC, at.id DESC
+                LIMIT 5
+                "#,
+            )
+            .await?;
+
         Ok(serde_json::json!({
             "orphan_events": orphan_events,
             "orphan_memberships": orphan_memberships,
             "orphan_tokens": orphan_tokens,
-            "total_orphans": orphan_events + orphan_memberships + orphan_tokens
+            "total_orphans": orphan_events + orphan_memberships + orphan_tokens,
+            "membership_breakdown": {
+                "missing_user": {
+                    "count": orphan_memberships_missing_user,
+                    "samples": orphan_membership_user_samples,
+                },
+                "missing_room": {
+                    "count": orphan_memberships_missing_room,
+                    "samples": orphan_membership_room_samples,
+                }
+            },
+            "event_samples": orphan_event_samples,
+            "token_samples": orphan_token_samples,
+            "room_contract_orphans_total": room_contract_orphan_total,
+            "room_contract_orphans": room_contract_orphans
         }))
     }
 
@@ -300,6 +621,166 @@ impl DatabaseIntegrityChecker {
 mod tests {
     use super::*;
 
+    async fn ensure_public_schema_contract_repairs(
+        pool: &Pool<Postgres>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_verification_requests_to_user_state
+            ON public.verification_requests(to_user, state, updated_ts DESC)
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        async fn ensure_constraint(
+            pool: &Pool<Postgres>,
+            table_name: &str,
+            constraint_name: &str,
+            alter_sql: &str,
+        ) -> Result<(), sqlx::Error> {
+            let exists: bool = sqlx::query_scalar(
+                r#"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.table_constraints
+                    WHERE table_schema = 'public'
+                      AND table_name = $1
+                      AND constraint_name = $2
+                )
+                "#,
+            )
+            .bind(table_name)
+            .bind(constraint_name)
+            .fetch_one(pool)
+            .await?;
+
+            if !exists {
+                sqlx::query(alter_sql).execute(pool).await?;
+            }
+
+            Ok(())
+        }
+
+        ensure_constraint(
+            pool,
+            "room_summary_state",
+            "fk_room_summary_state_room",
+            "ALTER TABLE public.room_summary_state ADD CONSTRAINT fk_room_summary_state_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+        )
+        .await?;
+        ensure_constraint(
+            pool,
+            "room_summary_stats",
+            "fk_room_summary_stats_room",
+            "ALTER TABLE public.room_summary_stats ADD CONSTRAINT fk_room_summary_stats_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+        )
+        .await?;
+        ensure_constraint(
+            pool,
+            "room_summary_update_queue",
+            "fk_room_summary_update_queue_room",
+            "ALTER TABLE public.room_summary_update_queue ADD CONSTRAINT fk_room_summary_update_queue_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+        )
+        .await?;
+        ensure_constraint(
+            pool,
+            "room_children",
+            "fk_room_children_parent",
+            "ALTER TABLE public.room_children ADD CONSTRAINT fk_room_children_parent FOREIGN KEY (parent_room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+        )
+        .await?;
+        ensure_constraint(
+            pool,
+            "room_children",
+            "fk_room_children_child",
+            "ALTER TABLE public.room_children ADD CONSTRAINT fk_room_children_child FOREIGN KEY (child_room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+        )
+        .await?;
+        ensure_constraint(
+            pool,
+            "retention_cleanup_queue",
+            "fk_retention_cleanup_queue_room",
+            "ALTER TABLE public.retention_cleanup_queue ADD CONSTRAINT fk_retention_cleanup_queue_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+        )
+        .await?;
+        ensure_constraint(
+            pool,
+            "retention_cleanup_logs",
+            "fk_retention_cleanup_logs_room",
+            "ALTER TABLE public.retention_cleanup_logs ADD CONSTRAINT fk_retention_cleanup_logs_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+        )
+        .await?;
+        ensure_constraint(
+            pool,
+            "retention_stats",
+            "fk_retention_stats_room",
+            "ALTER TABLE public.retention_stats ADD CONSTRAINT fk_retention_stats_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+        )
+        .await?;
+        ensure_constraint(
+            pool,
+            "deleted_events_index",
+            "fk_deleted_events_index_room",
+            "ALTER TABLE public.deleted_events_index ADD CONSTRAINT fk_deleted_events_index_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn connect_integrity_pool() -> Option<Pool<Postgres>> {
+        let database_url = match synapse_rust::test_utils::resolve_test_database_url().await {
+            Ok(url) => url,
+            Err(error) => {
+                eprintln!(
+                    "Skipping database integrity tests: unable to resolve test database URL: {}",
+                    error
+                );
+                return None;
+            }
+        };
+
+        match Pool::connect(&database_url).await {
+            Ok(pool) => {
+                let init_service = DatabaseInitService::new(Arc::new(pool.clone()))
+                    .with_mode(DatabaseInitMode::Strict);
+                match init_service.initialize().await {
+                    Ok(report) if report.success => {
+                        if let Err(error) = ensure_public_schema_contract_repairs(&pool).await {
+                            eprintln!(
+                                "Database integrity setup warning: unable to apply public schema contract repairs: {}",
+                                error
+                            );
+                        }
+                        Some(pool)
+                    }
+                    Ok(report) => {
+                        eprintln!(
+                            "Skipping database integrity tests: strict runtime migrations reported errors: {:?}",
+                            report.errors
+                        );
+                        None
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "Skipping database integrity tests: strict runtime migrations failed: {}",
+                            error
+                        );
+                        None
+                    }
+                }
+            }
+            Err(error) => {
+                eprintln!(
+                    "Skipping database integrity tests: unable to connect using resolved TEST_DATABASE_URL candidate {}: {}",
+                    database_url, error
+                );
+                None
+            }
+        }
+    }
+
     #[test]
     fn test_integrity_checker_struct() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -343,18 +824,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_audit_critical_indexes_exist() {
-        let pool = match std::env::var("TEST_DATABASE_URL") {
-            Ok(url) => match Pool::connect(&url).await {
-                Ok(pool) => pool,
-                Err(_) => {
-                    eprintln!("Skipping audit critical indexes test: database unavailable");
-                    return;
-                }
-            },
-            Err(_) => {
-                eprintln!("Skipping audit critical indexes test: TEST_DATABASE_URL not set");
-                return;
-            }
+        let Some(pool) = connect_integrity_pool().await else {
+            return;
         };
 
         let checker = DatabaseIntegrityChecker::new(pool);
@@ -363,30 +834,31 @@ mod tests {
             .await
             .expect("Failed to check audit critical indexes");
 
-        if !missing.is_empty() {
-            eprintln!(
-                "Warning: {} audit-critical indexes are missing: {:?}",
-                missing.len(),
-                missing
-            );
-        }
+        assert!(
+            missing.is_empty(),
+            "Missing audit-critical indexes: {:?}",
+            missing
+        );
     }
 
     #[tokio::test]
     async fn test_audit_critical_constraints_exist() {
-        let pool = match std::env::var("TEST_DATABASE_URL") {
-            Ok(url) => match Pool::connect(&url).await {
-                Ok(pool) => pool,
-                Err(_) => {
-                    eprintln!("Skipping audit critical constraints test: database unavailable");
-                    return;
-                }
-            },
-            Err(_) => {
-                eprintln!("Skipping audit critical constraints test: TEST_DATABASE_URL not set");
-                return;
-            }
+        let Some(pool) = connect_integrity_pool().await else {
+            return;
         };
+
+        if let Err(error) = ensure_public_schema_contract_repairs(&pool).await {
+            let checker = DatabaseIntegrityChecker::new(pool.clone());
+            let orphan_data = checker
+                .check_orphan_data()
+                .await
+                .expect("Failed to inspect orphan data after contract repair failure");
+            panic!(
+                "Unable to apply public schema contract repairs before constraint audit: {}. Orphan data summary: {}",
+                error,
+                orphan_data
+            );
+        }
 
         let checker = DatabaseIntegrityChecker::new(pool);
         let missing = checker
@@ -394,11 +866,110 @@ mod tests {
             .await
             .expect("Failed to check audit critical constraints");
 
-        if !missing.is_empty() {
-            eprintln!(
-                "Warning: {} audit-critical constraints are missing: {:?}",
-                missing.len(),
-                missing
+        assert!(
+            missing.is_empty(),
+            "Missing audit-critical constraints: {:?}",
+            missing
+        );
+    }
+
+    #[tokio::test]
+    async fn test_orphan_data_diagnostics_query_executes() {
+        let Some(pool) = connect_integrity_pool().await else {
+            return;
+        };
+
+        let checker = DatabaseIntegrityChecker::new(pool);
+        let orphan_data = checker
+            .check_orphan_data()
+            .await
+            .expect("Failed to execute orphan data diagnostics");
+
+        let diagnostics = orphan_data
+            .as_object()
+            .expect("Expected orphan data diagnostics to be a JSON object");
+
+        assert!(
+            diagnostics.contains_key("room_contract_orphans"),
+            "Expected room_contract_orphans diagnostics entry"
+        );
+        assert!(
+            diagnostics.contains_key("membership_breakdown"),
+            "Expected membership_breakdown diagnostics entry"
+        );
+        assert!(
+            diagnostics.contains_key("event_samples"),
+            "Expected event_samples diagnostics entry"
+        );
+        assert!(
+            diagnostics.contains_key("token_samples"),
+            "Expected token_samples diagnostics entry"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verification_requests_pending_index_survives_full_migration_chain() {
+        let Some(pool) = connect_integrity_pool().await else {
+            return;
+        };
+
+        let migration_recorded: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM schema_migrations
+                WHERE version = '20260406000001'
+            )
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to check schema_migrations for verification_requests index restore");
+
+        assert!(
+            migration_recorded,
+            "Expected migration 20260406000001 to be recorded in schema_migrations"
+        );
+
+        let index_definition: Option<String> = sqlx::query_scalar(
+            r#"
+            SELECT indexdef
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+              AND tablename = 'verification_requests'
+              AND indexname = 'idx_verification_requests_to_user_state'
+            "#,
+        )
+        .fetch_optional(&pool)
+        .await
+        .expect("Failed to inspect verification_requests pending index definition");
+
+        let index_definition = index_definition
+            .expect("Expected idx_verification_requests_to_user_state after full migration chain");
+        let normalized_definition = index_definition.to_ascii_lowercase();
+
+        assert!(
+            normalized_definition.contains("(to_user, state, updated_ts desc)"),
+            "Unexpected verification_requests pending index definition: {}",
+            index_definition
+        );
+    }
+
+    #[tokio::test]
+    async fn test_public_schema_contract_repairs_apply_cleanly() {
+        let Some(pool) = connect_integrity_pool().await else {
+            return;
+        };
+
+        if let Err(error) = ensure_public_schema_contract_repairs(&pool).await {
+            let checker = DatabaseIntegrityChecker::new(pool);
+            let orphan_data = checker.check_orphan_data().await.expect(
+                "Failed to inspect orphan data after public schema contract repair failure",
+            );
+            panic!(
+                "Public schema contract repairs cannot be applied cleanly: {}. Orphan data summary: {}",
+                error,
+                orphan_data
             );
         }
     }

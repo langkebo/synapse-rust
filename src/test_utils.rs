@@ -12,7 +12,7 @@ static PREPARED_TEST_POOLS: Lazy<Mutex<VecDeque<Arc<PgPool>>>> =
     Lazy::new(|| Mutex::new(VecDeque::new()));
 static TEST_ENV_LOCK: Lazy<TokioMutex<()>> = Lazy::new(|| TokioMutex::new(()));
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
-const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 4;
+const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 2;
 const DEFAULT_TEST_DB_MIN_CONNECTIONS: u32 = 0;
 const DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_TEST_DB_IDLE_TIMEOUT_SECS: u64 = 60;

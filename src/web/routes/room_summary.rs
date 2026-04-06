@@ -9,8 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
 use crate::storage::room_summary::{
-    CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryStats,
-    UpdateSummaryMemberRequest,
+    CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryState,
+    RoomSummaryStats, UpdateSummaryMemberRequest,
+};
+use crate::web::routes::response_helpers::{
+    created_json, created_json_from, json_from, json_vec_from, require_found,
 };
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
@@ -27,11 +30,34 @@ pub struct UpdateSummaryBody {
     pub avatar_url: Option<String>,
 }
 
+impl UpdateSummaryBody {
+    fn into_request(self) -> crate::storage::room_summary::UpdateRoomSummaryRequest {
+        crate::storage::room_summary::UpdateRoomSummaryRequest {
+            name: self.name,
+            topic: self.topic,
+            avatar_url: self.avatar_url,
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UpdateMemberBody {
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
     pub membership: Option<String>,
+}
+
+impl UpdateMemberBody {
+    fn into_request(self) -> UpdateSummaryMemberRequest {
+        UpdateSummaryMemberRequest {
+            display_name: self.display_name,
+            avatar_url: self.avatar_url,
+            membership: self.membership,
+            is_hero: None,
+            last_active_ts: None,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,6 +110,54 @@ impl From<RoomSummaryStats> for StatsResponse {
     }
 }
 
+fn create_summary_request_for_room(
+    room_id: String,
+    body: CreateRoomSummaryRequest,
+) -> Result<CreateRoomSummaryRequest, ApiError> {
+    if body.room_id != room_id {
+        return Err(ApiError::bad_request(
+            "Path room_id does not match body room_id".to_string(),
+        ));
+    }
+
+    Ok(CreateRoomSummaryRequest {
+        room_id,
+        room_type: body.room_type,
+        name: body.name,
+        topic: body.topic,
+        avatar_url: body.avatar_url,
+        canonical_alias: body.canonical_alias,
+        join_rule: body.join_rule,
+        history_visibility: body.history_visibility,
+        guest_access: body.guest_access,
+        is_direct: body.is_direct,
+        is_space: body.is_space,
+    })
+}
+
+fn create_summary_member_request_for_room(
+    room_id: String,
+    body: CreateSummaryMemberRequest,
+) -> CreateSummaryMemberRequest {
+    CreateSummaryMemberRequest {
+        room_id,
+        user_id: body.user_id,
+        display_name: body.display_name,
+        avatar_url: body.avatar_url,
+        membership: body.membership,
+        is_hero: body.is_hero,
+        last_active_ts: body.last_active_ts,
+    }
+}
+
+fn room_summary_state_json(state: RoomSummaryState) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "event_id": state.event_id,
+        "content": state.content,
+        "updated_ts": state.updated_ts,
+    }))
+}
+
 pub async fn get_room_summary(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
@@ -93,10 +167,9 @@ pub async fn get_room_summary(
         .services
         .room_summary_service
         .get_summary(&room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Room summary not found"))?;
+        .await?;
 
-    Ok(Json(summary))
+    Ok(Json(require_found(summary, "Room summary not found")?))
 }
 
 pub async fn get_user_summaries(
@@ -118,25 +191,7 @@ pub async fn create_room_summary(
     _auth_user: AuthenticatedUser,
     Json(body): Json<CreateRoomSummaryRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if body.room_id != room_id {
-        return Err(ApiError::bad_request(
-            "Path room_id does not match body room_id".to_string(),
-        ));
-    }
-
-    let request = CreateRoomSummaryRequest {
-        room_id,
-        room_type: body.room_type,
-        name: body.name,
-        topic: body.topic,
-        avatar_url: body.avatar_url,
-        canonical_alias: body.canonical_alias,
-        join_rule: body.join_rule,
-        history_visibility: body.history_visibility,
-        guest_access: body.guest_access,
-        is_direct: body.is_direct,
-        is_space: body.is_space,
-    };
+    let request = create_summary_request_for_room(room_id, body)?;
 
     let summary = state
         .services
@@ -144,7 +199,7 @@ pub async fn create_room_summary(
         .create_summary(request)
         .await?;
 
-    Ok((StatusCode::CREATED, Json(summary)))
+    Ok(created_json(summary))
 }
 
 pub async fn create_internal_room_summary(
@@ -158,7 +213,7 @@ pub async fn create_internal_room_summary(
         .create_summary(body)
         .await?;
 
-    Ok((StatusCode::CREATED, Json(summary)))
+    Ok(created_json(summary))
 }
 
 pub async fn update_room_summary(
@@ -167,12 +222,7 @@ pub async fn update_room_summary(
     _auth_user: AuthenticatedUser,
     Json(body): Json<UpdateSummaryBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let request = crate::storage::room_summary::UpdateRoomSummaryRequest {
-        name: body.name,
-        topic: body.topic,
-        avatar_url: body.avatar_url,
-        ..Default::default()
-    };
+    let request = body.into_request();
 
     let summary = state
         .services
@@ -222,9 +272,7 @@ pub async fn get_members(
         .get_members(&room_id)
         .await?;
 
-    let response: Vec<MemberResponse> = members.into_iter().map(MemberResponse::from).collect();
-
-    Ok(Json(response))
+    Ok(json_vec_from::<_, MemberResponse>(members))
 }
 
 pub async fn add_member(
@@ -233,15 +281,7 @@ pub async fn add_member(
     _auth_user: AuthenticatedUser,
     Json(body): Json<CreateSummaryMemberRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let request = CreateSummaryMemberRequest {
-        room_id,
-        user_id: body.user_id,
-        display_name: body.display_name,
-        avatar_url: body.avatar_url,
-        membership: body.membership,
-        is_hero: body.is_hero,
-        last_active_ts: body.last_active_ts,
-    };
+    let request = create_summary_member_request_for_room(room_id, body);
 
     let member = state
         .services
@@ -249,7 +289,7 @@ pub async fn add_member(
         .add_member(request)
         .await?;
 
-    Ok((StatusCode::CREATED, Json(MemberResponse::from(member))))
+    Ok(created_json_from::<_, MemberResponse>(member))
 }
 
 pub async fn update_member(
@@ -258,13 +298,7 @@ pub async fn update_member(
     _auth_user: AuthenticatedUser,
     Json(body): Json<UpdateMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let request = UpdateSummaryMemberRequest {
-        display_name: body.display_name,
-        avatar_url: body.avatar_url,
-        membership: body.membership,
-        is_hero: None,
-        last_active_ts: None,
-    };
+    let request = body.into_request();
 
     let member = state
         .services
@@ -272,7 +306,7 @@ pub async fn update_member(
         .update_member(&room_id, &user_id, request)
         .await?;
 
-    Ok(Json(MemberResponse::from(member)))
+    Ok(json_from::<_, MemberResponse>(member))
 }
 
 pub async fn remove_member(
@@ -298,14 +332,12 @@ pub async fn get_state(
         .services
         .room_summary_service
         .get_state(&room_id, &event_type, &state_key)
-        .await?
-        .ok_or_else(|| ApiError::not_found("State not found"))?;
+        .await?;
 
-    Ok(Json(serde_json::json!({
-        "event_id": state.event_id,
-        "content": state.content,
-        "updated_ts": state.updated_ts,
-    })))
+    Ok(room_summary_state_json(require_found(
+        state,
+        "State not found",
+    )?))
 }
 
 pub async fn update_state(
@@ -326,11 +358,7 @@ pub async fn update_state(
         )
         .await?;
 
-    Ok(Json(serde_json::json!({
-        "event_id": state.event_id,
-        "content": state.content,
-        "updated_ts": state.updated_ts,
-    })))
+    Ok(room_summary_state_json(state))
 }
 
 pub async fn get_all_state(
@@ -514,6 +542,8 @@ pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn test_room_summary_routes_structure() {
         let routes = [
@@ -564,5 +594,120 @@ mod tests {
         assert!(v3_extra_paths
             .iter()
             .all(|path| !r0_only_read_paths.contains(path)));
+    }
+
+    #[test]
+    fn test_update_summary_body_into_request_preserves_fields() {
+        let body = UpdateSummaryBody {
+            name: Some("Updated".to_string()),
+            topic: Some("Topic".to_string()),
+            avatar_url: Some("mxc://example.com/avatar".to_string()),
+        };
+
+        let request = body.into_request();
+
+        assert_eq!(request.name.as_deref(), Some("Updated"));
+        assert_eq!(request.topic.as_deref(), Some("Topic"));
+        assert_eq!(
+            request.avatar_url.as_deref(),
+            Some("mxc://example.com/avatar")
+        );
+        assert!(request.canonical_alias.is_none());
+    }
+
+    #[test]
+    fn test_update_member_body_into_request_preserves_fields_and_defaults() {
+        let body = UpdateMemberBody {
+            display_name: Some("Alice".to_string()),
+            avatar_url: Some("mxc://example.com/alice".to_string()),
+            membership: Some("join".to_string()),
+        };
+
+        let request = body.into_request();
+
+        assert_eq!(request.display_name.as_deref(), Some("Alice"));
+        assert_eq!(
+            request.avatar_url.as_deref(),
+            Some("mxc://example.com/alice")
+        );
+        assert_eq!(request.membership.as_deref(), Some("join"));
+        assert!(request.is_hero.is_none());
+        assert!(request.last_active_ts.is_none());
+    }
+
+    #[test]
+    fn test_create_summary_request_for_room_replaces_matching_path_room_id() {
+        let body = CreateRoomSummaryRequest {
+            room_id: "!room:example.com".to_string(),
+            room_type: Some("m.space".to_string()),
+            name: Some("Room".to_string()),
+            topic: Some("Topic".to_string()),
+            avatar_url: Some("mxc://example.com/room".to_string()),
+            canonical_alias: Some("#room:example.com".to_string()),
+            join_rule: Some("invite".to_string()),
+            history_visibility: Some("shared".to_string()),
+            guest_access: Some("forbidden".to_string()),
+            is_direct: Some(false),
+            is_space: Some(true),
+        };
+
+        let request =
+            create_summary_request_for_room("!room:example.com".to_string(), body).unwrap();
+
+        assert_eq!(request.room_id, "!room:example.com");
+        assert_eq!(request.room_type.as_deref(), Some("m.space"));
+        assert_eq!(
+            request.canonical_alias.as_deref(),
+            Some("#room:example.com")
+        );
+        assert_eq!(request.is_space, Some(true));
+    }
+
+    #[test]
+    fn test_create_summary_request_for_room_rejects_mismatched_room_id() {
+        let body = CreateRoomSummaryRequest {
+            room_id: "!body:example.com".to_string(),
+            room_type: None,
+            name: None,
+            topic: None,
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: None,
+            history_visibility: None,
+            guest_access: None,
+            is_direct: None,
+            is_space: None,
+        };
+
+        let error = create_summary_request_for_room("!path:example.com".to_string(), body)
+            .expect_err("mismatched room_id should fail");
+
+        match error {
+            ApiError::BadRequest(message) => {
+                assert!(message.contains("Path room_id does not match body room_id"));
+            }
+            other => panic!("expected bad request error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_create_summary_member_request_for_room_preserves_fields() {
+        let body = CreateSummaryMemberRequest {
+            room_id: "!ignored:example.com".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            display_name: Some("Alice".to_string()),
+            avatar_url: Some("mxc://example.com/alice".to_string()),
+            membership: "join".to_string(),
+            is_hero: Some(true),
+            last_active_ts: Some(12345),
+        };
+
+        let request = create_summary_member_request_for_room("!room:example.com".to_string(), body);
+
+        assert_eq!(request.room_id, "!room:example.com");
+        assert_eq!(request.user_id, "@alice:example.com");
+        assert_eq!(request.membership, "join");
+        assert_eq!(request.is_hero, Some(true));
+        assert_eq!(request.last_active_ts, Some(12345));
     }
 }

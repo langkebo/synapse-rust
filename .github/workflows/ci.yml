@@ -39,6 +39,16 @@ jobs:
       - name: No shell routes (empty responses)
         run: bash scripts/detect_shell_routes.sh
 
+      - name: Schema table coverage
+        run: python3 scripts/check_schema_table_coverage.py
+
+      - name: Schema contract coverage (static)
+        run: |
+          mkdir -p artifacts
+          python3 scripts/check_schema_contract_coverage.py \
+            --threshold 90 \
+            --report artifacts/contract_coverage_report.md
+
   test:
     name: Test & Lint
     runs-on: ubuntu-latest
@@ -102,12 +112,15 @@ jobs:
         with:
           tool: cargo-nextest
 
+      - name: Build forward-only sqlx migration source
+        run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
+
       - name: Set up test database
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: |
           sqlx database create
-          sqlx migrate run
+          sqlx migrate run --source artifacts/sqlx-migrations
 
       - name: Run doc tests
         run: cargo test --doc --locked
@@ -190,12 +203,15 @@ jobs:
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --locked --no-default-features --features postgres
 
+      - name: Build forward-only sqlx migration source
+        run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
+
       - name: Set up test database
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: |
           sqlx database create
-          sqlx migrate run
+          sqlx migrate run --source artifacts/sqlx-migrations
 
       - name: Run coverage
         env:

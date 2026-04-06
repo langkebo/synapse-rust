@@ -1,3 +1,4 @@
+--no-transaction
 -- ============================================================================
 -- Consolidated Minor Features Migration
 -- Created: 2026-04-04
@@ -19,8 +20,8 @@ CREATE TABLE IF NOT EXISTS federation_cache (
     created_ts BIGINT NOT NULL DEFAULT 0
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_federation_cache_key ON federation_cache(key);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_federation_cache_expiry ON federation_cache(expiry_ts);
+CREATE INDEX IF NOT EXISTS idx_federation_cache_key ON federation_cache(key);
+CREATE INDEX IF NOT EXISTS idx_federation_cache_expiry ON federation_cache(expiry_ts);
 
 -- ============================================================================
 -- Part 2: Audit Events (原 20260330000010)
@@ -56,14 +57,14 @@ CREATE TABLE IF NOT EXISTS feature_flag_targets (
     CONSTRAINT uq_feature_flag_targets UNIQUE (flag_key, subject_type, subject_id)
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_feature_flags_scope_status
+CREATE INDEX IF NOT EXISTS idx_feature_flags_scope_status
 ON feature_flags(target_scope, status, updated_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_feature_flags_expires_at
+CREATE INDEX IF NOT EXISTS idx_feature_flags_expires_at
 ON feature_flags(expires_at)
 WHERE expires_at IS NOT NULL;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_feature_flag_targets_lookup
+CREATE INDEX IF NOT EXISTS idx_feature_flag_targets_lookup
 ON feature_flag_targets(flag_key, subject_type, subject_id);
 
 -- ============================================================================

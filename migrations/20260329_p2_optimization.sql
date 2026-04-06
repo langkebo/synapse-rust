@@ -17,17 +17,20 @@ SET TIME ZONE 'UTC';
 
 -- 问题: 3PID 关联查询需要通过 medium 和 address 查找 user_id
 -- 优化: 支持通过 3PID 类型和地址快速查找用户
-SELECT 'CREATE INDEX IF NOT EXISTS idx_user_threepids_medium_address ON user_threepids(medium, address)' AS sql
-WHERE EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'user_threepids'
-      AND column_name IN ('medium', 'address')
-    GROUP BY table_name
-    HAVING COUNT(*) = 2
-)
-\gexec
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'user_threepids'
+          AND column_name IN ('medium', 'address')
+        GROUP BY table_name
+        HAVING COUNT(*) = 2
+    ) THEN
+        EXECUTE 'CREATE INDEX IF NOT EXISTS idx_user_threepids_medium_address ON user_threepids(medium, address)';
+    END IF;
+END $$;
 
 -- ============================================================================
 -- 5. event_relations 表 - 补充索引
@@ -35,15 +38,18 @@ WHERE EXISTS (
 
 -- 问题: 事件关系查询常通过 thread_id 查找
 -- 优化: 支持通过 thread_id 高效查询关联事件
-SELECT 'CREATE INDEX IF NOT EXISTS idx_event_relations_thread ON event_relations(relation_thread_id)' AS sql
-WHERE EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'event_relations'
-      AND column_name = 'relation_thread_id'
-)
-\gexec
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'event_relations'
+          AND column_name = 'relation_thread_id'
+    ) THEN
+        EXECUTE 'CREATE INDEX IF NOT EXISTS idx_event_relations_thread ON event_relations(relation_thread_id)';
+    END IF;
+END $$;
 
 -- ============================================================================
 -- 6. pusher_threepids 表 - 补充索引
@@ -51,15 +57,18 @@ WHERE EXISTS (
 
 -- 问题: 推送目标查询需要通过 user_id 查找
 -- 优化: 支持通过 user_id 高效查询推送配置
-SELECT 'CREATE INDEX IF NOT EXISTS idx_pusher_threepids_user ON pusher_threepids(user_id)' AS sql
-WHERE EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'pusher_threepids'
-      AND column_name = 'user_id'
-)
-\gexec
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'pusher_threepids'
+          AND column_name = 'user_id'
+    ) THEN
+        EXECUTE 'CREATE INDEX IF NOT EXISTS idx_pusher_threepids_user ON pusher_threepids(user_id)';
+    END IF;
+END $$;
 
 -- ============================================================================
 -- 7. device_keys 表 - 补充索引 (cross-signing)
@@ -67,17 +76,20 @@ WHERE EXISTS (
 
 -- 问题: 跨设备密钥查询常通过 user_id 和 key_type 查找
 -- 优化: 支持通过 (user_id, key_type) 高效查询
-SELECT 'CREATE INDEX IF NOT EXISTS idx_device_keys_user_key_type ON device_keys(user_id, key_type)' AS sql
-WHERE EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'device_keys'
-      AND column_name IN ('user_id', 'key_type')
-    GROUP BY table_name
-    HAVING COUNT(*) = 2
-)
-\gexec
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'device_keys'
+          AND column_name IN ('user_id', 'key_type')
+        GROUP BY table_name
+        HAVING COUNT(*) = 2
+    ) THEN
+        EXECUTE 'CREATE INDEX IF NOT EXISTS idx_device_keys_user_key_type ON device_keys(user_id, key_type)';
+    END IF;
+END $$;
 
 -- ============================================================================
 -- 验证索引创建

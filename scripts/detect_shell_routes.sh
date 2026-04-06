@@ -49,13 +49,21 @@ pattern = re.compile(
     r"""
     Ok
     \s*\(
-        \s*Json
-        \s*\(
-            \s*(?:serde_json::)?json!
+        \s*
+        (?:
+            Json
             \s*\(
-                \s*\{\s*\}
+                \s*(?:serde_json::)?json!
+                \s*\(
+                    \s*\{\s*\}
+                \s*\)
             \s*\)
-        \s*\)
+          |
+            empty_json
+            \s*\(
+                \s*
+            \)
+        )
     \s*\)
     """,
     re.MULTILINE | re.DOTALL | re.VERBOSE,
@@ -139,7 +147,7 @@ for item in payload["new"]:
     print(f"  - {item['entry']}")
 PY
     echo ""
-    echo "Shell routes return empty {} responses instead of business data."
+    echo "Shell routes return empty-success responses instead of business data."
     echo "Please update these routes to return meaningful confirmation data:"
     echo "  - Resource IDs (room_id, user_id, etc.)"
     echo "  - Updated field values"
@@ -147,6 +155,7 @@ PY
     echo ""
     echo "Example fix:"
     echo "  Before: Ok(Json(json!({})))"
+    echo "      or: Ok(empty_json())"
     echo "  After:  Ok(Json(json!({"
     echo "      \"resource_id\": id,"
     echo "      \"field\": value,"

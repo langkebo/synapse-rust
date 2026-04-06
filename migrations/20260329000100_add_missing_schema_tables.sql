@@ -1,3 +1,4 @@
+--no-transaction
 -- V260330_001__MIG-XXX__add_missing_schema_tables.sql
 --
 -- 描述: 为代码中引用但缺失 schema 的表创建定义
@@ -41,8 +42,8 @@ CREATE TABLE IF NOT EXISTS dehydrated_devices (
     expires_at BIGINT
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_dehydrated_devices_user ON dehydrated_devices(user_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_dehydrated_devices_expires ON dehydrated_devices(expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_dehydrated_devices_user ON dehydrated_devices(user_id);
+CREATE INDEX IF NOT EXISTS idx_dehydrated_devices_expires ON dehydrated_devices(expires_at) WHERE expires_at IS NOT NULL;
 
 -- ============================================================================
 -- 2. delayed_events - 延迟事件表
@@ -65,9 +66,9 @@ CREATE TABLE IF NOT EXISTS delayed_events (
     last_error TEXT
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_delayed_events_scheduled ON delayed_events(scheduled_ts);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_delayed_events_status ON delayed_events(status);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_delayed_events_room ON delayed_events(room_id);
+CREATE INDEX IF NOT EXISTS idx_delayed_events_scheduled ON delayed_events(scheduled_ts);
+CREATE INDEX IF NOT EXISTS idx_delayed_events_status ON delayed_events(status);
+CREATE INDEX IF NOT EXISTS idx_delayed_events_room ON delayed_events(room_id);
 
 -- ============================================================================
 -- 3. e2ee_audit_log - E2EE 审计日志表
@@ -84,9 +85,9 @@ CREATE TABLE IF NOT EXISTS e2ee_audit_log (
     created_ts BIGINT NOT NULL
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_e2ee_audit_log_user ON e2ee_audit_log(user_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_e2ee_audit_log_created ON e2ee_audit_log(created_ts DESC);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_e2ee_audit_log_action ON e2ee_audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_e2ee_audit_log_user ON e2ee_audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_e2ee_audit_log_created ON e2ee_audit_log(created_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_e2ee_audit_log_action ON e2ee_audit_log(action);
 
 -- ============================================================================
 -- 4. e2ee_secret_storage_keys - SSSS 密钥存储表
@@ -104,8 +105,8 @@ CREATE TABLE IF NOT EXISTS e2ee_secret_storage_keys (
     is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_e2ee_secret_storage_keys_user ON e2ee_secret_storage_keys(user_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_e2ee_secret_storage_keys_key_id ON e2ee_secret_storage_keys(key_id);
+CREATE INDEX IF NOT EXISTS idx_e2ee_secret_storage_keys_user ON e2ee_secret_storage_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_e2ee_secret_storage_keys_key_id ON e2ee_secret_storage_keys(key_id);
 
 -- ============================================================================
 -- 5. e2ee_stored_secrets - 存储的 E2EE 密钥表
@@ -121,8 +122,8 @@ CREATE TABLE IF NOT EXISTS e2ee_stored_secrets (
     updated_ts BIGINT NOT NULL
 );
 
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_e2ee_stored_secrets_user_name ON e2ee_stored_secrets(user_id, secret_name);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_e2ee_stored_secrets_key ON e2ee_stored_secrets(key_key_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_e2ee_stored_secrets_user_name ON e2ee_stored_secrets(user_id, secret_name);
+CREATE INDEX IF NOT EXISTS idx_e2ee_stored_secrets_key ON e2ee_stored_secrets(key_key_id);
 
 -- ============================================================================
 -- 6. email_verification_tokens - 邮箱验证令牌表
@@ -139,8 +140,8 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
     session_data JSONB
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_email_verification_tokens_email ON email_verification_tokens(email);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_email_verification_tokens_expires ON email_verification_tokens(expires_at) WHERE used = FALSE;
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_email ON email_verification_tokens(email);
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_expires ON email_verification_tokens(expires_at) WHERE used = FALSE;
 
 -- ============================================================================
 -- 7. federation_access_stats - 联邦访问统计表
@@ -161,7 +162,7 @@ CREATE TABLE IF NOT EXISTS federation_access_stats (
     updated_ts BIGINT NOT NULL
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_federation_access_stats_server ON federation_access_stats(server_name);
+CREATE INDEX IF NOT EXISTS idx_federation_access_stats_server ON federation_access_stats(server_name);
 
 -- ============================================================================
 -- 8. federation_blacklist_config - 联邦黑名单配置表
@@ -180,7 +181,7 @@ CREATE TABLE IF NOT EXISTS federation_blacklist_config (
     metadata JSONB NOT NULL DEFAULT '{}'
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_federation_blacklist_config_enabled ON federation_blacklist_config(is_enabled) WHERE is_enabled = TRUE;
+CREATE INDEX IF NOT EXISTS idx_federation_blacklist_config_enabled ON federation_blacklist_config(is_enabled) WHERE is_enabled = TRUE;
 
 -- ============================================================================
 -- 9. federation_blacklist_log - 联邦黑名单日志表
@@ -200,8 +201,8 @@ CREATE TABLE IF NOT EXISTS federation_blacklist_log (
     metadata JSONB NOT NULL DEFAULT '{}'
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_federation_blacklist_log_server ON federation_blacklist_log(server_name);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_federation_blacklist_log_performed ON federation_blacklist_log(performed_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_federation_blacklist_log_server ON federation_blacklist_log(server_name);
+CREATE INDEX IF NOT EXISTS idx_federation_blacklist_log_performed ON federation_blacklist_log(performed_ts DESC);
 
 -- ============================================================================
 -- 10. federation_blacklist_rule - 联邦黑名单规则表
@@ -221,8 +222,8 @@ CREATE TABLE IF NOT EXISTS federation_blacklist_rule (
     created_by TEXT NOT NULL
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_federation_blacklist_rule_enabled ON federation_blacklist_rule(is_enabled) WHERE is_enabled = TRUE;
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_federation_blacklist_rule_priority ON federation_blacklist_rule(priority DESC);
+CREATE INDEX IF NOT EXISTS idx_federation_blacklist_rule_enabled ON federation_blacklist_rule(is_enabled) WHERE is_enabled = TRUE;
+CREATE INDEX IF NOT EXISTS idx_federation_blacklist_rule_priority ON federation_blacklist_rule(priority DESC);
 
 -- ============================================================================
 -- 11. leak_alerts - 密钥泄漏告警表
@@ -241,9 +242,9 @@ CREATE TABLE IF NOT EXISTS leak_alerts (
     acknowledged_at BIGINT
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leak_alerts_user ON leak_alerts(user_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leak_alerts_created ON leak_alerts(created_ts DESC);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leak_alerts_acknowledged ON leak_alerts(acknowledged) WHERE acknowledged = FALSE;
+CREATE INDEX IF NOT EXISTS idx_leak_alerts_user ON leak_alerts(user_id);
+CREATE INDEX IF NOT EXISTS idx_leak_alerts_created ON leak_alerts(created_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_leak_alerts_acknowledged ON leak_alerts(acknowledged) WHERE acknowledged = FALSE;
 
 -- ============================================================================
 -- 完成

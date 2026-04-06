@@ -94,6 +94,7 @@
   - [x] 设计“迁移文件 -> 实际 schema -> SQLx 查询 -> 集成测试”的闭环校验链
   - [x] 定义 migration gate、schema contract test、失败分类与阻断规则
   - [x] 已拆出独立执行文档：`task15_schema_contract_and_migration_gate_execution_plan.md`
+  - [x] 已将 `schema_contract_room_summary_tests`、`schema_contract_space_tests`、`schema_contract_account_data_tests`、`schema_contract_search_tests`、`schema_contract_e2ee_verification_tests` 接入 `db-migration-gate.yml` 的 `sqlx Migrate Run` 阻断链路
 
 - [x] Task 16: 制定测试体系与工作区产物治理方案
   - [x] 设计占位接口探测测试、schema 回归测试、路由契约测试三类自动化测试基线

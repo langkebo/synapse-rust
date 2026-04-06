@@ -1,10 +1,11 @@
+--no-transaction
 -- ============================================================================
 -- P1 性能索引优化（活跃迁移）
 -- 创建日期: 2026-03-28
 -- 状态: 活跃
 --
 -- 说明: 基于 P1 性能分析添加 9 个关键索引，提升查询性能
--- 幂等性: 使用 CREATE INDEX CONCURRENTLY IF NOT EXISTS，可重复执行
+-- 幂等性: 使用 CREATE INDEX IF NOT EXISTS，可重复执行
 -- 应用场景: 升级路径必需，空库初始化可选
 -- ============================================================================
 
@@ -16,11 +17,11 @@ SET TIME ZONE 'UTC';
 
 -- 问题: 搜索结果按时间排序时缺少索引
 -- 优化: 支持搜索结果按创建时间排序
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_search_index_created_ts
+CREATE INDEX IF NOT EXISTS idx_search_index_created_ts
 ON search_index(created_ts DESC);
 
 -- 复合索引: room_id + created_ts 用于房间内搜索结果排序
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_search_index_room_created
+CREATE INDEX IF NOT EXISTS idx_search_index_room_created
 ON search_index(room_id, created_ts DESC);
 
 -- ============================================================================
@@ -29,11 +30,11 @@ ON search_index(room_id, created_ts DESC);
 
 -- 问题: 按 room_id 单独查询时效率低
 -- 优化: 支持按 room_id 高效查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sliding_sync_rooms_room
+CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_room
 ON sliding_sync_rooms(room_id);
 
 -- 复合索引: room_id + bump_stamp 用于房间内按活跃度排序
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sliding_sync_rooms_room_bump
+CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_room_bump
 ON sliding_sync_rooms(room_id, bump_stamp DESC);
 
 -- ============================================================================
@@ -41,7 +42,7 @@ ON sliding_sync_rooms(room_id, bump_stamp DESC);
 -- ============================================================================
 
 -- 复合索引: room_id + membership + user_id 用于联合查询优化
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_room_memberships_room_membership_user
+CREATE INDEX IF NOT EXISTS idx_room_memberships_room_membership_user
 ON room_memberships(room_id, membership, user_id);
 
 -- ============================================================================
@@ -49,7 +50,7 @@ ON room_memberships(room_id, membership, user_id);
 -- ============================================================================
 
 -- 覆盖索引: 减少回表查询，提升事件详情查询性能
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_room_time_covering
+CREATE INDEX IF NOT EXISTS idx_events_room_time_covering
 ON events(room_id, origin_server_ts DESC)
 INCLUDE (event_id, event_type, sender, state_key);
 
@@ -58,7 +59,7 @@ INCLUDE (event_id, event_type, sender, state_key);
 -- ============================================================================
 
 -- 复合索引: 用户 + 房间 + 时间 用于通知列表查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notifications_user_room_ts
+CREATE INDEX IF NOT EXISTS idx_notifications_user_room_ts
 ON notifications(user_id, room_id, ts DESC);
 
 -- ============================================================================
@@ -66,7 +67,7 @@ ON notifications(user_id, room_id, ts DESC);
 -- ============================================================================
 
 -- 复合索引: 房间 + 类型 + 时间 用于回执列表查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_event_receipts_room_type
+CREATE INDEX IF NOT EXISTS idx_event_receipts_room_type
 ON event_receipts(room_id, receipt_type, ts DESC);
 
 -- ============================================================================

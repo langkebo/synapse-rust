@@ -123,12 +123,13 @@ jobs:
         env:
           PGPASSWORD: synapse
         run: |
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260328000003_add_invite_restrictions_and_device_verification_request.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260404000001_consolidated_schema_alignment.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260404000002_consolidated_minor_features.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/20260330000012_add_federation_signing_keys.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/V260329_000__SYS_0001__create_migration_audit_table.sql
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/V260330_001__MIG-XXX__add_missing_schema_tables.sql
+          set -euo pipefail
+          test -f scripts/ci/critical_migrations.txt
+          while IFS= read -r migration; do
+            [ -z "$migration" ] && continue
+            test -f "$migration"
+            psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f "$migration"
+          done < scripts/ci/critical_migrations.txt
 
       - name: Run pg_amcheck
         env:
@@ -142,6 +143,109 @@ jobs:
         with:
           name: db-amcheck-report
           path: artifacts/db-amcheck-report.txt
+
+  unified-vs-db-migrate-p0-alignment:
+    name: Unified vs DB-Migrate P0 Alignment
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install psycopg2-binary
+
+      - name: Install PostgreSQL tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Prepare comparison databases
+        env:
+          PGPASSWORD: synapse
+        run: |
+          psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS synapse_expected;"
+          psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS synapse_actual;"
+          psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE synapse_expected;"
+          psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE synapse_actual;"
+
+      - name: Apply unified schema baseline and critical increments
+        env:
+          PGPASSWORD: synapse
+        run: |
+          psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v6.sql
+          set -euo pipefail
+          test -f scripts/ci/critical_migrations.txt
+          while IFS= read -r migration; do
+            [ -z "$migration" ] && continue
+            test -f "$migration"
+            psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f "$migration"
+          done < scripts/ci/critical_migrations.txt
+
+      - name: Apply migration-managed schema through db_migrate.sh
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: synapse_actual
+          DB_USER: synapse
+          DB_PASSWORD: synapse
+        run: bash docker/db_migrate.sh migrate
+
+      - name: Extract expected and actual schemas
+        run: |
+          python3 scripts/db/extract_schema.py \
+            --host localhost \
+            --port 5432 \
+            --database synapse_expected \
+            --user synapse \
+            --password synapse \
+            --schema public \
+            --output artifacts/expected_schema_db_migrate.json \
+            --skip-row-counts
+          python3 scripts/db/extract_schema.py \
+            --host localhost \
+            --port 5432 \
+            --database synapse_actual \
+            --user synapse \
+            --password synapse \
+            --schema public \
+            --output artifacts/actual_schema_db_migrate.json \
+            --skip-row-counts
+
+      - name: Block on unified-vs-migrations P0 schema drift
+        run: |
+          python3 scripts/db/check_p0_schema_alignment.py \
+            artifacts/expected_schema_db_migrate.json \
+            artifacts/actual_schema_db_migrate.json \
+            --text-report artifacts/p0_schema_alignment_db_migrate.txt \
+            --markdown-report artifacts/p0_schema_alignment_db_migrate.md
+
+      - name: Upload P0 schema alignment report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0-schema-alignment-db-migrate-report
+          path: |
+            artifacts/p0_schema_alignment_db_migrate.txt
+            artifacts/p0_schema_alignment_db_migrate.md
 
   sqlx-migrate-run:
     name: sqlx Migrate Run
@@ -164,18 +268,83 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Python dependencies
+        run: pip install psycopg2-binary
+
+      - name: Install PostgreSQL tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --locked --no-default-features --features postgres
+
+      - name: Build forward-only sqlx migration source
+        run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
 
       - name: Create database and run migrations
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: |
           sqlx database create
-          sqlx migrate run
+          sqlx migrate run --source artifacts/sqlx-migrations
+
+      - name: Create expected comparison database
+        env:
+          PGPASSWORD: synapse
+        run: |
+          psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS synapse_expected;"
+          psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE synapse_expected;"
+
+      - name: Apply unified schema baseline and critical increments to expected database
+        env:
+          PGPASSWORD: synapse
+        run: |
+          psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v6.sql
+          set -euo pipefail
+          test -f scripts/ci/critical_migrations.txt
+          while IFS= read -r migration; do
+            [ -z "$migration" ] && continue
+            test -f "$migration"
+            psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f "$migration"
+          done < scripts/ci/critical_migrations.txt
+
+      - name: Extract actual and expected schemas
+        run: |
+          python3 scripts/db/extract_schema.py \
+            --host localhost \
+            --port 5432 \
+            --database synapse \
+            --user synapse \
+            --password synapse \
+            --schema public \
+            --output artifacts/actual_schema.json \
+            --skip-row-counts
+          python3 scripts/db/extract_schema.py \
+            --host localhost \
+            --port 5432 \
+            --database synapse_expected \
+            --user synapse \
+            --password synapse \
+            --schema public \
+            --output artifacts/expected_schema.json \
+            --skip-row-counts
+
+      - name: Block on unified-vs-migrations P0 schema drift
+        run: |
+          python3 scripts/db/check_p0_schema_alignment.py \
+            artifacts/expected_schema.json \
+            artifacts/actual_schema.json \
+            --text-report artifacts/p0_schema_alignment.txt \
+            --markdown-report artifacts/p0_schema_alignment.md
 
       - name: Run thread storage database smoke tests
         env:
@@ -207,6 +376,59 @@ jobs:
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: cargo test --locked --test unit schema_contract_p0 -- --test-threads=1
 
+      - name: Run room summary schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_room_summary_tests -- --test-threads=1
+
+      - name: Run space schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_space_tests -- --test-threads=1
+
+      - name: Run account data schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_account_data_tests -- --test-threads=1
+
+      - name: Run search schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_search_tests -- --test-threads=1
+
+      - name: Run e2ee schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_e2ee_verification_tests -- --test-threads=1
+
+      - name: Run database integrity migration gates
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: |
+          set -euo pipefail
+          tests=(
+            "database_integrity_tests::tests::test_audit_critical_indexes_exist"
+            "database_integrity_tests::tests::test_audit_critical_constraints_exist"
+            "database_integrity_tests::tests::test_verification_requests_pending_index_survives_full_migration_chain"
+            "database_integrity_tests::tests::test_public_schema_contract_repairs_apply_cleanly"
+            "database_integrity_tests::tests::test_orphan_data_diagnostics_query_executes"
+          )
+          for test_name in "${tests[@]}"; do
+            cargo test --locked --test integration "$test_name" -- --exact --nocapture
+          done
+
       - name: Run invite blocklist database smoke tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
@@ -225,3 +447,12 @@ jobs:
         with:
           name: db-logical-checksum-report
           path: artifacts/db-logical-checksum-report.json
+
+      - name: Upload P0 schema alignment report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0-schema-alignment-report
+          path: |
+            artifacts/p0_schema_alignment.txt
+            artifacts/p0_schema_alignment.md

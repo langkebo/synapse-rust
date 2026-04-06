@@ -71,8 +71,16 @@ bash docker/db_migrate.sh validate
 
 - `db-migration-gate.yml` 是唯一迁移治理门禁
 - `ci.yml` 保留通用测试与 `sqlx migrate run` 初始化，不承担治理口径定义
+- `scripts/ci/critical_migrations.txt` 是 unified schema 之后的关键补偿迁移清单；凡是影响 schema contract、public repair、关键索引或关键外键恢复的迁移，都必须同步登记到该文件
 - `99999999_unified_incremental_migration.sql` 在最小实现阶段继续保留，但新增关键迁移以专项门禁和运维脚本为准
 - Docker 入口在 `RUN_MIGRATIONS=true` 时自动触发同一 `migrate` 入口，不构成独立迁移口径
+
+### 当前关键补偿迁移
+
+- `20260406000001_restore_verification_requests_pending_index.sql`
+- `20260406000002_restore_schema_contract_foreign_keys.sql`
+- `20260406000003_restore_public_schema_contract_foreign_keys.sql`
+- `20260406000004_cleanup_schema_contract_room_orphans.sql`
 
 ## 回滚策略
 

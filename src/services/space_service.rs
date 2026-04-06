@@ -477,13 +477,13 @@ impl SpaceService {
         if space.join_rule == "invite" {
             let existing = self
                 .space_storage
-                .get_space_members(space_id)
+                .get_space_member(space_id, user_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get space members: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to get space member: {}", e)))?;
 
             let is_invited = existing
-                .iter()
-                .any(|m| m.user_id == user_id && m.membership == "invite");
+                .as_ref()
+                .is_some_and(|member| member.membership == "invite");
             if !is_invited {
                 return Err(ApiError::forbidden("Space is invite-only"));
             }

@@ -1,5 +1,6 @@
 use crate::common::error::ApiError;
 use crate::services::VoipService;
+use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
 use axum::{extract::Path, extract::State, Json};
@@ -185,7 +186,7 @@ pub async fn call_candidates(
         .handle_candidates(&room_id, &auth_user.user_id, content)
         .await?;
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }
 
 /// Call answer event
@@ -222,7 +223,7 @@ pub async fn call_hangup(
         .handle_hangup(&room_id, &auth_user.user_id, content)
         .await?;
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }
 
 /// Get call session

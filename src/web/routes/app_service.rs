@@ -9,8 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
 use crate::storage::application_service::{
-    ApplicationService, ApplicationServiceUser, RegisterApplicationServiceRequest,
-    UpdateApplicationServiceRequest,
+    ApplicationService, ApplicationServiceState, ApplicationServiceUser,
+    RegisterApplicationServiceRequest, UpdateApplicationServiceRequest,
+};
+use crate::web::routes::response_helpers::{
+    created_json_from, empty_json, json_from, json_vec_from, require_found,
 };
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
@@ -29,6 +32,27 @@ pub struct RegisterAppServiceBody {
     pub namespaces: Option<serde_json::Value>,
 }
 
+impl RegisterAppServiceBody {
+    fn into_request(self) -> Result<RegisterApplicationServiceRequest, ApiError> {
+        let sender = self
+            .sender
+            .or(self.sender_localpart)
+            .ok_or_else(|| ApiError::bad_request("Missing sender or sender_localpart"))?;
+
+        Ok(RegisterApplicationServiceRequest {
+            as_id: self.id,
+            url: self.url,
+            as_token: self.as_token,
+            hs_token: self.hs_token,
+            sender,
+            description: self.description,
+            rate_limited: self.rate_limited,
+            protocols: self.protocols,
+            namespaces: self.namespaces,
+        })
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UpdateAppServiceBody {
     pub url: Option<String>,
@@ -36,6 +60,30 @@ pub struct UpdateAppServiceBody {
     pub rate_limited: Option<bool>,
     pub protocols: Option<Vec<String>>,
     pub is_enabled: Option<bool>,
+}
+
+impl UpdateAppServiceBody {
+    fn into_request(self) -> UpdateApplicationServiceRequest {
+        let mut request = UpdateApplicationServiceRequest::new();
+
+        if let Some(url) = self.url {
+            request = request.url(url);
+        }
+        if let Some(description) = self.description {
+            request = request.description(description);
+        }
+        if let Some(rate_limited) = self.rate_limited {
+            request = request.rate_limited(rate_limited);
+        }
+        if let Some(protocols) = self.protocols {
+            request = request.protocols(protocols);
+        }
+        if let Some(is_enabled) = self.is_enabled {
+            request = request.is_enabled(is_enabled);
+        }
+
+        request
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,6 +173,15 @@ impl From<ApplicationServiceUser> for VirtualUserResponse {
     }
 }
 
+fn app_service_state_json(state_entry: ApplicationServiceState) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "as_id": state_entry.as_id,
+        "state_key": state_entry.state_key,
+        "state_value": state_entry.state_value,
+        "updated_ts": state_entry.updated_ts
+    }))
+}
+
 fn extract_as_token(headers: &HeaderMap) -> Result<String, ApiError> {
     headers
         .get("authorization")
@@ -139,39 +196,23 @@ pub async fn register_app_service(
     _auth_user: AuthenticatedUser,
     Json(body): Json<RegisterAppServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let sender = body
-        .sender
-        .or(body.sender_localpart)
-        .ok_or_else(|| ApiError::bad_request("Missing sender or sender_localpart"))?;
-    let request = RegisterApplicationServiceRequest {
-        as_id: body.id,
-        url: body.url,
-        as_token: body.as_token,
-        hs_token: body.hs_token,
-        sender,
-        description: body.description,
-        rate_limited: body.rate_limited,
-        protocols: body.protocols,
-        namespaces: body.namespaces,
-    };
+    let request = body.into_request()?;
 
     let service = state.services.app_service_manager.register(request).await?;
 
-    Ok((StatusCode::CREATED, Json(AppServiceResponse::from(service))))
+    Ok(created_json_from::<_, AppServiceResponse>(service))
 }
 
 pub async fn get_app_service(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let service = state
-        .services
-        .app_service_manager
-        .get(&as_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Application service not found"))?;
+    let service = state.services.app_service_manager.get(&as_id).await?;
 
-    Ok(Json(AppServiceResponse::from(service)))
+    Ok(json_from::<_, AppServiceResponse>(require_found(
+        service,
+        "Application service not found",
+    )?))
 }
 
 pub async fn list_app_services(
@@ -179,10 +220,7 @@ pub async fn list_app_services(
 ) -> Result<impl IntoResponse, ApiError> {
     let services = state.services.app_service_manager.get_all_active().await?;
 
-    let response: Vec<AppServiceResponse> =
-        services.into_iter().map(AppServiceResponse::from).collect();
-
-    Ok(Json(response))
+    Ok(json_vec_from::<_, AppServiceResponse>(services))
 }
 
 pub async fn update_app_service(
@@ -191,23 +229,7 @@ pub async fn update_app_service(
     _auth_user: AuthenticatedUser,
     Json(body): Json<UpdateAppServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let mut request = UpdateApplicationServiceRequest::new();
-
-    if let Some(url) = body.url {
-        request = request.url(url);
-    }
-    if let Some(description) = body.description {
-        request = request.description(description);
-    }
-    if let Some(rate_limited) = body.rate_limited {
-        request = request.rate_limited(rate_limited);
-    }
-    if let Some(protocols) = body.protocols {
-        request = request.protocols(protocols);
-    }
-    if let Some(is_enabled) = body.is_enabled {
-        request = request.is_enabled(is_enabled);
-    }
+    let request = body.into_request();
 
     let service = state
         .services
@@ -215,7 +237,7 @@ pub async fn update_app_service(
         .update(&as_id, request)
         .await?;
 
-    Ok(Json(AppServiceResponse::from(service)))
+    Ok(json_from::<_, AppServiceResponse>(service))
 }
 
 pub async fn delete_app_service(
@@ -255,12 +277,7 @@ pub async fn set_app_service_state(
         .set_state(&as_id, &body.state_key, &body.state_value)
         .await?;
 
-    Ok(Json(serde_json::json!({
-        "as_id": state_entry.as_id,
-        "state_key": state_entry.state_key,
-        "state_value": state_entry.state_value,
-        "updated_ts": state_entry.updated_ts
-    })))
+    Ok(app_service_state_json(state_entry))
 }
 
 pub async fn get_app_service_state(
@@ -271,15 +288,12 @@ pub async fn get_app_service_state(
         .services
         .app_service_manager
         .get_state(&as_id, &state_key)
-        .await?
-        .ok_or_else(|| ApiError::not_found("State not found"))?;
+        .await?;
 
-    Ok(Json(serde_json::json!({
-        "as_id": state_entry.as_id,
-        "state_key": state_entry.state_key,
-        "state_value": state_entry.state_value,
-        "updated_ts": state_entry.updated_ts
-    })))
+    Ok(app_service_state_json(require_found(
+        state_entry,
+        "State not found",
+    )?))
 }
 
 pub async fn get_app_service_states(
@@ -311,7 +325,7 @@ pub async fn register_virtual_user(
         )
         .await?;
 
-    Ok((StatusCode::CREATED, Json(VirtualUserResponse::from(user))))
+    Ok(created_json_from::<_, VirtualUserResponse>(user))
 }
 
 pub async fn get_virtual_users(
@@ -324,10 +338,7 @@ pub async fn get_virtual_users(
         .get_virtual_users(&as_id)
         .await?;
 
-    let response: Vec<VirtualUserResponse> =
-        users.into_iter().map(VirtualUserResponse::from).collect();
-
-    Ok(Json(response))
+    Ok(json_vec_from::<_, VirtualUserResponse>(users))
 }
 
 pub async fn get_namespaces(
@@ -472,7 +483,7 @@ pub async fn app_service_transactions(
         .send_transaction(&as_id, events.clone())
         .await?;
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }
 
 pub async fn app_service_user_query(
@@ -500,7 +511,7 @@ pub async fn app_service_user_query(
         ));
     }
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }
 
 pub async fn app_service_room_alias_query(
@@ -528,19 +539,16 @@ pub async fn app_service_room_alias_query(
         ));
     }
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }
 
 pub async fn app_service_query(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let service = state
-        .services
-        .app_service_manager
-        .get(&as_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Application service not found"))?;
+    let service = state.services.app_service_manager.get(&as_id).await?;
+
+    let service = require_found(service, "Application service not found")?;
 
     Ok(Json(serde_json::json!({
         "id": service.as_id,
@@ -644,4 +652,78 @@ async fn get_user_appservice(
         "user_id": user_id,
         "appservices": []
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_register_app_service_body_into_request_uses_sender_fallback() {
+        let body = RegisterAppServiceBody {
+            id: "as-1".to_string(),
+            url: "https://example.com".to_string(),
+            as_token: "as-token".to_string(),
+            hs_token: "hs-token".to_string(),
+            sender: None,
+            sender_localpart: Some("@bot:example.com".to_string()),
+            description: Some("desc".to_string()),
+            rate_limited: Some(true),
+            protocols: Some(vec!["irc".to_string()]),
+            namespaces: Some(serde_json::json!({"users": [], "aliases": [], "rooms": []})),
+        };
+
+        let request = body.into_request().expect("sender fallback should succeed");
+
+        assert_eq!(request.as_id, "as-1");
+        assert_eq!(request.sender, "@bot:example.com");
+        assert_eq!(request.protocols, Some(vec!["irc".to_string()]));
+    }
+
+    #[test]
+    fn test_register_app_service_body_into_request_requires_sender() {
+        let body = RegisterAppServiceBody {
+            id: "as-1".to_string(),
+            url: "https://example.com".to_string(),
+            as_token: "as-token".to_string(),
+            hs_token: "hs-token".to_string(),
+            sender: None,
+            sender_localpart: None,
+            description: None,
+            rate_limited: None,
+            protocols: None,
+            namespaces: None,
+        };
+
+        let error = body.into_request().expect_err("missing sender should fail");
+
+        match error {
+            ApiError::BadRequest(message) => {
+                assert!(message.contains("Missing sender or sender_localpart"));
+            }
+            other => panic!("expected bad request error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_update_app_service_body_into_request_preserves_fields() {
+        let body = UpdateAppServiceBody {
+            url: Some("https://updated.example.com".to_string()),
+            description: Some("updated".to_string()),
+            rate_limited: Some(false),
+            protocols: Some(vec!["slack".to_string(), "irc".to_string()]),
+            is_enabled: Some(true),
+        };
+
+        let request = body.into_request();
+
+        assert_eq!(request.url.as_deref(), Some("https://updated.example.com"));
+        assert_eq!(request.description.as_deref(), Some("updated"));
+        assert_eq!(request.rate_limited, Some(false));
+        assert_eq!(
+            request.protocols,
+            Some(vec!["slack".to_string(), "irc".to_string()])
+        );
+        assert_eq!(request.is_enabled, Some(true));
+    }
 }

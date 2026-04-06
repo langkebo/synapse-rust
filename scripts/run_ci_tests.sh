@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-TEST_THREADS="${TEST_THREADS:-4}"
+TEST_THREADS="${TEST_THREADS:-2}"
 TEST_RETRIES="${TEST_RETRIES:-2}"
 NEXTEST_PROFILE_NAME="${NEXTEST_PROFILE_NAME:-ci}"
 

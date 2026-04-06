@@ -34,14 +34,30 @@ docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synaps
 docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust validate
 ```
 
+#### 本地排查 `sqlx migrate`
+
+仓库根目录的 `migrations/` 同时保留 forward migration 与 `.undo.sql` 回滚脚本。`sqlx` 会扫描 source 目录内所有 `.sql` 文件，因此本地排查时不要直接对根 `migrations/` 执行 `sqlx migrate info/run`。
+
+统一使用包装脚本，它会先构建只包含 forward migration 的临时目录，再把 `--source` 传给 `sqlx`：
+
+```bash
+bash scripts/sqlx_migrate.sh info
+bash scripts/sqlx_migrate.sh run
+```
+
+如需自定义输出目录，可设置 `SQLX_SOURCE_DIR=/path/to/sqlx-migrations`。
+
 #### 治理口径
 
 - `db-migration-gate.yml` 是唯一迁移治理门禁
 - `ci.yml` 保留通用测试与 `sqlx migrate run` 初始化，不承担迁移治理口径定义
+- `scripts/ci/critical_migrations.txt` 定义 unified schema 之后必须补跑的 critical increments；新增会影响 schema contract、repair 或关键索引/外键的迁移时，必须同步更新该清单
 - `99999999_unified_incremental_migration.sql` 仅作为历史兼容资产保留，不再作为推荐部署入口
 - 迁移命名与目录模型以 `MIGRATION_INDEX.md` 为唯一规范源
 - Docker 入口在 `RUN_MIGRATIONS=true` 时会自动调用同一 `migrate` 入口，不代表第二套迁移方案
 - Rust 运行时数据库初始化默认关闭，只有显式设置 `SYNAPSE_ENABLE_RUNTIME_DB_INIT=true` 时才允许进入兼容路径
+
+当前 critical increments 已覆盖 `20260406000001-00004`，用于恢复 `verification_requests` 关键索引、补回 schema contract 外键，并在 public schema 中清理会阻断外键恢复的 room-derived orphan rows。
 
 ### Schema 变更历史
 

@@ -89,19 +89,20 @@ jobs:
           PGPASSWORD: synapse
         run: |
           psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v6.sql
-          for migration in \
-            migrations/20260328000003_add_invite_restrictions_and_device_verification_request.sql \
-            migrations/20260404000001_consolidated_schema_alignment.sql \
-            migrations/20260404000002_consolidated_minor_features.sql \
-            migrations/20260330000012_add_federation_signing_keys.sql; do
+          set -euo pipefail
+          test -f scripts/ci/critical_migrations.txt
+          while IFS= read -r migration; do
+            [ -z "$migration" ] && continue
+            test -f "$migration"
             psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f "$migration"
-          done
+          done < scripts/ci/critical_migrations.txt
 
       - name: Apply actual sqlx migration chain
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_actual
         run: |
-          sqlx migrate run
+          python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
+          sqlx migrate run --source artifacts/sqlx-migrations
 
       - name: Generate expected schema from applied baseline
         run: |

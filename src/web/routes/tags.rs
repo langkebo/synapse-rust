@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::common::ApiError;
+use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
 
@@ -128,7 +129,7 @@ async fn put_tag(
     .await
     .map_err(|e| ApiError::internal(format!("Failed to set tag: {}", e)))?;
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }
 
 async fn delete_tag(
@@ -144,7 +145,7 @@ async fn delete_tag(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to delete tag: {}", e)))?;
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }
 
 async fn get_room_tags(

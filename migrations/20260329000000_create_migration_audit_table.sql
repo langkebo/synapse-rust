@@ -39,13 +39,3 @@ COMMENT ON COLUMN migration_audit.checksum IS '迁移脚本的 SHA-256 校验和
 COMMENT ON COLUMN migration_audit.migration_file IS '迁移脚本文件名';
 
 COMMIT;
-
--- +----------------------------------------------------------------------------+
--- | Down Migration (Idempotent)                                                |
--- +----------------------------------------------------------------------------+
-
-BEGIN;
-
-DROP TABLE IF EXISTS migration_audit;
-
-COMMIT;

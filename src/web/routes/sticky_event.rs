@@ -1,6 +1,7 @@
 // Sticky Event Routes - MSC4354
 // Allows clients to get and set sticky (pinned) event metadata
 
+use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -131,7 +132,7 @@ pub async fn set_sticky_events(
             .map_err(|e| ApiError::internal(format!("Failed to set sticky event: {}", e)))?;
     }
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }
 
 /// Clear sticky event metadata for a room
@@ -160,5 +161,5 @@ pub async fn clear_sticky_event(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to clear sticky event: {}", e)))?;
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }

@@ -1,3 +1,4 @@
+--no-transaction
 -- OpenClaw Integration Tables
 -- Version: 1.0.0
 -- Date: 2026-04-03
@@ -148,27 +149,27 @@ COMMENT ON COLUMN ai_chat_roles.is_public IS '是否公开';
 -- ============================================
 -- 6. 索引
 -- ============================================
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_openclaw_connections_user ON openclaw_connections(user_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_openclaw_connections_provider ON openclaw_connections(provider);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_openclaw_connections_active ON openclaw_connections(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_openclaw_connections_user ON openclaw_connections(user_id);
+CREATE INDEX IF NOT EXISTS idx_openclaw_connections_provider ON openclaw_connections(provider);
+CREATE INDEX IF NOT EXISTS idx_openclaw_connections_active ON openclaw_connections(is_active) WHERE is_active = true;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_conversations_user ON ai_conversations(user_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_conversations_connection ON ai_conversations(connection_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_conversations_pinned ON ai_conversations(user_id, is_pinned) WHERE is_pinned = true;
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_conversations_updated ON ai_conversations(updated_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_conversations_user ON ai_conversations(user_id);
+CREATE INDEX IF NOT EXISTS idx_ai_conversations_connection ON ai_conversations(connection_id);
+CREATE INDEX IF NOT EXISTS idx_ai_conversations_pinned ON ai_conversations(user_id, is_pinned) WHERE is_pinned = true;
+CREATE INDEX IF NOT EXISTS idx_ai_conversations_updated ON ai_conversations(updated_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_messages_conversation ON ai_messages(conversation_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_messages_created ON ai_messages(conversation_id, created_ts DESC);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_messages_role ON ai_messages(conversation_id, role);
+CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation ON ai_messages(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_ai_messages_created ON ai_messages(conversation_id, created_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_messages_role ON ai_messages(conversation_id, role);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_generations_user ON ai_generations(user_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_generations_conversation ON ai_generations(conversation_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_generations_type ON ai_generations(user_id, type);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_generations_status ON ai_generations(status) WHERE status IN ('pending', 'processing');
+CREATE INDEX IF NOT EXISTS idx_ai_generations_user ON ai_generations(user_id);
+CREATE INDEX IF NOT EXISTS idx_ai_generations_conversation ON ai_generations(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_ai_generations_type ON ai_generations(user_id, type);
+CREATE INDEX IF NOT EXISTS idx_ai_generations_status ON ai_generations(status) WHERE status IN ('pending', 'processing');
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_chat_roles_user ON ai_chat_roles(user_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_chat_roles_public ON ai_chat_roles(is_public) WHERE is_public = true;
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ai_chat_roles_category ON ai_chat_roles(category);
+CREATE INDEX IF NOT EXISTS idx_ai_chat_roles_user ON ai_chat_roles(user_id);
+CREATE INDEX IF NOT EXISTS idx_ai_chat_roles_public ON ai_chat_roles(is_public) WHERE is_public = true;
+CREATE INDEX IF NOT EXISTS idx_ai_chat_roles_category ON ai_chat_roles(category);
 
 -- ============================================
 -- 7. 触发器：自动更新 updated_ts
