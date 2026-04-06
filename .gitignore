@@ -27,6 +27,13 @@ test_*.log
 # 本地测试产物（不入库）
 test-results/
 docker/test-results/
+artifacts/*.local.json
+artifacts/*.local.md
+artifacts/*.local.txt
+artifacts/sqlx-migrations-check/
+artifacts/sqlx-migrations-local/
+scripts/db/__pycache__/
+*.pyc
 
 # 测试媒体文件
 docker/data/media/test/
