@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 use crate::common::ApiError;
+use crate::web::routes::response_helpers::{
+    created_json_from, json_from, json_vec_from, require_found, status_json,
+};
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use crate::worker::types::*;
 
@@ -22,6 +25,23 @@ pub struct RegisterWorkerBody {
     pub config: Option<serde_json::Value>,
     pub metadata: Option<serde_json::Value>,
     pub version: Option<String>,
+}
+
+impl RegisterWorkerBody {
+    fn into_request(self) -> Result<RegisterWorkerRequest, ApiError> {
+        let worker_type = WorkerType::from_str(&self.worker_type).map_err(ApiError::bad_request)?;
+
+        Ok(RegisterWorkerRequest {
+            worker_id: self.worker_id,
+            worker_name: self.worker_name,
+            worker_type,
+            host: self.host,
+            port: self.port,
+            config: self.config,
+            metadata: self.metadata,
+            version: self.version,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,12 +58,35 @@ pub struct SendCommandBody {
     pub max_retries: Option<i32>,
 }
 
+impl SendCommandBody {
+    fn into_request(self, target_worker_id: String) -> SendCommandRequest {
+        SendCommandRequest {
+            target_worker_id,
+            command_type: self.command_type,
+            command_data: self.command_data,
+            priority: self.priority,
+            max_retries: self.max_retries,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AssignTaskBody {
     pub task_type: String,
     pub task_data: serde_json::Value,
     pub priority: Option<i32>,
     pub preferred_worker_id: Option<String>,
+}
+
+impl AssignTaskBody {
+    fn into_request(self) -> AssignTaskRequest {
+        AssignTaskRequest {
+            task_type: self.task_type,
+            task_data: self.task_data,
+            priority: self.priority,
+            preferred_worker_id: self.preferred_worker_id,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -150,22 +193,11 @@ pub async fn register_worker(
     _admin_user: AdminUser,
     Json(body): Json<RegisterWorkerBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let worker_type = WorkerType::from_str(&body.worker_type).map_err(ApiError::bad_request)?;
-
-    let request = RegisterWorkerRequest {
-        worker_id: body.worker_id,
-        worker_name: body.worker_name,
-        worker_type,
-        host: body.host,
-        port: body.port,
-        config: body.config,
-        metadata: body.metadata,
-        version: body.version,
-    };
+    let request = body.into_request()?;
 
     let worker = state.services.worker_manager.register(request).await?;
 
-    Ok((StatusCode::CREATED, Json(WorkerResponse::from(worker))))
+    Ok(created_json_from::<_, WorkerResponse>(worker))
 }
 
 pub async fn get_worker(
@@ -173,14 +205,12 @@ pub async fn get_worker(
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let worker = state
-        .services
-        .worker_manager
-        .get(&worker_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Worker not found"))?;
+    let worker = state.services.worker_manager.get(&worker_id).await?;
 
-    Ok(Json(WorkerResponse::from(worker)))
+    Ok(json_from::<_, WorkerResponse>(require_found(
+        worker,
+        "Worker not found",
+    )?))
 }
 
 pub async fn list_workers(
@@ -189,9 +219,7 @@ pub async fn list_workers(
 ) -> Result<impl IntoResponse, ApiError> {
     let workers = state.services.worker_manager.get_active().await?;
 
-    let response: Vec<WorkerResponse> = workers.into_iter().map(WorkerResponse::from).collect();
-
-    Ok(Json(response))
+    Ok(json_vec_from::<_, WorkerResponse>(workers))
 }
 
 pub async fn list_workers_by_type(
@@ -203,9 +231,7 @@ pub async fn list_workers_by_type(
 
     let workers = state.services.worker_manager.get_by_type(wtype).await?;
 
-    let response: Vec<WorkerResponse> = workers.into_iter().map(WorkerResponse::from).collect();
-
-    Ok(Json(response))
+    Ok(json_vec_from::<_, WorkerResponse>(workers))
 }
 
 pub async fn heartbeat(
@@ -222,7 +248,7 @@ pub async fn heartbeat(
         .heartbeat(&worker_id, status, body.load_stats)
         .await?;
 
-    Ok(Json(serde_json::json!({ "status": "ok" })))
+    Ok(status_json("ok"))
 }
 
 pub async fn unregister_worker(
@@ -241,20 +267,11 @@ pub async fn send_command(
     _admin_user: AdminUser,
     Json(body): Json<SendCommandBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let request = SendCommandRequest {
-        target_worker_id: worker_id,
-        command_type: body.command_type,
-        command_data: body.command_data,
-        priority: body.priority,
-        max_retries: body.max_retries,
-    };
+    let request = body.into_request(worker_id);
 
     let command = state.services.worker_manager.send_command(request).await?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(WorkerCommandResponse::from(command)),
-    ))
+    Ok(created_json_from::<_, WorkerCommandResponse>(command))
 }
 
 pub async fn get_pending_commands(
@@ -270,12 +287,7 @@ pub async fn get_pending_commands(
         .get_pending_commands(&worker_id, limit)
         .await?;
 
-    let response: Vec<WorkerCommandResponse> = commands
-        .into_iter()
-        .map(WorkerCommandResponse::from)
-        .collect();
-
-    Ok(Json(response))
+    Ok(json_vec_from::<_, WorkerCommandResponse>(commands))
 }
 
 pub async fn complete_command(
@@ -289,7 +301,7 @@ pub async fn complete_command(
         .complete_command(&command_id)
         .await?;
 
-    Ok(Json(serde_json::json!({ "status": "completed" })))
+    Ok(status_json("completed"))
 }
 
 pub async fn fail_command(
@@ -304,7 +316,7 @@ pub async fn fail_command(
         .fail_command(&command_id, &body.error)
         .await?;
 
-    Ok(Json(serde_json::json!({ "status": "failed" })))
+    Ok(status_json("failed"))
 }
 
 pub async fn assign_task(
@@ -312,16 +324,11 @@ pub async fn assign_task(
     _admin_user: AdminUser,
     Json(body): Json<AssignTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let request = AssignTaskRequest {
-        task_type: body.task_type,
-        task_data: body.task_data,
-        priority: body.priority,
-        preferred_worker_id: body.preferred_worker_id,
-    };
+    let request = body.into_request();
 
     let task = state.services.worker_manager.assign_task(request).await?;
 
-    Ok((StatusCode::CREATED, Json(WorkerTaskResponse::from(task))))
+    Ok(created_json_from::<_, WorkerTaskResponse>(task))
 }
 
 pub async fn get_pending_tasks(
@@ -336,10 +343,7 @@ pub async fn get_pending_tasks(
         .get_pending_tasks(limit)
         .await?;
 
-    let response: Vec<WorkerTaskResponse> =
-        tasks.into_iter().map(WorkerTaskResponse::from).collect();
-
-    Ok(Json(response))
+    Ok(json_vec_from::<_, WorkerTaskResponse>(tasks))
 }
 
 pub async fn claim_next_task(
@@ -367,7 +371,7 @@ pub async fn claim_task(
         .claim_task(&task_id, &worker_id)
         .await?;
 
-    Ok(Json(serde_json::json!({ "status": "claimed" })))
+    Ok(status_json("claimed"))
 }
 
 pub async fn complete_task(
@@ -382,7 +386,7 @@ pub async fn complete_task(
         .complete_task(&task_id, body.result)
         .await?;
 
-    Ok(Json(serde_json::json!({ "status": "completed" })))
+    Ok(status_json("completed"))
 }
 
 pub async fn fail_task(
@@ -397,7 +401,7 @@ pub async fn fail_task(
         .fail_task(&task_id, &body.error)
         .await?;
 
-    Ok(Json(serde_json::json!({ "status": "failed" })))
+    Ok(status_json("failed"))
 }
 
 pub async fn connect_worker(
@@ -412,7 +416,7 @@ pub async fn connect_worker(
         .connect_to_worker(&worker_id, &body.address)
         .await?;
 
-    Ok(Json(serde_json::json!({ "status": "connected" })))
+    Ok(status_json("connected"))
 }
 
 pub async fn disconnect_worker(
@@ -426,7 +430,7 @@ pub async fn disconnect_worker(
         .disconnect_from_worker(&worker_id)
         .await?;
 
-    Ok(Json(serde_json::json!({ "status": "disconnected" })))
+    Ok(status_json("disconnected"))
 }
 
 pub async fn get_replication_position(
@@ -460,7 +464,7 @@ pub async fn update_replication_position(
         .update_replication_position(&worker_id, &stream_name, body.position)
         .await?;
 
-    Ok(Json(serde_json::json!({ "status": "updated" })))
+    Ok(status_json("updated"))
 }
 
 pub async fn get_events(
@@ -586,4 +590,89 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
         )
         .route("/_synapse/worker/v1/select/{task_type}", get(select_worker))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_register_worker_body_into_request_parses_worker_type() {
+        let body = RegisterWorkerBody {
+            worker_id: "worker-1".to_string(),
+            worker_name: "Worker One".to_string(),
+            worker_type: "frontend".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8080,
+            config: Some(serde_json::json!({"mode": "active"})),
+            metadata: Some(serde_json::json!({"zone": "a"})),
+            version: Some("1.0.0".to_string()),
+        };
+
+        let request = body.into_request().expect("worker type should parse");
+
+        assert_eq!(request.worker_id, "worker-1");
+        assert_eq!(request.worker_name, "Worker One");
+        assert_eq!(request.worker_type, WorkerType::Frontend);
+        assert_eq!(request.port, 8080);
+        assert_eq!(request.version.as_deref(), Some("1.0.0"));
+    }
+
+    #[test]
+    fn test_register_worker_body_into_request_rejects_invalid_worker_type() {
+        let body = RegisterWorkerBody {
+            worker_id: "worker-1".to_string(),
+            worker_name: "Worker One".to_string(),
+            worker_type: "unknown".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8080,
+            config: None,
+            metadata: None,
+            version: None,
+        };
+
+        let error = body
+            .into_request()
+            .expect_err("invalid worker type should fail");
+
+        match error {
+            ApiError::BadRequest(message) => {
+                assert!(message.contains("unknown"));
+            }
+            other => panic!("expected bad request error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_send_command_body_into_request_preserves_target_and_fields() {
+        let body = SendCommandBody {
+            command_type: "rebalance".to_string(),
+            command_data: serde_json::json!({"room_id": "!room:example.com"}),
+            priority: Some(5),
+            max_retries: Some(3),
+        };
+
+        let request = body.into_request("worker-a".to_string());
+
+        assert_eq!(request.target_worker_id, "worker-a");
+        assert_eq!(request.command_type, "rebalance");
+        assert_eq!(request.priority, Some(5));
+        assert_eq!(request.max_retries, Some(3));
+    }
+
+    #[test]
+    fn test_assign_task_body_into_request_preserves_fields() {
+        let body = AssignTaskBody {
+            task_type: "http".to_string(),
+            task_data: serde_json::json!({"path": "/sync"}),
+            priority: Some(10),
+            preferred_worker_id: Some("worker-b".to_string()),
+        };
+
+        let request = body.into_request();
+
+        assert_eq!(request.task_type, "http");
+        assert_eq!(request.priority, Some(10));
+        assert_eq!(request.preferred_worker_id.as_deref(), Some("worker-b"));
+    }
 }

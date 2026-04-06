@@ -71,6 +71,7 @@ cargo run --release
 - Docker 容器只是由入口脚本自动调用该迁移入口，不构成第二套迁移方案
 - 服务启动默认只执行 schema health check，不执行运行时迁移
 - 仅在显式开启 `SYNAPSE_ENABLE_RUNTIME_DB_INIT` 且未设置 `SYNAPSE_SKIP_DB_INIT` 时，才进入运行时兼容初始化路径
+- 本地若需要排查 `sqlx migrate info/run`，使用 `bash scripts/sqlx_migrate.sh <subcommand>`，不要直接让 `sqlx` 扫描根 `migrations/`
 
 ## 环境变量（覆盖配置）
 

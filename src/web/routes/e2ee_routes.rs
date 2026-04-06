@@ -1,4 +1,5 @@
 use super::{AppState, AuthenticatedUser};
+use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::MatrixJson;
 use crate::ApiError;
 use axum::{
@@ -478,7 +479,7 @@ async fn send_to_device(
         .send_messages(&auth_user.user_id, messages)
         .await?;
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }
 
 #[axum::debug_handler]
@@ -537,7 +538,7 @@ async fn upload_device_signing(
         }
     }
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }
 
 #[axum::debug_handler]
@@ -631,7 +632,7 @@ async fn delete_room_key_request(
         .cancel_request(&request_id)
         .await?;
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }
 
 #[derive(Debug, Deserialize)]
@@ -1014,7 +1015,7 @@ async fn delete_secure_backup(
         .delete_backup(&auth_user.user_id, &backup_id)
         .await?;
 
-    Ok(Json(serde_json::json!({})))
+    Ok(empty_json())
 }
 
 #[cfg(test)]

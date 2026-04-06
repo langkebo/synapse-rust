@@ -459,6 +459,20 @@ impl SpaceStorage {
         .await
     }
 
+    pub async fn get_space_member(
+        &self,
+        space_id: &str,
+        user_id: &str,
+    ) -> Result<Option<SpaceMember>, sqlx::Error> {
+        sqlx::query_as::<_, SpaceMember>(
+            r#"SELECT * FROM space_members WHERE space_id = $1 AND user_id = $2"#,
+        )
+        .bind(space_id)
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
     pub async fn get_user_spaces(&self, user_id: &str) -> Result<Vec<Space>, sqlx::Error> {
         sqlx::query_as::<_, Space>(
             r#"
@@ -879,7 +893,11 @@ impl SpaceStorage {
         &self,
         room_id: &str,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let children = self.get_child_spaces(room_id).await?;
+        let children = if let Some(space) = self.get_space_by_room(room_id).await? {
+            self.get_space_children(&space.space_id).await?
+        } else {
+            Vec::new()
+        };
 
         Ok(children
             .into_iter()

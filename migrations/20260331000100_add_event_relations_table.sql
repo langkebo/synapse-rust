@@ -1,3 +1,4 @@
+--no-transaction
 -- V260331_001__MIG-RELATIONS__add_event_relations_table.sql
 --
 -- 描述: 创建 event_relations 表支持 Matrix Relations API
@@ -36,19 +37,19 @@ CREATE TABLE IF NOT EXISTS event_relations (
 );
 
 -- 唯一约束: 防止重复的关系
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_event_relations_unique
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_relations_unique
     ON event_relations(event_id, relation_type, sender);
 
 -- 房间和事件索引: 快速查询某个事件的所有关系
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_event_relations_room_event
+CREATE INDEX IF NOT EXISTS idx_event_relations_room_event
     ON event_relations(room_id, relates_to_event_id, relation_type);
 
 -- 发送者索引: 快速查询某个用户发送的关系
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_event_relations_sender
+CREATE INDEX IF NOT EXISTS idx_event_relations_sender
     ON event_relations(sender, relation_type);
 
 -- 时间索引: 按时间排序查询
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_event_relations_origin_ts
+CREATE INDEX IF NOT EXISTS idx_event_relations_origin_ts
     ON event_relations(room_id, origin_server_ts DESC);
 
 -- 注解: 表和列说明

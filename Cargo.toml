@@ -142,6 +142,26 @@ name = "integration"
 path = "tests/integration/mod.rs"
 
 [[test]]
+name = "schema_contract_room_summary_tests"
+path = "tests/integration/schema_contract_room_summary_tests.rs"
+
+[[test]]
+name = "schema_contract_space_tests"
+path = "tests/integration/schema_contract_space_tests.rs"
+
+[[test]]
+name = "schema_contract_account_data_tests"
+path = "tests/integration/schema_contract_account_data_tests.rs"
+
+[[test]]
+name = "schema_contract_search_tests"
+path = "tests/integration/schema_contract_search_tests.rs"
+
+[[test]]
+name = "schema_contract_e2ee_verification_tests"
+path = "tests/integration/schema_contract_e2ee_verification_tests.rs"
+
+[[test]]
 name = "unit"
 path = "tests/unit/mod.rs"
 

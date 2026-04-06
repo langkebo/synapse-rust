@@ -36,6 +36,7 @@ mod room_service_tests;
 mod room_summary_api_tests;
 mod room_summary_storage_tests;
 mod schema_contract_p0_tests;
+mod schema_contract_room_summary_queue_driver_tests;
 mod search_service_tests;
 mod server_notification_api_tests;
 mod sliding_sync_api_tests;
