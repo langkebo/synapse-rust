@@ -40,6 +40,7 @@ pub mod qr_login;
 pub mod reactions;
 pub mod relations;
 pub mod rendezvous;
+mod response_helpers;
 pub mod room;
 pub mod room_summary;
 pub mod saml;

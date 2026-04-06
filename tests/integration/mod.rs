@@ -33,6 +33,7 @@ mod api_shell_route_fixes_p1_tests;
 mod api_shell_route_fixes_p2_friend_tests;
 mod api_shell_route_fixes_p2_misc_tests;
 mod api_shell_route_fixes_p2_push_tests;
+mod api_space_routes_tests;
 mod api_telemetry_alerts_tests;
 mod api_widget_tests;
 mod cache_tests;

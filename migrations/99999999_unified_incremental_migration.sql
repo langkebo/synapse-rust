@@ -1,10 +1,11 @@
+--no-transaction
 -- ============================================================================
 -- 性能优化索引迁移（活跃迁移）
 -- 创建日期: 2026-03-24
 -- 状态: 活跃
 --
 -- 说明: 提供 7 个关键性能优化索引，用于提升查询性能
--- 幂等性: 使用 CREATE INDEX CONCURRENTLY IF NOT EXISTS，可重复执行
+-- 幂等性: 使用 CREATE INDEX IF NOT EXISTS，可重复执行
 -- 应用场景: 升级路径必需，空库初始化可选
 -- ============================================================================
 
@@ -19,23 +20,23 @@ END $$;
 -- 1. events 表复合索引优化
 -- ============================================================================
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_sender_time
+CREATE INDEX IF NOT EXISTS idx_events_sender_time
 ON events(sender, origin_server_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_type_room
+CREATE INDEX IF NOT EXISTS idx_events_type_room
 ON events(event_type, room_id);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_type_sender
+CREATE INDEX IF NOT EXISTS idx_events_type_sender
 ON events(event_type, sender);
 
 -- ============================================================================
 -- 2. room_memberships 表索引优化
 -- ============================================================================
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_memberships_user_room
+CREATE INDEX IF NOT EXISTS idx_memberships_user_room
 ON room_memberships(user_id, room_id);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_memberships_room_membership
+CREATE INDEX IF NOT EXISTS idx_memberships_room_membership
 ON room_memberships(room_id, membership);
 
 -- ============================================================================
@@ -50,7 +51,7 @@ ON room_memberships(room_id, membership);
 -- 5. user_threepids 表索引优化
 -- ============================================================================
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_threepids_medium_address
+CREATE INDEX IF NOT EXISTS idx_threepids_medium_address
 ON user_threepids(medium, address);
 
 -- ============================================================================
@@ -65,7 +66,7 @@ ON user_threepids(medium, address);
 -- 8. presence 表索引优化
 -- ============================================================================
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_presence_user_status
+CREATE INDEX IF NOT EXISTS idx_presence_user_status
 ON presence(user_id, presence);
 
 -- ============================================================================

@@ -1,3 +1,4 @@
+--no-transaction
 -- ============================================================================
 -- Consolidated Schema Alignment Migration
 -- Created: 2026-04-04
@@ -154,7 +155,7 @@ UPDATE room_summaries
 SET updated_ts = 0
 WHERE updated_ts IS NULL;
 
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_room_summaries_id_unique
+CREATE UNIQUE INDEX IF NOT EXISTS idx_room_summaries_id_unique
 ON room_summaries(id);
 
 DO $$
@@ -701,49 +702,49 @@ BEGIN
     );
 END $$;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_widgets_room_active_created
+CREATE INDEX IF NOT EXISTS idx_widgets_room_active_created
 ON widgets(room_id, created_ts DESC)
 WHERE is_active = TRUE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_widgets_user_active_created
+CREATE INDEX IF NOT EXISTS idx_widgets_user_active_created
 ON widgets(user_id, created_ts DESC)
 WHERE is_active = TRUE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_widget_permissions_widget
+CREATE INDEX IF NOT EXISTS idx_widget_permissions_widget
 ON widget_permissions(widget_id);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_widget_permissions_user
+CREATE INDEX IF NOT EXISTS idx_widget_permissions_user
 ON widget_permissions(user_id);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_widget_sessions_widget_active_last_active
+CREATE INDEX IF NOT EXISTS idx_widget_sessions_widget_active_last_active
 ON widget_sessions(widget_id, last_active_ts DESC)
 WHERE is_active = TRUE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_server_notifications_enabled_priority_created
+CREATE INDEX IF NOT EXISTS idx_server_notifications_enabled_priority_created
 ON server_notifications(priority DESC, created_ts DESC)
 WHERE is_enabled = TRUE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_notification_status_user_created
+CREATE INDEX IF NOT EXISTS idx_user_notification_status_user_created
 ON user_notification_status(user_id, created_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notification_templates_enabled
+CREATE INDEX IF NOT EXISTS idx_notification_templates_enabled
 ON notification_templates(is_enabled)
 WHERE is_enabled = TRUE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notification_delivery_log_notification_delivered
+CREATE INDEX IF NOT EXISTS idx_notification_delivery_log_notification_delivered
 ON notification_delivery_log(notification_id, delivered_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_scheduled_notifications_pending
+CREATE INDEX IF NOT EXISTS idx_scheduled_notifications_pending
 ON scheduled_notifications(scheduled_for)
 WHERE is_sent = FALSE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_secure_key_backups_user_created
+CREATE INDEX IF NOT EXISTS idx_secure_key_backups_user_created
 ON secure_key_backups(user_id, created_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_secure_backup_session_keys_backup
+CREATE INDEX IF NOT EXISTS idx_secure_backup_session_keys_backup
 ON secure_backup_session_keys(user_id, backup_id);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_application_service_users_as
+CREATE INDEX IF NOT EXISTS idx_application_service_users_as
 ON application_service_users(as_id);
 
 CREATE OR REPLACE VIEW active_workers AS
@@ -871,32 +872,32 @@ BEGIN
     );
 END $$;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_push_device_user_enabled
+CREATE INDEX IF NOT EXISTS idx_push_device_user_enabled
 ON push_device(user_id)
 WHERE is_enabled = TRUE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_rate_limits_updated
+CREATE INDEX IF NOT EXISTS idx_rate_limits_updated
 ON rate_limits(updated_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_server_notices_sent
+CREATE INDEX IF NOT EXISTS idx_server_notices_sent
 ON server_notices(sent_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_notification_settings_updated
+CREATE INDEX IF NOT EXISTS idx_user_notification_settings_updated
 ON user_notification_settings(updated_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_qr_login_transactions_expires
+CREATE INDEX IF NOT EXISTS idx_qr_login_transactions_expires
 ON qr_login_transactions(expires_at ASC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_qr_login_transactions_user_created
+CREATE INDEX IF NOT EXISTS idx_qr_login_transactions_user_created
 ON qr_login_transactions(user_id, created_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_reaction_aggregations_room_relates_origin
+CREATE INDEX IF NOT EXISTS idx_reaction_aggregations_room_relates_origin
 ON reaction_aggregations(room_id, relates_to_event_id, origin_server_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_registration_token_batches_created
+CREATE INDEX IF NOT EXISTS idx_registration_token_batches_created
 ON registration_token_batches(created_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_registration_token_batches_enabled_created
+CREATE INDEX IF NOT EXISTS idx_registration_token_batches_enabled_created
 ON registration_token_batches(created_ts DESC)
 WHERE is_enabled = TRUE;
 
@@ -945,14 +946,14 @@ BEGIN
     );
 END $$;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_upload_progress_expires
+CREATE INDEX IF NOT EXISTS idx_upload_progress_expires
 ON upload_progress(expires_at ASC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_upload_progress_user_created_active
+CREATE INDEX IF NOT EXISTS idx_upload_progress_user_created_active
 ON upload_progress(user_id, created_ts DESC)
 WHERE status <> 'finalized';
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_upload_chunks_upload_order
+CREATE INDEX IF NOT EXISTS idx_upload_chunks_upload_order
 ON upload_chunks(upload_id, chunk_index ASC);
 
 
@@ -995,13 +996,13 @@ BEGIN
     );
 END $$;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_background_update_locks_expires
+CREATE INDEX IF NOT EXISTS idx_background_update_locks_expires
 ON background_update_locks(expires_at);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_background_update_history_job_start
+CREATE INDEX IF NOT EXISTS idx_background_update_history_job_start
 ON background_update_history(job_name, execution_start_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_background_update_stats_created
+CREATE INDEX IF NOT EXISTS idx_background_update_stats_created
 ON background_update_stats(created_ts DESC);
 
 
@@ -1026,9 +1027,9 @@ CREATE TABLE IF NOT EXISTS beacon_info (
     expires_at BIGINT
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_beacon_info_room_active ON beacon_info(room_id, is_live) WHERE is_live = TRUE;
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_beacon_info_room_state ON beacon_info(room_id, state_key, created_ts DESC);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_beacon_info_expires ON beacon_info(expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_beacon_info_room_active ON beacon_info(room_id, is_live) WHERE is_live = TRUE;
+CREATE INDEX IF NOT EXISTS idx_beacon_info_room_state ON beacon_info(room_id, state_key, created_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_beacon_info_expires ON beacon_info(expires_at) WHERE expires_at IS NOT NULL;
 
 -- 2. beacon_locations
 CREATE TABLE IF NOT EXISTS beacon_locations (
@@ -1044,7 +1045,7 @@ CREATE TABLE IF NOT EXISTS beacon_locations (
     created_ts BIGINT NOT NULL
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_beacon_locations_info_ts ON beacon_locations(beacon_info_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_beacon_locations_info_ts ON beacon_locations(beacon_info_id, timestamp DESC);
 
 -- 3. call_sessions
 CREATE TABLE IF NOT EXISTS call_sessions (
@@ -1062,8 +1063,8 @@ CREATE TABLE IF NOT EXISTS call_sessions (
     ended_ts BIGINT
 );
 
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_call_sessions_call_room ON call_sessions(call_id, room_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_call_sessions_active ON call_sessions(state) WHERE state != 'ended';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_call_sessions_call_room ON call_sessions(call_id, room_id);
+CREATE INDEX IF NOT EXISTS idx_call_sessions_active ON call_sessions(state) WHERE state != 'ended';
 
 -- 4. call_candidates
 CREATE TABLE IF NOT EXISTS call_candidates (
@@ -1075,7 +1076,7 @@ CREATE TABLE IF NOT EXISTS call_candidates (
     created_ts BIGINT NOT NULL
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_call_candidates_session ON call_candidates(call_id, room_id, created_ts ASC);
+CREATE INDEX IF NOT EXISTS idx_call_candidates_session ON call_candidates(call_id, room_id, created_ts ASC);
 
 -- 5. matrixrtc_sessions
 CREATE TABLE IF NOT EXISTS matrixrtc_sessions (
@@ -1091,8 +1092,8 @@ CREATE TABLE IF NOT EXISTS matrixrtc_sessions (
     config JSONB NOT NULL
 );
 
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_matrixrtc_sessions_unique ON matrixrtc_sessions(room_id, session_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_matrixrtc_sessions_active ON matrixrtc_sessions(room_id, is_active, created_ts DESC) WHERE is_active = TRUE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_matrixrtc_sessions_unique ON matrixrtc_sessions(room_id, session_id);
+CREATE INDEX IF NOT EXISTS idx_matrixrtc_sessions_active ON matrixrtc_sessions(room_id, is_active, created_ts DESC) WHERE is_active = TRUE;
 
 -- 6. matrixrtc_memberships
 CREATE TABLE IF NOT EXISTS matrixrtc_memberships (
@@ -1113,8 +1114,8 @@ CREATE TABLE IF NOT EXISTS matrixrtc_memberships (
     is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_matrixrtc_memberships_unique ON matrixrtc_memberships(room_id, session_id, user_id, device_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_matrixrtc_memberships_active ON matrixrtc_memberships(room_id, is_active) WHERE is_active = TRUE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_matrixrtc_memberships_unique ON matrixrtc_memberships(room_id, session_id, user_id, device_id);
+CREATE INDEX IF NOT EXISTS idx_matrixrtc_memberships_active ON matrixrtc_memberships(room_id, is_active) WHERE is_active = TRUE;
 
 -- 7. matrixrtc_encryption_keys
 CREATE TABLE IF NOT EXISTS matrixrtc_encryption_keys (
@@ -1129,7 +1130,7 @@ CREATE TABLE IF NOT EXISTS matrixrtc_encryption_keys (
     sender_device_id TEXT NOT NULL
 );
 
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_matrixrtc_encryption_keys_unique ON matrixrtc_encryption_keys(room_id, session_id, key_index);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_matrixrtc_encryption_keys_unique ON matrixrtc_encryption_keys(room_id, session_id, key_index);
 
 
 -- ============================================================================
@@ -1369,7 +1370,7 @@ DROP INDEX IF EXISTS idx_verification_requests_to_user_state;
 DROP INDEX IF EXISTS idx_e2ee_security_events_user_created;
 
 DROP INDEX IF EXISTS idx_secure_key_backups_user;
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_secure_key_backups_user
+CREATE INDEX IF NOT EXISTS idx_secure_key_backups_user
 ON secure_key_backups(user_id, created_ts DESC);
 
 

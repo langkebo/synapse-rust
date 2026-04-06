@@ -614,7 +614,7 @@ impl RoomSummaryStorage {
             SELECT id, room_id, event_id, event_type, state_key, priority, status, created_ts, processed_ts, error_message, retry_count
             FROM room_summary_update_queue
             WHERE status = 'pending'
-            ORDER BY priority DESC, created_ts ASC
+            ORDER BY priority DESC, created_ts ASC, id ASC
             LIMIT $1
             FOR UPDATE SKIP LOCKED
             "#,

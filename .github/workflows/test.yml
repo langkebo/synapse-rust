@@ -52,9 +52,12 @@ jobs:
         cargo install sqlx-cli --locked --no-default-features --features postgres
         cargo install cargo-tarpaulin --locked
 
+    - name: Build forward-only sqlx migration source
+      run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
+
     - name: Run Migrations
       run: |
-        sqlx migrate run
+        sqlx migrate run --source artifacts/sqlx-migrations
 
     - name: Run Tests and Generate Coverage
       run: |

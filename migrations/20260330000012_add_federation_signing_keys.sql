@@ -1,3 +1,4 @@
+--no-transaction
 CREATE TABLE IF NOT EXISTS federation_signing_keys (
     server_name TEXT NOT NULL,
     key_id TEXT NOT NULL,
@@ -66,8 +67,8 @@ ALTER TABLE federation_signing_keys ALTER COLUMN key_json SET DEFAULT '{}'::json
 ALTER TABLE federation_signing_keys ALTER COLUMN ts_added_ms SET NOT NULL;
 ALTER TABLE federation_signing_keys ALTER COLUMN ts_valid_until_ms SET NOT NULL;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_federation_signing_keys_server_created
+CREATE INDEX IF NOT EXISTS idx_federation_signing_keys_server_created
 ON federation_signing_keys(server_name, created_ts DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_federation_signing_keys_key_id
+CREATE INDEX IF NOT EXISTS idx_federation_signing_keys_key_id
 ON federation_signing_keys(key_id);
