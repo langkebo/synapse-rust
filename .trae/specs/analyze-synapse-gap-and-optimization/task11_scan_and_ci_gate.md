@@ -78,6 +78,10 @@
 
 ### 5.1 当前契约测试覆盖（2026-04-05）
 - 已落地测试文件：`tests/integration/api_placeholder_contract_p0_tests.rs`
+- 已落地测试文件（P1/P2）：`tests/integration/api_placeholder_contract_p1p2_tests.rs`
+- CI 接线：
+  - `ci.yml` 的 `bash scripts/run_ci_tests.sh` 会跑到 `cargo test/nextest` 全量（包含上述 integration target）。
+  - `db-migration-gate.yml` 的 `sqlx-migrate-run` job 也会显式执行 `api_placeholder_contract_p1p2_tests`（防迁移链路下回归）。
 - 已覆盖：
   - `GET /_matrix/client/{r0|v3}/directory/room/{room_alias}`
   - `GET /_matrix/client/{r0|v3}/user/{user_id}/account_data/{type}`
@@ -85,6 +89,11 @@
   - `GET /_matrix/client/{r0|v3}/rooms/{room_id}/keys/distribution`
   - `POST /_matrix/client/v3/rooms/{room_id}/report`
   - `GET /_matrix/client/{r0|v3}/events`
+- 已覆盖（P1/P2）：
+  - `GET /_matrix/client/r0/rooms/{room_id}`（invite 计数与 guest_access 映射）
+  - `GET /_matrix/client/r0/rooms/{room_id}/members/recent`（伪分页 token 防回归）
+  - `GET /_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info`（禁止 200 空成功体）
+  - `PUT/GET /_matrix/client/v3/rooms/{room_id}/account_data/{type}`（ACK 必须可读回）
 - 详细 backlog 见：`.trae/specs/analyze-synapse-gap-and-optimization/task11_p0_contract_test_backlog.md`
 - `report` 端点已收口为显式 `M_UNRECOGNIZED`，并同步归档到 `docs/synapse-rust/UNSUPPORTED_ENDPOINTS.md`。
 - `events` 端点已补“服务报错必须透传 500 + M_UNKNOWN，且不得返回 chunk 成功体”的契约测试。

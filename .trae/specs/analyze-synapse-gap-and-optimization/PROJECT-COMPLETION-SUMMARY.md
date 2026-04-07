@@ -1,5 +1,9 @@
 # Shell Route Optimization - Project Completion Summary
 
+> Historical snapshot: this document only summarizes the 2026-04-05 shell-route remediation stream.
+> It is not the current source of truth for the Task 1-16 delivery pack; use `README.md`,
+> `document-index.md`, `tasks.md`, and the Task 11-16 governance documents for current status.
+
 **Project:** synapse-rust Shell Route Remediation  
 **Status:** ✅ Core Work Complete | ⚠️ Optional Debugging Remaining  
 **Completion Date:** 2026-04-05  
@@ -164,71 +168,43 @@ Total: ~3,000 lines of documentation
 
 ## Task Status
 
-### ✅ Completed (3 tasks)
+### ✅ Completed (7 tasks)
 - [x] Task #51: Create shell route inventory document
 - [x] Task #52: Fix high-priority shell routes
 - [x] Task #53: Add integration tests for fixed shell routes
+- [x] Task #54: Update API documentation with new response formats
+- [x] Task #55: Implement CI gate for shell route detection
+- [x] Task #57: Debug failing integration tests (500 errors)
+- [x] Task #58: Investigate friend route registration (404 errors)
 
-### 🔄 New Tasks Created (2 tasks)
-- [ ] Task #57: Debug failing integration tests (500 errors)
-- [ ] Task #58: Investigate friend route registration (404 errors)
-
-### 📋 Pending (3 tasks)
-- [ ] Task #54: Update API documentation with new response formats
-- [ ] Task #55: Implement CI gate for shell route detection
-- [ ] Task #56: Fix remaining P3 shell routes (optional)
+### 📋 Pending (1 task)
+- [ ] Task #56: Fix remaining allowlisted shell routes (optional)
 
 ---
 
 ## Known Issues
 
 ### Issue #1: Runtime Errors (500)
-**Affected:** 6 tests  
-**Severity:** Medium  
-**Status:** Needs debugging
+**Affected:** 0 tests  
+**Severity:** N/A  
+**Status:** Resolved
 
-**Tests:**
-- Room alias creation
-- Invite blocklist/allowlist (2 tests)
-- Push rule creation (2 tests)
-- DM content format variant
-
-**Possible Causes:**
-- Database schema mismatches
-- Type conversion issues
-- Validation logic errors
-- Missing tables/columns
-
-**Next Steps:**
-- Add RUST_BACKTRACE=1 to tests
-- Capture response bodies on failures
-- Check database schema
-- Add detailed error logging
+**Evidence:**
+- `cargo test --test integration` 全量通过（347 passed / 0 failed / 0 ignored）
 
 ### Issue #2: Friend Routes Not Found (404)
-**Affected:** 3 tests  
-**Severity:** Low  
-**Status:** Needs investigation
+**Affected:** 0 tests  
+**Severity:** N/A  
+**Status:** Resolved
 
-**Tests:**
-- Friend note update
-- Friend status update
-- Friend displayname update
-
-**Possible Causes:**
-- Routes not registered in assembly.rs
-- Feature flag not enabled
-- Friend system is optional/experimental
-
-**Next Steps:**
-- Check route registration
-- Review feature flags
-- Consider marking tests as #[ignore] if optional
+**Evidence:**
+- `/_matrix/client/{v1|r0}` friend routes 已注册（assembly 合并 `create_friend_router`）
+- `api_shell_route_fixes_p2_friend_tests` 3 条更新接口测试通过（note/status/displayname）
 
 ### Issue #3: P3 Routes Not Fixed
-**Affected:** 3 routes  
+**Affected:** N/A  
 **Severity:** Low  
-**Status:** Deferred
+**Status:** Deferred (allowlisted / tracked debt)
 
 **Routes:**
 - directory_reporting.rs::update_report_score
@@ -250,16 +226,14 @@ Total: ~3,000 lines of documentation
 - [x] Document all changes and results (15 documents)
 - [x] Maintain code quality (fmt, clippy, compile)
 - [x] Establish consistent response patterns
+- [x] All integration tests passing (no ignored)
+- [x] CI gate enforced: no new shell routes detected
 
 ### ⚠️ Partially Achieved
-- [~] All tests passing (55% passing, needs debugging)
-- [~] 100% route coverage (88% complete, P3 remaining)
+- [~] 100% route coverage (allowlisted empty-success matches remain)
 
 ### ❌ Not Yet Achieved
-- [ ] API documentation updated
-- [ ] CI gate implemented
-- [ ] All runtime errors resolved
-- [ ] Friend routes investigated
+- [ ] Remove allowlisted empty-success matches (optional; backlog task)
 
 ---
 

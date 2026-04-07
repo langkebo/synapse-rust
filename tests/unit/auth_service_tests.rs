@@ -2,7 +2,7 @@
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use sha2::{Digest, Sha256};
-use sqlx::{Pool, Postgres};
+use sqlx::PgPool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -20,17 +20,8 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database() -> Option<Pool<Postgres>> {
-    let database_url = std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
-
-    let pool = match sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(&database_url)
-        .await
-    {
+async fn setup_test_database() -> Option<Arc<PgPool>> {
+    let pool = match synapse_rust::test_utils::prepare_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
             eprintln!(
@@ -41,38 +32,6 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         }
     };
 
-    sqlx::query("DROP TABLE IF EXISTS users CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-
-    sqlx::query(
-        r#"
-        CREATE TABLE users (
-            user_id VARCHAR(255) PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            displayname TEXT,
-            avatar_url TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            deactivated BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            consent_version TEXT,
-            appservice_id TEXT,
-            user_type TEXT,
-            shadow_banned BOOLEAN DEFAULT FALSE,
-            generation BIGINT DEFAULT 0,
-            invalid_update_at BIGINT,
-            migration_state TEXT,
-            creation_ts BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
-            updated_ts BIGINT
-        )
-    "#,
-    )
-    .execute(&pool)
-    .await
-    .expect("Failed to create users table");
-
     Some(pool)
 }
 
@@ -81,7 +40,7 @@ fn test_auth_service_register_invalid_username() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
         let security = SecurityConfig {
@@ -104,7 +63,7 @@ fn test_auth_service_register_invalid_username() {
         let result = auth
             .register(&invalid_username, "password", false, None)
             .await;
-        assert!(matches!(result, Err(ApiError::BadRequest(_))));
+        assert!(matches!(result, Err(ApiError::InvalidUsername(_))));
 
         let result = auth.register("", "password", false, None).await;
         assert!(matches!(result, Err(ApiError::BadRequest(_))));
@@ -116,7 +75,7 @@ fn test_auth_service_login_invalid_credentials() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
         let security = SecurityConfig {
@@ -146,7 +105,7 @@ fn test_password_migration_on_login() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
         let security = SecurityConfig {
@@ -172,14 +131,14 @@ fn test_password_migration_on_login() {
         let legacy_hash = create_legacy_hash(password);
 
         sqlx::query(
-            "INSERT INTO users (user_id, username, password_hash, is_admin, creation_ts, generation) VALUES ($1, $2, $3, $4, $5, $6)"
+            "INSERT INTO users (user_id, username, password_hash, is_admin, created_ts, generation) VALUES ($1, $2, $3, $4, $5, $6)"
         )
         .bind(&user_id)
         .bind(&username)
         .bind(&legacy_hash)
         .bind(false)
-        .bind(chrono::Utc::now().timestamp())
-        .bind(chrono::Utc::now().timestamp() * 1000)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(chrono::Utc::now().timestamp_millis())
         .execute(&*pool)
         .await
         .expect("Failed to create user with legacy hash");
@@ -216,7 +175,7 @@ fn test_password_migration_preserves_login_ability() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
         let security = SecurityConfig {
@@ -242,14 +201,14 @@ fn test_password_migration_preserves_login_ability() {
         let legacy_hash = create_legacy_hash(password);
 
         sqlx::query(
-            "INSERT INTO users (user_id, username, password_hash, is_admin, creation_ts, generation) VALUES ($1, $2, $3, $4, $5, $6)"
+            "INSERT INTO users (user_id, username, password_hash, is_admin, created_ts, generation) VALUES ($1, $2, $3, $4, $5, $6)"
         )
         .bind(&user_id)
         .bind(&username)
         .bind(&legacy_hash)
         .bind(false)
-        .bind(chrono::Utc::now().timestamp())
-        .bind(chrono::Utc::now().timestamp() * 1000)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(chrono::Utc::now().timestamp_millis())
         .execute(&*pool)
         .await
         .expect("Failed to create user with legacy hash");
@@ -270,7 +229,7 @@ fn test_no_migration_for_argon2_hash() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
         let security = SecurityConfig {

@@ -554,6 +554,24 @@ impl RetentionStorage {
 
         Ok(result.rows_affected() as i64)
     }
+
+    pub async fn cleanup_finished_queue_items_before(
+        &self,
+        cutoff_ts: i64,
+    ) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM retention_cleanup_queue
+            WHERE status IN ('processed', 'failed')
+              AND COALESCE(processed_ts, created_ts) < $1
+            "#,
+        )
+        .bind(cutoff_ts)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected() as i64)
+    }
 }
 
 #[cfg(test)]

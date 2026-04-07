@@ -661,6 +661,26 @@ pub struct RetentionConfig {
     /// 是否清理已删除消息
     #[serde(default = "default_retention_purge_jobs")]
     pub purge_jobs: Vec<RetentionPurgeJob>,
+
+    /// 是否启用数据生命周期持续清理
+    #[serde(default = "default_retention_lifecycle_cleanup_enabled")]
+    pub lifecycle_cleanup_enabled: bool,
+
+    /// 数据生命周期清理执行间隔（秒）
+    #[serde(default = "default_retention_lifecycle_interval_secs")]
+    pub lifecycle_cleanup_interval_secs: u64,
+
+    /// 生命周期清理批次大小
+    #[serde(default = "default_retention_cleanup_batch_size")]
+    pub cleanup_batch_size: u32,
+
+    /// 审计事件保留天数
+    #[serde(default = "default_retention_audit_retention_days")]
+    pub audit_retention_days: u64,
+
+    /// 已完成清理队列记录保留天数
+    #[serde(default = "default_retention_queue_retention_days")]
+    pub queue_retention_days: u64,
 }
 
 /// 保留策略
@@ -702,6 +722,26 @@ fn default_purge_job_batch_size() -> u32 {
     100
 }
 
+fn default_retention_lifecycle_cleanup_enabled() -> bool {
+    true
+}
+
+fn default_retention_lifecycle_interval_secs() -> u64 {
+    300
+}
+
+fn default_retention_cleanup_batch_size() -> u32 {
+    100
+}
+
+fn default_retention_audit_retention_days() -> u64 {
+    90
+}
+
+fn default_retention_queue_retention_days() -> u64 {
+    30
+}
+
 impl Default for RetentionConfig {
     fn default() -> Self {
         Self {
@@ -710,6 +750,11 @@ impl Default for RetentionConfig {
             allowed_lifetime_min: None,
             allowed_lifetime_max: None,
             purge_jobs: default_retention_purge_jobs(),
+            lifecycle_cleanup_enabled: default_retention_lifecycle_cleanup_enabled(),
+            lifecycle_cleanup_interval_secs: default_retention_lifecycle_interval_secs(),
+            cleanup_batch_size: default_retention_cleanup_batch_size(),
+            audit_retention_days: default_retention_audit_retention_days(),
+            queue_retention_days: default_retention_queue_retention_days(),
         }
     }
 }
@@ -915,6 +960,9 @@ pub struct RateLimitConfig {
     /// 错误时是否开放访问
     #[serde(default = "default_rate_limit_fail_open")]
     pub fail_open_on_error: bool,
+    /// 同步接口的资源隔离限流（initial vs incremental）
+    #[serde(default)]
+    pub sync: SyncRateLimitConfig,
 }
 
 fn default_rate_limit_enabled() -> bool {
@@ -923,6 +971,16 @@ fn default_rate_limit_enabled() -> bool {
 
 fn default_rate_limit_fail_open() -> bool {
     false
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct SyncRateLimitConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub initial: RateLimitRule,
+    #[serde(default)]
+    pub incremental: RateLimitRule,
 }
 
 /// 单个限流规则。
@@ -996,6 +1054,7 @@ impl Default for RateLimitConfig {
             exempt_path_prefixes: Vec::new(),
             endpoint_aliases: HashMap::new(),
             fail_open_on_error: default_rate_limit_fail_open(),
+            sync: SyncRateLimitConfig::default(),
         }
     }
 }
@@ -1379,6 +1438,48 @@ pub struct FederationConfig {
     /// 密钥轮换宽限期（毫秒），默认 10 分钟
     #[serde(default = "default_key_rotation_grace_period_ms")]
     pub key_rotation_grace_period_ms: u64,
+
+    /// 拉取远端 server keys 的最大并发（全局），默认 32
+    #[serde(default = "default_federation_key_fetch_max_concurrency")]
+    pub key_fetch_max_concurrency: usize,
+
+    /// 拉取远端 server keys 的单次请求超时（毫秒），默认 5000
+    #[serde(default = "default_federation_key_fetch_timeout_ms")]
+    pub key_fetch_timeout_ms: u64,
+
+    /// 是否处理入站联邦 EDUs（默认 false）
+    #[serde(default)]
+    pub process_inbound_edus: bool,
+
+    /// 单个联邦 txn 允许的最大 EDU 数量（默认 100）
+    #[serde(default = "default_federation_inbound_edus_max_per_txn")]
+    pub inbound_edus_max_per_txn: usize,
+
+    #[serde(default = "default_federation_inbound_edu_max_concurrency")]
+    pub inbound_edu_max_concurrency: usize,
+
+    #[serde(default = "default_federation_inbound_edu_acquire_timeout_ms")]
+    pub inbound_edu_acquire_timeout_ms: u64,
+
+    #[serde(default = "default_federation_inbound_edu_per_origin_max_concurrency")]
+    pub inbound_edu_per_origin_max_concurrency: usize,
+
+    /// 是否处理入站联邦 presence EDU（默认 false）
+    #[serde(default)]
+    pub process_inbound_presence_edus: bool,
+
+    /// 单个联邦 txn 内 presence 更新的最大条数（默认 50）
+    #[serde(default = "default_federation_inbound_presence_updates_max_per_txn")]
+    pub inbound_presence_updates_max_per_txn: usize,
+
+    #[serde(default = "default_federation_inbound_presence_backoff_ms")]
+    pub inbound_presence_backoff_ms: u64,
+
+    #[serde(default = "default_federation_join_max_concurrency")]
+    pub join_max_concurrency: usize,
+
+    #[serde(default = "default_federation_join_acquire_timeout_ms")]
+    pub join_acquire_timeout_ms: u64,
 }
 
 /// 信任的密钥服务器配置
@@ -1412,6 +1513,46 @@ fn default_key_cache_ttl() -> u64 {
 
 fn default_key_rotation_grace_period_ms() -> u64 {
     600 * 1000
+}
+
+fn default_federation_key_fetch_max_concurrency() -> usize {
+    32
+}
+
+fn default_federation_key_fetch_timeout_ms() -> u64 {
+    5000
+}
+
+fn default_federation_inbound_edus_max_per_txn() -> usize {
+    100
+}
+
+fn default_federation_inbound_presence_updates_max_per_txn() -> usize {
+    50
+}
+
+fn default_federation_inbound_edu_max_concurrency() -> usize {
+    8
+}
+
+fn default_federation_inbound_edu_acquire_timeout_ms() -> u64 {
+    250
+}
+
+fn default_federation_inbound_edu_per_origin_max_concurrency() -> usize {
+    2
+}
+
+fn default_federation_inbound_presence_backoff_ms() -> u64 {
+    3000
+}
+
+fn default_federation_join_max_concurrency() -> usize {
+    16
+}
+
+fn default_federation_join_acquire_timeout_ms() -> u64 {
+    750
 }
 
 // ============================================================================
@@ -2120,6 +2261,18 @@ mod tests {
                 signature_cache_ttl: 3600,
                 key_cache_ttl: 3600,
                 key_rotation_grace_period_ms: 600000,
+                key_fetch_max_concurrency: 32,
+                key_fetch_timeout_ms: 5000,
+                process_inbound_edus: false,
+                inbound_edus_max_per_txn: 100,
+                inbound_edu_max_concurrency: 8,
+                inbound_edu_acquire_timeout_ms: 250,
+                inbound_edu_per_origin_max_concurrency: 2,
+                process_inbound_presence_edus: false,
+                inbound_presence_updates_max_per_txn: 50,
+                inbound_presence_backoff_ms: 3000,
+                join_max_concurrency: 16,
+                join_acquire_timeout_ms: 750,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -2240,6 +2393,18 @@ mod tests {
                 signature_cache_ttl: 3600,
                 key_cache_ttl: 3600,
                 key_rotation_grace_period_ms: 600000,
+                key_fetch_max_concurrency: 32,
+                key_fetch_timeout_ms: 5000,
+                process_inbound_edus: false,
+                inbound_edus_max_per_txn: 100,
+                inbound_edu_max_concurrency: 8,
+                inbound_edu_acquire_timeout_ms: 250,
+                inbound_edu_per_origin_max_concurrency: 2,
+                process_inbound_presence_edus: false,
+                inbound_presence_updates_max_per_txn: 50,
+                inbound_presence_backoff_ms: 3000,
+                join_max_concurrency: 16,
+                join_acquire_timeout_ms: 750,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -2406,6 +2571,18 @@ mod tests {
             signature_cache_ttl: 3600,
             key_cache_ttl: 3600,
             key_rotation_grace_period_ms: 600000,
+            key_fetch_max_concurrency: 32,
+            key_fetch_timeout_ms: 5000,
+            process_inbound_edus: false,
+            inbound_edus_max_per_txn: 100,
+            inbound_edu_max_concurrency: 8,
+            inbound_edu_acquire_timeout_ms: 250,
+            inbound_edu_per_origin_max_concurrency: 2,
+            process_inbound_presence_edus: false,
+            inbound_presence_updates_max_per_txn: 50,
+            inbound_presence_backoff_ms: 3000,
+            join_max_concurrency: 16,
+            join_acquire_timeout_ms: 750,
         };
 
         assert!(config.enabled);

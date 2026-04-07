@@ -283,17 +283,49 @@ impl DatabaseInitService {
 
         self.ensure_schema_migrations_table().await?;
 
+        let lock_key: i64 = sqlx::query_scalar(
+            "SELECT hashtext(current_database() || ':' || current_schema())::bigint",
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+        let lock_start = std::time::Instant::now();
+        loop {
+            let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+                .bind(lock_key)
+                .fetch_one(&*self.pool)
+                .await?;
+            if locked {
+                break;
+            }
+            if lock_start.elapsed() > std::time::Duration::from_secs(10) {
+                return Err(sqlx::Error::Configuration(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!("failed to acquire schema migration lock: {lock_key}"),
+                ))));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+
         let migrations_dir = if std::path::Path::new("/app/migrations").exists() {
             std::path::Path::new("/app/migrations")
         } else if std::path::Path::new("./migrations").exists() {
             std::path::Path::new("./migrations")
         } else {
             info!("未找到迁移目录，跳过迁移");
+            let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+                .bind(lock_key)
+                .execute(&*self.pool)
+                .await;
             return Ok("数据库迁移跳过 (无迁移文件)".to_string());
         };
 
         info!("使用运行时迁移文件: {:?}", migrations_dir);
-        self.run_runtime_migrations(migrations_dir).await
+        let result = self.run_runtime_migrations(migrations_dir).await;
+        let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+            .bind(lock_key)
+            .execute(&*self.pool)
+            .await;
+        result
     }
 
     async fn ensure_schema_migrations_table(&self) -> Result<(), sqlx::Error> {

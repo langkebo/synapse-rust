@@ -13,7 +13,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::Semaphore;
 use url::Url;
 
 static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
@@ -301,7 +303,7 @@ async fn verify_federation_signature_with_timestamp(
 ) -> Result<(), ApiError> {
     verify_signature_timestamp(signature_ts)?;
 
-    verify_federation_signature(state, origin, key_id, signature, signed_bytes).await
+    verify_federation_signature(state, origin, key_id, signature, signed_bytes, false).await
 }
 
 #[allow(dead_code)]
@@ -312,8 +314,15 @@ async fn verify_with_key_rotation(
     signature: &str,
     signed_bytes: &[u8],
 ) -> Result<(), ApiError> {
-    match verify_federation_signature_with_cache(state, origin, key_id, signature, signed_bytes)
-        .await
+    match verify_federation_signature_with_cache(
+        state,
+        origin,
+        key_id,
+        signature,
+        signed_bytes,
+        false,
+    )
+    .await
     {
         Ok(()) => {
             tracing::debug!(
@@ -556,12 +565,16 @@ fn is_safe_http_method(method: &Method) -> bool {
 }
 
 fn extract_session_id_for_csrf(headers: &HeaderMap) -> Option<String> {
-    extract_token(headers).or_else(|| {
-        headers
-            .get("cookie")
-            .and_then(|value| value.to_str().ok())
-            .map(|value| value.to_string())
-    })
+    headers
+        .get("cookie")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string())
+        .or_else(|| {
+            headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .map(|value| value.to_string())
+        })
 }
 
 fn extract_origin_candidate(headers: &HeaderMap) -> Option<String> {
@@ -1024,6 +1037,11 @@ pub async fn federation_auth_middleware(
         .path_and_query()
         .map(|p| p.as_str().to_string())
         .unwrap_or_else(|| parts.uri.path().to_string());
+    let key_fetch_priority = request_target.contains("/_matrix/federation/v1/make_join/")
+        || request_target.contains("/_matrix/federation/v1/send_join/")
+        || request_target.contains("/_matrix/federation/v1/invite/")
+        || request_target.contains("/_matrix/federation/v1/make_leave/")
+        || request_target.contains("/_matrix/federation/v1/send_leave/");
 
     let signed_bytes = canonical_federation_request_bytes(
         parts.method.as_str(),
@@ -1039,6 +1057,7 @@ pub async fn federation_auth_middleware(
         &params.key,
         &params.sig,
         &signed_bytes,
+        key_fetch_priority,
     )
     .await;
 
@@ -1065,7 +1084,7 @@ pub async fn replication_http_auth_middleware(
     next: Next,
 ) -> Response {
     if !state.services.config.worker.replication.http.enabled {
-        return StatusCode::NOT_FOUND.into_response();
+        return next.run(request).await;
     }
     let secret = if let Some(s) = &state.services.config.worker.replication.http.secret {
         s.clone()
@@ -1081,7 +1100,11 @@ pub async fn replication_http_auth_middleware(
         return ApiError::unauthorized("Replication secret not configured".to_string())
             .into_response();
     };
-    let token = extract_token(request.headers()).unwrap_or_default();
+    let token = request
+        .headers()
+        .get("x-synapse-worker-secret")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or_default();
     if token != secret {
         return ApiError::unauthorized("Invalid replication secret".to_string()).into_response();
     }
@@ -1162,6 +1185,7 @@ async fn verify_federation_signature_with_cache(
     key_id: &str,
     signature: &str,
     signed_bytes: &[u8],
+    key_fetch_priority: bool,
 ) -> Result<(), ApiError> {
     use crate::cache::CacheEntryKey;
 
@@ -1181,7 +1205,15 @@ async fn verify_federation_signature_with_cache(
         }
     }
 
-    let result = verify_federation_signature(state, origin, key_id, signature, signed_bytes).await;
+    let result = verify_federation_signature(
+        state,
+        origin,
+        key_id,
+        signature,
+        signed_bytes,
+        key_fetch_priority,
+    )
+    .await;
 
     state
         .federation_signature_cache
@@ -1204,8 +1236,9 @@ async fn verify_federation_signature(
     key_id: &str,
     signature: &str,
     signed_bytes: &[u8],
+    key_fetch_priority: bool,
 ) -> Result<(), ApiError> {
-    let public_key = get_federation_verify_key(state, origin, key_id).await?;
+    let public_key = get_federation_verify_key(state, origin, key_id, key_fetch_priority).await?;
 
     let signature_bytes = match decode_ed25519_signature(signature) {
         Ok(sig) => sig,
@@ -1260,6 +1293,7 @@ async fn verify_batch_signatures(
                 key_id,
                 signature,
                 signed_bytes,
+                false,
             )
             .await
             {
@@ -1298,6 +1332,7 @@ async fn get_federation_verify_key(
     state: &crate::web::routes::AppState,
     origin: &str,
     key_id: &str,
+    key_fetch_priority: bool,
 ) -> Result<[u8; 32], ApiError> {
     let cache_key = format!("federation:verify_key:{}:{}", origin, key_id);
     if let Ok(Some(cached)) = state.cache.get::<String>(&cache_key).await {
@@ -1317,7 +1352,7 @@ async fn get_federation_verify_key(
         }
     }
 
-    let fetched = fetch_federation_verify_key(origin, key_id).await?;
+    let fetched = fetch_federation_verify_key(state, origin, key_id, key_fetch_priority).await?;
     let ttl = 3600u64;
     let _ = state.cache.set(&cache_key, &fetched, ttl).await;
     decode_ed25519_public_key(&fetched)
@@ -1393,9 +1428,31 @@ async fn get_local_verify_key(
     decode_ed25519_public_key(&current_key.public_key).ok()
 }
 
-async fn fetch_federation_verify_key(origin: &str, key_id: &str) -> Result<String, ApiError> {
+async fn fetch_federation_verify_key(
+    state: &crate::web::routes::AppState,
+    origin: &str,
+    key_id: &str,
+    key_fetch_priority: bool,
+) -> Result<String, ApiError> {
+    let backoff_key = format!("federation:key_fetch_backoff:{}:{}", origin, key_id);
+    if let Ok(Some(true)) = state.cache.get::<bool>(&backoff_key).await {
+        return Err(ApiError::unauthorized("Public key not found".to_string()));
+    }
+
+    let semaphore: &Arc<Semaphore> = if key_fetch_priority {
+        &state.federation_key_fetch_priority_semaphore
+    } else {
+        &state.federation_key_fetch_general_semaphore
+    };
+    let _permit = semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("semaphore closed");
+
+    let timeout_ms = state.services.config.federation.key_fetch_timeout_ms.max(1);
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_millis(timeout_ms))
         .build()
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
@@ -1429,6 +1486,7 @@ async fn fetch_federation_verify_key(origin: &str, key_id: &str) -> Result<Strin
         }
     }
 
+    let _ = state.cache.set(&backoff_key, true, 30).await;
     Err(ApiError::unauthorized("Public key not found".to_string()))
 }
 
@@ -1796,6 +1854,7 @@ mod tests {
             &params.key,
             &params.sig,
             &signed_bytes,
+            false,
         )
         .await
         .expect("signature should verify against local config key");
@@ -1962,7 +2021,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_session_id_for_csrf_uses_authorization_then_cookie() {
+    fn test_extract_session_id_for_csrf_prefers_cookie_over_authorization() {
         let mut headers = HeaderMap::new();
         headers.insert(
             "authorization",
@@ -1975,7 +2034,7 @@ mod tests {
 
         assert_eq!(
             extract_session_id_for_csrf(&headers),
-            Some("access-token".to_string())
+            Some("sid=session-cookie".to_string())
         );
 
         let mut cookie_only_headers = HeaderMap::new();
@@ -1986,6 +2045,16 @@ mod tests {
         assert_eq!(
             extract_session_id_for_csrf(&cookie_only_headers),
             Some("sid=session-cookie".to_string())
+        );
+
+        let mut auth_only_headers = HeaderMap::new();
+        auth_only_headers.insert(
+            "authorization",
+            "Bearer access-token".parse().expect("valid auth header"),
+        );
+        assert_eq!(
+            extract_session_id_for_csrf(&auth_only_headers),
+            Some("Bearer access-token".to_string())
         );
     }
 

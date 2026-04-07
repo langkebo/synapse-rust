@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::e2ee::backup::models::BackupKeyInfo;
 use crate::services::CreateRoomConfig;
+use crate::storage::room::{Receipt, RoomStorage};
 use crate::storage::CreateEventParams;
 use crate::web::routes::{
     extract_token_from_headers, validate_event_id, validate_receipt_type, validate_room_id,
@@ -70,13 +71,6 @@ pub(crate) async fn get_event_keys(
     let event_id = event_id.replace("%24", "$");
 
     validate_room_id(&room_id)?;
-    if !event_id.starts_with('$') {
-        return Ok(Json(json!({
-            "event_id": event_id,
-            "room_id": room_id,
-            "keys": []
-        })));
-    }
     validate_event_id(&event_id)?;
 
     let is_member = state
@@ -122,13 +116,6 @@ pub(crate) async fn get_room_thread(
     let event_id = event_id.replace("%24", "$");
 
     validate_room_id(&room_id)?;
-    if !event_id.starts_with('$') {
-        return Ok(Json(json!({
-            "chunk": [],
-            "original_event": null,
-            "next_batch": null
-        })));
-    }
     validate_event_id(&event_id)?;
 
     let is_member = state
@@ -158,6 +145,57 @@ pub(crate) async fn get_room_thread(
         ));
     }
 
+    let mut replies_json = Vec::new();
+    let mut reply_count = 0;
+    let mut participants_json = Vec::new();
+
+    if let Some(thread_root) = state
+        .services
+        .thread_storage
+        .get_thread_root_by_event(&room_id, &event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get thread root: {}", e)))?
+    {
+        let thread_id = thread_root.thread_id.clone().unwrap_or_default();
+        if !thread_id.is_empty() {
+            let replies = state
+                .services
+                .thread_storage
+                .get_thread_replies(&room_id, &thread_id, Some(50), None)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get thread replies: {}", e)))?;
+            reply_count = state
+                .services
+                .thread_storage
+                .get_reply_count(&room_id, &thread_id)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get reply count: {}", e)))?;
+            participants_json = state
+                .services
+                .thread_storage
+                .get_thread_participants(&room_id, &thread_id)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get participants: {}", e)))?;
+
+            replies_json = replies
+                .into_iter()
+                .map(|reply| {
+                    json!({
+                        "event_id": reply.event_id,
+                        "thread_id": reply.thread_id,
+                        "room_id": reply.room_id,
+                        "sender": reply.sender,
+                        "content": reply.content,
+                        "origin_server_ts": reply.origin_server_ts,
+                        "in_reply_to_event_id": reply.in_reply_to_event_id,
+                        "is_edited": reply.is_edited,
+                        "is_redacted": reply.is_redacted
+                    })
+                })
+                .collect();
+        }
+    }
+
     Ok(Json(json!({
         "root": {
             "event_id": root_event.event_id,
@@ -168,9 +206,9 @@ pub(crate) async fn get_room_thread(
             "origin_server_ts": root_event.origin_server_ts,
             "state_key": root_event.state_key
         },
-        "replies": [],
-        "reply_count": 0,
-        "participants": []
+        "replies": replies_json,
+        "reply_count": reply_count,
+        "participants": participants_json
     })))
 }
 
@@ -270,6 +308,51 @@ pub(crate) async fn get_room_info(
         .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
+    let summary = state
+        .services
+        .room_summary_storage
+        .get_summary(&room_id)
+        .await
+        .ok()
+        .flatten();
+
+    let invited_members_count = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(*)
+        FROM room_memberships
+        WHERE room_id = $1 AND membership = 'invite'
+        "#,
+    )
+    .bind(&room_id)
+    .fetch_one(&*state.services.room_storage.pool)
+    .await
+    .unwrap_or(0);
+
+    let guest_can_join = state
+        .services
+        .event_storage
+        .get_state_events_by_type(&room_id, "m.room.guest_access")
+        .await
+        .ok()
+        .and_then(|events| {
+            events
+                .into_iter()
+                .find(|event| event.state_key.as_deref() == Some(""))
+                .and_then(|event| {
+                    event
+                        .content
+                        .get("guest_access")
+                        .and_then(|value| value.as_str())
+                        .map(|value| value == "can_join")
+                })
+        })
+        .unwrap_or_else(|| {
+            summary
+                .as_ref()
+                .map(|value| value.guest_access == "can_join")
+                .unwrap_or(false)
+        });
+
     Ok(Json(json!({
         "room_id": room_id,
         "name": room.name,
@@ -277,9 +360,9 @@ pub(crate) async fn get_room_info(
         "topic": room.topic,
         "canonical_alias": room.canonical_alias,
         "joined_members_count": room.member_count,
-        "invited_members_count": 0,
+        "invited_members_count": invited_members_count,
         "world_readable": room.is_public,
-        "guest_can_join": false,
+        "guest_can_join": guest_can_join,
         "membership": membership
     })))
 }
@@ -473,7 +556,10 @@ pub(crate) async fn join_room(
         .room_service
         .join_room(&room_id, &user_id)
         .await?;
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "joined_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 pub(crate) async fn join_room_by_id_or_alias(
@@ -542,7 +628,10 @@ pub(crate) async fn leave_room(
         .room_service
         .leave_room(&room_id, &auth_user.user_id)
         .await?;
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "left_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -586,68 +675,22 @@ pub(crate) async fn forget_room(
         .room_service
         .forget_room(&room_id, &auth_user.user_id)
         .await?;
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "is_forgotten": true,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 pub(crate) async fn room_initial_sync(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-
-    let room = state
-        .services
-        .room_storage
-        .get_room(&room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Room not found"))?;
-
-    let member = state
-        .services
-        .member_storage
-        .get_member(&room_id, &auth_user.user_id)
-        .await?;
-
-    if member.is_none() {
-        return Err(ApiError::forbidden("You are not a member of this room"));
-    }
-
-    let members = state
-        .services
-        .member_storage
-        .get_joined_members(&room_id)
-        .await
-        .unwrap_or_default();
-
-    let mut response = json!({
-        "room_id": room_id,
-        "messages": {
-            "chunk": [],
-            "start": "s",
-            "end": "e"
-        },
-        "state": [],
-        "presence": [],
-        "account_data": [],
-        "members": members,
-        "num_joined_members": members.len(),
-    });
-
-    if let Some(name) = room.name {
-        response["name"] = serde_json::Value::String(name);
-    }
-    if let Some(topic) = room.topic {
-        response["topic"] = serde_json::Value::String(topic);
-    }
-    if let Some(avatar_url) = room.avatar_url {
-        response["avatar_url"] = serde_json::Value::String(avatar_url);
-    }
-
-    response["created_by"] = serde_json::Value::String(room.creator_user_id.unwrap_or_default());
-    response["created_ts"] = serde_json::Value::Number(serde_json::Number::from(room.created_ts));
-
-    Ok(Json(response))
+    Err(ApiError::unrecognized(
+        "room initialSync is not supported".to_string(),
+    ))
 }
 
 pub(crate) async fn get_room_members(
@@ -706,6 +749,7 @@ pub(crate) async fn get_room_members_recent(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(room_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     let token = extract_token_from_headers(&headers)?;
@@ -716,10 +760,32 @@ pub(crate) async fn get_room_members_recent(
         .get_room_members(&room_id, &user_id)
         .await?;
 
+    let from = params
+        .get("from")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    let limit = params
+        .get("limit")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(100);
+
+    let chunk = members
+        .get("chunk")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let end_index = std::cmp::min(from.saturating_add(limit), chunk.len());
+    let sliced_chunk = if from < chunk.len() {
+        chunk[from..end_index].to_vec()
+    } else {
+        Vec::new()
+    };
+
     Ok(Json(json!({
-        "chunk": members.get("chunk").cloned().unwrap_or_else(|| json!([])),
-        "start": "0",
-        "end": "0"
+        "chunk": sliced_chunk,
+        "start": from.to_string(),
+        "end": end_index.to_string()
     })))
 }
 
@@ -800,7 +866,11 @@ pub(crate) async fn invite_user(
         .invite_user(&room_id, &auth_user.user_id, invitee)
         .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "invited_user_id": invitee,
+        "invited_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 pub(crate) async fn knock_room(
@@ -880,7 +950,11 @@ pub(crate) async fn invite_user_by_room(
         .invite_user(&room_id, &user_id, invitee)
         .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "invited_user_id": invitee,
+        "invited_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 pub(crate) async fn create_room(
@@ -1074,7 +1148,11 @@ pub(crate) async fn set_room_visibility(
         .set_room_directory(&room_id, is_public)
         .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "visibility": visibility,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 pub(crate) async fn get_user_rooms(
@@ -1236,6 +1314,18 @@ pub(crate) async fn send_state_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to send state events".to_string(),
+        ));
+    }
+
     let content = body;
 
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
@@ -1245,6 +1335,61 @@ pub(crate) async fn send_state_event(
         event_type.clone()
     } else {
         format!("m.room.{}", event_type)
+    };
+
+    let beacon_info_params = if final_event_type.starts_with("m.beacon_info")
+        || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
+        || final_event_type.starts_with("org.matrix.msc3489.beacon_info")
+    {
+        let beacon_obj = content
+            .get("m.beacon_info")
+            .and_then(|v| v.as_object())
+            .ok_or_else(|| {
+                ApiError::bad_request("Missing m.beacon_info in beacon_info content".to_string())
+            })?;
+
+        let timeout = beacon_obj
+            .get("timeout")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| ApiError::bad_request("Missing m.beacon_info.timeout".to_string()))?;
+
+        let is_live = beacon_obj
+            .get("live")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let description = beacon_obj
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|v| v.to_string());
+
+        let created_ts = content
+            .get("m.ts")
+            .or_else(|| content.get("org.matrix.msc3488.ts"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(now);
+
+        let asset_type = content
+            .get("m.asset")
+            .or_else(|| content.get("org.matrix.msc3488.asset"))
+            .and_then(|v| v.get("type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("m.self")
+            .to_string();
+
+        Some(crate::storage::beacon::CreateBeaconInfoParams {
+            room_id: room_id.clone(),
+            event_id: new_event_id.clone(),
+            state_key: auth_user.user_id.clone(),
+            sender: auth_user.user_id.clone(),
+            description,
+            timeout,
+            is_live,
+            asset_type,
+            created_ts,
+        })
+    } else {
+        None
     };
 
     let state_event = state
@@ -1265,6 +1410,15 @@ pub(crate) async fn send_state_event(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to send state event: {}", e)))?;
 
+    if let Some(params) = beacon_info_params {
+        state
+            .services
+            .beacon_service
+            .create_beacon(params)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to index beacon_info: {}", e)))?;
+    }
+
     Ok(Json(json!({
         "event_id": new_event_id,
         "type": state_event.event_type,
@@ -1280,6 +1434,18 @@ pub(crate) async fn put_state_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to send state events".to_string(),
+        ));
+    }
+
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
@@ -1287,6 +1453,71 @@ pub(crate) async fn put_state_event(
         event_type.clone()
     } else {
         format!("m.room.{}", event_type)
+    };
+
+    if (final_event_type.starts_with("m.beacon_info")
+        || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
+        || final_event_type.starts_with("org.matrix.msc3489.beacon_info"))
+        && state_key != auth_user.user_id
+    {
+        return Err(ApiError::forbidden(
+            "beacon_info state_key must match sender".to_string(),
+        ));
+    }
+
+    let beacon_info_params = if final_event_type.starts_with("m.beacon_info")
+        || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
+        || final_event_type.starts_with("org.matrix.msc3489.beacon_info")
+    {
+        let beacon_obj = body
+            .get("m.beacon_info")
+            .and_then(|v| v.as_object())
+            .ok_or_else(|| {
+                ApiError::bad_request("Missing m.beacon_info in beacon_info content".to_string())
+            })?;
+
+        let timeout = beacon_obj
+            .get("timeout")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| ApiError::bad_request("Missing m.beacon_info.timeout".to_string()))?;
+
+        let is_live = beacon_obj
+            .get("live")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let description = beacon_obj
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|v| v.to_string());
+
+        let created_ts = body
+            .get("m.ts")
+            .or_else(|| body.get("org.matrix.msc3488.ts"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(now);
+
+        let asset_type = body
+            .get("m.asset")
+            .or_else(|| body.get("org.matrix.msc3488.asset"))
+            .and_then(|v| v.get("type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("m.self")
+            .to_string();
+
+        Some(crate::storage::beacon::CreateBeaconInfoParams {
+            room_id: room_id.clone(),
+            event_id: new_event_id.clone(),
+            state_key: state_key.clone(),
+            sender: auth_user.user_id.clone(),
+            description,
+            timeout,
+            is_live,
+            asset_type,
+            created_ts,
+        })
+    } else {
+        None
     };
 
     let event = state
@@ -1306,6 +1537,15 @@ pub(crate) async fn put_state_event(
         )
         .await
         .map_err(|e| ApiError::internal(format!("Failed to put state event: {}", e)))?;
+
+    if let Some(params) = beacon_info_params {
+        state
+            .services
+            .beacon_service
+            .create_beacon(params)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to index beacon_info: {}", e)))?;
+    }
 
     Ok(Json(json!({
         "event_id": new_event_id,
@@ -1471,10 +1711,8 @@ pub(crate) async fn send_receipt(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_receipt_type(&receipt_type)?;
-
-    if !event_id.starts_with('$') {
-        return Ok(Json(json!({})));
-    }
+    let event_id = event_id.replace("%24", "$");
+    validate_event_id(&event_id)?;
 
     let event = state
         .services
@@ -1497,7 +1735,12 @@ pub(crate) async fn send_receipt(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to store receipt: {}", e)))?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "event_id": event_id,
+        "receipt_type": receipt_type,
+        "ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 pub(crate) async fn get_receipts(
@@ -1506,10 +1749,8 @@ pub(crate) async fn get_receipts(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_receipt_type(&receipt_type)?;
-
-    if !event_id.starts_with('$') {
-        return Ok(Json(json!({ "chunk": [] })));
-    }
+    let event_id = event_id.replace("%24", "$");
+    validate_event_id(&event_id)?;
 
     let receipts = state
         .services
@@ -1518,6 +1759,10 @@ pub(crate) async fn get_receipts(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get receipts: {}", e)))?;
 
+    Ok(Json(build_receipts_chunk(receipts)))
+}
+
+pub fn build_receipts_chunk(receipts: Vec<Receipt>) -> Value {
     let receipt_list: Vec<Value> = receipts
         .into_iter()
         .map(|r| {
@@ -1531,7 +1776,7 @@ pub(crate) async fn get_receipts(
         })
         .collect();
 
-    Ok(Json(json!({ "chunk": receipt_list })))
+    json!({ "chunk": receipt_list })
 }
 
 pub(crate) async fn set_read_markers(
@@ -1567,18 +1812,31 @@ pub(crate) async fn set_read_markers(
         ));
     }
 
+    write_read_markers_from_body(
+        &state.services.room_storage,
+        &room_id,
+        &auth_user.user_id,
+        &body,
+    )
+    .await?;
+
+    Ok(Json(json!({
+        "room_id": room_id,
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
+}
+
+pub async fn write_read_markers_from_body(
+    room_storage: &RoomStorage,
+    room_id: &str,
+    user_id: &str,
+    body: &Value,
+) -> Result<(), ApiError> {
     if let Some(event_id) = body.get("m.fully_read").and_then(|v| v.as_str()) {
         if event_id.starts_with('$') {
             validate_event_id(event_id)?;
-            state
-                .services
-                .room_storage
-                .update_read_marker_with_type(
-                    &room_id,
-                    &auth_user.user_id,
-                    event_id,
-                    "m.fully_read",
-                )
+            room_storage
+                .update_read_marker_with_type(room_id, user_id, event_id, "m.fully_read")
                 .await
                 .map_err(|e| {
                     ApiError::internal(format!("Failed to set fully_read marker: {}", e))
@@ -1589,15 +1847,8 @@ pub(crate) async fn set_read_markers(
     if let Some(event_id) = body.get("m.private_read").and_then(|v| v.as_str()) {
         if event_id.starts_with('$') {
             validate_event_id(event_id)?;
-            state
-                .services
-                .room_storage
-                .update_read_marker_with_type(
-                    &room_id,
-                    &auth_user.user_id,
-                    event_id,
-                    "m.private_read",
-                )
+            room_storage
+                .update_read_marker_with_type(room_id, user_id, event_id, "m.private_read")
                 .await
                 .map_err(|e| {
                     ApiError::internal(format!("Failed to set private_read marker: {}", e))
@@ -1611,12 +1862,10 @@ pub(crate) async fn set_read_markers(
                 if let Some(event_id) = event.as_str() {
                     if event_id.starts_with('$') {
                         validate_event_id(event_id)?;
-                        state
-                            .services
-                            .room_storage
+                        room_storage
                             .update_read_marker_with_type(
-                                &room_id,
-                                &auth_user.user_id,
+                                room_id,
+                                user_id,
                                 event_id,
                                 "m.marked_unread",
                             )
@@ -1636,21 +1885,14 @@ pub(crate) async fn set_read_markers(
     if let Some(event_id) = body.get("m.read").and_then(|v| v.as_str()) {
         if event_id.starts_with('$') {
             validate_event_id(event_id)?;
-            state
-                .services
-                .room_storage
-                .update_read_marker_with_type(
-                    &room_id,
-                    &auth_user.user_id,
-                    event_id,
-                    "m.fully_read",
-                )
+            room_storage
+                .update_read_marker_with_type(room_id, user_id, event_id, "m.fully_read")
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed to set read marker: {}", e)))?;
         }
     }
 
-    Ok(Json(json!({})))
+    Ok(())
 }
 
 pub(crate) async fn get_room_membership(
@@ -1748,7 +1990,11 @@ pub(crate) async fn set_room_account_data(
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "data_type": data_type,
+        "updated_ts": now
+    })))
 }
 
 pub(crate) async fn get_room_account_data(
@@ -3464,6 +3710,7 @@ pub(crate) async fn kick_user(
         .can_kick_user(&room_id, &auth_user.user_id, target, auth_user.is_admin)
         .await?;
 
+    let kicked_by = auth_user.user_id.clone();
     let event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let content = json!({
         "membership": "leave",
@@ -3484,7 +3731,7 @@ pub(crate) async fn kick_user(
             CreateEventParams {
                 event_id,
                 room_id: room_id.clone(),
-                user_id: auth_user.user_id,
+                user_id: auth_user.user_id.clone(),
                 event_type: "m.room.member".to_string(),
                 content,
                 state_key: Some(target.to_string()),
@@ -3502,7 +3749,13 @@ pub(crate) async fn kick_user(
         })
         .ok();
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "user_id": target,
+        "kicked_by": kicked_by,
+        "membership": "leave",
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 pub(crate) async fn ban_user(
@@ -3553,6 +3806,7 @@ pub(crate) async fn ban_user(
         .can_ban_user(&room_id, &auth_user.user_id, target, auth_user.is_admin)
         .await?;
 
+    let banned_by = auth_user.user_id.clone();
     let event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let content = json!({
         "membership": "ban",
@@ -3573,7 +3827,7 @@ pub(crate) async fn ban_user(
             CreateEventParams {
                 event_id,
                 room_id: room_id.clone(),
-                user_id: auth_user.user_id,
+                user_id: auth_user.user_id.clone(),
                 event_type: "m.room.member".to_string(),
                 content,
                 state_key: Some(target.to_string()),
@@ -3591,7 +3845,13 @@ pub(crate) async fn ban_user(
         })
         .ok();
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "user_id": target,
+        "banned_by": banned_by,
+        "membership": "ban",
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }
 
 pub(crate) async fn unban_user(
@@ -3615,6 +3875,7 @@ pub(crate) async fn unban_user(
         .verify_room_moderator(&room_id, &auth_user.user_id, auth_user.is_admin)
         .await?;
 
+    let unbanned_by = auth_user.user_id.clone();
     state
         .services
         .member_storage
@@ -3634,7 +3895,7 @@ pub(crate) async fn unban_user(
             CreateEventParams {
                 event_id,
                 room_id: room_id.clone(),
-                user_id: auth_user.user_id,
+                user_id: auth_user.user_id.clone(),
                 event_type: "m.room.member".to_string(),
                 content,
                 state_key: Some(target.to_string()),
@@ -3652,5 +3913,11 @@ pub(crate) async fn unban_user(
         })
         .ok();
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({
+        "room_id": room_id,
+        "user_id": target,
+        "unbanned_by": unbanned_by,
+        "membership": "leave",
+        "updated_ts": chrono::Utc::now().timestamp_millis()
+    })))
 }

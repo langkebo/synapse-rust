@@ -18,6 +18,11 @@
 - [x] 已形成 `room.rs`、`middleware.rs`、`e2ee_routes.rs` 的按领域拆分方案、迁移顺序与回归要求
 - [x] 已形成统一房间访问守卫方案，并明确 403/404 错误语义、一致性与审计策略
 - [x] 已形成搜索链路统一方案，覆盖 DSL、provider 抽象、FTS/外部搜索后端兼容与性能基线
-- [x] 已形成 schema contract test 与 migration gate 方案，并明确失败分类与阻断条件
+- [x] 已形成 schema contract test 与 migration gate 方案，并明确失败分类与阻断条件（已覆盖 receipts aggregation、sync unread、read_markers handler、/sync ephemeral receipts 等跨域契约样例）
 - [x] 已形成“真实业务数据断言”导向的接口测试基线，而不只验证状态码
 - [x] 已形成超大测试文件拆分规范与工作区产物分层治理策略
+- [x] `/events` 的 `from` token 已具备参数校验：非法 token 返回 `M_INVALID_PARAM`，避免 200 空 `chunk` 静默成功
+- [x] `database_integrity_tests` 已取消对 `public` schema 的硬编码并适配隔离 schema，确保本地/CI 均可稳定复现
+- [x] `scripts/detect_shell_routes.sh` 扫描无新增 shell routes（`handlers/room.rs` 新发现的 13 处空壳成功体已修复）
+- [x] 已验证 `cargo test --test integration` 全量通过（无 `ignored`）
+- [x] 已验证 CI 等价入口 `scripts/run_ci_tests.sh` 全量通过，并补齐 unit tests 的隔离 schema 支撑（避免并发共享 DB 导致非确定性失败）

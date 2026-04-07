@@ -11,12 +11,8 @@ use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> axum::Router {
-    if !super::init_test_database().await {
-        panic!(
-            "Account data integration tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
-        );
-    }
-    let container = ServiceContainer::new_test();
+    let pool = super::require_test_pool().await;
+    let container = ServiceContainer::new_test_with_pool(pool);
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
     create_router(state)

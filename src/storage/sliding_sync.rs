@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
+use serde::{de::Deserializer, Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -76,12 +77,68 @@ pub struct AdminRoomTokenSyncEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlidingSyncRequest {
     pub conn_id: Option<String>,
-    pub lists: Vec<SlidingSyncListRequest>,
+    #[serde(default, deserialize_with = "deserialize_sliding_sync_lists")]
+    pub lists: HashMap<String, SlidingSyncListData>,
     pub room_subscriptions: Option<serde_json::Value>,
-    pub room_unsubscriptions: Option<Vec<String>>,
+    #[serde(default)]
+    pub unsubscribe_rooms: Option<Vec<String>>,
     pub extensions: Option<serde_json::Value>,
     pub pos: Option<String>,
     pub timeout: Option<u32>,
+    #[serde(rename = "clientTimeout")]
+    pub client_timeout: Option<u32>,
+}
+
+fn deserialize_sliding_sync_lists<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, SlidingSyncListData>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ListsPayload {
+        Map(HashMap<String, SlidingSyncListData>),
+        Vec(Vec<SlidingSyncListRequest>),
+    }
+
+    match ListsPayload::deserialize(deserializer)? {
+        ListsPayload::Map(map) => Ok(map),
+        ListsPayload::Vec(list_requests) => {
+            let mut map = HashMap::new();
+            for list in list_requests {
+                let ranges = list
+                    .ranges
+                    .into_iter()
+                    .map(|(start, end)| vec![start, end])
+                    .collect();
+                map.insert(
+                    list.list_key,
+                    SlidingSyncListData {
+                        ranges,
+                        sort: list.sort,
+                        filters: list.filters,
+                        timeline_limit: list.limit,
+                        required_state: None,
+                    },
+                );
+            }
+            Ok(map)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlidingSyncListData {
+    #[serde(default)]
+    pub ranges: Vec<Vec<u32>>,
+    #[serde(default)]
+    pub sort: Vec<String>,
+    pub filters: Option<SlidingSyncFilters>,
+    #[serde(rename = "timeline_limit")]
+    pub timeline_limit: Option<u32>,
+    #[serde(rename = "required_state")]
+    pub required_state: Option<Vec<Vec<String>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -416,6 +473,55 @@ impl SlidingSyncStorage {
         .await
     }
 
+    pub async fn materialize_room_from_activity(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+        conn_id: Option<&str>,
+    ) -> Result<Option<SlidingSyncRoom>, sqlx::Error> {
+        self.ensure_schema().await?;
+
+        let is_member = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM room_memberships
+                WHERE room_id = $1 AND user_id = $2 AND membership = 'join'
+            )
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        if !is_member {
+            return Ok(None);
+        }
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let bump_stamp = sqlx::query_scalar::<_, Option<i64>>(
+            r#"
+            SELECT MAX(origin_server_ts)
+            FROM events
+            WHERE room_id = $1
+            "#,
+        )
+        .bind(room_id)
+        .fetch_one(&*self.pool)
+        .await?
+        .unwrap_or(now);
+
+        self.upsert_room(
+            user_id, device_id, room_id, conn_id, None, bump_stamp, 0, 0, false, false, false,
+            false, None, None, now,
+        )
+        .await?;
+
+        self.get_room(user_id, device_id, room_id, conn_id).await
+    }
+
     pub async fn delete_room(
         &self,
         user_id: &str,
@@ -576,6 +682,132 @@ impl SlidingSyncStorage {
             .await
     }
 
+    pub async fn get_global_account_data(
+        &self,
+        user_id: &str,
+    ) -> Result<serde_json::Value, sqlx::Error> {
+        self.ensure_schema().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT data_type, content
+            FROM account_data
+            WHERE user_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut map = serde_json::Map::new();
+        for row in rows {
+            let data_type: String = sqlx::Row::get(&row, "data_type");
+            let content: serde_json::Value = sqlx::Row::get(&row, "content");
+            map.insert(data_type, content);
+        }
+        Ok(serde_json::Value::Object(map))
+    }
+
+    pub async fn get_room_account_data(
+        &self,
+        user_id: &str,
+        room_ids: &[String],
+    ) -> Result<serde_json::Value, sqlx::Error> {
+        self.ensure_schema().await?;
+        if room_ids.is_empty() {
+            return Ok(serde_json::json!({}));
+        }
+
+        let rows = sqlx::query(
+            r#"
+            SELECT room_id, data_type, data
+            FROM room_account_data
+            WHERE user_id = $1 AND room_id = ANY($2::text[])
+            "#,
+        )
+        .bind(user_id)
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut rooms_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+        for row in rows {
+            let room_id: String = sqlx::Row::get(&row, "room_id");
+            let data_type: String = sqlx::Row::get(&row, "data_type");
+            let data: serde_json::Value = sqlx::Row::get(&row, "data");
+
+            let entry = rooms_map
+                .entry(room_id)
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            if let Some(obj) = entry.as_object_mut() {
+                obj.insert(data_type, data);
+            }
+        }
+
+        Ok(serde_json::Value::Object(rooms_map))
+    }
+
+    pub async fn get_receipts_for_rooms(
+        &self,
+        room_ids: &[String],
+    ) -> Result<serde_json::Value, sqlx::Error> {
+        self.ensure_schema().await?;
+        if room_ids.is_empty() {
+            return Ok(serde_json::json!({}));
+        }
+
+        let rows = sqlx::query(
+            r#"
+            SELECT room_id, event_id, user_id, receipt_type, ts, data
+            FROM event_receipts
+            WHERE room_id = ANY($1::text[])
+            "#,
+        )
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut rooms_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+        for row in rows {
+            let room_id: String = sqlx::Row::get(&row, "room_id");
+            let event_id: String = sqlx::Row::get(&row, "event_id");
+            let user_id: String = sqlx::Row::get(&row, "user_id");
+            let receipt_type: String = sqlx::Row::get(&row, "receipt_type");
+            let ts: i64 = sqlx::Row::get(&row, "ts");
+            let data: serde_json::Value = sqlx::Row::get(&row, "data");
+
+            let room_entry = rooms_map
+                .entry(room_id)
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            let room_obj = room_entry
+                .as_object_mut()
+                .expect("room entry must be object");
+
+            let receipt_type_entry = room_obj
+                .entry(receipt_type)
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            let receipt_type_obj = receipt_type_entry
+                .as_object_mut()
+                .expect("receipt type entry must be object");
+
+            let event_entry = receipt_type_obj
+                .entry(event_id)
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            let event_obj = event_entry
+                .as_object_mut()
+                .expect("event entry must be object");
+
+            event_obj.insert(
+                user_id,
+                serde_json::json!({
+                    "ts": ts,
+                    "data": data
+                }),
+            );
+        }
+
+        Ok(serde_json::Value::Object(rooms_map))
+    }
+
     async fn ensure_schema(&self) -> Result<(), sqlx::Error> {
         Ok(())
     }
@@ -625,21 +857,27 @@ mod tests {
 
     #[test]
     fn test_sliding_sync_request() {
-        let request = SlidingSyncRequest {
-            conn_id: Some("test_conn".to_string()),
-            lists: vec![SlidingSyncListRequest {
-                list_key: "main".to_string(),
+        let mut lists = std::collections::HashMap::new();
+        lists.insert(
+            "main".to_string(),
+            SlidingSyncListData {
+                ranges: vec![vec![0, 20]],
                 sort: vec!["by_recency".to_string()],
                 filters: None,
-                room_subscription: None,
-                ranges: vec![(0, 20)],
-                limit: Some(100),
-            }],
+                timeline_limit: Some(100),
+                required_state: None,
+            },
+        );
+
+        let request = SlidingSyncRequest {
+            conn_id: Some("test_conn".to_string()),
+            lists,
             room_subscriptions: None,
-            room_unsubscriptions: None,
+            unsubscribe_rooms: None,
             extensions: None,
             pos: None,
             timeout: Some(30000),
+            client_timeout: None,
         };
 
         assert!(request.conn_id.is_some());

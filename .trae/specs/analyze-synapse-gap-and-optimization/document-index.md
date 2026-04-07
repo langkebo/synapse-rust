@@ -39,8 +39,12 @@
 | [task12_room_domain_split_plan.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task12_room_domain_split_plan.md) | 已建 | 房间域拆分蓝图（模块边界/依赖方向/验收口径） |
 | [task13_guard_extractor_design.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task13_guard_extractor_design.md) | 已建 | guard/extractor 统一模型与错误语义/审计口径 |
 | [task14_search_architecture_plan.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task14_search_architecture_plan.md) | 已建 | 搜索统一分层架构与最小落地路径 |
-| [task15_migration_gate_design.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task15_migration_gate_design.md) | 已建 | migration gate 阻断链路与失败分类口径 |
+| [task15_schema_dependency_inventory.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task15_schema_dependency_inventory.md) | 已建 | schema 关键表、关键字段、关键索引与关键查询清单 |
+| [task15_schema_contract_test_plan.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task15_schema_contract_test_plan.md) | 已建 | schema contract test 分层、失败分类与最小执行入口 |
+| [task15_migration_gate_design.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task15_migration_gate_design.md) | 已建 | migration gate 阻断链路、失败分类与 CI 接线口径 |
 | [task16_test_baseline_plan.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task16_test_baseline_plan.md) | 已建 | 三类测试基线的最小阻断集与执行入口 |
+| [task16_test_organization_rules.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task16_test_organization_rules.md) | 已建 | 测试目录、命名规则与超大文件拆分边界 |
+| [task16_workspace_artifact_governance.md](file:///Users/ljf/Desktop/hu/synapse-rust/.trae/specs/analyze-synapse-gap-and-optimization/task16_workspace_artifact_governance.md) | 已建 | 文档/产物/临时材料分层治理与 CI 产物策略 |
 
 ### 2.3 P3 专题分析
 

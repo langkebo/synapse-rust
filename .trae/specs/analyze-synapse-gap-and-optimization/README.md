@@ -2,7 +2,7 @@
 
 **Project:** synapse-rust Gap Analysis & Optimization (delivery pack)  
 **Status:** Tasks 1-16 ✅ Complete（含空壳接口治理、房间域拆分、guard 收敛、搜索统一、schema gate、测试/产物治理方案）  
-**Last Updated:** 2026-04-05
+**Last Updated:** 2026-04-06
 
 ---
 
@@ -23,8 +23,8 @@
 - **Task 12 (房间域拆分)**: [task12_room_domain_split_plan.md](task12_room_domain_split_plan.md), [task12_route_migration_matrix.md](task12_route_migration_matrix.md), [task12_validation_and_rollback.md](task12_validation_and_rollback.md)
 - **Task 13 (guard + 服务聚合)**: [task13_room_guard_matrix.md](task13_room_guard_matrix.md), [task13_guard_extractor_design.md](task13_guard_extractor_design.md), [task13_service_aggregation_plan.md](task13_service_aggregation_plan.md)
 - **Task 14 (搜索统一)**: [task14_search_architecture_plan.md](task14_search_architecture_plan.md), [task14_search_dsl_and_provider.md](task14_search_dsl_and_provider.md), [task14_search_performance_baseline.md](task14_search_performance_baseline.md)
-- **Task 15 (schema contract + migration gate)**: [task15_schema_dependency_inventory.md](task15_schema_dependency_inventory.md), [task15_schema_contract_test_plan.md](task15_schema_contract_test_plan.md), [task15_migration_gate_design.md](task15_migration_gate_design.md)
-- **Task 16 (测试/产物治理)**: [task16_test_baseline_plan.md](task16_test_baseline_plan.md), [task16_test_organization_rules.md](task16_test_organization_rules.md), [task16_workspace_artifact_governance.md](task16_workspace_artifact_governance.md)
+- **Task 15 (schema contract + migration gate)**: [task15_schema_dependency_inventory.md](task15_schema_dependency_inventory.md), [task15_schema_contract_test_plan.md](task15_schema_contract_test_plan.md), [task15_migration_gate_design.md](task15_migration_gate_design.md), [task15_schema_contract_and_migration_gate_execution_plan.md](task15_schema_contract_and_migration_gate_execution_plan.md)
+- **Task 16 (测试/产物治理)**: [task16_test_baseline_plan.md](task16_test_baseline_plan.md), [task16_test_organization_rules.md](task16_test_organization_rules.md), [task16_workspace_artifact_governance.md](task16_workspace_artifact_governance.md), [task16_test_and_artifact_governance_execution_plan.md](task16_test_and_artifact_governance_execution_plan.md)
 
 ### ✅ Implementation Reports
 - **[phase1-completion-report.md](phase1-completion-report.md)** - P0+P1 route fixes (5 routes)
@@ -108,6 +108,8 @@ current status judgment:
 
 - Tasks 1-16 in `tasks.md` are marked complete
 - Task 11-16 each have standalone execution documents and sub-deliverables
+- Task 15 already includes first-batch CI/test wiring evidence: 5 schema contract integration targets + 5 DB integrity migration gates
+- Task 16 already includes current-entry indexing and historical-material layering guidance inside this spec directory
 - governance documents for single source of truth, CI semantics, and false-green / placeholder control have been created in `docs/synapse-rust/`
 - placeholder P0 contract tests and related route inventories have been added as implementation anchors
 
@@ -115,13 +117,13 @@ current status judgment:
 
 ## What Still Needs Follow-Through
 
-Even though the planning and governance deliverables are complete, the repository still has
-follow-through work to execute against those plans:
+Even though Tasks 1-16 are complete as a delivery pack, the repository still has
+follow-through engineering work to execute against those plans:
 
 1. continue cleaning document drift so all secondary docs point back to the capability baseline
 2. keep tightening shell-route / placeholder detection so CI catches more false-success patterns
-3. convert more “implemented” paths into “verified” paths with schema contract tests and route contracts
-4. execute the room split, guard convergence, search unification, and migration gate plans incrementally
+3. extend Task 15 from the current first-batch schema gate coverage to more domains and deeper query contracts
+4. execute the room split, guard convergence, search unification, and test-organization plans incrementally
 
 ---
 
@@ -130,8 +132,8 @@ follow-through work to execute against those plans:
 ### If You Want To Continue Engineering Work
 
 - start from **Task 11** for placeholder governance and CI gate hardening
-- start from **Task 15** for schema contract and migration gate implementation
-- start from **Task 16** for test organization and artifact cleanup
+- start from **Task 15** to extend the existing schema contract and migration gate coverage
+- start from **Task 16** to execute test organization and artifact cleanup against the published rules
 
 ### If You Want To Continue Documentation Cleanup
 
@@ -145,9 +147,9 @@ follow-through work to execute against those plans:
 
 1. clean remaining drift in secondary docs such as `TESTING.md` and old spec summaries
 2. harden `scripts/detect_shell_routes.sh` so it catches more empty-success patterns with reliable counts
-3. promote Task 15 and Task 16 from design artifacts into executable CI/test wiring
+3. extend the existing Task 15/16 wiring into broader domain coverage and more aggressive cleanup
 4. choose one structural pilot between Task 12 and Task 13 instead of parallel large refactors
 
 ---
 
-**Project Status:** Tasks 1-16 delivery pack complete; repository follow-through and evidence hardening continue
+**Project Status:** Tasks 1-16 delivery pack complete; Task 15/16 首批接线已落地，后续进入仓库级持续扩展阶段

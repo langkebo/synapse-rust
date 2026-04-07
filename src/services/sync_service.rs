@@ -869,11 +869,11 @@ impl SyncService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get rooms: {}", e)))?;
 
-        let since_ts = from
+        let since_ts: i64 = from
             .trim_start_matches('s')
             .trim_start_matches('t')
-            .parse::<i64>()
-            .unwrap_or(0);
+            .parse()
+            .map_err(|_| ApiError::invalid_input("Invalid 'from' token".to_string()))?;
 
         let limit = 100i64;
         let events = self

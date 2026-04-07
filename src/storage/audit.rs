@@ -142,6 +142,20 @@ impl AuditEventStorage {
 
         Ok((events, total))
     }
+
+    pub async fn delete_events_before(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM audit_events
+            WHERE created_ts < $1
+            "#,
+        )
+        .bind(cutoff_ts)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
 }
 
 async fn insert_audit_event<'e, E>(

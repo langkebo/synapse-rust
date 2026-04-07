@@ -96,8 +96,12 @@ worker:
 
 cors:
   allowed_origins:
+    - "http://localhost:8008"
+    - "http://127.0.0.1:8008"
+    - "http://localhost:6130"
+    - "http://127.0.0.1:6130"
     - "http://localhost:28008"
-    - "${PUBLIC_BASEURL:-http://localhost:28008}"
+    - "http://127.0.0.1:28008"
   allow_credentials: true
   allowed_methods:
     - "GET"

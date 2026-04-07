@@ -94,13 +94,29 @@
   - [x] 设计“迁移文件 -> 实际 schema -> SQLx 查询 -> 集成测试”的闭环校验链
   - [x] 定义 migration gate、schema contract test、失败分类与阻断规则
   - [x] 已拆出独立执行文档：`task15_schema_contract_and_migration_gate_execution_plan.md`
-  - [x] 已将 `schema_contract_room_summary_tests`、`schema_contract_space_tests`、`schema_contract_account_data_tests`、`schema_contract_search_tests`、`schema_contract_e2ee_verification_tests` 接入 `db-migration-gate.yml` 的 `sqlx Migrate Run` 阻断链路
+  - [x] 已将 `schema_contract_room_summary_tests`、`schema_contract_space_tests`、`schema_contract_account_data_tests`、`schema_contract_search_tests`、`schema_contract_e2ee_verification_tests`、`schema_contract_thread_tests`、`schema_contract_retention_tests`、`schema_contract_invite_restrictions_tests`、`schema_contract_auth_tokens_tests`、`schema_contract_presence_tests`、`schema_contract_openid_token_tests`、`schema_contract_media_quota_tests`、`schema_contract_receipts_tests`、`schema_contract_sync_unread_tests`、`schema_contract_receipts_aggregation_tests`、`schema_contract_read_markers_handler_tests`、`schema_contract_sync_ephemeral_receipts_tests` 接入 `db-migration-gate.yml` 的 `sqlx Migrate Run` 阻断链路
+  - [x] 已补齐交付物：`task15_schema_dependency_inventory.md`、`task15_schema_contract_test_plan.md`、`task15_migration_gate_design.md`
+  - [x] 已完成 2026-04-06 收口核对：`Cargo.toml` 已声明 17 个 schema contract integration targets，`tests/integration/database_integrity_tests.rs` 已具备 5 条 DB integrity 阻断测试，`scripts/ci/critical_migrations.txt` 已纳入 `20260406000001-00006` 六条关键补偿迁移
+  - [x] 已确认 `Task 15` 当前状态为“方案 + 首批门禁接线均已落地”，后续仅剩按同口径继续扩展更多能力域，不再属于本任务未完成项
 
 - [x] Task 16: 制定测试体系与工作区产物治理方案
   - [x] 设计占位接口探测测试、schema 回归测试、路由契约测试三类自动化测试基线
   - [x] 设计按能力域拆分超大测试文件的目录与命名规范
   - [x] 设计 `docs`、`migrations`、`artifacts`、`test-results`、临时报表的分层治理与 CI 产物策略
   - [x] 已拆出独立执行文档：`task16_test_and_artifact_governance_execution_plan.md`
+  - [x] 已补齐交付物：`task16_test_baseline_plan.md`、`task16_test_organization_rules.md`、`task16_workspace_artifact_governance.md`
+  - [x] 已同步收口事实源入口：`README.md`、`document-index.md`、`checklist.md` 均已把 `Task 16` 文档纳入当前使用入口
+  - [x] 已补做历史材料分层：旧 shell-route 总结类文档已显式标注为历史快照，不再与当前 `Task 1-16` 交付包状态混淆
+
+- [x] Task 17: 收口集成测试稳定性与 shell-route 门禁收敛
+  - [x] 修复 `/events` 的 `from` token 静默降级：非法 token 直接返回 `M_INVALID_PARAM`
+  - [x] 修复 `database_integrity_tests` 对 `public` schema 的硬编码，使其可在隔离 schema 下稳定运行
+  - [x] 修复 `handlers/room.rs` 新发现的 13 处空壳成功体，并确保 `scripts/detect_shell_routes.sh` 无新增命中
+  - [x] 修复 friend shell-route 测试用例的请求方/被请求方参数使用错误，解除 `ignored` 并验证三条更新端点测试通过
+  - [x] 修复 `scripts/run_ci_tests.sh` 下 unit tests 并发/共享 DB schema 导致的非确定性失败：新增空 schema 隔离池工具，并将 auth/room/sync/voice 四组 unit tests 切换为隔离 schema 执行与对齐最新断言
+  - [x] 已更新 API 响应变更文档：`docs/synapse-rust/SHELL_ROUTE_FIXES_API_CHANGES.md`
+  - [x] 已验证 `cargo test --test integration` 全量通过（无 `ignored`）
+  - [x] 已验证 `TEST_THREADS=4 TEST_RETRIES=0 bash scripts/run_ci_tests.sh` 全量通过（包含 unit/integration/schema contract/performance 等）
 
 # Task Dependencies
 

@@ -1,6 +1,4 @@
 use sqlx::{Pool, Postgres, Row};
-use std::sync::Arc;
-use synapse_rust::services::database_initializer::{DatabaseInitMode, DatabaseInitService};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct ForeignKeyInfo {
@@ -42,7 +40,7 @@ impl DatabaseIntegrityChecker {
                 ON tc.constraint_name = kcu.constraint_name
                 AND tc.table_schema = kcu.table_schema
             WHERE tc.constraint_type = 'FOREIGN KEY'
-                AND tc.table_schema = 'public'
+                AND tc.table_schema = current_schema()
             ORDER BY tc.table_name, tc.constraint_name
             "#,
         )
@@ -57,7 +55,7 @@ impl DatabaseIntegrityChecker {
             r#"
             SELECT indexname, tablename
             FROM pg_indexes
-            WHERE schemaname = 'public' AND tablename = $1
+            WHERE schemaname = current_schema() AND tablename = $1
             ORDER BY indexname
             "#,
         )
@@ -423,7 +421,7 @@ impl DatabaseIntegrityChecker {
             r#"
             SELECT EXISTS (
                 SELECT 1 FROM information_schema.tables 
-                WHERE table_schema = 'public' AND table_name = $1
+                WHERE table_schema = current_schema() AND table_name = $1
             )
             "#,
         )
@@ -443,7 +441,7 @@ impl DatabaseIntegrityChecker {
             r#"
             SELECT EXISTS (
                 SELECT 1 FROM information_schema.columns 
-                WHERE table_schema = 'public' 
+                WHERE table_schema = current_schema() 
                   AND table_name = $1 
                   AND column_name = $2
             )
@@ -461,7 +459,7 @@ impl DatabaseIntegrityChecker {
         let timestamp_fields: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*) FROM information_schema.columns
-            WHERE table_schema = 'public'
+            WHERE table_schema = current_schema()
               AND column_name LIKE '%_ts'
               AND data_type = 'bigint'
             "#,
@@ -472,7 +470,7 @@ impl DatabaseIntegrityChecker {
         let bool_fields_with_is: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*) FROM information_schema.columns
-            WHERE table_schema = 'public'
+            WHERE table_schema = current_schema()
               AND (column_name LIKE 'is_%' OR column_name LIKE 'has_%')
               AND data_type = 'boolean'
             "#,
@@ -484,7 +482,7 @@ impl DatabaseIntegrityChecker {
             r#"
             SELECT table_name, column_name, data_type
             FROM information_schema.columns
-            WHERE table_schema = 'public'
+            WHERE table_schema = current_schema()
               AND column_name ~ '(created|updated|expires|last_seen|joined)'
               AND column_name !~ '_ts$'
               AND data_type = 'bigint'
@@ -522,7 +520,7 @@ impl DatabaseIntegrityChecker {
                 r#"
                 SELECT EXISTS (
                     SELECT 1 FROM pg_indexes
-                    WHERE schemaname = 'public' AND indexname = $1
+                    WHERE schemaname = current_schema() AND indexname = $1
                 )
                 "#,
             )
@@ -572,7 +570,7 @@ impl DatabaseIntegrityChecker {
                 r#"
                 SELECT EXISTS (
                     SELECT 1 FROM information_schema.table_constraints
-                    WHERE table_schema = 'public'
+                    WHERE table_schema = current_schema()
                       AND table_name = $1
                       AND constraint_name = $2
                 )
@@ -627,7 +625,7 @@ mod tests {
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_verification_requests_to_user_state
-            ON public.verification_requests(to_user, state, updated_ts DESC)
+            ON verification_requests(to_user, state, updated_ts DESC)
             "#,
         )
         .execute(pool)
@@ -644,7 +642,7 @@ mod tests {
                 SELECT EXISTS (
                     SELECT 1
                     FROM information_schema.table_constraints
-                    WHERE table_schema = 'public'
+                    WHERE table_schema = current_schema()
                       AND table_name = $1
                       AND constraint_name = $2
                 )
@@ -666,63 +664,63 @@ mod tests {
             pool,
             "room_summary_state",
             "fk_room_summary_state_room",
-            "ALTER TABLE public.room_summary_state ADD CONSTRAINT fk_room_summary_state_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+            "ALTER TABLE room_summary_state ADD CONSTRAINT fk_room_summary_state_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
         )
         .await?;
         ensure_constraint(
             pool,
             "room_summary_stats",
             "fk_room_summary_stats_room",
-            "ALTER TABLE public.room_summary_stats ADD CONSTRAINT fk_room_summary_stats_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+            "ALTER TABLE room_summary_stats ADD CONSTRAINT fk_room_summary_stats_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
         )
         .await?;
         ensure_constraint(
             pool,
             "room_summary_update_queue",
             "fk_room_summary_update_queue_room",
-            "ALTER TABLE public.room_summary_update_queue ADD CONSTRAINT fk_room_summary_update_queue_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+            "ALTER TABLE room_summary_update_queue ADD CONSTRAINT fk_room_summary_update_queue_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
         )
         .await?;
         ensure_constraint(
             pool,
             "room_children",
             "fk_room_children_parent",
-            "ALTER TABLE public.room_children ADD CONSTRAINT fk_room_children_parent FOREIGN KEY (parent_room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+            "ALTER TABLE room_children ADD CONSTRAINT fk_room_children_parent FOREIGN KEY (parent_room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
         )
         .await?;
         ensure_constraint(
             pool,
             "room_children",
             "fk_room_children_child",
-            "ALTER TABLE public.room_children ADD CONSTRAINT fk_room_children_child FOREIGN KEY (child_room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+            "ALTER TABLE room_children ADD CONSTRAINT fk_room_children_child FOREIGN KEY (child_room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
         )
         .await?;
         ensure_constraint(
             pool,
             "retention_cleanup_queue",
             "fk_retention_cleanup_queue_room",
-            "ALTER TABLE public.retention_cleanup_queue ADD CONSTRAINT fk_retention_cleanup_queue_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+            "ALTER TABLE retention_cleanup_queue ADD CONSTRAINT fk_retention_cleanup_queue_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
         )
         .await?;
         ensure_constraint(
             pool,
             "retention_cleanup_logs",
             "fk_retention_cleanup_logs_room",
-            "ALTER TABLE public.retention_cleanup_logs ADD CONSTRAINT fk_retention_cleanup_logs_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+            "ALTER TABLE retention_cleanup_logs ADD CONSTRAINT fk_retention_cleanup_logs_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
         )
         .await?;
         ensure_constraint(
             pool,
             "retention_stats",
             "fk_retention_stats_room",
-            "ALTER TABLE public.retention_stats ADD CONSTRAINT fk_retention_stats_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+            "ALTER TABLE retention_stats ADD CONSTRAINT fk_retention_stats_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
         )
         .await?;
         ensure_constraint(
             pool,
             "deleted_events_index",
             "fk_deleted_events_index_room",
-            "ALTER TABLE public.deleted_events_index ADD CONSTRAINT fk_deleted_events_index_room FOREIGN KEY (room_id) REFERENCES public.rooms(room_id) ON DELETE CASCADE",
+            "ALTER TABLE deleted_events_index ADD CONSTRAINT fk_deleted_events_index_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
         )
         .await?;
 
@@ -730,51 +728,21 @@ mod tests {
     }
 
     async fn connect_integrity_pool() -> Option<Pool<Postgres>> {
-        let database_url = match synapse_rust::test_utils::resolve_test_database_url().await {
-            Ok(url) => url,
-            Err(error) => {
-                eprintln!(
-                    "Skipping database integrity tests: unable to resolve test database URL: {}",
-                    error
-                );
-                return None;
-            }
-        };
-
-        match Pool::connect(&database_url).await {
+        match synapse_rust::test_utils::prepare_isolated_test_pool().await {
             Ok(pool) => {
-                let init_service = DatabaseInitService::new(Arc::new(pool.clone()))
-                    .with_mode(DatabaseInitMode::Strict);
-                match init_service.initialize().await {
-                    Ok(report) if report.success => {
-                        if let Err(error) = ensure_public_schema_contract_repairs(&pool).await {
-                            eprintln!(
-                                "Database integrity setup warning: unable to apply public schema contract repairs: {}",
-                                error
-                            );
-                        }
-                        Some(pool)
-                    }
-                    Ok(report) => {
-                        eprintln!(
-                            "Skipping database integrity tests: strict runtime migrations reported errors: {:?}",
-                            report.errors
-                        );
-                        None
-                    }
-                    Err(error) => {
-                        eprintln!(
-                            "Skipping database integrity tests: strict runtime migrations failed: {}",
-                            error
-                        );
-                        None
-                    }
+                let pool = (*pool).clone();
+                if let Err(error) = ensure_public_schema_contract_repairs(&pool).await {
+                    eprintln!(
+                        "Database integrity setup warning: unable to apply public schema contract repairs: {}",
+                        error
+                    );
                 }
+                Some(pool)
             }
             Err(error) => {
                 eprintln!(
-                    "Skipping database integrity tests: unable to connect using resolved TEST_DATABASE_URL candidate {}: {}",
-                    database_url, error
+                    "Skipping database integrity tests: unable to prepare isolated schema: {}",
+                    error
                 );
                 None
             }
@@ -935,7 +903,7 @@ mod tests {
             r#"
             SELECT indexdef
             FROM pg_indexes
-            WHERE schemaname = 'public'
+            WHERE schemaname = current_schema()
               AND tablename = 'verification_requests'
               AND indexname = 'idx_verification_requests_to_user_state'
             "#,

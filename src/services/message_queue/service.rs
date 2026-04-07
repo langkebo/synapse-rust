@@ -211,10 +211,136 @@ impl MessageQueue {
 
         Ok(())
     }
+
+    pub async fn cleanup_expired(&self) -> Result<u64, String> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut removed = 0u64;
+
+        let mut queues = self.queues.write().await;
+        let mut stats = self.stats.write().await;
+        for (queue_name, queue) in queues.iter_mut() {
+            let before = queue.len();
+            queue.retain(|message| {
+                !message
+                    .expires_at
+                    .map(|expires_at| expires_at <= now)
+                    .unwrap_or(false)
+            });
+            let removed_from_queue = before.saturating_sub(queue.len()) as u64;
+            removed += removed_from_queue;
+
+            if let Some(stat) = stats.get_mut(queue_name) {
+                stat.message_count = queue.len() as u64;
+            }
+        }
+
+        let mut pending = self.pending.write().await;
+        let pending_before = pending.len();
+        pending.retain(|_, message| {
+            !message
+                .expires_at
+                .map(|expires_at| expires_at <= now)
+                .unwrap_or(false)
+        });
+        removed += pending_before.saturating_sub(pending.len()) as u64;
+
+        Ok(removed)
+    }
 }
 
 impl Default for MessageQueue {
     fn default() -> Self {
         Self::new(QueueConfig::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_cleanup_expired_removes_expired_messages() {
+        let queue = MessageQueue::default();
+        queue
+            .create_queue("jobs")
+            .await
+            .expect("queue should be created");
+
+        let now = chrono::Utc::now().timestamp_millis();
+        queue
+            .publish(PublishRequest {
+                queue: "jobs".to_string(),
+                payload: vec![1],
+                priority: Some(0),
+                delay_ms: None,
+                expires_at: Some(now - 1),
+                headers: None,
+            })
+            .await
+            .expect("expired message should be published");
+
+        queue
+            .publish(PublishRequest {
+                queue: "jobs".to_string(),
+                payload: vec![2],
+                priority: Some(0),
+                delay_ms: None,
+                expires_at: Some(now + 60_000),
+                headers: None,
+            })
+            .await
+            .expect("live message should be published");
+
+        let removed = queue
+            .cleanup_expired()
+            .await
+            .expect("cleanup should succeed");
+        assert_eq!(removed, 1);
+        assert_eq!(queue.queue_length("jobs").await.unwrap(), 1);
+        assert_eq!(
+            queue.get_queue_stats("jobs").await.unwrap().message_count,
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired_removes_pending_messages() {
+        let queue = MessageQueue::default();
+        queue
+            .create_queue("jobs")
+            .await
+            .expect("queue should be created");
+
+        let now = chrono::Utc::now().timestamp_millis();
+        queue
+            .publish(PublishRequest {
+                queue: "jobs".to_string(),
+                payload: vec![1],
+                priority: Some(0),
+                delay_ms: None,
+                expires_at: Some(now - 1),
+                headers: None,
+            })
+            .await
+            .expect("expired message should be published");
+
+        let consumed = queue
+            .consume(ConsumeRequest {
+                queue: "jobs".to_string(),
+                group_id: "group".to_string(),
+                consumer_id: "consumer".to_string(),
+                max_messages: 1,
+                timeout_ms: 100,
+            })
+            .await
+            .expect("consume should succeed");
+        assert_eq!(consumed.len(), 1);
+
+        let removed = queue
+            .cleanup_expired()
+            .await
+            .expect("cleanup should succeed");
+        assert_eq!(removed, 1);
+        assert!(queue.pending.read().await.is_empty());
     }
 }

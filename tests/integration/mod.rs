@@ -9,12 +9,15 @@ mod api_appservice_basic_tests;
 mod api_appservice_p1_tests;
 mod api_appservice_tests;
 mod api_auth_routes_tests;
+mod api_beacon_location_tests;
 mod api_device_presence_tests;
 mod api_device_routes_tests;
 mod api_e2ee_advanced_tests;
 mod api_e2ee_tests;
 mod api_enhanced_features_tests;
 mod api_feature_flags_tests;
+mod api_federation_join_key_fetch_priority_tests;
+mod api_federation_key_fetch_limits_tests;
 mod api_federation_signature_auth_tests;
 mod api_federation_tests;
 mod api_friend_room_routes_tests;
@@ -22,8 +25,10 @@ mod api_input_validation_tests;
 mod api_ip_block_test;
 mod api_media_routes_tests;
 mod api_placeholder_contract_p0_tests;
+mod api_placeholder_contract_p1p2_tests;
 mod api_profile_tests;
 mod api_protocol_alignment_tests;
+mod api_rate_limit_contract_tests;
 mod api_room_placeholder_contract_tests;
 mod api_room_summary_routes_tests;
 mod api_room_sync_tests;
@@ -33,9 +38,12 @@ mod api_shell_route_fixes_p1_tests;
 mod api_shell_route_fixes_p2_friend_tests;
 mod api_shell_route_fixes_p2_misc_tests;
 mod api_shell_route_fixes_p2_push_tests;
+mod api_sliding_sync_contract_tests;
 mod api_space_routes_tests;
+mod api_sync_isolation_rate_limit_tests;
 mod api_telemetry_alerts_tests;
 mod api_widget_tests;
+mod api_worker_replication_auth_tests;
 mod cache_tests;
 mod concurrency_tests;
 mod database_integrity_tests;
@@ -101,16 +109,6 @@ pub async fn require_test_pool() -> Arc<sqlx::PgPool> {
             "Integration test requires isolated schema setup. For optional local runs, start PostgreSQL and apply migrations first; in CI this must already succeed."
         )
     })
-}
-
-async fn init_test_database() -> bool {
-    match get_test_pool().await {
-        Some(pool) => {
-            synapse_rust::test_utils::enqueue_prepared_test_pool(pool);
-            true
-        }
-        None => false,
-    }
 }
 
 pub fn clear_test_cache() {}

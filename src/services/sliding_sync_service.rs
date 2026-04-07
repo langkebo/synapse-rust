@@ -1,7 +1,8 @@
 use crate::cache::CacheManager;
 use crate::common::error::ApiError;
+use crate::services::TypingService;
 use crate::storage::sliding_sync::{
-    AdminRoomTokenSyncEntry, SlidingSyncListRequest, SlidingSyncRequest, SlidingSyncResponse,
+    AdminRoomTokenSyncEntry, SlidingSyncListData, SlidingSyncRequest, SlidingSyncResponse,
     SlidingSyncRoom, SlidingSyncStorage,
 };
 use std::sync::Arc;
@@ -10,11 +11,20 @@ use std::sync::Arc;
 pub struct SlidingSyncService {
     storage: SlidingSyncStorage,
     cache: Arc<CacheManager>,
+    typing_service: Arc<crate::services::typing_service::TypingServiceImpl>,
 }
 
 impl SlidingSyncService {
-    pub fn new(storage: SlidingSyncStorage, cache: Arc<CacheManager>) -> Self {
-        Self { storage, cache }
+    pub fn new(
+        storage: SlidingSyncStorage,
+        cache: Arc<CacheManager>,
+        typing_service: Arc<crate::services::typing_service::TypingServiceImpl>,
+    ) -> Self {
+        Self {
+            storage,
+            cache,
+            typing_service,
+        }
     }
 
     pub async fn sync(
@@ -36,23 +46,35 @@ impl SlidingSyncService {
             }
         }
 
-        for list_req in &request.lists {
+        for (list_key, list_data) in &request.lists {
+            let ranges: Vec<(u32, u32)> = list_data
+                .ranges
+                .iter()
+                .filter_map(|r| {
+                    if r.len() >= 2 {
+                        Some((r[0], r[1]))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
             self.storage
                 .save_list(
                     user_id,
                     device_id,
                     conn_id,
-                    &list_req.list_key,
-                    &list_req.sort,
-                    list_req.filters.as_ref(),
-                    list_req.room_subscription.as_ref(),
-                    &list_req.ranges,
+                    list_key,
+                    &list_data.sort,
+                    list_data.filters.as_ref(),
+                    None,
+                    &ranges,
                 )
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed to save list: {}", e)))?;
         }
 
-        if let Some(unsubs) = &request.room_unsubscriptions {
+        if let Some(unsubs) = &request.unsubscribe_rooms {
             for room_id in unsubs {
                 self.storage
                     .delete_room(user_id, device_id, room_id, conn_id)
@@ -73,6 +95,13 @@ impl SlidingSyncService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to build rooms response: {}", e)))?;
 
+        let extensions_response = self
+            .build_extensions_response(user_id, &rooms_response, request.extensions.as_ref())
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to build extensions response: {}", e))
+            })?;
+
         let new_token = self
             .storage
             .create_or_update_token(user_id, device_id, conn_id)
@@ -84,7 +113,7 @@ impl SlidingSyncService {
             conn_id: request.conn_id,
             lists: lists_response,
             rooms: rooms_response,
-            extensions: request.extensions,
+            extensions: extensions_response,
         })
     }
 
@@ -93,37 +122,34 @@ impl SlidingSyncService {
         user_id: &str,
         device_id: &str,
         conn_id: Option<&str>,
-        lists: &[SlidingSyncListRequest],
+        lists: &std::collections::HashMap<String, SlidingSyncListData>,
     ) -> Result<serde_json::Value, sqlx::Error> {
         let mut lists_json = serde_json::Map::new();
 
-        for list_req in lists {
+        for (list_key, list_data) in lists {
             let mut rooms = Vec::new();
 
-            for (start, end) in &list_req.ranges {
-                let range_rooms = self
-                    .storage
-                    .get_rooms_for_list(
-                        user_id,
-                        device_id,
-                        conn_id,
-                        &list_req.list_key,
-                        *start,
-                        *end,
-                    )
-                    .await?;
+            for range in &list_data.ranges {
+                if range.len() >= 2 {
+                    let start = range[0];
+                    let end = range[1];
+                    let range_rooms = self
+                        .storage
+                        .get_rooms_for_list(user_id, device_id, conn_id, list_key, start, end)
+                        .await?;
 
-                for room in range_rooms {
-                    rooms.push(self.room_to_json(&room));
+                    for room in range_rooms {
+                        rooms.push(self.room_to_json(&room));
+                    }
                 }
             }
 
             let count = self
-                .count_rooms_for_list(user_id, device_id, conn_id, &list_req.list_key)
+                .count_rooms_for_list(user_id, device_id, conn_id, list_key)
                 .await?;
 
             lists_json.insert(
-                list_req.list_key.clone(),
+                list_key.clone(),
                 serde_json::json!({
                     "ops": self.build_ops(&rooms),
                     "count": count,
@@ -172,34 +198,39 @@ impl SlidingSyncService {
         if let Some(subscriptions) = &request.room_subscriptions {
             if let Some(subs_obj) = subscriptions.as_object() {
                 for room_id in subs_obj.keys() {
-                    if let Some(room) = self
+                    let room = if let Some(room) = self
                         .storage
                         .get_room(user_id, device_id, room_id, conn_id)
                         .await?
                     {
+                        Some(room)
+                    } else {
+                        self.storage
+                            .materialize_room_from_activity(user_id, device_id, room_id, conn_id)
+                            .await?
+                    };
+
+                    if let Some(room) = room {
                         rooms_json.insert(room_id.clone(), self.room_to_json(&room));
                     }
                 }
             }
         }
 
-        for list_req in &request.lists {
-            for (start, end) in &list_req.ranges {
-                let rooms = self
-                    .storage
-                    .get_rooms_for_list(
-                        user_id,
-                        device_id,
-                        conn_id,
-                        &list_req.list_key,
-                        *start,
-                        *end,
-                    )
-                    .await?;
+        for (list_key, list_data) in &request.lists {
+            for range in &list_data.ranges {
+                if range.len() >= 2 {
+                    let start = range[0];
+                    let end = range[1];
+                    let rooms = self
+                        .storage
+                        .get_rooms_for_list(user_id, device_id, conn_id, list_key, start, end)
+                        .await?;
 
-                for room in rooms {
-                    if !rooms_json.contains_key(&room.room_id) {
-                        rooms_json.insert(room.room_id.clone(), self.room_to_json(&room));
+                    for room in rooms {
+                        if !rooms_json.contains_key(&room.room_id) {
+                            rooms_json.insert(room.room_id.clone(), self.room_to_json(&room));
+                        }
                     }
                 }
             }
@@ -221,6 +252,119 @@ impl SlidingSyncService {
             "notification_count": room.notification_count,
             "timestamp": room.timestamp,
         })
+    }
+
+    async fn build_extensions_response(
+        &self,
+        user_id: &str,
+        rooms_response: &serde_json::Value,
+        request_extensions: Option<&serde_json::Value>,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        let Some(request_extensions) = request_extensions else {
+            return Ok(None);
+        };
+
+        let mut response_extensions = request_extensions.as_object().cloned().unwrap_or_default();
+
+        let account_data_enabled = request_extensions
+            .get("account_data")
+            .and_then(|v| {
+                if v.as_bool() == Some(true) {
+                    Some(true)
+                } else {
+                    v.as_object()
+                        .map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
+                }
+            })
+            .unwrap_or(false);
+
+        if account_data_enabled {
+            let room_ids: Vec<String> = rooms_response
+                .as_object()
+                .map(|obj| obj.keys().cloned().collect())
+                .unwrap_or_default();
+
+            let global = self.storage.get_global_account_data(user_id).await?;
+            let rooms = self
+                .storage
+                .get_room_account_data(user_id, &room_ids)
+                .await?;
+
+            response_extensions.insert(
+                "account_data".to_string(),
+                serde_json::json!({
+                    "global": global,
+                    "rooms": rooms
+                }),
+            );
+        }
+
+        let receipts_enabled = request_extensions
+            .get("receipts")
+            .and_then(|v| {
+                if v.as_bool() == Some(true) {
+                    Some(true)
+                } else {
+                    v.as_object()
+                        .map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
+                }
+            })
+            .unwrap_or(false);
+
+        if receipts_enabled {
+            let room_ids: Vec<String> = rooms_response
+                .as_object()
+                .map(|obj| obj.keys().cloned().collect())
+                .unwrap_or_default();
+            let receipts = self.storage.get_receipts_for_rooms(&room_ids).await?;
+            response_extensions.insert(
+                "receipts".to_string(),
+                serde_json::json!({
+                    "rooms": receipts
+                }),
+            );
+        }
+
+        let typing_enabled = request_extensions
+            .get("typing")
+            .and_then(|v| {
+                if v.as_bool() == Some(true) {
+                    Some(true)
+                } else {
+                    v.as_object()
+                        .map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
+                }
+            })
+            .unwrap_or(false);
+
+        if typing_enabled {
+            let room_ids: Vec<String> = rooms_response
+                .as_object()
+                .map(|obj| obj.keys().cloned().collect())
+                .unwrap_or_default();
+            let mut typing_rooms = serde_json::Map::new();
+            for room_id in room_ids {
+                let typing_users = self
+                    .typing_service
+                    .get_typing_users(&room_id)
+                    .await
+                    .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+                let user_ids: Vec<String> = typing_users.into_keys().collect();
+                typing_rooms.insert(room_id, serde_json::json!({ "user_ids": user_ids }));
+            }
+            response_extensions.insert(
+                "typing".to_string(),
+                serde_json::json!({
+                    "rooms": typing_rooms
+                }),
+            );
+        }
+
+        if response_extensions.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(serde_json::Value::Object(response_extensions)))
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -446,6 +590,7 @@ mod tests {
                     .unwrap(),
             )),
             cache: Arc::new(CacheManager::new(crate::cache::CacheConfig::default())),
+            typing_service: Arc::new(crate::services::typing_service::TypingServiceImpl::new()),
         }
     }
 

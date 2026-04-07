@@ -1,6 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
+    middleware,
     response::IntoResponse,
     routing::{delete, get, post, put},
     Json, Router,
@@ -9,10 +10,11 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 use crate::common::ApiError;
+use crate::web::middleware::replication_http_auth_middleware;
 use crate::web::routes::response_helpers::{
     created_json_from, json_from, json_vec_from, require_found, status_json,
 };
-use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
+use crate::web::routes::{AdminUser, AppState};
 use crate::worker::types::*;
 
 #[derive(Debug, Deserialize)]
@@ -237,7 +239,6 @@ pub async fn list_workers_by_type(
 pub async fn heartbeat(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
-    _auth_user: AuthenticatedUser,
     Json(body): Json<HeartbeatBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let status = WorkerStatus::from_str(&body.status).map_err(ApiError::bad_request)?;
@@ -277,7 +278,6 @@ pub async fn send_command(
 pub async fn get_pending_commands(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
-    _auth_user: AuthenticatedUser,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -293,7 +293,6 @@ pub async fn get_pending_commands(
 pub async fn complete_command(
     State(state): State<AppState>,
     Path(command_id): Path<String>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state
         .services
@@ -307,7 +306,6 @@ pub async fn complete_command(
 pub async fn fail_command(
     State(state): State<AppState>,
     Path(command_id): Path<String>,
-    _auth_user: AuthenticatedUser,
     Json(body): Json<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -349,7 +347,6 @@ pub async fn get_pending_tasks(
 pub async fn claim_next_task(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let task = state
         .services
@@ -363,7 +360,6 @@ pub async fn claim_next_task(
 pub async fn claim_task(
     State(state): State<AppState>,
     Path((task_id, worker_id)): Path<(String, String)>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state
         .services
@@ -377,7 +373,6 @@ pub async fn claim_task(
 pub async fn complete_task(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
-    _auth_user: AuthenticatedUser,
     Json(body): Json<CompleteTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -392,7 +387,6 @@ pub async fn complete_task(
 pub async fn fail_task(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
-    _auth_user: AuthenticatedUser,
     Json(body): Json<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -407,7 +401,6 @@ pub async fn fail_task(
 pub async fn connect_worker(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
-    _auth_user: AuthenticatedUser,
     Json(body): Json<ConnectWorkerBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -422,7 +415,6 @@ pub async fn connect_worker(
 pub async fn disconnect_worker(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state
         .services
@@ -436,7 +428,6 @@ pub async fn disconnect_worker(
 pub async fn get_replication_position(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
-    _auth_user: AuthenticatedUser,
     Query(query): Query<QueryPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
     let position = state
@@ -455,7 +446,6 @@ pub async fn get_replication_position(
 pub async fn update_replication_position(
     State(state): State<AppState>,
     Path((worker_id, stream_name)): Path<(String, String)>,
-    _auth_user: AuthenticatedUser,
     Json(body): Json<StreamPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -469,7 +459,6 @@ pub async fn update_replication_position(
 
 pub async fn get_events(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
     Query(query): Query<QueryStream>,
 ) -> Result<impl IntoResponse, ApiError> {
     let stream_id = query.stream_id.unwrap_or(0);
@@ -519,7 +508,7 @@ pub async fn select_worker(
 }
 
 pub fn create_worker_router(state: AppState) -> Router<AppState> {
-    Router::new()
+    let admin_router = Router::new()
         .route("/_synapse/worker/v1/register", post(register_worker))
         .route("/_synapse/worker/v1/workers", get(list_workers))
         .route(
@@ -531,6 +520,20 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
             "/_synapse/worker/v1/workers/{worker_id}",
             delete(unregister_worker),
         )
+        .route(
+            "/_synapse/worker/v1/workers/{worker_id}/commands",
+            post(send_command),
+        )
+        .route("/_synapse/worker/v1/tasks", post(assign_task))
+        .route("/_synapse/worker/v1/tasks", get(get_pending_tasks))
+        .route("/_synapse/worker/v1/statistics", get(get_statistics))
+        .route(
+            "/_synapse/worker/v1/statistics/types",
+            get(get_type_statistics),
+        )
+        .route("/_synapse/worker/v1/select/{task_type}", get(select_worker));
+
+    let worker_router = Router::new()
         .route(
             "/_synapse/worker/v1/workers/{worker_id}/heartbeat",
             post(heartbeat),
@@ -545,10 +548,6 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/_synapse/worker/v1/workers/{worker_id}/commands",
-            post(send_command),
-        )
-        .route(
-            "/_synapse/worker/v1/workers/{worker_id}/commands",
             get(get_pending_commands),
         )
         .route(
@@ -559,8 +558,6 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
             "/_synapse/worker/v1/commands/{command_id}/fail",
             post(fail_command),
         )
-        .route("/_synapse/worker/v1/tasks", post(assign_task))
-        .route("/_synapse/worker/v1/tasks", get(get_pending_tasks))
         .route(
             "/_synapse/worker/v1/tasks/claim/{worker_id}",
             post(claim_next_task),
@@ -583,12 +580,14 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
             put(update_replication_position),
         )
         .route("/_synapse/worker/v1/events", get(get_events))
-        .route("/_synapse/worker/v1/statistics", get(get_statistics))
-        .route(
-            "/_synapse/worker/v1/statistics/types",
-            get(get_type_statistics),
-        )
-        .route("/_synapse/worker/v1/select/{task_type}", get(select_worker))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            replication_http_auth_middleware,
+        ));
+
+    Router::new()
+        .merge(admin_router)
+        .merge(worker_router)
         .with_state(state)
 }
 

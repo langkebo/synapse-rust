@@ -111,6 +111,27 @@ impl BeaconStorage {
         Ok(row)
     }
 
+    pub async fn deactivate_beacons_by_state_key(
+        &self,
+        room_id: &str,
+        state_key: &str,
+    ) -> Result<u64, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let result = sqlx::query(
+            r#"
+            UPDATE beacon_info
+            SET is_live = false, updated_ts = $3
+            WHERE room_id = $1 AND state_key = $2 AND is_live = true
+            "#,
+        )
+        .bind(room_id)
+        .bind(state_key)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn get_beacon_info(
         &self,
         room_id: &str,
@@ -327,6 +348,57 @@ impl BeaconStorage {
         .await?;
 
         Ok(row)
+    }
+
+    pub async fn count_locations_in_room_since(
+        &self,
+        room_id: &str,
+        since_ts: i64,
+    ) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)
+            FROM beacon_locations
+            WHERE room_id = $1 AND created_ts >= $2
+            "#,
+        )
+        .bind(room_id)
+        .bind(since_ts)
+        .fetch_one(&*self.pool)
+        .await
+    }
+
+    pub async fn count_locations_in_room_by_sender_since(
+        &self,
+        room_id: &str,
+        sender: &str,
+        since_ts: i64,
+    ) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)
+            FROM beacon_locations
+            WHERE room_id = $1 AND sender = $2 AND created_ts >= $3
+            "#,
+        )
+        .bind(room_id)
+        .bind(sender)
+        .bind(since_ts)
+        .fetch_one(&*self.pool)
+        .await
+    }
+
+    pub async fn get_joined_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COALESCE(COUNT(*), 0)
+            FROM room_memberships
+            WHERE room_id = $1 AND membership = 'join'
+            "#,
+        )
+        .bind(room_id)
+        .fetch_one(&*self.pool)
+        .await
     }
 
     pub async fn get_beacon_with_locations(

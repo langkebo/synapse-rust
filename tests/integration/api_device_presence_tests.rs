@@ -3,28 +3,20 @@ use axum::{
     http::{Request, StatusCode},
 };
 use futures::future::join_all;
-use hmac::{Hmac, Mac};
 use serde_json::{json, Value};
-use sha2::Sha256;
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::{PresenceStorage, ServiceContainer};
-use synapse_rust::web::routes::create_router;
-use synapse_rust::web::AppState;
+use synapse_rust::services::PresenceStorage;
 use tower::ServiceExt;
 
-type HmacSha256 = Hmac<Sha256>;
-
 async fn setup_test_app() -> axum::Router {
-    if !super::init_test_database().await {
-        panic!(
-            "Device and presence integration tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
-        );
-    }
-    let container = ServiceContainer::new_test();
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let state = AppState::new(container, cache);
-    create_router(state)
+    super::setup_test_app()
+        .await
+        .unwrap_or_else(|| {
+            panic!(
+                "Device and presence integration tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
+            )
+        })
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -63,71 +55,6 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         json["access_token"].as_str().unwrap().to_string(),
         json["user_id"].as_str().unwrap().to_string(),
     )
-}
-
-async fn get_admin_token(app: &axum::Router) -> String {
-    let request = Request::builder()
-        .uri("/_synapse/admin/v1/register/nonce")
-        .body(Body::empty())
-        .unwrap();
-
-    let response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
-            .await
-            .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    let nonce = json["nonce"].as_str().unwrap().to_string();
-    let username = format!("presence_admin_{}", rand::random::<u32>());
-    let password = "password123";
-
-    let mut mac = HmacSha256::new_from_slice(b"test_shared_secret").unwrap();
-    mac.update(nonce.as_bytes());
-    mac.update(b"\0");
-    mac.update(username.as_bytes());
-    mac.update(b"\0");
-    mac.update(password.as_bytes());
-    mac.update(b"\0");
-    mac.update(b"admin");
-
-    let mac_hex = mac
-        .finalize()
-        .into_bytes()
-        .iter()
-        .map(|byte| format!("{:02x}", byte))
-        .collect::<String>();
-
-    let request = Request::builder()
-        .method("POST")
-        .uri("/_synapse/admin/v1/register")
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({
-                "nonce": nonce,
-                "username": username,
-                "password": password,
-                "admin": true,
-                "mac": mac_hex
-            })
-            .to_string(),
-        ))
-        .unwrap();
-
-    let response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
-            .await
-            .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    json["access_token"].as_str().unwrap().to_string()
 }
 
 async fn login_user(app: &axum::Router, username: &str) -> String {
@@ -358,7 +285,7 @@ async fn test_presence_list_boundary_is_preserved() {
 #[tokio::test]
 async fn test_presence_list_after_session_invalidation_and_relogin() {
     let app = setup_test_app().await;
-    let admin_token = get_admin_token(&app).await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
     let username = format!("presence_relogin_{}", rand::random::<u32>());
     let (_, user_id) = register_user(&app, &username).await;
 

@@ -158,7 +158,7 @@ jobs:
 
       - name: Upload drift report
         uses: actions/upload-artifact@v4
-        if: always()
+        if: steps.drift.outputs.drift_detected == 'true' && steps.drift.outputs.drift_blockers != '0'
         with:
           name: drift-report
           path: |

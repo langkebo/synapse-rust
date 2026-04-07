@@ -39,16 +39,20 @@
 ## P1（部分字段硬编码 / 伪分页）
 
 1) **GET** `/_matrix/client/r0/rooms/{room_id}` → `get_room_info`
-- 现状：`invited_members_count = 0`、`guest_can_join = false` 固定。
+- 现状：
+  - `invited_members_count` 已改为基于 `room_memberships` 的实时统计（避免固定 0）。
+  - `guest_can_join` 已改为优先从 `m.room.guest_access` state 事件推导（无 state 时回退 summary），避免固定 false。
 - 风险：计数与权限展示不准，影响客户端 UI 与行为。
 - 建议：复用 `room_memberships` 统计 invite 数；guest/join 语义建议从状态事件推导（复用 `event_storage` state 查询）。
-- 代码参考：[get_room_info](file:///Users/ljf/Desktop/hu/synapse-rust/src/web/routes/handlers/room.rs#L232-L285)
+- 证据：`tests/integration/api_placeholder_contract_p1p2_tests.rs` 已补契约测试，阻断回归为 200 固定值。
+- 代码参考：[get_room_info](file:///Users/ljf/Desktop/hu/synapse-rust/src/web/routes/handlers/room.rs#L270-L368)
 
 2) **GET** `/_matrix/client/r0/rooms/{room_id}/members/recent` → `get_room_members_recent`
-- 现状：`chunk` 已来自 `room_service.get_room_members`，但 `start/end` 恒为 `"0"`。
+- 现状：`chunk` 来自 `room_service.get_room_members`，并对 `from/limit` 做切片返回；`start/end` 为索引字符串（当前语义为 index token，而非 Synapse 的 stream token）。
 - 风险：伪分页，客户端可能循环拉取或停止拉取。
 - 建议：在 `room_service` 增加真实分页（from/limit + token），或改为返回与 Synapse 对齐的 token 语义。
-- 代码参考：[get_room_members_recent](file:///Users/ljf/Desktop/hu/synapse-rust/src/web/routes/handlers/room.rs#L705-L724)
+- 证据：`tests/integration/api_placeholder_contract_p1p2_tests.rs` 已补契约测试，要求 `start/end` 与 `from/limit` 切片一致（防伪 token 回归）。
+- 代码参考：[get_room_members_recent](file:///Users/ljf/Desktop/hu/synapse-rust/src/web/routes/handlers/room.rs#L732-L774)
 
 ## P2（可接受的空响应 ACK：不应列为“空壳债务”）
 
@@ -66,4 +70,3 @@
 3) P0：thread 接口复用 `ThreadService`（或短期 unrecognized）
 4) P0：event_keys 改为 unrecognized（短期）+ 设计 keys 数据链路（中期）
 5) P1：get_room_info 计数/guest 语义补齐；members/recent 真分页
-

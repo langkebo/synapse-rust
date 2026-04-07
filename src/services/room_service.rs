@@ -35,6 +35,7 @@ pub struct RoomServiceConfig {
     pub validator: Arc<Validator>,
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
+    pub beacon_service: Option<Arc<BeaconService>>,
 }
 
 pub struct RoomService {
@@ -47,6 +48,7 @@ pub struct RoomService {
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub room_summary_service: Arc<RoomSummaryService>,
+    beacon_service: Option<Arc<BeaconService>>,
 }
 
 impl RoomService {
@@ -61,6 +63,7 @@ impl RoomService {
             server_name: config.server_name,
             task_queue: config.task_queue,
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
+            beacon_service: config.beacon_service,
         }
     }
 
@@ -542,6 +545,128 @@ impl RoomService {
         let event_id = generate_event_id(&self.server_name);
         let now = chrono::Utc::now().timestamp_millis();
 
+        let beacon_location_params = if matches!(
+            event_type,
+            "m.beacon" | "org.matrix.msc3672.beacon" | "org.matrix.msc3489.beacon"
+        ) {
+            let Some(beacon_service) = self.beacon_service.as_ref() else {
+                return Err(ApiError::internal(
+                    "Beacon service not configured".to_string(),
+                ));
+            };
+
+            let beacon_info_id = content
+                .get("m.relates_to")
+                .and_then(|v| v.get("event_id"))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    ApiError::bad_request("Missing m.relates_to.event_id for m.beacon".to_string())
+                })?
+                .to_string();
+
+            let location = content
+                .get("m.location")
+                .or_else(|| content.get("org.matrix.msc3488.location"))
+                .and_then(|v| v.as_object())
+                .ok_or_else(|| {
+                    ApiError::bad_request("Missing m.location for m.beacon".to_string())
+                })?;
+
+            let uri = location
+                .get("uri")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("Missing m.location.uri".to_string()))?
+                .to_string();
+
+            let description = location
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string());
+
+            let ts = content
+                .get("m.ts")
+                .or_else(|| content.get("org.matrix.msc3488.ts"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(now);
+
+            let accuracy = BeaconService::parse_geo_uri(&uri)
+                .and_then(|(_, _, acc)| acc)
+                .map(|v| v.round() as i64);
+
+            let beacon_info = beacon_service
+                .get_beacon_info(room_id, &beacon_info_id)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to validate beacon: {}", e)))?;
+            let Some(beacon_info) = beacon_info else {
+                return Err(ApiError::bad_request(
+                    "Referenced beacon_info does not exist".to_string(),
+                ));
+            };
+
+            if !beacon_info.is_live {
+                return Err(ApiError::bad_request(
+                    "Referenced beacon_info is not live".to_string(),
+                ));
+            }
+            if let Some(expires_at) = beacon_info.expires_at {
+                if expires_at <= now {
+                    return Err(ApiError::bad_request(
+                        "Referenced beacon_info has expired".to_string(),
+                    ));
+                }
+            }
+
+            if let Some(retry_after_ms) = beacon_service
+                .check_room_backpressure(room_id, now)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to check room backpressure: {}", e))
+                })?
+            {
+                return Err(ApiError::rate_limited_with_retry(retry_after_ms));
+            }
+
+            if let Some(retry_after_ms) = beacon_service
+                .check_location_quota(room_id, user_id, now)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to check beacon quota: {}", e)))?
+            {
+                return Err(ApiError::rate_limited_with_retry(retry_after_ms));
+            }
+
+            let latest = beacon_service
+                .get_latest_location(&beacon_info_id)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to check beacon rate limit: {}", e))
+                })?;
+            if let Some(latest) = latest {
+                if ts <= latest.timestamp {
+                    return Err(ApiError::bad_request(
+                        "Beacon location timestamp must be increasing".to_string(),
+                    ));
+                }
+                let delta = ts - latest.timestamp;
+                if delta < 1000 {
+                    return Err(ApiError::rate_limited_with_retry((1000 - delta) as u64));
+                }
+            }
+
+            Some(crate::storage::beacon::CreateBeaconLocationParams {
+                room_id: room_id.to_string(),
+                event_id: event_id.clone(),
+                beacon_info_id,
+                sender: user_id.to_string(),
+                uri,
+                description,
+                timestamp: ts,
+                accuracy,
+                created_ts: now,
+            })
+        } else {
+            None
+        };
+
         self.event_storage
             .create_event(
                 CreateEventParams {
@@ -557,6 +682,15 @@ impl RoomService {
             )
             .await
             .map_err(|e| ApiError::internal(format!("Failed to send message: {}", e)))?;
+
+        if let (Some(beacon_service), Some(params)) =
+            (self.beacon_service.as_ref(), beacon_location_params)
+        {
+            beacon_service
+                .report_location(params)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to index beacon: {}", e)))?;
+        }
 
         Ok(json!({
             "event_id": event_id

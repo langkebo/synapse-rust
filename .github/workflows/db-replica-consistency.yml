@@ -43,6 +43,7 @@ jobs:
         with:
           name: db-logical-checksum-compare
           path: artifacts/db-logical-checksum-compare.json
+          retention-days: 14
 
       - name: Upload logical checksum replica report
         if: always()
@@ -50,3 +51,4 @@ jobs:
         with:
           name: db-logical-checksum-replica
           path: artifacts/db-logical-checksum-replica.json
+          retention-days: 14

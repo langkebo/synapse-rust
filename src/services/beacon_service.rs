@@ -5,6 +5,12 @@ use crate::storage::beacon::{
 };
 use std::sync::Arc;
 
+const BEACON_QUOTA_WINDOW_MS: i64 = 60_000;
+const BEACON_MAX_PER_SENDER_PER_ROOM_WINDOW: i64 = 10;
+const BEACON_MAX_PER_ROOM_WINDOW: i64 = 60;
+const BEACON_ROOM_BACKPRESSURE_BUCKET_CAPACITY: u32 = 20;
+const BEACON_ROOM_BACKPRESSURE_REFILL_PER_SEC: u32 = 5;
+
 pub struct BeaconService {
     storage: BeaconStorage,
     cache: Arc<CacheManager>,
@@ -22,6 +28,20 @@ impl BeaconService {
         &self,
         params: CreateBeaconInfoParams,
     ) -> Result<BeaconInfo, Box<dyn std::error::Error + Send + Sync>> {
+        let existing = self
+            .storage
+            .get_beacon_info_by_state_key(&params.room_id, &params.state_key)
+            .await?;
+
+        // Same sender/state_key in a room should have a single active beacon lifecycle.
+        self.storage
+            .deactivate_beacons_by_state_key(&params.room_id, &params.state_key)
+            .await?;
+        for old in existing {
+            let old_cache_key = format!("beacon:info:{}", old.event_id);
+            let _ = self.cache.delete(&old_cache_key).await;
+        }
+
         let beacon = self.storage.create_beacon_info(params).await?;
 
         let cache_key = format!("beacon:info:{}", beacon.event_id);
@@ -199,6 +219,54 @@ impl BeaconService {
     ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
         let count = self.storage.cleanup_expired_beacons().await?;
         Ok(count)
+    }
+
+    pub async fn check_location_quota(
+        &self,
+        room_id: &str,
+        sender: &str,
+        now_ts: i64,
+    ) -> Result<Option<u64>, Box<dyn std::error::Error + Send + Sync>> {
+        let since_ts = now_ts.saturating_sub(BEACON_QUOTA_WINDOW_MS);
+        let sender_count = self
+            .storage
+            .count_locations_in_room_by_sender_since(room_id, sender, since_ts)
+            .await?;
+        if sender_count >= BEACON_MAX_PER_SENDER_PER_ROOM_WINDOW {
+            return Ok(Some(1000));
+        }
+
+        let room_count = self
+            .storage
+            .count_locations_in_room_since(room_id, since_ts)
+            .await?;
+        if room_count >= BEACON_MAX_PER_ROOM_WINDOW {
+            return Ok(Some(1000));
+        }
+
+        Ok(None)
+    }
+
+    pub async fn check_room_backpressure(
+        &self,
+        room_id: &str,
+        _now_ts: i64,
+    ) -> Result<Option<u64>, Box<dyn std::error::Error + Send + Sync>> {
+        let key = format!("rl:beacon:room_backpressure:{}", room_id);
+        let decision = self
+            .cache
+            .rate_limit_token_bucket_take(
+                &key,
+                BEACON_ROOM_BACKPRESSURE_REFILL_PER_SEC,
+                BEACON_ROOM_BACKPRESSURE_BUCKET_CAPACITY,
+            )
+            .await?;
+
+        if decision.allowed {
+            return Ok(None);
+        }
+
+        Ok(Some((decision.retry_after_seconds.max(1)) * 1000))
     }
 
     pub fn parse_geo_uri(uri: &str) -> Option<(f64, f64, Option<f64>)> {

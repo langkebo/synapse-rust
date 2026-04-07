@@ -2,37 +2,37 @@ use crate::common::ApiError;
 
 pub fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
     if user_id.is_empty() {
-        return Err(ApiError::unknown("user_id is required".to_string()));
+        return Err(ApiError::invalid_input("user_id is required".to_string()));
     }
 
     if !user_id.starts_with('@') {
-        return Err(ApiError::unknown(
+        return Err(ApiError::invalid_input(
             "Invalid user_id format: must start with @".to_string(),
         ));
     }
 
     if user_id.len() > 255 {
-        return Err(ApiError::unknown(
+        return Err(ApiError::invalid_input(
             "user_id too long (max 255 characters)".to_string(),
         ));
     }
 
     let parts: Vec<&str> = user_id.split(':').collect();
     if parts.len() < 2 {
-        return Err(ApiError::unknown(
+        return Err(ApiError::invalid_input(
             "Invalid user_id format: must be @username:server".to_string(),
         ));
     }
 
     let username = &parts[0][1..];
     if username.is_empty() {
-        return Err(ApiError::unknown(
+        return Err(ApiError::invalid_input(
             "Invalid user_id format: username cannot be empty".to_string(),
         ));
     }
 
     if parts[1].is_empty() {
-        return Err(ApiError::unknown(
+        return Err(ApiError::invalid_input(
             "Invalid user_id format: server cannot be empty".to_string(),
         ));
     }
@@ -42,15 +42,15 @@ pub fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
 
 pub fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
     if room_id.is_empty() {
-        return Err(ApiError::unknown("room_id is required".to_string()));
+        return Err(ApiError::invalid_input("room_id is required".to_string()));
     }
     if !room_id.starts_with('!') {
-        return Err(ApiError::unknown(
+        return Err(ApiError::invalid_input(
             "Invalid room_id format: must start with !".to_string(),
         ));
     }
     if room_id.len() > 255 {
-        return Err(ApiError::unknown(
+        return Err(ApiError::invalid_input(
             "room_id too long (max 255 characters)".to_string(),
         ));
     }
@@ -59,10 +59,10 @@ pub fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
 
 pub fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
     if event_id.is_empty() {
-        return Err(ApiError::unknown("event_id is required".to_string()));
+        return Err(ApiError::invalid_input("event_id is required".to_string()));
     }
     if !event_id.starts_with('$') {
-        return Err(ApiError::unknown(
+        return Err(ApiError::invalid_input(
             "Invalid event_id format: must start with $".to_string(),
         ));
     }
@@ -72,7 +72,7 @@ pub fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
 pub fn validate_presence_status(presence: &str) -> Result<(), ApiError> {
     let valid_statuses = ["online", "offline", "unavailable", "away"];
     if !valid_statuses.contains(&presence) {
-        return Err(ApiError::bad_request(format!(
+        return Err(ApiError::invalid_input(format!(
             "Invalid presence status. Must be one of: {}",
             valid_statuses.join(", ")
         )));
@@ -83,7 +83,7 @@ pub fn validate_presence_status(presence: &str) -> Result<(), ApiError> {
 pub fn validate_receipt_type(receipt_type: &str) -> Result<(), ApiError> {
     let valid_types = ["m.read", "m.read.private"];
     if !valid_types.contains(&receipt_type) {
-        return Err(ApiError::bad_request(format!(
+        return Err(ApiError::invalid_input(format!(
             "Invalid receipt type. Must be one of: {}",
             valid_types.join(", ")
         )));

@@ -49,6 +49,7 @@ pub struct ServiceContainer {
     pub voice_service: crate::services::voice_service::VoiceService,
     pub registration_service: Arc<crate::services::registration_service::RegistrationService>,
     pub room_service: Arc<crate::services::room_service::RoomService>,
+    pub beacon_service: Arc<crate::services::beacon_service::BeaconService>,
     pub sync_service: Arc<crate::services::sync_service::SyncService>,
     pub sliding_sync_service: Arc<crate::services::sliding_sync_service::SlidingSyncService>,
     pub search_service: Arc<crate::services::search_service::SearchService>,
@@ -234,6 +235,10 @@ impl ServiceContainer {
                 task_queue.clone(),
             ),
         );
+        let beacon_service = Arc::new(crate::services::beacon_service::BeaconService::new(
+            pool.clone(),
+            cache.clone(),
+        ));
         let room_service = Arc::new(crate::services::room_service::RoomService::new(
             crate::services::room_service::RoomServiceConfig {
                 room_storage: room_storage.clone(),
@@ -244,6 +249,7 @@ impl ServiceContainer {
                 validator: auth_service.validator.clone(),
                 server_name: config.server.name.clone(),
                 task_queue: task_queue.clone(),
+                beacon_service: Some(beacon_service.clone()),
             },
         ));
         let sync_service = Arc::new(crate::services::sync_service::SyncService::new(
@@ -253,12 +259,14 @@ impl ServiceContainer {
             room_storage.clone(),
             DeviceStorage::new(pool),
         ));
+        let typing_service = Arc::new(crate::services::typing_service::TypingServiceImpl::new());
         let sliding_sync_storage =
             crate::storage::sliding_sync::SlidingSyncStorage::new(pool.clone());
         let sliding_sync_service = Arc::new(
             crate::services::sliding_sync_service::SlidingSyncService::new(
                 sliding_sync_storage.clone(),
                 cache.clone(),
+                typing_service.clone(),
             ),
         );
         let media_service = crate::services::media_service::MediaService::new(
@@ -299,7 +307,6 @@ impl ServiceContainer {
         let directory_service =
             Arc::new(crate::services::directory_service::DirectoryServiceImpl::new());
         let dm_service = Arc::new(crate::services::dm_service::DMServiceImpl::new());
-        let typing_service = Arc::new(crate::services::typing_service::TypingServiceImpl::new());
         let space_storage = SpaceStorage::new(pool);
         let space_service = Arc::new(crate::services::space_service::SpaceService::new(
             Arc::new(space_storage.clone()),
@@ -324,6 +331,8 @@ impl ServiceContainer {
             Arc::new(crate::services::retention_service::RetentionService::new(
                 Arc::new(retention_storage.clone()),
                 pool.clone(),
+                metrics.clone(),
+                Arc::new(crate::storage::audit::AuditEventStorage::new(pool)),
             ));
         let refresh_token_storage = crate::storage::refresh_token::RefreshTokenStorage::new(pool);
         let refresh_token_service = Arc::new(
@@ -480,6 +489,7 @@ impl ServiceContainer {
             voice_service,
             registration_service,
             room_service,
+            beacon_service,
             sync_service,
             sliding_sync_service,
             search_service,
@@ -672,6 +682,18 @@ fn build_test_config() -> Config {
             signature_cache_ttl: 3600,
             key_cache_ttl: 3600,
             key_rotation_grace_period_ms: 600000,
+            key_fetch_max_concurrency: 32,
+            key_fetch_timeout_ms: 5000,
+            process_inbound_edus: false,
+            inbound_edus_max_per_txn: 100,
+            inbound_edu_max_concurrency: 8,
+            inbound_edu_acquire_timeout_ms: 250,
+            inbound_edu_per_origin_max_concurrency: 2,
+            process_inbound_presence_edus: false,
+            inbound_presence_updates_max_per_txn: 50,
+            inbound_presence_backoff_ms: 3000,
+            join_max_concurrency: 16,
+            join_acquire_timeout_ms: 750,
         },
         security: SecurityConfig {
             secret: "test_secret".to_string(),

@@ -12,6 +12,7 @@ import argparse
 import pathlib
 import re
 import sys
+import json
 from typing import Dict, List, Set, Tuple
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -565,6 +566,94 @@ def generate_coverage_report(
             f.write("\n")
 
 
+def write_json_report(output_path: str | None, payload: dict) -> None:
+    if not output_path or output_path == "-":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    path = pathlib.Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def structured_failures(failures: List[str], threshold: float) -> List[dict]:
+    output = []
+    reproduce = f"python3 scripts/check_schema_contract_coverage.py --threshold {threshold:g}"
+    for failure in failures:
+        text = failure.lstrip("- ").strip()
+        if ": missing table definition" in text:
+            table = text.split(":", 1)[0].strip()
+            output.append(
+                {
+                    "migration_id": None,
+                    "domain": "schema_contract_coverage",
+                    "table": table,
+                    "column_or_index": None,
+                    "query_or_test_name": None,
+                    "failure_class": "schema_missing",
+                    "reproduce_command": reproduce,
+                }
+            )
+            continue
+        if ": missing column '" in text:
+            table, rest = text.split(":", 1)
+            column = rest.split("missing column '", 1)[1].rstrip("'").strip()
+            output.append(
+                {
+                    "migration_id": None,
+                    "domain": "schema_contract_coverage",
+                    "table": table.strip(),
+                    "column_or_index": f"column:{column}",
+                    "query_or_test_name": None,
+                    "failure_class": "schema_shape_mismatch",
+                    "reproduce_command": reproduce,
+                }
+            )
+            continue
+        if ": missing index '" in text:
+            table, rest = text.split(":", 1)
+            index_name = rest.split("missing index '", 1)[1].rstrip("'").strip()
+            output.append(
+                {
+                    "migration_id": None,
+                    "domain": "schema_contract_coverage",
+                    "table": table.strip(),
+                    "column_or_index": f"index:{index_name}",
+                    "query_or_test_name": None,
+                    "failure_class": "schema_shape_mismatch",
+                    "reproduce_command": reproduce,
+                }
+            )
+            continue
+        if ": missing constraint '" in text:
+            table, rest = text.split(":", 1)
+            constraint_name = rest.split("missing constraint '", 1)[1].rstrip("'").strip()
+            output.append(
+                {
+                    "migration_id": None,
+                    "domain": "schema_contract_coverage",
+                    "table": table.strip(),
+                    "column_or_index": f"constraint:{constraint_name}",
+                    "query_or_test_name": None,
+                    "failure_class": "schema_shape_mismatch",
+                    "reproduce_command": reproduce,
+                }
+            )
+            continue
+        output.append(
+            {
+                "migration_id": None,
+                "domain": "schema_contract_coverage",
+                "table": None,
+                "column_or_index": None,
+                "query_or_test_name": None,
+                "failure_class": "unknown",
+                "reproduce_command": reproduce,
+                "message": text,
+            }
+        )
+    return output
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Check schema contract coverage with threshold support"
@@ -580,12 +669,30 @@ def main() -> int:
         type=str,
         help="Generate detailed coverage report to file"
     )
+    parser.add_argument(
+        "--json-report",
+        nargs="?",
+        const="-",
+        help="Write a structured JSON report to a file, or '-' to print to stdout.",
+    )
     args = parser.parse_args()
 
     table_columns, table_indexes, table_constraints = collect_schema_metadata()
     passed, total, failures = calculate_coverage(table_columns, table_indexes, table_constraints)
 
     coverage_pct = (passed / total * 100) if total > 0 else 0
+
+    if args.json_report is not None:
+        report = {
+            "tool": "check_schema_contract_coverage",
+            "status": "fail" if failures or coverage_pct < args.threshold else "pass",
+            "coverage_pct": coverage_pct,
+            "passed": passed,
+            "total": total,
+            "threshold": args.threshold,
+            "failures": structured_failures(failures, args.threshold),
+        }
+        write_json_report(args.json_report, report)
 
     print_contract_scope_note()
     print(f"\nCoverage: {coverage_pct:.1f}% ({passed}/{total} checks passed)")

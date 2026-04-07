@@ -60,7 +60,8 @@ impl ErrorContext for ApiError {
             | ApiError::NotFound(_)
             | ApiError::Gone(_)
             | ApiError::Conflict(_)
-            | ApiError::RateLimited => ErrorLayer::BusinessLogic,
+            | ApiError::RateLimited
+            | ApiError::RateLimitedWithRetry(_) => ErrorLayer::BusinessLogic,
             ApiError::Internal(_)
             | ApiError::Authentication(_)
             | ApiError::Validation(_)
@@ -78,9 +79,10 @@ impl ErrorContext for ApiError {
             ApiError::Internal(_) | ApiError::Database(_) | ApiError::Cache(_) => {
                 ErrorSeverity::Critical
             }
-            ApiError::Unauthorized(_) | ApiError::Forbidden(_) | ApiError::RateLimited => {
-                ErrorSeverity::High
-            }
+            ApiError::Unauthorized(_)
+            | ApiError::Forbidden(_)
+            | ApiError::RateLimited
+            | ApiError::RateLimitedWithRetry(_) => ErrorSeverity::High,
             ApiError::Gone(_)
             | ApiError::NotFound(_)
             | ApiError::Conflict(_)
@@ -103,6 +105,9 @@ impl ErrorContext for ApiError {
             ApiError::Gone(msg) => msg.clone(),
             ApiError::Conflict(msg) => msg.clone(),
             ApiError::RateLimited => "Too many requests. Please try again later.".to_string(),
+            ApiError::RateLimitedWithRetry(_) => {
+                "Too many requests. Please try again later.".to_string()
+            }
             ApiError::Internal(_) => {
                 "An internal server error occurred. Please try again later.".to_string()
             }

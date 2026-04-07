@@ -25,6 +25,17 @@
 - 工作区产物分层规则
 - CI 产物保存和清理策略
 
+## 4.1 落地状态（本仓库已完成）
+
+- 后端测试数据库容器：`docker compose up -d db redis` 可直接启动本地验证依赖（Postgres/Redis）。
+- 目录落地：
+  - `tests/integration/contracts/README.md`
+  - `tests/integration/schema/README.md`
+- 产物治理落地：
+  - `.gitignore` 已将 `artifacts/`、`reports/`、`test-results/` 作为可生成产物目录默认忽略；`artifacts/README.md` 保留为说明文档。
+- CI 产物策略落地：
+  - 关键 workflow 的 `actions/upload-artifact` 已补充保留期，并按“默认失败上传”收口（必要摘要除外）。
+
 ## 5. 执行阶段
 
 ### Phase 1: 测试基线设计

@@ -34,6 +34,9 @@
 - 历史运行目录设置 TTL，默认仅保留最近 N 次。
 - 二进制测试媒体不得长期留在根目录。
 
+落地工具：
+- `scripts/cleanup_test_results.py --dir test-results --keep 5` 可用于清理历史运行目录（支持 `--dry-run`）。
+
 ## 5. CI 产物策略
 
 | 产物 | 成功时 | 失败时 | 保留期 |
@@ -42,6 +45,11 @@
 | 详细日志 | 默认不上传 | 上传失败相关日志 | 7 天 |
 | schema diff / contract diff | 默认不上传 | 上传 | 14 天 |
 | 大体积媒体样本 | 不上传 | 仅必要时上传 | 最短可用期 |
+
+落地说明（已接线）：
+- `DB Migration Gate`：Gate 0/1/2 JSON 报告、schema alignment 报告与 expected/actual schema dump、amcheck、logical checksum 均已设置 `retention-days: 14`，并默认仅在失败时上传（logical checksum 作为诊断摘要保留上传）。
+- `CI`：coverage report 与 quality evidence 已设置 `retention-days: 14`。
+- `Schema Drift Detection`：仅在检测到 blocker drift 时上传 drift report（保留期 30 天），避免常态产物噪音。
 
 ## 6. 团队执行约定
 

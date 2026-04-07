@@ -78,8 +78,20 @@ pub struct RateLimitConfigFile {
     pub endpoint_aliases: HashMap<String, String>,
     #[serde(default)]
     pub fail_open_on_error: bool,
+    #[serde(default)]
+    pub sync: SyncRateLimitConfigFile,
     #[serde(default = "default_config_reload_interval")]
     pub reload_interval_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SyncRateLimitConfigFile {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub initial: RateLimitRule,
+    #[serde(default)]
+    pub incremental: RateLimitRule,
 }
 
 fn default_enabled() -> bool {
@@ -114,6 +126,7 @@ impl Default for RateLimitConfigFile {
             exempt_path_prefixes: Vec::new(),
             endpoint_aliases: HashMap::new(),
             fail_open_on_error: false,
+            sync: SyncRateLimitConfigFile::default(),
             reload_interval_seconds: default_config_reload_interval(),
         }
     }

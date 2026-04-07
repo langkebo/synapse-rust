@@ -184,13 +184,13 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 
     // Set a timeout for the entire initialization process
     let report = tokio::time::timeout(
-        Duration::from_secs(30),
+        Duration::from_secs(120),
         DatabaseInitService::new(pool.clone())
             .with_mode(DatabaseInitMode::Strict)
             .initialize(),
     )
     .await
-    .map_err(|_| format!("database initialization timed out after 30 seconds for {schema_name}"))?
+    .map_err(|_| format!("database initialization timed out after 120 seconds for {schema_name}"))?
     .map_err(|error| {
         format!("strict migration initialization failed for {schema_name}: {error}")
     })?;
@@ -203,6 +203,43 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     }
 
     Ok(pool)
+}
+
+pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
+    let database_url = resolve_test_database_url().await?;
+    let schema_name = next_test_schema_name();
+
+    let admin_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect(&database_url)
+        .await
+        .map_err(|error| format!("failed to connect admin pool: {error}"))?;
+
+    sqlx::query(&format!("CREATE SCHEMA {schema_name}"))
+        .execute(&admin_pool)
+        .await
+        .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
+
+    let search_path_sql = format!("SET search_path TO {schema_name}, public");
+    let pool = PgPoolOptions::new()
+        .max_connections(configured_test_pool_max_connections())
+        .min_connections(configured_test_pool_min_connections())
+        .acquire_timeout(configured_test_pool_acquire_timeout())
+        .idle_timeout(Some(configured_test_pool_idle_timeout()))
+        .max_lifetime(Some(configured_test_pool_max_lifetime()))
+        .after_connect(move |connection, _meta| {
+            let search_path_sql = search_path_sql.clone();
+            Box::pin(async move {
+                sqlx::query(&search_path_sql).execute(connection).await?;
+                Ok(())
+            })
+        })
+        .connect(&database_url)
+        .await
+        .map_err(|error| format!("failed to connect isolated pool for {schema_name}: {error}"))?;
+
+    Ok(Arc::new(pool))
 }
 
 pub async fn resolve_test_database_url() -> Result<String, String> {

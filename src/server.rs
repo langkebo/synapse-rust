@@ -324,6 +324,48 @@ impl SynapseServer {
         ::tracing::info!("Starting scheduled database monitoring and maintenance tasks...");
         self.scheduled_tasks.start_all().await;
 
+        let beacon_service = self.app_state.services.beacon_service.clone();
+        let retention_service = self.app_state.services.retention_service.clone();
+        let retention_config = self.app_state.services.config.retention.clone();
+        let background_tasks_interval = self
+            .app_state
+            .services
+            .config
+            .server
+            .background_tasks_interval
+            .max(10);
+        let lifecycle_interval_secs = if retention_config.lifecycle_cleanup_enabled {
+            retention_config
+                .lifecycle_cleanup_interval_secs
+                .max(background_tasks_interval)
+        } else {
+            background_tasks_interval
+        };
+        tokio::spawn(async move {
+            let mut interval_timer =
+                tokio::time::interval(Duration::from_secs(lifecycle_interval_secs));
+            interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval_timer.tick().await;
+                if retention_config.lifecycle_cleanup_enabled {
+                    retention_service
+                        .run_data_lifecycle_cycle(&beacon_service, &retention_config)
+                        .await;
+                } else {
+                    match beacon_service.cleanup_expired_beacons().await {
+                        Ok(count) => {
+                            if count > 0 {
+                                ::tracing::info!("Cleaned up {} expired beacons", count);
+                            }
+                        }
+                        Err(error) => {
+                            ::tracing::warn!("Failed to cleanup expired beacons: {}", error);
+                        }
+                    }
+                }
+            }
+        });
+
         let router = self.router.clone();
         let fed_router = self.router.clone();
         let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(2);

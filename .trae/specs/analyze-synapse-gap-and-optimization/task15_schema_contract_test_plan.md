@@ -16,12 +16,14 @@
 
 ## 3. 首批 contract 测试包
 
-1. `schema_contract_room_core`
-2. `schema_contract_account_data`
-3. `schema_contract_space`
-4. `schema_contract_thread_retention_summary`
-5. `schema_contract_e2ee_verification`
-6. `schema_contract_search`
+说明：本仓库以“独立 integration test target”为最小可执行单元。首批建议按能力域拆分为：
+
+1. `schema_contract_room_core_tests`（rooms / events / room_memberships）
+2. `schema_contract_account_data_tests`
+3. `schema_contract_space_tests`
+4. `schema_contract_search_tests`
+5. `schema_contract_e2ee_verification_tests`
+6. `schema_contract_thread_tests` + `schema_contract_retention_tests`
 
 ## 4. 每包最小闭环要求
 
@@ -46,17 +48,35 @@
 - 测试文件：`tests/unit/schema_contract_p0_tests.rs`
 - 运行方式：作为 `unit` test target 的一部分执行（与 `db_schema_smoke_tests` 同一测试入口）
 - 已拆出的独立 integration target：
+  - `tests/integration/schema_contract_room_core_tests.rs`
   - `tests/integration/schema_contract_room_summary_tests.rs`
   - `tests/integration/schema_contract_space_tests.rs`
   - `tests/integration/schema_contract_account_data_tests.rs`
   - `tests/integration/schema_contract_search_tests.rs`
   - `tests/integration/schema_contract_e2ee_verification_tests.rs`
+  - `tests/integration/schema_contract_thread_tests.rs`
+  - `tests/integration/schema_contract_retention_tests.rs`
+  - `tests/integration/schema_contract_invite_restrictions_tests.rs`
+  - `tests/integration/schema_contract_auth_tokens_tests.rs`
+  - `tests/integration/schema_contract_presence_tests.rs`
+  - `tests/integration/schema_contract_openid_token_tests.rs`
+  - `tests/integration/schema_contract_media_quota_tests.rs`
+  - `tests/integration/schema_contract_receipts_tests.rs`
 - 独立入口命令：
+  - `cargo test --locked --test schema_contract_room_core_tests -- --test-threads=1`
   - `cargo test --locked --test schema_contract_room_summary_tests -- --test-threads=1`
   - `cargo test --locked --test schema_contract_space_tests -- --test-threads=1`
   - `cargo test --locked --test schema_contract_account_data_tests -- --test-threads=1`
   - `cargo test --locked --test schema_contract_search_tests -- --test-threads=1`
   - `cargo test --locked --test schema_contract_e2ee_verification_tests -- --test-threads=1`
+  - `cargo test --locked --test schema_contract_thread_tests -- --test-threads=1`
+  - `cargo test --locked --test schema_contract_retention_tests -- --test-threads=1`
+  - `cargo test --locked --test schema_contract_invite_restrictions_tests -- --test-threads=1`
+  - `cargo test --locked --test schema_contract_auth_tokens_tests -- --test-threads=1`
+  - `cargo test --locked --test schema_contract_presence_tests -- --test-threads=1`
+  - `cargo test --locked --test schema_contract_openid_token_tests -- --test-threads=1`
+  - `cargo test --locked --test schema_contract_media_quota_tests -- --test-threads=1`
+  - `cargo test --locked --test schema_contract_receipts_tests -- --test-threads=1`
 - 当前已补充 DB 级回归确认：
   - `tests/integration/database_integrity_tests.rs` 新增 `verification_requests` 完整迁移链回归断言，显式检查 `idx_verification_requests_to_user_state` 在完整迁移后仍存在
   - `database_integrity_tests` 已改为自动解析可用测试数据库 URL，并在连库后执行 `DatabaseInitService` 严格迁移初始化，避免因本地未显式导出 `TEST_DATABASE_URL` 而静默跳过
@@ -102,6 +122,16 @@
   - 复用真实存储副作用：`room_summary_update_queue` 状态流转、`room_summary_state` 写入、`room_summaries` 最终摘要更新
   - 覆盖 state event 成功消费、普通 event 成功消费、缺失 event 失败消费 三种分支
   - 补齐 driver/worker 侧批处理契约：`limit` 分批消费、`failed` 不应被重复消费、`m.room.message` 应写入 `last_message_ts`（且后续普通事件不应清空）
+- 当前已补的第十个样板：`media_quota_config` / `user_media_quota` / `media_usage_log` / `media_quota_alerts` / `server_media_quota`
+  - 检查 quota 配置、用户累计使用量、未读告警与服务器总量相关列、默认值与索引
+  - 复用真实查询语义：`get_default_config`、`get_or_create_user_quota`、`get_user_alerts`、`get_usage_stats`
+  - 复用真实写入语义：`create_config`、`set_user_quota`、`update_usage`、`create_alert`、`mark_alert_read`、`update_server_quota`
+  - 覆盖配置创建 -> 用户配额生成 -> 上传/删除计量 -> 告警读写 -> 服务器阈值更新 -> 清理 的最小闭环
+- 当前已补的第十一个样板：`read_markers` / `event_receipts`
+  - 检查 read marker / receipt 的主键、唯一键、关键索引与 JSON 默认值
+  - 复用真实查询语义：`get_read_marker`、`get_all_read_markers`、`get_receipts`
+  - 复用真实写入语义：`update_read_marker`、`update_read_marker_with_type`、`update_receipt`
+  - 覆盖 `m.fully_read` upsert、`m.read` marker 写入、`m.read` / `m.read.private` receipt 去重与回读 的最小闭环
 
 后续若需要按能力域拆分为独立“包”，再把 schema contract tests 迁移为可独立运行的 integration tests，建议落在：
 
@@ -110,12 +140,16 @@ tests/integration/schema/
 ├── schema_contract_room_core_tests.rs
 ├── schema_contract_account_data_tests.rs
 ├── schema_contract_space_tests.rs
-├── schema_contract_account_data_tests.rs
 ├── schema_contract_search_tests.rs
 ├── schema_contract_e2ee_verification_tests.rs
-├── schema_contract_thread_retention_summary_tests.rs
-├── schema_contract_e2ee_verification_tests.rs
-└── schema_contract_search_tests.rs
+├── schema_contract_thread_tests.rs
+├── schema_contract_retention_tests.rs
+├── schema_contract_invite_restrictions_tests.rs
+├── schema_contract_auth_tokens_tests.rs
+├── schema_contract_presence_tests.rs
+├── schema_contract_openid_token_tests.rs
+├── schema_contract_media_quota_tests.rs
+└── schema_contract_receipts_tests.rs
 ```
 
 每个文件至少包含：
@@ -134,9 +168,9 @@ tests/integration/schema/
 ## 8. CI 对齐（与 migration gate 的口径闭环）
 
 CI 中建议至少满足以下阻断链路（来自 `.github/workflows/db-migration-gate.yml`）：
-- `Schema Table Coverage`：`scripts/check_schema_table_coverage.py`
-- `Schema Contract Coverage`：`scripts/check_schema_contract_coverage.py --threshold 90`
+- `Schema Table Coverage`：`scripts/check_schema_table_coverage.py --json-report artifacts/schema_table_coverage.json`
+- `Schema Contract Coverage`：`scripts/check_schema_contract_coverage.py --threshold 90 --json-report artifacts/contract_coverage_report.json`
 - `Unified Schema Apply`：统一 schema apply + `scripts/run_pg_amcheck.py`
 - `sqlx Migrate Run`：`sqlx migrate run` + `db_schema_smoke_tests`
 
-Schema contract tests（本任务新增）建议接在 `sqlx Migrate Run` 之后作为阻断项，确保“迁移可跑”并不等于“查询仍可用”；当前 `room summary`、`space`、`account_data`、`search`、`e2ee` 已接入独立 integration target，`database_integrity_tests` 也已补上迁移回归与 public schema DB 级确认，后续可按相同模式继续拆更细粒度的子域查询。
+Schema contract tests（本任务新增）建议接在 `sqlx Migrate Run` 之后作为阻断项，确保“迁移可跑”并不等于“查询仍可用”；当前 `room core`、`room summary`、`space`、`account_data`、`search`、`e2ee` 已接入独立 integration target，`database_integrity_tests` 也已补上迁移回归与 public schema DB 级确认，后续可按相同模式继续拆更细粒度的子域查询。

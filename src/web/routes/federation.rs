@@ -10,6 +10,237 @@ use axum::{
 };
 use base64::Engine;
 use serde_json::{json, Value};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::time::{timeout, Instant};
+
+fn increment_counter(state: &AppState, name: &str) {
+    if let Some(counter) = state.services.metrics.get_counter(name) {
+        counter.inc();
+    } else {
+        state
+            .services
+            .metrics
+            .register_counter(name.to_string())
+            .inc();
+    }
+}
+
+fn increment_counter_by(state: &AppState, name: &str, delta: u64) {
+    if let Some(counter) = state.services.metrics.get_counter(name) {
+        counter.inc_by(delta);
+    } else {
+        state
+            .services
+            .metrics
+            .register_counter(name.to_string())
+            .inc_by(delta);
+    }
+}
+
+fn observe_histogram(state: &AppState, name: &str, value: f64) {
+    if let Some(histogram) = state.services.metrics.get_histogram(name) {
+        histogram.observe(value);
+    } else {
+        state
+            .services
+            .metrics
+            .register_histogram(name.to_string())
+            .observe(value);
+    }
+}
+
+fn increment_gauge(state: &AppState, name: &str) {
+    if let Some(gauge) = state.services.metrics.get_gauge(name) {
+        gauge.inc();
+    } else {
+        state
+            .services
+            .metrics
+            .register_gauge(name.to_string())
+            .inc();
+    }
+}
+
+fn decrement_gauge(state: &AppState, name: &str) {
+    if let Some(gauge) = state.services.metrics.get_gauge(name) {
+        gauge.dec();
+    } else {
+        state
+            .services
+            .metrics
+            .register_gauge(name.to_string())
+            .dec();
+    }
+}
+
+async fn acquire_with_timeout(
+    semaphore: Arc<Semaphore>,
+    acquire_timeout_ms: u64,
+) -> Result<(OwnedSemaphorePermit, u64), ApiError> {
+    let started = Instant::now();
+    let permit = timeout(
+        Duration::from_millis(acquire_timeout_ms.max(1)),
+        semaphore.acquire_owned(),
+    )
+    .await
+    .map_err(|_| ApiError::rate_limited_with_retry(acquire_timeout_ms.max(1)))?
+    .map_err(|_| ApiError::internal("Semaphore closed"))?;
+
+    Ok((permit, started.elapsed().as_millis() as u64))
+}
+
+async fn acquire_origin_edu_permit(
+    state: &AppState,
+    origin: &str,
+) -> Result<(OwnedSemaphorePermit, u64), ApiError> {
+    let per_origin_limit = state
+        .services
+        .config
+        .federation
+        .inbound_edu_per_origin_max_concurrency
+        .max(1);
+    let semaphore = {
+        let mut guard = state.federation_inbound_edu_origin_semaphores.lock().await;
+        guard
+            .entry(origin.to_string())
+            .or_insert_with(|| Arc::new(Semaphore::new(per_origin_limit)))
+            .clone()
+    };
+
+    acquire_with_timeout(
+        semaphore,
+        state
+            .services
+            .config
+            .federation
+            .inbound_edu_acquire_timeout_ms,
+    )
+    .await
+}
+
+async fn get_presence_backoff_remaining_ms(state: &AppState, origin: &str) -> Option<u64> {
+    let now = chrono::Utc::now().timestamp_millis();
+    let guard = state.federation_presence_backoff_until.read().await;
+    let until = guard.get(origin).copied()?;
+    (until > now).then_some((until - now) as u64)
+}
+
+async fn set_presence_backoff(state: &AppState, origin: &str) {
+    let until = chrono::Utc::now().timestamp_millis()
+        + state.services.config.federation.inbound_presence_backoff_ms as i64;
+    let mut guard = state.federation_presence_backoff_until.write().await;
+    guard.insert(origin.to_string(), until);
+}
+
+fn user_matches_origin(user_id: &str, origin: &str) -> bool {
+    user_id
+        .rsplit_once(':')
+        .map(|(_, server_name)| server_name == origin)
+        .unwrap_or(false)
+}
+
+async fn process_inbound_presence_edu(
+    state: &AppState,
+    origin: &str,
+    edu: &Value,
+    remaining_updates: usize,
+) -> (usize, usize, usize) {
+    let Some(push) = edu
+        .get("content")
+        .and_then(|content| content.get("push"))
+        .and_then(|value| value.as_array())
+    else {
+        increment_counter(state, "federation_inbound_presence_dropped_total");
+        return (0, 0, 0);
+    };
+
+    let mut processed = 0usize;
+    let mut dropped = 0usize;
+    let mut errored = 0usize;
+
+    for update in push.iter().take(remaining_updates) {
+        let Some(user_id) = update.get("user_id").and_then(|value| value.as_str()) else {
+            dropped += 1;
+            continue;
+        };
+
+        if !user_matches_origin(user_id, origin) {
+            dropped += 1;
+            continue;
+        }
+
+        let presence = update
+            .get("presence")
+            .and_then(|value| value.as_str())
+            .unwrap_or("online");
+        let status_msg = update.get("status_msg").and_then(|value| value.as_str());
+
+        let exists = match state.services.user_storage.user_exists(user_id).await {
+            Ok(exists) => exists,
+            Err(error) => {
+                ::tracing::warn!(
+                    "Failed to validate presence user {} from {}: {}",
+                    user_id,
+                    origin,
+                    error
+                );
+                errored += 1;
+                set_presence_backoff(state, origin).await;
+                break;
+            }
+        };
+
+        if !exists {
+            dropped += 1;
+            continue;
+        }
+
+        if let Err(error) = state
+            .services
+            .presence_storage
+            .set_presence(user_id, presence, status_msg)
+            .await
+        {
+            ::tracing::warn!(
+                "Failed to persist presence update for {} from {}: {}",
+                user_id,
+                origin,
+                error
+            );
+            errored += 1;
+            set_presence_backoff(state, origin).await;
+            break;
+        }
+
+        processed += 1;
+    }
+
+    if processed > 0 {
+        increment_counter_by(
+            state,
+            "federation_inbound_presence_processed_total",
+            processed as u64,
+        );
+    }
+    if dropped > 0 {
+        increment_counter_by(
+            state,
+            "federation_inbound_presence_dropped_total",
+            dropped as u64,
+        );
+    }
+    if errored > 0 {
+        increment_counter_by(
+            state,
+            "federation_inbound_presence_error_total",
+            errored as u64,
+        );
+    }
+
+    (processed, dropped, errored)
+}
 
 pub fn create_federation_router(state: AppState) -> Router<AppState> {
     let public = Router::new()
@@ -506,7 +737,9 @@ async fn send_transaction(
     Path(txn_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let _origin = body
+    increment_counter(&state, "federation_inbound_txn_total");
+
+    let origin = body
         .get("origin")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
@@ -515,6 +748,106 @@ async fn send_transaction(
         .or_else(|| body.get("pdu")) // Fallback to 'pdu'
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("PDUs required".to_string()))?;
+    let edus = body.get("edus").and_then(|v| v.as_array());
+    let process_inbound_edus = state.services.config.federation.process_inbound_edus;
+    let process_inbound_presence_edus = state
+        .services
+        .config
+        .federation
+        .process_inbound_presence_edus;
+    let inbound_edus_max_per_txn = state.services.config.federation.inbound_edus_max_per_txn;
+    let inbound_presence_updates_max_per_txn = state
+        .services
+        .config
+        .federation
+        .inbound_presence_updates_max_per_txn;
+
+    if process_inbound_edus {
+        if let Some(edus) = edus {
+            let mut processed_edus = 0usize;
+            let mut processed_presence_updates = 0usize;
+            let mut dropped_presence_updates = 0usize;
+
+            increment_gauge(&state, "federation_inbound_edu_in_flight");
+
+            let edu_processing = async {
+                let (_global_permit, wait_ms) = acquire_with_timeout(
+                    state.federation_inbound_edu_semaphore.clone(),
+                    state
+                        .services
+                        .config
+                        .federation
+                        .inbound_edu_acquire_timeout_ms,
+                )
+                .await?;
+                observe_histogram(&state, "federation_inbound_edu_wait_ms", wait_ms as f64);
+
+                let _origin_permit = acquire_origin_edu_permit(&state, origin).await?.0;
+
+                if let Some(backoff_ms) = get_presence_backoff_remaining_ms(&state, origin).await {
+                    increment_counter(&state, "federation_inbound_presence_backoff_total");
+                    ::tracing::debug!(
+                        "Skipping presence EDU processing for origin {} due to backoff {}ms",
+                        origin,
+                        backoff_ms
+                    );
+                    return Ok::<(), ApiError>(());
+                }
+
+                for edu in edus.iter().take(inbound_edus_max_per_txn) {
+                    processed_edus += 1;
+                    let edu_type = edu.get("edu_type").and_then(|v| v.as_str()).unwrap_or("");
+                    if edu_type != "m.presence" || !process_inbound_presence_edus {
+                        continue;
+                    }
+
+                    if processed_presence_updates >= inbound_presence_updates_max_per_txn {
+                        break;
+                    }
+
+                    let remaining =
+                        inbound_presence_updates_max_per_txn - processed_presence_updates;
+                    let (processed, dropped, errored) =
+                        process_inbound_presence_edu(&state, origin, edu, remaining).await;
+                    processed_presence_updates += processed;
+                    dropped_presence_updates += dropped + errored;
+
+                    if errored > 0 {
+                        break;
+                    }
+                }
+                Ok::<(), ApiError>(())
+            }
+            .await;
+
+            if let Err(error) = edu_processing {
+                if matches!(error, ApiError::RateLimitedWithRetry(_)) {
+                    increment_counter(&state, "federation_inbound_edu_limited_total");
+                } else {
+                    increment_counter(&state, "federation_inbound_edu_error_total");
+                    ::tracing::warn!(
+                        "Failed to process inbound EDUs for txn {} from {}: {}",
+                        txn_id,
+                        origin,
+                        error
+                    );
+                }
+            }
+
+            decrement_gauge(&state, "federation_inbound_edu_in_flight");
+
+            ::tracing::debug!(
+                "Inbound federation txn {} from {}: pdus={}, edus_total={}, edus_processed={}, presence_updates_processed={}, presence_updates_dropped={}",
+                txn_id,
+                origin,
+                pdus.len(),
+                edus.len(),
+                processed_edus,
+                processed_presence_updates,
+                dropped_presence_updates
+            );
+        }
+    }
 
     let mut results = Vec::new();
 
@@ -523,7 +856,7 @@ async fn send_transaction(
             .get("event_id")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("${}", crate::common::crypto::generate_event_id(_origin)));
+            .unwrap_or_else(|| format!("${}", crate::common::crypto::generate_event_id(origin)));
 
         let room_id = pdu.get("room_id").and_then(|v| v.as_str()).unwrap_or("");
         let user_id = pdu.get("sender").and_then(|v| v.as_str()).unwrap_or("");
@@ -555,12 +888,14 @@ async fn send_transaction(
             .await
         {
             Ok(_) => {
+                increment_counter(&state, "federation_inbound_txn_pdu_success_total");
                 results.push(json!({
                     "event_id": event_id,
                     "success": true
                 }));
             }
             Err(e) => {
+                increment_counter(&state, "federation_inbound_txn_pdu_error_total");
                 ::tracing::error!("Failed to persist PDU {}: {}", event_id, e);
                 results.push(json!({
                     "event_id": event_id,
@@ -573,7 +908,7 @@ async fn send_transaction(
     ::tracing::info!(
         "Processed transaction {} from {} with {} PDUs",
         txn_id,
-        _origin,
+        origin,
         pdus.len()
     );
 
@@ -586,36 +921,67 @@ async fn make_join(
     State(state): State<AppState>,
     Path((room_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let auth_events = state
-        .services
-        .event_storage
-        .get_state_events(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get auth events: {}", e)))?;
-
-    let auth_events_json: Vec<Value> = auth_events
-        .iter()
-        .map(|e| {
-            json!({
-                "event_id": e.event_id,
-                "type": e.event_type,
-                "state_key": e.state_key
-            })
-        })
-        .collect();
-
-    Ok(Json(json!({
-        "room_version": "1",
-        "auth_events": auth_events_json,
-        "event": {
-            "type": "m.room.member",
-            "content": {
-                "membership": "join"
-            },
-            "sender": user_id,
-            "state_key": user_id
+    increment_gauge(&state, "federation_join_in_flight");
+    let (permit, wait_ms) = match acquire_with_timeout(
+        state.federation_join_semaphore.clone(),
+        state.services.config.federation.join_acquire_timeout_ms,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            decrement_gauge(&state, "federation_join_in_flight");
+            increment_counter(&state, "federation_join_429_total");
+            return Err(error);
         }
-    })))
+    };
+    observe_histogram(&state, "federation_join_wait_ms", wait_ms as f64);
+
+    let result = async {
+        let auth_events = state
+            .services
+            .event_storage
+            .get_state_events(&room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get auth events: {}", e)))?;
+
+        let auth_events_json: Vec<Value> = auth_events
+            .iter()
+            .map(|e| {
+                json!({
+                    "event_id": e.event_id,
+                    "type": e.event_type,
+                    "state_key": e.state_key
+                })
+            })
+            .collect();
+
+        Ok(Json(json!({
+            "room_version": "1",
+            "auth_events": auth_events_json,
+            "event": {
+                "type": "m.room.member",
+                "content": {
+                    "membership": "join"
+                },
+                "sender": user_id,
+                "state_key": user_id
+            }
+        })))
+    }
+    .await;
+
+    drop(permit);
+    decrement_gauge(&state, "federation_join_in_flight");
+    match &result {
+        Ok(_) => increment_counter(&state, "federation_join_ok_total"),
+        Err(ApiError::RateLimitedWithRetry(_)) => {
+            increment_counter(&state, "federation_join_429_total")
+        }
+        Err(_) => increment_counter(&state, "federation_join_error_total"),
+    }
+
+    result
 }
 
 async fn make_leave(
@@ -659,56 +1025,85 @@ async fn send_join(
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let origin = body
-        .get("origin")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
-
-    let event = body
-        .get("event")
-        .ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
-    let user_id = event.get("sender").and_then(|v| v.as_str()).unwrap_or("");
-    let content = event.get("content").cloned().unwrap_or(json!({}));
-    let display_name = content.get("displayname").and_then(|v| v.as_str());
-
-    // 1. Persist the event
-    let params = crate::storage::event::CreateEventParams {
-        event_id: event_id.clone(),
-        room_id: room_id.clone(),
-        user_id: user_id.to_string(),
-        event_type: "m.room.member".to_string(),
-        content: content.clone(),
-        state_key: Some(user_id.to_string()),
-        origin_server_ts: event
-            .get("origin_server_ts")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0),
+    increment_gauge(&state, "federation_join_in_flight");
+    let (permit, wait_ms) = match acquire_with_timeout(
+        state.federation_join_semaphore.clone(),
+        state.services.config.federation.join_acquire_timeout_ms,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            decrement_gauge(&state, "federation_join_in_flight");
+            increment_counter(&state, "federation_join_429_total");
+            return Err(error);
+        }
     };
-    state
-        .services
-        .event_storage
-        .create_event(params, None)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to persist join event: {}", e)))?;
+    observe_histogram(&state, "federation_join_wait_ms", wait_ms as f64);
 
-    // 2. Update membership
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, user_id, "join", display_name, None, None)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to update membership: {}", e)))?;
+    let result = async {
+        let origin = body
+            .get("origin")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
 
-    ::tracing::info!(
-        "Processed join for room {} event {} from {}",
-        room_id,
-        event_id,
-        origin
-    );
+        let event = body
+            .get("event")
+            .ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
+        let user_id = event.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+        let content = event.get("content").cloned().unwrap_or(json!({}));
+        let display_name = content.get("displayname").and_then(|v| v.as_str());
 
-    Ok(Json(json!({
-        "event_id": event_id
-    })))
+        let params = crate::storage::event::CreateEventParams {
+            event_id: event_id.clone(),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.member".to_string(),
+            content: content.clone(),
+            state_key: Some(user_id.to_string()),
+            origin_server_ts: event
+                .get("origin_server_ts")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0),
+        };
+        state
+            .services
+            .event_storage
+            .create_event(params, None)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to persist join event: {}", e)))?;
+
+        state
+            .services
+            .member_storage
+            .add_member(&room_id, user_id, "join", display_name, None, None)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to update membership: {}", e)))?;
+
+        ::tracing::info!(
+            "Processed join for room {} event {} from {}",
+            room_id,
+            event_id,
+            origin
+        );
+
+        Ok(Json(json!({
+            "event_id": event_id
+        })))
+    }
+    .await;
+
+    drop(permit);
+    decrement_gauge(&state, "federation_join_in_flight");
+    match &result {
+        Ok(_) => increment_counter(&state, "federation_join_ok_total"),
+        Err(ApiError::RateLimitedWithRetry(_)) => {
+            increment_counter(&state, "federation_join_429_total")
+        }
+        Err(_) => increment_counter(&state, "federation_join_error_total"),
+    }
+
+    result
 }
 
 async fn send_leave(
@@ -1464,62 +1859,93 @@ async fn send_join_v2(
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    if !room_id.starts_with('!') || !room_id.contains(':') {
-        return Err(ApiError::bad_request("Invalid room_id format"));
-    }
+    increment_gauge(&state, "federation_join_in_flight");
+    let (permit, wait_ms) = match acquire_with_timeout(
+        state.federation_join_semaphore.clone(),
+        state.services.config.federation.join_acquire_timeout_ms,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            decrement_gauge(&state, "federation_join_in_flight");
+            increment_counter(&state, "federation_join_429_total");
+            return Err(error);
+        }
+    };
+    observe_histogram(&state, "federation_join_wait_ms", wait_ms as f64);
 
-    let origin = body
-        .get("origin")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
+    let result = async {
+        if !room_id.starts_with('!') || !room_id.contains(':') {
+            return Err(ApiError::bad_request("Invalid room_id format"));
+        }
 
-    let sender = body.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+        let origin = body
+            .get("origin")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
 
-    if sender.is_empty() {
-        return Err(ApiError::bad_request("Missing sender in join event"));
-    }
+        let sender = body.get("sender").and_then(|v| v.as_str()).unwrap_or("");
 
-    let room = state
-        .services
-        .room_storage
-        .get_room(&room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Room not found"))?;
+        if sender.is_empty() {
+            return Err(ApiError::bad_request("Missing sender in join event"));
+        }
 
-    if !room.is_public {
-        let is_member = state
+        let room = state
+            .services
+            .room_storage
+            .get_room(&room_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Room not found"))?;
+
+        if !room.is_public {
+            let is_member = state
+                .services
+                .member_storage
+                .is_member(sender, &room_id)
+                .await
+                .unwrap_or(false);
+
+            if !is_member && !room.join_rule.is_empty() && room.join_rule != "public" {
+                return Err(ApiError::forbidden("User is not allowed to join this room"));
+            }
+        }
+
+        let member_count = state
             .services
             .member_storage
-            .is_member(sender, &room_id)
+            .get_room_member_count(&room_id)
             .await
-            .unwrap_or(false);
+            .unwrap_or(0);
 
-        if !is_member && !room.join_rule.is_empty() && room.join_rule != "public" {
-            return Err(ApiError::forbidden("User is not allowed to join this room"));
+        let state_events: Vec<serde_json::Value> = Vec::new();
+
+        println!(
+            "Federation send_join: origin={}, sender={}, room_id={}",
+            origin, sender, room_id
+        );
+        let _ = (origin, sender, room.is_public, room.join_rule.as_str());
+
+        Ok(Json(json!({
+            "state": state_events,
+            "members_joined": member_count,
+            "room_id": room_id,
+            "event_id": event_id
+        })))
+    }
+    .await;
+
+    drop(permit);
+    decrement_gauge(&state, "federation_join_in_flight");
+    match &result {
+        Ok(_) => increment_counter(&state, "federation_join_ok_total"),
+        Err(ApiError::RateLimitedWithRetry(_)) => {
+            increment_counter(&state, "federation_join_429_total")
         }
+        Err(_) => increment_counter(&state, "federation_join_error_total"),
     }
 
-    let member_count = state
-        .services
-        .member_storage
-        .get_room_member_count(&room_id)
-        .await
-        .unwrap_or(0);
-
-    let state_events: Vec<serde_json::Value> = Vec::new();
-
-    println!(
-        "Federation send_join: origin={}, sender={}, room_id={}",
-        origin, sender, room_id
-    );
-    let _ = (origin, sender, room.is_public, room.join_rule.as_str());
-
-    Ok(Json(json!({
-        "state": state_events,
-        "members_joined": member_count,
-        "room_id": room_id,
-        "event_id": event_id
-    })))
+    result
 }
 
 /// Send leave v2
@@ -1682,13 +2108,29 @@ async fn fetch_remote_server_keys_response(
     server_name: &str,
     key_id: &str,
 ) -> Result<Value, ApiError> {
+    let backoff_key = format!("federation:key_fetch_backoff:{}:{}", server_name, key_id);
+    if let Ok(Some(true)) = state.cache.get::<bool>(&backoff_key).await {
+        return Err(ApiError::not_found(format!(
+            "Remote server key '{}' for '{}' not found",
+            key_id, server_name
+        )));
+    }
+
     let cache_key = format!("federation:server_keys:{}:{}", server_name, key_id);
     if let Ok(Some(cached)) = state.cache.get::<Value>(&cache_key).await {
         return Ok(cached);
     }
 
+    let _permit = state
+        .federation_key_fetch_general_semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("semaphore closed");
+
+    let timeout_ms = state.services.config.federation.key_fetch_timeout_ms.max(1);
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_millis(timeout_ms))
         .build()
         .map_err(|e| {
             ApiError::internal(format!("Failed to build federation HTTP client: {}", e))
@@ -1751,6 +2193,7 @@ async fn fetch_remote_server_keys_response(
         return Ok(canonical_response);
     }
 
+    let _ = state.cache.set(&backoff_key, true, 30).await;
     Err(ApiError::not_found(format!(
         "Remote server key '{}' for '{}' not found",
         key_id, server_name
