@@ -1,5 +1,9 @@
 # Work Summary - 2026-04-05
 
+> Historical snapshot: this document records the 2026-04-05 shell-route optimization follow-up only.
+> It should not be used as the current completion source for the broader Task 1-16 package; prefer
+> `README.md`, `document-index.md`, `tasks.md`, and the Task 15/16 governance documents.
+
 **Project:** synapse-rust Shell Route Optimization & CI Improvements  
 **Date:** 2026-04-05  
 **Status:** ✅ Core Tasks Complete

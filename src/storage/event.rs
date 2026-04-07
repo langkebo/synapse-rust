@@ -142,7 +142,7 @@ impl EventStorage {
         let events = sqlx::query_as(
             r#"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_at, origin_server_ts, 0) as processed_ts, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_ts, 
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
             FROM events WHERE room_id = $1
             ORDER BY origin_server_ts DESC
@@ -222,7 +222,7 @@ impl EventStorage {
         let events = sqlx::query_as(
             r#"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_at, origin_server_ts, 0) as processed_ts, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_ts, 
                    COALESCE(not_before, 0) as not_before, status, reference_image, origin
             FROM events WHERE room_id = $1 AND event_type = $2
             ORDER BY origin_server_ts DESC
@@ -245,7 +245,7 @@ impl EventStorage {
         let events = sqlx::query_as(
             r#"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_at, origin_server_ts, 0) as processed_ts, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_ts, 
                    COALESCE(not_before, 0) as not_before, status, reference_image, origin
             FROM events WHERE COALESCE(user_id, sender) = $1
             ORDER BY origin_server_ts DESC
@@ -301,7 +301,7 @@ impl EventStorage {
                    COALESCE(unsigned, '{}'::jsonb) as unsigned,
                    COALESCE(is_redacted, false) as is_redacted,
                    COALESCE(origin_server_ts, 0) as origin_server_ts,
-                   depth, processed_at as processed_ts, not_before, status, reference_image, origin, user_id
+                   depth, NULL::BIGINT as processed_ts, not_before, status, reference_image, origin, user_id
             FROM events WHERE room_id = $1 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
             "#,
         )
@@ -321,7 +321,7 @@ impl EventStorage {
                    COALESCE(unsigned, '{}'::jsonb) as unsigned,
                    COALESCE(is_redacted, false) as is_redacted,
                    COALESCE(origin_server_ts, 0) as origin_server_ts,
-                   depth, processed_at as processed_ts, not_before, status, reference_image, origin, user_id
+                   depth, NULL::BIGINT as processed_ts, not_before, status, reference_image, origin, user_id
             FROM events WHERE room_id = $1 AND event_type = $2 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
             "#,
         )
@@ -424,7 +424,7 @@ impl EventStorage {
         let events = sqlx::query_as(
             r#"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_at, origin_server_ts, 0) as processed_ts, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_ts, 
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
             FROM events WHERE room_id = $1 AND origin_server_ts > $2
             ORDER BY origin_server_ts ASC
@@ -447,7 +447,7 @@ impl EventStorage {
         let events = sqlx::query_as(
             r#"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_at, origin_server_ts, 0) as processed_ts, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_ts, 
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
             FROM events WHERE origin_server_ts > $1
             ORDER BY origin_server_ts ASC
@@ -473,7 +473,7 @@ impl EventStorage {
         let events: Vec<RoomEvent> = sqlx::query_as(
             r#"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_at, origin_server_ts, 0) as processed_ts, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_ts, 
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
             FROM events 
             WHERE room_id = ANY($1)
@@ -511,7 +511,7 @@ impl EventStorage {
         let events: Vec<RoomEvent> = sqlx::query_as(
             r#"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_at, origin_server_ts, 0) as processed_ts, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_ts, 
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
             FROM events 
             WHERE room_id = ANY($1) AND origin_server_ts > $2
@@ -548,7 +548,7 @@ impl EventStorage {
         sqlx::query_as(
             r#"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(processed_at, origin_server_ts, 0) as processed_ts, 
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_ts, 
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
             FROM events 
             WHERE event_id = ANY($1)
@@ -589,7 +589,7 @@ impl EventStorage {
                    COALESCE(unsigned, '{}'::jsonb) as unsigned,
                    COALESCE(is_redacted, false) as is_redacted,
                    COALESCE(origin_server_ts, 0) as origin_server_ts,
-                   depth, processed_at as processed_ts, not_before, status, reference_image, origin, user_id
+                   depth, NULL::BIGINT as processed_ts, not_before, status, reference_image, origin, user_id
             FROM events 
             WHERE room_id = ANY($1) AND state_key IS NOT NULL
             ORDER BY room_id, origin_server_ts DESC
@@ -625,7 +625,7 @@ impl EventStorage {
             SELECT DISTINCT ON (room_id) 
                    event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
                    COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, 
-                   COALESCE(processed_at, origin_server_ts, 0) as processed_ts, 
+                   COALESCE(origin_server_ts, 0) as processed_ts, 
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
             FROM events 
             WHERE room_id = ANY($1)

@@ -2,28 +2,17 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use hmac::{Hmac, Mac};
 use serde_json::{json, Value};
-use sha2::Sha256;
-use std::sync::Arc;
-use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::ServiceContainer;
-use synapse_rust::web::routes::create_router;
-use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
-type HmacSha256 = Hmac<Sha256>;
-
 async fn setup_test_app() -> axum::Router {
-    if !super::init_test_database().await {
-        panic!(
-            "Protocol alignment integration tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
-        );
-    }
-    let container = ServiceContainer::new_test();
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let state = AppState::new(container, cache);
-    create_router(state)
+    super::setup_test_app()
+        .await
+        .unwrap_or_else(|| {
+            panic!(
+                "Protocol alignment integration tests require isolated schema setup. Start PostgreSQL and apply migrations for local runs."
+            )
+        })
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -82,74 +71,6 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
-}
-
-async fn get_admin_token(app: &axum::Router) -> String {
-    let nonce_request = Request::builder()
-        .uri("/_synapse/admin/v1/register/nonce")
-        .body(Body::empty())
-        .unwrap();
-    let nonce_response = ServiceExt::<Request<Body>>::oneshot(
-        app.clone(),
-        super::with_local_connect_info(nonce_request),
-    )
-    .await
-    .unwrap();
-    assert_eq!(nonce_response.status(), StatusCode::OK);
-
-    let nonce_body = axum::body::to_bytes(nonce_response.into_body(), 1024)
-        .await
-        .unwrap();
-    let nonce_json: Value = serde_json::from_slice(&nonce_body).unwrap();
-    let nonce = nonce_json["nonce"].as_str().unwrap().to_string();
-
-    let username = format!("admin_alignment_{}", rand::random::<u32>());
-    let password = "password123";
-
-    let mut mac = HmacSha256::new_from_slice(b"test_shared_secret").unwrap();
-    mac.update(nonce.as_bytes());
-    mac.update(b"\0");
-    mac.update(username.as_bytes());
-    mac.update(b"\0");
-    mac.update(password.as_bytes());
-    mac.update(b"\0");
-    mac.update(b"admin");
-    let mac_hex = mac
-        .finalize()
-        .into_bytes()
-        .iter()
-        .map(|byte| format!("{:02x}", byte))
-        .collect::<String>();
-
-    let register_request = Request::builder()
-        .method("POST")
-        .uri("/_synapse/admin/v1/register")
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({
-                "nonce": nonce,
-                "username": username,
-                "password": password,
-                "admin": true,
-                "mac": mac_hex
-            })
-            .to_string(),
-        ))
-        .unwrap();
-
-    let register_response = ServiceExt::<Request<Body>>::oneshot(
-        app.clone(),
-        super::with_local_connect_info(register_request),
-    )
-    .await
-    .unwrap();
-    assert_eq!(register_response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(register_response.into_body(), 2048)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    json["access_token"].as_str().unwrap().to_string()
 }
 
 #[tokio::test]
@@ -457,7 +378,7 @@ async fn test_admin_room_search_enforces_matrix_forbidden_and_handles_special_te
     let forbidden_json: Value = serde_json::from_slice(&forbidden_body).unwrap();
     assert_eq!(forbidden_json["errcode"], "M_FORBIDDEN");
 
-    let admin_token = get_admin_token(&app).await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
     let (creator_token, _) = register_user(&app, "room_search_creator").await;
     let _room_id = create_room(&app, &creator_token, "Searchable Room").await;
 
@@ -691,7 +612,7 @@ async fn test_admin_pusher_query_requires_existing_user_and_returns_created_push
     let app = setup_test_app().await;
 
     let (token, user_id) = register_user(&app, "pusher_alignment_user").await;
-    let admin_token = get_admin_token(&app).await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
 
     let set_pusher_request = Request::builder()
         .method("POST")
@@ -757,7 +678,7 @@ async fn test_admin_send_server_notice_persists_notice_for_target_user() {
     let app = setup_test_app().await;
 
     let (_, user_id) = register_user(&app, "server_notice_target").await;
-    let admin_token = get_admin_token(&app).await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
 
     let send_notice_request = Request::builder()
         .method("POST")

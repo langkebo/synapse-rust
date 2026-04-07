@@ -122,12 +122,15 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_sliding_sync_router(state.clone()))
         .merge(create_space_router(state.clone()))
         .merge(create_app_service_router(state.clone()))
-        .merge(create_worker_router(state.clone()))
         .merge(create_room_summary_router(state.clone()))
         .merge(create_event_report_router(state.clone()))
         .merge(create_feature_flags_router())
         .merge(create_background_update_router(state.clone()))
         .merge(create_module_router());
+
+    if state.services.config.worker.enabled {
+        router = router.merge(create_worker_router(state.clone()));
+    }
 
     // Optional authentication capabilities - only expose when enabled
     if state.services.saml_service.is_enabled() {

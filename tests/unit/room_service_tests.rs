@@ -22,17 +22,8 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database() -> Option<Pool<Postgres>> {
-    let database_url = std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
-
-    let pool = match sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(&database_url)
-        .await
-    {
+async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
+    let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
             eprintln!(
@@ -42,23 +33,6 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             return None;
         }
     };
-
-    sqlx::query("DROP TABLE IF EXISTS events CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS room_memberships CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS rooms CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS users CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
 
     sqlx::query(
         r#"
@@ -78,7 +52,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         )
     "#,
     )
-    .execute(&pool)
+    .execute(&*pool)
     .await
     .expect("Failed to create users table");
 
@@ -103,7 +77,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         )
     "#,
     )
-    .execute(&pool)
+    .execute(&*pool)
     .await
     .expect("Failed to create rooms table");
 
@@ -132,7 +106,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         )
     "#,
     )
-    .execute(&pool)
+    .execute(&*pool)
     .await
     .expect("Failed to create room_memberships table");
 
@@ -158,7 +132,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         )
     "#,
     )
-    .execute(&pool)
+    .execute(&*pool)
     .await
     .expect("Failed to create events table");
 
@@ -200,6 +174,7 @@ fn create_room_service(pool: &Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> 
         validator: Arc::new(Validator::default()),
         server_name: "localhost".to_string(),
         task_queue: None,
+        beacon_service: None,
     })
 }
 
@@ -208,7 +183,7 @@ fn test_room_service_creation() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
 
@@ -224,13 +199,13 @@ fn test_create_room_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
         let id = unique_id();
         let alice_id = format!("@alice_{}:localhost", id);
         let alice_name = format!("alice_{}", id);
-        create_test_user(&pool, &alice_id, &alice_name).await;
+        create_test_user(&*pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
@@ -261,7 +236,7 @@ fn test_join_room_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
         let id = unique_id();
@@ -269,8 +244,8 @@ fn test_join_room_success() {
         let alice_name = format!("alice_{}", id);
         let bob_id = format!("@bob_{}:localhost", id);
         let bob_name = format!("bob_{}", id);
-        create_test_user(&pool, &alice_id, &alice_name).await;
-        create_test_user(&pool, &bob_id, &bob_name).await;
+        create_test_user(&*pool, &alice_id, &alice_name).await;
+        create_test_user(&*pool, &bob_id, &bob_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
@@ -296,13 +271,13 @@ fn test_send_message_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
         let id = unique_id();
         let alice_id = format!("@alice_{}:localhost", id);
         let alice_name = format!("alice_{}", id);
-        create_test_user(&pool, &alice_id, &alice_name).await;
+        create_test_user(&*pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
@@ -324,9 +299,12 @@ fn test_send_message_success() {
             .await
             .unwrap();
         let chunk = messages["chunk"].as_array().unwrap();
-        assert_eq!(chunk.len(), 1);
-        assert_eq!(chunk[0]["content"]["body"], "Hello world");
-        assert_eq!(chunk[0]["sender"], alice_id);
+        let event = chunk
+            .iter()
+            .find(|event| event["type"] == "m.room.message")
+            .expect("timeline should include m.room.message event");
+        assert_eq!(event["content"]["body"], "Hello world");
+        assert_eq!(event["sender"], alice_id);
     });
 }
 
@@ -335,7 +313,7 @@ fn test_invite_user_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
         let id = unique_id();
@@ -343,8 +321,8 @@ fn test_invite_user_success() {
         let alice_name = format!("alice_{}", id);
         let bob_id = format!("@bob_{}:localhost", id);
         let bob_name = format!("bob_{}", id);
-        create_test_user(&pool, &alice_id, &alice_name).await;
-        create_test_user(&pool, &bob_id, &bob_name).await;
+        create_test_user(&*pool, &alice_id, &alice_name).await;
+        create_test_user(&*pool, &bob_id, &bob_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
@@ -371,7 +349,7 @@ fn test_ban_user_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
         let id = unique_id();
@@ -379,8 +357,8 @@ fn test_ban_user_success() {
         let alice_name = format!("alice_{}", id);
         let bob_id = format!("@bob_{}:localhost", id);
         let bob_name = format!("bob_{}", id);
-        create_test_user(&pool, &alice_id, &alice_name).await;
-        create_test_user(&pool, &bob_id, &bob_name).await;
+        create_test_user(&*pool, &alice_id, &alice_name).await;
+        create_test_user(&*pool, &bob_id, &bob_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
@@ -410,13 +388,13 @@ fn test_upgrade_room_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
         let id = unique_id();
         let alice_id = format!("@alice_{}:localhost", id);
         let alice_name = format!("alice_{}", id);
-        create_test_user(&pool, &alice_id, &alice_name).await;
+        create_test_user(&*pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
@@ -441,13 +419,13 @@ fn test_upgrade_room_not_found() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
         let id = unique_id();
         let alice_id = format!("@alice_{}:localhost", id);
         let alice_name = format!("alice_{}", id);
-        create_test_user(&pool, &alice_id, &alice_name).await;
+        create_test_user(&*pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());

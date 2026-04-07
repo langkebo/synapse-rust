@@ -15,26 +15,32 @@ mod tests {
             ..Default::default()
         };
 
-        let request = SlidingSyncRequest {
-            conn_id: Some("test_connection".to_string()),
-            lists: vec![SlidingSyncListRequest {
-                list_key: "main".to_string(),
+        let mut lists = std::collections::HashMap::new();
+        lists.insert(
+            "main".to_string(),
+            SlidingSyncListData {
+                ranges: vec![vec![0, 20]],
                 sort: vec!["by_recency".to_string()],
                 filters: Some(filters),
-                room_subscription: None,
-                ranges: vec![(0, 20)],
-                limit: Some(100),
-            }],
+                timeline_limit: Some(100),
+                required_state: None,
+            },
+        );
+
+        let request = SlidingSyncRequest {
+            conn_id: Some("test_connection".to_string()),
+            lists,
             room_subscriptions: None,
-            room_unsubscriptions: None,
+            unsubscribe_rooms: None,
             extensions: None,
             pos: None,
             timeout: Some(30000),
+            client_timeout: None,
         };
 
         assert!(request.conn_id.is_some());
         assert_eq!(request.lists.len(), 1);
-        assert_eq!(request.lists[0].ranges.len(), 1);
+        assert_eq!(request.lists["main"].ranges.len(), 1);
     }
 
     #[test]

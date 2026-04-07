@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use sqlx::{Pool, Postgres};
+use sqlx::PgPool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -14,18 +14,9 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database() -> Option<Pool<Postgres>> {
-    let database_url = std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
-
-    let pool = match sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(&database_url)
-        .await
-    {
-        Ok(pool) => pool,
+async fn setup_test_database() -> Option<PgPool> {
+    let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
+        Ok(pool) => pool.as_ref().clone(),
         Err(error) => {
             eprintln!(
                 "Skipping voice service tests because test database is unavailable: {}",
@@ -35,23 +26,15 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         }
     };
 
-    sqlx::query("DROP TABLE IF EXISTS voice_usage_stats CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS voice_messages CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let storage = VoiceStorage::new(&Arc::new(pool.clone()), cache);
+    let pool = Arc::new(pool);
+    let storage = VoiceStorage::new(&pool, cache);
     storage
         .create_tables()
         .await
         .expect("Failed to create voice tables");
 
-    Some(pool)
+    Some((*pool).clone())
 }
 
 #[test]
@@ -59,13 +42,13 @@ fn test_save_voice_message_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => pool,
+            Some(pool) => Arc::new(pool),
             None => return,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let id = unique_id();
         let voice_path = format!("/tmp/test_voice_service_{}", id);
-        let voice_service = VoiceService::new(&Arc::new(pool.clone()), cache, &voice_path);
+        let voice_service = VoiceService::new(&pool, cache, &voice_path);
 
         let params = VoiceMessageUploadParams {
             user_id: format!("@alice_{}:localhost", id),
@@ -79,11 +62,14 @@ fn test_save_voice_message_success() {
         let result = voice_service.save_voice_message(params).await;
         assert!(result.is_ok());
         let val = result.unwrap();
-        assert!(val["message_id"].as_str().unwrap().starts_with("vm_"));
+        let event_id = val["event_id"]
+            .as_str()
+            .expect("voice upload should return event_id");
+        assert!(event_id.starts_with('$'));
         assert_eq!(val["size"], 4);
 
-        let message_id = val["message_id"].as_str().unwrap();
-        let file_path = std::path::PathBuf::from(&voice_path).join(format!("{}.ogg", message_id));
+        let file_prefix = event_id.trim_start_matches('$');
+        let file_path = std::path::PathBuf::from(&voice_path).join(format!("{}.ogg", file_prefix));
         assert!(file_path.exists());
 
         std::fs::remove_dir_all(&voice_path).ok();
@@ -95,13 +81,13 @@ fn test_get_voice_stats() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => pool,
+            Some(pool) => Arc::new(pool),
             None => return,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let id = unique_id();
         let voice_path = format!("/tmp/test_voice_stats_{}", id);
-        let voice_service = VoiceService::new(&Arc::new(pool.clone()), cache, &voice_path);
+        let voice_service = VoiceService::new(&pool, cache, &voice_path);
         let user_id = format!("@alice_{}:localhost", id);
 
         let params = VoiceMessageUploadParams {
@@ -135,7 +121,7 @@ fn test_get_voice_stats() {
             "#,
         )
         .bind(&user_id)
-        .fetch_one(&pool)
+        .fetch_one(pool.as_ref())
         .await
         .expect("voice_usage_stats row should exist");
         assert!(
@@ -152,7 +138,7 @@ fn test_voice_usage_stats_schema_uses_last_active_ts() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => pool,
+            Some(pool) => Arc::new(pool),
             None => return,
         };
 
@@ -164,7 +150,7 @@ fn test_voice_usage_stats_schema_uses_last_active_ts() {
             ORDER BY ordinal_position
             "#,
         )
-        .fetch_all(&pool)
+        .fetch_all(pool.as_ref())
         .await
         .expect("voice_usage_stats columns should be queryable");
 

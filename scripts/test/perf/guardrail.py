@@ -38,6 +38,14 @@ THRESHOLDS = {
         "room_summary_duration": 600,
         "errors": 0.02,
     },
+    "soak": {
+        "login_duration": 700,
+        "create_room_duration": 1200,
+        "send_message_duration": 900,
+        "sync_duration": 1500,
+        "room_summary_duration": 800,
+        "errors": 0.03,
+    },
 }
 
 DISPLAY_NAMES = {
@@ -135,6 +143,11 @@ def main() -> int:
     parser.add_argument("--results-dir", required=True)
     parser.add_argument("--base-url", default="http://localhost:8008")
     parser.add_argument("--fail-on-breach", action="store_true")
+    parser.add_argument(
+        "--scenarios",
+        nargs="+",
+        default=["smoke", "baseline", "stress", "peak"],
+    )
     args = parser.parse_args()
 
     results_dir = Path(args.results_dir)
@@ -144,7 +157,9 @@ def main() -> int:
         "results": [],
     }
 
-    for scenario in ["smoke", "baseline", "stress", "peak"]:
+    for scenario in args.scenarios:
+        if scenario not in THRESHOLDS:
+            raise SystemExit(f"unsupported scenario: {scenario}")
         result_file = results_dir / f"{scenario}_results.json"
         if not result_file.exists():
             continue

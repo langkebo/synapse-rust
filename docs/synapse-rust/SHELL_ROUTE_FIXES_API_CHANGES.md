@@ -1,7 +1,7 @@
 # Shell Route Fixes - API Response Changes
 
-**Date:** 2026-04-05  
-**Status:** 22/25 routes fixed (88% complete)
+**Date:** 2026-04-06  
+**Status:** CI gate enforced (no new shell routes)
 
 This document describes the API response format changes for endpoints that previously returned empty `{}` responses (shell routes). These changes improve API quality by providing meaningful confirmation data for operations.
 
@@ -152,10 +152,237 @@ For DELETE operations:
 
 ---
 
+### Room Management (handlers/room.rs)
+
+#### Join Room
+**Endpoint:** `POST /_matrix/client/{r0|v3}/rooms/{room_id}/join`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "room_id": "!room:server.com",
+  "joined_ts": 1234567890123
+}
+```
+
+#### Leave Room
+**Endpoint:** `POST /_matrix/client/{r0|v3}/rooms/{room_id}/leave`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "room_id": "!room:server.com",
+  "left_ts": 1234567890123
+}
+```
+
+#### Forget Room
+**Endpoint:** `POST /_matrix/client/{r0|v3}/rooms/{room_id}/forget`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "room_id": "!room:server.com",
+  "is_forgotten": true,
+  "updated_ts": 1234567890123
+}
+```
+
+#### Invite User
+**Endpoint:** `POST /_matrix/client/{r0|v3}/rooms/{room_id}/invite`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "room_id": "!room:server.com",
+  "invited_user_id": "@friend:server.com",
+  "invited_ts": 1234567890123
+}
+```
+
+#### Set Room Directory Visibility
+**Endpoint:** `PUT /_matrix/client/{r0|v3}/directory/list/room/{room_id}`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "room_id": "!room:server.com",
+  "visibility": "public",
+  "updated_ts": 1234567890123
+}
+```
+
+#### Send Receipt
+**Endpoint:** `POST /_matrix/client/{r0|v3}/rooms/{room_id}/receipt/{receipt_type}/{event_id}`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "room_id": "!room:server.com",
+  "event_id": "$event123",
+  "receipt_type": "m.read",
+  "ts": 1234567890123
+}
+```
+
+#### Set Read Markers
+**Endpoint:** `POST /_matrix/client/{r0|v3}/rooms/{room_id}/read_markers`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "room_id": "!room:server.com",
+  "updated_ts": 1234567890123
+}
+```
+
+#### Set Room Account Data
+**Endpoint:** `PUT /_matrix/client/v3/rooms/{room_id}/account_data/{type}`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "room_id": "!room:server.com",
+  "data_type": "com.example.type",
+  "updated_ts": 1234567890123
+}
+```
+
+#### Kick User
+**Endpoint:** `POST /_matrix/client/{r0|v3}/rooms/{room_id}/kick`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "room_id": "!room:server.com",
+  "user_id": "@user:server.com",
+  "kicked_by": "@admin:server.com",
+  "membership": "leave",
+  "updated_ts": 1234567890123
+}
+```
+
+#### Ban User
+**Endpoint:** `POST /_matrix/client/{r0|v3}/rooms/{room_id}/ban`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "room_id": "!room:server.com",
+  "user_id": "@user:server.com",
+  "banned_by": "@admin:server.com",
+  "membership": "ban",
+  "updated_ts": 1234567890123
+}
+```
+
+#### Unban User
+**Endpoint:** `POST /_matrix/client/{r0|v3}/rooms/{room_id}/unban`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "room_id": "!room:server.com",
+  "user_id": "@user:server.com",
+  "unbanned_by": "@admin:server.com",
+  "membership": "leave",
+  "updated_ts": 1234567890123
+}
+```
+
+---
+
 ### Friend Management (friend_room.rs)
 
+#### Send Friend Request
+**Endpoint:** `POST /_matrix/client/{v1|r0}/friends/request`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "request_id": "req_123",
+  "status": "pending"
+}
+```
+
+#### Accept Friend Request
+**Endpoint:** `POST /_matrix/client/{v1|r0}/friends/request/{user_id}/accept`
+
+**Old Response:**
+```json
+{}
+```
+
+**New Response:**
+```json
+{
+  "room_id": "!room:server.com",
+  "status": "accepted"
+}
+```
+
 #### Update Friend Note
-**Endpoint:** `PUT /_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/com.hula.friend.note`
+**Endpoint:** `PUT /_matrix/client/{v1|r0}/friends/{user_id}/note`
 
 **Old Response:**
 ```json
@@ -172,7 +399,7 @@ For DELETE operations:
 ```
 
 #### Update Friend Status
-**Endpoint:** `PUT /_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/com.hula.friend.status`
+**Endpoint:** `PUT /_matrix/client/{v1|r0}/friends/{user_id}/status`
 
 **Old Response:**
 ```json
@@ -183,13 +410,13 @@ For DELETE operations:
 ```json
 {
   "user_id": "@friend:server.com",
-  "status": "accepted",
+  "status": "favorite",
   "updated_ts": 1234567890123
 }
 ```
 
 #### Update Friend Display Name
-**Endpoint:** `PUT /_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/com.hula.friend.displayname`
+**Endpoint:** `PUT /_matrix/client/{v1|r0}/friends/{user_id}/displayname`
 
 **Old Response:**
 ```json
@@ -200,85 +427,13 @@ For DELETE operations:
 ```json
 {
   "user_id": "@friend:server.com",
-  "display_name": "Alice",
-  "updated_ts": 1234567890123
-}
-```
-
-#### Accept Friend Request
-**Endpoint:** `POST /_matrix/client/v3/rooms/{room_id}/friend/accept`
-
-**Old Response:**
-```json
-{}
-```
-
-**New Response:**
-```json
-{
-  "room_id": "!room:server.com",
-  "friend_user_id": "@friend:server.com",
-  "status": "accepted",
-  "updated_ts": 1234567890123
-}
-```
-
-#### Reject Friend Request
-**Endpoint:** `POST /_matrix/client/v3/rooms/{room_id}/friend/reject`
-
-**Old Response:**
-```json
-{}
-```
-
-**New Response:**
-```json
-{
-  "room_id": "!room:server.com",
-  "friend_user_id": "@friend:server.com",
-  "status": "rejected",
-  "updated_ts": 1234567890123
-}
-```
-
-#### Block Friend
-**Endpoint:** `POST /_matrix/client/v3/rooms/{room_id}/friend/block`
-
-**Old Response:**
-```json
-{}
-```
-
-**New Response:**
-```json
-{
-  "room_id": "!room:server.com",
-  "friend_user_id": "@friend:server.com",
-  "blocked": true,
-  "updated_ts": 1234567890123
-}
-```
-
-#### Unblock Friend
-**Endpoint:** `POST /_matrix/client/v3/rooms/{room_id}/friend/unblock`
-
-**Old Response:**
-```json
-{}
-```
-
-**New Response:**
-```json
-{
-  "room_id": "!room:server.com",
-  "friend_user_id": "@friend:server.com",
-  "blocked": false,
+  "displayname": "Alice",
   "updated_ts": 1234567890123
 }
 ```
 
 #### Delete Friend
-**Endpoint:** `DELETE /_matrix/client/v3/rooms/{room_id}/friend`
+**Endpoint:** `DELETE /_matrix/client/{v1|r0}/friends/{user_id}`
 
 **Old Response:**
 ```json
@@ -289,8 +444,8 @@ For DELETE operations:
 ```json
 {
   "removed": true,
-  "room_id": "!room:server.com",
-  "friend_user_id": "@friend:server.com"
+  "user_id": "@friend:server.com",
+  "removed_ts": 1234567890123
 }
 ```
 

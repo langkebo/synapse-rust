@@ -1,17 +1,155 @@
+use crate::common::config::RetentionConfig;
+use crate::common::metrics::{Counter, Gauge, Histogram, MetricsCollector};
 use crate::common::ApiError;
+use crate::services::beacon_service::BeaconService;
+use crate::services::media::chunked_upload::ChunkedUploadService;
+use crate::storage::audit::AuditEventStorage;
 use crate::storage::retention::*;
 use sqlx::PgPool;
 use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument, warn};
+
+#[derive(Debug, Clone, Default)]
+pub struct DataLifecycleCleanupSummary {
+    pub started_ts: i64,
+    pub completed_ts: i64,
+    pub duration_ms: i64,
+    pub expired_events_deleted: u64,
+    pub expired_beacons_deleted: u64,
+    pub expired_uploads_deleted: u64,
+    pub expired_audit_events_deleted: u64,
+    pub cleanup_queue_items_processed: u64,
+    pub cleanup_queue_rows_pruned: u64,
+    pub failed_tasks: u64,
+}
+
+#[derive(Clone)]
+struct RetentionLifecycleMetrics {
+    cycles_total: Counter,
+    cycles_failed_total: Counter,
+    events_deleted_total: Counter,
+    beacons_deleted_total: Counter,
+    uploads_deleted_total: Counter,
+    audit_events_deleted_total: Counter,
+    queue_processed_total: Counter,
+    queue_pruned_total: Counter,
+    last_run_ts: Gauge,
+    last_failure_ts: Gauge,
+    last_duration_ms: Gauge,
+    last_failed_tasks: Gauge,
+    last_events_deleted: Gauge,
+    last_beacons_deleted: Gauge,
+    last_uploads_deleted: Gauge,
+    last_audit_events_deleted: Gauge,
+    last_queue_processed: Gauge,
+    last_queue_pruned: Gauge,
+    cycle_duration_ms: Histogram,
+}
+
+impl RetentionLifecycleMetrics {
+    fn new(metrics: &Arc<MetricsCollector>) -> Self {
+        Self {
+            cycles_total: metrics.register_counter("retention_lifecycle_cycles_total".to_string()),
+            cycles_failed_total: metrics
+                .register_counter("retention_lifecycle_cycles_failed_total".to_string()),
+            events_deleted_total: metrics
+                .register_counter("retention_lifecycle_events_deleted_total".to_string()),
+            beacons_deleted_total: metrics
+                .register_counter("retention_lifecycle_beacons_deleted_total".to_string()),
+            uploads_deleted_total: metrics
+                .register_counter("retention_lifecycle_uploads_deleted_total".to_string()),
+            audit_events_deleted_total: metrics
+                .register_counter("retention_lifecycle_audit_events_deleted_total".to_string()),
+            queue_processed_total: metrics
+                .register_counter("retention_lifecycle_queue_processed_total".to_string()),
+            queue_pruned_total: metrics
+                .register_counter("retention_lifecycle_queue_pruned_total".to_string()),
+            last_run_ts: metrics.register_gauge("retention_lifecycle_last_run_ts".to_string()),
+            last_failure_ts: metrics
+                .register_gauge("retention_lifecycle_last_failure_ts".to_string()),
+            last_duration_ms: metrics
+                .register_gauge("retention_lifecycle_last_duration_ms".to_string()),
+            last_failed_tasks: metrics
+                .register_gauge("retention_lifecycle_last_failed_tasks".to_string()),
+            last_events_deleted: metrics
+                .register_gauge("retention_lifecycle_last_events_deleted".to_string()),
+            last_beacons_deleted: metrics
+                .register_gauge("retention_lifecycle_last_beacons_deleted".to_string()),
+            last_uploads_deleted: metrics
+                .register_gauge("retention_lifecycle_last_uploads_deleted".to_string()),
+            last_audit_events_deleted: metrics
+                .register_gauge("retention_lifecycle_last_audit_events_deleted".to_string()),
+            last_queue_processed: metrics
+                .register_gauge("retention_lifecycle_last_queue_processed".to_string()),
+            last_queue_pruned: metrics
+                .register_gauge("retention_lifecycle_last_queue_pruned".to_string()),
+            cycle_duration_ms: metrics
+                .register_histogram("retention_lifecycle_cycle_duration_ms".to_string()),
+        }
+    }
+
+    fn observe_cycle(&self, summary: &DataLifecycleCleanupSummary) {
+        self.cycles_total.inc();
+        self.events_deleted_total
+            .inc_by(summary.expired_events_deleted);
+        self.beacons_deleted_total
+            .inc_by(summary.expired_beacons_deleted);
+        self.uploads_deleted_total
+            .inc_by(summary.expired_uploads_deleted);
+        self.audit_events_deleted_total
+            .inc_by(summary.expired_audit_events_deleted);
+        self.queue_processed_total
+            .inc_by(summary.cleanup_queue_items_processed);
+        self.queue_pruned_total
+            .inc_by(summary.cleanup_queue_rows_pruned);
+        self.last_run_ts.set(summary.completed_ts as f64);
+        self.last_duration_ms.set(summary.duration_ms as f64);
+        self.last_failed_tasks.set(summary.failed_tasks as f64);
+        self.last_events_deleted
+            .set(summary.expired_events_deleted as f64);
+        self.last_beacons_deleted
+            .set(summary.expired_beacons_deleted as f64);
+        self.last_uploads_deleted
+            .set(summary.expired_uploads_deleted as f64);
+        self.last_audit_events_deleted
+            .set(summary.expired_audit_events_deleted as f64);
+        self.last_queue_processed
+            .set(summary.cleanup_queue_items_processed as f64);
+        self.last_queue_pruned
+            .set(summary.cleanup_queue_rows_pruned as f64);
+        self.cycle_duration_ms.observe(summary.duration_ms as f64);
+
+        if summary.failed_tasks > 0 {
+            self.cycles_failed_total.inc();
+            self.last_failure_ts.set(summary.completed_ts as f64);
+        }
+    }
+}
 
 pub struct RetentionService {
     storage: Arc<RetentionStorage>,
     pool: Arc<PgPool>,
+    audit_storage: Arc<AuditEventStorage>,
+    lifecycle_metrics: RetentionLifecycleMetrics,
+    last_lifecycle_summary: Arc<RwLock<Option<DataLifecycleCleanupSummary>>>,
 }
 
 impl RetentionService {
-    pub fn new(storage: Arc<RetentionStorage>, pool: Arc<PgPool>) -> Self {
-        Self { storage, pool }
+    pub fn new(
+        storage: Arc<RetentionStorage>,
+        pool: Arc<PgPool>,
+        metrics: Arc<MetricsCollector>,
+        audit_storage: Arc<AuditEventStorage>,
+    ) -> Self {
+        Self {
+            storage,
+            pool,
+            audit_storage,
+            lifecycle_metrics: RetentionLifecycleMetrics::new(&metrics),
+            last_lifecycle_summary: Arc::new(RwLock::new(None)),
+        }
     }
 
     #[instrument(skip(self))]
@@ -385,6 +523,160 @@ impl RetentionService {
 
         Ok(total_cleaned)
     }
+
+    pub async fn get_last_lifecycle_summary(&self) -> Option<DataLifecycleCleanupSummary> {
+        self.last_lifecycle_summary.read().await.clone()
+    }
+
+    #[instrument(skip(self, beacon_service, config))]
+    pub async fn run_data_lifecycle_cycle(
+        &self,
+        beacon_service: &BeaconService,
+        config: &RetentionConfig,
+    ) -> DataLifecycleCleanupSummary {
+        let started_ts = chrono::Utc::now().timestamp_millis();
+        let started = Instant::now();
+        let mut summary = DataLifecycleCleanupSummary {
+            started_ts,
+            ..Default::default()
+        };
+
+        match self.run_scheduled_cleanups().await {
+            Ok(count) => {
+                summary.expired_events_deleted = count as u64;
+            }
+            Err(error) => {
+                summary.failed_tasks += 1;
+                warn!("Failed to run scheduled retention cleanups: {}", error);
+            }
+        }
+
+        match beacon_service.cleanup_expired_beacons().await {
+            Ok(count) => {
+                summary.expired_beacons_deleted = count;
+            }
+            Err(error) => {
+                summary.failed_tasks += 1;
+                warn!("Failed to cleanup expired beacons: {}", error);
+            }
+        }
+
+        match self.cleanup_expired_uploads().await {
+            Ok(count) => {
+                summary.expired_uploads_deleted = count;
+            }
+            Err(error) => {
+                summary.failed_tasks += 1;
+                warn!("Failed to cleanup expired uploads: {}", error);
+            }
+        }
+
+        match self
+            .cleanup_audit_events(config.audit_retention_days, started_ts)
+            .await
+        {
+            Ok(count) => {
+                summary.expired_audit_events_deleted = count;
+            }
+            Err(error) => {
+                summary.failed_tasks += 1;
+                warn!("Failed to cleanup expired audit events: {}", error);
+            }
+        }
+
+        match self
+            .process_pending_cleanups(config.cleanup_batch_size as i64)
+            .await
+        {
+            Ok(count) => {
+                summary.cleanup_queue_items_processed = count as u64;
+            }
+            Err(error) => {
+                summary.failed_tasks += 1;
+                warn!("Failed to process retention cleanup queue: {}", error);
+            }
+        }
+
+        match self
+            .prune_finished_cleanup_queue(config.queue_retention_days, started_ts)
+            .await
+        {
+            Ok(count) => {
+                summary.cleanup_queue_rows_pruned = count;
+            }
+            Err(error) => {
+                summary.failed_tasks += 1;
+                warn!("Failed to prune retention cleanup queue: {}", error);
+            }
+        }
+
+        summary.duration_ms = started.elapsed().as_millis() as i64;
+        summary.completed_ts = chrono::Utc::now().timestamp_millis();
+        self.lifecycle_metrics.observe_cycle(&summary);
+        *self.last_lifecycle_summary.write().await = Some(summary.clone());
+
+        info!(
+            expired_events_deleted = summary.expired_events_deleted,
+            expired_beacons_deleted = summary.expired_beacons_deleted,
+            expired_uploads_deleted = summary.expired_uploads_deleted,
+            expired_audit_events_deleted = summary.expired_audit_events_deleted,
+            cleanup_queue_items_processed = summary.cleanup_queue_items_processed,
+            cleanup_queue_rows_pruned = summary.cleanup_queue_rows_pruned,
+            failed_tasks = summary.failed_tasks,
+            duration_ms = summary.duration_ms,
+            "Completed data lifecycle cleanup cycle"
+        );
+
+        summary
+    }
+
+    async fn cleanup_expired_uploads(&self) -> Result<u64, ApiError> {
+        ChunkedUploadService::new(self.pool.clone())
+            .cleanup_expired()
+            .await
+    }
+
+    async fn cleanup_audit_events(
+        &self,
+        retention_days: u64,
+        now_ts: i64,
+    ) -> Result<u64, ApiError> {
+        let Some(cutoff_ts) = Self::cutoff_ts_from_days(now_ts, retention_days) else {
+            return Ok(0);
+        };
+
+        self.audit_storage
+            .delete_events_before(cutoff_ts)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to cleanup audit events: {}", e)))
+    }
+
+    async fn prune_finished_cleanup_queue(
+        &self,
+        retention_days: u64,
+        now_ts: i64,
+    ) -> Result<u64, ApiError> {
+        let Some(cutoff_ts) = Self::cutoff_ts_from_days(now_ts, retention_days) else {
+            return Ok(0);
+        };
+
+        self.storage
+            .cleanup_finished_queue_items_before(cutoff_ts)
+            .await
+            .map(|count| count as u64)
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to cleanup retention queue rows: {}", e))
+            })
+    }
+
+    fn cutoff_ts_from_days(now_ts: i64, retention_days: u64) -> Option<i64> {
+        if retention_days == 0 {
+            return None;
+        }
+
+        let retention_ms = retention_days.saturating_mul(24 * 60 * 60 * 1000);
+        Some(now_ts.saturating_sub(retention_ms.min(i64::MAX as u64) as i64))
+    }
 }
 
 #[cfg(test)]
@@ -571,5 +863,18 @@ mod tests {
         };
         assert_eq!(item.status, "pending");
         assert_eq!(item.retry_count, 0);
+    }
+
+    #[test]
+    fn test_cutoff_ts_from_days_zero_disables_cleanup() {
+        assert_eq!(RetentionService::cutoff_ts_from_days(1_000, 0), None);
+    }
+
+    #[test]
+    fn test_cutoff_ts_from_days_positive_retention() {
+        assert_eq!(
+            RetentionService::cutoff_ts_from_days(172_800_000, 1),
+            Some(86_400_000)
+        );
     }
 }

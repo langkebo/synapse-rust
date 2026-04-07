@@ -37,6 +37,11 @@
 - 新增 schema/migration 验证，优先放 `integration/schema/`。
 - 新增“未支持能力显式错误”测试，优先放对应能力域 contract 文件，而不是散落到 coverage 文件。
 
+### 4.1 目录落地（已创建）
+
+- `tests/integration/contracts/README.md`
+- `tests/integration/schema/README.md`
+
 ## 5. Review 要求
 
 - 提交新测试时必须说明归属目录理由。

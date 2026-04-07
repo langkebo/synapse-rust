@@ -15,7 +15,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate referenced tables have schema coverage
-        run: python3 scripts/check_schema_table_coverage.py
+        run: |
+          mkdir -p artifacts
+          python3 scripts/check_schema_table_coverage.py --json-report artifacts/schema_table_coverage.json
+
+      - name: Upload schema table coverage report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: schema-table-coverage-report
+          path: artifacts/schema_table_coverage.json
+          retention-days: 14
 
   schema-contract-coverage:
     name: Schema Contract Coverage
@@ -29,14 +39,18 @@ jobs:
           mkdir -p artifacts
           python3 scripts/check_schema_contract_coverage.py \
             --threshold 90 \
-            --report artifacts/contract_coverage_report.md
+            --report artifacts/contract_coverage_report.md \
+            --json-report artifacts/contract_coverage_report.json
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
-        if: always()
+        if: failure()
         with:
           name: contract-coverage-report
-          path: artifacts/contract_coverage_report.md
+          path: |
+            artifacts/contract_coverage_report.md
+            artifacts/contract_coverage_report.json
+          retention-days: 14
 
   migration-layout-audit:
     name: Migration Layout Audit
@@ -46,7 +60,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Audit migration directory layout
-        run: python3 scripts/audit_migration_layout.py
+        run: |
+          mkdir -p artifacts
+          python3 scripts/audit_migration_layout.py --report artifacts/migration_layout_audit.json
+
+      - name: Upload migration layout audit report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: migration-layout-audit-report
+          path: artifacts/migration_layout_audit.json
+          retention-days: 14
 
   migration-manifest-integrity:
     name: Migration Manifest Integrity
@@ -76,6 +100,7 @@ jobs:
         with:
           name: migration-manifest
           path: artifacts/MANIFEST-ci.txt
+          retention-days: 30
 
   external-evidence-gate:
     name: External Evidence Gate
@@ -135,14 +160,17 @@ jobs:
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           PG_AMCHECK_REPORT: artifacts/db-amcheck-report.txt
-        run: python3 scripts/run_pg_amcheck.py
+        run: |
+          mkdir -p artifacts
+          python3 scripts/run_pg_amcheck.py
 
       - name: Upload pg_amcheck report
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: db-amcheck-report
           path: artifacts/db-amcheck-report.txt
+          retention-days: 14
 
   unified-vs-db-migrate-p0-alignment:
     name: Unified vs DB-Migrate P0 Alignment
@@ -239,13 +267,24 @@ jobs:
             --markdown-report artifacts/p0_schema_alignment_db_migrate.md
 
       - name: Upload P0 schema alignment report
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: p0-schema-alignment-db-migrate-report
           path: |
             artifacts/p0_schema_alignment_db_migrate.txt
             artifacts/p0_schema_alignment_db_migrate.md
+          retention-days: 14
+
+      - name: Upload expected/actual schemas (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0-schema-alignment-db-migrate-schemas
+          path: |
+            artifacts/expected_schema_db_migrate.json
+            artifacts/actual_schema_db_migrate.json
+          retention-days: 14
 
   sqlx-migrate-run:
     name: sqlx Migrate Run
@@ -376,6 +415,13 @@ jobs:
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: cargo test --locked --test unit schema_contract_p0 -- --test-threads=1
 
+      - name: Run room core schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_room_core_tests -- --test-threads=1
+
       - name: Run room summary schema contract integration tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
@@ -410,6 +456,97 @@ jobs:
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           INTEGRATION_TESTS_REQUIRED: "1"
         run: cargo test --locked --test schema_contract_e2ee_verification_tests -- --test-threads=1
+
+      - name: Run thread schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_thread_tests -- --test-threads=1
+
+      - name: Run retention schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_retention_tests -- --test-threads=1
+
+      - name: Run invite restriction schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_invite_restrictions_tests -- --test-threads=1
+
+      - name: Run auth token schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_auth_tokens_tests -- --test-threads=1
+
+      - name: Run presence schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_presence_tests -- --test-threads=1
+
+      - name: Run openid token schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_openid_token_tests -- --test-threads=1
+
+      - name: Run media quota schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_media_quota_tests -- --test-threads=1
+
+      - name: Run receipts schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_receipts_tests -- --test-threads=1
+
+      - name: Run sync unread schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_sync_unread_tests -- --test-threads=1
+
+      - name: Run receipts aggregation schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_receipts_aggregation_tests -- --test-threads=1
+
+      - name: Run read markers handler schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_read_markers_handler_tests -- --test-threads=1
+
+      - name: Run sync ephemeral receipts schema contract integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test schema_contract_sync_ephemeral_receipts_tests -- --test-threads=1
+
+      - name: Run placeholder contract P1/P2 integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: cargo test --locked --test integration api_placeholder_contract_p1p2_tests -- --test-threads=1 --nocapture
 
       - name: Run database integrity migration gates
         env:
@@ -447,12 +584,24 @@ jobs:
         with:
           name: db-logical-checksum-report
           path: artifacts/db-logical-checksum-report.json
+          retention-days: 14
 
       - name: Upload P0 schema alignment report
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: p0-schema-alignment-report
           path: |
             artifacts/p0_schema_alignment.txt
             artifacts/p0_schema_alignment.md
+          retention-days: 14
+
+      - name: Upload expected/actual schemas (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0-schema-alignment-schemas
+          path: |
+            artifacts/expected_schema.json
+            artifacts/actual_schema.json
+          retention-days: 14

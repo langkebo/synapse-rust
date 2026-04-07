@@ -149,18 +149,36 @@ pub async fn set_room_retention_policy(
 #[axum::debug_handler]
 pub async fn run_retention(
     _admin: AdminUser,
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(body): Json<RunRetentionRequest>,
 ) -> Result<Json<Value>, ApiError> {
     match body.room_id {
-        Some(room_id) => Ok(Json(json!({
-            "started": true,
-            "room_id": room_id
-        }))),
-        None => Ok(Json(json!({
-            "started": true,
-            "scope": "all_rooms"
-        }))),
+        Some(room_id) => {
+            let log = state
+                .services
+                .retention_service
+                .run_cleanup(&room_id)
+                .await?;
+            Ok(Json(json!({
+                "started": true,
+                "room_id": room_id,
+                "events_deleted": log.events_deleted,
+                "status": log.status,
+                "completed_ts": log.completed_ts
+            })))
+        }
+        None => {
+            let cleaned = state
+                .services
+                .retention_service
+                .run_scheduled_cleanups()
+                .await?;
+            Ok(Json(json!({
+                "started": true,
+                "scope": "all_rooms",
+                "events_deleted": cleaned
+            })))
+        }
     }
 }
 
@@ -180,9 +198,33 @@ pub async fn get_retention_status(
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
+    let last_run = state
+        .services
+        .retention_service
+        .get_last_lifecycle_summary()
+        .await
+        .map(|summary| {
+            json!({
+                "started_ts": summary.started_ts,
+                "completed_ts": summary.completed_ts,
+                "duration_ms": summary.duration_ms,
+                "expired_events_deleted": summary.expired_events_deleted,
+                "expired_beacons_deleted": summary.expired_beacons_deleted,
+                "expired_uploads_deleted": summary.expired_uploads_deleted,
+                "expired_audit_events_deleted": summary.expired_audit_events_deleted,
+                "cleanup_queue_items_processed": summary.cleanup_queue_items_processed,
+                "cleanup_queue_rows_pruned": summary.cleanup_queue_rows_pruned,
+                "failed_tasks": summary.failed_tasks
+            })
+        });
+
     Ok(Json(json!({
         "server_policy_enabled": server_policy_exists,
         "rooms_with_custom_policy": rooms_with_policy,
-        "last_run": null
+        "lifecycle_cleanup_enabled": state.services.config.retention.lifecycle_cleanup_enabled,
+        "cleanup_batch_size": state.services.config.retention.cleanup_batch_size,
+        "audit_retention_days": state.services.config.retention.audit_retention_days,
+        "queue_retention_days": state.services.config.retention.queue_retention_days,
+        "last_run": last_run
     })))
 }

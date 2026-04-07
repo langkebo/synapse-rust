@@ -17,6 +17,10 @@
 - 将“空壳接口债务”定义为独立治理对象，建立自动扫描、CI 阻断与回归验证机制
 - 针对 `room.rs`、`middleware.rs`、`e2ee_routes.rs` 等超大文件制定按领域拆分的结构化改造方案
 - 将搜索、权限守卫、schema 契约、迁移治理、测试组织与工作区产物治理纳入统一优化路径
+- 将 receipts aggregation、sync unread、read_markers handler、/sync ephemeral receipts 等跨域链路的契约验证纳入 schema contract 扩展样例，避免依赖 `/sync` 大装配进行回归
+- 强化 `/events` 的 `from` token 参数校验，避免异常输入静默成功影响回归可信度
+- 收口 shell-route 探测门禁：修复新发现空壳成功体并保持 `scripts/detect_shell_routes.sh` 可作为 CI 阻断入口
+- 修复 CI 等价入口下 unit tests 并发不稳定：补齐“空 schema 隔离池”能力并将依赖数据库的 unit tests 切换为隔离 schema 执行
 
 ## Impact
 - Affected specs: Matrix Client-Server / Server-Server / Admin 兼容基线、测试治理基线、文档治理基线、发布准入基线

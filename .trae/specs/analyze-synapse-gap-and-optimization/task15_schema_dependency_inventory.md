@@ -14,24 +14,40 @@
 | Space | `spaces`, `space_members`, `space_summaries`, `space_statistics`, `space_events` | `space_id`, `room_id` | hierarchy、space summary、成员查询 |
 | Thread | `thread_roots`, `thread_participants`, `thread_receipts`, `thread_subscriptions`, `thread_notifications` | `thread_id`, `root_event_id`, `last_reply_ts` | thread 列表、回复、订阅与通知 |
 | Room Summary | `room_summaries`, `room_summary_members` | `room_id`, `join_rules`, unread 统计列 | unread、summary members、摘要刷新 |
-| Retention | `room_retention_policies`, `server_retention_policy` | `min_lifetime_ms`, `max_lifetime_ms`, `room_id` | retention upsert/get/delete |
+| Retention | `room_retention_policies`, `server_retention_policy` | `min_lifetime`, `max_lifetime`, `room_id` | retention upsert/get/delete |
 | E2EE / Verification | `device_verification_request` 及设备列表流相关表 | `request_id`, `user_id`, `device_id` | 设备验证状态、key 变化流 |
 | Search | `search_index` 以及事件/成员权限相关表 | 文本索引列、权限过滤依赖 | 搜索索引重建、全文检索、权限裁剪 |
 | 邀请治理 | `room_invite_state`, `room_invite_rooms`, `room_invites` | invite 关联键与状态列 | 邀请快照与邀请状态渲染 |
+| 媒体配额 | `media_quota_config`, `user_media_quota`, `media_usage_log`, `media_quota_alerts`, `server_media_quota` | quota 配置列、用户使用量、告警状态与服务器总量 | 配额创建、上传/删除计量、告警读取与服务器阈值更新 |
+| 回执与读标记 | `read_markers`, `event_receipts` | marker / receipt 唯一键、事件关联、时间戳与 JSON 数据 | fully-read / m.read 写入、回执查询、sync unread 统计输入 |
 
 ## 3. 高优先级 contract 对象
 
+- `rooms`
 - `events`
 - `room_memberships`
 - `account_data`, `push_rules`
 - `spaces*`, `thread_*`, `room_summaries*`, `room_retention_policies`
 - `device_verification_request`
+- `read_markers`, `event_receipts`
 
 ## 4. 契约条目清单（P0 最小集）
 
 说明：
 - 本清单面向“可执行契约”：字段存在性、类型/可空性、默认值、唯一约束/关键索引。
 - 列名与类型以 `migrations/00000000_unified_schema_v6.sql` 为准；后续若迁移变更，必须同步更新清单与 contract tests。
+
+### 4.0 `rooms`
+
+| 条目 | 类型 | 可空 | 默认值/约束 | 索引/唯一性 |
+| --- | --- | --- | --- | --- |
+| `rooms.room_id` | TEXT | 否 | PK | PK |
+| `rooms.creator` | TEXT | 是 | n/a | `idx_rooms_creator`（部分索引） |
+| `rooms.is_public` | BOOLEAN | 是 | DEFAULT FALSE | `idx_rooms_is_public`（部分索引） |
+| `rooms.room_version` | TEXT | 是 | DEFAULT `'6'` | n/a |
+| `rooms.join_rules` | TEXT | 是 | DEFAULT `'invite'` | n/a |
+| `rooms.history_visibility` | TEXT | 是 | DEFAULT `'shared'` | n/a |
+| `rooms.created_ts` | BIGINT | 否 | n/a | n/a |
 
 ### 4.1 `room_memberships`
 
@@ -111,6 +127,9 @@
 | `device_verification_request.request_token` | TEXT | 否 | UNIQUE | UNIQUE |
 | `device_verification_request.expires_at` | TIMESTAMPTZ | 否 | n/a | `idx_device_verification_request_expires_pending` |
 | `device_verification_request.completed_at` | TIMESTAMPTZ | 是 | n/a | n/a |
+
+说明：
+- 本表的 `*_at` 字段按 `TIMESTAMPTZ` 存储（当前 schema 事实），属于时间字段口径的例外项；相关 contract tests 应固定断言该类型，避免误改为 BIGINT 导致查询/映射漂移。
 
 ### 4.7 `search_index`（最小契约）
 
@@ -230,6 +249,143 @@
 | `space_children.via_servers` | JSONB | 是 | DEFAULT `'[]'` | n/a |
 | `space_children.added_ts` | BIGINT | 否 | n/a | n/a |
 | `uq_space_children_space_room` | n/a | n/a | UNIQUE(`space_id`,`room_id`) | UNIQUE |
+
+### 4.13 `thread_roots` / `thread_replies` / `thread_relations`
+
+| 条目 | 类型 | 可空 | 默认值/约束 | 索引/唯一性 |
+| --- | --- | --- | --- | --- |
+| `thread_roots.id` | BIGSERIAL | 否 | PK | PK |
+| `thread_roots.room_id` | TEXT | 否 | FK -> `rooms(room_id)` | `idx_thread_roots_room` |
+| `thread_roots.root_event_id` | TEXT | 否 | UNIQUE(`room_id`,`root_event_id`) | `idx_thread_roots_root_event` |
+| `thread_roots.thread_id` | TEXT | 是 | n/a | `idx_thread_roots_thread`, `idx_thread_roots_room_thread_unique`（partial unique） |
+| `thread_roots.reply_count` | BIGINT | 是 | DEFAULT `0` | n/a |
+| `thread_roots.participants` | JSONB | 是 | DEFAULT `'[]'` | n/a |
+| `thread_roots.last_reply_ts` | BIGINT | 是 | n/a | `idx_thread_roots_room_last_reply_created`, `idx_thread_roots_last_reply` |
+| `thread_replies.id` | BIGSERIAL | 否 | PK | PK |
+| `thread_replies.room_id` | TEXT | 否 | FK -> `rooms(room_id)` | `idx_thread_replies_room_event` |
+| `thread_replies.thread_id` | TEXT | 否 | n/a | `idx_thread_replies_room_thread_ts`, `idx_thread_replies_room_thread_event` |
+| `thread_replies.event_id` | TEXT | 否 | UNIQUE(`room_id`,`event_id`) | UNIQUE |
+| `thread_replies.content` | JSONB | 否 | DEFAULT `'{}'` | n/a |
+| `thread_relations.id` | BIGSERIAL | 否 | PK | PK |
+| `thread_relations.room_id` | TEXT | 否 | FK -> `rooms(room_id)` | `idx_thread_relations_room_event` |
+| `thread_relations.event_id` | TEXT | 否 | UNIQUE(`room_id`,`event_id`,`relation_type`) | UNIQUE |
+| `thread_relations.relates_to_event_id` | TEXT | 否 | n/a | `idx_thread_relations_room_relates_to` |
+
+### 4.14 Retention (`server_retention_policy` / `room_retention_policies` / `retention_cleanup_*` / `deleted_events_index`)
+
+| 条目 | 类型 | 可空 | 默认值/约束 | 索引/唯一性 |
+| --- | --- | --- | --- | --- |
+| `server_retention_policy.id` | BIGSERIAL | 否 | PK | PK |
+| `server_retention_policy.min_lifetime` | BIGINT | 否 | DEFAULT `0` | n/a |
+| `server_retention_policy.expire_on_clients` | BOOLEAN | 否 | DEFAULT FALSE | n/a |
+| `room_retention_policies.room_id` | TEXT | 否 | UNIQUE, FK -> `rooms(room_id)` | UNIQUE |
+| `room_retention_policies.is_server_default` | BOOLEAN | 否 | DEFAULT FALSE | `idx_room_retention_policies_server_default`（部分索引） |
+| `retention_cleanup_queue.id` | BIGSERIAL | 否 | PK | PK |
+| `retention_cleanup_queue.status` | TEXT | 否 | DEFAULT `'pending'` | `idx_retention_cleanup_queue_status_origin` |
+| `retention_cleanup_queue.retry_count` | INTEGER | 否 | DEFAULT `0` | n/a |
+| `retention_cleanup_queue.uq_retention_cleanup_queue_room_event` | n/a | n/a | UNIQUE(`room_id`,`event_id`) | UNIQUE |
+| `retention_cleanup_logs.id` | BIGSERIAL | 否 | PK | PK |
+| `retention_cleanup_logs.room_id` | TEXT | 否 | FK -> `rooms(room_id)` | `idx_retention_cleanup_logs_room_started` |
+| `deleted_events_index.id` | BIGSERIAL | 否 | PK | PK |
+| `deleted_events_index.uq_deleted_events_index_room_event` | n/a | n/a | UNIQUE(`room_id`,`event_id`) | UNIQUE |
+| `deleted_events_index.idx_deleted_events_index_room_ts` | n/a | n/a | INDEX(`room_id`,`deletion_ts`) | INDEX |
+
+### 4.15 Invite restrictions (`room_invite_blocklist` / `room_invite_allowlist`)
+
+| 条目 | 类型 | 可空 | 默认值/约束 | 索引/唯一性 |
+| --- | --- | --- | --- | --- |
+| `room_invite_blocklist.id` | BIGSERIAL | 否 | PK | PK |
+| `room_invite_blocklist.room_id` | TEXT | 否 | FK -> `rooms(room_id)` | `idx_room_invite_blocklist_room` |
+| `room_invite_blocklist.user_id` | TEXT | 否 | UNIQUE(`room_id`,`user_id`) | `idx_room_invite_blocklist_user` |
+| `room_invite_allowlist.id` | BIGSERIAL | 否 | PK | PK |
+| `room_invite_allowlist.room_id` | TEXT | 否 | FK -> `rooms(room_id)` | `idx_room_invite_allowlist_room` |
+| `room_invite_allowlist.user_id` | TEXT | 否 | UNIQUE(`room_id`,`user_id`) | `idx_room_invite_allowlist_user` |
+
+### 4.16 Auth tokens (`access_tokens` / `refresh_tokens` / `token_blacklist`)
+
+| 条目 | 类型 | 可空 | 默认值/约束 | 索引/唯一性 |
+| --- | --- | --- | --- | --- |
+| `access_tokens.id` | BIGSERIAL | 否 | PK | PK |
+| `access_tokens.token` | TEXT | 否 | UNIQUE | UNIQUE |
+| `access_tokens.user_id` | TEXT | 否 | FK -> `users(user_id)` | `idx_access_tokens_user_id` |
+| `access_tokens.is_revoked` | BOOLEAN | 是 | DEFAULT FALSE | `idx_access_tokens_valid`（部分索引） |
+| `refresh_tokens.id` | BIGSERIAL | 否 | PK | PK |
+| `refresh_tokens.token_hash` | TEXT | 否 | UNIQUE | UNIQUE |
+| `refresh_tokens.user_id` | TEXT | 否 | FK -> `users(user_id)` | `idx_refresh_tokens_user_id` |
+| `refresh_tokens.use_count` | INTEGER | 是 | DEFAULT `0` | n/a |
+| `refresh_tokens.is_revoked` | BOOLEAN | 是 | DEFAULT FALSE | `idx_refresh_tokens_revoked`（部分索引） |
+| `token_blacklist.id` | BIGSERIAL | 否 | PK | PK |
+| `token_blacklist.token_hash` | TEXT | 否 | UNIQUE | `idx_token_blacklist_hash` |
+| `token_blacklist.token_type` | TEXT | 是 | DEFAULT `'access'` | n/a |
+| `token_blacklist.is_revoked` | BOOLEAN | 是 | DEFAULT TRUE | n/a |
+
+### 4.17 Presence (`presence` / `presence_subscriptions`)
+
+| 条目 | 类型 | 可空 | 默认值/约束 | 索引/唯一性 |
+| --- | --- | --- | --- | --- |
+| `presence.user_id` | TEXT | 否 | PK, FK -> `users(user_id)` | PK |
+| `presence.presence` | TEXT | 否 | DEFAULT `'offline'` | `idx_presence_user_status`（复合索引） |
+| `presence.last_active_ts` | BIGINT | 否 | DEFAULT `0` | n/a |
+| `presence_subscriptions.subscriber_id` | TEXT | 否 | UNIQUE(`subscriber_id`,`target_id`) | `idx_presence_subscriptions_subscriber` |
+| `presence_subscriptions.target_id` | TEXT | 否 | UNIQUE(`subscriber_id`,`target_id`) | `idx_presence_subscriptions_target` |
+
+### 4.18 OpenID token (`openid_tokens`)
+
+| 条目 | 类型 | 可空 | 默认值/约束 | 索引/唯一性 |
+| --- | --- | --- | --- | --- |
+| `openid_tokens.id` | BIGSERIAL | 否 | PK | PK |
+| `openid_tokens.token` | TEXT | 否 | UNIQUE | UNIQUE |
+| `openid_tokens.user_id` | TEXT | 否 | FK -> `users(user_id)` | `idx_openid_tokens_user` |
+| `openid_tokens.expires_at` | BIGINT | 否 | n/a | n/a |
+| `openid_tokens.is_valid` | BOOLEAN | 是 | DEFAULT TRUE | n/a |
+
+### 4.19 Media quota (`media_quota_config` / `user_media_quota` / `media_usage_log` / `media_quota_alerts` / `server_media_quota`)
+
+| 条目 | 类型 | 可空 | 默认值/约束 | 索引/唯一性 |
+| --- | --- | --- | --- | --- |
+| `media_quota_config.id` | BIGSERIAL | 否 | PK | PK |
+| `media_quota_config.name` | TEXT | 否 | DEFAULT `'default'` | n/a |
+| `media_quota_config.max_storage_bytes` | BIGINT | 否 | DEFAULT `10737418240` | n/a |
+| `media_quota_config.max_file_size_bytes` | BIGINT | 否 | DEFAULT `10485760` | n/a |
+| `media_quota_config.max_files_count` | INTEGER | 否 | DEFAULT `10000` | n/a |
+| `media_quota_config.allowed_mime_types` | JSONB | 否 | DEFAULT `'[]'` | n/a |
+| `media_quota_config.blocked_mime_types` | JSONB | 否 | DEFAULT `'[]'` | n/a |
+| `media_quota_config.is_default` | BOOLEAN | 否 | DEFAULT FALSE | n/a |
+| `user_media_quota.id` | BIGSERIAL | 否 | PK | PK |
+| `user_media_quota.user_id` | TEXT | 否 | UNIQUE(`user_id`) | UNIQUE(`user_id`) |
+| `user_media_quota.current_storage_bytes` | BIGINT | 否 | DEFAULT `0` | n/a |
+| `user_media_quota.current_files_count` | INTEGER | 否 | DEFAULT `0` | n/a |
+| `media_usage_log.id` | BIGSERIAL | 否 | PK | PK |
+| `media_usage_log.user_id` | TEXT | 否 | n/a | `idx_media_usage_log_user` |
+| `media_usage_log.timestamp` | BIGINT | 否 | n/a | `idx_media_usage_log_timestamp` |
+| `media_quota_alerts.id` | BIGSERIAL | 否 | PK | PK |
+| `media_quota_alerts.user_id` | TEXT | 否 | n/a | `idx_media_quota_alerts_user`（未读部分索引） |
+| `media_quota_alerts.is_read` | BOOLEAN | 否 | DEFAULT FALSE | `idx_media_quota_alerts_user`（未读部分索引） |
+| `server_media_quota.id` | BIGSERIAL | 否 | PK | PK |
+| `server_media_quota.current_storage_bytes` | BIGINT | 否 | DEFAULT `0` | n/a |
+| `server_media_quota.current_files_count` | INTEGER | 否 | DEFAULT `0` | n/a |
+| `server_media_quota.alert_threshold_percent` | INTEGER | 否 | DEFAULT `80` | n/a |
+
+### 4.20 Receipts / Read markers (`read_markers` / `event_receipts`)
+
+| 条目 | 类型 | 可空 | 默认值/约束 | 索引/唯一性 |
+| --- | --- | --- | --- | --- |
+| `read_markers.id` | BIGSERIAL | 否 | PK | PK |
+| `read_markers.room_id` | TEXT | 否 | UNIQUE(`room_id`,`user_id`,`marker_type`) | `idx_read_markers_room_user` |
+| `read_markers.user_id` | TEXT | 否 | UNIQUE(`room_id`,`user_id`,`marker_type`) | `idx_read_markers_room_user` |
+| `read_markers.event_id` | TEXT | 否 | n/a | n/a |
+| `read_markers.marker_type` | TEXT | 否 | UNIQUE(`room_id`,`user_id`,`marker_type`) | UNIQUE(`room_id`,`user_id`,`marker_type`) |
+| `read_markers.created_ts` | BIGINT | 否 | n/a | n/a |
+| `read_markers.updated_ts` | BIGINT | 否 | n/a | n/a |
+| `event_receipts.id` | BIGSERIAL | 否 | PK | PK |
+| `event_receipts.event_id` | TEXT | 否 | UNIQUE(`event_id`,`room_id`,`user_id`,`receipt_type`) | `idx_event_receipts_event` |
+| `event_receipts.room_id` | TEXT | 否 | UNIQUE(`event_id`,`room_id`,`user_id`,`receipt_type`) | `idx_event_receipts_room`, `idx_event_receipts_room_type` |
+| `event_receipts.user_id` | TEXT | 否 | UNIQUE(`event_id`,`room_id`,`user_id`,`receipt_type`) | n/a |
+| `event_receipts.receipt_type` | TEXT | 否 | UNIQUE(`event_id`,`room_id`,`user_id`,`receipt_type`) | `idx_event_receipts_room_type` |
+| `event_receipts.ts` | BIGINT | 否 | n/a | `idx_event_receipts_room_type` |
+| `event_receipts.data` | JSONB | 是 | DEFAULT `'{}'` | n/a |
+| `event_receipts.created_ts` | BIGINT | 否 | n/a | n/a |
+| `event_receipts.updated_ts` | BIGINT | 否 | n/a | n/a |
 
 ## 5. 索引与契约重点
 

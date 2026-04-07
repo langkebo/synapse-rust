@@ -314,6 +314,9 @@ pub enum ApiError {
     #[error("Rate limited")]
     RateLimited,
 
+    #[error("Rate limited")]
+    RateLimitedWithRetry(u64),
+
     #[error("Internal error: {0}")]
     Internal(String),
 
@@ -474,6 +477,10 @@ impl ApiError {
         Self::RateLimited
     }
 
+    pub fn rate_limited_with_retry(retry_after_ms: u64) -> Self {
+        Self::RateLimitedWithRetry(retry_after_ms)
+    }
+
     pub fn missing_token() -> Self {
         Self::MissingToken
     }
@@ -582,6 +589,7 @@ impl ApiError {
             ApiError::NotFound(_) => MatrixErrorCode::NotFound,
             ApiError::Conflict(_) => MatrixErrorCode::UserInUse,
             ApiError::RateLimited => MatrixErrorCode::LimitExceeded,
+            ApiError::RateLimitedWithRetry(_) => MatrixErrorCode::LimitExceeded,
             ApiError::Internal(_) => MatrixErrorCode::Unknown,
             ApiError::Database(_) => MatrixErrorCode::Unknown,
             ApiError::Cache(_) => MatrixErrorCode::Unknown,
@@ -633,6 +641,7 @@ impl ApiError {
             ApiError::NotFound(msg) => msg.clone(),
             ApiError::Conflict(msg) => msg.clone(),
             ApiError::RateLimited => "Rate limited".to_string(),
+            ApiError::RateLimitedWithRetry(_) => "Rate limited".to_string(),
             ApiError::Internal(msg) => format!("Internal error: {}", msg),
             ApiError::Database(msg) => format!("Database error: {}", msg),
             ApiError::Cache(msg) => format!("Cache error: {}", msg),
@@ -694,6 +703,11 @@ impl IntoResponse for ApiError {
         let errcode = matrix_code.as_str().to_string();
         let error_msg = self.message();
         let status_code = matrix_code.http_status();
+        let retry_after_ms = match &self {
+            ApiError::RateLimited => Some(5000),
+            ApiError::RateLimitedWithRetry(ms) => Some(*ms),
+            _ => None,
+        };
 
         // Matrix spec standard error format: only "errcode" and "error"
         // See: https://spec.matrix.org/v1.11/client-server-api/#standard-error-response
@@ -703,8 +717,8 @@ impl IntoResponse for ApiError {
         });
 
         // Add retry_after_ms for rate limiting per spec
-        if matches!(self, ApiError::RateLimited) {
-            body["retry_after_ms"] = json!(5000);
+        if let Some(ms) = retry_after_ms {
+            body["retry_after_ms"] = json!(ms);
         }
 
         (status_code, Json(body)).into_response()
@@ -1198,6 +1212,7 @@ mod tests {
             ApiError::NotFound("not found".to_string()),
             ApiError::Conflict("conflict".to_string()),
             ApiError::RateLimited,
+            ApiError::RateLimitedWithRetry(1000),
             ApiError::Internal("internal".to_string()),
             ApiError::Database("db error".to_string()),
             ApiError::Cache("cache error".to_string()),
@@ -1273,6 +1288,10 @@ mod tests {
             ApiError::InvalidInput(_)
         ));
         assert!(matches!(ApiError::crypto("test"), ApiError::Crypto(_)));
+        assert!(matches!(
+            ApiError::rate_limited_with_retry(1000),
+            ApiError::RateLimitedWithRetry(1000)
+        ));
         assert!(matches!(ApiError::missing_token(), ApiError::MissingToken));
         assert!(matches!(ApiError::not_json("test"), ApiError::NotJson(_)));
         assert!(matches!(
