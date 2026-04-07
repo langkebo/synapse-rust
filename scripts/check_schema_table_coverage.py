@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import argparse
+import json
 import pathlib
 import re
 import sys
@@ -60,6 +62,15 @@ IGNORED_REFS = {
 }
 
 
+def write_json_report(output_path: str | None, payload: dict) -> None:
+    if not output_path or output_path == "-":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    path = pathlib.Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def read_exceptions() -> set[str]:
     if not EXCEPTIONS_FILE.exists():
         return set()
@@ -106,10 +117,50 @@ def collect_definitions() -> set[str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Validate referenced tables have schema coverage")
+    parser.add_argument(
+        "--json-report",
+        nargs="?",
+        const="-",
+        help="Write a structured JSON report to a file, or '-' to print to stdout.",
+    )
+    args = parser.parse_args()
+
     refs = collect_references()
     defs = collect_definitions()
     exceptions = read_exceptions()
     missing = sorted(table for table in refs if table not in defs and table not in exceptions)
+    ignored = sorted(table for table in refs if table in exceptions and table not in defs)
+
+    if args.json_report is not None:
+        failures = [
+            {
+                "migration_id": None,
+                "domain": "schema_table_coverage",
+                "table": table,
+                "column_or_index": None,
+                "query_or_test_name": None,
+                "failure_class": "schema_missing",
+                "reproduce_command": "python3 scripts/check_schema_table_coverage.py",
+                "locations": sorted(refs[table]),
+            }
+            for table in missing
+        ]
+        report = {
+            "tool": "check_schema_table_coverage",
+            "status": "fail" if missing else "pass",
+            "referenced_tables": len(refs),
+            "schema_tables": len(defs),
+            "missing": failures,
+            "ignored": [
+                {
+                    "table": table,
+                    "locations": sorted(refs[table]),
+                }
+                for table in ignored
+            ],
+        }
+        write_json_report(args.json_report, report)
 
     if missing:
         print("Missing schema coverage for referenced tables:")
@@ -118,7 +169,6 @@ def main() -> int:
             print(f"- {table}: {locations}")
         return 1
 
-    ignored = sorted(table for table in refs if table in exceptions and table not in defs)
     if ignored:
         print("Known schema coverage exceptions:")
         for table in ignored:

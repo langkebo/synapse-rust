@@ -49,7 +49,11 @@
 - Schema 回归：
   - `cargo test --locked --test unit db_schema_smoke_tests -- --test-threads=1`
   - `cargo test --locked --test unit schema_contract_p0 -- --test-threads=1`
+  - `bash scripts/validate_schema_all.sh`（生成 `artifacts/schema_validation/validation_summary_<ts>.md` 及 JSON 报告；本地如需 DB 级检查需安装 `psql`/`pg_amcheck`）
 
 CI 最小对齐：
 - 迁移与 schema：`DB Migration Gate`（workflow: `DB Migration Gate`）
 - 占位接口门禁：单元扫描（`cargo test --test unit placeholder_scan_tests`） + P0 integration contract（`api_placeholder_contract_p0_tests`）
+
+说明：
+- 本仓库已将 `artifacts/` 与 `reports/` 视为可生成产物目录，默认不进主干；CI/脚本生成后上传并配置保留期（见 Task 16 产物治理）。

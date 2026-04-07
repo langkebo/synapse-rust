@@ -15,6 +15,7 @@
 1) **GET** `/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info` → `get_scanner_info`
 - 现状：固定 `scanner_enabled:false/status:not_configured`。
 - 风险：低；但建议按 feature flag/配置 gated，避免“看似支持但永远不可用”的长期状态。
+- 证据：`tests/integration/api_placeholder_contract_p1p2_tests.rs` 已补契约测试，要求返回体关键字段非空，禁止回归为 200 + 空结构。
 - 代码参考：[get_scanner_info](file:///Users/ljf/Desktop/hu/synapse-rust/src/web/routes/directory_reporting.rs#L200-L214)
 
 ## P2（ACK 语义：不按空壳债务处理）

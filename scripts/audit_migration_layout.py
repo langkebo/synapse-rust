@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import os
 import re
@@ -8,7 +9,6 @@ from pathlib import Path
 
 
 MIGRATION_DIR = Path(__file__).resolve().parents[1] / "migrations"
-AUDIT_REPORT = MIGRATION_DIR / "migration_layout_audit.json"
 REQUIRED_DIRS = [
     MIGRATION_DIR / "archive",
     MIGRATION_DIR / "rollback",
@@ -113,13 +113,69 @@ def classify_root_migrations() -> tuple[list[str], list[str], list[str]]:
 
 
 def write_report(result: AuditResult) -> None:
-    AUDIT_REPORT.write_text(
-        json.dumps(asdict(result), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    write_report_to(MIGRATION_DIR / "migration_layout_audit.json", result)
+
+
+def structured_failures(result: AuditResult) -> list[dict]:
+    reproduce = "python3 scripts/audit_migration_layout.py"
+    failures: list[dict] = []
+    for entry in result.missing_dirs:
+        failures.append(
+            {
+                "migration_id": None,
+                "domain": "migration_layout_audit",
+                "table": None,
+                "column_or_index": None,
+                "query_or_test_name": None,
+                "failure_class": "missing_required_dir",
+                "reproduce_command": reproduce,
+                "path": entry,
+            }
+        )
+    for migration in result.missing_rollbacks:
+        failures.append(
+            {
+                "migration_id": migration,
+                "domain": "migration_layout_audit",
+                "table": None,
+                "column_or_index": None,
+                "query_or_test_name": None,
+                "failure_class": "missing_rollback",
+                "reproduce_command": reproduce,
+            }
+        )
+    for name in result.unknown_layout:
+        failures.append(
+            {
+                "migration_id": name,
+                "domain": "migration_layout_audit",
+                "table": None,
+                "column_or_index": None,
+                "query_or_test_name": None,
+                "failure_class": "unknown_layout",
+                "reproduce_command": reproduce,
+            }
+        )
+    return failures
+
+
+def write_report_to(path: Path, result: AuditResult) -> None:
+    payload = asdict(result)
+    payload["failures"] = structured_failures(result)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Audit migration directory layout")
+    parser.add_argument(
+        "--report",
+        type=str,
+        default=str(MIGRATION_DIR / "migration_layout_audit.json"),
+        help="Write JSON report to the given path",
+    )
+    args = parser.parse_args()
+
     if not MIGRATION_DIR.exists():
         print(f"migrations dir not found: {MIGRATION_DIR}", file=sys.stderr)
         return 2
@@ -132,7 +188,10 @@ def main() -> int:
         versioned=versioned,
         unknown_layout=unknown_layout,
     )
-    write_report(result)
+    report_path = Path(args.report)
+    if not report_path.is_absolute():
+        report_path = (Path(__file__).resolve().parents[1] / report_path).resolve()
+    write_report_to(report_path, result)
 
     if result.missing_dirs:
         print("Missing required migration directories:", file=sys.stderr)

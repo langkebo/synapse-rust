@@ -14,6 +14,11 @@ pub fn create_sliding_sync_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/unstable/org.matrix.msc3575/sync",
             post(sliding_sync),
         )
+        // SDK simplified sliding sync endpoint
+        .route(
+            "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
+            post(sliding_sync),
+        )
 }
 
 #[axum::debug_handler]
@@ -31,6 +36,17 @@ async fn sliding_sync(
 
     // Get device_id or use default
     let device_id = auth_user.device_id.unwrap_or_else(|| "default".to_string());
+
+    let rate_limit_key = format!("ratelimit:sliding_sync:{}:{}", auth_user.user_id, device_id);
+    let decision = state
+        .cache
+        .rate_limit_token_bucket_take(&rate_limit_key, 8, 16)
+        .await
+        .map_err(|e| ApiError::internal(format!("Sliding sync rate limit failed: {}", e)))?;
+    if !decision.allowed {
+        let retry_after_ms = decision.retry_after_seconds.saturating_mul(1000);
+        return Err(ApiError::rate_limited_with_retry(retry_after_ms));
+    }
 
     // Call the sliding sync service
     let response = state

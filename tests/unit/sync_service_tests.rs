@@ -18,17 +18,8 @@ use synapse_rust::storage::room::RoomStorage;
 use synapse_rust::storage::room_summary::RoomSummaryStorage;
 use synapse_rust::storage::user::UserStorage;
 
-async fn setup_test_database() -> Option<Pool<Postgres>> {
-    let database_url = std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
-
-    let pool = match sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(&database_url)
-        .await
-    {
+async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
+    let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
             eprintln!(
@@ -38,31 +29,6 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             return None;
         }
     };
-
-    sqlx::query("DROP TABLE IF EXISTS presence CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS typing CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS events CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS room_memberships CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS rooms CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS users CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
 
     sqlx::query(
         r#"
@@ -82,7 +48,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&pool)
+    .execute(&*pool)
     .await
     .expect("Failed to create users table");
 
@@ -98,7 +64,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&pool)
+    .execute(&*pool)
     .await
     .expect("Failed to create presence table");
 
@@ -123,7 +89,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&pool)
+    .execute(&*pool)
     .await
     .expect("Failed to create rooms table");
 
@@ -152,7 +118,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&pool)
+    .execute(&*pool)
     .await
     .expect("Failed to create room_memberships table");
 
@@ -178,7 +144,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&pool)
+    .execute(&*pool)
     .await
     .expect("Failed to create events table");
 
@@ -223,6 +189,7 @@ fn create_room_service(
         validator: Arc::new(Validator::default()),
         server_name: "localhost".to_string(),
         task_queue: None,
+        beacon_service: None,
     })
 }
 
@@ -231,10 +198,10 @@ fn test_sync_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
+            Some(pool) => pool,
             None => return,
         };
-        create_test_user(&pool, "@alice:localhost", "alice").await;
+        create_test_user(&*pool, "@alice:localhost", "alice").await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
@@ -288,6 +255,9 @@ fn test_sync_success() {
             .unwrap()
             .contains_key(room_id));
         let room_data = &val["rooms"]["join"][room_id];
-        assert_eq!(room_data["timeline"]["events"].as_array().unwrap().len(), 1);
+        let events = room_data["timeline"]["events"].as_array().unwrap();
+        assert!(events.iter().any(|event| {
+            event["type"] == "m.room.message" && event["content"]["body"] == "Hello"
+        }));
     });
 }

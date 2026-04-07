@@ -60,7 +60,7 @@ services:
         max-size: "10m"
         max-file: "5"
   db:
-    image: postgres:${POSTGRES_VERSION:-16}-alpine
+    image: postgres:${POSTGRES_VERSION:-16}
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-postgres
     restart: unless-stopped
     env_file:

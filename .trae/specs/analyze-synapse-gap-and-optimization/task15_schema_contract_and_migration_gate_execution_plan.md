@@ -90,12 +90,22 @@
 - 规定失败时保留哪些日志与产物
 - 规定如何标记迁移问题、查询问题和映射问题
 - 当前已新增独立 integration target：
+  - `schema_contract_room_core_tests`
   - `schema_contract_room_summary_tests`
   - `schema_contract_space_tests`
   - `schema_contract_account_data_tests`
   - `schema_contract_search_tests`
   - `schema_contract_e2ee_verification_tests`
-- 五条 integration target 已接入 `db-migration-gate.yml` 的 `sqlx Migrate Run` 阻断链路，作为从 `unit` 聚合入口向能力域拆分的首批落地样板
+- 追加纳入的独立 integration target：
+  - `schema_contract_thread_tests`
+  - `schema_contract_retention_tests`
+  - `schema_contract_invite_restrictions_tests`
+  - `schema_contract_auth_tokens_tests`
+  - `schema_contract_presence_tests`
+  - `schema_contract_openid_token_tests`
+  - `schema_contract_media_quota_tests`
+  - `schema_contract_receipts_tests`
+- 首批 14 条 integration target 已接入 `db-migration-gate.yml` 的 `sqlx Migrate Run` 阻断链路，作为从 `unit` 聚合入口向能力域拆分的首批落地样板
 - 后续执行面已补充 DB 级确认收口：
   - `database_integrity_tests` 自动解析可用测试数据库 URL，不再依赖手工导出 `TEST_DATABASE_URL`
   - 新增 `verification_requests` 完整迁移链索引回归断言
@@ -146,7 +156,7 @@
 - 已形成可执行的 schema contract test 基线
 - 已形成 migration gate 设计和 CI 接线建议
 - 已明确本地复现与问题定位路径
-- 已将 `room summary`、`space`、`account_data`、`search`、`e2ee` 五个独立 integration target 接入 migration gate 实际阻断链路
+- 已将 `room core`、`room summary`、`space`、`account_data`、`search`、`e2ee` 六个独立 integration target 接入 migration gate 实际阻断链路
 
 ## 12. 后续关联交付物
 
@@ -164,11 +174,13 @@
 
 ### 已落地修复
 
-- 新增 4 条补偿迁移：
+ - 新增 6 条补偿迁移：
   - `20260406000001_restore_verification_requests_pending_index.sql`
   - `20260406000002_restore_schema_contract_foreign_keys.sql`
   - `20260406000003_restore_public_schema_contract_foreign_keys.sql`
   - `20260406000004_cleanup_schema_contract_room_orphans.sql`
+  - `20260406000005_align_presence_schema_contract.sql`
+  - `20260406000006_align_media_quota_schema_contract.sql`
 - `database_integrity_tests` 已补齐：
   - 自动解析测试数据库 URL
   - `DatabaseInitMode::Strict` 严格迁移初始化
@@ -183,7 +195,7 @@
 
 ### 治理口径对齐
 
-- `scripts/ci/critical_migrations.txt` 已纳入 `20260406000001-00004`
+- `scripts/ci/critical_migrations.txt` 已纳入 `20260406000001-00006`
 - `migrations/README.md` 与 `migrations/MIGRATION_INDEX.md` 已同步声明：
   - unified schema 之后必须补跑 `critical_migrations.txt`
   - 影响 schema contract、public repair、关键索引或关键外键恢复的迁移，必须同步登记
@@ -191,6 +203,9 @@
 ### 本地复现命令
 
 ```bash
+python3 scripts/audit_migration_layout.py --report /tmp/migration_layout_audit.json
+python3 scripts/check_schema_table_coverage.py --json-report /tmp/schema_table_coverage.json
+python3 scripts/check_schema_contract_coverage.py --threshold 90 --json-report /tmp/contract_coverage_report.json
 cargo test --locked --test integration database_integrity_tests::tests::test_audit_critical_indexes_exist -- --exact --nocapture
 cargo test --locked --test integration database_integrity_tests::tests::test_audit_critical_constraints_exist -- --exact --nocapture
 cargo test --locked --test integration database_integrity_tests::tests::test_verification_requests_pending_index_survives_full_migration_chain -- --exact --nocapture

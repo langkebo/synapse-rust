@@ -3,22 +3,11 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
-use std::sync::Arc;
-use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::ServiceContainer;
-use synapse_rust::web::routes::create_router;
-use synapse_rust::web::AppState;
 use tokio::runtime::Runtime;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
-    if !super::init_test_database().await {
-        return None;
-    }
-    let container = ServiceContainer::new_test();
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let state = AppState::new(container, cache);
-    Some(create_router(state))
+    super::setup_test_app().await
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> String {

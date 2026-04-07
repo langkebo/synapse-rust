@@ -148,6 +148,7 @@ impl MediaQuotaStorage {
         &self,
         request: CreateQuotaConfigRequest,
     ) -> Result<MediaQuotaConfig, ApiError> {
+        let now = Utc::now().timestamp_millis();
         let allowed_mime_types =
             serde_json::to_value(request.allowed_mime_types.unwrap_or_default())
                 .unwrap_or(serde_json::json!([]));
@@ -167,10 +168,10 @@ impl MediaQuotaStorage {
         let config = sqlx::query_as::<_, MediaQuotaConfig>(
             r#"
             INSERT INTO media_quota_config (
-                name, description, max_storage_bytes, max_file_size_bytes,
-                max_files_count, allowed_mime_types, blocked_mime_types, is_default
+                config_name, name, description, max_storage_bytes, max_file_size_bytes,
+                max_files_count, allowed_mime_types, blocked_mime_types, is_default, created_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
             "#,
         )
@@ -182,6 +183,7 @@ impl MediaQuotaStorage {
         .bind(&allowed_mime_types)
         .bind(&blocked_mime_types)
         .bind(request.is_default.unwrap_or(false))
+        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create quota config: {}", e)))?;
@@ -262,9 +264,9 @@ impl MediaQuotaStorage {
             r#"
             INSERT INTO user_media_quota (
                 user_id, quota_config_id, custom_max_storage_bytes,
-                custom_max_file_size_bytes, custom_max_files_count
+                custom_max_file_size_bytes, custom_max_files_count, created_ts, updated_ts
             )
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES ($1, $2, $3, $4, $5, $6, $6)
             ON CONFLICT (user_id)
             DO UPDATE SET
                 quota_config_id = $2,
@@ -317,8 +319,10 @@ impl MediaQuotaStorage {
 
         sqlx::query(
             r#"
-            INSERT INTO user_media_quota (user_id, current_storage_bytes, current_files_count)
-            VALUES ($1, $2, 1)
+            INSERT INTO user_media_quota (
+                user_id, current_storage_bytes, current_files_count, created_ts, updated_ts
+            )
+            VALUES ($1, $2, 1, $4, $4)
             ON CONFLICT (user_id)
             DO UPDATE SET
                 current_storage_bytes = GREATEST(0, user_media_quota.current_storage_bytes + $2),
@@ -462,13 +466,14 @@ impl MediaQuotaStorage {
         quota_limit: i64,
         message: Option<&str>,
     ) -> Result<MediaQuotaAlert, ApiError> {
+        let now = Utc::now().timestamp_millis();
         let alert = sqlx::query_as::<_, MediaQuotaAlert>(
             r#"
             INSERT INTO media_quota_alerts (
                 user_id, alert_type, threshold_percent, current_usage_bytes,
-                quota_limit_bytes, message
+                quota_limit_bytes, message, created_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
             "#,
         )
@@ -478,6 +483,7 @@ impl MediaQuotaStorage {
         .bind(current_usage)
         .bind(quota_limit)
         .bind(message)
+        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create quota alert: {}", e)))?;
@@ -524,14 +530,14 @@ impl MediaQuotaStorage {
         let seven_days_ago = Utc::now().timestamp_millis() - (7 * 24 * 60 * 60 * 1000);
 
         let recent_uploads: i64 = sqlx::query_scalar(
-            r#"SELECT COALESCE(SUM(file_size_bytes), 0) FROM media_usage_log
+            r#"SELECT COALESCE(SUM(file_size_bytes), 0)::BIGINT FROM media_usage_log
                WHERE user_id = $1 AND operation = 'upload' AND timestamp > $2"#,
         )
         .bind(user_id)
         .bind(seven_days_ago)
         .fetch_one(&self.pool)
         .await
-        .unwrap_or(0);
+        .map_err(|e| ApiError::internal(format!("Failed to aggregate usage stats: {}", e)))?;
 
         Ok(serde_json::json!({
             "current_storage_bytes": quota.current_storage_bytes,

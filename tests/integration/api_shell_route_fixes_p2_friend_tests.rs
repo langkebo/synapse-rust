@@ -6,21 +6,10 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
-use std::sync::Arc;
-use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::ServiceContainer;
-use synapse_rust::web::routes::create_router;
-use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
-    if !super::init_test_database().await {
-        return None;
-    }
-    let container = ServiceContainer::new_test();
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let state = AppState::new(container, cache);
-    Some(create_router(state))
+    super::setup_test_app().await
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String, String) {
@@ -97,7 +86,6 @@ async fn accept_friend_request(app: &axum::Router, access_token: &str, requester
 }
 
 #[tokio::test]
-#[ignore = "Friend system routes return 404 - may be incomplete or require feature flags"]
 async fn test_update_friend_note_returns_confirmation() {
     let app = match setup_test_app().await {
         Some(app) => app,
@@ -106,12 +94,12 @@ async fn test_update_friend_note_returns_confirmation() {
             return;
         }
     };
-    let (alice_token, _alice_id, _) = register_user(&app, "alice").await;
+    let (alice_token, alice_id, _) = register_user(&app, "alice").await;
     let (bob_token, bob_id, _) = register_user(&app, "bob").await;
 
     // Send and accept friend request
     send_friend_request(&app, &alice_token, &bob_id).await;
-    accept_friend_request(&app, &bob_token, &bob_id).await;
+    accept_friend_request(&app, &bob_token, &alice_id).await;
 
     // Update friend note
     let encoded_bob_id = urlencoding::encode(&bob_id);
@@ -161,7 +149,6 @@ async fn test_update_friend_note_returns_confirmation() {
 }
 
 #[tokio::test]
-#[ignore = "Friend system routes return 404 - may be incomplete or require feature flags"]
 async fn test_update_friend_status_returns_confirmation() {
     let app = match setup_test_app().await {
         Some(app) => app,
@@ -170,12 +157,12 @@ async fn test_update_friend_status_returns_confirmation() {
             return;
         }
     };
-    let (alice_token, _alice_id, _) = register_user(&app, "alice2").await;
+    let (alice_token, alice_id, _) = register_user(&app, "alice2").await;
     let (bob_token, bob_id, _) = register_user(&app, "bob2").await;
 
     // Send and accept friend request
     send_friend_request(&app, &alice_token, &bob_id).await;
-    accept_friend_request(&app, &bob_token, &bob_id).await;
+    accept_friend_request(&app, &bob_token, &alice_id).await;
 
     // Update friend status
     let encoded_bob_id = urlencoding::encode(&bob_id);
@@ -228,7 +215,6 @@ async fn test_update_friend_status_returns_confirmation() {
 }
 
 #[tokio::test]
-#[ignore = "Friend system routes return 404 - may be incomplete or require feature flags"]
 async fn test_update_friend_displayname_returns_confirmation() {
     let app = match setup_test_app().await {
         Some(app) => app,
@@ -237,12 +223,12 @@ async fn test_update_friend_displayname_returns_confirmation() {
             return;
         }
     };
-    let (alice_token, _alice_id, _) = register_user(&app, "alice3").await;
+    let (alice_token, alice_id, _) = register_user(&app, "alice3").await;
     let (bob_token, bob_id, _) = register_user(&app, "bob3").await;
 
     // Send and accept friend request
     send_friend_request(&app, &alice_token, &bob_id).await;
-    accept_friend_request(&app, &bob_token, &bob_id).await;
+    accept_friend_request(&app, &bob_token, &alice_id).await;
 
     // Update friend displayname
     let encoded_bob_id = urlencoding::encode(&bob_id);

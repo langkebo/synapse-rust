@@ -52,6 +52,14 @@
 bash scripts/validate_schema_all.sh
 ```
 
+若本机未安装 `psql` / `pg_amcheck`，但数据库运行在 Docker 容器中，可通过 `PSQL_CONTAINER` 启用 DB 级检查：
+
+```bash
+DATABASE_URL=postgresql://synapse:synapse@localhost:5432/synapse \
+PSQL_CONTAINER=synapse-postgres \
+bash scripts/validate_schema_all.sh
+```
+
 输出示例：
 ```
 ========================================
@@ -90,6 +98,14 @@ python3 scripts/check_schema_contract_coverage.py --threshold 90
 python3 scripts/check_schema_contract_coverage.py \
   --threshold 90 \
   --report artifacts/contract_coverage.md
+```
+
+也可生成结构化 JSON 报告（适用于 CI 归档与失败定位）：
+
+```bash
+python3 scripts/check_schema_table_coverage.py --json-report artifacts/schema_table_coverage.json
+python3 scripts/check_schema_contract_coverage.py --threshold 90 --json-report artifacts/contract_coverage_report.json
+python3 scripts/audit_migration_layout.py --report artifacts/migration_layout_audit.json
 ```
 
 ---
