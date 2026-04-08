@@ -1828,7 +1828,7 @@ impl Config {
 
         let config = ConfigBuilder::builder()
             .add_source(config::File::with_name(&config_path))
-            .add_source(config::Environment::with_prefix("SYNAPSE"))
+            .add_source(config::Environment::with_prefix("SYNAPSE").separator("__"))
             .build()?;
 
         let mut config_values: Config = config.try_deserialize()?;
