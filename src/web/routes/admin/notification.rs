@@ -351,8 +351,11 @@ pub async fn send_server_notice(
 
     let room_result = sqlx::query(
         r#"
-        INSERT INTO rooms (room_id, name, topic, creator, is_public, join_rules, created_ts)
-        VALUES ($1, $2, $3, $4, false, 'private', $5)
+        INSERT INTO rooms (
+            room_id, name, topic, creator, is_public, join_rules,
+            room_version, history_visibility, created_ts, last_activity_ts
+        )
+        VALUES ($1, $2, $3, $4, false, 'private', '6', 'joined', $5, $5)
         ON CONFLICT (room_id) DO NOTHING
         "#,
     )
@@ -399,7 +402,7 @@ pub async fn send_server_notice(
         ::tracing::warn!("Failed to create room event: {}", e);
     }
 
-    sqlx::query(
+    let message_result = sqlx::query(
         r#"
         INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender)
         VALUES ($1, $2, $3, 'm.room.message', $4, $5, $6)
@@ -415,8 +418,14 @@ pub async fn send_server_notice(
     .bind(now)
     .bind(&server_user)
     .execute(&*state.services.event_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .await;
+
+    if let Err(e) = message_result {
+        ::tracing::warn!(
+            "Failed to persist m.room.message event for server notice (fallback to metadata-only notice): {}",
+            e
+        );
+    }
 
     let notice_content = json!({
         "msgtype": body.content.msgtype,

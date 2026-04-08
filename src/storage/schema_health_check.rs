@@ -26,6 +26,7 @@ const CORE_TABLES: &[&str] = &[
     "devices",
     "rooms",
     "events",
+    "event_relations",
     "room_memberships",
     "access_tokens",
     "refresh_tokens",
@@ -33,6 +34,12 @@ const CORE_TABLES: &[&str] = &[
     "presence",
     "user_directory",
     "federation_signing_keys",
+    "rate_limits",
+    "server_notices",
+    "user_notification_settings",
+    "widgets",
+    "secure_key_backups",
+    "secure_backup_session_keys",
 ];
 
 /// 核心字段定义 (表名, 字段名)
@@ -59,6 +66,11 @@ const CORE_COLUMNS: &[(&str, &str)] = &[
     ("events", "sender"),
     ("events", "origin_server_ts"),
     ("events", "event_type"),
+    // event_relations 表
+    ("event_relations", "room_id"),
+    ("event_relations", "event_id"),
+    ("event_relations", "relates_to_event_id"),
+    ("event_relations", "relation_type"),
     // room_memberships 表
     ("room_memberships", "room_id"),
     ("room_memberships", "user_id"),
@@ -87,6 +99,35 @@ const CORE_COLUMNS: &[(&str, &str)] = &[
     ("federation_signing_keys", "server_name"),
     ("federation_signing_keys", "key_id"),
     ("federation_signing_keys", "created_ts"),
+    // rate_limits 表
+    ("rate_limits", "user_id"),
+    ("rate_limits", "messages_per_second"),
+    ("rate_limits", "burst_count"),
+    // server_notices 表
+    ("server_notices", "id"),
+    ("server_notices", "user_id"),
+    ("server_notices", "event_id"),
+    ("server_notices", "content"),
+    ("server_notices", "sent_ts"),
+    // user_notification_settings 表
+    ("user_notification_settings", "user_id"),
+    ("user_notification_settings", "enabled"),
+    // widgets 表
+    ("widgets", "widget_id"),
+    ("widgets", "room_id"),
+    ("widgets", "user_id"),
+    ("widgets", "widget_type"),
+    // secure_key_backups 表
+    ("secure_key_backups", "user_id"),
+    ("secure_key_backups", "backup_id"),
+    ("secure_key_backups", "version"),
+    ("secure_key_backups", "algorithm"),
+    // secure_backup_session_keys 表
+    ("secure_backup_session_keys", "user_id"),
+    ("secure_backup_session_keys", "backup_id"),
+    ("secure_backup_session_keys", "room_id"),
+    ("secure_backup_session_keys", "session_id"),
+    ("secure_backup_session_keys", "encrypted_key"),
 ];
 
 /// 必需索引定义 (索引名, 表名, 字段, 条件索引的 WHERE 子句)
