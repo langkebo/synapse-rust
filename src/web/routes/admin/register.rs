@@ -432,10 +432,17 @@ async fn register(
         }
         Err(e) => {
             let error_msg = e.to_string();
-            if error_msg.contains("already exists") {
+            let error_msg_lower = error_msg.to_lowercase();
+            let user_conflict = error_msg_lower.contains("already exists")
+                || error_msg_lower.contains("already taken")
+                || error_msg_lower.contains("duplicate key value")
+                || error_msg_lower.contains("unique constraint")
+                || error_msg_lower.contains("user_in_use")
+                || error_msg_lower.contains("m_user_in_use");
+            if user_conflict {
                 Err(register_error_response(
                     400,
-                    "M_UNKNOWN",
+                    "M_USER_IN_USE",
                     "User already exists",
                 ))
             } else {

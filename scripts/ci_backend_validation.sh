@@ -177,6 +177,26 @@ run_rust_checks() {
     cargo fmt --all -- --check
     cargo check --locked
     TEST_THREADS="${TEST_THREADS:-4}" TEST_RETRIES="${TEST_RETRIES:-2}" bash scripts/run_ci_tests.sh
+    emit_skip_report || true
+}
+
+emit_skip_report() {
+    local skipped_file="$ROOT_DIR/test-results/api-integration.skipped.txt"
+    local report_file="$ROOT_DIR/test-results/api-integration.skipped-analysis.txt"
+    if [ ! -f "$skipped_file" ]; then
+        log "未发现 skipped 结果文件，跳过分类报告: $skipped_file"
+        return 0
+    fi
+    log "输出 skipped 分类报告: $report_file"
+    local -a analyzer_args
+    analyzer_args=(
+        --input "$skipped_file"
+        --output "$report_file"
+    )
+    if [ "${FAIL_ON_SKIP_BACKEND_GAP:-1}" = "1" ]; then
+        analyzer_args+=(--fail-on-backend-gap)
+    fi
+    python3 "$ROOT_DIR/scripts/quality/analyze_skipped_tests.py" "${analyzer_args[@]}"
 }
 
 run_migration_checks() {
@@ -186,6 +206,10 @@ run_migration_checks() {
     cd "$DOCKER_DIR"
     docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust migrate
     docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust validate
+
+    cd "$ROOT_DIR"
+    # Default guard for refactor-era schema drift: fail fast if critical tables are missing.
+    bash scripts/db/pre_refactor_schema_guard.sh check
 }
 
 run_docker_smoke() {
