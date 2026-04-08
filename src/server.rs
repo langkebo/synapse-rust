@@ -1,4 +1,4 @@
-use axum::Router;
+use axum::{response::IntoResponse, routing::get, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -309,6 +309,14 @@ impl SynapseServer {
         ::tracing::info!("Server name: {}", self.app_state.services.server_name);
         ::tracing::info!("Listening on (Client API): {}", self.address);
         ::tracing::info!("Listening on (Federation): {}", self.federation_address);
+        if self.app_state.services.config.prometheus.enabled {
+            ::tracing::info!(
+                "Listening on (Prometheus): {}:{}{}",
+                self.app_state.services.config.server.host,
+                self.app_state.services.config.prometheus.port,
+                self.app_state.services.config.prometheus.path
+            );
+        }
         ::tracing::info!("Media storage: {}", self.media_path.display());
 
         if let Err(e) = self.warmup().await {
@@ -368,16 +376,30 @@ impl SynapseServer {
 
         let router = self.router.clone();
         let fed_router = self.router.clone();
-        let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(2);
+        let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(3);
 
         let client_listener = tokio::net::TcpListener::bind(self.address).await?;
         let federation_listener = tokio::net::TcpListener::bind(self.federation_address).await?;
+        let prometheus_config = self.app_state.services.config.prometheus.clone();
+        let prometheus_listener = if prometheus_config.enabled {
+            Some(
+                tokio::net::TcpListener::bind(format!(
+                    "{}:{}",
+                    self.app_state.services.config.server.host, prometheus_config.port
+                ))
+                .await?,
+            )
+        } else {
+            None
+        };
 
         let (client_tx, client_rx) = tokio::sync::oneshot::channel();
         let (fed_tx, fed_rx) = tokio::sync::oneshot::channel();
+        let (prom_tx, prom_rx) = tokio::sync::oneshot::channel();
 
         let mut shutdown_rx1 = shutdown_tx.subscribe();
         let mut shutdown_rx2 = shutdown_tx.subscribe();
+        let mut shutdown_rx3 = shutdown_tx.subscribe();
 
         tokio::spawn(async move {
             let _ = shutdown_tx;
@@ -406,10 +428,31 @@ impl SynapseServer {
             let _ = fed_tx.send(());
         });
 
+        if let Some(prometheus_listener) = prometheus_listener {
+            let metrics = self.app_state.services.metrics.clone();
+            let prometheus_path = prometheus_config.path.clone();
+            let prometheus_router = Router::new()
+                .route(&prometheus_path, get(render_prometheus_metrics))
+                .with_state(metrics);
+
+            tokio::spawn(async move {
+                axum::serve(prometheus_listener, prometheus_router.into_make_service())
+                    .with_graceful_shutdown(async move {
+                        shutdown_rx3.recv().await.ok();
+                    })
+                    .await
+                    .ok();
+                let _ = prom_tx.send(());
+            });
+        } else {
+            let _ = prom_tx.send(());
+        }
+
         ::tracing::info!("All servers started successfully");
 
         client_rx.await.ok();
         fed_rx.await.ok();
+        prom_rx.await.ok();
 
         ::tracing::info!("Servers shutdown complete");
         Ok(())
@@ -433,4 +476,18 @@ impl SynapseServer {
     pub fn metrics_collector(&self) -> &Arc<TaskMetricsCollector> {
         &self.metrics_collector
     }
+}
+
+async fn render_prometheus_metrics(
+    axum::extract::State(metrics): axum::extract::State<
+        Arc<crate::common::metrics::MetricsCollector>,
+    >,
+) -> impl IntoResponse {
+    (
+        [(
+            http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        metrics.to_prometheus_format(),
+    )
 }

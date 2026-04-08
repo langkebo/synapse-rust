@@ -269,6 +269,34 @@ CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_origin_server_ts ON events(origin_server_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_events_not_redacted ON events(room_id, origin_server_ts DESC) WHERE is_redacted = FALSE;
 
+-- 事件关系表
+-- 存储 Matrix relations / aggregations 所需的事件关联
+CREATE TABLE IF NOT EXISTS event_relations (
+    id BIGSERIAL PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    relates_to_event_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    origin_server_ts BIGINT NOT NULL,
+    content JSONB NOT NULL DEFAULT '{}',
+    is_redacted BOOLEAN NOT NULL DEFAULT FALSE,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT fk_event_relations_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_relations_unique
+ON event_relations(event_id, relation_type, sender);
+
+CREATE INDEX IF NOT EXISTS idx_event_relations_room_event
+ON event_relations(room_id, relates_to_event_id, relation_type);
+
+CREATE INDEX IF NOT EXISTS idx_event_relations_sender
+ON event_relations(sender, relation_type);
+
+CREATE INDEX IF NOT EXISTS idx_event_relations_origin_ts
+ON event_relations(room_id, origin_server_ts DESC);
+
 -- 房间摘要表
 -- 存储房间的摘要信息
 CREATE TABLE IF NOT EXISTS room_summaries (

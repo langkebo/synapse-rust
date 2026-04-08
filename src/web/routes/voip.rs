@@ -29,7 +29,12 @@ pub async fn get_turn_server(
     let voip_service = VoipService::new(Arc::new(state.services.config.voip.clone()));
 
     if !voip_service.is_enabled() {
-        return Err(ApiError::not_found("VoIP/TURN service is not configured"));
+        return Ok(Json(TurnServerResponse {
+            username: String::new(),
+            password: String::new(),
+            uris: Vec::new(),
+            ttl: 0,
+        }));
     }
 
     let creds = voip_service.generate_turn_credentials(&auth_user.user_id)?;

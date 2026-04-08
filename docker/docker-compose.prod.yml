@@ -1,0 +1,163 @@
+services:
+  db:
+    image: postgres:${POSTGRES_VERSION:-16}
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-postgres
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_USER: ${DB_USER:-synapse}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-synapse}
+      POSTGRES_DB: ${DB_NAME:-synapse}
+      POSTGRES_INITDB_ARGS: --encoding=UTF-8 --lc-collate=C --lc-ctype=C
+      TZ: ${TZ:-UTC}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres.conf:/etc/postgresql/postgresql.conf:ro
+    ports:
+      - "${DB_EXPOSE_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-synapse} -d ${DB_NAME:-synapse}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    networks:
+      - synapse_network
+
+  redis:
+    image: redis:${REDIS_VERSION:-7}-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - ${REDIS_MAX_MEMORY:-256mb}
+      - --maxmemory-policy
+      - ${REDIS_EVICTION_POLICY:-allkeys-lru}
+      - --save
+      - "60"
+      - "1000"
+      - --save
+      - "300"
+      - "100"
+      - --save
+      - "900"
+      - "1"
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_EXPOSE_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - synapse_network
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: tools
+    image: ${SYNAPSE_TOOLS_IMAGE:-synapse-rust-tools}:${SYNAPSE_IMAGE_TAG:-latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-migrate
+    restart: "no"
+    env_file:
+      - ./.env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-synapse}
+      DB_PASSWORD: ${DB_PASSWORD:-synapse}
+      DB_NAME: ${DB_NAME:-synapse}
+      DATABASE_URL: postgres://${DB_USER:-synapse}:${DB_PASSWORD:-synapse}@db:5432/${DB_NAME:-synapse}
+      REDIS_URL: redis://redis:6379
+      MIGRATION_TIMEOUT: ${MIGRATION_TIMEOUT:-300}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -ec
+      - /app/scripts/db_migrate.sh migrate && /app/scripts/db_migrate.sh validate
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - synapse_network
+
+  synapse-rust:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: runtime
+    image: ${SYNAPSE_IMAGE:-synapse-rust}:${SYNAPSE_IMAGE_TAG:-latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-rust
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    env_file:
+      - ./.env
+    environment:
+      SYNAPSE_CONFIG_PATH: /app/config/homeserver.yaml
+      DB_USER: ${DB_USER:-synapse}
+      DB_PASSWORD: ${DB_PASSWORD:-synapse}
+      DB_NAME: ${DB_NAME:-synapse}
+      DATABASE_URL: postgres://${DB_USER:-synapse}:${DB_PASSWORD:-synapse}@db:5432/${DB_NAME:-synapse}
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: ${RUST_LOG:-info}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config/homeserver.yaml:/app/config/homeserver.yaml:ro
+    ports:
+      - "${SYNAPSE_PORT:-28008}:8008"
+      - "${FEDERATION_PORT:-28448}:8448"
+      - "${PROMETHEUS_PORT:-29090}:9090"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/app/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks:
+      - synapse_network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  synapse_network:
+    driver: bridge
+    name: ${COMPOSE_PROJECT_NAME:-synapse}_network

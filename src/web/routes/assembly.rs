@@ -3,16 +3,36 @@ use crate::web::middleware::{
     cors_middleware, csrf_middleware, rate_limit_middleware, security_headers_middleware,
 };
 use axum::{
+    extract::State,
     routing::{get, post, put},
     Json, Router,
 };
 use serde_json::json;
 use tower_http::compression::CompressionLayer;
 
-async fn get_client_config() -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::unrecognized(
-        "Client config endpoint is not supported".to_string(),
-    ))
+async fn get_client_config(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let base_url = state.services.config.server.get_public_baseurl();
+    let identity_base_url = "https://vector.im".to_string();
+
+    Ok(Json(json!({
+        "m.homeserver": {
+            "base_url": base_url
+        },
+        "m.identity_server": {
+            "base_url": identity_base_url
+        }
+    })))
+}
+
+async fn get_openid_configuration(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let base_url = state.services.config.server.get_public_baseurl();
+    Ok(Json(json!({
+        "issuer": base_url
+    })))
 }
 
 fn create_client_capabilities_router() -> Router<AppState> {
@@ -138,6 +158,11 @@ pub fn create_router(state: AppState) -> Router {
     }
     if state.services.oidc_service.is_some() {
         router = router.merge(create_oidc_router(state.clone()));
+    } else {
+        router = router.route(
+            "/.well-known/openid-configuration",
+            get(get_openid_configuration),
+        );
     }
 
     router = router

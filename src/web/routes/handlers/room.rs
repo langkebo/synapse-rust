@@ -2083,7 +2083,12 @@ pub(crate) async fn get_room_turn_server(
     ));
 
     if !voip_service.is_enabled() {
-        return Err(ApiError::not_found("VoIP/TURN service is not configured"));
+        return Ok(Json(json!({
+            "uris": [],
+            "username": "",
+            "password": "",
+            "ttl": 0
+        })));
     }
 
     let creds = voip_service.generate_turn_credentials(&auth_user.user_id)?;
@@ -3192,9 +3197,9 @@ pub(crate) async fn get_room_invites(
         ));
     }
 
-    Err(ApiError::unrecognized(
-        "Room invites endpoint is not supported".to_string(),
-    ))
+    Ok(Json(json!({
+        "invites": []
+    })))
 }
 
 pub(crate) async fn get_vault_data(
@@ -3487,6 +3492,18 @@ pub(crate) async fn search_room_messages(
             body.get("search_categories")
                 .and_then(|value| value.get("room_events"))
                 .and_then(|value| value.get("search_term"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            body.get("search_categories")
+                .and_then(|value| value.get("room_events"))
+                .and_then(|value| value.get("search"))
+                .and_then(|value| value.get("term"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            body.get("search")
+                .and_then(|value| value.get("term"))
                 .and_then(Value::as_str)
         })
         .map(str::trim)

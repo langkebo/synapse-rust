@@ -1,128 +1,87 @@
-# ============================================================================
-# synapse-rust Dockerfile - Multi-stage Build
-# 版本: 3.1.0
-# 特性: 容器内编译、多架构支持、安全加固、资源限制
-# ============================================================================
-
-# ========================================
-# 阶段 1: 构建阶段
-# ========================================
 ARG RUST_VERSION=1.93
-FROM rust:${RUST_VERSION}-bookworm AS builder
+FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 
-WORKDIR /build
+WORKDIR /workspace
 
-# 设置编译优化环境变量
-ENV CARGO_INCREMENTAL=1 \
+ENV CARGO_INCREMENTAL=0 \
     CARGO_NET_RETRY=10 \
     CARGO_HTTP_CHECK_REVOKE=false \
     CARGO_TERM_COLOR=always \
-    RUSTFLAGS="-C codegen-units=4"
+    CARGO_PROFILE_RELEASE_LTO=true \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
+    CARGO_PROFILE_RELEASE_STRIP=symbols \
+    RUSTFLAGS="-C link-arg=-Wl,--gc-sections -C link-arg=-Wl,-z,relro,-z,now"
 
-# 安装编译依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    clang \
+    file \
     pkg-config \
     libssl-dev \
-    libpq-dev \
     build-essential \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && rm -rf /var/lib/apt/lists/*
 
-# 复制 Cargo 文件 (利用 Docker 缓存层)
 COPY Cargo.toml Cargo.lock ./
-
-# 预编译依赖
-RUN mkdir -p src && \
-    echo "fn main() {}" > src/main.rs && \
-    cargo build --release && \
-    rm -rf src
-
-# 复制完整源代码
 COPY src ./src
 COPY migrations ./migrations
 COPY benches ./benches
-# tests 目录暂时注释
+COPY docker/db_migrate.sh docker/healthcheck.sh ./docker/
 
-# 构建项目
-RUN cargo build --release 2>&1 || cargo build --release
+RUN cargo build --release --locked --bin synapse-rust --bin healthcheck && \
+    install -Dm755 target/release/synapse-rust /out/app/synapse-rust && \
+    install -Dm755 target/release/healthcheck /out/app/healthcheck && \
+    install -Dm755 docker/db_migrate.sh /out/app/scripts/db_migrate.sh && \
+    install -Dm755 docker/healthcheck.sh /out/app/scripts/healthcheck.sh && \
+    mkdir -p /out/app/config /out/app/data /out/app/logs /out/app/migrations && \
+    cp -R migrations/. /out/app/migrations/
 
-# Strip 二进制以减小镜像大小
-RUN strip --strip-unneeded /build/target/release/synapse-rust || true
+FROM debian:bookworm-slim AS tools
 
-# ========================================
-# 阶段 2: 运行阶段 (最小化)
-# ========================================
-FROM debian:bookworm-slim AS runtime
-
-# 标签
-LABEL maintainer="synapse-rust" \
-      version="1.0.0" \
-      description="Synapse Rust Matrix Homeserver"
-
-# 设置时区
-ENV TZ=Asia/Shanghai \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
-
-# 安装运行时依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    bash \
     libssl3 \
-    libpq5 \
     postgresql-client \
     redis-tools \
     curl \
-    tzdata \
-    netcat-traditional \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean \
-    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
-    && echo $TZ > /etc/timezone
+    && rm -rf /var/lib/apt/lists/*
 
-# 创建非 root 用户
-RUN groupadd --gid 991 synapse && \
-    useradd --uid=991 --gid=synapse --shell=/bin/false --create-home synapse && \
-    mkdir -p /app/logs/migrations /app/data /app/config /app/scripts /app/migrations && \
-    chown -R synapse:synapse /app
+COPY --from=builder /out/app /app
 
-# 复制编译好的二进制
-COPY --from=builder /build/target/release/synapse-rust /app/synapse-rust
-
-# 复制迁移文件和脚本
-COPY --chown=synapse:synapse migrations/ /app/migrations/
-COPY --chown=synapse:synapse docker/docker-entrypoint.sh /app/scripts/
-COPY --chown=synapse:synapse docker/db_migrate.sh /app/scripts/
-COPY --chown=synapse:synapse docker/healthcheck.sh /app/scripts/
-
-# 设置权限
-RUN chmod +x /app/scripts/*.sh /app/synapse-rust && \
-    chmod -R 755 /app/migrations && \
-    chmod 750 /app/data
-
-# 环境变量默认值
 ENV RUST_LOG=info \
     RUST_BACKTRACE=1 \
     DATABASE_URL=postgres://synapse:synapse@db:5432/synapse \
     REDIS_URL=redis://redis:6379 \
-    RUN_MIGRATIONS=true \
-    VERIFY_SCHEMA=true \
-    DB_WAIT_ATTEMPTS=30 \
-    DB_WAIT_INTERVAL=2 \
-    MIGRATION_TIMEOUT=300 \
-    SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml \
-    WORKER_MODE=single
+    SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
 
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
-    CMD /app/scripts/healthcheck.sh
-
-# 暴露端口
-EXPOSE 8008 8448 9090
-
-# 安全设置
-USER synapse
 WORKDIR /app
+USER 65532:65532
 
-# 入口点
-ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
-CMD ["/app/synapse-rust"]
+FROM anchore/syft:latest AS sbom
+
+COPY --from=builder /out/app /workspace/rootfs/app
+
+RUN ["/syft", "dir:/workspace/rootfs", "-o", "spdx-json=/workspace/sbom.spdx.json"]
+
+FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
+
+LABEL org.opencontainers.image.title="synapse-rust" \
+      org.opencontainers.image.description="Matrix homeserver implemented in Rust" \
+      org.opencontainers.image.source="https://github.com/element-hq/synapse" \
+      org.opencontainers.image.vendor="synapse-rust"
+
+COPY --from=builder /out/app /app
+COPY --from=sbom /workspace/sbom.spdx.json /app/sbom.spdx.json
+
+ENV RUST_LOG=info \
+    RUST_BACKTRACE=1 \
+    DATABASE_URL=postgres://synapse:synapse@db:5432/synapse \
+    REDIS_URL=redis://redis:6379 \
+    SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml \
+    SYNAPSE_HEALTHCHECK_HOST=127.0.0.1 \
+    SYNAPSE_HEALTHCHECK_PORT=8008
+
+WORKDIR /app
+EXPOSE 8008 8448 9090
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 CMD ["/app/healthcheck"]
+ENTRYPOINT ["/app/synapse-rust"]
