@@ -1,5 +1,4 @@
 use super::{AppState, AuthenticatedUser};
-use crate::e2ee::megolm::models::RoomKeyDistributionData;
 use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::MatrixJson;
 use crate::ApiError;
@@ -8,7 +7,6 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
-use rand::RngCore;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -20,21 +18,6 @@ fn parse_stream_id(value: &Value) -> Option<i64> {
     let s = value.as_str()?;
     let s = s.strip_prefix('s').unwrap_or(s);
     s.parse::<i64>().ok()
-}
-
-fn fallback_room_key_distribution(room_id: &str) -> RoomKeyDistributionData {
-    let mut session_key = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut session_key);
-
-    RoomKeyDistributionData {
-        session_id: uuid::Uuid::new_v4().to_string(),
-        session_key: base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            session_key,
-        ),
-        algorithm: "m.megolm.v1.aes-sha2".to_string(),
-        room_id: room_id.to_string(),
-    }
 }
 
 fn create_e2ee_compat_router() -> Router<AppState> {
@@ -469,22 +452,15 @@ async fn room_key_distribution(
         .flatten();
 
     if session.is_none() {
-        let _ = state
-            .services
-            .megolm_service
-            .create_session(&room_id, &auth_user.user_id)
-            .await;
-
-        session = state
-            .services
-            .megolm_service
-            .get_outbound_session(&room_id)
-            .await
-            .ok()
-            .flatten();
+        let _ = auth_user;
+        return Err(crate::error::ApiError::not_found(
+            "Room key session not found".to_string(),
+        ));
     }
 
-    let session = session.unwrap_or_else(|| fallback_room_key_distribution(&room_id));
+    let session = session.take().ok_or_else(|| {
+        crate::error::ApiError::not_found("Room key session not found".to_string())
+    })?;
 
     Ok(Json(serde_json::json!({
         "room_id": room_id,

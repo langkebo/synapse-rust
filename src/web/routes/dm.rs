@@ -3,7 +3,6 @@
 
 use crate::services::room_service::CreateRoomConfig;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
-use crate::web::routes::response_helpers::empty_json;
 use axum::{
     extract::{Path, State},
     routing::{get, post, put},
@@ -104,6 +103,20 @@ fn remove_room_from_direct_map(direct_map: &mut Map<String, Value>, room_id: &st
             false
         }
     });
+}
+
+fn users_for_room(direct_map: &Map<String, Value>, room_id: &str) -> Vec<String> {
+    direct_map
+        .iter()
+        .filter_map(|(user_id, rooms)| {
+            rooms.as_array().and_then(|entries| {
+                entries
+                    .iter()
+                    .any(|r| r.as_str() == Some(room_id))
+                    .then(|| user_id.clone())
+            })
+        })
+        .collect()
 }
 
 fn parse_dm_users(value: &Value) -> Result<Vec<String>, ApiError> {
@@ -262,6 +275,7 @@ pub async fn update_dm_room(
     Json(body): Json<UpdateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let mut direct_map = load_direct_map(&state, &auth_user.user_id).await?;
+    let updated_ts = chrono::Utc::now().timestamp_millis();
 
     if let Some(users) = body.users {
         let users = parse_dm_users(&users)?;
@@ -289,10 +303,15 @@ pub async fn update_dm_room(
             save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
         } else {
             save_direct_map(&state, &auth_user.user_id, &content).await?;
+            direct_map = content;
         }
     }
 
-    Ok(empty_json())
+    Ok(Json(json!({
+        "room_id": room_id,
+        "users": users_for_room(&direct_map, &room_id),
+        "updated_ts": updated_ts
+    })))
 }
 
 pub async fn check_room_dm(

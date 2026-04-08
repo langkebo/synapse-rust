@@ -3197,9 +3197,9 @@ pub(crate) async fn get_room_invites(
         ));
     }
 
-    Ok(Json(json!({
-        "invites": []
-    })))
+    Err(ApiError::unrecognized(
+        "Room invites endpoint is not supported".to_string(),
+    ))
 }
 
 pub(crate) async fn get_vault_data(

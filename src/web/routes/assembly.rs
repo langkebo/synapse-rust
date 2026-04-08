@@ -11,19 +11,11 @@ use serde_json::json;
 use tower_http::compression::CompressionLayer;
 
 async fn get_client_config(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let base_url = state.services.config.server.get_public_baseurl();
-    let identity_base_url = "https://vector.im".to_string();
-
-    Ok(Json(json!({
-        "m.homeserver": {
-            "base_url": base_url
-        },
-        "m.identity_server": {
-            "base_url": identity_base_url
-        }
-    })))
+    Err(ApiError::unrecognized(
+        "Client config endpoint is not supported".to_string(),
+    ))
 }
 
 async fn get_openid_configuration(
@@ -148,9 +140,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_background_update_router(state.clone()))
         .merge(create_module_router());
 
-    if state.services.config.worker.enabled {
-        router = router.merge(create_worker_router(state.clone()));
-    }
+    router = router.merge(create_worker_router(state.clone()));
 
     // Optional authentication capabilities - only expose when enabled
     if state.services.saml_service.is_enabled() {
