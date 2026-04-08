@@ -10,6 +10,7 @@ use crate::common::ApiError;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
 
+#[allow(dead_code)]
 fn default_irc_protocol() -> ThirdPartyProtocol {
     let mut field_types = HashMap::new();
     field_types.insert(
@@ -52,6 +53,7 @@ fn default_irc_protocol() -> ThirdPartyProtocol {
     }
 }
 
+#[allow(dead_code)]
 fn supported_protocol(protocol: &str) -> Option<ThirdPartyProtocol> {
     match protocol {
         "irc" => Some(default_irc_protocol()),
@@ -113,9 +115,9 @@ async fn get_protocols(
     State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(Json(serde_json::json!({
-        "irc": default_irc_protocol()
-    })))
+    Err(ApiError::unrecognized(
+        "Third-party protocols endpoint is not supported".to_string(),
+    ))
 }
 
 async fn get_protocol(
@@ -123,11 +125,9 @@ async fn get_protocol(
     _auth_user: AuthenticatedUser,
     Path(protocol): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let protocol = supported_protocol(&protocol)
-        .ok_or_else(|| ApiError::not_found("Third-party protocol not found"))?;
-
-    Ok(Json(
-        serde_json::to_value(protocol).map_err(|e| ApiError::internal(e.to_string()))?,
+    let _ = protocol;
+    Err(ApiError::unrecognized(
+        "Third-party protocol endpoint is not supported".to_string(),
     ))
 }
 
@@ -145,11 +145,10 @@ async fn get_location(
     Path(protocol): Path<String>,
     Query(_query): Query<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    if supported_protocol(&protocol).is_none() {
-        return Err(ApiError::not_found("Third-party protocol not found"));
-    }
-
-    Ok(Json(Vec::new()))
+    let _ = protocol;
+    Err(ApiError::unrecognized(
+        "Third-party location endpoint is not supported".to_string(),
+    ))
 }
 
 async fn get_location_by_alias(
@@ -157,7 +156,9 @@ async fn get_location_by_alias(
     _auth_user: AuthenticatedUser,
     Query(_query): Query<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Ok(Json(Vec::new()))
+    Err(ApiError::unrecognized(
+        "Third-party location lookup endpoint is not supported".to_string(),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -174,11 +175,10 @@ async fn get_user(
     Path(protocol): Path<String>,
     Query(_query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    if supported_protocol(&protocol).is_none() {
-        return Err(ApiError::not_found("Third-party protocol not found"));
-    }
-
-    Ok(Json(Vec::new()))
+    let _ = protocol;
+    Err(ApiError::unrecognized(
+        "Third-party user endpoint is not supported".to_string(),
+    ))
 }
 
 async fn get_user_by_id(
@@ -186,7 +186,9 @@ async fn get_user_by_id(
     _auth_user: AuthenticatedUser,
     Query(_query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Ok(Json(Vec::new()))
+    Err(ApiError::unrecognized(
+        "Third-party user lookup endpoint is not supported".to_string(),
+    ))
 }
 
 #[cfg(test)]

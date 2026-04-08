@@ -14,7 +14,7 @@ use crate::web::middleware::replication_http_auth_middleware;
 use crate::web::routes::response_helpers::{
     created_json_from, json_from, json_vec_from, require_found, status_json,
 };
-use crate::web::routes::{AdminUser, AppState};
+use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use crate::worker::types::*;
 
 #[derive(Debug, Deserialize)]
@@ -347,6 +347,7 @@ pub async fn get_pending_tasks(
 pub async fn claim_next_task(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let task = state
         .services
@@ -360,6 +361,7 @@ pub async fn claim_next_task(
 pub async fn claim_task(
     State(state): State<AppState>,
     Path((task_id, worker_id)): Path<(String, String)>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state
         .services
@@ -526,6 +528,14 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
         )
         .route("/_synapse/worker/v1/tasks", post(assign_task))
         .route("/_synapse/worker/v1/tasks", get(get_pending_tasks))
+        .route(
+            "/_synapse/worker/v1/tasks/claim/{worker_id}",
+            post(claim_next_task),
+        )
+        .route(
+            "/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}",
+            post(claim_task),
+        )
         .route("/_synapse/worker/v1/statistics", get(get_statistics))
         .route(
             "/_synapse/worker/v1/statistics/types",
@@ -559,14 +569,6 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
             post(fail_command),
         )
         .route(
-            "/_synapse/worker/v1/tasks/claim/{worker_id}",
-            post(claim_next_task),
-        )
-        .route(
-            "/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}",
-            post(claim_task),
-        )
-        .route(
             "/_synapse/worker/v1/tasks/{task_id}/complete",
             post(complete_task),
         )
@@ -585,10 +587,12 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
             replication_http_auth_middleware,
         ));
 
-    Router::new()
-        .merge(admin_router)
-        .merge(worker_router)
-        .with_state(state)
+    let router = Router::new().merge(admin_router);
+    if state.services.config.worker.enabled {
+        router.merge(worker_router).with_state(state)
+    } else {
+        router.with_state(state)
+    }
 }
 
 #[cfg(test)]
