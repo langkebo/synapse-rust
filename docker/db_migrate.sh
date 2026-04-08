@@ -51,14 +51,78 @@ load_env() {
     export DB_PASSWORD="${DB_PASSWORD:-synapse}"
     export DATABASE_URL="${DATABASE_URL:-postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME}"
     export POSTGRES_ADMIN_URL="${POSTGRES_ADMIN_URL:-postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/postgres}"
+    export DB_CONTAINER="${DB_CONTAINER:-${COMPOSE_PROJECT_NAME:-synapse}-postgres}"
+
+    detect_psql_backend
+}
+
+PSQL_USE_DOCKER=0
+PSQL_DOCKER_CONTAINER=""
+
+detect_psql_backend() {
+    if command -v psql >/dev/null 2>&1; then
+        PSQL_USE_DOCKER=0
+        PSQL_DOCKER_CONTAINER=""
+        return 0
+    fi
+
+    if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -qx "$DB_CONTAINER"; then
+        PSQL_USE_DOCKER=1
+        PSQL_DOCKER_CONTAINER="$DB_CONTAINER"
+        log_warning "未检测到本机 psql，回退为容器内 psql: $PSQL_DOCKER_CONTAINER"
+        return 0
+    fi
+
+    log_error "未找到可用的 psql；请安装本机 psql 或启动数据库容器: $DB_CONTAINER"
+    return 1
+}
+
+psql_exec() {
+    local database_name="$1"
+    shift
+
+    if [ "$PSQL_USE_DOCKER" -eq 1 ]; then
+        docker exec \
+            -i \
+            -e PGOPTIONS='-c client_min_messages=warning' \
+            -e PGPASSWORD="$DB_PASSWORD" \
+            "$PSQL_DOCKER_CONTAINER" \
+            psql \
+            -h localhost \
+            -p 5432 \
+            -U "$DB_USER" \
+            -d "$database_name" \
+            "$@"
+        return $?
+    fi
+
+    local target_url="$DATABASE_URL"
+    if [ "$database_name" = "postgres" ]; then
+        target_url="$POSTGRES_ADMIN_URL"
+    fi
+
+    PGOPTIONS='-c client_min_messages=warning' psql "$target_url" "$@"
 }
 
 psql_db() {
-    PGOPTIONS='-c client_min_messages=warning' psql "$DATABASE_URL" "$@"
+    psql_exec "$DB_NAME" "$@"
 }
 
 psql_admin() {
-    PGOPTIONS='-c client_min_messages=warning' psql "$POSTGRES_ADMIN_URL" "$@"
+    psql_exec "postgres" "$@"
+}
+
+now_ms() {
+    local ts
+    ts="$(date +%s%3N 2>/dev/null || true)"
+    if [[ "$ts" =~ ^[0-9]+$ ]]; then
+        echo "$ts"
+        return 0
+    fi
+    python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
 }
 
 table_exists() {
@@ -167,20 +231,21 @@ apply_sql_file() {
     filename="$(basename "$file")"
     local version="${filename%.sql}"
     local started_at
-    started_at="$(date +%s%3N)"
+    started_at="$(now_ms)"
 
     log_info "应用迁移: $filename"
 
-    if psql_db -v ON_ERROR_STOP=1 -f "$file" >/dev/null; then
+    # 通过 STDIN 执行，兼容“本机无 psql 时回退到容器内 psql”的路径差异。
+    if psql_db -v ON_ERROR_STOP=1 < "$file" >/dev/null; then
         local finished_at
-        finished_at="$(date +%s%3N)"
+        finished_at="$(now_ms)"
         record_migration "$version" "$filename" "$((finished_at - started_at))" TRUE
         log_success "迁移完成: $filename"
         return 0
     fi
 
     local finished_at
-    finished_at="$(date +%s%3N)"
+    finished_at="$(now_ms)"
     psql_db -c "ABORT;" >/dev/null 2>&1 || true
     record_migration "$version" "$filename" "$((finished_at - started_at))" FALSE || true
     log_error "迁移失败: $filename"
@@ -277,6 +342,13 @@ validate_schema() {
         "refresh_tokens"
         "rooms"
         "events"
+        "event_relations"
+        "rate_limits"
+        "server_notices"
+        "user_notification_settings"
+        "widgets"
+        "secure_key_backups"
+        "secure_backup_session_keys"
         "schema_migrations"
     )
     local errors=0
