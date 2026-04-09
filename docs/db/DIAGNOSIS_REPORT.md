@@ -204,7 +204,7 @@ Execution Time: 0.014 ms
 - [schema_table_coverage_exceptions.txt](../../scripts/schema_table_coverage_exceptions.txt)
 - [20260330000008_align_background_update_exceptions.sql](../../migrations/20260330000008_align_background_update_exceptions.sql)
 
-### 4.8 ISSUE-2026-03-29-004：beacon_* 与 call_* 缺表与 exceptions 收缩(已修复)
+### 4.8 ISSUE-2026-03-29-004：`beacon_*` 与 `call_*` 缺表与 exceptions 收缩(已修复)
 
 | 段落 | 内容 |
 |---|---|
@@ -264,7 +264,7 @@ Execution Time: 0.014 ms
 | P2 | ACT-2026-03-29-002 | 已继续收缩 schema exceptions：push/rate-limit/qr/reaction/batches | 将 push_device、rate_limits、server_notices、user_notification_settings、qr_login_transactions、reaction_aggregations、registration_token_batches 纳入增量迁移与索引，并从表覆盖 exceptions 移除 | ISSUE-2026-03-28-001 | 0.5 | 门禁脚本 + 最小 smoke/roundtrip | 回滚迁移：DROP TABLE/INDEX |
 | P2 | ACT-2026-03-29-003 | 已继续收缩 schema exceptions：uploads/user_settings | 将 upload_progress、upload_chunks、user_settings 纳入增量迁移与索引，并从表覆盖 exceptions 移除 | ISSUE-2026-03-28-001 | 0.5 | 门禁脚本 + 最小 smoke/roundtrip | 回滚迁移：DROP TABLE/INDEX |
 | P2 | ACT-2026-03-29-004 | 已继续收缩 schema exceptions：background_update_* | 将 background_update_locks/history/stats 纳入增量迁移与索引，并从表覆盖 exceptions 移除 | ISSUE-2026-03-28-001 | 0.5 | 门禁脚本 + 最小 smoke/roundtrip | 回滚迁移：DROP TABLE/INDEX |
-| P2 | ACT-2026-03-29-005 | 已继续收缩 schema exceptions：beacon_* 与 call_* | 将 beacon_info/locations, call_sessions/candidates, matrixrtc_* 纳入增量迁移与索引，并从表覆盖 exceptions 移除 | ISSUE-2026-03-29-004 | 0.5 | 门禁脚本 + 最小 smoke/roundtrip | 回滚迁移：DROP TABLE/INDEX |
+| P2 | ACT-2026-03-29-005 | 已继续收缩 schema exceptions：`beacon_*` 与 `call_*` | 将 beacon_info/locations, call_sessions/candidates, matrixrtc_* 纳入增量迁移与索引，并从表覆盖 exceptions 移除 | ISSUE-2026-03-29-004 | 0.5 | 门禁脚本 + 最小 smoke/roundtrip | 回滚迁移：DROP TABLE/INDEX |
 
 ## 8. 修复验证
 
