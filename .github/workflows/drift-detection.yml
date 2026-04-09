@@ -314,8 +314,6 @@ PY
   performance-baseline:
     name: Migration Performance Baseline
     runs-on: ubuntu-latest
-    container:
-      image: postgres:15-alpine
 
     services:
       postgres:
@@ -335,6 +333,11 @@ PY
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
 
       - name: Setup PostgreSQL
         run: |
