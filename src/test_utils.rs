@@ -14,6 +14,7 @@ static TEST_ENV_LOCK: Lazy<TokioMutex<()>> = Lazy::new(|| TokioMutex::new(()));
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 2;
 const DEFAULT_TEST_DB_MIN_CONNECTIONS: u32 = 0;
+const DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS: u64 = 5;
 const DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_TEST_DB_IDLE_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_TEST_DB_MAX_LIFETIME_SECS: u64 = 300;
@@ -128,6 +129,12 @@ pub fn configured_test_pool_min_connections() -> u32 {
         .unwrap_or(DEFAULT_TEST_DB_MIN_CONNECTIONS)
 }
 
+pub fn configured_test_pool_connect_timeout() -> Duration {
+    Duration::from_secs(
+        env_u64("TEST_DB_CONNECT_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS),
+    )
+}
+
 pub fn configured_test_pool_acquire_timeout() -> Duration {
     Duration::from_secs(
         env_u64("TEST_DB_ACQUIRE_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS),
@@ -150,12 +157,17 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
 
-    let admin_pool = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&database_url)
-        .await
-        .map_err(|error| format!("failed to connect admin pool: {error}"))?;
+    let connect_timeout = configured_test_pool_connect_timeout();
+    let admin_pool = tokio::time::timeout(
+        connect_timeout,
+        PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(&database_url),
+    )
+    .await
+    .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
+    .map_err(|error| format!("failed to connect admin pool: {error}"))?;
 
     sqlx::query(&format!("CREATE SCHEMA {schema_name}"))
         .execute(&admin_pool)
@@ -163,7 +175,9 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
-    let pool = PgPoolOptions::new()
+    let pool = tokio::time::timeout(
+        connect_timeout,
+        PgPoolOptions::new()
         .max_connections(configured_test_pool_max_connections())
         .min_connections(configured_test_pool_min_connections())
         .acquire_timeout(configured_test_pool_acquire_timeout())
@@ -176,8 +190,12 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
                 Ok(())
             })
         })
-        .connect(&database_url)
-        .await
+        .connect(&database_url),
+    )
+    .await
+    .map_err(|_| {
+        format!("failed to connect isolated pool for {schema_name}: timed out after {connect_timeout:?}")
+    })?
         .map_err(|error| format!("failed to connect isolated pool for {schema_name}: {error}"))?;
 
     let pool = Arc::new(pool);
@@ -209,12 +227,17 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
 
-    let admin_pool = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&database_url)
-        .await
-        .map_err(|error| format!("failed to connect admin pool: {error}"))?;
+    let connect_timeout = configured_test_pool_connect_timeout();
+    let admin_pool = tokio::time::timeout(
+        connect_timeout,
+        PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(&database_url),
+    )
+    .await
+    .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
+    .map_err(|error| format!("failed to connect admin pool: {error}"))?;
 
     sqlx::query(&format!("CREATE SCHEMA {schema_name}"))
         .execute(&admin_pool)
@@ -222,7 +245,9 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
-    let pool = PgPoolOptions::new()
+    let pool = tokio::time::timeout(
+        connect_timeout,
+        PgPoolOptions::new()
         .max_connections(configured_test_pool_max_connections())
         .min_connections(configured_test_pool_min_connections())
         .acquire_timeout(configured_test_pool_acquire_timeout())
@@ -235,8 +260,12 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
                 Ok(())
             })
         })
-        .connect(&database_url)
-        .await
+        .connect(&database_url),
+    )
+    .await
+    .map_err(|_| {
+        format!("failed to connect isolated pool for {schema_name}: timed out after {connect_timeout:?}")
+    })?
         .map_err(|error| format!("failed to connect isolated pool for {schema_name}: {error}"))?;
 
     Ok(Arc::new(pool))
@@ -244,19 +273,23 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 
 pub async fn resolve_test_database_url() -> Result<String, String> {
     let mut errors = Vec::new();
+    let connect_timeout = configured_test_pool_connect_timeout();
 
     for database_url in candidate_database_urls() {
-        match PgPoolOptions::new()
+        let connect_future = PgPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(Duration::from_secs(5))
-            .connect(&database_url)
-            .await
-        {
-            Ok(pool) => {
+            .connect(&database_url);
+
+        match tokio::time::timeout(connect_timeout, connect_future).await {
+            Err(_) => errors.push(format!(
+                "{database_url} -> connect timed out after {connect_timeout:?}"
+            )),
+            Ok(Ok(pool)) => {
                 drop(pool);
                 return Ok(database_url);
             }
-            Err(error) => errors.push(format!("{database_url} -> {error}")),
+            Ok(Err(error)) => errors.push(format!("{database_url} -> {error}")),
         }
     }
 
@@ -277,6 +310,10 @@ fn candidate_database_urls() -> Vec<String> {
         }
     }
 
+    if urls.is_empty() && !db_tests_required() {
+        return urls;
+    }
+
     for fallback in [
         "postgresql://synapse:synapse@localhost:5432/synapse",
         "postgresql://synapse:synapse@localhost:5432/synapse_test",
@@ -289,6 +326,18 @@ fn candidate_database_urls() -> Vec<String> {
     }
 
     urls
+}
+
+fn db_tests_required() -> bool {
+    for key in ["DB_TESTS_REQUIRED", "INTEGRATION_TESTS_REQUIRED"] {
+        if let Ok(value) = std::env::var(key) {
+            let value = value.trim().to_ascii_lowercase();
+            if value == "1" || value == "true" || value == "yes" || value == "required" {
+                return true;
+            }
+        }
+    }
+    std::env::var("CI").is_ok()
 }
 
 fn next_test_schema_name() -> String {

@@ -51,9 +51,12 @@ pub(crate) async fn sync(
             }
         };
 
-        let device_id = device_id.unwrap_or_else(|| "default".to_string());
+        let device_id_for_ratelimit = device_id.as_deref().unwrap_or("default");
         let kind = if is_initial { "initial" } else { "incremental" };
-        let rate_limit_key = format!("ratelimit:sync:{}:{}:{}", user_id, device_id, kind);
+        let rate_limit_key = format!(
+            "ratelimit:sync:{}:{}:{}",
+            user_id, device_id_for_ratelimit, kind
+        );
         let decision = state
             .cache
             .rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size)
@@ -67,10 +70,14 @@ pub(crate) async fn sync(
 
     let sync_result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
-        state
-            .services
-            .sync_service
-            .sync(&user_id, timeout, full_state, set_presence, since),
+        state.services.sync_service.sync(
+            &user_id,
+            device_id.as_deref(),
+            timeout,
+            full_state,
+            set_presence,
+            since,
+        ),
     )
     .await;
 

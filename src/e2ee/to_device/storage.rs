@@ -3,6 +3,18 @@ use serde_json::Value;
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
 
+/// Parameters for adding a to-device message
+#[derive(Debug, Clone)]
+pub struct ToDeviceMessage<'a> {
+    pub sender_user_id: &'a str,
+    pub sender_device_id: &'a str,
+    pub recipient_user_id: &'a str,
+    pub recipient_device_id: &'a str,
+    pub event_type: &'a str,
+    pub message_id: Option<&'a str>,
+    pub content: Value,
+}
+
 #[derive(Clone)]
 pub struct ToDeviceStorage {
     pool: Arc<Pool<Postgres>>,
@@ -24,18 +36,15 @@ impl ToDeviceStorage {
         Ok(result.is_some())
     }
 
-    pub async fn add_message(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        message_type: &str,
-        content: Value,
-    ) -> Result<(), ApiError> {
-        if !self.device_exists(user_id, device_id).await? {
+    pub async fn add_message(&self, msg: ToDeviceMessage<'_>) -> Result<(), ApiError> {
+        if !self
+            .device_exists(msg.recipient_user_id, msg.recipient_device_id)
+            .await?
+        {
             ::tracing::warn!(
                 "Skipping to-device message for non-existent device: {}:{}",
-                user_id,
-                device_id
+                msg.recipient_user_id,
+                msg.recipient_device_id
             );
             return Ok(());
         }
@@ -43,14 +52,27 @@ impl ToDeviceStorage {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            INSERT INTO to_device_messages (user_id, device_id, message_type, content, created_ts)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO to_device_messages (
+                sender_user_id,
+                sender_device_id,
+                recipient_user_id,
+                recipient_device_id,
+                event_type,
+                content,
+                message_id,
+                stream_id,
+                created_ts
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, nextval('to_device_stream_id_seq'), $8)
             "#,
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(message_type)
-        .bind(content)
+        .bind(msg.sender_user_id)
+        .bind(msg.sender_device_id)
+        .bind(msg.recipient_user_id)
+        .bind(msg.recipient_device_id)
+        .bind(msg.event_type)
+        .bind(msg.content)
+        .bind(msg.message_id)
         .bind(now)
         .execute(&*self.pool)
         .await
@@ -66,10 +88,10 @@ impl ToDeviceStorage {
     ) -> Result<Vec<Value>, ApiError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, message_type, content, created_ts
+            SELECT id, stream_id, sender_user_id, event_type, content, message_id, created_ts
             FROM to_device_messages
-            WHERE user_id = $1 AND device_id = $2
-            ORDER BY created_ts ASC
+            WHERE recipient_user_id = $1 AND recipient_device_id = $2
+            ORDER BY stream_id ASC
             "#,
         )
         .bind(user_id)
@@ -80,12 +102,20 @@ impl ToDeviceStorage {
 
         let mut messages = Vec::new();
         for row in rows {
-            let msg_type: String = row.get("message_type");
+            let event_type: String = row.get("event_type");
+            let sender_user_id: String = row.get("sender_user_id");
             let content: Value = row.get("content");
+            let message_id: Option<String> = row.get("message_id");
             messages.push(serde_json::json!({
-                "type": msg_type,
+                "type": event_type,
+                "sender": sender_user_id,
                 "content": content
             }));
+            if let Some(mid) = message_id {
+                if let Some(obj) = messages.last_mut().and_then(|v| v.as_object_mut()) {
+                    obj.insert("message_id".to_string(), serde_json::json!(mid));
+                }
+            }
         }
 
         Ok(messages)
