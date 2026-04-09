@@ -137,7 +137,6 @@ jobs:
             --output drift_report.txt \
             --exit-code || true
 
-          # Generate detailed markdown report
           python scripts/db/diff_schema.py \
             expected_schema.json \
             actual_schema.json \
@@ -145,12 +144,25 @@ jobs:
             --output drift_report.md \
             --exit-code || true
 
+          python scripts/db/diff_schema.py \
+            expected_schema.json \
+            actual_schema.json \
+            --format json \
+            --output drift_report.json
+
           echo "## Schema Drift Report" >> $GITHUB_STEP_SUMMARY
           cat drift_report.md >> $GITHUB_STEP_SUMMARY
 
-          if grep -q "BLOCKER" drift_report.txt; then
+          blockers=$(python3 - <<'PY'
+import json
+with open("drift_report.json", "r", encoding="utf-8") as f:
+    report = json.load(f)
+print(int(report.get("summary", {}).get("blockers", 0)))
+PY
+)
+          if [ "$blockers" -gt 0 ]; then
             echo "drift_detected=true" >> $GITHUB_OUTPUT
-            echo "drift_blockers=$(grep -c BLOCKER drift_report.txt)" >> $GITHUB_OUTPUT
+            echo "drift_blockers=$blockers" >> $GITHUB_OUTPUT
           else
             echo "drift_detected=false" >> $GITHUB_OUTPUT
             echo "drift_blockers=0" >> $GITHUB_OUTPUT
@@ -164,6 +176,7 @@ jobs:
           path: |
             drift_report.txt
             drift_report.md
+            drift_report.json
           retention-days: 30
 
       - name: Fail on blockers
