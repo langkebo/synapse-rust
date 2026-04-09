@@ -1,23 +1,23 @@
 //! 版本相关处理器
 
 use crate::web::AppState;
-use axum::{extract::State, routing::get, Json, Router};
+use axum::{
+    extract::State,
+    http::{header, StatusCode},
+    routing::get,
+    Json, Router,
+};
 use serde_json::json;
+
+const CLIENT_VERSIONS_JSON: &str = r#"{"versions":["r0.5.0","r0.6.0","v1.1","v1.2","v1.3","v1.4","v1.5","v1.6"],"unstable_features":{"m.lazy_load_members":true,"m.require_identity_server":false,"m.supports_login_via_phone_number":true,"org.matrix.msc3882":true,"org.matrix.msc3983":true,"org.matrix.msc3245":true,"org.matrix.msc3266":true}}"#;
 
 /// 获取客户端 API 版本
 pub async fn get_client_versions() -> impl axum::response::IntoResponse {
-    Json(json!({
-        "versions": ["r0.5.0", "r0.6.0", "v1.1", "v1.2", "v1.3", "v1.4", "v1.5", "v1.6"],
-        "unstable_features": {
-            "m.lazy_load_members": true,
-            "m.require_identity_server": false,
-            "m.supports_login_via_phone_number": true,
-            "org.matrix.msc3882": true,
-            "org.matrix.msc3983": true,
-            "org.matrix.msc3245": true,
-            "org.matrix.msc3266": true
-        }
-    }))
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json")],
+        CLIENT_VERSIONS_JSON,
+    )
 }
 
 /// 获取服务端版本

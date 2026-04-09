@@ -302,7 +302,16 @@ impl EventStorage {
                    COALESCE(is_redacted, false) as is_redacted,
                    COALESCE(origin_server_ts, 0) as origin_server_ts,
                    depth, NULL::BIGINT as processed_ts, not_before, status, reference_image, origin, user_id
-            FROM events WHERE room_id = $1 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
+            FROM (
+                SELECT DISTINCT ON (event_type, state_key)
+                       event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
+                       unsigned, is_redacted, origin_server_ts, depth, not_before, status, reference_image, origin, user_id
+                FROM events
+                WHERE room_id = $1
+                  AND state_key IS NOT NULL
+                ORDER BY event_type, state_key, origin_server_ts DESC
+            ) s
+            ORDER BY origin_server_ts DESC
             "#,
         )
         .bind(room_id)
@@ -472,15 +481,36 @@ impl EventStorage {
 
         let events: Vec<RoomEvent> = sqlx::query_as(
             r#"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_ts, 
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
-            FROM events 
-            WHERE room_id = ANY($1)
+            SELECT event_id, room_id, user_id, event_type, content, state_key,
+                   depth, origin_server_ts, processed_ts, not_before, status, reference_image, origin
+            FROM (
+                SELECT
+                    event_id,
+                    room_id,
+                    COALESCE(user_id, sender) as user_id,
+                    event_type,
+                    content,
+                    state_key,
+                    COALESCE(depth, 0) as depth,
+                    COALESCE(origin_server_ts, 0) as origin_server_ts,
+                    COALESCE(origin_server_ts, 0) as processed_ts,
+                    COALESCE(not_before, 0) as not_before,
+                    status,
+                    reference_image,
+                    COALESCE(origin, 'self') as origin,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY room_id
+                        ORDER BY origin_server_ts DESC
+                    ) AS rn
+                FROM events
+                WHERE room_id = ANY($1)
+            ) ranked
+            WHERE rn <= $2
             ORDER BY room_id, origin_server_ts DESC
             "#,
         )
         .bind(room_ids)
+        .bind(limit_per_room)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -510,16 +540,38 @@ impl EventStorage {
 
         let events: Vec<RoomEvent> = sqlx::query_as(
             r#"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_ts, 
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin
-            FROM events 
-            WHERE room_id = ANY($1) AND origin_server_ts > $2
+            SELECT event_id, room_id, user_id, event_type, content, state_key,
+                   depth, origin_server_ts, processed_ts, not_before, status, reference_image, origin
+            FROM (
+                SELECT
+                    event_id,
+                    room_id,
+                    COALESCE(user_id, sender) as user_id,
+                    event_type,
+                    content,
+                    state_key,
+                    COALESCE(depth, 0) as depth,
+                    COALESCE(origin_server_ts, 0) as origin_server_ts,
+                    COALESCE(origin_server_ts, 0) as processed_ts,
+                    COALESCE(not_before, 0) as not_before,
+                    status,
+                    reference_image,
+                    COALESCE(origin, 'self') as origin,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY room_id
+                        ORDER BY origin_server_ts DESC
+                    ) AS rn
+                FROM events
+                WHERE room_id = ANY($1)
+                  AND origin_server_ts > $2
+            ) ranked
+            WHERE rn <= $3
             ORDER BY room_id, origin_server_ts DESC
             "#,
         )
         .bind(room_ids)
         .bind(since)
+        .bind(limit_per_room)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -590,8 +642,15 @@ impl EventStorage {
                    COALESCE(is_redacted, false) as is_redacted,
                    COALESCE(origin_server_ts, 0) as origin_server_ts,
                    depth, NULL::BIGINT as processed_ts, not_before, status, reference_image, origin, user_id
-            FROM events 
-            WHERE room_id = ANY($1) AND state_key IS NOT NULL
+            FROM (
+                SELECT DISTINCT ON (room_id, event_type, state_key)
+                       event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
+                       unsigned, is_redacted, origin_server_ts, depth, not_before, status, reference_image, origin, user_id
+                FROM events
+                WHERE room_id = ANY($1)
+                  AND state_key IS NOT NULL
+                ORDER BY room_id, event_type, state_key, origin_server_ts DESC
+            ) s
             ORDER BY room_id, origin_server_ts DESC
             "#,
         )
@@ -609,6 +668,32 @@ impl EventStorage {
         }
 
         Ok(result)
+    }
+
+    pub async fn has_room_events_since(
+        &self,
+        room_ids: &[String],
+        since: i64,
+    ) -> Result<bool, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(false);
+        }
+
+        let row = sqlx::query_scalar::<_, i32>(
+            r#"
+            SELECT 1
+            FROM events
+            WHERE room_id = ANY($1)
+              AND origin_server_ts > $2
+            LIMIT 1
+            "#,
+        )
+        .bind(room_ids)
+        .bind(since)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row.is_some())
     }
 
     pub async fn get_latest_events_for_rooms(

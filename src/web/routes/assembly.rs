@@ -8,7 +8,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::json;
-use tower_http::compression::CompressionLayer;
+use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 
 async fn get_client_config(
     State(_state): State<AppState>,
@@ -186,7 +186,7 @@ pub fn create_router(state: AppState) -> Router {
     router
         .layer(axum::middleware::from_fn(cors_middleware))
         .layer(axum::middleware::from_fn(security_headers_middleware))
-        .layer(CompressionLayer::new())
+        .layer(CompressionLayer::new().compress_when(SizeAbove::new(1024)))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             csrf_middleware,

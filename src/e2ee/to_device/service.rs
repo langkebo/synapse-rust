@@ -1,4 +1,4 @@
-use super::storage::ToDeviceStorage;
+use super::storage::{ToDeviceMessage, ToDeviceStorage};
 use crate::error::ApiError;
 use crate::storage::UserStorage;
 use serde_json::Value;
@@ -22,7 +22,14 @@ impl ToDeviceService {
         self
     }
 
-    pub async fn send_messages(&self, _sender_id: &str, messages: &Value) -> Result<(), ApiError> {
+    pub async fn send_messages(
+        &self,
+        sender_user_id: &str,
+        sender_device_id: &str,
+        event_type: &str,
+        message_id: Option<&str>,
+        messages: &Value,
+    ) -> Result<(), ApiError> {
         if let Some(msg_map) = messages.as_object() {
             for (user_id, devices) in msg_map {
                 // Check if user exists if user_storage is available
@@ -42,13 +49,16 @@ impl ToDeviceService {
 
                 if let Some(device_map) = devices.as_object() {
                     for (device_id, content) in device_map {
-                        // Extract message type from content, default to generic type if missing
-                        let msg_type = content
-                            .get("type")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("m.to_device");
                         self.storage
-                            .add_message(user_id, device_id, msg_type, content.clone())
+                            .add_message(ToDeviceMessage {
+                                sender_user_id,
+                                sender_device_id,
+                                recipient_user_id: user_id,
+                                recipient_device_id: device_id,
+                                event_type,
+                                message_id,
+                                content: content.clone(),
+                            })
                             .await?;
                     }
                 }

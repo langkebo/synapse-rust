@@ -676,8 +676,6 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
 
     let is_options = request.method() == "OPTIONS";
 
-    let mut response = next.run(request).await;
-
     let allow_origin = if is_dev_mode() {
         origin.as_deref().or(Some("*"))
     } else if let Some(ref req_origin) = origin {
@@ -691,6 +689,48 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
         None
     };
 
+    if is_options {
+        let mut response = Response::new(Body::empty());
+        if let Some(allowed) = allow_origin {
+            if let Ok(value) = HeaderValue::from_str(allowed) {
+                response
+                    .headers_mut()
+                    .insert("Access-Control-Allow-Origin", value);
+            }
+        }
+        response.headers_mut().insert(
+            "Access-Control-Allow-Methods",
+            HeaderValue::from_static("GET, POST, PUT, DELETE, OPTIONS, PATCH"),
+        );
+        response.headers_mut().insert(
+            "Access-Control-Allow-Headers",
+            HeaderValue::from_static(
+                "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token",
+            ),
+        );
+        response.headers_mut().insert(
+            "Access-Control-Expose-Headers",
+            HeaderValue::from_static("X-Request-ID, X-CSRF-Token"),
+        );
+        response.headers_mut().insert(
+            "Access-Control-Allow-Credentials",
+            HeaderValue::from_static("true"),
+        );
+        response
+            .headers_mut()
+            .insert("Vary", HeaderValue::from_static("Origin"));
+        let max_age = std::env::var("CORS_MAX_AGE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(86400);
+        response
+            .headers_mut()
+            .insert("Access-Control-Max-Age", HeaderValue::from(max_age));
+        *response.status_mut() = StatusCode::NO_CONTENT;
+        return response;
+    }
+
+    let mut response = next.run(request).await;
     if let Some(allowed) = allow_origin {
         if let Ok(value) = HeaderValue::from_str(allowed) {
             response
@@ -721,30 +761,9 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
         HeaderValue::from_static("true"),
     );
 
-    if let Some(ref origin) = origin {
-        response.headers_mut().insert(
-            "Vary",
-            HeaderValue::from_str(&format!("Origin, {}", origin))
-                .unwrap_or_else(|_| HeaderValue::from_static("Origin")),
-        );
-    } else {
-        response
-            .headers_mut()
-            .insert("Vary", HeaderValue::from_static("Origin"));
-    }
-
-    if is_options {
-        let max_age = std::env::var("CORS_MAX_AGE")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(86400);
-
-        response
-            .headers_mut()
-            .insert("Access-Control-Max-Age", HeaderValue::from(max_age));
-
-        *response.status_mut() = StatusCode::NO_CONTENT;
-    }
+    response
+        .headers_mut()
+        .insert("Vary", HeaderValue::from_static("Origin"));
 
     response
 }
@@ -1566,19 +1585,23 @@ fn decode_ed25519_signature(sig: &str) -> Result<ed25519_dalek::Signature, ()> {
 // ============================================================================
 
 pub async fn panic_catcher_middleware(request: Request<Body>, next: Next) -> Response {
-    let method = request.method().to_string();
-    let path = request.uri().path().to_string();
-
-    tracing::debug!("Processing request: {} {}", method, path);
+    let debug = tracing::enabled!(tracing::Level::DEBUG);
+    let method = debug.then(|| request.method().clone());
+    let path = debug.then(|| request.uri().path().to_string());
+    if let (Some(ref method), Some(ref path)) = (&method, &path) {
+        tracing::debug!("Processing request: {} {}", method, path);
+    }
 
     let response = next.run(request).await;
 
-    tracing::debug!(
-        "Completed request: {} {} - {}",
-        method,
-        path,
-        response.status()
-    );
+    if let (Some(method), Some(path)) = (method, path) {
+        tracing::debug!(
+            "Completed request: {} {} - {}",
+            method,
+            path,
+            response.status()
+        );
+    }
 
     response
 }

@@ -1,0 +1,2 @@
+ts	cpu	mem	net_io	block_io	pids	main_pid	fd_count	tcp_inuse	tcp_tw	tcp_alloc	tcp_mem	listen_overflows	listen_drops	tcp_retrans_segs	softirq_net_rx	softirq_net_tx
+1775688567	1.15%	238.7MiB / 3.884GiB	3.47GB / 11.1GB	1.72GB / 0B	12	1193600	0	16	0	110	0	0	0	34	82712018	16883
