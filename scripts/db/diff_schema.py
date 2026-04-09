@@ -10,7 +10,7 @@ import sys
 import json
 import argparse
 from typing import Dict, List, Any, Optional, Set
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -237,7 +237,75 @@ def compare_schemas(
 def format_report(report: DriftReport, format: str = 'text') -> str:
     """Format drift report in specified format."""
     if format == 'json':
-        return json.dumps(asdict(report), indent=2)
+        payload = {
+            "expected_version": report.expected_version,
+            "actual_version": report.actual_version,
+            "detected_at": report.detected_at,
+            "summary": report.summary,
+            "blocked": report.blocked,
+            "drift_items": [
+                {
+                    "severity": item.severity.name,
+                    "severity_label": item.severity.value,
+                    "drift_type": item.drift_type,
+                    "table": item.table,
+                    "item": item.item,
+                    "expected": item.expected,
+                    "actual": item.actual,
+                    "description": item.description,
+                }
+                for item in report.drift_items
+            ],
+        }
+        return json.dumps(payload, indent=2, ensure_ascii=False)
+
+    if format == 'markdown':
+        lines = []
+        lines.append("# Schema Drift Detection Report")
+        lines.append("")
+        lines.append(f"- Detected at: `{report.detected_at}`")
+        lines.append(f"- Expected version: `{report.expected_version or 'N/A'}`")
+        lines.append(f"- Actual version: `{report.actual_version or 'N/A'}`")
+        lines.append("")
+        lines.append("## Summary")
+        lines.append("")
+        lines.append("| Total | Blockers | Warnings | Info | Blocked |")
+        lines.append("|---:|---:|---:|---:|:---:|")
+        lines.append(
+            f"| {report.summary['total']} | {report.summary['blockers']} | {report.summary['warnings']} | {report.summary['info']} | {'YES' if report.blocked else 'NO'} |"
+        )
+        lines.append("")
+        lines.append("## Drift Items")
+        lines.append("")
+        if not report.drift_items:
+            lines.append("No drift items detected.")
+            return "\n".join(lines)
+
+        def severity_rank(s: Severity) -> int:
+            return {Severity.BLOCKER: 0, Severity.WARNING: 1, Severity.INFO: 2}.get(s, 99)
+
+        items = sorted(report.drift_items, key=lambda i: (severity_rank(i.severity), i.drift_type, i.table, i.item or ""))
+        current_severity = None
+        for item in items:
+            if item.severity != current_severity:
+                lines.append(f"### {item.severity.value}")
+                lines.append("")
+                current_severity = item.severity
+
+            parts = [f"- **{item.drift_type}**: `{item.table}`"]
+            if item.item:
+                parts[0] += f" / `{item.item}`"
+            lines.append(parts[0])
+            if item.expected is not None or item.actual is not None:
+                lines.append("")
+                lines.append("| Expected | Actual |")
+                lines.append("|---|---|")
+                lines.append(f"| {item.expected or ''} | {item.actual or ''} |")
+            lines.append("")
+            lines.append(f"{item.description}")
+            lines.append("")
+
+        return "\n".join(lines)
 
     lines = []
     lines.append("=" * 80)
@@ -295,7 +363,7 @@ def main():
     parser = argparse.ArgumentParser(description='Detect schema drift')
     parser.add_argument('expected', help='Expected schema JSON file (from migrations)')
     parser.add_argument('actual', help='Actual schema JSON file (from database)')
-    parser.add_argument('--format', '-f', choices=['text', 'json'], default='text')
+    parser.add_argument('--format', '-f', choices=['text', 'json', 'markdown'], default='text')
     parser.add_argument('--output', '-o', help='Output file (default: stdout)')
     parser.add_argument('--exit-code', action='store_true', help='Exit with code 1 if blocked')
 
