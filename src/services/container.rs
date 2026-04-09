@@ -118,6 +118,7 @@ pub struct ServiceContainer {
     pub cas_service: Arc<crate::services::cas_service::CasService>,
     pub media_quota_storage: crate::storage::media_quota::MediaQuotaStorage,
     pub media_quota_service: Arc<crate::services::media_quota_service::MediaQuotaService>,
+    pub ai_connection_storage: crate::storage::ai_connection::AiConnectionStorage,
     pub server_notification_storage: crate::storage::server_notification::ServerNotificationStorage,
     pub server_notification_service:
         Arc<crate::services::server_notification_service::ServerNotificationService>,
@@ -427,6 +428,8 @@ impl ServiceContainer {
                 media_quota_storage.clone(),
             )),
         );
+        let ai_connection_storage =
+            crate::storage::ai_connection::AiConnectionStorage::new(pool.clone());
         let server_notification_storage =
             crate::storage::server_notification::ServerNotificationStorage::new(pool);
         let server_notification_service = Arc::new(
@@ -552,6 +555,7 @@ impl ServiceContainer {
             cas_service,
             media_quota_storage,
             media_quota_service,
+            ai_connection_storage,
             server_notification_storage,
             server_notification_service,
             privacy_storage,

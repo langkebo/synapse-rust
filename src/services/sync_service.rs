@@ -10,23 +10,50 @@ pub struct SyncToken {
     pub stream_id: i64,
     pub room_id: Option<String>,
     pub event_type: Option<String>,
+    pub to_device_stream_id: Option<i64>,
+    pub device_list_stream_id: Option<i64>,
 }
 
 impl SyncToken {
     pub fn parse(token: &str) -> Option<Self> {
         if let Some(stripped) = token.strip_prefix('s') {
-            stripped.parse::<i64>().ok().map(|stream_id| Self {
-                stream_id,
-                room_id: None,
-                event_type: None,
-            })
+            if let Some((event_stream_id, rest)) = stripped.split_once('_') {
+                let (to_device_stream_id, device_list_stream_id) =
+                    rest.split_once('_').and_then(|(to_device, device_list)| {
+                        let to_device_id = to_device.parse::<i64>().ok()?;
+                        let device_list_id = device_list.parse::<i64>().ok()?;
+                        Some((to_device_id, device_list_id))
+                    })?;
+
+                let stream_id = event_stream_id.parse::<i64>().ok()?;
+                Some(Self {
+                    stream_id,
+                    room_id: None,
+                    event_type: None,
+                    to_device_stream_id: Some(to_device_stream_id),
+                    device_list_stream_id: Some(device_list_stream_id),
+                })
+            } else {
+                stripped.parse::<i64>().ok().map(|stream_id| Self {
+                    stream_id,
+                    room_id: None,
+                    event_type: None,
+                    to_device_stream_id: None,
+                    device_list_stream_id: None,
+                })
+            }
         } else {
             None
         }
     }
 
     pub fn encode(&self) -> String {
-        format!("s{}", self.stream_id)
+        match (self.to_device_stream_id, self.device_list_stream_id) {
+            (Some(to_device), Some(device_list)) => {
+                format!("s{}_{}_{}", self.stream_id, to_device, device_list)
+            }
+            _ => format!("s{}", self.stream_id),
+        }
     }
 }
 
@@ -49,6 +76,13 @@ impl Default for SyncFilter {
             not_senders: None,
         }
     }
+}
+
+/// Unread counts for room sync
+#[derive(Debug, Clone, Default)]
+pub struct RoomSyncCounts {
+    pub highlight_count: i64,
+    pub notification_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +129,14 @@ pub struct RoomSyncState {
     pub last_stream_id: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IncrementalUpdate {
+    Events,
+    ToDevice,
+    DeviceLists,
+    Timeout,
+}
+
 pub struct SyncService {
     presence_storage: PresenceStorage,
     member_storage: RoomMemberStorage,
@@ -105,6 +147,8 @@ pub struct SyncService {
 }
 
 impl SyncService {
+    const TIMESTAMP_TOKEN_MIN: i64 = 1_000_000_000_000;
+
     pub fn new(
         presence_storage: PresenceStorage,
         member_storage: RoomMemberStorage,
@@ -124,6 +168,7 @@ impl SyncService {
     pub async fn sync(
         &self,
         user_id: &str,
+        device_id: Option<&str>,
         timeout: u64,
         full_state: bool,
         set_presence: &str,
@@ -135,14 +180,21 @@ impl SyncService {
         let is_incremental = since_token.is_some() && !full_state;
 
         let room_ids = self.member_storage.get_joined_rooms(user_id).await?;
-        let since_ts = since_token.as_ref().map(|t| t.stream_id).unwrap_or(0);
 
         let room_events = self
-            .fetch_events(&room_ids, since_ts, timeout, is_incremental)
+            .fetch_events(
+                user_id,
+                device_id,
+                &room_ids,
+                since_token.as_ref(),
+                timeout,
+                is_incremental,
+            )
             .await?;
 
         self.build_sync_response(
             user_id,
+            device_id,
             &room_ids,
             room_events,
             &since_token,
@@ -161,11 +213,17 @@ impl SyncService {
     ) -> ApiResult<serde_json::Value> {
         let since_token = since.and_then(SyncToken::parse);
         let is_incremental = since_token.is_some() && !full_state;
-        let since_ts = since_token.as_ref().map(|t| t.stream_id).unwrap_or(0);
 
         let room_ids = vec![room_id.to_string()];
         let room_events = self
-            .fetch_events(&room_ids, since_ts, timeout, is_incremental)
+            .fetch_events(
+                user_id,
+                None,
+                &room_ids,
+                since_token.as_ref(),
+                timeout,
+                is_incremental,
+            )
             .await?;
 
         let events = room_events.get(room_id).cloned().unwrap_or_default();
@@ -178,13 +236,15 @@ impl SyncService {
             _ => serde_json::Map::new(),
         };
 
-        let stream_id = self.get_next_stream_id().await?;
+        let stream_id = self.next_event_stream_id(&since_token, &room_events);
         result.insert(
             "next_batch".to_string(),
             json!(SyncToken {
                 stream_id,
                 room_id: None,
-                event_type: None
+                event_type: None,
+                to_device_stream_id: None,
+                device_list_stream_id: None,
             }
             .encode()),
         );
@@ -210,22 +270,44 @@ impl SyncService {
 
     async fn fetch_events(
         &self,
+        user_id: &str,
+        device_id: Option<&str>,
         room_ids: &[String],
-        since_ts: i64,
+        since_token: Option<&SyncToken>,
         timeout: u64,
         is_incremental: bool,
     ) -> ApiResult<HashMap<String, Vec<RoomEvent>>> {
         let limit = 50i64;
 
         if is_incremental {
+            let since_ts = self.event_since_ts(&since_token.map(|t| (*t).clone()));
             let events = self
                 .event_storage
                 .get_room_events_since_batch(room_ids, since_ts, limit)
                 .await?;
 
             if events.values().all(|v| v.is_empty()) && timeout > 0 {
-                self.poll_for_events(room_ids, since_ts, limit, timeout)
-                    .await
+                let update = self
+                    .wait_for_incremental_update(
+                        user_id,
+                        device_id,
+                        room_ids,
+                        since_ts,
+                        since_token,
+                        timeout,
+                    )
+                    .await?;
+
+                match update {
+                    IncrementalUpdate::Events => self
+                        .event_storage
+                        .get_room_events_since_batch(room_ids, since_ts, limit)
+                        .await
+                        .map_err(Into::into),
+                    IncrementalUpdate::Timeout
+                    | IncrementalUpdate::ToDevice
+                    | IncrementalUpdate::DeviceLists => Ok(events),
+                }
             } else {
                 Ok(events)
             }
@@ -237,6 +319,7 @@ impl SyncService {
         }
     }
 
+    #[allow(dead_code)]
     async fn poll_for_events(
         &self,
         room_ids: &[String],
@@ -249,13 +332,98 @@ impl SyncService {
         let poll_interval = std::time::Duration::from_millis(500);
 
         loop {
-            let events = self
+            let has_events = self
                 .event_storage
-                .get_room_events_since_batch(room_ids, since_ts, limit)
-                .await?;
+                .has_room_events_since(room_ids, since_ts)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to poll for events: {}", e)))?;
 
-            if !events.values().all(|v| v.is_empty()) || start.elapsed() >= timeout_duration {
-                return Ok(events);
+            if has_events || start.elapsed() >= timeout_duration {
+                return self
+                    .event_storage
+                    .get_room_events_since_batch(room_ids, since_ts, limit)
+                    .await
+                    .map_err(Into::into);
+            }
+
+            tokio::time::sleep(poll_interval).await;
+        }
+    }
+
+    async fn wait_for_incremental_update(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        room_ids: &[String],
+        since_ts: i64,
+        since_token: Option<&SyncToken>,
+        timeout: u64,
+    ) -> ApiResult<IncrementalUpdate> {
+        let timeout_duration = std::time::Duration::from_millis(timeout);
+        let start = std::time::Instant::now();
+        let poll_interval = std::time::Duration::from_millis(500);
+
+        let since_to_device = since_token.and_then(|t| t.to_device_stream_id).unwrap_or(0);
+        let since_device_lists = since_token
+            .and_then(|t| t.device_list_stream_id)
+            .unwrap_or(0);
+
+        loop {
+            if start.elapsed() >= timeout_duration {
+                return Ok(IncrementalUpdate::Timeout);
+            }
+
+            let has_events = self
+                .event_storage
+                .has_room_events_since(room_ids, since_ts)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to poll for events: {}", e)))?;
+            if has_events {
+                return Ok(IncrementalUpdate::Events);
+            }
+
+            if let Some(device_id) = device_id {
+                let has_to_device = sqlx::query_scalar::<_, i32>(
+                    r#"
+                    SELECT 1
+                    FROM to_device_messages
+                    WHERE recipient_user_id = $1
+                      AND recipient_device_id = $2
+                      AND stream_id > $3
+                    LIMIT 1
+                    "#,
+                )
+                .bind(user_id)
+                .bind(device_id)
+                .bind(since_to_device)
+                .fetch_optional(&*self.event_storage.pool)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to poll for to-device updates: {}", e))
+                })?;
+
+                if has_to_device.is_some() {
+                    return Ok(IncrementalUpdate::ToDevice);
+                }
+            }
+
+            let has_device_lists = sqlx::query_scalar::<_, i32>(
+                r#"
+                SELECT 1
+                FROM device_lists_stream
+                WHERE stream_id > $1
+                LIMIT 1
+                "#,
+            )
+            .bind(since_device_lists)
+            .fetch_optional(&*self.event_storage.pool)
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to poll for device-list updates: {}", e))
+            })?;
+
+            if has_device_lists.is_some() {
+                return Ok(IncrementalUpdate::DeviceLists);
             }
 
             tokio::time::sleep(poll_interval).await;
@@ -265,17 +433,52 @@ impl SyncService {
     async fn build_sync_response(
         &self,
         user_id: &str,
+        device_id: Option<&str>,
         room_ids: &[String],
         room_events: HashMap<String, Vec<RoomEvent>>,
         since_token: &Option<SyncToken>,
         is_incremental: bool,
     ) -> ApiResult<serde_json::Value> {
+        let rooms_to_include = self.rooms_to_include(room_ids, &room_events, is_incremental);
+        let state_by_room = if is_incremental {
+            HashMap::new()
+        } else {
+            self.get_room_state_events_batch(&rooms_to_include).await?
+        };
+        let ephemeral_by_room = self
+            .get_room_ephemeral_events_batch(&rooms_to_include)
+            .await?;
+        let room_account_data_by_room = self
+            .get_room_account_data_events_batch(user_id, &rooms_to_include)
+            .await?;
+        let unread_counts_by_room = self
+            .get_unread_counts_batch(&rooms_to_include, user_id)
+            .await?;
+
         let mut rooms = serde_json::Map::new();
-        for room_id in room_ids {
+        for room_id in &rooms_to_include {
             let events = room_events.get(room_id).cloned().unwrap_or_default();
-            let room_sync = self
-                .build_room_sync(room_id, user_id, events, is_incremental)
-                .await?;
+            let state_events = state_by_room.get(room_id).cloned().unwrap_or_default();
+            let ephemeral_events = ephemeral_by_room.get(room_id).cloned().unwrap_or_default();
+            let account_data_events = room_account_data_by_room
+                .get(room_id)
+                .cloned()
+                .unwrap_or_default();
+            let (highlight_count, notification_count) = unread_counts_by_room
+                .get(room_id)
+                .copied()
+                .unwrap_or((0, 0));
+            let room_sync = self.build_room_sync_value(
+                room_id,
+                events,
+                state_events,
+                ephemeral_events,
+                account_data_events,
+                RoomSyncCounts {
+                    highlight_count,
+                    notification_count,
+                },
+            );
 
             if room_sync.is_object() && !room_sync.as_object().is_some_and(|o| o.is_empty()) {
                 rooms.insert(room_id.clone(), room_sync);
@@ -284,12 +487,28 @@ impl SyncService {
 
         let presence_events = self.get_presence_events(user_id, since_token).await?;
         let account_data_events = self.get_account_data_events(user_id).await?;
-        let to_device_events = self.get_to_device_events(user_id, since_token).await?;
+        let to_device_events = self
+            .get_to_device_events(user_id, device_id, since_token)
+            .await?;
         let device_lists = self.get_device_lists(user_id, since_token).await?;
-        let stream_id = self.get_next_stream_id().await?;
+        let stream_id = self.next_event_stream_id(since_token, &room_events);
+        let to_device_stream_id = match device_id {
+            Some(device_id) => {
+                self.get_current_to_device_stream_id(user_id, device_id)
+                    .await?
+            }
+            None => 0,
+        };
+        let device_list_stream_id = self.get_current_device_list_stream_id().await?;
 
         Ok(json!({
-            "next_batch": SyncToken { stream_id, room_id: None, event_type: None }.encode(),
+            "next_batch": SyncToken {
+                stream_id,
+                room_id: None,
+                event_type: None,
+                to_device_stream_id: Some(to_device_stream_id),
+                device_list_stream_id: Some(device_list_stream_id),
+            }.encode(),
             "rooms": {
                 "join": rooms,
                 "invite": {},
@@ -310,15 +529,11 @@ impl SyncService {
         events: Vec<RoomEvent>,
         is_incremental: bool,
     ) -> ApiResult<serde_json::Value> {
-        // state_events are already serialized to JSON by get_room_state_events
         let state_list = if is_incremental {
             vec![]
         } else {
             self.get_room_state_events(room_id).await?
         };
-
-        let event_list: Vec<serde_json::Value> =
-            events.iter().map(|e| self.event_to_json(e)).collect();
 
         let ephemeral_events = self.get_room_ephemeral_events(room_id, user_id).await?;
 
@@ -327,33 +542,17 @@ impl SyncService {
         let (highlight_count, notification_count) =
             self.get_unread_counts(room_id, user_id).await?;
 
-        let prev_batch = events
-            .first()
-            .map(|e| format!("t{}", e.origin_server_ts))
-            .unwrap_or_else(|| format!("t{}", chrono::Utc::now().timestamp_millis()));
-
-        let limited = event_list.len() as i64 >= 50;
-
-        Ok(json!({
-            "state": {
-                "events": state_list
+        Ok(self.build_room_sync_value(
+            room_id,
+            events,
+            state_list,
+            ephemeral_events,
+            account_data_events,
+            RoomSyncCounts {
+                highlight_count,
+                notification_count,
             },
-            "timeline": {
-                "events": event_list,
-                "limited": limited,
-                "prev_batch": prev_batch
-            },
-            "ephemeral": {
-                "events": ephemeral_events
-            },
-            "account_data": {
-                "events": account_data_events
-            },
-            "unread_notifications": {
-                "highlight_count": highlight_count,
-                "notification_count": notification_count
-            }
-        }))
+        ))
     }
 
     fn event_to_json(&self, event: &RoomEvent) -> serde_json::Value {
@@ -380,6 +579,69 @@ impl SyncService {
         obj
     }
 
+    fn state_event_to_json(&self, event: &StateEvent) -> serde_json::Value {
+        let now = chrono::Utc::now().timestamp_millis();
+        let sender = event.user_id.as_deref().unwrap_or(&event.sender);
+        let age = now.saturating_sub(event.origin_server_ts);
+        let event_type = event.event_type.as_deref().unwrap_or("m.room.message");
+        let mut obj = json!({
+            "type": event_type,
+            "content": event.content,
+            "sender": sender,
+            "origin_server_ts": event.origin_server_ts,
+            "event_id": event.event_id,
+            "room_id": event.room_id,
+            "unsigned": {
+                "age": age
+            }
+        });
+        if let Some(ref state_key) = event.state_key {
+            obj["state_key"] = json!(state_key);
+        }
+        obj
+    }
+
+    fn build_room_sync_value(
+        &self,
+        _room_id: &str,
+        events: Vec<RoomEvent>,
+        state_list: Vec<serde_json::Value>,
+        ephemeral_events: Vec<serde_json::Value>,
+        account_data_events: Vec<serde_json::Value>,
+        counts: RoomSyncCounts,
+    ) -> serde_json::Value {
+        let event_list: Vec<serde_json::Value> = events
+            .iter()
+            .map(|event| self.event_to_json(event))
+            .collect();
+        let prev_batch = events
+            .first()
+            .map(|event| format!("t{}", event.origin_server_ts))
+            .unwrap_or_else(|| format!("t{}", chrono::Utc::now().timestamp_millis()));
+        let limited = event_list.len() as i64 >= 50;
+
+        json!({
+            "state": {
+                "events": state_list
+            },
+            "timeline": {
+                "events": event_list,
+                "limited": limited,
+                "prev_batch": prev_batch
+            },
+            "ephemeral": {
+                "events": ephemeral_events
+            },
+            "account_data": {
+                "events": account_data_events
+            },
+            "unread_notifications": {
+                "highlight_count": counts.highlight_count,
+                "notification_count": counts.notification_count
+            }
+        })
+    }
+
     async fn get_room_state_events(&self, room_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let state_events = self
             .event_storage
@@ -387,28 +649,30 @@ impl SyncService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get room state events: {}", e)))?;
 
-        let now = chrono::Utc::now().timestamp_millis();
         Ok(state_events
             .iter()
-            .map(|e| {
-                let sender = e.user_id.as_deref().unwrap_or(&e.sender);
-                let age = now.saturating_sub(e.origin_server_ts);
-                let event_type = e.event_type.as_deref().unwrap_or("m.room.message");
-                let mut obj = json!({
-                    "type": event_type,
-                    "content": e.content,
-                    "sender": sender,
-                    "origin_server_ts": e.origin_server_ts,
-                    "event_id": e.event_id,
-                    "room_id": e.room_id,
-                    "unsigned": {
-                        "age": age
-                    }
-                });
-                if let Some(ref sk) = e.state_key {
-                    obj["state_key"] = json!(sk);
-                }
-                obj
+            .map(|event| self.state_event_to_json(event))
+            .collect())
+    }
+
+    async fn get_room_state_events_batch(
+        &self,
+        room_ids: &[String],
+    ) -> ApiResult<HashMap<String, Vec<serde_json::Value>>> {
+        let state_events = self
+            .event_storage
+            .get_state_events_batch(room_ids)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get room state events: {}", e)))?;
+
+        Ok(state_events
+            .into_iter()
+            .map(|(room_id, events)| {
+                let values = events
+                    .iter()
+                    .map(|event| self.state_event_to_json(event))
+                    .collect();
+                (room_id, values)
             })
             .collect())
     }
@@ -498,20 +762,27 @@ impl SyncService {
     async fn get_to_device_events(
         &self,
         user_id: &str,
+        device_id: Option<&str>,
         since: &Option<SyncToken>,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        let since_stream_id = since.as_ref().map(|t| t.stream_id).unwrap_or(0);
+        let Some(device_id) = device_id else {
+            return Ok(Vec::new());
+        };
+        let since_stream_id = self.to_device_since_stream_id(since);
 
         let rows = sqlx::query(
             r#"
             SELECT sender_user_id, sender_device_id, event_type, content, message_id
             FROM to_device_messages
-            WHERE recipient_user_id = $1 AND stream_id > $2
+            WHERE recipient_user_id = $1
+              AND recipient_device_id = $2
+              AND stream_id > $3
             ORDER BY stream_id ASC
             LIMIT 100
             "#,
         )
         .bind(user_id)
+        .bind(device_id)
         .bind(since_stream_id)
         .fetch_all(&*self.event_storage.pool)
         .await
@@ -549,7 +820,7 @@ impl SyncService {
         user_id: &str,
         since: &Option<SyncToken>,
     ) -> ApiResult<serde_json::Value> {
-        let since_stream_id = since.as_ref().map(|t| t.stream_id).unwrap_or(0);
+        let since_stream_id = self.device_list_since_stream_id(since);
 
         // Get users whose devices have changed
         let changed_rows = sqlx::query(
@@ -609,19 +880,50 @@ impl SyncService {
         }))
     }
 
-    async fn get_next_stream_id(&self) -> ApiResult<i64> {
-        let row = sqlx::query(
+    async fn get_current_to_device_stream_id(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> ApiResult<i64> {
+        sqlx::query_scalar::<_, i64>(
             r#"
-            INSERT INTO sync_stream_id DEFAULT VALUES RETURNING id
+            SELECT COALESCE(MAX(stream_id), 0)
+            FROM to_device_messages
+            WHERE recipient_user_id = $1
+              AND recipient_device_id = $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .fetch_one(&*self.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get to-device stream ID: {}", e)))
+    }
+
+    async fn get_current_device_list_stream_id(&self) -> ApiResult<i64> {
+        sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COALESCE(MAX(stream_id), 0)
+            FROM device_lists_stream
             "#,
         )
         .fetch_one(&*self.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to generate stream ID: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get device-list stream ID: {}", e)))
+    }
 
-        use sqlx::Row;
-        let stream_id: i64 = row.get("id");
-        Ok(stream_id)
+    fn to_device_since_stream_id(&self, since: &Option<SyncToken>) -> i64 {
+        since
+            .as_ref()
+            .and_then(|token| token.to_device_stream_id)
+            .unwrap_or(0)
+    }
+
+    fn device_list_since_stream_id(&self, since: &Option<SyncToken>) -> i64 {
+        since
+            .as_ref()
+            .and_then(|token| token.device_list_stream_id)
+            .unwrap_or(0)
     }
 
     async fn get_room_ephemeral_events(
@@ -666,6 +968,69 @@ impl SyncService {
         Ok(events)
     }
 
+    async fn get_room_ephemeral_events_batch(
+        &self,
+        room_ids: &[String],
+    ) -> ApiResult<HashMap<String, Vec<serde_json::Value>>> {
+        let mut result: HashMap<String, Vec<serde_json::Value>> = room_ids
+            .iter()
+            .cloned()
+            .map(|room_id| (room_id, Vec::new()))
+            .collect();
+        if room_ids.is_empty() {
+            return Ok(result);
+        }
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let rows = sqlx::query(
+            r#"
+            SELECT room_id, event_type, user_id, content, stream_id
+            FROM (
+                SELECT
+                    room_id,
+                    event_type,
+                    user_id,
+                    content,
+                    stream_id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY room_id
+                        ORDER BY stream_id DESC
+                    ) AS rn
+                FROM room_ephemeral
+                WHERE room_id = ANY($1)
+                  AND (expires_at IS NULL OR expires_at > $2)
+            ) ranked
+            WHERE rn <= 50
+            ORDER BY room_id, stream_id DESC
+            "#,
+        )
+        .bind(room_ids)
+        .bind(now)
+        .fetch_all(&*self.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room ephemeral events: {}", e)))?;
+
+        for row in rows {
+            use sqlx::Row;
+            let room_id: String = row.get("room_id");
+            if let Some(events) = result.get_mut(&room_id) {
+                if events.len() >= 50 {
+                    continue;
+                }
+                let event_type: String = row.get("event_type");
+                let user_id: String = row.get("user_id");
+                let content: serde_json::Value = row.get("content");
+                events.push(json!({
+                    "type": event_type,
+                    "sender": user_id,
+                    "content": content
+                }));
+            }
+        }
+
+        Ok(result)
+    }
+
     async fn get_room_account_data_events(
         &self,
         room_id: &str,
@@ -692,6 +1057,49 @@ impl SyncService {
                 })
             })
             .collect())
+    }
+
+    async fn get_room_account_data_events_batch(
+        &self,
+        user_id: &str,
+        room_ids: &[String],
+    ) -> ApiResult<HashMap<String, Vec<serde_json::Value>>> {
+        let mut result: HashMap<String, Vec<serde_json::Value>> = room_ids
+            .iter()
+            .cloned()
+            .map(|room_id| (room_id, Vec::new()))
+            .collect();
+        if room_ids.is_empty() {
+            return Ok(result);
+        }
+
+        let rows = sqlx::query(
+            r#"
+            SELECT room_id, data_type, data as content
+            FROM room_account_data
+            WHERE user_id = $1 AND room_id = ANY($2)
+            "#,
+        )
+        .bind(user_id)
+        .bind(room_ids)
+        .fetch_all(&*self.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room account data: {}", e)))?;
+
+        for row in rows {
+            use sqlx::Row;
+            let room_id: String = row.get("room_id");
+            if let Some(events) = result.get_mut(&room_id) {
+                let data_type: String = row.get("data_type");
+                let content: serde_json::Value = row.get("content");
+                events.push(json!({
+                    "type": data_type,
+                    "content": content
+                }));
+            }
+        }
+
+        Ok(result)
     }
 
     async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
@@ -756,6 +1164,135 @@ impl SyncService {
         .unwrap_or(0);
 
         Ok((highlight_count, notification_count))
+    }
+
+    async fn get_unread_counts_batch(
+        &self,
+        room_ids: &[String],
+        user_id: &str,
+    ) -> ApiResult<HashMap<String, (i64, i64)>> {
+        let mut result: HashMap<String, (i64, i64)> = room_ids
+            .iter()
+            .cloned()
+            .map(|room_id| (room_id, (0, 0)))
+            .collect();
+        if room_ids.is_empty() {
+            return Ok(result);
+        }
+
+        let mention_pattern = format!("%{}%", user_id);
+        let rows = sqlx::query(
+            r#"
+            WITH target_rooms AS (
+                SELECT UNNEST($2::text[]) AS room_id
+            ),
+            last_reads AS (
+                SELECT tr.room_id, COALESCE(MAX(e.origin_server_ts), 0) AS last_read_ts
+                FROM target_rooms tr
+                LEFT JOIN read_markers rm
+                  ON rm.room_id = tr.room_id
+                 AND rm.user_id = $1
+                LEFT JOIN events e
+                  ON e.event_id = rm.event_id
+                GROUP BY tr.room_id
+            )
+            SELECT
+                tr.room_id,
+                COALESCE(COUNT(ev.event_id) FILTER (
+                    WHERE ev.user_id != $1
+                      AND ev.state_key IS NULL
+                      AND ev.origin_server_ts > lr.last_read_ts
+                ), 0) AS notification_count,
+                COALESCE(COUNT(ev.event_id) FILTER (
+                    WHERE ev.user_id != $1
+                      AND ev.state_key IS NULL
+                      AND ev.origin_server_ts > lr.last_read_ts
+                      AND (
+                        ev.content::text LIKE $3
+                        OR ev.content::text LIKE '%@room%'
+                      )
+                ), 0) AS highlight_count
+            FROM target_rooms tr
+            LEFT JOIN last_reads lr
+              ON lr.room_id = tr.room_id
+            LEFT JOIN events ev
+              ON ev.room_id = tr.room_id
+             AND ev.user_id != $1
+             AND ev.state_key IS NULL
+             AND ev.origin_server_ts > lr.last_read_ts
+            GROUP BY tr.room_id, lr.last_read_ts
+            "#,
+        )
+        .bind(user_id)
+        .bind(room_ids)
+        .bind(mention_pattern)
+        .fetch_all(&*self.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get unread counts: {}", e)))?;
+
+        for row in rows {
+            use sqlx::Row;
+            let room_id: String = row.get("room_id");
+            let notification_count: i64 = row.get("notification_count");
+            let highlight_count: i64 = row.get("highlight_count");
+            result.insert(room_id, (highlight_count, notification_count));
+        }
+
+        Ok(result)
+    }
+
+    fn rooms_to_include(
+        &self,
+        room_ids: &[String],
+        room_events: &HashMap<String, Vec<RoomEvent>>,
+        is_incremental: bool,
+    ) -> Vec<String> {
+        if !is_incremental {
+            return room_ids.to_vec();
+        }
+
+        room_ids
+            .iter()
+            .filter(|room_id| {
+                room_events
+                    .get(*room_id)
+                    .map(|events| !events.is_empty())
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn event_since_ts(&self, since_token: &Option<SyncToken>) -> i64 {
+        match since_token {
+            Some(token) if token.stream_id >= Self::TIMESTAMP_TOKEN_MIN => token.stream_id,
+            Some(token)
+                if token.to_device_stream_id.is_some() || token.device_list_stream_id.is_some() =>
+            {
+                token.stream_id.max(0)
+            }
+            Some(_) => 0,
+            None => 0,
+        }
+    }
+
+    fn next_event_stream_id(
+        &self,
+        since_token: &Option<SyncToken>,
+        room_events: &HashMap<String, Vec<RoomEvent>>,
+    ) -> i64 {
+        let max_ts = room_events
+            .values()
+            .flat_map(|v| v.iter())
+            .map(|e| e.origin_server_ts)
+            .max();
+
+        match (max_ts, since_token.as_ref()) {
+            (Some(ts), Some(token)) => ts.max(token.stream_id),
+            (Some(ts), None) => ts,
+            (None, Some(token)) => token.stream_id,
+            (None, None) => chrono::Utc::now().timestamp_millis(),
+        }
     }
 
     pub async fn get_room_messages(
@@ -917,6 +1454,8 @@ mod tests {
             stream_id: 1234567890,
             room_id: None,
             event_type: None,
+            to_device_stream_id: None,
+            device_list_stream_id: None,
         };
         assert_eq!(token.encode(), "s1234567890");
     }
@@ -927,10 +1466,29 @@ mod tests {
             stream_id: 9876543210,
             room_id: None,
             event_type: None,
+            to_device_stream_id: None,
+            device_list_stream_id: None,
         };
         let encoded = original.encode();
         let parsed = SyncToken::parse(&encoded).unwrap();
         assert_eq!(original.stream_id, parsed.stream_id);
+    }
+
+    #[test]
+    fn test_sync_token_multistream_roundtrip() {
+        let original = SyncToken {
+            stream_id: 1_777_000_000_000,
+            room_id: None,
+            event_type: None,
+            to_device_stream_id: Some(4321),
+            device_list_stream_id: Some(9876),
+        };
+        let encoded = original.encode();
+        assert_eq!(encoded, "s1777000000000_4321_9876");
+        let parsed = SyncToken::parse(&encoded).unwrap();
+        assert_eq!(parsed.stream_id, original.stream_id);
+        assert_eq!(parsed.to_device_stream_id, original.to_device_stream_id);
+        assert_eq!(parsed.device_list_stream_id, original.device_list_stream_id);
     }
 
     #[test]

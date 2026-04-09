@@ -244,7 +244,7 @@ fn test_sync_success() {
             .unwrap();
 
         let result = sync_service
-            .sync("@alice:localhost", 0, false, "online", None)
+            .sync("@alice:localhost", None, 0, false, "online", None)
             .await;
         assert!(result.is_ok());
         let val = result.unwrap();
@@ -259,5 +259,80 @@ fn test_sync_success() {
         assert!(events.iter().any(|event| {
             event["type"] == "m.room.message" && event["content"]["body"] == "Hello"
         }));
+    });
+}
+
+#[test]
+fn test_incremental_sync_does_not_replay_old_timeline() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = match setup_test_database().await {
+            Some(pool) => pool,
+            None => return,
+        };
+        create_test_user(&*pool, "@alice:localhost", "alice").await;
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+        let member_storage = RoomMemberStorage::new(&pool, "localhost");
+        let event_storage = EventStorage::new(&pool, "localhost".to_string());
+        let room_storage = RoomStorage::new(&pool);
+        let user_storage = UserStorage::new(&pool, cache.clone());
+
+        let room_service = create_room_service(
+            &pool,
+            room_storage.clone(),
+            member_storage.clone(),
+            event_storage.clone(),
+            user_storage.clone(),
+        );
+
+        let sync_service = SyncService::new(
+            presence_storage,
+            member_storage,
+            event_storage,
+            room_storage,
+            DeviceStorage::new(&pool),
+        );
+
+        let config = CreateRoomConfig {
+            name: Some("Incremental Room".to_string()),
+            ..Default::default()
+        };
+        let room_val = room_service
+            .create_room("@alice:localhost", config)
+            .await
+            .unwrap();
+        let room_id = room_val["room_id"].as_str().unwrap().to_string();
+
+        let content = json!({"msgtype": "m.text", "body": "Hello once"});
+        room_service
+            .send_message(&room_id, "@alice:localhost", "m.room.message", &content)
+            .await
+            .unwrap();
+
+        let first_sync = sync_service
+            .sync("@alice:localhost", None, 0, false, "offline", None)
+            .await
+            .unwrap();
+        let since = first_sync["next_batch"].as_str().unwrap().to_string();
+
+        let second_sync = sync_service
+            .sync(
+                "@alice:localhost",
+                None,
+                0,
+                false,
+                "offline",
+                Some(since.as_str()),
+            )
+            .await
+            .unwrap();
+
+        let joined_rooms = second_sync["rooms"]["join"].as_object().unwrap();
+        assert!(
+            joined_rooms.is_empty(),
+            "incremental sync should not replay unchanged rooms"
+        );
     });
 }

@@ -2,6 +2,7 @@
 
 use sqlx::{PgPool, Pool, Postgres};
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 use synapse_rust::services::database_initializer::initialize_database;
 use synapse_rust::test_utils::{env_lock_async, EnvGuard};
 
@@ -22,6 +23,10 @@ fn candidate_database_urls() -> Vec<String> {
                 urls.push(value);
             }
         }
+    }
+
+    if urls.is_empty() && !db_tests_required() {
+        return urls;
     }
 
     for fallback in [
@@ -47,9 +52,10 @@ pub fn get_test_pool() -> Arc<Pool<Postgres>> {
 
 pub async fn get_test_pool_async() -> Result<Arc<Pool<Postgres>>, String> {
     let mut errors = Vec::new();
+    let connect_timeout = synapse_rust::test_utils::configured_test_pool_connect_timeout();
 
     for database_url in candidate_database_urls() {
-        match sqlx::postgres::PgPoolOptions::new()
+        let connect_future = sqlx::postgres::PgPoolOptions::new()
             .max_connections(synapse_rust::test_utils::configured_test_pool_max_connections())
             .min_connections(synapse_rust::test_utils::configured_test_pool_min_connections())
             .acquire_timeout(synapse_rust::test_utils::configured_test_pool_acquire_timeout())
@@ -57,16 +63,20 @@ pub async fn get_test_pool_async() -> Result<Arc<Pool<Postgres>>, String> {
             .max_lifetime(Some(
                 synapse_rust::test_utils::configured_test_pool_max_lifetime(),
             ))
-            .connect(&database_url)
-            .await
-        {
-            Ok(pool) => match ensure_test_schema(&pool).await {
+            .connect(&database_url);
+
+        match tokio::time::timeout(connect_timeout, connect_future).await {
+            Err(_) => errors.push(format!(
+                "{} -> connect timed out after {:?}",
+                database_url, connect_timeout
+            )),
+            Ok(Ok(pool)) => match ensure_test_schema(&pool).await {
                 Ok(()) => return Ok(Arc::new(pool)),
                 Err(error) => {
                     errors.push(format!("{} -> schema init failed: {}", database_url, error))
                 }
             },
-            Err(e) => errors.push(format!("{} -> {}", database_url, e)),
+            Ok(Err(e)) => errors.push(format!("{} -> {}", database_url, e)),
         }
     }
 
@@ -102,7 +112,9 @@ async fn ensure_test_schema(pool: &PgPool) -> Result<(), String> {
     let _env_lock = env_lock_async().await;
     let mut env_guard = EnvGuard::new();
     env_guard.set("SYNAPSE_ENABLE_RUNTIME_DB_INIT", "true");
-    initialize_database(pool).await?;
+    tokio::time::timeout(Duration::from_secs(120), initialize_database(pool))
+        .await
+        .map_err(|_| "schema init timed out after 120 seconds".to_string())??;
     *initialized = true;
     Ok(())
 }

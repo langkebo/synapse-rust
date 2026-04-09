@@ -30,6 +30,7 @@ pub mod friend_room_service;
 pub mod geo_ip;
 pub mod identity;
 pub mod livekit_client;
+pub mod matrix_ai_connection_service;
 pub mod matrixrtc_service;
 pub mod media;
 pub mod media_quota_service;

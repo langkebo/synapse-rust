@@ -1050,7 +1050,11 @@ impl Default for RateLimitConfig {
                 "forwarded".to_string(),
             ],
             include_headers: true,
-            exempt_paths: vec!["/".to_string(), "/_matrix/client/versions".to_string()],
+            exempt_paths: vec![
+                "/".to_string(),
+                "/_matrix/client/versions".to_string(),
+                "/_matrix/client/v3/versions".to_string(),
+            ],
             exempt_path_prefixes: Vec::new(),
             endpoint_aliases: HashMap::new(),
             fail_open_on_error: default_rate_limit_fail_open(),

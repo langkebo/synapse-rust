@@ -474,9 +474,13 @@ async fn room_key_distribution(
 async fn send_to_device(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((_event_type, _transaction_id)): Path<(String, String)>,
+    Path((event_type, transaction_id)): Path<(String, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
+    let sender_device_id = auth_user
+        .device_id
+        .as_deref()
+        .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
     let messages = body.get("messages").ok_or_else(|| {
         crate::error::ApiError::bad_request("Missing 'messages' field".to_string())
     })?;
@@ -484,7 +488,13 @@ async fn send_to_device(
     state
         .services
         .to_device_service
-        .send_messages(&auth_user.user_id, messages)
+        .send_messages(
+            &auth_user.user_id,
+            sender_device_id,
+            &event_type,
+            Some(&transaction_id),
+            messages,
+        )
         .await?;
 
     Ok(empty_json())

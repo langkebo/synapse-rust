@@ -13,6 +13,7 @@ pub struct AiConnection {
     pub updated_ts: Option<i64>,
 }
 
+#[derive(Clone)]
 pub struct AiConnectionStorage {
     db: Arc<PgPool>,
 }

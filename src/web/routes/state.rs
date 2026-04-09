@@ -21,6 +21,8 @@ pub struct AppState {
     pub federation_presence_backoff_until: Arc<RwLock<HashMap<String, i64>>>,
     pub rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
     pub ai_connection_storage: Arc<AiConnectionStorage>,
+    pub matrix_ai_connection_service:
+        Arc<crate::services::matrix_ai_connection_service::MatrixAiConnectionService>,
     pub mcp_proxy_service: Arc<McpProxyService>,
 }
 
@@ -71,7 +73,13 @@ impl AppState {
             federation_inbound_edu_origin_semaphores: Arc::new(Mutex::new(HashMap::new())),
             federation_presence_backoff_until: Arc::new(RwLock::new(HashMap::new())),
             rate_limit_config_manager: None,
-            ai_connection_storage: Arc::new(AiConnectionStorage::new(pool)),
+            ai_connection_storage: Arc::new(AiConnectionStorage::new(pool.clone())),
+            matrix_ai_connection_service: Arc::new(
+                crate::services::matrix_ai_connection_service::MatrixAiConnectionService::new(
+                    Arc::new(AiConnectionStorage::new(pool)),
+                    Arc::new(McpProxyService::new(cache.clone())),
+                ),
+            ),
             mcp_proxy_service: Arc::new(McpProxyService::new(cache.clone())),
         }
     }

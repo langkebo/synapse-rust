@@ -113,6 +113,10 @@ arbitrary = { version = "1", features = ["derive"] }
 mockall = "0.13"
 wiremock = "0.6"
 
+[profile.dev]
+opt-level = 1
+debug = true
+
 [profile.release]
 opt-level = 3
 lto = true
