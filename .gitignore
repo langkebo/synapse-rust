@@ -23,6 +23,7 @@ docker/nginx/ssl/
 *~
 docker_build*.log
 test_*.log
+docker/*.tsv
 
 # 本地测试产物（不入库）
 test-results/
