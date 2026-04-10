@@ -51,3 +51,9 @@ docker/logs/
 # 备份文件
 backups/
 *.backup
+
+# Docker deploy 目录敏感文件
+docker/deploy/.env
+docker/deploy/media/
+docker/deploy/ssl/
+docker/deploy/test-results/
