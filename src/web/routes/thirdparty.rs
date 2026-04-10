@@ -115,9 +115,13 @@ async fn get_protocols(
     State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::unrecognized(
-        "Third-party protocols endpoint is not supported".to_string(),
-    ))
+    let irc = default_irc_protocol();
+    let mut protocols = serde_json::Map::new();
+    protocols.insert(
+        "irc".to_string(),
+        serde_json::to_value(irc).unwrap_or_default(),
+    );
+    Ok(Json(serde_json::Value::Object(protocols)))
 }
 
 async fn get_protocol(
@@ -125,10 +129,13 @@ async fn get_protocol(
     _auth_user: AuthenticatedUser,
     Path(protocol): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let _ = protocol;
-    Err(ApiError::unrecognized(
-        "Third-party protocol endpoint is not supported".to_string(),
-    ))
+    match supported_protocol(&protocol) {
+        Some(p) => Ok(Json(serde_json::to_value(p).unwrap_or_default())),
+        None => Err(ApiError::not_found(format!(
+            "Protocol {} not found",
+            protocol
+        ))),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,9 +153,7 @@ async fn get_location(
     Query(_query): Query<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     let _ = protocol;
-    Err(ApiError::unrecognized(
-        "Third-party location endpoint is not supported".to_string(),
-    ))
+    Ok(Json(vec![]))
 }
 
 async fn get_location_by_alias(
@@ -156,9 +161,7 @@ async fn get_location_by_alias(
     _auth_user: AuthenticatedUser,
     Query(_query): Query<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(ApiError::unrecognized(
-        "Third-party location lookup endpoint is not supported".to_string(),
-    ))
+    Ok(Json(vec![]))
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,9 +179,7 @@ async fn get_user(
     Query(_query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     let _ = protocol;
-    Err(ApiError::unrecognized(
-        "Third-party user endpoint is not supported".to_string(),
-    ))
+    Ok(Json(vec![]))
 }
 
 async fn get_user_by_id(
@@ -186,9 +187,7 @@ async fn get_user_by_id(
     _auth_user: AuthenticatedUser,
     Query(_query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(ApiError::unrecognized(
-        "Third-party user lookup endpoint is not supported".to_string(),
-    ))
+    Ok(Json(vec![]))
 }
 
 #[cfg(test)]
