@@ -14,7 +14,7 @@ pub struct BeaconInfo {
     pub is_live: bool,
     pub asset_type: String,
     pub created_ts: i64,
-    pub updated_ts: i64,
+    pub updated_ts: Option<i64>,
     pub expires_at: Option<i64>,
 }
 
@@ -498,7 +498,7 @@ mod tests {
             is_live: true,
             asset_type: "m.self".to_string(),
             created_ts: 1234567890000,
-            updated_ts: 1234567890000,
+            updated_ts: Some(1234567890000),
             expires_at: Some(1234571490000),
         };
 
