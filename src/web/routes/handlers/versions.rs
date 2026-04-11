@@ -34,9 +34,9 @@ pub async fn get_server_version(
 /// .well-known: Matrix 服务器发现
 pub async fn get_well_known_server(State(state): State<AppState>) -> Json<serde_json::Value> {
     let server_name = &state.services.config.server.name;
-    let port = state.services.config.server.port;
+    let federation_port = state.services.config.federation.federation_port;
     Json(json!({
-        "m.server": format!("{}:{}", server_name, port)
+        "m.server": format!("{}:{}", server_name, federation_port)
     }))
 }
 

@@ -433,7 +433,7 @@ async fn prewarm_keys_for_origin(
 
     let urls = [
         format!("https://{}/_matrix/key/v2/server", origin),
-        format!("http://{}:8448/_matrix/key/v2/server", origin),
+        format!("https://{}:8448/_matrix/key/v2/server", origin),
     ];
 
     let client = reqwest::Client::builder()
