@@ -78,6 +78,7 @@ pub fn create_router(state: AppState) -> Router {
             }),
         )
         .route("/health", get(handlers::health_check))
+        .route("/_health", get(handlers::detailed_health_check))
         .route(
             "/_matrix/client/versions",
             get(handlers::get_client_versions),

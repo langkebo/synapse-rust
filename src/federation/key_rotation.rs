@@ -13,13 +13,17 @@ const KEY_ROTATION_INTERVAL_DAYS: i64 = 7;
 const KEY_ROTATION_THRESHOLD_DAYS: i64 = 1;
 const KEY_GRACE_PERIOD_MINUTES: i64 = 5;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SigningKey {
+    pub server_name: String,
     pub key_id: String,
     pub secret_key: String,
     pub public_key: String,
     pub created_ts: i64,
     pub expires_at: i64,
+    pub key_json: serde_json::Value,
+    pub ts_added_ms: i64,
+    pub ts_valid_until_ms: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -184,11 +188,15 @@ impl KeyRotationManager {
         match existing_key {
             Ok(Some(row)) => {
                 let key = SigningKey {
+                    server_name: row.get("server_name"),
                     key_id: row.get("key_id"),
                     secret_key: row.get("secret_key"),
                     public_key: row.get("public_key"),
                     created_ts: row.get("created_ts"),
                     expires_at: row.get("expires_at"),
+                    key_json: row.get("key_json"),
+                    ts_added_ms: row.get("ts_added_ms"),
+                    ts_valid_until_ms: row.get("ts_valid_until_ms"),
                 };
                 *self.current_key.write().await = Some(key);
                 tracing::info!("Loaded existing signing key from database");
@@ -225,11 +233,18 @@ impl KeyRotationManager {
         let public_key = self.derive_public_key(secret_key).await?;
 
         let signing_key = SigningKey {
+            server_name: self.server_name.clone(),
             key_id: key_id.to_string(),
             secret_key: secret_key.to_string(),
-            public_key,
+            public_key: public_key.clone(),
             created_ts,
             expires_at,
+            key_json: json!({
+                "secret_key": secret_key,
+                "public_key": public_key
+            }),
+            ts_added_ms: created_ts,
+            ts_valid_until_ms: expires_at,
         };
 
         *self.current_key.write().await = Some(signing_key.clone());
@@ -564,11 +579,15 @@ mod tests {
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let expired_key = SigningKey {
+            server_name: "test.example.com".to_string(),
             key_id: "ed25519:expired".to_string(),
             secret_key: "test".to_string(),
             public_key: "test".to_string(),
             created_ts: 0,
             expires_at: Utc::now().timestamp_millis() - 1000,
+            key_json: serde_json::json!({}),
+            ts_added_ms: 0,
+            ts_valid_until_ms: 0,
         };
 
         assert!(manager.is_within_grace_period(&expired_key).await);
@@ -583,11 +602,15 @@ mod tests {
     #[test]
     fn test_signing_key_creation() {
         let key = SigningKey {
+            server_name: "test.example.com".to_string(),
             key_id: "ed25519:test".to_string(),
             secret_key: "secret123".to_string(),
             public_key: "public456".to_string(),
             created_ts: 1000,
             expires_at: 2000,
+            key_json: serde_json::json!({}),
+            ts_added_ms: 1000,
+            ts_valid_until_ms: 2000,
         };
 
         assert_eq!(key.key_id, "ed25519:test");
@@ -600,11 +623,15 @@ mod tests {
     #[test]
     fn test_signing_key_clone() {
         let key = SigningKey {
+            server_name: "test.example.com".to_string(),
             key_id: "ed25519:test".to_string(),
             secret_key: "secret123".to_string(),
             public_key: "public456".to_string(),
             created_ts: 1000,
             expires_at: 2000,
+            key_json: serde_json::json!({}),
+            ts_added_ms: 1000,
+            ts_valid_until_ms: 2000,
         };
 
         let cloned = key.clone();
@@ -643,11 +670,15 @@ mod tests {
         {
             let mut current = manager.current_key.write().await;
             *current = Some(SigningKey {
+                server_name: "test.example.com".to_string(),
                 key_id: "ed25519:test".to_string(),
                 secret_key: "test".to_string(),
                 public_key: "test".to_string(),
                 created_ts: Utc::now().timestamp_millis(),
                 expires_at: future_expires,
+                key_json: serde_json::json!({}),
+                ts_added_ms: Utc::now().timestamp_millis(),
+                ts_valid_until_ms: future_expires,
             });
         }
 
@@ -667,11 +698,15 @@ mod tests {
         {
             let mut current = manager.current_key.write().await;
             *current = Some(SigningKey {
+                server_name: "test.example.com".to_string(),
                 key_id: "ed25519:test".to_string(),
                 secret_key: "test".to_string(),
                 public_key: "test".to_string(),
                 created_ts: Utc::now().timestamp_millis(),
                 expires_at: soon_expires,
+                key_json: serde_json::json!({}),
+                ts_added_ms: Utc::now().timestamp_millis(),
+                ts_valid_until_ms: soon_expires,
             });
         }
 
@@ -711,11 +746,15 @@ mod tests {
         {
             let mut current = manager.current_key.write().await;
             *current = Some(SigningKey {
+                server_name: "test.example.com".to_string(),
                 key_id: "ed25519:test".to_string(),
                 secret_key: "test".to_string(),
                 public_key: "test_public_key".to_string(),
                 created_ts: Utc::now().timestamp_millis(),
                 expires_at: (Utc::now() + Duration::days(7)).timestamp_millis(),
+                key_json: serde_json::json!({}),
+                ts_added_ms: Utc::now().timestamp_millis(),
+                ts_valid_until_ms: (Utc::now() + Duration::days(7)).timestamp_millis(),
             });
         }
 
@@ -734,11 +773,15 @@ mod tests {
         {
             let mut current = manager.current_key.write().await;
             *current = Some(SigningKey {
+                server_name: "test.example.com".to_string(),
                 key_id: "ed25519:current".to_string(),
                 secret_key: "test".to_string(),
                 public_key: "current_public".to_string(),
                 created_ts: Utc::now().timestamp_millis(),
                 expires_at: (Utc::now() + Duration::days(7)).timestamp_millis(),
+                key_json: serde_json::json!({}),
+                ts_added_ms: Utc::now().timestamp_millis(),
+                ts_valid_until_ms: (Utc::now() + Duration::days(7)).timestamp_millis(),
             });
         }
 
@@ -748,11 +791,15 @@ mod tests {
             historical.insert(
                 "ed25519:old".to_string(),
                 SigningKey {
+                    server_name: "test.example.com".to_string(),
                     key_id: "ed25519:old".to_string(),
                     secret_key: "old_secret".to_string(),
                     public_key: "old_public".to_string(),
                     created_ts: 0,
                     expires_at: Utc::now().timestamp_millis() - 1000,
+                    key_json: serde_json::json!({}),
+                    ts_added_ms: 0,
+                    ts_valid_until_ms: 0,
                 },
             );
         }
@@ -799,11 +846,15 @@ mod tests {
         {
             let mut current = manager.current_key.write().await;
             *current = Some(SigningKey {
+                server_name: "test.example.com".to_string(),
                 key_id: "ed25519:test".to_string(),
                 secret_key: "test".to_string(),
                 public_key: "test".to_string(),
                 created_ts: Utc::now().timestamp_millis(),
                 expires_at: (Utc::now() + Duration::days(30)).timestamp_millis(),
+                key_json: serde_json::json!({}),
+                ts_added_ms: Utc::now().timestamp_millis(),
+                ts_valid_until_ms: (Utc::now() + Duration::days(30)).timestamp_millis(),
             });
         }
 
