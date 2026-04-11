@@ -35,7 +35,7 @@ RUN cargo build --release --locked --bin synapse-rust --bin healthcheck && \
     mkdir -p /out/app/config /out/app/data /out/app/logs /out/app/migrations && \
     cp -R migrations/. /out/app/migrations/
 
-FROM debian:bookworm-slim AS tools
+FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -48,28 +48,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /out/app /app
 
-ENV RUST_LOG=info \
-    RUST_BACKTRACE=1 \
-    DATABASE_URL=postgres://synapse:synapse@db:5432/synapse \
-    REDIS_URL=redis://redis:6379 \
-    SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml
-
-WORKDIR /app
-USER 65532:65532
-
-FROM builder AS sbom
-
-RUN printf '%s\n' '{' '  "spdxVersion": "SPDX-2.3",' '  "name": "synapse-rust",' '  "documentNamespace": "https://example.invalid/synapse-rust/sbom",' '  "creationInfo": {' '    "created": "1970-01-01T00:00:00Z",' '    "creators": ["Tool: synapse-rust-docker-build"]' '  },' '  "packages": []' '}' > /workspace/sbom.spdx.json
-
-FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
+RUN groupadd -g 1000 synapse && \
+    useradd -u 1000 -g synapse -m -s /bin/bash synapse && \
+    chown -R synapse:synapse /app
 
 LABEL org.opencontainers.image.title="synapse-rust" \
       org.opencontainers.image.description="Matrix homeserver implemented in Rust" \
-      org.opencontainers.image.source="https://github.com/element-hq/synapse" \
+      org.opencontainers.image.source="https://github.com/langkebo/synapse-rust" \
       org.opencontainers.image.vendor="synapse-rust"
-
-COPY --from=builder /out/app /app
-COPY --from=sbom /workspace/sbom.spdx.json /app/sbom.spdx.json
 
 ENV RUST_LOG=info \
     RUST_BACKTRACE=1 \
@@ -80,6 +66,7 @@ ENV RUST_LOG=info \
     SYNAPSE_HEALTHCHECK_PORT=8008
 
 WORKDIR /app
+USER synapse
 EXPOSE 8008 8448 9090
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 CMD ["/app/healthcheck"]
 ENTRYPOINT ["/app/synapse-rust"]

@@ -171,13 +171,36 @@ copy_migrations() {
     fi
 }
 
-# 拉取 Docker 镜像
-pull_images() {
-    log_info "拉取 Docker 镜像..."
+# 准备 Docker 镜像
+prepare_images() {
+    log_info "检查 Docker 镜像..."
     
-    docker-compose pull
+    if docker image inspect synapse-rust:local &> /dev/null; then
+        log_success "本地镜像 synapse-rust:local 已存在"
+    elif docker image inspect vmuser232922/mysynapse:latest &> /dev/null; then
+        log_info "从 Docker Hub 镜像创建本地标签..."
+        docker tag vmuser232922/mysynapse:latest synapse-rust:local
+        log_success "镜像标签创建完成"
+    else
+        log_warning "未找到本地镜像 synapse-rust:local"
+        log_info "尝试从 Docker Hub 拉取 vmuser232922/mysynapse:latest..."
+        if docker pull vmuser232922/mysynapse:latest 2>/dev/null; then
+            docker tag vmuser232922/mysynapse:latest synapse-rust:local
+            log_success "镜像拉取并标记完成"
+        else
+            log_error "无法获取 Docker 镜像"
+            log_info "请先构建镜像:"
+            log_info "  cd /path/to/synapse-rust && docker build -f docker/Dockerfile --platform linux/amd64 -t synapse-rust:local ."
+            log_info "或从 Docker Hub 拉取:"
+            log_info "  docker pull vmuser232922/mysynapse:latest && docker tag vmuser232922/mysynapse:latest synapse-rust:local"
+            exit 1
+        fi
+    fi
     
-    log_success "镜像拉取完成"
+    log_info "拉取基础服务镜像..."
+    docker-compose pull postgres redis nginx 2>/dev/null || true
+    
+    log_success "镜像准备完成"
 }
 
 # 停止现有容器
@@ -372,7 +395,7 @@ main() {
     check_env_file
     create_directories
     copy_migrations
-    pull_images
+    prepare_images
     stop_containers
     start_services
     show_status
