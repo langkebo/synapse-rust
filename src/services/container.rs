@@ -15,7 +15,7 @@ use crate::e2ee::key_request::KeyRequestService;
 use crate::e2ee::megolm::MegolmService;
 use crate::e2ee::to_device::ToDeviceService;
 use crate::e2ee::verification::VerificationService;
-use crate::federation::{DeviceSyncManager, EventAuthChain, FriendFederation, KeyRotationManager};
+use crate::federation::{DeviceSyncManager, EventAuthChain, FederationClient, FriendFederation, KeyRotationManager};
 use crate::services::burn_after_read_service::BurnAfterReadServiceImpl;
 use crate::storage::email_verification::EmailVerificationStorage;
 pub use crate::storage::PresenceStorage;
@@ -64,6 +64,7 @@ pub struct ServiceContainer {
     pub email_verification_storage: EmailVerificationStorage,
     pub event_auth_chain: EventAuthChain,
     pub key_rotation_manager: KeyRotationManager,
+    pub federation_client: Arc<FederationClient>,
     pub device_sync_manager: DeviceSyncManager,
     pub friend_storage: FriendRoomStorage,
     pub friend_room_service: Arc<crate::services::friend_room_service::FriendRoomService>,
@@ -290,6 +291,10 @@ impl ServiceContainer {
             config.federation.server_name.clone()
         };
         let key_rotation_manager = KeyRotationManager::new(pool, &server_name);
+        let federation_client = Arc::new(FederationClient::new(
+            server_name.clone(),
+            Arc::new(key_rotation_manager.clone()),
+        ));
         let device_sync_manager =
             DeviceSyncManager::new(pool, Some(cache.clone()), task_queue.clone());
         let friend_storage = FriendRoomStorage::new(pool.clone());
@@ -506,6 +511,7 @@ impl ServiceContainer {
             email_verification_storage,
             event_auth_chain,
             key_rotation_manager,
+            federation_client,
             device_sync_manager,
             friend_storage,
             friend_room_service,
