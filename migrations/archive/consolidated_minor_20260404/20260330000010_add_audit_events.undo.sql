@@ -1,2 +1,0 @@
--- Consolidated into 20260404000002_consolidated_minor_features.undo.sql
--- audit_events remains part of unified baseline schema; no rollback action here.
