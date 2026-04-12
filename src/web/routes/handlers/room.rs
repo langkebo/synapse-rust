@@ -2672,9 +2672,61 @@ pub(crate) async fn get_room_message_queue(
         ));
     }
 
-    Err(ApiError::unrecognized(
-        "Room message queue endpoint is not supported".to_string(),
-    ))
+    let pending_events: Vec<serde_json::Value> = sqlx::query(
+        r#"
+        SELECT event_id, room_id, user_id, event_type, content, origin_server_ts, status
+        FROM events
+        WHERE room_id = $1 AND status = 'pending'
+        ORDER BY origin_server_ts ASC
+        LIMIT 100
+        "#,
+    )
+    .bind(&room_id)
+    .fetch_all(&*state.services.event_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get pending events: {}", e)))?
+    .into_iter()
+    .map(|row| {
+        use sqlx::Row;
+        serde_json::json!({
+            "event_id": row.get::<Option<String>, _>("event_id"),
+            "room_id": row.get::<Option<String>, _>("room_id"),
+            "user_id": row.get::<Option<String>, _>("user_id"),
+            "event_type": row.get::<Option<String>, _>("event_type"),
+            "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts"),
+            "status": row.get::<Option<String>, _>("status")
+        })
+    })
+    .collect();
+
+    let processing_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM events WHERE room_id = $1 AND status = 'processing'",
+    )
+    .bind(&room_id)
+    .fetch_one(&*state.services.event_storage.pool)
+    .await
+    .unwrap_or(0);
+
+    let failed_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE room_id = $1 AND status = 'failed'")
+            .bind(&room_id)
+            .fetch_one(&*state.services.event_storage.pool)
+            .await
+            .unwrap_or(0);
+
+    Ok(Json(serde_json::json!({
+        "room_id": room_id,
+        "queue": {
+            "pending": pending_events,
+            "pending_count": pending_events.len(),
+            "processing_count": processing_count,
+            "failed_count": failed_count
+        },
+        "status": {
+            "healthy": failed_count < 100,
+            "total_pending": pending_events.len() + processing_count as usize
+        }
+    })))
 }
 
 pub(crate) async fn get_room_device(
@@ -3040,9 +3092,10 @@ pub(crate) async fn get_room_rendered(
 pub(crate) async fn get_room_event_url(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
+    validate_event_id(&event_id)?;
     if !state
         .services
         .room_storage
@@ -3066,9 +3119,47 @@ pub(crate) async fn get_room_event_url(
         ));
     }
 
-    Err(ApiError::unrecognized(
-        "Room event URL endpoint is not supported".to_string(),
-    ))
+    let event = state
+        .services
+        .event_storage
+        .get_event(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+    if event.room_id != room_id {
+        return Err(ApiError::bad_request(
+            "Event does not belong to this room".to_string(),
+        ));
+    }
+
+    let content = event.content.as_object().cloned().unwrap_or_default();
+    let mut urls: Vec<serde_json::Value> = Vec::new();
+
+    if let Some(url) = content.get("url").and_then(|v| v.as_str()) {
+        urls.push(serde_json::json!({
+            "type": "mxc",
+            "url": url,
+            "field": "url"
+        }));
+    }
+
+    if let Some(info) = content.get("info").and_then(|v| v.as_object()) {
+        if let Some(thumbnail_url) = info.get("thumbnail_url").and_then(|v| v.as_str()) {
+            urls.push(serde_json::json!({
+                "type": "mxc",
+                "url": thumbnail_url,
+                "field": "info.thumbnail_url"
+            }));
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "event_id": event_id,
+        "room_id": room_id,
+        "urls": urls,
+        "total": urls.len()
+    })))
 }
 
 pub(crate) async fn translate_room_event(
