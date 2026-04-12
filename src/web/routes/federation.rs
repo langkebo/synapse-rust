@@ -2338,7 +2338,7 @@ async fn exchange_third_party_invite(
         .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-    let default_event_id = format!("${}:{}", uuid::Uuid::new_v4(), room_id.split(':').last().unwrap_or("server"));
+    let default_event_id = format!("${}:{}", uuid::Uuid::new_v4(), room_id.split(':').next_back().unwrap_or("server"));
     let event_id = body
         .get("event_id")
         .and_then(|v| v.as_str())
