@@ -3144,10 +3144,11 @@ pub(crate) async fn convert_room_event(
 pub(crate) async fn sign_room_event(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _event_id)): Path<(String, String)>,
-    Json(_body): Json<Value>,
+    Path((room_id, event_id)): Path<(String, String)>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
+    validate_event_id(&event_id)?;
     if !state
         .services
         .room_storage
@@ -3171,18 +3172,76 @@ pub(crate) async fn sign_room_event(
         ));
     }
 
-    Err(ApiError::unrecognized(
-        "Room event signing endpoint is not supported".to_string(),
-    ))
+    let event = state
+        .services
+        .event_storage
+        .get_event(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+    if event.room_id != room_id {
+        return Err(ApiError::bad_request(
+            "Event does not belong to this room".to_string(),
+        ));
+    }
+
+    let device_id = body
+        .get("device_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default");
+
+    let default_key_id = format!("ed25519:{}", device_id);
+    let key_id = body
+        .get("key_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&default_key_id);
+
+    let signature = body
+        .get("signature")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("signature is required".to_string()))?;
+
+    let created_ts = chrono::Utc::now().timestamp();
+
+    sqlx::query(
+        r#"
+        INSERT INTO event_signatures (id, event_id, user_id, device_id, signature, key_id, created_ts)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (event_id, user_id, device_id, key_id) DO UPDATE
+        SET signature = EXCLUDED.signature
+        "#,
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(&event_id)
+    .bind(&auth_user.user_id)
+    .bind(device_id)
+    .bind(signature)
+    .bind(key_id)
+    .bind(created_ts)
+    .execute(&*state.services.event_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to save signature: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "event_id": event_id,
+        "room_id": room_id,
+        "user_id": auth_user.user_id,
+        "device_id": device_id,
+        "key_id": key_id,
+        "signed": true,
+        "created_ts": created_ts
+    })))
 }
 
 pub(crate) async fn verify_room_event(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _event_id)): Path<(String, String)>,
-    Json(_body): Json<Value>,
+    Path((room_id, event_id)): Path<(String, String)>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
+    validate_event_id(&event_id)?;
     if !state
         .services
         .room_storage
@@ -3206,9 +3265,61 @@ pub(crate) async fn verify_room_event(
         ));
     }
 
-    Err(ApiError::unrecognized(
-        "Room event verification endpoint is not supported".to_string(),
-    ))
+    let event = state
+        .services
+        .event_storage
+        .get_event(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+    if event.room_id != room_id {
+        return Err(ApiError::bad_request(
+            "Event does not belong to this room".to_string(),
+        ));
+    }
+
+    let signatures: Vec<crate::e2ee::signature::EventSignature> = sqlx::query_as(
+        r#"
+        SELECT id, event_id, user_id, device_id, signature, key_id, created_ts
+        FROM event_signatures
+        WHERE event_id = $1
+        "#,
+    )
+    .bind(&event_id)
+    .fetch_all(&*state.services.event_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get signatures: {}", e)))?;
+
+    let verify_user_id = body.get("user_id").and_then(|v| v.as_str());
+    let verify_device_id = body.get("device_id").and_then(|v| v.as_str());
+
+    let verified_signatures: Vec<serde_json::Value> = signatures
+        .iter()
+        .filter(|s| {
+            verify_user_id.map_or(true, |uid| s.user_id == uid)
+                && verify_device_id.map_or(true, |did| s.device_id == did)
+        })
+        .map(|s| {
+            serde_json::json!({
+                "user_id": s.user_id,
+                "device_id": s.device_id,
+                "key_id": s.key_id,
+                "signature": s.signature,
+                "created_ts": s.created_ts
+            })
+        })
+        .collect();
+
+    let is_valid = !verified_signatures.is_empty();
+
+    Ok(Json(serde_json::json!({
+        "event_id": event_id,
+        "room_id": room_id,
+        "valid": is_valid,
+        "signatures": verified_signatures,
+        "total": verified_signatures.len()
+    })))
 }
 
 pub(crate) async fn get_room_invites(
