@@ -29,14 +29,13 @@ pub async fn rotate_keys(
 
     sqlx::query(
         r#"
-        INSERT INTO key_rotation_history (user_id, device_id, key_id, rotated_ts, created_ts)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO key_rotation_history (user_id, device_id, key_id, rotated_ts)
+        VALUES ($1, $2, $3, $4)
         "#,
     )
     .bind(&auth_user.user_id)
     .bind(&device_id)
     .bind(&key_id)
-    .bind(now)
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
@@ -110,7 +109,7 @@ pub async fn revoke_old_keys(
         let result = sqlx::query(
             r#"
             UPDATE key_rotation_history
-            SET is_revoked = TRUE
+            SET revoked = TRUE
             WHERE user_id = $1 AND device_id = $2 AND key_id = $3
             "#,
         )

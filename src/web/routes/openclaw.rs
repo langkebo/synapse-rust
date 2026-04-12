@@ -890,18 +890,61 @@ async fn delete_chat_role(
     Ok(StatusCode::NO_CONTENT)
 }
 
+fn get_encryption_key() -> [u8; 32] {
+    use std::env;
+    let key = env::var("API_KEY_ENCRYPTION_KEY")
+        .unwrap_or_else(|_| {
+            let default = "synapse-rust-default-encryption-key-change-in-production!!";
+            tracing::warn!("API_KEY_ENCRYPTION_KEY not set, using default (INSECURE for production)");
+            default.to_string()
+        });
+    let mut key_bytes = [0u8; 32];
+    let source = key.as_bytes();
+    let len = std::cmp::min(source.len(), 32);
+    key_bytes[..len].copy_from_slice(&source[..len]);
+    key_bytes
+}
+
 fn encrypt_api_key(key: &str) -> String {
+    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+    use aes_gcm::aead::Aead;
     use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
-    BASE64_STANDARD.encode(key.as_bytes())
+    use rand::RngCore;
+
+    let key_bytes = get_encryption_key();
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+        .expect("Valid key length");
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher.encrypt(nonce, key.as_bytes())
+        .expect("Encryption failed");
+
+    let mut combined = nonce_bytes.to_vec();
+    combined.extend_from_slice(&ciphertext);
+
+    BASE64_STANDARD.encode(&combined)
 }
 
 #[allow(dead_code)]
 fn decrypt_api_key(encrypted: &str) -> Option<String> {
+    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+    use aes_gcm::aead::Aead;
     use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
-    BASE64_STANDARD
-        .decode(encrypted)
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
+
+    let combined = BASE64_STANDARD.decode(encrypted).ok()?;
+    if combined.len() < 12 {
+        return None;
+    }
+
+    let (nonce_bytes, ciphertext) = combined.split_at(12);
+    let key_bytes = get_encryption_key();
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes).ok()?;
+    let nonce = Nonce::from_slice(nonce_bytes);
+
+    let plaintext = cipher.decrypt(nonce, ciphertext).ok()?;
+    String::from_utf8(plaintext).ok()
 }
 
 async fn test_openclaw_health(base_url: &str) -> bool {
