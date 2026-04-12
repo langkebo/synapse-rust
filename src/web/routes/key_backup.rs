@@ -34,7 +34,7 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/room_keys/keys/{version}/{room_id}/{session_id}",
-            get(get_room_key),
+            get(get_room_key).put(put_room_key),
         )
         .route(
             "/room_keys/{version}",
@@ -47,7 +47,7 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/room_keys/{version}/keys/{room_id}/{session_id}",
-            get(get_room_key),
+            get(get_room_key).put(put_room_key),
         )
         .route("/room_keys/recover", post(recover_keys))
         .route(
@@ -481,6 +481,61 @@ async fn get_room_key(
             session_id, room_id
         ))),
     }
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct PutRoomKeyBody {
+    pub first_message_index: i64,
+    pub forwarded_count: i64,
+    pub is_verified: bool,
+    pub session_data: Value,
+}
+
+#[axum::debug_handler]
+async fn put_room_key(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((version, room_id, session_id)): Path<(String, String, String)>,
+    Json(body): Json<PutRoomKeyBody>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    if let Err(e) = body.validate() {
+        return Err(crate::error::ApiError::bad_request(e.to_string()));
+    }
+
+    let backup = state
+        .services
+        .backup_service
+        .get_backup(&auth_user.user_id, &version)
+        .await?
+        .ok_or_else(|| {
+            crate::error::ApiError::not_found(format!("Backup version '{}' not found", version))
+        })?;
+
+    let session_data = serde_json::to_string(&body.session_data)
+        .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid session_data: {}", e)))?;
+
+    let params = crate::e2ee::backup::BackupKeyUploadParams {
+        user_id: auth_user.user_id.clone(),
+        version: version.clone(),
+        room_id: room_id.clone(),
+        session_id: session_id.clone(),
+        first_message_index: body.first_message_index,
+        forwarded_count: body.forwarded_count,
+        is_verified: body.is_verified,
+        session_data,
+    };
+
+    state
+        .services
+        .backup_service
+        .upload_backup_key(params)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "room_id": room_id,
+        "session_id": session_id,
+        "etag": format!("{}_{}", backup.version, chrono::Utc::now().timestamp())
+    })))
 }
 
 #[derive(Debug, Deserialize, Validate)]

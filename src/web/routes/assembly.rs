@@ -11,11 +11,38 @@ use serde_json::json;
 use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 
 async fn get_client_config(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::unrecognized(
-        "Client config endpoint is not supported".to_string(),
-    ))
+    let config = &state.services.config;
+    let base_url = config.server.get_public_baseurl();
+    
+    Ok(Json(json!({
+        "homeserver": {
+            "base_url": base_url,
+            "server_name": config.server.name,
+        },
+        "identity_server": {
+            "base_url": base_url,
+        },
+        "push": {
+            "enabled": true,
+        },
+        "email": {
+            "enabled": false,
+        },
+        "features": {
+            "e2ee": true,
+            "voip": true,
+            "threads": true,
+            "spaces": true,
+        },
+        "defaults": {
+            "client_info": {
+                "name": "synapse-rust",
+                "version": env!("CARGO_PKG_VERSION"),
+            },
+        },
+    })))
 }
 
 async fn get_openid_configuration(
@@ -122,6 +149,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_media_router(state.clone()))
         .merge(create_e2ee_router(state.clone()))
         .merge(create_key_backup_router(state.clone()))
+        .merge(create_key_rotation_router(state.clone()))
         .merge(create_verification_router(state.clone()))
         .merge(create_relations_router(state.clone()))
         .merge(create_reactions_router(state.clone()))

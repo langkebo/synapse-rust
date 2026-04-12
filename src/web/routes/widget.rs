@@ -93,6 +93,14 @@ pub fn create_widget_router() -> Router<AppState> {
             get(get_jitsi_config),
         )
         .route(
+            "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities",
+            get(get_room_widget_capabilities).put(set_room_widget_capabilities),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send",
+            post(send_room_widget_message),
+        )
+        .route(
             "/_matrix/client/v1/widgets/{widget_id}/permissions",
             post(set_widget_permission),
         )
@@ -366,6 +374,157 @@ async fn terminate_widget_session(
         .await?;
 
     Ok(Json(json!({"terminated": terminated})))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WidgetCapabilitiesBody {
+    pub capabilities: Vec<String>,
+}
+
+async fn get_room_widget_capabilities(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, widget_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to view widget capabilities".to_string(),
+        ));
+    }
+
+    let widget = state
+        .services
+        .widget_service
+        .get_widget(&widget_id)
+        .await?
+        .ok_or(ApiError::not_found("Widget not found"))?;
+
+    if widget.room_id.as_deref() != Some(&room_id) {
+        return Err(ApiError::bad_request(
+            "Widget does not belong to this room".to_string(),
+        ));
+    }
+
+    Ok(Json(json!({
+        "capabilities": widget.data.get("capabilities").unwrap_or(&json!([])),
+        "widget_id": widget_id,
+        "room_id": room_id
+    })))
+}
+
+async fn set_room_widget_capabilities(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, widget_id)): Path<(String, String)>,
+    Json(body): Json<WidgetCapabilitiesBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to set widget capabilities".to_string(),
+        ));
+    }
+
+    let widget = state
+        .services
+        .widget_service
+        .get_widget(&widget_id)
+        .await?
+        .ok_or(ApiError::not_found("Widget not found"))?;
+
+    if widget.room_id.as_deref() != Some(&room_id) {
+        return Err(ApiError::bad_request(
+            "Widget does not belong to this room".to_string(),
+        ));
+    }
+
+    let mut data = widget.data.clone();
+    data["capabilities"] = json!(body.capabilities);
+
+    let update_request = UpdateWidgetRequest {
+        url: None,
+        name: None,
+        data: Some(data),
+    };
+
+    state
+        .services
+        .widget_service
+        .update_widget(&widget_id, update_request)
+        .await?;
+
+    Ok(Json(json!({
+        "capabilities": body.capabilities,
+        "widget_id": widget_id,
+        "room_id": room_id
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SendWidgetMessageBody {
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub content: serde_json::Value,
+}
+
+async fn send_room_widget_message(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, widget_id)): Path<(String, String)>,
+    Json(body): Json<SendWidgetMessageBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to send widget messages".to_string(),
+        ));
+    }
+
+    let widget = state
+        .services
+        .widget_service
+        .get_widget(&widget_id)
+        .await?
+        .ok_or(ApiError::not_found("Widget not found"))?;
+
+    if widget.room_id.as_deref() != Some(&room_id) {
+        return Err(ApiError::bad_request(
+            "Widget does not belong to this room".to_string(),
+        ));
+    }
+
+    let event_id = format!(
+        "${}_{}",
+        uuid::Uuid::new_v4(),
+        chrono::Utc::now().timestamp_millis()
+    );
+
+    Ok(Json(json!({
+        "event_id": event_id,
+        "widget_id": widget_id,
+        "room_id": room_id,
+        "type": body.msg_type,
+        "content": body.content
+    })))
 }
 
 #[cfg(test)]
