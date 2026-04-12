@@ -3388,8 +3388,8 @@ pub(crate) async fn verify_room_event(
     let verified_signatures: Vec<serde_json::Value> = signatures
         .iter()
         .filter(|s| {
-            verify_user_id.map_or(true, |uid| s.user_id == uid)
-                && verify_device_id.map_or(true, |did| s.device_id == did)
+            verify_user_id.is_none_or(|uid| s.user_id == uid)
+                && verify_device_id.is_none_or(|did| s.device_id == did)
         })
         .map(|s| {
             serde_json::json!({
@@ -3600,7 +3600,7 @@ pub(crate) async fn get_retention_policy(
         }))),
         None => {
             let default =
-                server_policy.unwrap_or_else(|| crate::storage::retention::ServerRetentionPolicy {
+                server_policy.unwrap_or(crate::storage::retention::ServerRetentionPolicy {
                     id: 0,
                     max_lifetime: None,
                     min_lifetime: 0,
