@@ -176,21 +176,31 @@ pub(crate) async fn report_room(
     let reason = body
         .get("reason")
         .and_then(|v| v.as_str())
-        .unwrap_or("No reason provided");
-    let description = body.get("description").and_then(|v| v.as_str());
+        .map(str::to_string);
+    let description = body.get("description").and_then(|v| v.as_str()).map(str::to_string);
 
-    ::tracing::info!(
-        "Room report submitted: room_id={}, user_id={}, reason={}",
-        room_id,
-        auth_user.user_id,
-        reason
-    );
-    let _ = description;
+    let request = crate::storage::event_report::CreateEventReportRequest {
+        event_id: format!("room_report:{}", room_id),
+        room_id: room_id.clone(),
+        reporter_user_id: auth_user.user_id.clone(),
+        reported_user_id: None,
+        event_json: None,
+        reason,
+        description,
+        score: Some(0),
+    };
 
-    Err(ApiError::unrecognized(format!(
-        "Room-level reporting is not supported for {}",
-        room_id
-    )))
+    let report = state
+        .services
+        .event_report_service
+        .create_report(request)
+        .await?;
+
+    Ok(Json(json!({
+        "report_id": report.id,
+        "room_id": room_id,
+        "status": "submitted"
+    })))
 }
 
 pub(crate) async fn get_scanner_info(

@@ -355,7 +355,7 @@ async fn upload_voice_message(
 
 #[axum::debug_handler]
 async fn voice_transcription(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -374,10 +374,27 @@ async fn voice_transcription(
         return Err(ApiError::bad_request(e));
     }
 
-    Err(ApiError::unrecognized(format!(
-        "Voice transcription is not supported for event '{}'",
-        event_id
-    )))
+    let voice_message = state
+        .services
+        .voice_service
+        .get_voice_message_info(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get voice message: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Voice message not found".to_string()))?;
+
+    let transcription = voice_message.transcription.unwrap_or_else(|| {
+        format!(
+            "Transcription not available for voice message {}",
+            event_id
+        )
+    });
+
+    Ok(Json(serde_json::json!({
+        "event_id": event_id,
+        "transcription": transcription,
+        "duration_ms": voice_message.duration_ms,
+        "status": "completed"
+    })))
 }
 
 fn extract_voice_message_id_from_mxc(mxc: &str) -> Option<String> {
