@@ -1,0 +1,57 @@
+server_name: "${SERVER_NAME}"
+
+server:
+  name: "${SERVER_NAME}"
+  host: "0.0.0.0"
+  port: 8008
+  http_port: 8008
+  https_port: 8448
+  bind_address: "0.0.0.0"
+  public_baseurl: "${PUBLIC_BASEURL}"
+  signing_key_path: "/app/data/signing.key"
+  macaroon_secret_key: "${MACAROON_SECRET_KEY}"
+  form_secret: "${FORM_SECRET}"
+  registration_shared_secret: "${REGISTRATION_SHARED_SECRET}"
+  max_upload_size: 104857600
+  max_image_resolution: 1920
+  enable_registration: false
+  enable_registration_captcha: false
+  background_tasks_interval: 3600
+  expire_access_token: false
+  expire_access_token_lifetime: 86400
+  refresh_token_lifetime: 604800
+  refresh_token_sliding_window_size: 2592000
+  session_duration: 86400
+  warmup_pool: true
+
+database:
+  host: "${DB_HOST}"
+  port: 5432
+  username: "${DB_USER}"
+  password: "${DB_PASSWORD}"
+  name: "${DB_NAME}"
+  pool_size: 10
+  max_size: 20
+  min_idle: 2
+  connection_timeout: 30
+
+redis:
+  host: "${REDIS_HOST}"
+  port: 6379
+  key_prefix: "synapse:"
+  pool_size: 10
+  enabled: true
+  connection_timeout_ms: 5000
+  command_timeout_ms: 3000
+
+logging:
+  level: "info"
+  format: "text"
+
+federation:
+  enabled: true
+  allow_ingress: true
+  server_name: "${SERVER_NAME}"
+  federation_port: 8448
+  connection_pool_size: 100
+  max_transaction_payload: 10485760
