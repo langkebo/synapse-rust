@@ -2209,10 +2209,30 @@ pub(crate) async fn get_room_thread_by_id(
         ));
     }
 
-    let _ = thread_id;
-    Err(ApiError::unrecognized(
-        "Room thread endpoint is not supported".to_string(),
-    ))
+    let request = crate::services::thread_service::GetThreadRequest {
+        room_id: room_id.clone(),
+        thread_id: thread_id.clone(),
+        include_replies: true,
+        reply_limit: Some(100),
+    };
+
+    let thread_detail = state
+        .services
+        .thread_service
+        .get_thread(request, Some(&auth_user.user_id))
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "room_id": room_id,
+        "thread_id": thread_id,
+        "root": thread_detail.root,
+        "replies": thread_detail.replies,
+        "reply_count": thread_detail.replies.len(),
+        "participants": thread_detail.participants,
+        "summary": thread_detail.summary,
+        "user_receipt": thread_detail.user_receipt,
+        "user_subscription": thread_detail.user_subscription
+    })))
 }
 
 pub(crate) async fn get_room_capabilities(
@@ -2886,9 +2906,32 @@ pub(crate) async fn get_room_encrypted_events(
         ));
     }
 
-    Err(ApiError::unrecognized(
-        "Room encrypted events endpoint is not supported".to_string(),
-    ))
+    let encrypted_events = state
+        .services
+        .event_storage
+        .get_room_events_by_type(&room_id, "m.room.encrypted", 100)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get encrypted events: {}", e)))?;
+
+    let events: Vec<serde_json::Value> = encrypted_events
+        .into_iter()
+        .map(|e| {
+            serde_json::json!({
+                "event_id": e.event_id,
+                "room_id": e.room_id,
+                "sender": e.user_id,
+                "type": e.event_type,
+                "content": e.content,
+                "origin_server_ts": e.origin_server_ts
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "room_id": room_id,
+        "events": events,
+        "total": events.len()
+    })))
 }
 
 pub(crate) async fn get_room_reduced_events(
@@ -3197,9 +3240,38 @@ pub(crate) async fn get_room_invites(
         ));
     }
 
-    Err(ApiError::unrecognized(
-        "Room invites endpoint is not supported".to_string(),
-    ))
+    let _invites = state
+        .services
+        .member_storage
+        .get_joined_members(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room invites: {}", e)))?;
+
+    let invited_members: Vec<serde_json::Value> = state
+        .services
+        .member_storage
+        .get_room_members(&room_id, "invite")
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room members: {}", e)))?
+        .into_iter()
+        .map(|m| {
+            serde_json::json!({
+                "user_id": m.user_id,
+                "sender": m.sender,
+                "display_name": m.display_name,
+                "avatar_url": m.avatar_url,
+                "event_id": m.event_id,
+                "reason": m.reason,
+                "updated_ts": m.updated_ts
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "room_id": room_id,
+        "invites": invited_members,
+        "total": invited_members.len()
+    })))
 }
 
 pub(crate) async fn get_vault_data(
@@ -3300,9 +3372,51 @@ pub(crate) async fn get_retention_policy(
         ));
     }
 
-    Err(ApiError::unrecognized(
-        "Room retention policy endpoint is not supported".to_string(),
-    ))
+    let room_policy = state
+        .services
+        .retention_storage
+        .get_room_policy(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get retention policy: {}", e)))?;
+
+    let server_policy = state
+        .services
+        .retention_storage
+        .get_server_policy()
+        .await
+        .ok();
+
+    match room_policy {
+        Some(policy) => Ok(Json(serde_json::json!({
+            "room_id": room_id,
+            "max_lifetime": policy.max_lifetime,
+            "min_lifetime": policy.min_lifetime,
+            "expire_on_clients": policy.expire_on_clients,
+            "is_server_default": policy.is_server_default,
+            "created_ts": policy.created_ts,
+            "updated_ts": policy.updated_ts
+        }))),
+        None => {
+            let default =
+                server_policy.unwrap_or_else(|| crate::storage::retention::ServerRetentionPolicy {
+                    id: 0,
+                    max_lifetime: None,
+                    min_lifetime: 0,
+                    expire_on_clients: false,
+                    created_ts: 0,
+                    updated_ts: 0,
+                });
+            Ok(Json(serde_json::json!({
+                "room_id": room_id,
+                "max_lifetime": default.max_lifetime,
+                "min_lifetime": default.min_lifetime,
+                "expire_on_clients": default.expire_on_clients,
+                "is_server_default": true,
+                "created_ts": default.created_ts,
+                "updated_ts": default.updated_ts
+            })))
+        }
+    }
 }
 
 pub(crate) async fn get_room_external_ids(
