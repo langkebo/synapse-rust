@@ -12,6 +12,10 @@ docker/nginx/ssl/
 .env.*
 !.env.example
 
+# 生产配置文件（包含真实密码）
+homeserver.yaml
+!homeserver.yaml.example
+
 # SQLx 缓存（可重新生成）
 .sqlx/
 

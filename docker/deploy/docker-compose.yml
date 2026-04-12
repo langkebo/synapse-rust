@@ -113,11 +113,11 @@ services:
       REDIS_URL: redis://redis:6379
 
       # 管理员配置
-      ADMIN_SHARED_SECRET: ${ADMIN_SHARED_SECRET:-change-me-admin-shared-secret}
+      ADMIN_SHARED_SECRET: ${ADMIN_SHARED_SECRET:?ADMIN_SHARED_SECRET must be set in .env}
 
       # 安全配置
-      JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret-key}
-      REGISTRATION_SHARED_SECRET: ${REGISTRATION_SHARED_SECRET:-change-me-registration-secret}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      REGISTRATION_SHARED_SECRET: ${REGISTRATION_SHARED_SECRET:?REGISTRATION_SHARED_SECRET must be set in .env}
 
       # 日志级别
       RUST_LOG: ${RUST_LOG:-info}

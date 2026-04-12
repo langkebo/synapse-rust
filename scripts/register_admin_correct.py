@@ -12,13 +12,21 @@ import json
 import urllib.request
 import urllib.error
 import sys
+import os
 
-SERVER = "http://localhost:28008"
-USERNAME = "admin"
-PASSWORD = "Wzc@9890951"
+SERVER = os.environ.get("SYNAPSE_SERVER", "http://localhost:8008")
+USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 DISPLAYNAME = "System Administrator"
 
-SHARED_SECRET = "change-me-admin-registration-secret"
+SHARED_SECRET = os.environ.get("ADMIN_SHARED_SECRET", "")
+
+if not PASSWORD:
+    print("ERROR: ADMIN_PASSWORD environment variable must be set", file=sys.stderr)
+    sys.exit(1)
+if not SHARED_SECRET:
+    print("ERROR: ADMIN_SHARED_SECRET environment variable must be set", file=sys.stderr)
+    sys.exit(1)
 
 
 def get_nonce():

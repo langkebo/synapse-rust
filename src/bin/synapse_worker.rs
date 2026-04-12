@@ -26,7 +26,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_url = config.database_url();
     tracing::info!("Connecting to Database...");
     let pool = sqlx::PgPool::connect(&db_url).await?;
-    let event_storage = Arc::new(EventStorage::new(&Arc::new(pool), "cjystx.top".to_string()));
+    let server_name = config.server.name.clone();
+    let event_storage = Arc::new(EventStorage::new(&Arc::new(pool), server_name));
 
     let worker_id = uuid::Uuid::new_v4().to_string();
     let consumer_name = format!("worker-{}", worker_id);
