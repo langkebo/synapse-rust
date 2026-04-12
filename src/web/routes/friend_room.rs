@@ -247,6 +247,12 @@ async fn get_friends(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
+    let room_id = state
+        .services
+        .friend_room_service
+        .create_friend_list_room(&auth_user.user_id)
+        .await?;
+    
     let friends = state
         .services
         .friend_room_service
@@ -255,7 +261,8 @@ async fn get_friends(
 
     Ok(Json(json!({
         "friends": friends,
-        "total": friends.len()
+        "total": friends.len(),
+        "room_id": room_id
     })))
 }
 
