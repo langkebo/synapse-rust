@@ -365,9 +365,9 @@ pub async fn send_server_notice(
         .get_user_by_identifier(&body.user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-    if target_user.is_none() {
+    let Some(target_user) = target_user else {
         return Err(ApiError::not_found("User not found".to_string()));
-    }
+    };
 
     let room_id = format!(
         "!server_notice_{}:{}",
@@ -445,6 +445,67 @@ pub async fn send_server_notice(
         ));
     }
 
+    let membership_event_id = format!(
+        "${}:{}",
+        uuid::Uuid::new_v4(),
+        state.services.config.server.name
+    );
+    let membership_result = sqlx::query(
+        r#"
+        INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender, state_key)
+        VALUES ($1, $2, $3, 'm.room.member', $4, $5, $6, $7)
+        ON CONFLICT (event_id) DO NOTHING
+        "#,
+    )
+    .bind(&membership_event_id)
+    .bind(&room_id)
+    .bind(&target_user.user_id)
+    .bind(json!({ "membership": "join" }))
+    .bind(now)
+    .bind(&server_user)
+    .bind(&target_user.user_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        ApiError::internal(format!(
+            "Failed to create server notice membership event: {}",
+            e
+        ))
+    })?;
+
+    if membership_result.rows_affected() == 0 {
+        return Err(ApiError::internal(
+            "Failed to create server notice membership event".to_string(),
+        ));
+    }
+
+    let member_result = sqlx::query(
+        r#"
+        INSERT INTO room_memberships (
+            room_id, user_id, sender, membership, event_id, event_type,
+            display_name, avatar_url, updated_ts, joined_ts
+        )
+        VALUES ($1, $2, $3, 'join', $4, 'm.room.member', $5, $6, $7, $7)
+        ON CONFLICT (room_id, user_id) DO NOTHING
+        "#,
+    )
+    .bind(&room_id)
+    .bind(&target_user.user_id)
+    .bind(&server_user)
+    .bind(&membership_event_id)
+    .bind(&target_user.displayname)
+    .bind(&target_user.avatar_url)
+    .bind(now)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to persist server notice member: {}", e)))?;
+
+    if member_result.rows_affected() == 0 {
+        return Err(ApiError::internal(
+            "Failed to persist server notice member".to_string(),
+        ));
+    }
+
     let message_result = sqlx::query(
         r#"
         INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender)
@@ -493,6 +554,73 @@ pub async fn send_server_notice(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let summary_result = sqlx::query(
+        r#"
+        INSERT INTO room_summaries (
+            room_id, name, topic, join_rules, history_visibility, guest_access,
+            is_direct, is_space, is_encrypted, member_count, joined_member_count,
+            invited_member_count, hero_users, last_event_id, last_event_ts,
+            last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
+        )
+        VALUES (
+            $1, $2, $3, 'private', 'joined', 'forbidden',
+            false, false, false, 1, 1,
+            0, '[]'::jsonb, $4, $5,
+            $5, 0, 0, $5, $5
+        )
+        ON CONFLICT (room_id) DO NOTHING
+        "#,
+    )
+    .bind(&room_id)
+    .bind("Server Notice")
+    .bind("System notifications")
+    .bind(&message_event_id)
+    .bind(now)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        ApiError::internal(format!(
+            "Failed to persist server notice room summary: {}",
+            e
+        ))
+    })?;
+
+    if summary_result.rows_affected() == 0 {
+        return Err(ApiError::internal(
+            "Failed to persist server notice room summary".to_string(),
+        ));
+    }
+
+    let summary_member_result = sqlx::query(
+        r#"
+        INSERT INTO room_summary_members (
+            room_id, user_id, display_name, avatar_url, membership, is_hero,
+            last_active_ts, updated_ts, created_ts
+        )
+        VALUES ($1, $2, $3, $4, 'join', false, $5, $5, $5)
+        ON CONFLICT (room_id, user_id) DO NOTHING
+        "#,
+    )
+    .bind(&room_id)
+    .bind(&target_user.user_id)
+    .bind(&target_user.displayname)
+    .bind(&target_user.avatar_url)
+    .bind(now)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        ApiError::internal(format!(
+            "Failed to persist server notice room summary member: {}",
+            e
+        ))
+    })?;
+
+    if summary_member_result.rows_affected() == 0 {
+        return Err(ApiError::internal(
+            "Failed to persist server notice room summary member".to_string(),
+        ));
+    }
 
     tx.commit()
         .await
@@ -580,15 +708,62 @@ pub async fn delete_server_notice(
     State(state): State<AppState>,
     Path(notice_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
+    let notice_room = sqlx::query(
+        r#"
+        SELECT sn.event_id, e.room_id
+        FROM server_notices sn
+        LEFT JOIN events e ON e.event_id = sn.event_id
+        WHERE sn.id = $1
+        "#,
+    )
+    .bind(notice_id)
+    .fetch_optional(&*state.services.event_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let Some(notice_room) = notice_room else {
+        return Err(ApiError::not_found("Server notice not found".to_string()));
+    };
+
+    let room_id = notice_room.get::<Option<String>, _>("room_id");
+
+    let mut tx = state
+        .services
+        .event_storage
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
     let result = sqlx::query("DELETE FROM server_notices WHERE id = $1")
         .bind(notice_id)
-        .execute(&*state.services.event_storage.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Server notice not found".to_string()));
     }
+
+    if let Some(room_id) = room_id {
+        let room_result = sqlx::query("DELETE FROM rooms WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to clean server notice room: {}", e))
+            })?;
+
+        if room_result.rows_affected() == 0 {
+            return Err(ApiError::internal(
+                "Failed to clean server notice room".to_string(),
+            ));
+        }
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({})))
 }

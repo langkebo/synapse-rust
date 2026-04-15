@@ -1,7 +1,7 @@
 // Invite Blocklist Routes - MSC4380
 // Allows room admins to control who can be invited to a room
 
-use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::{ensure_room_member_or_admin, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     Json,
@@ -13,20 +13,13 @@ async fn ensure_invite_list_view_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to view invite restrictions".to_string(),
-        ));
-    }
-
-    Ok(())
+    ensure_room_member_or_admin(
+        state,
+        auth_user,
+        room_id,
+        "You must be a member of this room to view invite restrictions",
+    )
+    .await
 }
 
 /// Get room invite blocklist

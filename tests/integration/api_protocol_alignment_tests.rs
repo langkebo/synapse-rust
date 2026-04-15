@@ -762,6 +762,49 @@ async fn test_admin_send_server_notice_persists_notice_for_target_user() {
             .expect("failed to inspect server notice event");
     assert!(event_exists, "server notice event should be persisted");
 
+    let target_membership: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT membership, event_type FROM room_memberships WHERE room_id = $1 AND user_id = $2",
+    )
+    .bind(room_id)
+    .bind(&user_id)
+    .fetch_optional(&*pool)
+    .await
+    .expect("failed to inspect server notice membership");
+    assert_eq!(
+        target_membership,
+        Some(("join".to_string(), Some("m.room.member".to_string()))),
+        "target user should be joined to the server notice room"
+    );
+
+    let summary_counts: Option<(i64, i64, Option<String>, Option<i64>, Option<i64>)> = sqlx::query_as(
+        "SELECT member_count, joined_member_count, last_event_id, last_event_ts, last_message_ts FROM room_summaries WHERE room_id = $1",
+    )
+    .bind(room_id)
+    .fetch_optional(&*pool)
+    .await
+    .expect("failed to inspect server notice room summary");
+    let (member_count, joined_member_count, last_event_id, last_event_ts, last_message_ts) =
+        summary_counts.expect("server notice room summary should exist");
+    assert_eq!(member_count, 1);
+    assert_eq!(joined_member_count, 1);
+    assert_eq!(last_event_id.as_deref(), Some(event_id));
+    assert!(last_event_ts.is_some());
+    assert!(last_message_ts.is_some());
+
+    let summary_member: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT membership, display_name FROM room_summary_members WHERE room_id = $1 AND user_id = $2",
+    )
+    .bind(room_id)
+    .bind(&user_id)
+    .fetch_optional(&*pool)
+    .await
+    .expect("failed to inspect server notice room summary member");
+    assert_eq!(
+        summary_member,
+        Some(("join".to_string(), None)),
+        "server notice target should be present in room summary members"
+    );
+
     let list_notices_request = Request::builder()
         .method("GET")
         .uri("/_synapse/admin/v1/server_notices")
@@ -788,4 +831,121 @@ async fn test_admin_send_server_notice_persists_notice_for_target_user() {
                 && notice["user_id"] == user_id
                 && notice["event_id"] == event_id
         }));
+}
+
+#[tokio::test]
+async fn test_admin_delete_server_notice_cleans_room_artifacts() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (_, user_id) = register_user(&app, "server_notice_delete_target").await;
+    let (admin_token, admin_user_id) = register_user(&app, "server_notice_delete_admin").await;
+    promote_to_super_admin(&pool, &admin_user_id).await;
+
+    let send_notice_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/send_server_notice")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "user_id": user_id,
+                "content": {
+                    "msgtype": "m.text",
+                    "body": "Delete me"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let send_notice_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), send_notice_request)
+            .await
+            .unwrap();
+    assert_eq!(send_notice_response.status(), StatusCode::OK);
+
+    let send_notice_body = axum::body::to_bytes(send_notice_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let send_notice_json: Value = serde_json::from_slice(&send_notice_body).unwrap();
+    let room_id = send_notice_json["room_id"].as_str().unwrap().to_string();
+    let event_id = send_notice_json["event_id"].as_str().unwrap().to_string();
+    let notice_id = send_notice_json["notice_id"].as_i64().unwrap();
+
+    let delete_request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/_synapse/admin/v1/server_notices/{}", notice_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request)
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let notice_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM server_notices WHERE id = $1)")
+            .bind(notice_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect server notice after delete");
+    assert!(!notice_exists, "server notice should be deleted");
+
+    let room_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM rooms WHERE room_id = $1)")
+        .bind(&room_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("failed to inspect room after delete");
+    assert!(!room_exists, "server notice room should be deleted");
+
+    let event_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM events WHERE event_id = $1)")
+            .bind(&event_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect event after delete");
+    assert!(!event_exists, "server notice event should be deleted");
+
+    let membership_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM room_memberships WHERE room_id = $1 AND user_id = $2)",
+    )
+    .bind(&room_id)
+    .bind(&user_id)
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to inspect room membership after delete");
+    assert!(!membership_exists, "server notice membership should be deleted");
+
+    let summary_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_summaries WHERE room_id = $1)")
+            .bind(&room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect room summary after delete");
+    assert!(!summary_exists, "server notice room summary should be deleted");
+
+    let summary_member_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM room_summary_members WHERE room_id = $1 AND user_id = $2)",
+    )
+    .bind(&room_id)
+    .bind(&user_id)
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to inspect room summary member after delete");
+    assert!(
+        !summary_member_exists,
+        "server notice room summary member should be deleted"
+    );
+
+    let get_notice_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_synapse/admin/v1/server_notices/{}", notice_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_notice_response = ServiceExt::<Request<Body>>::oneshot(app, get_notice_request)
+        .await
+        .unwrap();
+    assert_eq!(get_notice_response.status(), StatusCode::NOT_FOUND);
 }

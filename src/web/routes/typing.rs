@@ -2,7 +2,7 @@
 // Typing indicator management
 
 use crate::services::TypingService;
-use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::{ensure_room_member_or_admin, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     routing::{get, post, put},
@@ -15,20 +15,13 @@ async fn ensure_typing_room_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to access typing status".to_string(),
-        ));
-    }
-
-    Ok(())
+    ensure_room_member_or_admin(
+        state,
+        auth_user,
+        room_id,
+        "You must be a member of this room to access typing status",
+    )
+    .await
 }
 
 /// Set typing indicator
