@@ -27,7 +27,6 @@ use crate::web::AppState;
 const DEFAULT_MAX_LIFETIME: Duration = Duration::from_secs(1800);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 
-#[allow(dead_code)]
 pub struct SynapseServer {
     app_state: Arc<AppState>,
     router: Router,

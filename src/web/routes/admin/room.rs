@@ -1183,20 +1183,20 @@ async fn ban_user_internal(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .map(|member| member.membership);
 
+    state
+        .services
+        .room_service
+        .ban_user(room_id, user_id, actor_user_id, reason)
+        .await?;
+
     if existing_membership.as_deref() == Some("join") {
         state
             .services
             .room_storage
             .decrement_member_count(room_id)
             .await
-            .ok();
+            .map_err(|e| ApiError::internal(format!("Failed to update member count: {}", e)))?;
     }
-
-    state
-        .services
-        .room_service
-        .ban_user(room_id, user_id, actor_user_id, reason)
-        .await?;
 
     if let Some(reason) = reason {
         sqlx::query(
@@ -1492,7 +1492,7 @@ pub async fn set_room_private(
         .bind(&room_id)
         .execute(&*state.services.room_storage.pool)
         .await
-        .ok();
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({
         "room_id": room_id,

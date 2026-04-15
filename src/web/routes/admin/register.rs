@@ -39,7 +39,6 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
 struct NonceData {
     created_ts: u64,
     expires_at: u64,
