@@ -164,7 +164,7 @@ impl OlmStorage {
                 serialized_state = EXCLUDED.serialized_state,
                 message_index = EXCLUDED.message_index,
                 last_used_ts = EXCLUDED.last_used_ts,
-                expires_at = EXCLUDED.expires_at
+                expires_ts = EXCLUDED.expires_ts
             "#,
         )
         .bind(&session.user_id)

@@ -200,14 +200,14 @@ impl OlmService {
         }
     }
 
-    pub async fn sign(&self, message: &[u8]) -> String {
+    pub async fn sign(&self, message: &[u8]) -> Result<String, ApiError> {
         let account = self.account.read().await;
 
         if let Some(ref account) = *account {
             let signature = account.sign(message);
-            signature.to_base64()
+            Ok(signature.to_base64())
         } else {
-            String::new()
+            Err(ApiError::internal("Olm account not initialized - cannot sign"))
         }
     }
 
@@ -368,25 +368,21 @@ impl OlmService {
         }
     }
 
+    #[deprecated(
+        note = "Bug: uses own one-time keys instead of recipient's. Use create_outbound_session() instead."
+    )]
     pub async fn create_outbound_session_legacy(
         &self,
         their_identity_key: &vodozemac::Curve25519PublicKey,
+        their_one_time_key: &vodozemac::Curve25519PublicKey,
     ) -> Result<OlmMessageInfo, String> {
         let account = self.account.read().await;
 
         if let Some(ref account) = *account {
             let session_config = SessionConfig::version_2();
 
-            let one_time_keys_map = account.one_time_keys();
-            let one_time_keys: Vec<_> = one_time_keys_map.iter().collect();
-            if one_time_keys.is_empty() {
-                return Err("No one-time keys available".to_string());
-            }
-
-            let one_time_key = one_time_keys[0].1;
-
             let mut session =
-                account.create_outbound_session(session_config, *their_identity_key, *one_time_key);
+                account.create_outbound_session(session_config, *their_identity_key, *their_one_time_key);
 
             let message = session.encrypt(b"");
             let message_type = if message.message_type() == vodozemac::olm::MessageType::PreKey {

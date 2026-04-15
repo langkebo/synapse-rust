@@ -53,6 +53,21 @@ pub struct RateLimitRequest {
     pub burst_count: Option<i32>,
 }
 
+async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
+    let user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if user.is_none() {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
+    Ok(())
+}
+
 #[axum::debug_handler]
 pub async fn shadow_ban_user(
     admin: AdminUser,
@@ -60,11 +75,15 @@ pub async fn shadow_ban_user(
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    sqlx::query("UPDATE users SET is_shadow_banned = true WHERE user_id = $1")
+    let result = sqlx::query("UPDATE users SET is_shadow_banned = true WHERE user_id = $1")
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
 
     state.services.auth_service.cache.delete(&format!("user:shadow_banned:{}", user_id)).await;
 
@@ -89,11 +108,15 @@ pub async fn unshadow_ban_user(
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    sqlx::query("UPDATE users SET is_shadow_banned = false WHERE user_id = $1")
+    let result = sqlx::query("UPDATE users SET is_shadow_banned = false WHERE user_id = $1")
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
 
     state.services.auth_service.cache.delete(&format!("user:shadow_banned:{}", user_id)).await;
 
@@ -144,6 +167,8 @@ pub async fn set_user_rate_limit(
     headers: HeaderMap,
     Json(body): Json<RateLimitRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&state, &user_id).await?;
+
     let messages_per_second = body.messages_per_second.unwrap_or(5.0);
     let burst_count = body.burst_count.unwrap_or(10);
 
@@ -184,6 +209,8 @@ pub async fn delete_user_rate_limit(
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&state, &user_id).await?;
+
     sqlx::query("DELETE FROM rate_limits WHERE user_id = $1")
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)

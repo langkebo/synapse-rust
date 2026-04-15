@@ -252,6 +252,83 @@ async fn test_admin_federation_destinations_routes_work() {
 }
 
 #[tokio::test]
+async fn test_admin_federation_destination_writes_require_existing_destination() {
+    let Some((app, pool)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool).await;
+    let missing_destination = format!("missing-fed-{}.example.com", rand::random::<u32>());
+
+    let reset_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_synapse/admin/v1/federation/destinations/{}/reset_connection",
+            missing_destination
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let reset_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), reset_request)
+        .await
+        .unwrap();
+    assert_eq!(reset_response.status(), StatusCode::NOT_FOUND);
+
+    let delete_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/federation/destinations/{}",
+            missing_destination
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request)
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_admin_federation_single_entry_deletes_require_existing_target() {
+    let Some((app, pool)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool).await;
+    let missing_server_name = format!("missing-blacklist-{}.example.com", rand::random::<u32>());
+    let missing_cache_key = format!("missing-fed-cache-{}", rand::random::<u32>());
+
+    let remove_blacklist_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/federation/blacklist/{}",
+            missing_server_name
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let remove_blacklist_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), remove_blacklist_request)
+            .await
+            .unwrap();
+    assert_eq!(remove_blacklist_response.status(), StatusCode::NOT_FOUND);
+
+    let delete_cache_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/federation/cache/{}",
+            missing_cache_key
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_cache_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_cache_request)
+            .await
+            .unwrap();
+    assert_eq!(delete_cache_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_admin_federation_blacklist_cache_and_confirm_routes_work() {
     let Some((app, pool)) = setup_test_context().await else {
         return;

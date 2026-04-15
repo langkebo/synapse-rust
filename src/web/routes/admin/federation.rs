@@ -165,13 +165,17 @@ pub async fn reset_connection(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    sqlx::query(
+    let result = sqlx::query(
         "UPDATE federation_servers SET last_failed_connect_at = NULL, failure_count = 0 WHERE server_name = $1"
     )
     .bind(&destination)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Destination not found".to_string()));
+    }
 
     Ok(Json(json!({})))
 }
@@ -182,11 +186,15 @@ pub async fn delete_destination(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    sqlx::query("DELETE FROM federation_servers WHERE server_name = $1")
+    let result = sqlx::query("DELETE FROM federation_servers WHERE server_name = $1")
         .bind(&destination)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Destination not found".to_string()));
+    }
 
     Ok(Json(json!({})))
 }
@@ -360,11 +368,15 @@ pub async fn remove_from_blacklist(
     State(state): State<AppState>,
     Path(server_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    sqlx::query("DELETE FROM federation_blacklist WHERE server_name = $1")
+    let result = sqlx::query("DELETE FROM federation_blacklist WHERE server_name = $1")
         .bind(&server_name)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Blacklist entry not found".to_string()));
+    }
 
     Ok(Json(json!({})))
 }
@@ -399,11 +411,15 @@ pub async fn delete_federation_cache_entry(
     State(state): State<AppState>,
     Path(key): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    sqlx::query("DELETE FROM federation_cache WHERE key = $1")
+    let result = sqlx::query("DELETE FROM federation_cache WHERE key = $1")
         .bind(&key)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Cache entry not found".to_string()));
+    }
 
     Ok(Json(json!({})))
 }
