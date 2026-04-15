@@ -1,8 +1,20 @@
 use crate::common::error::ApiError;
-use crate::storage::models::UserThreepid;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct UserThreepid {
+    pub id: i64,
+    pub user_id: String,
+    pub medium: String,
+    pub address: String,
+    pub validated_at: Option<i64>,
+    pub added_ts: i64,
+    pub is_verified: bool,
+    pub verification_token: Option<String>,
+    pub verification_expires_at: Option<i64>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateThreepidRequest {

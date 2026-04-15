@@ -2,8 +2,6 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-pub mod models;
-
 pub mod ai_connection;
 pub mod application_service;
 pub mod audit;
@@ -65,7 +63,8 @@ pub mod user;
 pub mod voice;
 pub mod widget;
 
-pub use self::models::user::*;
+pub use self::user::*;
+pub use self::threepid::UserThreepid;
 
 pub use self::ai_connection::*;
 pub use self::application_service::*;

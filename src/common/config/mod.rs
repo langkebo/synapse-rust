@@ -2582,7 +2582,7 @@ mod tests {
         };
 
         let url = config.redis_url();
-        assert_eq!(url, "redis://redis.example.com:6380");
+        assert_eq!(url, "redis://:secret@redis.example.com:6380");
     }
 
     #[test]
