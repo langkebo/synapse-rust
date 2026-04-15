@@ -1068,7 +1068,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_response_accepts_valid_constraints() {
-        let service = create_test_service();
+        let mut config = create_test_config();
+        // Disable signature verification for this test since we don't have IdP metadata
+        config.want_response_signed = false;
+        config.want_assertions_signed = false;
+
+        let pool = Arc::new(
+            sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse")
+                .expect("valid lazy postgres url"),
+        );
+        let storage = Arc::new(SamlStorage::new(&pool));
+        let service = SamlService::new(
+            Arc::new(config),
+            storage,
+            "localhost".to_string(),
+        );
+
         let acs_url = service.config.get_sp_acs_url(&service.server_name);
         let xml = format!(
             r#"<samlp:Response InResponseTo="id_123">
@@ -1094,9 +1109,12 @@ mod tests {
             acs_url
         );
 
-        assert!(service
-            .validate_response("https://idp.example.com", &xml, Some("id_123"))
-            .is_ok());
+        let result = service
+            .validate_response("https://idp.example.com", &xml, Some("id_123"));
+        if let Err(e) = &result {
+            eprintln!("Validation failed: {:?}", e);
+        }
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
