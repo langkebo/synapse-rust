@@ -116,7 +116,7 @@ impl IdentityStorage {
             .collect())
     }
 
-    fn map_threepid(threepid: crate::storage::models::UserThreepid) -> ThirdPartyId {
+    fn map_threepid(threepid: crate::storage::UserThreepid) -> ThirdPartyId {
         ThirdPartyId {
             address: threepid.address,
             medium: threepid.medium,

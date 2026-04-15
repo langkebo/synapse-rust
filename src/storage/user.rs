@@ -1,8 +1,73 @@
 use crate::cache::CacheManager;
 use crate::common::constants::USER_PROFILE_CACHE_TTL;
-use crate::storage::models::{User, UserProfile, UserSearchResult, UserSearchResultWithPresence};
+use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct User {
+    pub user_id: String,
+    pub username: String,
+    #[serde(skip_serializing)]
+    pub password_hash: Option<String>,
+    pub is_admin: bool,
+    pub is_guest: bool,
+    pub is_shadow_banned: bool,
+    pub is_deactivated: bool,
+    pub created_ts: i64,
+    pub updated_ts: Option<i64>,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub generation: i64,
+    pub consent_version: Option<String>,
+    pub appservice_id: Option<String>,
+    pub user_type: Option<String>,
+    pub invalid_update_at: Option<i64>,
+    pub migration_state: Option<String>,
+    pub password_changed_ts: Option<i64>,
+    pub is_password_change_required: bool,
+    pub password_expires_at: Option<i64>,
+    pub failed_login_attempts: i32,
+    pub locked_until: Option<i64>,
+    pub must_change_password: bool,
+}
+
+impl User {
+    pub fn user_id(&self) -> String {
+        self.user_id.clone()
+    }
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct UserProfile {
+    pub user_id: String,
+    pub username: String,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub created_ts: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct UserSearchResult {
+    pub user_id: String,
+    pub username: String,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub created_ts: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct UserSearchResultWithPresence {
+    pub user_id: String,
+    pub username: String,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub created_ts: i64,
+    pub presence: Option<String>,
+    pub last_active_ts: Option<i64>,
+}
 
 #[derive(Clone)]
 /// Handles database operations for user management.

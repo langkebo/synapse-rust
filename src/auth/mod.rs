@@ -1405,8 +1405,11 @@ impl AuthService {
         &self,
         room_id: &str,
         user_id: &str,
-        _is_server_admin: bool,
+        is_server_admin: bool,
     ) -> ApiResult<()> {
+        if is_server_admin {
+            return Ok(());
+        }
         let power_level = self.get_user_power_level(room_id, user_id).await?;
 
         let required_level = self
@@ -1442,8 +1445,11 @@ impl AuthService {
         room_id: &str,
         actor_user_id: &str,
         target_user_id: &str,
-        _is_server_admin: bool,
+        is_server_admin: bool,
     ) -> ApiResult<()> {
+        if is_server_admin {
+            return Ok(());
+        }
         let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
         let target_power = self.get_user_power_level(room_id, target_user_id).await?;
 
@@ -1515,8 +1521,11 @@ impl AuthService {
         room_id: &str,
         actor_user_id: &str,
         target_user_id: &str,
-        _is_server_admin: bool,
+        is_server_admin: bool,
     ) -> ApiResult<()> {
+        if is_server_admin {
+            return Ok(());
+        }
         let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
         let target_power = self.get_user_power_level(room_id, target_user_id).await?;
 
