@@ -2,8 +2,8 @@ use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::routes::{
     account_compat::{can_view_profile_for_requester, enforce_profile_visibility},
-    extract_token_from_headers, validate_event_id, validate_room_alias, validate_room_id,
-    validate_user_id, AppState,
+    ensure_room_member_or_admin, extract_token_from_headers, validate_event_id,
+    validate_room_alias, validate_room_id, validate_user_id, AppState,
 };
 use axum::{
     extract::{Json, Path, Query, State},
@@ -16,24 +16,13 @@ async fn ensure_room_alias_write_allowed(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    if auth_user.is_admin {
-        return Ok(());
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member {
-        return Err(ApiError::forbidden(
-            "You must be a room member to manage aliases".to_string(),
-        ));
-    }
-
-    Ok(())
+    ensure_room_member_or_admin(
+        state,
+        auth_user,
+        room_id,
+        "You must be a room member to manage aliases",
+    )
+    .await
 }
 
 pub(crate) async fn get_user_directory_profile(

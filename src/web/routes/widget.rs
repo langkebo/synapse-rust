@@ -3,7 +3,7 @@ use crate::services::widget_service::{
     CreateSessionRequest, CreateWidgetRequest, SessionListResponse, SessionResponse,
     SetPermissionRequest, UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
 };
-use crate::web::routes::{AppState, AuthenticatedUser};
+use crate::web::routes::{ensure_room_member_or_admin, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     routing::{delete, get, post, put},
@@ -408,24 +408,13 @@ async fn ensure_room_widget_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    if auth_user.is_admin {
-        return Ok(());
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if is_member {
-        Ok(())
-    } else {
-        Err(ApiError::forbidden(
-            "You must be a member of this room to access widgets".to_string(),
-        ))
-    }
+    ensure_room_member_or_admin(
+        state,
+        auth_user,
+        room_id,
+        "You must be a member of this room to access widgets",
+    )
+    .await
 }
 
 async fn get_widget_with_access(
@@ -508,18 +497,13 @@ async fn get_room_widget_capabilities(
     auth_user: AuthenticatedUser,
     Path((room_id, widget_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to view widget capabilities".to_string(),
-        ));
-    }
+    ensure_room_member_or_admin(
+        &state,
+        &auth_user,
+        &room_id,
+        "You must be a member of this room to view widget capabilities",
+    )
+    .await?;
 
     let widget = state
         .services
@@ -547,18 +531,13 @@ async fn set_room_widget_capabilities(
     Path((room_id, widget_id)): Path<(String, String)>,
     Json(body): Json<WidgetCapabilitiesBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to set widget capabilities".to_string(),
-        ));
-    }
+    ensure_room_member_or_admin(
+        &state,
+        &auth_user,
+        &room_id,
+        "You must be a member of this room to set widget capabilities",
+    )
+    .await?;
 
     let widget = state
         .services
@@ -608,18 +587,13 @@ async fn send_room_widget_message(
     Path((room_id, widget_id)): Path<(String, String)>,
     Json(body): Json<SendWidgetMessageBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to send widget messages".to_string(),
-        ));
-    }
+    ensure_room_member_or_admin(
+        &state,
+        &auth_user,
+        &room_id,
+        "You must be a member of this room to send widget messages",
+    )
+    .await?;
 
     let widget = state
         .services
