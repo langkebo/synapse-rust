@@ -6,9 +6,11 @@ mod common;
 use serde_json::json;
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
+use synapse_rust::common::{config::PerformanceConfig, metrics::MetricsCollector};
 use synapse_rust::services::sync_service::SyncService;
 use synapse_rust::storage::device::DeviceStorage;
 use synapse_rust::storage::event::EventStorage;
+use synapse_rust::storage::filter::FilterStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::presence::PresenceStorage;
 use synapse_rust::storage::room::RoomStorage;
@@ -198,7 +200,10 @@ async fn test_schema_contract_sync_unread_counts_uses_read_markers_and_excludes_
         member_storage,
         event_storage,
         room_storage,
+        FilterStorage::new(&pool),
         device_storage,
+        Arc::new(MetricsCollector::new()),
+        PerformanceConfig::default(),
     );
 
     let (notification_count, highlight_count) = service

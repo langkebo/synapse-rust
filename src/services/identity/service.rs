@@ -47,6 +47,7 @@ impl IdentityService {
         client_secret: &str,
         user_id: &str,
     ) -> ApiResult<()> {
+        self.validate_id_server(id_server)?;
         let url = format!("https://{}/_matrix/identity/v3/3pid/bind", id_server);
 
         let body = serde_json::json!({
@@ -84,6 +85,7 @@ impl IdentityService {
         address: &str,
         medium: &str,
     ) -> ApiResult<()> {
+        self.validate_id_server(id_server)?;
         let url = format!("https://{}/_matrix/identity/v3/3pid/unbind", id_server);
 
         let body = serde_json::json!({
@@ -119,6 +121,7 @@ impl IdentityService {
         address: &str,
         user_id: &str,
     ) -> ApiResult<String> {
+        self.validate_id_server(id_server)?;
         let url = format!("https://{}/_matrix/identity/v3/3pid/requestAuth", id_server);
 
         let body = serde_json::json!({
@@ -165,6 +168,7 @@ impl IdentityService {
         sid: &str,
         client_secret: &str,
     ) -> ApiResult<bool> {
+        self.validate_id_server(id_server)?;
         let url = format!(
             "https://{}/_matrix/identity/v3/3pid/getValidationStatus",
             id_server
@@ -229,6 +233,7 @@ impl IdentityService {
         id_server: &str,
         id_access_token: &str,
     ) -> ApiResult<InvitationResponse> {
+        self.validate_id_server(id_server)?;
         let url = format!("https://{}/_matrix/identity/v1/invite", id_server);
 
         let body = serde_json::json!({
@@ -277,5 +282,50 @@ impl IdentityService {
 
     pub fn get_trusted_servers(&self) -> &[String] {
         &self.trusted_servers
+    }
+
+    fn validate_id_server(&self, id_server: &str) -> ApiResult<()> {
+        if id_server.is_empty() {
+            return Err(ApiError::bad_request("id_server cannot be empty".to_string()));
+        }
+
+        if id_server.contains('/') || id_server.contains('\\') {
+            return Err(ApiError::bad_request("id_server must be a hostname only".to_string()));
+        }
+
+        if id_server.starts_with('.') || id_server.ends_with('.') {
+            return Err(ApiError::bad_request("id_server has invalid format".to_string()));
+        }
+
+        let host = id_server.split(':').next().unwrap_or("");
+        if host.is_empty() {
+            return Err(ApiError::bad_request("id_server has empty hostname".to_string()));
+        }
+
+        if host == "localhost"
+            || host.starts_with("127.")
+            || host.starts_with("10.")
+            || host.starts_with("192.168.")
+            || host.starts_with("169.254.")
+        {
+            return Err(ApiError::bad_request(
+                "id_server must not be a private/local address".to_string(),
+            ));
+        }
+
+        if host.starts_with("0.") || host == "0.0.0.0" {
+            return Err(ApiError::bad_request(
+                "id_server must not be a broadcast address".to_string(),
+            ));
+        }
+
+        if !self.trusted_servers.is_empty() && !self.trusted_servers.iter().any(|s| s == id_server) {
+            return Err(ApiError::bad_request(format!(
+                "id_server '{}' is not in the trusted servers list",
+                id_server
+            )));
+        }
+
+        Ok(())
     }
 }

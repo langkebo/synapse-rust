@@ -13,6 +13,7 @@ pub mod user;
 
 use crate::web::routes::AppState;
 use axum::Router;
+use axum::middleware;
 
 pub use audit::create_audit_router;
 pub use federation::create_federation_router;
@@ -28,7 +29,7 @@ pub use token::create_token_router;
 pub use user::create_user_router;
 
 pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
-    Router::new()
+    let protected = Router::new()
         .merge(create_audit_router(state.clone()))
         .merge(create_user_router(state.clone()))
         .merge(create_room_router(state.clone()))
@@ -40,5 +41,12 @@ pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
         .merge(create_media_router(state.clone()))
         .merge(create_report_router(state.clone()))
         .merge(create_retention_router(state.clone()))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ));
+
+    Router::new()
+        .merge(protected)
         .merge(create_register_router(state.clone()))
 }

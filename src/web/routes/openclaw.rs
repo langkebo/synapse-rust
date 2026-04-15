@@ -892,12 +892,11 @@ async fn delete_chat_role(
 
 fn get_encryption_key() -> [u8; 32] {
     use std::env;
-    let key = env::var("API_KEY_ENCRYPTION_KEY")
-        .unwrap_or_else(|_| {
-            let default = "synapse-rust-default-encryption-key-change-in-production!!";
-            tracing::warn!("API_KEY_ENCRYPTION_KEY not set, using default (INSECURE for production)");
-            default.to_string()
-        });
+    let key = env::var("API_KEY_ENCRYPTION_KEY").unwrap_or_else(|_| {
+        let default = "synapse-rust-default-encryption-key-change-in-production!!";
+        tracing::warn!("API_KEY_ENCRYPTION_KEY not set, using default (INSECURE for production)");
+        default.to_string()
+    });
     let mut key_bytes = [0u8; 32];
     let source = key.as_bytes();
     let len = std::cmp::min(source.len(), 32);
@@ -906,19 +905,19 @@ fn get_encryption_key() -> [u8; 32] {
 }
 
 fn encrypt_api_key(key: &str) -> String {
-    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
     use aes_gcm::aead::Aead;
+    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
     use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
     use rand::RngCore;
 
     let key_bytes = get_encryption_key();
-    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
-        .expect("Valid key length");
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes).expect("Valid key length");
     let mut nonce_bytes = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let ciphertext = cipher.encrypt(nonce, key.as_bytes())
+    let ciphertext = cipher
+        .encrypt(nonce, key.as_bytes())
         .expect("Encryption failed");
 
     let mut combined = nonce_bytes.to_vec();
@@ -929,8 +928,8 @@ fn encrypt_api_key(key: &str) -> String {
 
 #[allow(dead_code)]
 fn decrypt_api_key(encrypted: &str) -> Option<String> {
-    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
     use aes_gcm::aead::Aead;
+    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
     use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 
     let combined = BASE64_STANDARD.decode(encrypted).ok()?;

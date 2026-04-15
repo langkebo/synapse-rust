@@ -205,7 +205,38 @@ impl VerificationStorage {
             .collect())
     }
 
-    /// Delete verification request
+    pub async fn get_sas_state(
+        &self,
+        transaction_id: &str,
+    ) -> Result<Option<SasState>, ApiError> {
+        let row = sqlx::query_as::<_, (
+            String, String, Option<String>, String, String, serde_json::Value, Option<String>, Option<String>, Option<Vec<u8>>, Option<String>
+        )>(
+            "SELECT tx_id, from_device, to_device, method, state, exchange_hashes, commitment, pubkey, sas_bytes, mac FROM verification_sas WHERE tx_id = $1"
+        )
+        .bind(transaction_id)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get SAS state: {}", e)))?;
+
+        if let Some((tx_id, from_device, to_device, method, state, exchange_hashes, commitment, pubkey, sas_bytes, mac)) = row {
+            Ok(Some(SasState {
+                tx_id,
+                from_device,
+                to_device,
+                method: parse_method(&method),
+                state: parse_state(&state),
+                exchange_hashes: serde_json::from_value(exchange_hashes).unwrap_or_default(),
+                commitment,
+                pubkey,
+                sas_bytes,
+                mac,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub async fn delete_request(&self, transaction_id: &str) -> Result<(), ApiError> {
         sqlx::query("DELETE FROM verification_requests WHERE transaction_id = $1")
             .bind(transaction_id)

@@ -11,7 +11,7 @@
 //!
 //! # 示例
 //!
-//! ```rust,ignore
+//! ```text
 //! use synapse_rust::services::{DMService, DMServiceImpl};
 //!
 //! #[tokio::main]
@@ -71,7 +71,7 @@ pub trait DMService: Send + Sync {
     ///
     /// # 示例
     ///
-    /// ```rust,ignore
+    /// ```text
     /// let room_id = service.get_existing_dm("@alice:example.com", "@bob:example.com").await?;
     /// ```
     async fn get_existing_dm(&self, user_id: &str, recipient_id: &str)
@@ -161,7 +161,7 @@ impl DMServiceImpl {
     ///
     /// # 示例
     ///
-    /// ```rust,ignore
+    /// ```text
     /// let service = DMServiceImpl::new();
     /// ```
     pub fn new() -> Self {
@@ -187,7 +187,7 @@ impl DMServiceImpl {
     ///
     /// # 示例
     ///
-    /// ```rust,ignore
+    /// ```text
     /// let key1 = DMServiceImpl::create_dm_key("@alice:example.com", "@bob:example.com");
     /// let key2 = DMServiceImpl::create_dm_key("@bob:example.com", "@alice:example.com");
     /// assert_eq!(key1, key2);
@@ -302,9 +302,16 @@ impl DMService for DMServiceImpl {
         Ok(())
     }
 
-    async fn is_dm_room(&self, room_id: &str, _user_id: &str) -> ApiResult<bool> {
+    async fn is_dm_room(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
         let dms = self.dm_rooms.read().await;
-        Ok(dms.contains_key(room_id))
+        let user_dms = self.user_dms.read().await;
+        
+        if !dms.contains_key(room_id) {
+            return Ok(false);
+        }
+
+        let user_rooms = user_dms.get(user_id).cloned().unwrap_or_default();
+        Ok(user_rooms.contains(&room_id.to_string()))
     }
 
     async fn get_dm_partner(&self, room_id: &str, user_id: &str) -> ApiResult<Option<String>> {
@@ -326,10 +333,46 @@ impl DMService for DMServiceImpl {
 
     async fn update_dm_users(
         &self,
-        _room_id: &str,
+        room_id: &str,
         _user_id: &str,
-        _users: &[String],
+        users: &[String],
     ) -> ApiResult<()> {
+        let mut dms = self.dm_rooms.write().await;
+        if let Some(dm) = dms.get_mut(room_id) {
+            if let Some(primary_recipient) = users.first() {
+                dm.recipient_id = primary_recipient.clone();
+            }
+        }
+
+        let mut user_dms = self.user_dms.write().await;
+        if let Some(dm) = dms.get(room_id) {
+            let old_creator = dm.creator_id.clone();
+            let old_recipient = dm.recipient_id.clone();
+
+            if let Some(rooms) = user_dms.get_mut(&old_recipient) {
+                rooms.retain(|r| r != room_id);
+            }
+
+            for user in users {
+                user_dms
+                    .entry(user.clone())
+                    .or_default()
+                    .push(room_id.to_string());
+            }
+
+            if !users.contains(&old_creator) {
+                if let Some(rooms) = user_dms.get_mut(&old_creator) {
+                    rooms.retain(|r| r != room_id);
+                }
+            }
+
+            if !users.contains(&old_recipient) {
+                if let Some(rooms) = user_dms.get_mut(&old_recipient) {
+                    rooms.retain(|r| r != room_id);
+                }
+            }
+        }
+
         Ok(())
     }
 }

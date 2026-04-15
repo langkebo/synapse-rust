@@ -11,7 +11,7 @@
 //!
 //! # 示例
 //!
-//! ```rust,ignore
+//! ```text
 //! use synapse_rust::services::{DirectoryService, DirectoryServiceImpl};
 //!
 //! #[tokio::main]
@@ -72,7 +72,7 @@ pub trait DirectoryService: Send + Sync {
     ///
     /// # 示例
     ///
-    /// ```rust,ignore
+    /// ```text
     /// let room_id = service.get_room_id_by_alias("#myroom:example.com").await?;
     /// ```
     async fn get_room_id_by_alias(&self, alias: &str) -> ApiResult<Option<String>>;
@@ -178,7 +178,7 @@ impl DirectoryServiceImpl {
     ///
     /// # 示例
     ///
-    /// ```rust,ignore
+    /// ```text
     /// let service = DirectoryServiceImpl::new();
     /// ```
     pub fn new() -> Self {

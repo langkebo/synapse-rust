@@ -619,6 +619,12 @@ impl DatabaseIntegrityChecker {
 mod tests {
     use super::*;
 
+    const REPORT_RATE_LIMITS_MIGRATION_SQL: &str = include_str!(
+        "../../migrations/20260413000001_align_report_rate_limits_schema_contract.sql"
+    );
+    const TO_DEVICE_STREAM_ID_SEQ_MIGRATION_SQL: &str =
+        include_str!("../../migrations/20260409090000_to_device_stream_id_seq.sql");
+
     async fn ensure_public_schema_contract_repairs(
         pool: &Pool<Postgres>,
     ) -> Result<(), sqlx::Error> {
@@ -727,6 +733,24 @@ mod tests {
         Ok(())
     }
 
+    async fn execute_to_device_stream_id_seq_migration(
+        pool: &Pool<Postgres>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(TO_DEVICE_STREAM_ID_SEQ_MIGRATION_SQL)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn execute_report_rate_limits_migration(
+        pool: &Pool<Postgres>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(REPORT_RATE_LIMITS_MIGRATION_SQL)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     async fn connect_integrity_pool() -> Option<Pool<Postgres>> {
         match synapse_rust::test_utils::prepare_isolated_test_pool().await {
             Ok(pool) => {
@@ -742,6 +766,19 @@ mod tests {
             Err(error) => {
                 eprintln!(
                     "Skipping database integrity tests: unable to prepare isolated schema: {}",
+                    error
+                );
+                None
+            }
+        }
+    }
+
+    async fn connect_empty_integrity_pool() -> Option<Pool<Postgres>> {
+        match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
+            Ok(pool) => Some((*pool).clone()),
+            Err(error) => {
+                eprintln!(
+                    "Skipping migration regression tests: unable to prepare empty isolated schema: {}",
                     error
                 );
                 None
@@ -920,6 +957,265 @@ mod tests {
             normalized_definition.contains("(to_user, state, updated_ts desc)"),
             "Unexpected verification_requests pending index definition: {}",
             index_definition
+        );
+    }
+
+    #[tokio::test]
+    async fn test_report_rate_limits_schema_contract_survives_full_migration_chain() {
+        let Some(pool) = connect_integrity_pool().await else {
+            return;
+        };
+
+        let migration_recorded: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM schema_migrations
+                WHERE version = '20260413000001'
+            )
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to check schema_migrations for report_rate_limits contract migration");
+
+        assert!(
+            migration_recorded,
+            "Expected migration 20260413000001 to be recorded in schema_migrations"
+        );
+
+        let column_names: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'report_rate_limits'
+            ORDER BY ordinal_position
+            "#,
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("Failed to inspect report_rate_limits columns");
+
+        assert!(
+            column_names
+                .iter()
+                .any(|column_name| column_name == "last_report_at"),
+            "Expected last_report_at column in report_rate_limits, got {:?}",
+            column_names
+        );
+        assert!(
+            column_names
+                .iter()
+                .any(|column_name| column_name == "blocked_until_at"),
+            "Expected blocked_until_at column in report_rate_limits, got {:?}",
+            column_names
+        );
+        assert!(
+            column_names
+                .iter()
+                .any(|column_name| column_name == "block_reason"),
+            "Expected block_reason column in report_rate_limits, got {:?}",
+            column_names
+        );
+        assert!(
+            !column_names
+                .iter()
+                .any(|column_name| column_name == "last_report_ts"),
+            "Did not expect legacy last_report_ts column in report_rate_limits, got {:?}",
+            column_names
+        );
+        assert!(
+            !column_names
+                .iter()
+                .any(|column_name| column_name == "blocked_until"),
+            "Did not expect legacy blocked_until column in report_rate_limits, got {:?}",
+            column_names
+        );
+    }
+
+    #[tokio::test]
+    async fn test_to_device_stream_id_seq_migration_handles_empty_table_and_repeat_runs() {
+        let Some(pool) = connect_empty_integrity_pool().await else {
+            return;
+        };
+
+        sqlx::query(
+            r#"
+            CREATE TABLE to_device_messages (
+                stream_id BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create to_device_messages table");
+
+        execute_to_device_stream_id_seq_migration(&pool)
+            .await
+            .expect("Failed to apply to_device_stream_id_seq migration for empty table");
+        execute_to_device_stream_id_seq_migration(&pool)
+            .await
+            .expect("Failed to reapply to_device_stream_id_seq migration for empty table");
+
+        let sequence_exists: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relkind = 'S'
+                  AND n.nspname = current_schema()
+                  AND c.relname = 'to_device_stream_id_seq'
+            )
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to verify to_device_stream_id_seq existence");
+
+        assert!(sequence_exists, "Expected to_device_stream_id_seq to exist");
+
+        let next_value: i64 = sqlx::query_scalar("SELECT nextval('to_device_stream_id_seq')")
+            .fetch_one(&pool)
+            .await
+            .expect("Failed to fetch next value from to_device_stream_id_seq");
+
+        assert_eq!(
+            next_value, 1,
+            "Expected empty-table migration to keep next sequence value at 1"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_to_device_stream_id_seq_migration_advances_from_existing_stream_ids() {
+        let Some(pool) = connect_empty_integrity_pool().await else {
+            return;
+        };
+
+        sqlx::query(
+            r#"
+            CREATE TABLE to_device_messages (
+                stream_id BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create to_device_messages table");
+
+        sqlx::query(
+            r#"
+            INSERT INTO to_device_messages (stream_id)
+            VALUES (3), (7), (11)
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to seed to_device_messages stream ids");
+
+        execute_to_device_stream_id_seq_migration(&pool)
+            .await
+            .expect("Failed to apply to_device_stream_id_seq migration for seeded table");
+        execute_to_device_stream_id_seq_migration(&pool)
+            .await
+            .expect("Failed to reapply to_device_stream_id_seq migration for seeded table");
+
+        let next_value: i64 = sqlx::query_scalar("SELECT nextval('to_device_stream_id_seq')")
+            .fetch_one(&pool)
+            .await
+            .expect("Failed to fetch next value from to_device_stream_id_seq");
+
+        assert_eq!(
+            next_value, 12,
+            "Expected sequence to continue after the maximum existing stream_id"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_report_rate_limits_migration_repairs_legacy_columns() {
+        let Some(pool) = connect_empty_integrity_pool().await else {
+            return;
+        };
+
+        sqlx::query(
+            r#"
+            CREATE TABLE report_rate_limits (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL UNIQUE,
+                report_count INTEGER DEFAULT 0,
+                is_blocked BOOLEAN DEFAULT FALSE,
+                blocked_until BIGINT,
+                last_report_ts BIGINT,
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create legacy report_rate_limits table");
+
+        execute_report_rate_limits_migration(&pool)
+            .await
+            .expect("Failed to apply report_rate_limits migration to legacy schema");
+        execute_report_rate_limits_migration(&pool)
+            .await
+            .expect("Failed to reapply report_rate_limits migration to legacy schema");
+
+        let column_names: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'report_rate_limits'
+            ORDER BY ordinal_position
+            "#,
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("Failed to inspect repaired report_rate_limits columns");
+
+        assert!(
+            column_names
+                .iter()
+                .any(|column_name| column_name == "last_report_at"),
+            "Expected last_report_at after repair, got {:?}",
+            column_names
+        );
+        assert!(
+            column_names
+                .iter()
+                .any(|column_name| column_name == "blocked_until_at"),
+            "Expected blocked_until_at after repair, got {:?}",
+            column_names
+        );
+        assert!(
+            column_names
+                .iter()
+                .any(|column_name| column_name == "block_reason"),
+            "Expected block_reason after repair, got {:?}",
+            column_names
+        );
+        assert!(
+            column_names
+                .iter()
+                .any(|column_name| column_name == "updated_ts"),
+            "Expected updated_ts after repair, got {:?}",
+            column_names
+        );
+        assert!(
+            !column_names
+                .iter()
+                .any(|column_name| column_name == "last_report_ts"),
+            "Did not expect legacy last_report_ts after repair, got {:?}",
+            column_names
+        );
+        assert!(
+            !column_names
+                .iter()
+                .any(|column_name| column_name == "blocked_until"),
+            "Did not expect legacy blocked_until after repair, got {:?}",
+            column_names
         );
     }
 

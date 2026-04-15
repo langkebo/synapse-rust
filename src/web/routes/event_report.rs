@@ -134,12 +134,14 @@ impl From<EventReportStats> for StatsResponse {
     fn from(s: EventReportStats) -> Self {
         Self {
             id: s.id,
-            date: s.date,
+            date: s.stat_date,
             total_reports: s.total_reports,
             open_reports: s.open_reports,
             resolved_reports: s.resolved_reports,
             dismissed_reports: s.dismissed_reports,
-            avg_resolution_time_hours: s.avg_resolution_time_hours,
+            avg_resolution_time_hours: s.avg_resolution_time_ms.and_then(
+                |avg_resolution_time_ms| i32::try_from(avg_resolution_time_ms / 3_600_000).ok(),
+            ),
             created_ts: s.created_ts,
             updated_ts: s.updated_ts,
         }
@@ -533,5 +535,9 @@ pub fn create_event_report_router(state: AppState) -> Router<AppState> {
             post(unblock_user),
         )
         .route("/_synapse/admin/v1/event_reports/stats", get(get_stats))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ))
         .with_state(state)
 }

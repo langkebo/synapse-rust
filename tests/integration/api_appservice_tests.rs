@@ -5,6 +5,32 @@ use tower::ServiceExt;
 
 use crate::{get_admin_token, setup_test_app};
 
+async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    (
+        json["access_token"].as_str().unwrap().to_string(),
+        json["user_id"].as_str().unwrap().to_string(),
+    )
+}
+
 #[tokio::test]
 async fn test_appservice_list_empty() {
     let Some(app) = setup_test_app().await else {
@@ -191,4 +217,44 @@ async fn test_appservice_virtual_user() {
         users.iter().any(|u| u["user_id"] == virtual_user_id),
         "Virtual user should be in the list"
     );
+}
+
+#[tokio::test]
+async fn test_user_appservice_endpoint_is_self_only_for_non_admins() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (alice_token, alice_id) =
+        register_user(&app, &format!("appservice_self_alice_{}", rand::random::<u32>())).await;
+    let (_, bob_id) =
+        register_user(&app, &format!("appservice_self_bob_{}", rand::random::<u32>())).await;
+    let (admin_token, _) = get_admin_token(&app).await;
+
+    let own_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v1/user/{}/appservice", alice_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(own_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let cross_user_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v1/user/{}/appservice", bob_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(cross_user_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let admin_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v1/user/{}/appservice", bob_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(admin_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 }

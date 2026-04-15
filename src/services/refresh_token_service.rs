@@ -1,7 +1,5 @@
 use crate::common::ApiError;
 use crate::storage::refresh_token::*;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tracing::{info, instrument, warn};
 
@@ -19,24 +17,15 @@ impl RefreshTokenService {
     }
 
     pub fn hash_token(token: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(token.as_bytes());
-        let result = hasher.finalize();
-        URL_SAFE_NO_PAD.encode(result)
+        crate::common::crypto::hash_token(token)
     }
 
     pub fn generate_token() -> String {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        let random_bytes: [u8; 32] = rng.gen();
-        URL_SAFE_NO_PAD.encode(random_bytes)
+        crate::common::crypto::generate_token(32)
     }
 
     pub fn generate_family_id() -> String {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        let random_bytes: [u8; 16] = rng.gen();
-        URL_SAFE_NO_PAD.encode(random_bytes)
+        crate::common::crypto::generate_token(16)
     }
 
     #[instrument(skip(self))]
@@ -154,10 +143,34 @@ impl RefreshTokenService {
             }
         }
 
-        self.storage
-            .revoke_token(&old_token_hash, "Rotated")
+        let revoked = self
+            .storage
+            .revoke_token_cas(&old_token_hash, "Rotated")
             .await
             .map_err(|e| ApiError::internal(format!("Failed to revoke old token: {}", e)))?;
+
+        if !revoked {
+            warn!(
+                "Token rotation race condition detected for user: {} - token already revoked",
+                old_token.user_id
+            );
+
+            self.storage
+                .mark_family_compromised(&family_id)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to mark family compromised: {}", e))
+                })?;
+
+            self.storage
+                .revoke_all_user_tokens(&old_token.user_id, "Token rotation race condition")
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to revoke tokens: {}", e)))?;
+
+            return Err(ApiError::unauthorized(
+                "Token reuse detected. All tokens revoked.",
+            ));
+        }
 
         let new_token_record = self
             .storage

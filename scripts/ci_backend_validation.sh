@@ -8,9 +8,17 @@ MODE="${1:-all}"
 TEMP_ENV_CREATED=false
 IMAGE_BUILT=false
 SERVICES_STARTED=false
+COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.dev-host-access.yml)
 
 log() {
     printf '[ci] %s\n' "$*"
+}
+
+docker_compose() {
+    (
+        cd "$DOCKER_DIR"
+        docker compose "${COMPOSE_FILES[@]}" "$@"
+    )
 }
 
 ensure_docker_env() {
@@ -41,6 +49,7 @@ DB_MAX_SIZE=50
 DB_MIN_IDLE=10
 DB_CONNECTION_TIMEOUT=60
 REDIS_KEY_PREFIX=synapse:
+REDIS_PASSWORD=synapse-redis
 SECRET_KEY=ci-secret-key
 MACAROON_SECRET=ci-macaroon-secret
 FORM_SECRET=ci-form-secret
@@ -66,7 +75,7 @@ load_docker_env() {
 
 cleanup() {
     if [ "$SERVICES_STARTED" = true ]; then
-        (cd "$DOCKER_DIR" && docker compose down -v --remove-orphans >/dev/null 2>&1) || true
+        docker_compose down -v --remove-orphans >/dev/null 2>&1 || true
     fi
     if [ "$TEMP_ENV_CREATED" = true ]; then
         rm -f "$DOCKER_DIR/.env"
@@ -81,9 +90,8 @@ dump_docker_logs() {
         return 0
     fi
     (
-        cd "$DOCKER_DIR"
-        docker compose ps || true
-        docker compose logs --no-color --tail=300 || true
+        docker_compose ps || true
+        docker_compose logs --no-color --tail=300 || true
     ) >&2
 }
 
@@ -97,7 +105,7 @@ wait_for_health() {
     local sleep_seconds="${3:-3}"
     for ((i=1; i<=attempts; i++)); do
         local container_id
-        container_id="$(cd "$DOCKER_DIR" && docker compose ps -q "$service_name" 2>/dev/null || true)"
+        container_id="$(docker_compose ps -q "$service_name" 2>/dev/null || true)"
         if [ -z "$container_id" ]; then
             sleep "$sleep_seconds"
             continue
@@ -132,8 +140,7 @@ wait_for_http() {
 }
 
 ensure_clean_stack() {
-    cd "$DOCKER_DIR"
-    docker compose down -v --remove-orphans >/dev/null 2>&1 || true
+    docker_compose down -v --remove-orphans >/dev/null 2>&1 || true
     SERVICES_STARTED=false
 }
 
@@ -147,8 +154,7 @@ ensure_dependencies() {
         return 0
     fi
 
-    cd "$DOCKER_DIR"
-    docker compose up -d db redis
+    docker_compose up -d db redis
     SERVICES_STARTED=true
     wait_for_health db 40 3
     wait_for_health redis 30 2
@@ -159,8 +165,7 @@ ensure_image() {
         return 0
     fi
 
-    cd "$DOCKER_DIR"
-    docker compose build synapse-rust
+    docker_compose build synapse-rust
     IMAGE_BUILT=true
 }
 
@@ -169,7 +174,7 @@ run_rust_checks() {
 
     export DATABASE_URL="postgres://${DB_USER}:${DB_PASSWORD}@localhost:${DB_EXPOSE_PORT}/${DB_NAME}"
     export TEST_DATABASE_URL="$DATABASE_URL"
-    export REDIS_URL="redis://localhost:${REDIS_EXPOSE_PORT}"
+    export REDIS_URL="redis://:${REDIS_PASSWORD}@localhost:${REDIS_EXPOSE_PORT}"
     export RUST_BACKTRACE=1
     export RUST_LOG=info
 
@@ -203,9 +208,8 @@ run_migration_checks() {
     ensure_dependencies
     ensure_image
 
-    cd "$DOCKER_DIR"
-    docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust migrate
-    docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust validate
+    docker_compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust migrate
+    docker_compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust validate
 
     cd "$ROOT_DIR"
     # Default guard for refactor-era schema drift: fail fast if critical tables are missing.
@@ -216,8 +220,7 @@ run_docker_smoke() {
     ensure_dependencies
     ensure_image
 
-    cd "$DOCKER_DIR"
-    docker compose up -d synapse-rust
+    docker_compose up -d synapse-rust
     wait_for_http "http://localhost:${SYNAPSE_PORT}/_matrix/client/versions" 20 3
     wait_for_http "http://localhost:${FEDERATION_PORT}/_matrix/federation/v1/version" 20 3
     curl -fsS "http://localhost:${SYNAPSE_PORT}/_matrix/client/versions" >/dev/null

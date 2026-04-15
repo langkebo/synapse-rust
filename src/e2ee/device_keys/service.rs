@@ -17,11 +17,33 @@ impl DeviceKeyService {
     }
 
     pub async fn query_keys(&self, request: KeyQueryRequest) -> Result<KeyQueryResponse, ApiError> {
+        self.query_keys_internal(request, None).await
+    }
+
+    pub async fn query_keys_for_federation(
+        &self,
+        request: KeyQueryRequest,
+        local_server_name: &str,
+    ) -> Result<KeyQueryResponse, ApiError> {
+        self.query_keys_internal(request, Some(local_server_name)).await
+    }
+
+    async fn query_keys_internal(
+        &self,
+        request: KeyQueryRequest,
+        local_server_name: Option<&str>,
+    ) -> Result<KeyQueryResponse, ApiError> {
         let mut device_keys = serde_json::Map::new();
         let failures = serde_json::Map::new();
 
         if let Some(query_map) = request.device_keys.as_object() {
             for (user_id, device_ids) in query_map {
+                if let Some(server_name) = local_server_name {
+                    if !is_local_user_id(user_id, server_name) {
+                        continue;
+                    }
+                }
+
                 let device_ids: Vec<String> = if let Some(arr) = device_ids.as_array() {
                     arr.iter()
                         .filter_map(|v| v.as_str().map(|s| s.to_string()))
@@ -40,13 +62,35 @@ impl DeviceKeyService {
 
                 let mut user_keys = serde_json::Map::new();
                 for key in keys {
+                    let curve25519_key = if key.algorithm == "curve25519" {
+                        key.public_key.clone()
+                    } else {
+                        String::new()
+                    };
+                    let ed25519_key = if key.algorithm == "ed25519" {
+                        key.public_key.clone()
+                    } else {
+                        String::new()
+                    };
+
+                    let mut keys_map = serde_json::Map::new();
+                    if !curve25519_key.is_empty() {
+                        keys_map.insert(
+                            format!("curve25519:{}", key.key_id),
+                            serde_json::Value::String(curve25519_key),
+                        );
+                    }
+                    if !ed25519_key.is_empty() {
+                        keys_map.insert(
+                            format!("ed25519:{}", key.key_id),
+                            serde_json::Value::String(ed25519_key),
+                        );
+                    }
+
                     let device_key = serde_json::json!({
                         "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
                         "device_id": key.device_id,
-                        "keys": {
-                            format!("curve25519:{}", key.key_id): key.public_key,
-                            format!("ed25519:{}", key.key_id): key.public_key,
-                        },
+                        "keys": keys_map,
                         "signatures": key.signatures,
                         "user_id": key.user_id,
                     });
@@ -169,11 +213,33 @@ impl DeviceKeyService {
     }
 
     pub async fn claim_keys(&self, request: KeyClaimRequest) -> Result<KeyClaimResponse, ApiError> {
+        self.claim_keys_internal(request, None).await
+    }
+
+    pub async fn claim_keys_for_federation(
+        &self,
+        request: KeyClaimRequest,
+        local_server_name: &str,
+    ) -> Result<KeyClaimResponse, ApiError> {
+        self.claim_keys_internal(request, Some(local_server_name)).await
+    }
+
+    async fn claim_keys_internal(
+        &self,
+        request: KeyClaimRequest,
+        local_server_name: Option<&str>,
+    ) -> Result<KeyClaimResponse, ApiError> {
         let mut one_time_keys = serde_json::Map::new();
         let failures = serde_json::Map::new();
 
         if let Some(claim_map) = request.one_time_keys.as_object() {
             for (user_id, device_keys) in claim_map {
+                if let Some(server_name) = local_server_name {
+                    if !is_local_user_id(user_id, server_name) {
+                        continue;
+                    }
+                }
+
                 let mut user_keys = serde_json::Map::new();
 
                 if let Some(keys) = device_keys.as_object() {
@@ -275,5 +341,33 @@ impl DeviceKeyService {
         Ok(serde_json::json!({
             "failures": failures
         }))
+    }
+}
+
+fn is_local_user_id(user_id: &str, local_server_name: &str) -> bool {
+    user_id
+        .strip_prefix('@')
+        .and_then(|user| user.rsplit_once(':'))
+        .map(|(_, server_name)| server_name == local_server_name)
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_local_user_id;
+
+    #[test]
+    fn local_user_id_matches_server_name() {
+        assert!(is_local_user_id("@alice:example.com", "example.com"));
+    }
+
+    #[test]
+    fn remote_user_id_is_filtered_out() {
+        assert!(!is_local_user_id("@alice:remote.test", "example.com"));
+    }
+
+    #[test]
+    fn invalid_user_id_is_not_local() {
+        assert!(!is_local_user_id("alice", "example.com"));
     }
 }

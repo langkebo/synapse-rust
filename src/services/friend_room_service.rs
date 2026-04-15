@@ -72,6 +72,14 @@ impl FriendRoomService {
             ));
         }
 
+        if let Some(msg) = message {
+            if msg.len() > 500 {
+                return Err(ApiError::bad_request(
+                    "Friend request message exceeds maximum length of 500 characters",
+                ));
+            }
+        }
+
         let sender_friend_room = self.create_friend_list_room(sender_id).await?;
         if self
             .friend_storage
@@ -274,27 +282,11 @@ impl FriendRoomService {
     async fn add_friend_internal(&self, user_id: &str, friend_id: &str) -> ApiResult<String> {
         let user_friend_room = self.create_friend_list_room(user_id).await?;
 
-        if self
+        let already_friend = self
             .friend_storage
             .is_friend(&user_friend_room, friend_id)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to check friendship: {}", e)))?
-        {
-            let config = crate::services::room_service::CreateRoomConfig {
-                visibility: Some("private".to_string()),
-                preset: Some("trusted_private_chat".to_string()),
-                invite_list: Some(vec![friend_id.to_string()]),
-                is_direct: Some(true),
-                ..Default::default()
-            };
-
-            let response = self.room_service.create_room(user_id, config).await?;
-            return Ok(response
-                .get("room_id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| ApiError::internal("Failed to get room_id for DM"))?
-                .to_string());
-        }
+            .map_err(|e| ApiError::database(format!("Failed to check friendship: {}", e)))?;
 
         let config = crate::services::room_service::CreateRoomConfig {
             visibility: Some("private".to_string()),
@@ -311,8 +303,10 @@ impl FriendRoomService {
             .ok_or_else(|| ApiError::internal("Failed to get room_id for DM"))?
             .to_string();
 
-        self.update_friend_list(user_id, &user_friend_room, friend_id, "add")
-            .await?;
+        if !already_friend {
+            self.update_friend_list(user_id, &user_friend_room, friend_id, "add")
+                .await?;
+        }
 
         Ok(dm_room_id)
     }
@@ -472,6 +466,15 @@ impl FriendRoomService {
         friend_id: &str,
         status: &str,
     ) -> ApiResult<()> {
+        let valid_statuses = ["favorite", "normal", "blocked", "hidden"];
+        if !valid_statuses.contains(&status) {
+            return Err(ApiError::bad_request(format!(
+                "Invalid status '{}'. Valid values: {}",
+                status,
+                valid_statuses.join(", ")
+            )));
+        }
+
         let friend_room = self.create_friend_list_room(user_id).await?;
 
         if !self
@@ -996,15 +999,21 @@ impl FriendRoomService {
     }
 
     /// 查询任意用户的好友列表 (支持本地和远程)
-    pub async fn query_user_friends(&self, user_id: &str) -> ApiResult<Vec<String>> {
-        let parts: Vec<&str> = user_id.split(':').collect();
+    pub async fn query_user_friends(&self, requester_id: &str, target_user_id: &str) -> ApiResult<Vec<String>> {
+        if requester_id != target_user_id {
+            return Err(ApiError::forbidden(
+                "You can only query your own friend list".to_string(),
+            ));
+        }
+
+        let parts: Vec<&str> = target_user_id.split(':').collect();
         if parts.len() < 2 {
             return Err(ApiError::bad_request("Invalid user ID format"));
         }
         let domain = parts[1];
 
         if domain == self.server_name {
-            let friends_json = self.get_friends(user_id).await?;
+            let friends_json = self.get_friends(target_user_id).await?;
             let friends = friends_json
                 .iter()
                 .filter_map(|f| {
@@ -1017,7 +1026,7 @@ impl FriendRoomService {
         }
 
         self.federation_client
-            .query_remote_friends(domain, user_id)
+            .query_remote_friends(domain, target_user_id)
             .await
     }
 

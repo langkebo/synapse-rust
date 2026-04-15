@@ -584,13 +584,21 @@ impl ModuleStorage {
 
         let row = sqlx::query_as::<_, AccountValidity>(
             r#"
-            INSERT INTO account_validity (user_id, expiration_ts, is_valid, created_ts, updated_ts)
+            INSERT INTO account_validity (user_id, expiration_at, is_valid, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $4)
             ON CONFLICT (user_id) DO UPDATE SET
-                expiration_ts = EXCLUDED.expiration_ts,
+                expiration_at = EXCLUDED.expiration_at,
                 is_valid = EXCLUDED.is_valid,
                 updated_ts = EXCLUDED.updated_ts
-            RETURNING *
+            RETURNING
+                user_id,
+                expiration_at AS expiration_ts,
+                last_check_at AS email_sent_ts,
+                renewal_token,
+                NULL::BIGINT AS renewal_token_ts,
+                is_valid,
+                created_ts,
+                COALESCE(updated_ts, created_ts) AS updated_ts
             "#,
         )
         .bind(&request.user_id)
@@ -609,7 +617,19 @@ impl ModuleStorage {
         user_id: &str,
     ) -> Result<Option<AccountValidity>, sqlx::Error> {
         let row = sqlx::query_as::<_, AccountValidity>(
-            "SELECT * FROM account_validity WHERE user_id = $1",
+            r#"
+            SELECT
+                user_id,
+                expiration_at AS expiration_ts,
+                last_check_at AS email_sent_ts,
+                renewal_token,
+                NULL::BIGINT AS renewal_token_ts,
+                is_valid,
+                created_ts,
+                COALESCE(updated_ts, created_ts) AS updated_ts
+            FROM account_validity
+            WHERE user_id = $1
+            "#,
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -628,12 +648,19 @@ impl ModuleStorage {
         let row = sqlx::query_as::<_, AccountValidity>(
             r#"
             UPDATE account_validity SET
-                expiration_ts = $3,
+                expiration_at = $3,
                 renewal_token = NULL,
-                renewal_token_ts = NULL,
                 is_valid = true
             WHERE user_id = $1 AND renewal_token = $2
-            RETURNING *
+            RETURNING
+                user_id,
+                expiration_at AS expiration_ts,
+                last_check_at AS email_sent_ts,
+                renewal_token,
+                NULL::BIGINT AS renewal_token_ts,
+                is_valid,
+                created_ts,
+                COALESCE(updated_ts, created_ts) AS updated_ts
             "#,
         )
         .bind(user_id)
@@ -647,14 +674,9 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn set_renewal_token(&self, user_id: &str, token: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
-
-        sqlx::query(
-            "UPDATE account_validity SET renewal_token = $2, renewal_token_ts = $3 WHERE user_id = $1",
-        )
+        sqlx::query("UPDATE account_validity SET renewal_token = $2 WHERE user_id = $1")
         .bind(user_id)
         .bind(token)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -667,7 +689,19 @@ impl ModuleStorage {
         before_ts: i64,
     ) -> Result<Vec<AccountValidity>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccountValidity>(
-            "SELECT * FROM account_validity WHERE expiration_ts < $1 AND is_valid = true",
+            r#"
+            SELECT
+                user_id,
+                expiration_at AS expiration_ts,
+                last_check_at AS email_sent_ts,
+                renewal_token,
+                NULL::BIGINT AS renewal_token_ts,
+                is_valid,
+                created_ts,
+                COALESCE(updated_ts, created_ts) AS updated_ts
+            FROM account_validity
+            WHERE expiration_at < $1 AND is_valid = true
+            "#,
         )
         .bind(before_ts)
         .fetch_all(&*self.pool)

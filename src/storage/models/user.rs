@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct User {
     pub user_id: String,
     pub username: String,
+    #[serde(skip_serializing)]
     pub password_hash: Option<String>,
     pub is_admin: bool,
     pub is_guest: bool,

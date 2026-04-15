@@ -1,5 +1,8 @@
 use crate::cache::*;
 use crate::common::ApiError;
+use crate::storage::CreateAuditEventRequest;
+use crate::web::routes::admin::audit::resolve_request_id;
+use crate::web::utils::admin_auth::authorize_admin_request;
 use crate::web::utils::{encoding::decode_base64_32, ip::extract_client_ip};
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode};
@@ -31,6 +34,12 @@ static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
 });
 
 const FEDERATION_SIGNATURE_TTL_MS: u64 = 300 * 1000;
+
+#[derive(Clone, Debug)]
+pub struct FederationRequestAuth {
+    pub origin: String,
+    pub key_id: String,
+}
 
 // ============================================================================
 // CSRF Protection Middleware
@@ -986,6 +995,136 @@ pub async fn auth_middleware(
     next.run(request).await
 }
 
+pub async fn shadow_ban_middleware(
+    State(state): State<crate::web::routes::AppState>,
+    request: Request<Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let method = request.method().clone();
+    let is_write = matches!(method, Method::POST | Method::PUT | Method::DELETE | Method::PATCH);
+
+    if !is_write {
+        return next.run(request).await;
+    }
+
+    let token = match extract_token(request.headers()) {
+        Some(token) => token,
+        None => return next.run(request).await,
+    };
+
+    match state.services.auth_service.validate_token(&token).await {
+        Ok((_, _, _, is_shadow_banned, is_guest)) => {
+            if is_shadow_banned {
+                let path = request.uri().path().to_string();
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "shadow_banned_write_blocked",
+                    path = path,
+                    method = method.to_string(),
+                    "Shadow-banned user attempted write operation - silently dropping"
+                );
+
+                if path.contains("/send/") || path.contains("/invite") || path.contains("/join") || path.contains("/leave") || path.contains("/kick") || path.contains("/ban") || path.contains("/redact") {
+                    return Json(json!({"event_id": format!("${}", uuid::Uuid::new_v4())})).into_response();
+                }
+
+                return Json(json!({})).into_response();
+            }
+
+            if is_guest {
+                let path = request.uri().path().to_string();
+                let guest_blocked_paths = [
+                    "/createRoom",
+                    "/invite",
+                    "/kick",
+                    "/ban",
+                    "/unban",
+                    "/redact",
+                    "/devices",
+                    "/account/3pid",
+                    "/account/password",
+                    "/account/deactivate",
+                    "/keys/claim",
+                    "/keys/upload",
+                    "/admin/",
+                    "/register",
+                ];
+                let is_blocked = guest_blocked_paths.iter().any(|p| path.contains(p));
+                if is_blocked {
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        event = "guest_access_blocked",
+                        path = path,
+                        method = method.to_string(),
+                        "Guest user attempted restricted write operation"
+                    );
+                    return ApiError::forbidden("Guest access is not allowed for this endpoint".to_string()).into_response();
+                }
+            }
+
+            next.run(request).await
+        }
+        Err(_) => next.run(request).await,
+    }
+}
+
+pub async fn admin_auth_middleware(
+    State(state): State<crate::web::routes::AppState>,
+    request: Request<Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+    let headers = request.headers().clone();
+    let request_id = resolve_request_id(&headers);
+    let client_ip = extract_client_ip(
+        &headers,
+        &["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()],
+    );
+
+    let admin = match authorize_admin_request(&headers, &method, &path, &state).await {
+        Ok(admin) => admin,
+        Err(err) => return err.into_response(),
+    };
+
+    let mut response = next.run(request).await;
+    let result = if response.status().is_success() {
+        "success"
+    } else {
+        "failure"
+    };
+
+    if let Err(error) = state
+        .services
+        .admin_audit_service
+        .create_event(CreateAuditEventRequest {
+            actor_id: admin.user_id.clone(),
+            action: format!("{} {}", method, path),
+            resource_type: "admin_api".to_string(),
+            resource_id: path.clone(),
+            result: result.to_string(),
+            request_id: request_id.clone(),
+            details: Some(json!({
+                "method": method.as_str(),
+                "path": path,
+                "role": admin.role,
+                "device_id": admin.device_id,
+                "status": response.status().as_u16(),
+                "client_ip": client_ip,
+            })),
+        })
+        .await
+    {
+        tracing::warn!(target: "admin_auth", %error, "Failed to persist admin audit event");
+    }
+
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        response.headers_mut().insert("x-request-id", value);
+    }
+
+    response
+}
+
 // ============================================================================
 // SECTION: Federation Authentication
 // ============================================================================
@@ -1023,6 +1162,23 @@ pub async fn federation_auth_middleware(
                 .into_response()
         }
     };
+
+    if let Some(ref dest) = params.destination {
+        if dest != &state.services.config.server.name {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "federation_destination_mismatch",
+                claimed_destination = dest,
+                local_server = state.services.config.server.name,
+                origin = params.origin,
+                "Federation request destination does not match local server - possible replay attack"
+            );
+            return ApiError::unauthorized(
+                "Federation request destination does not match this server".to_string(),
+            )
+            .into_response();
+        }
+    }
 
     let destination = state.services.server_name.as_str();
 
@@ -1093,6 +1249,12 @@ pub async fn federation_auth_middleware(
         return ApiError::unauthorized("Invalid federation signature".to_string()).into_response();
     }
 
+    let mut parts = parts;
+    parts.extensions.insert(FederationRequestAuth {
+        origin: params.origin,
+        key_id: params.key,
+    });
+
     let request = Request::from_parts(parts, Body::from(body_bytes));
     next.run(request).await
 }
@@ -1135,6 +1297,7 @@ struct XMatrixAuthParams {
     origin: String,
     key: String,
     sig: String,
+    destination: Option<String>,
 }
 
 // ============================================================================
@@ -1148,6 +1311,7 @@ fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams>
     let mut origin: Option<String> = None;
     let mut key: Option<String> = None;
     let mut sig: Option<String> = None;
+    let mut destination: Option<String> = None;
 
     for part in header_value.split(',') {
         let part = part.trim();
@@ -1162,6 +1326,7 @@ fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams>
             "origin" => origin = Some(v.to_string()),
             "key" => key = Some(v.to_string()),
             "sig" => sig = Some(v.to_string()),
+            "destination" => destination = Some(v.to_string()),
             _ => {}
         }
     }
@@ -1170,6 +1335,7 @@ fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams>
         origin: origin?,
         key: key?,
         sig: sig?,
+        destination,
     })
 }
 
@@ -1477,13 +1643,8 @@ async fn fetch_federation_verify_key(
 
     let urls = [
         format!("https://{}/_matrix/key/v2/server", origin),
-        format!("http://{}/_matrix/key/v2/server", origin),
         format!(
             "https://{}/_matrix/key/v2/query/{}/{}",
-            origin, origin, key_id
-        ),
-        format!(
-            "http://{}/_matrix/key/v2/query/{}/{}",
             origin, origin, key_id
         ),
     ];

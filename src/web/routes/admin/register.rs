@@ -6,6 +6,7 @@
 // 如需从外部调用，请修改 allow_external_access 配置
 
 use crate::auth::AuthService;
+use crate::services::captcha_service::VerifyCaptchaRequest;
 use crate::web::routes::AppState;
 use crate::web::utils::ip::extract_client_ip;
 use axum::{
@@ -18,17 +19,18 @@ use axum::{
     Json, Router,
 };
 use hmac::{Hmac, Mac};
+use ipnetwork::IpNetwork;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use sha1::Sha1;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use url::Url;
 use validator::Validate;
 
-// HMAC 类型
-type HmacSha256 = Hmac<Sha256>;
+// HMAC 类型，保持与 Synapse 共享密钥注册接口一致
+type HmacSha1 = Hmac<Sha1>;
 
 // nonce 存储 (内存中，生产环境应该用 Redis)
 lazy_static::lazy_static! {
@@ -72,6 +74,15 @@ struct RegisterRequest {
     #[validate(length(max = 255))]
     #[serde(default)]
     user_type: Option<String>,
+    #[validate(length(min = 1, max = 255))]
+    #[serde(default)]
+    captcha_id: Option<String>,
+    #[validate(length(min = 1, max = 32))]
+    #[serde(default)]
+    captcha_code: Option<String>,
+    #[validate(length(min = 1, max = 255))]
+    #[serde(default)]
+    approval_token: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -145,7 +156,7 @@ fn verify_mac(
         message.extend(ut.as_bytes());
     }
 
-    let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes())
+    let mut mac = HmacSha1::new_from_slice(shared_secret.as_bytes())
         .expect("HMAC can take key of any size");
     mac.update(&message);
     let result = mac.finalize();
@@ -250,6 +261,132 @@ fn ensure_local_admin_registration_request(
     Ok(())
 }
 
+fn runtime_environment() -> String {
+    std::env::var("RUST_ENV")
+        .unwrap_or_else(|_| "production".to_string())
+        .to_ascii_lowercase()
+}
+
+fn ensure_admin_registration_environment(
+    production_only: bool,
+) -> Result<(), Box<Response<Body>>> {
+    if production_only && runtime_environment() != "production" {
+        return Err(Box::new(register_error_response(
+            403,
+            "M_FORBIDDEN",
+            "Admin registration is disabled outside production",
+        )));
+    }
+
+    Ok(())
+}
+
+fn ip_matches_whitelist(ip: IpAddr, whitelist: &[String]) -> bool {
+    whitelist.iter().any(|entry| {
+        let candidate = entry.trim();
+        if candidate.is_empty() {
+            return false;
+        }
+
+        candidate
+            .parse::<IpNetwork>()
+            .map(|network| network.contains(ip))
+            .or_else(|_| candidate.parse::<IpAddr>().map(|allowed| allowed == ip))
+            .unwrap_or(false)
+    })
+}
+
+fn ensure_admin_registration_ip_policy(
+    headers: &HeaderMap,
+    connect_info: &ConnectInfo<SocketAddr>,
+    allow_external_access: bool,
+    ip_whitelist: &[String],
+) -> Result<(), Box<Response<Body>>> {
+    ensure_local_admin_registration_request(headers, connect_info, allow_external_access)?;
+
+    if ip_whitelist.is_empty() {
+        return Ok(());
+    }
+
+    let remote_ip = connect_info.0.ip();
+    if !ip_matches_whitelist(remote_ip, ip_whitelist) {
+        return Err(Box::new(register_error_response(
+            403,
+            "M_FORBIDDEN",
+            "Admin registration source IP is not allowed",
+        )));
+    }
+
+    if let Some(client_ip) = extract_registration_client_ip(headers)
+        .and_then(|ip| ip.parse::<IpAddr>().ok())
+    {
+        if !ip_matches_whitelist(client_ip, ip_whitelist) {
+            return Err(Box::new(register_error_response(
+                403,
+                "M_FORBIDDEN",
+                "Admin registration source IP is not allowed",
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+async fn verify_additional_registration_controls(
+    state: &AppState,
+    payload: &RegisterRequest,
+) -> Result<(), Response<Body>> {
+    if state.services.config.admin_registration.require_captcha {
+        let captcha_id = payload.captcha_id.as_ref().ok_or_else(|| {
+            register_error_response(400, "M_INVALID_PARAM", "captcha_id is required")
+        })?;
+        let captcha_code = payload.captcha_code.as_ref().ok_or_else(|| {
+            register_error_response(400, "M_INVALID_PARAM", "captcha_code is required")
+        })?;
+
+        let verified = state
+            .services
+            .captcha_service
+            .verify_captcha(VerifyCaptchaRequest {
+                captcha_id: captcha_id.clone(),
+                code: captcha_code.clone(),
+            })
+            .await
+            .map_err(|e| register_error_response(400, "M_FORBIDDEN", e.to_string()))?;
+
+        if !verified {
+            return Err(register_error_response(
+                400,
+                "M_FORBIDDEN",
+                "Captcha verification failed",
+            ));
+        }
+    }
+
+    if state.services.config.admin_registration.require_manual_approval {
+        let approval_token = payload.approval_token.as_ref().ok_or_else(|| {
+            register_error_response(400, "M_INVALID_PARAM", "approval_token is required")
+        })?;
+
+        if !state
+            .services
+            .config
+            .admin_registration
+            .approval_tokens
+            .iter()
+            .any(|token| token == approval_token)
+        {
+            return Err(register_error_response(
+                403,
+                "M_FORBIDDEN",
+                "Manual approval token is invalid",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 /// 获取 nonce
 async fn get_nonce(
     State(state): State<AppState>,
@@ -276,10 +413,13 @@ async fn get_nonce(
         ));
     }
 
-    ensure_local_admin_registration_request(
+    ensure_admin_registration_environment(config.admin_registration.production_only)
+        .map_err(|response| *response)?;
+    ensure_admin_registration_ip_policy(
         &headers,
         &connect_info,
         config.admin_registration.allow_external_access,
+        &config.admin_registration.ip_whitelist,
     )
     .map_err(|response| *response)?;
 
@@ -334,12 +474,16 @@ async fn register(
         ));
     }
 
-    ensure_local_admin_registration_request(
+    ensure_admin_registration_environment(config.admin_registration.production_only)
+        .map_err(|response| *response)?;
+    ensure_admin_registration_ip_policy(
         &headers,
         &connect_info,
         config.admin_registration.allow_external_access,
+        &config.admin_registration.ip_whitelist,
     )
     .map_err(|response| *response)?;
+    verify_additional_registration_controls(&state, &payload).await?;
 
     // 验证 nonce
     let nonce_valid = {
@@ -383,7 +527,7 @@ async fn register(
         return Err(register_error_response(400, "M_UNKNOWN", "HMAC incorrect"));
     }
 
-    // 创建用户
+    // 创建用户。保持与上游 shared-secret registration 一致，只允许部署侧显式调用。
     let user_id = format!("@{}:{}", payload.username, config.server.name);
     let display_name = payload.displayname.unwrap_or(payload.username.clone());
 
@@ -396,14 +540,15 @@ async fn register(
         &config.server.name,
     );
 
-    let register_result = auth_service
-        .register(
-            &payload.username,
-            &payload.password,
-            payload.admin,
-            Some(&display_name),
-        )
-        .await;
+    let register_result = if payload.admin {
+        auth_service
+            .register_admin(&payload.username, &payload.password, Some(&display_name))
+            .await
+    } else {
+        auth_service
+            .register(&payload.username, &payload.password, Some(&display_name))
+            .await
+    };
 
     match register_result {
         Ok((_user, access_token, refresh_token, device_id)) => {
@@ -488,5 +633,25 @@ mod tests {
 
         let result = ensure_local_admin_registration_request(&headers, &connect_info, false);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_admin_registration_environment_blocks_non_production() {
+        unsafe {
+            std::env::set_var("RUST_ENV", "development");
+        }
+        let result = ensure_admin_registration_environment(true);
+        unsafe {
+            std::env::remove_var("RUST_ENV");
+        }
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ip_matches_whitelist_supports_ip_and_cidr() {
+        let whitelist = vec!["127.0.0.1".to_string(), "10.0.0.0/8".to_string()];
+        assert!(ip_matches_whitelist("127.0.0.1".parse().unwrap(), &whitelist));
+        assert!(ip_matches_whitelist("10.10.1.3".parse().unwrap(), &whitelist));
+        assert!(!ip_matches_whitelist("192.168.1.10".parse().unwrap(), &whitelist));
     }
 }

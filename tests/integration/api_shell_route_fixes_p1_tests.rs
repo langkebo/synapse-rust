@@ -85,7 +85,7 @@ async fn test_update_device_returns_confirmation() {
     // Update device display name
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!("/_matrix/client/v3/devices/{}", device_id))
+        .uri(format!("/_matrix/client/v3/devices/{}", device_id))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", access_token))
         .body(Body::from(
@@ -139,7 +139,7 @@ async fn test_set_typing_returns_confirmation() {
     // Set typing indicator
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v3/rooms/{}/typing/{}",
             room_id, user_id
         ))
@@ -194,7 +194,7 @@ async fn test_set_room_alias_returns_confirmation() {
     // Set room alias - using the correct v3 endpoint format
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v3/directory/room/{}",
             urlencoding::encode(&alias)
         ))
@@ -250,7 +250,7 @@ async fn test_remove_room_alias_returns_confirmation() {
     // Set alias first
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v3/directory/room/{}",
             urlencoding::encode(&alias)
         ))
@@ -271,7 +271,7 @@ async fn test_remove_room_alias_returns_confirmation() {
     // Remove alias
     let request = Request::builder()
         .method("DELETE")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v3/directory/room/{}",
             urlencoding::encode(&alias)
         ))
@@ -313,7 +313,7 @@ async fn test_set_canonical_alias_returns_confirmation() {
     // Set canonical alias - this is a state event, not a directory operation
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v3/rooms/{}/state/m.room.canonical_alias",
             room_id
         ))

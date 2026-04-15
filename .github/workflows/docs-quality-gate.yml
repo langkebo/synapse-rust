@@ -28,6 +28,7 @@ jobs:
       - name: markdownlint - Top-level Implementation Docs
         run: |
           markdownlint -c .markdownlint.json \
+            OPTIMIZATION.md \
             docs/OPTIMIZATION_PLAN.md \
             docs/API-TEST-OPTIMIZATION-PLAN.md \
             docs/db/MIGRATION_GOVERNANCE.md \
@@ -52,6 +53,7 @@ jobs:
         uses: lycheeverse/lychee-action@v1.10.0
         with:
           args: --base . --exclude-loopback \
+            OPTIMIZATION.md \
             docs/OPTIMIZATION_PLAN.md \
             docs/API-TEST-OPTIMIZATION-PLAN.md \
             docs/db/MIGRATION_GOVERNANCE.md \

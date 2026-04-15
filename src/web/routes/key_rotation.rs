@@ -1,4 +1,4 @@
-use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::{AdminUser, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     routing::{get, post, put},
@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 pub async fn get_key_rotation_status(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _admin_user: AdminUser,
 ) -> Result<Json<Value>, ApiError> {
     let config = &state.services.config.federation;
 
@@ -21,7 +21,7 @@ pub async fn get_key_rotation_status(
 
 pub async fn rotate_keys(
     State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    admin_user: AdminUser,
 ) -> Result<Json<Value>, ApiError> {
     let key_id = format!("ed25519:{}", uuid::Uuid::new_v4());
     let now = Utc::now().timestamp_millis();
@@ -33,13 +33,21 @@ pub async fn rotate_keys(
         VALUES ($1, $2, $3, $4)
         "#,
     )
-    .bind(&auth_user.user_id)
+    .bind(&admin_user.user_id)
     .bind(&device_id)
     .bind(&key_id)
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Failed to record rotation: {}", e)))?;
+
+    ::tracing::warn!(
+        target: "security_audit",
+        event = "admin_key_rotation",
+        admin_user_id = admin_user.user_id,
+        key_id = key_id,
+        "Admin performed key rotation"
+    );
 
     Ok(Json(json!({
         "success": true,
@@ -132,22 +140,20 @@ pub async fn revoke_old_keys(
 
 pub async fn configure_key_rotation(
     State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    admin_user: AdminUser,
+    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let enabled = body
-        .get("enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-    let interval_days = body
-        .get("interval_days")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(30);
+    ::tracing::info!(
+        target: "security_audit",
+        event = "admin_key_rotation_config",
+        admin_user_id = admin_user.user_id,
+        "Rejected unsupported key rotation configuration request"
+    );
 
-    Ok(Json(json!({
-        "enabled": enabled,
-        "interval_days": interval_days,
-    })))
+    Err(ApiError::unrecognized(
+        "Key rotation configuration is not implemented; server-side settings remain authoritative"
+            .to_string(),
+    ))
 }
 
 pub async fn check_needs_rotation(

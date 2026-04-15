@@ -209,11 +209,15 @@ impl UserStorage {
         user_id: &str,
         password_hash: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(r#"UPDATE users SET password_hash = $1 WHERE user_id = $2"#)
-            .bind(password_hash)
-            .bind(user_id)
-            .execute(&*self.pool)
-            .await?;
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r#"UPDATE users SET password_hash = $1, password_changed_ts = $2, is_password_change_required = FALSE, must_change_password = FALSE WHERE user_id = $3"#
+        )
+        .bind(password_hash)
+        .bind(now)
+        .bind(user_id)
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct AccessToken {
     pub id: i64,
-    pub token: String,
+    pub token_hash: String,
     pub user_id: String,
     pub device_id: Option<String>,
     pub created_ts: i64,
@@ -101,7 +101,7 @@ mod tests {
     fn test_access_token_struct() {
         let token = AccessToken {
             id: 1,
-            token: "access_token_abc123".to_string(),
+            token_hash: "access_token_hash_abc123".to_string(),
             user_id: "@alice:example.com".to_string(),
             device_id: Some("DEVICE123".to_string()),
             created_ts: 1234567890000,
@@ -113,7 +113,7 @@ mod tests {
         };
 
         assert_eq!(token.id, 1);
-        assert_eq!(token.token, "access_token_abc123");
+        assert_eq!(token.token_hash, "access_token_hash_abc123");
         assert_eq!(token.user_id, "@alice:example.com");
         assert!(token.device_id.is_some());
         assert!(!token.is_revoked);

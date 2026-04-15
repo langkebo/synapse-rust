@@ -15,7 +15,9 @@ use crate::e2ee::key_request::KeyRequestService;
 use crate::e2ee::megolm::MegolmService;
 use crate::e2ee::to_device::ToDeviceService;
 use crate::e2ee::verification::VerificationService;
-use crate::federation::{DeviceSyncManager, EventAuthChain, FederationClient, FriendFederation, KeyRotationManager};
+use crate::federation::{
+    DeviceSyncManager, EventAuthChain, FederationClient, FriendFederation, KeyRotationManager,
+};
 use crate::services::burn_after_read_service::BurnAfterReadServiceImpl;
 use crate::storage::email_verification::EmailVerificationStorage;
 pub use crate::storage::PresenceStorage;
@@ -247,6 +249,7 @@ impl ServiceContainer {
                 member_storage: member_storage.clone(),
                 event_storage: event_storage.clone(),
                 user_storage: user_storage.clone(),
+                auth_service: auth_service.clone(),
                 room_summary_service: room_summary_service.clone(),
                 validator: auth_service.validator.clone(),
                 server_name: config.server.name.clone(),
@@ -254,12 +257,17 @@ impl ServiceContainer {
                 beacon_service: Some(beacon_service.clone()),
             },
         ));
-        let sync_service = Arc::new(crate::services::sync_service::SyncService::new(
-            presence_storage.clone(),
-            member_storage.clone(),
-            event_storage.clone(),
-            room_storage.clone(),
-            DeviceStorage::new(pool),
+        let sync_service = Arc::new(crate::services::sync_service::SyncService::from_deps(
+            crate::services::sync_service::SyncServiceDeps {
+                presence_storage: presence_storage.clone(),
+                member_storage: member_storage.clone(),
+                event_storage: event_storage.clone(),
+                room_storage: room_storage.clone(),
+                filter_storage: FilterStorage::new(pool),
+                device_storage: DeviceStorage::new(pool),
+                metrics: metrics.clone(),
+                performance: config.performance.clone(),
+            },
         ));
         let typing_service = Arc::new(crate::services::typing_service::TypingServiceImpl::new());
         let sliding_sync_storage =
@@ -268,6 +276,7 @@ impl ServiceContainer {
             crate::services::sliding_sync_service::SlidingSyncService::new(
                 sliding_sync_storage.clone(),
                 cache.clone(),
+                event_storage.clone(),
                 typing_service.clone(),
             ),
         );
@@ -715,6 +724,10 @@ fn build_test_config() -> Config {
             allow_legacy_hashes: false,
             login_failure_lockout_threshold: 5,
             login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
         },
         search: SearchConfig {
             enabled: false,
@@ -731,6 +744,11 @@ fn build_test_config() -> Config {
             shared_secret: "test_shared_secret".to_string(),
             nonce_timeout_seconds: 60,
             allow_external_access: false,
+            production_only: true,
+            ip_whitelist: Vec::new(),
+            require_captcha: false,
+            require_manual_approval: false,
+            approval_tokens: Vec::new(),
         },
         builtin_oidc: crate::common::config::BuiltinOidcConfig::default(),
         worker: WorkerConfig::default(),
@@ -744,6 +762,7 @@ fn build_test_config() -> Config {
         retention: crate::common::config::RetentionConfig::default(),
         telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
         prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
+        performance: crate::common::config::PerformanceConfig::default(),
     }
 }
 

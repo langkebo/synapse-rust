@@ -2,7 +2,9 @@ use crate::common::background_job::BackgroundJob;
 use crate::common::constants::BURN_AFTER_READ_DELAY_SECS;
 use crate::common::task_queue::RedisTaskQueue;
 use crate::common::validation::Validator;
-use crate::common::{generate_event_id, generate_room_id};
+use crate::common::{
+    generate_event_id, generate_room_id, generate_stream_token_from_ts, parse_stream_token,
+};
 use crate::services::*;
 use crate::storage::CreateEventParams;
 use crate::storage::UserStorage;
@@ -31,6 +33,7 @@ pub struct RoomServiceConfig {
     pub member_storage: RoomMemberStorage,
     pub event_storage: EventStorage,
     pub user_storage: UserStorage,
+    pub auth_service: AuthService,
     pub room_summary_service: Arc<RoomSummaryService>,
     pub validator: Arc<Validator>,
     pub server_name: String,
@@ -38,11 +41,42 @@ pub struct RoomServiceConfig {
     pub beacon_service: Option<Arc<BeaconService>>,
 }
 
+fn validate_room_alias_input(alias: &str) -> ApiResult<()> {
+    if alias.is_empty() {
+        return Err(ApiError::bad_request("room_alias is required".to_string()));
+    }
+    if !alias.starts_with('#') {
+        return Err(ApiError::bad_request(
+            "Invalid room alias format: must start with #".to_string(),
+        ));
+    }
+    if alias.len() > 255 {
+        return Err(ApiError::bad_request(
+            "Room alias too long (max 255 characters)".to_string(),
+        ));
+    }
+
+    let Some((localpart, server_name)) = alias[1..].rsplit_once(':') else {
+        return Err(ApiError::bad_request(
+            "Invalid room alias format: must be #alias:server".to_string(),
+        ));
+    };
+
+    if localpart.is_empty() || server_name.is_empty() {
+        return Err(ApiError::bad_request(
+            "Invalid room alias format: must be #alias:server".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 pub struct RoomService {
     room_storage: RoomStorage,
     member_storage: RoomMemberStorage,
     pub event_storage: EventStorage,
     pub user_storage: UserStorage,
+    auth_service: AuthService,
     pub validator: Arc<Validator>,
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
@@ -58,6 +92,7 @@ impl RoomService {
             member_storage: config.member_storage,
             event_storage: config.event_storage,
             user_storage: config.user_storage,
+            auth_service: config.auth_service,
             room_summary_service: config.room_summary_service,
             validator: config.validator,
             server_name: config.server_name,
@@ -127,6 +162,10 @@ impl RoomService {
         let room_id = self.generate_room_id();
         let mut join_rule = self.determine_join_rule(config.preset.as_deref());
         let is_public = self.is_public_visibility(config.visibility.as_deref());
+
+        if is_public && join_rule != "public" {
+            join_rule = "public";
+        }
 
         // Handle trusted_private_chat preset
         let is_trusted_private = config.preset.as_deref() == Some("trusted_private_chat");
@@ -325,6 +364,7 @@ impl RoomService {
         // Save room alias if provided
         if let Some(ref alias) = config.room_alias_name {
             let full_alias = format!("#{}:{}", alias, self.server_name);
+            validate_room_alias_input(&full_alias)?;
             if let Err(e) = self
                 .room_storage
                 .set_room_alias(&room_id, &full_alias, user_id)
@@ -716,6 +756,67 @@ impl RoomService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
+        let effective_join_rule = if let Some(event) = self
+            .event_storage
+            .get_state_events_by_type(room_id, "m.room.join_rules")
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to load room join rules: {}", e)))?
+            .into_iter()
+            .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
+        {
+            event.content
+                .get("join_rule")
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_string())
+        } else {
+            None
+        };
+
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to load room: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+
+        let join_rule = effective_join_rule
+            .or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone()))
+            .unwrap_or_else(|| {
+                if room.is_public {
+                    "public".to_string()
+                } else {
+                    "invite".to_string()
+                }
+            });
+
+        let existing_member = self
+            .member_storage
+            .get_room_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+        if let Some(member) = existing_member.as_ref() {
+            if member.membership == "join" {
+                return Ok(());
+            }
+
+            if member.membership == "ban" || member.is_banned.unwrap_or(false) {
+                return Err(ApiError::forbidden(
+                    "You are banned from this room".to_string(),
+                ));
+            }
+        }
+
+        if join_rule != "public"
+            && existing_member
+                .as_ref()
+                .is_none_or(|member| member.membership != "invite")
+        {
+            return Err(ApiError::forbidden(
+                "Room is invite-only".to_string(),
+            ));
+        }
+
         self.member_storage
             .add_member(room_id, user_id, "join", None, None, None)
             .await
@@ -911,11 +1012,18 @@ impl RoomService {
         room_id: &str,
         from: i64,
         limit: i64,
-        _direction: &str,
+        direction: &str,
     ) -> ApiResult<serde_json::Value> {
+        let normalized_direction = if direction == "f" { "f" } else { "b" };
+        let from_token = if from > 0 {
+            generate_stream_token_from_ts(Some(from))
+        } else {
+            "0".to_string()
+        };
+        let from_ts = parse_stream_token(&from_token).or((from > 0).then_some(from));
         let events = self
             .event_storage
-            .get_room_events(room_id, limit)
+            .get_room_events_paginated(room_id, from_ts, limit, normalized_direction)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get messages: {}", e)))?;
 
@@ -932,10 +1040,15 @@ impl RoomService {
             })
             .collect();
 
+        let end_token = events
+            .last()
+            .map(|event| generate_stream_token_from_ts(Some(event.origin_server_ts)))
+            .unwrap_or_else(|| from_token.clone());
+
         Ok(json!({
             "chunk": event_list,
-            "start": from.to_string(),
-            "end": format!("e{}", chrono::Utc::now().timestamp_millis())
+            "start": from_token,
+            "end": end_token
         }))
     }
 
@@ -962,6 +1075,17 @@ impl RoomService {
         {
             return Err(ApiError::not_found("User not found".to_string()));
         }
+
+        let inviter = self
+            .user_storage
+            .get_user_by_id(inviter_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to load inviter: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Inviter not found".to_string()))?;
+
+        self.auth_service
+            .can_invite_user(room_id, inviter_id, inviter.is_admin)
+            .await?;
 
         self.member_storage
             .add_member(room_id, invitee_id, "invite", None, Some(inviter_id), None)
@@ -1016,6 +1140,17 @@ impl RoomService {
         {
             return Err(ApiError::not_found("User not found".to_string()));
         }
+
+        let actor = self
+            .user_storage
+            .get_user_by_id(banned_by)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to load banning user: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Banning user not found".to_string()))?;
+
+        self.auth_service
+            .can_ban_user(room_id, banned_by, user_id, actor.is_admin)
+            .await?;
 
         self.member_storage
             .ban_member(room_id, user_id, banned_by)
@@ -1074,7 +1209,30 @@ impl RoomService {
         }))
     }
 
-    pub async fn delete_room(&self, room_id: &str) -> ApiResult<()> {
+    pub async fn delete_room(&self, room_id: &str, requester_id: &str) -> ApiResult<()> {
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+
+        let requester = self
+            .user_storage
+            .get_user_by_id(requester_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get user: {}", e)))?
+            .ok_or_else(|| ApiError::unauthorized("Requester not found"))?;
+
+        let is_creator = room.creator_user_id.as_deref() == Some(requester_id);
+        let is_admin = requester.is_admin;
+
+        if !is_creator && !is_admin {
+            return Err(ApiError::forbidden(
+                "Only the room creator or a server admin can delete a room".to_string(),
+            ));
+        }
+
         self.room_storage
             .delete_room(room_id)
             .await
@@ -1122,6 +1280,7 @@ impl RoomService {
         alias: &str,
         created_by: &str,
     ) -> ApiResult<()> {
+        validate_room_alias_input(alias)?;
         self.room_storage
             .set_room_alias(room_id, alias, created_by)
             .await
@@ -1129,6 +1288,7 @@ impl RoomService {
     }
 
     pub async fn get_room_by_alias(&self, alias: &str) -> ApiResult<Option<String>> {
+        validate_room_alias_input(alias)?;
         self.room_storage
             .get_room_by_alias(alias)
             .await

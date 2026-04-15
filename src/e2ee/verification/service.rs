@@ -223,8 +223,47 @@ impl VerificationService {
     }
 
     /// Confirm SAS verification
-    pub async fn confirm_sas(&self, _transaction_id: &str, _mac: &str) -> Result<bool, ApiError> {
-        // Simplified confirmation
+    pub async fn confirm_sas(&self, transaction_id: &str, mac: &str) -> Result<bool, ApiError> {
+        let request = self.storage.get_request(transaction_id).await?;
+        let Some(request) = request else {
+            return Err(ApiError::bad_request("Verification request not found".to_string()));
+        };
+
+        match request.state {
+            VerificationState::Cancelled => {
+                return Err(ApiError::bad_request("Verification was cancelled".to_string()));
+            }
+            VerificationState::Done => {
+                return Ok(true);
+            }
+            VerificationState::Requested | VerificationState::Ready => {}
+            _ => {}
+        }
+
+        let sas_state = self.storage.get_sas_state(transaction_id).await?;
+        let Some(sas_state) = sas_state else {
+            return Err(ApiError::bad_request("SAS state not found".to_string()));
+        };
+
+        if let (Some(stored_mac), Some(commitment)) = (&sas_state.mac, &sas_state.commitment) {
+            if mac != stored_mac && mac != commitment {
+                self.storage
+                    .update_state(transaction_id, VerificationState::Cancelled)
+                    .await?;
+                tracing::warn!(
+                    "SAS MAC mismatch for transaction {}, expected {}",
+                    transaction_id,
+                    stored_mac
+                );
+                return Ok(false);
+            }
+        }
+
+        self.storage
+            .update_state(transaction_id, VerificationState::Done)
+            .await?;
+
+        tracing::info!("SAS verification confirmed for transaction {}", transaction_id);
         Ok(true)
     }
 
@@ -272,20 +311,25 @@ impl VerificationService {
     ) -> Result<QrCodeData, ApiError> {
         let transaction_id = generate_transaction_id();
 
-        // Get device keys - simplified for now
-        let ed25519_key = "".to_string();
-        let curve25519_key = "".to_string();
+        let (secret_key, ed25519_public) = self.generate_key_pair();
+        let curve25519_public = ed25519_public.clone();
 
-        // Create QR data
+        let shared_secret = {
+            let mut rng = rand::thread_rng();
+            let mut bytes = [0u8; 32];
+            rng.fill(&mut bytes);
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        };
+
         let qr_data = QrCodeData {
             transaction_id: transaction_id.clone(),
             server_name: server_name.to_string(),
-            server_public_key: "".to_string(),
+            server_public_key: shared_secret,
             user_id: user_id.to_string(),
             device_id: device_id.to_string(),
-            device_ed25519_key: ed25519_key,
-            device_curve25519_key: curve25519_key,
-            signature: "".to_string(),
+            device_ed25519_key: ed25519_public,
+            device_curve25519_key: curve25519_public,
+            signature: secret_key,
         };
 
         // Store QR state

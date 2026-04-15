@@ -3,10 +3,18 @@
 # 恢复脚本
 # =============================================================================
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
+
+compose() {
+    if command -v docker-compose &> /dev/null; then
+        docker-compose "$@"
+    else
+        docker compose "$@"
+    fi
+}
 
 # 颜色定义
 RED='\033[0;31m'
@@ -73,10 +81,10 @@ restore_database() {
     log_info "恢复数据库..."
     
     # 停止应用
-    docker-compose stop synapse
+    compose stop synapse
     
     # 恢复数据库
-    docker-compose exec -T postgres psql -U "${POSTGRES_USER:-synapse}" -d "${POSTGRES_DB:-synapse}" < "$backup_dir/database.sql"
+    compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" < "$backup_dir/database.sql"
     
     log_success "数据库恢复完成"
 }
@@ -87,10 +95,9 @@ restore_media() {
     
     log_info "恢复媒体文件..."
     
-    docker run --rm \
-        -v synapse_media:/media \
-        -v "$backup_dir:/backup" \
-        alpine sh -c "rm -rf /media/* && tar xzf /backup/media.tar.gz -C /media"
+    mkdir -p media
+    rm -rf media/*
+    tar xzf "$backup_dir/media.tar.gz" -C media
     
     log_success "媒体文件恢复完成"
 }
@@ -123,7 +130,7 @@ main() {
     
     # 重启服务
     log_info "重启服务..."
-    docker-compose up -d
+    compose up -d
     
     log_success "恢复完成!"
 }

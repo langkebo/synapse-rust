@@ -47,6 +47,12 @@ PASSED_LIST_FILE="$RESULTS_DIR/api-integration.passed.txt"
 FAILED_LIST_FILE="$RESULTS_DIR/api-integration.failed.txt"
 SKIPPED_LIST_FILE="$RESULTS_DIR/api-integration.skipped.txt"
 MISSING_LIST_FILE="$RESULTS_DIR/api-integration.missing.txt"
+HTTP_CONNECT_TIMEOUT="${HTTP_CONNECT_TIMEOUT:-5}"
+HTTP_MAX_TIME="${HTTP_MAX_TIME:-20}"
+
+curl() {
+    command curl --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" "$@"
+}
 
 echo "=========================================="
 echo "Complete API Integration Test"

@@ -689,24 +689,11 @@ impl FriendRoomStorage {
             .await?;
 
         if existing.is_none() {
-            let now = chrono::Utc::now().timestamp_millis();
-            let username = user_id
-                .strip_prefix('@')
-                .and_then(|s| s.split(':').next())
-                .unwrap_or("remote_user");
-
-            sqlx::query(
-                r#"
-                INSERT INTO users (user_id, username, created_ts, generation)
-                VALUES ($1, $2, $3, $3)
-                ON CONFLICT (user_id) DO NOTHING
-                "#,
-            )
-            .bind(user_id)
-            .bind(username)
-            .bind(now)
-            .execute(&*self.pool)
-            .await?;
+            tracing::warn!(
+                "Friend request references non-existent user: {} - refusing to auto-create",
+                user_id
+            );
+            return Err(sqlx::Error::RowNotFound);
         }
 
         Ok(())

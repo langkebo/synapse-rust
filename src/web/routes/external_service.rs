@@ -1,8 +1,8 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::common::ApiError;
 use crate::services::external_service_integration::*;
-use crate::web::routes::AppState;
+use crate::web::routes::{AdminUser, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterExternalServiceBody {
@@ -20,6 +20,14 @@ pub struct RegisterExternalServiceBody {
     pub webhook_url: Option<String>,
     pub api_key: Option<String>,
     pub config: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateExternalServiceBody {
+    pub webhook_url: Option<String>,
+    pub api_key: Option<String>,
+    pub config: Option<serde_json::Value>,
+    pub is_enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,8 +84,31 @@ fn parse_service_type(s: &str) -> Result<ExternalServiceType, ApiError> {
     }
 }
 
+fn extract_webhook_auth(headers: &HeaderMap, payload_signature: Option<&str>) -> WebhookAuthInput {
+    let token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .or_else(|| {
+            headers
+                .get("x-webhook-token")
+                .and_then(|value| value.to_str().ok())
+        })
+        .or_else(|| headers.get("x-api-key").and_then(|value| value.to_str().ok()))
+        .map(ToOwned::to_owned);
+
+    let signature = headers
+        .get("x-webhook-signature")
+        .and_then(|value| value.to_str().ok())
+        .or(payload_signature)
+        .map(ToOwned::to_owned);
+
+    WebhookAuthInput { token, signature }
+}
+
 pub async fn register_external_service(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Json(body): Json<RegisterExternalServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let service_type = parse_service_type(&body.service_type)?;
@@ -107,6 +138,7 @@ pub async fn register_external_service(
 
 pub async fn list_external_services(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Query(query): Query<ListServicesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let stype = match query.service_type.as_deref() {
@@ -132,6 +164,7 @@ pub async fn list_external_services(
 pub async fn get_external_service_health(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = ExternalServiceIntegration::new(
         Arc::new(state.services.app_service_storage.clone()),
@@ -157,6 +190,7 @@ pub async fn get_external_service_health(
 pub async fn check_service_health(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = ExternalServiceIntegration::new(
         Arc::new(state.services.app_service_storage.clone()),
@@ -174,6 +208,7 @@ pub async fn check_service_health(
 pub async fn unregister_external_service(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = ExternalServiceIntegration::new(
         Arc::new(state.services.app_service_storage.clone()),
@@ -185,9 +220,39 @@ pub async fn unregister_external_service(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn update_external_service(
+    State(state): State<AppState>,
+    Path(as_id): Path<String>,
+    _admin: AdminUser,
+    Json(body): Json<UpdateExternalServiceBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let integration = ExternalServiceIntegration::new(
+        Arc::new(state.services.app_service_storage.clone()),
+        state.services.server_name.clone(),
+    );
+
+    let mut request = crate::storage::application_service::UpdateApplicationServiceRequest::new();
+    if let Some(webhook_url) = body.webhook_url {
+        request = request.url(webhook_url);
+    }
+    if let Some(api_key) = body.api_key {
+        request = request.api_key(api_key);
+    }
+    if let Some(config) = body.config {
+        request = request.config(config);
+    }
+    if let Some(is_enabled) = body.is_enabled {
+        request = request.is_enabled(is_enabled);
+    }
+
+    let service = integration.update_external_service(&as_id, request).await?;
+    Ok(Json(ExternalServiceResponse::from(service)))
+}
+
 pub async fn handle_trendradar_webhook(
     State(state): State<AppState>,
     Path(service_id): Path<String>,
+    headers: HeaderMap,
     Json(payload): Json<TrendRadarPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = ExternalServiceIntegration::new(
@@ -196,7 +261,7 @@ pub async fn handle_trendradar_webhook(
     );
 
     integration
-        .handle_trendradar_webhook(&service_id, payload)
+        .handle_trendradar_webhook(&service_id, payload, extract_webhook_auth(&headers, None))
         .await?;
 
     Ok(Json(serde_json::json!({
@@ -208,6 +273,7 @@ pub async fn handle_trendradar_webhook(
 pub async fn handle_openclaw_webhook(
     State(state): State<AppState>,
     Path(service_id): Path<String>,
+    headers: HeaderMap,
     Json(payload): Json<OpenClawPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = ExternalServiceIntegration::new(
@@ -216,7 +282,7 @@ pub async fn handle_openclaw_webhook(
     );
 
     integration
-        .handle_openclaw_webhook(&service_id, payload)
+        .handle_openclaw_webhook(&service_id, payload, extract_webhook_auth(&headers, None))
         .await?;
 
     Ok(Json(serde_json::json!({
@@ -228,6 +294,7 @@ pub async fn handle_openclaw_webhook(
 pub async fn handle_generic_webhook(
     State(state): State<AppState>,
     Path(service_id): Path<String>,
+    headers: HeaderMap,
     Json(payload): Json<WebhookPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = ExternalServiceIntegration::new(
@@ -236,7 +303,11 @@ pub async fn handle_generic_webhook(
     );
 
     integration
-        .handle_generic_webhook(&service_id, payload)
+        .handle_generic_webhook(
+            &service_id,
+            payload.clone(),
+            extract_webhook_auth(&headers, payload.signature.as_deref()),
+        )
         .await?;
 
     Ok(Json(serde_json::json!({
@@ -247,6 +318,7 @@ pub async fn handle_generic_webhook(
 
 pub async fn get_all_health_status(
     State(state): State<AppState>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = ExternalServiceIntegration::new(
         Arc::new(state.services.app_service_storage.clone()),
@@ -259,7 +331,7 @@ pub async fn get_all_health_status(
 }
 
 pub fn create_external_service_router(state: AppState) -> Router<AppState> {
-    Router::new()
+    let admin_routes = Router::new()
         .route(
             "/_synapse/admin/v1/external_services",
             get(list_external_services).post(register_external_service),
@@ -275,12 +347,18 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/_synapse/admin/v1/external_services/{as_id}",
-            delete(unregister_external_service),
+            put(update_external_service).delete(unregister_external_service),
         )
         .route(
             "/_synapse/admin/v1/external_services/health",
             get(get_all_health_status),
         )
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ));
+
+    let public_routes = Router::new()
         .route(
             "/_synapse/external/trendradar/{service_id}/webhook",
             post(handle_trendradar_webhook),
@@ -292,8 +370,9 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
         .route(
             "/_synapse/external/webhook/{service_id}",
             post(handle_generic_webhook),
-        )
-        .with_state(state)
+        );
+
+    public_routes.merge(admin_routes).with_state(state)
 }
 
 #[cfg(test)]

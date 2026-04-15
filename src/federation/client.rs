@@ -199,7 +199,6 @@ impl FederationClient {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
-            .danger_accept_invalid_certs(true)
             .build()
             .expect("Failed to build HTTP client");
 
@@ -217,7 +216,10 @@ impl FederationClient {
     }
 
     async fn get_signing_key_and_id(&self) -> Result<(String, String), FederationClientError> {
-        let key = self.key_rotation_manager.get_current_key().await
+        let key = self
+            .key_rotation_manager
+            .get_current_key()
+            .await
             .map_err(|_| FederationClientError::NoSigningKey)?;
         match key {
             Some(k) => Ok((k.secret_key, k.key_id)),
@@ -247,7 +249,8 @@ impl FederationClient {
             path,
             &self.server_name,
             destination,
-            body.map(|s| serde_json::from_str(s).unwrap_or(serde_json::Value::Null)).as_ref(),
+            body.map(|s| serde_json::from_str(s).unwrap_or(serde_json::Value::Null))
+                .as_ref(),
         );
 
         let signature = signing_key.sign(&message);
@@ -273,12 +276,19 @@ impl FederationClient {
         let resolved = if server_name.starts_with('[') {
             if let Some(close) = server_name.find(']') {
                 let host = server_name[1..close].to_string();
-                let port = if close + 1 < server_name.len() && server_name[close + 1..].starts_with(':') {
-                    server_name[close + 2..].parse().unwrap_or(DEFAULT_FEDERATION_PORT)
-                } else {
-                    DEFAULT_FEDERATION_PORT
-                };
-                ResolvedServer { server_name: server_name.to_string(), host, port }
+                let port =
+                    if close + 1 < server_name.len() && server_name[close + 1..].starts_with(':') {
+                        server_name[close + 2..]
+                            .parse()
+                            .unwrap_or(DEFAULT_FEDERATION_PORT)
+                    } else {
+                        DEFAULT_FEDERATION_PORT
+                    };
+                ResolvedServer {
+                    server_name: server_name.to_string(),
+                    host,
+                    port,
+                }
             } else {
                 ResolvedServer {
                     server_name: server_name.to_string(),
@@ -288,16 +298,22 @@ impl FederationClient {
             }
         } else if let Some(colon_pos) = server_name.rfind(':') {
             let host = server_name[..colon_pos].to_string();
-            let port = server_name[colon_pos + 1..].parse().unwrap_or(DEFAULT_FEDERATION_PORT);
-            ResolvedServer { server_name: server_name.to_string(), host, port }
+            let port = server_name[colon_pos + 1..]
+                .parse()
+                .unwrap_or(DEFAULT_FEDERATION_PORT);
+            ResolvedServer {
+                server_name: server_name.to_string(),
+                host,
+                port,
+            }
         } else {
-            self.resolve_via_well_known(server_name).await.unwrap_or_else(|| {
-                ResolvedServer {
+            self.resolve_via_well_known(server_name)
+                .await
+                .unwrap_or_else(|| ResolvedServer {
                     server_name: server_name.to_string(),
                     host: server_name.to_string(),
                     port: DEFAULT_FEDERATION_PORT,
-                }
-            })
+                })
         };
 
         self.server_resolution_cache
@@ -312,7 +328,6 @@ impl FederationClient {
         let url = format!("https://{}/.well-known/matrix/server", server_name);
         let client = Client::builder()
             .timeout(Duration::from_secs(WELL_KNOWN_TIMEOUT_SECS))
-            .danger_accept_invalid_certs(true)
             .build()
             .ok()?;
 
@@ -327,7 +342,11 @@ impl FederationClient {
         if let Some(colon_pos) = delegated.rfind(':') {
             let host = delegated[..colon_pos].to_string();
             let port = delegated[colon_pos + 1..].parse().ok()?;
-            Some(ResolvedServer { server_name: server_name.to_string(), host, port })
+            Some(ResolvedServer {
+                server_name: server_name.to_string(),
+                host,
+                port,
+            })
         } else {
             Some(ResolvedServer {
                 server_name: server_name.to_string(),
@@ -352,7 +371,9 @@ impl FederationClient {
         destination: &str,
         body: Option<&str>,
     ) -> Result<reqwest::Response, FederationClientError> {
-        let auth_header = self.build_auth_header(method, path, destination, body).await?;
+        let auth_header = self
+            .build_auth_header(method, path, destination, body)
+            .await?;
         let resolved = self.resolve_server(destination).await?;
         let url = self.build_url(&resolved, path);
 
@@ -370,7 +391,12 @@ impl FederationClient {
                 "GET" => self.http_client.get(&url),
                 "PUT" => self.http_client.put(&url),
                 "POST" => self.http_client.post(&url),
-                _ => return Err(FederationClientError::Connection(format!("Unsupported method: {}", method))),
+                _ => {
+                    return Err(FederationClientError::Connection(format!(
+                        "Unsupported method: {}",
+                        method
+                    )))
+                }
             };
             let retry_request = retry_request
                 .header("Authorization", &auth_header)
@@ -409,7 +435,9 @@ impl FederationClient {
             }
         }
 
-        Err(last_error.unwrap_or(FederationClientError::Connection("Max retries exceeded".into())))
+        Err(last_error.unwrap_or(FederationClientError::Connection(
+            "Max retries exceeded".into(),
+        )))
     }
 
     async fn handle_response<T: serde::de::DeserializeOwned>(
@@ -430,7 +458,10 @@ impl FederationClient {
             .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))
     }
 
-    pub async fn get_server_keys(&self, destination: &str) -> Result<ServerKeys, FederationClientError> {
+    pub async fn get_server_keys(
+        &self,
+        destination: &str,
+    ) -> Result<ServerKeys, FederationClientError> {
         {
             let cache = self.key_cache.read().await;
             if let Some(cached) = cache.get(destination) {
@@ -441,16 +472,18 @@ impl FederationClient {
         }
 
         let path = "/_matrix/key/v2/server";
-        let response = self.send_signed_request("GET", path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", path, destination, None)
+            .await?;
         let keys: ServerKeys = self.handle_response(response).await?;
 
-        self.key_cache
-            .write()
-            .await
-            .insert(destination.to_string(), CachedKeys {
+        self.key_cache.write().await.insert(
+            destination.to_string(),
+            CachedKeys {
                 keys: keys.clone(),
                 cached_at: std::time::Instant::now(),
-            });
+            },
+        );
 
         Ok(keys)
     }
@@ -465,13 +498,20 @@ impl FederationClient {
             Some(kid) => format!("/_matrix/key/v2/query/{}/{}", server_name, kid),
             None => format!("/_matrix/key/v2/query/{}", server_name),
         };
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
-    pub async fn get_version(&self, destination: &str) -> Result<VersionResponse, FederationClientError> {
+    pub async fn get_version(
+        &self,
+        destination: &str,
+    ) -> Result<VersionResponse, FederationClientError> {
         let path = "/_matrix/federation/v1/version";
-        let response = self.send_signed_request("GET", path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -483,7 +523,9 @@ impl FederationClient {
         let path = format!("/_matrix/federation/v1/send/{}", transaction.transaction_id);
         let body = serde_json::to_string(transaction)
             .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
-        let response = self.send_signed_request("PUT", &path, destination, Some(&body)).await?;
+        let response = self
+            .send_signed_request("PUT", &path, destination, Some(&body))
+            .await?;
         self.handle_response(response).await
     }
 
@@ -498,7 +540,9 @@ impl FederationClient {
             urlencoding::encode(room_id),
             urlencoding::encode(user_id)
         );
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -516,7 +560,9 @@ impl FederationClient {
         );
         let body = serde_json::to_string(event)
             .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
-        let response = self.send_signed_request("PUT", &path, destination, Some(&body)).await?;
+        let response = self
+            .send_signed_request("PUT", &path, destination, Some(&body))
+            .await?;
         self.handle_response(response).await
     }
 
@@ -531,7 +577,9 @@ impl FederationClient {
             urlencoding::encode(room_id),
             urlencoding::encode(user_id)
         );
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -549,7 +597,9 @@ impl FederationClient {
         );
         let body = serde_json::to_string(event)
             .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
-        let response = self.send_signed_request("PUT", &path, destination, Some(&body)).await?;
+        let response = self
+            .send_signed_request("PUT", &path, destination, Some(&body))
+            .await?;
         self.handle_response(response).await
     }
 
@@ -567,7 +617,9 @@ impl FederationClient {
         );
         let body = serde_json::to_string(event)
             .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
-        let response = self.send_signed_request("PUT", &path, destination, Some(&body)).await?;
+        let response = self
+            .send_signed_request("PUT", &path, destination, Some(&body))
+            .await?;
         self.handle_response(response).await
     }
 
@@ -580,7 +632,9 @@ impl FederationClient {
             "/_matrix/federation/v1/event/{}",
             urlencoding::encode(event_id)
         );
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -593,7 +647,9 @@ impl FederationClient {
             "/_matrix/federation/v1/state/{}",
             urlencoding::encode(room_id)
         );
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -606,7 +662,9 @@ impl FederationClient {
             "/_matrix/federation/v1/state_ids/{}",
             urlencoding::encode(room_id)
         );
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -617,7 +675,8 @@ impl FederationClient {
         event_ids: &[String],
         limit: u32,
     ) -> Result<BackfillResponse, FederationClientError> {
-        let ids_param = event_ids.iter()
+        let ids_param = event_ids
+            .iter()
             .map(|id| format!("v={}", urlencoding::encode(id)))
             .collect::<Vec<_>>()
             .join("&");
@@ -627,7 +686,9 @@ impl FederationClient {
             ids_param,
             limit
         );
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -652,7 +713,9 @@ impl FederationClient {
         });
         let body_str = serde_json::to_string(&body)
             .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
-        let response = self.send_signed_request("POST", &path, destination, Some(&body_str)).await?;
+        let response = self
+            .send_signed_request("POST", &path, destination, Some(&body_str))
+            .await?;
         self.handle_response(response).await
     }
 
@@ -667,7 +730,9 @@ impl FederationClient {
             urlencoding::encode(room_id),
             urlencoding::encode(event_id)
         );
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -680,7 +745,9 @@ impl FederationClient {
             "/_matrix/federation/v1/user/devices/{}",
             urlencoding::encode(user_id)
         );
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -693,7 +760,9 @@ impl FederationClient {
             "/_matrix/federation/v1/query/profile?user_id={}",
             urlencoding::encode(user_id)
         );
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -706,7 +775,9 @@ impl FederationClient {
             "/_matrix/federation/v1/query/directory?room_alias={}",
             urlencoding::encode(room_alias)
         );
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -715,10 +786,12 @@ impl FederationClient {
         destination: &str,
         claims: &serde_json::Value,
     ) -> Result<serde_json::Value, FederationClientError> {
-        let path = "/_matrix/federation/v1/keys/claim";
+        let path = "/_matrix/federation/v1/user/keys/claim";
         let body = serde_json::to_string(claims)
             .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
-        let response = self.send_signed_request("POST", path, destination, Some(&body)).await?;
+        let response = self
+            .send_signed_request("POST", path, destination, Some(&body))
+            .await?;
         self.handle_response(response).await
     }
 
@@ -727,10 +800,12 @@ impl FederationClient {
         destination: &str,
         query: &serde_json::Value,
     ) -> Result<serde_json::Value, FederationClientError> {
-        let path = "/_matrix/federation/v1/keys/query";
+        let path = "/_matrix/federation/v1/user/keys/query";
         let body = serde_json::to_string(query)
             .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
-        let response = self.send_signed_request("POST", path, destination, Some(&body)).await?;
+        let response = self
+            .send_signed_request("POST", path, destination, Some(&body))
+            .await?;
         self.handle_response(response).await
     }
 
@@ -747,7 +822,9 @@ impl FederationClient {
             timestamp,
             direction
         );
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -768,7 +845,9 @@ impl FederationClient {
         if !params.is_empty() {
             path = format!("{}?{}", path, params.join("&"));
         }
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
+        let response = self
+            .send_signed_request("GET", &path, destination, None)
+            .await?;
         self.handle_response(response).await
     }
 
@@ -786,7 +865,9 @@ impl FederationClient {
         );
         let body = serde_json::to_string(event)
             .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
-        let response = self.send_signed_request("PUT", &path, destination, Some(&body)).await?;
+        let response = self
+            .send_signed_request("PUT", &path, destination, Some(&body))
+            .await?;
         self.handle_response(response).await
     }
 
@@ -802,7 +883,9 @@ impl FederationClient {
         );
         let body = serde_json::to_string(event)
             .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
-        let response = self.send_signed_request("PUT", &path, destination, Some(&body)).await?;
+        let response = self
+            .send_signed_request("PUT", &path, destination, Some(&body))
+            .await?;
         self.handle_response(response).await
     }
 
@@ -817,7 +900,8 @@ impl FederationClient {
             urlencoding::encode(server_name),
             urlencoding::encode(media_id)
         );
-        self.send_signed_request("GET", &path, destination, None).await
+        self.send_signed_request("GET", &path, destination, None)
+            .await
     }
 
     pub async fn media_thumbnail(
@@ -837,7 +921,8 @@ impl FederationClient {
             height,
             method
         );
-        self.send_signed_request("GET", &path, destination, None).await
+        self.send_signed_request("GET", &path, destination, None)
+            .await
     }
 
     pub fn invalidate_key_cache(&self, server_name: &str) {
@@ -861,6 +946,19 @@ impl FederationClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn create_test_client() -> (tokio::runtime::Runtime, FederationClient) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let key_rotation = {
+            let _guard = rt.enter();
+            Arc::new(KeyRotationManager::new(
+                &Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap()),
+                "test.com",
+            ))
+        };
+        let client = FederationClient::new("test.com".to_string(), key_rotation);
+        (rt, client)
+    }
 
     #[test]
     fn test_federation_transaction_serialization() {
@@ -904,13 +1002,7 @@ mod tests {
 
     #[test]
     fn test_resolved_server_ip_literal() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let key_rotation = Arc::new(KeyRotationManager::new(
-            &Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap()),
-            "test.com",
-        ));
-        let client = FederationClient::new("test.com".to_string(), key_rotation);
-
+        let (rt, client) = create_test_client();
         let resolved = rt.block_on(client.resolve_server("[::1]:8448")).unwrap();
         assert_eq!(resolved.host, "::1");
         assert_eq!(resolved.port, 8448);
@@ -918,26 +1010,17 @@ mod tests {
 
     #[test]
     fn test_resolved_server_with_port() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let key_rotation = Arc::new(KeyRotationManager::new(
-            &Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap()),
-            "test.com",
-        ));
-        let client = FederationClient::new("test.com".to_string(), key_rotation);
-
-        let resolved = rt.block_on(client.resolve_server("example.com:8448")).unwrap();
+        let (rt, client) = create_test_client();
+        let resolved = rt
+            .block_on(client.resolve_server("example.com:8448"))
+            .unwrap();
         assert_eq!(resolved.host, "example.com");
         assert_eq!(resolved.port, 8448);
     }
 
     #[test]
     fn test_build_url() {
-        let key_rotation = Arc::new(KeyRotationManager::new(
-            &Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap()),
-            "test.com",
-        ));
-        let client = FederationClient::new("test.com".to_string(), key_rotation);
-
+        let (_rt, client) = create_test_client();
         let resolved = ResolvedServer {
             server_name: "example.com".to_string(),
             host: "example.com".to_string(),

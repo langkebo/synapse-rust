@@ -506,8 +506,8 @@ mod tests {
             id: 1,
             user_id: "@user:example.com".to_string(),
             report_count: 3,
-            last_report_ts: Some(1234567890),
-            blocked_until_ts: None,
+            last_report_at: Some(1234567890),
+            blocked_until_at: None,
             is_blocked: false,
             block_reason: None,
             created_ts: 1234567890,
@@ -521,12 +521,13 @@ mod tests {
     fn test_event_report_stats() {
         let stats = crate::storage::event_report::EventReportStats {
             id: 1,
-            date: chrono::NaiveDate::from_ymd_opt(2026, 3, 13).unwrap(),
+            stat_date: chrono::NaiveDate::from_ymd_opt(2026, 3, 13)
+                .expect("test date should be valid"),
             total_reports: 100,
             open_reports: 20,
             resolved_reports: 70,
             dismissed_reports: 10,
-            avg_resolution_time_hours: Some(24),
+            avg_resolution_time_ms: Some(86_400_000),
             created_ts: 1234567890,
             updated_ts: 1234567890,
         };

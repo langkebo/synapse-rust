@@ -18,6 +18,9 @@ Since this is only used at compile time for macro expansion and does not
 execute at runtime, the actual risk is negligible. The project only uses
 PostgreSQL at runtime.
 
+Owner: synapse-rust maintainers
+Review-by: 2026-06-30
+
 See: https://rustsec.org/advisories/RUSTSEC-2023-0071
 """
 
@@ -29,6 +32,9 @@ The crate is used for tracing integration but is not critical path.
 Replacement would require migrating to opentelemetry-otlp or removing jaeger support.
 Risk: Low - only used for optional distributed tracing export.
 
+Owner: synapse-rust maintainers
+Review-by: 2026-06-30
+
 See: https://rustsec.org/advisories/RUSTSEC-2025-0123
 """
 
@@ -39,5 +45,26 @@ paste 1.0.15 is a transitive dependency through rav1e -> ravif -> image.
 The crate is no longer maintained but is only used for image processing.
 Risk: Low - dependency chain is well-established and the functionality is stable.
 
+Owner: synapse-rust maintainers
+Review-by: 2026-06-30
+
 See: https://rustsec.org/advisories/RUSTSEC-2024-0436
+"""
+
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0097"
+reason = """
+The rand advisory is triggered only when applications use rand::rng() together
+with a custom logger. This repository currently uses rand::random() and
+rand::thread_rng() in runtime code and tests, and initializes logging through
+tracing_subscriber::fmt::init() rather than a custom logger implementation.
+
+No fixed rand release is currently available in the dependency graph, so the
+practical mitigation is to block new usages of rand::rng(), keep this advisory
+visible in CI, and re-evaluate once upstream publishes a patched version.
+
+Owner: synapse-rust maintainers
+Review-by: 2026-05-15
+
+See: https://rustsec.org/advisories/RUSTSEC-2026-0097
 """

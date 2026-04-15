@@ -53,6 +53,10 @@ fn test_auth_service_register_invalid_username() {
             allow_legacy_hashes: false,
             login_failure_lockout_threshold: 5,
             login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -60,12 +64,10 @@ fn test_auth_service_register_invalid_username() {
 
         let id = unique_id();
         let invalid_username = format!("user@{}", id);
-        let result = auth
-            .register(&invalid_username, "password", false, None)
-            .await;
+        let result = auth.register(&invalid_username, "password", None).await;
         assert!(matches!(result, Err(ApiError::InvalidUsername(_))));
 
-        let result = auth.register("", "password", false, None).await;
+        let result = auth.register("", "password", None).await;
         assert!(matches!(result, Err(ApiError::BadRequest(_))));
     });
 }
@@ -88,6 +90,10 @@ fn test_auth_service_login_invalid_credentials() {
             allow_legacy_hashes: false,
             login_failure_lockout_threshold: 5,
             login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -118,6 +124,10 @@ fn test_password_migration_on_login() {
             allow_legacy_hashes: true,
             login_failure_lockout_threshold: 5,
             login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -188,6 +198,10 @@ fn test_password_migration_preserves_login_ability() {
             allow_legacy_hashes: true,
             login_failure_lockout_threshold: 5,
             login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -242,6 +256,10 @@ fn test_no_migration_for_argon2_hash() {
             allow_legacy_hashes: true,
             login_failure_lockout_threshold: 5,
             login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
         };
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -259,7 +277,7 @@ fn test_no_migration_for_argon2_hash() {
         let user_id = format!("@{}:localhost", username);
 
         let (user, _, _, _) = auth
-            .register(&username, password, false, None)
+            .register(&username, password, None)
             .await
             .expect("Registration should succeed");
 

@@ -1,7 +1,7 @@
 use crate::common::ApiError;
 use crate::services::cas_service::CasValidationResponse;
 use crate::storage::cas::{CasService as CasServiceModel, RegisterServiceRequest};
-use crate::web::routes::AppState;
+use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
     http::{header, StatusCode},
@@ -102,14 +102,16 @@ impl From<CasServiceModel> for ServiceResponse {
     }
 }
 
-pub fn cas_routes() -> Router<AppState> {
-    Router::new()
+pub fn cas_routes(state: AppState) -> Router<AppState> {
+    let public_routes = Router::new()
         .route("/login", get(login_redirect))
         .route("/serviceValidate", get(service_validate))
         .route("/proxyValidate", get(proxy_validate))
         .route("/proxy", get(proxy))
         .route("/p3/serviceValidate", get(p3_service_validate))
-        .route("/logout", get(logout))
+        .route("/logout", get(logout));
+
+    let admin_routes = Router::new()
         .route("/admin/services", post(register_service))
         .route("/admin/services", get(list_services))
         .route("/admin/services/{service_id}", delete(delete_service))
@@ -121,6 +123,12 @@ pub fn cas_routes() -> Router<AppState> {
             "/admin/users/{user_id}/attributes",
             get(get_user_attributes),
         )
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ));
+
+    public_routes.merge(admin_routes).with_state(state)
 }
 
 async fn login_redirect(
@@ -258,6 +266,7 @@ async fn logout(
 
 async fn register_service(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Json(body): Json<RegisterServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = RegisterServiceRequest {
@@ -276,7 +285,10 @@ async fn register_service(
     Ok((StatusCode::CREATED, Json(ServiceResponse::from(service))))
 }
 
-async fn list_services(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+async fn list_services(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
     let services = state.services.cas_service.list_services().await?;
     let response: Vec<ServiceResponse> = services.into_iter().map(ServiceResponse::from).collect();
     Ok(Json(response))
@@ -284,6 +296,7 @@ async fn list_services(State(state): State<AppState>) -> Result<impl IntoRespons
 
 async fn delete_service(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Path(service_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let deleted = state
@@ -301,6 +314,7 @@ async fn delete_service(
 
 async fn set_user_attribute(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Path(user_id): Path<String>,
     Json(body): Json<SetAttributeBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -319,6 +333,7 @@ async fn set_user_attribute(
 
 async fn get_user_attributes(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let attrs = state

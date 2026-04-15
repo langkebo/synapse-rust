@@ -95,6 +95,10 @@ generate_all_secrets() {
     # PostgreSQL 密码
     POSTGRES_PASSWORD=$(generate_password 32)
     log_info "POSTGRES_PASSWORD: 已生成 (${#POSTGRES_PASSWORD} 字符)"
+
+    # Redis 密码
+    REDIS_PASSWORD=$(generate_password 32)
+    log_info "REDIS_PASSWORD: 已生成 (${#REDIS_PASSWORD} 字符)"
     
     # 管理员共享密钥
     ADMIN_SHARED_SECRET=$(generate_hex_key 64)
@@ -115,6 +119,7 @@ generate_all_secrets() {
     echo "=========================================="
     echo ""
     echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}"
+    echo "REDIS_PASSWORD=${REDIS_PASSWORD}"
     echo "ADMIN_SHARED_SECRET=${ADMIN_SHARED_SECRET}"
     echo "JWT_SECRET=${JWT_SECRET}"
     echo "REGISTRATION_SHARED_SECRET=${REGISTRATION_SHARED_SECRET}"
@@ -124,6 +129,7 @@ generate_all_secrets() {
     if [ -f "$ENV_FILE" ]; then
         log_info "更新 .env 文件..."
         update_env_file "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD"
+        update_env_file "REDIS_PASSWORD" "$REDIS_PASSWORD"
         update_env_file "ADMIN_SHARED_SECRET" "$ADMIN_SHARED_SECRET"
         update_env_file "JWT_SECRET" "$JWT_SECRET"
         update_env_file "REGISTRATION_SHARED_SECRET" "$REGISTRATION_SHARED_SECRET"
@@ -140,6 +146,9 @@ generate_single_secret() {
         "postgres")
             generate_password 32
             ;;
+        "redis")
+            generate_password 32
+            ;;
         "admin")
             generate_hex_key 64
             ;;
@@ -151,7 +160,7 @@ generate_single_secret() {
             ;;
         *)
             log_error "未知密钥类型: $type"
-            echo "可用类型: postgres, admin, jwt, registration"
+            echo "可用类型: postgres, redis, admin, jwt, registration"
             return 1
             ;;
     esac
@@ -164,6 +173,7 @@ show_help() {
     echo "命令:"
     echo "  all       生成所有密钥并更新 .env 文件 (默认)"
     echo "  postgres  生成 PostgreSQL 密码"
+    echo "  redis     生成 Redis 密码"
     echo "  admin     生成管理员共享密钥"
     echo "  jwt       生成 JWT 密钥"
     echo "  registration 生成注册共享密钥"
@@ -182,7 +192,7 @@ main() {
         all)
             generate_all_secrets
             ;;
-        postgres|admin|jwt|registration)
+        postgres|redis|admin|jwt|registration)
             local secret=$(generate_single_secret "$command")
             echo "$secret"
             
@@ -190,6 +200,8 @@ main() {
             local env_key=$(echo "$command" | tr '[:lower:]' '[:upper:]')
             if [ "$command" = "postgres" ]; then
                 env_key="POSTGRES_PASSWORD"
+            elif [ "$command" = "redis" ]; then
+                env_key="REDIS_PASSWORD"
             elif [ "$command" = "admin" ]; then
                 env_key="ADMIN_SHARED_SECRET"
             elif [ "$command" = "registration" ]; then

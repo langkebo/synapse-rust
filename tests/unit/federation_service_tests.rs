@@ -1,8 +1,8 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::runtime::Runtime;
-use synapse_rust::federation::key_rotation::KeyRotationManager;
 use base64::Engine;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use synapse_rust::federation::key_rotation::KeyRotationManager;
+use tokio::runtime::Runtime;
 
 use synapse_rust::federation::device_sync::DeviceSyncManager;
 
@@ -17,9 +17,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database() -> Option<Pool<Postgres>> {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| {
-            "postgresql://synapse:secret@localhost:5432/synapse_test".to_string()
-        });
+        .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
 
     let pool = match sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
@@ -42,7 +40,8 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         .await
         .ok();
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE federation_signing_keys (
             server_name VARCHAR(255) NOT NULL,
             key_id VARCHAR(255) NOT NULL,
@@ -55,8 +54,12 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             ts_valid_until_ms BIGINT NOT NULL,
             PRIMARY KEY (server_name, key_id)
         )
-    "#).execute(&pool).await.expect("Failed to create federation_signing_keys table");
-    
+    "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create federation_signing_keys table");
+
     Some(pool)
 }
 
@@ -102,7 +105,7 @@ fn test_should_rotate_keys() {
             Some(pool) => Arc::new(pool),
             None => return,
         };
-        
+
         let id = unique_id();
         let server_name = format!("test{}.example.com", id);
         let manager = KeyRotationManager::new(&pool, &server_name);
@@ -116,15 +119,25 @@ fn test_should_rotate_keys() {
             .initialize(&valid_key, &key_id)
             .await
             .expect("Failed to initialize key");
-        
-        let current_key = manager.get_current_key().await.expect("Failed to get current key");
-        assert!(current_key.is_some(), "Key should be in memory after initialization");
-        
+
+        let current_key = manager
+            .get_current_key()
+            .await
+            .expect("Failed to get current key");
+        assert!(
+            current_key.is_some(),
+            "Key should be in memory after initialization"
+        );
+
         let key = current_key.unwrap();
         let now = chrono::Utc::now().timestamp_millis();
         let days_until_expiry = (key.expires_at - now) / (24 * 60 * 60 * 1000);
-        
-        assert!(days_until_expiry >= 6, "Key should have at least 6 days until expiry, got {} days", days_until_expiry);
+
+        assert!(
+            days_until_expiry >= 6,
+            "Key should have at least 6 days until expiry, got {} days",
+            days_until_expiry
+        );
     });
 }
 
@@ -173,7 +186,8 @@ fn test_device_sync_cache() {
         };
         let manager = DeviceSyncManager::new(&pool, None, None);
 
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS devices (
                 device_id VARCHAR(255) NOT NULL,
                 user_id VARCHAR(255) NOT NULL,
@@ -184,7 +198,11 @@ fn test_device_sync_cache() {
                 hidden BOOLEAN DEFAULT FALSE,
                 PRIMARY KEY (device_id, user_id)
             )
-        "#).execute(&*pool).await.ok();
+        "#,
+        )
+        .execute(&*pool)
+        .await
+        .ok();
 
         let devices = manager
             .get_local_devices("@test:example.com")
@@ -204,7 +222,8 @@ fn test_device_revocation() {
         };
         let manager = DeviceSyncManager::new(&pool, None, None);
 
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS devices (
                 device_id VARCHAR(255) NOT NULL,
                 user_id VARCHAR(255) NOT NULL,
@@ -215,7 +234,11 @@ fn test_device_revocation() {
                 hidden BOOLEAN DEFAULT FALSE,
                 PRIMARY KEY (device_id, user_id)
             )
-        "#).execute(&*pool).await.ok();
+        "#,
+        )
+        .execute(&*pool)
+        .await
+        .ok();
 
         let result = manager
             .revoke_device("DEVICE123", "@test:example.com")

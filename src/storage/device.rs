@@ -1,4 +1,5 @@
 use sqlx::{Pool, Postgres};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -76,6 +77,117 @@ impl DeviceStorage {
             .await;
     }
 
+    pub async fn get_lazy_loaded_members(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+    ) -> Result<HashSet<String>, sqlx::Error> {
+        let members: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT member_user_id
+            FROM lazy_loaded_members
+            WHERE user_id = $1 AND device_id = $2 AND room_id = $3
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(room_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(members.into_iter().collect())
+    }
+
+    pub async fn upsert_lazy_loaded_members(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+        member_user_ids: &HashSet<String>,
+    ) -> Result<u64, sqlx::Error> {
+        if member_user_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let member_user_ids: Vec<&str> = member_user_ids.iter().map(String::as_str).collect();
+        let result = sqlx::query(
+            r#"
+            INSERT INTO lazy_loaded_members (
+                user_id,
+                device_id,
+                room_id,
+                member_user_id,
+                created_ts,
+                updated_ts
+            )
+            SELECT $1, $2, $3, member_user_id, $4, $4
+            FROM UNNEST($5::TEXT[]) AS member_user_id
+            ON CONFLICT (user_id, device_id, room_id, member_user_id)
+            DO UPDATE SET updated_ts = EXCLUDED.updated_ts
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(room_id)
+        .bind(now)
+        .bind(&member_user_ids)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    async fn delete_lazy_loaded_members_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
+        sqlx::query(
+            r#"
+            DELETE FROM lazy_loaded_members
+            WHERE user_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .execute(&*self.pool)
+        .await
+        .map(|result| result.rows_affected())
+    }
+
+    async fn delete_lazy_loaded_members_for_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<u64, sqlx::Error> {
+        sqlx::query(
+            r#"
+            DELETE FROM lazy_loaded_members
+            WHERE user_id = $1 AND device_id = $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .execute(&*self.pool)
+        .await
+        .map(|result| result.rows_affected())
+    }
+
+    async fn delete_lazy_loaded_members_for_device_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<u64, sqlx::Error> {
+        sqlx::query(
+            r#"
+            DELETE FROM lazy_loaded_members
+            WHERE user_id = $1 AND device_id = $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .execute(&mut **tx)
+        .await
+        .map(|result| result.rows_affected())
+    }
+
     pub async fn create_device(
         &self,
         device_id: &str,
@@ -100,6 +212,9 @@ impl DeviceStorage {
         .await?;
 
         let _ = self
+            .delete_lazy_loaded_members_for_device(user_id, device_id)
+            .await;
+        let _ = self
             .record_device_list_change(user_id, Some(device_id), "changed")
             .await;
 
@@ -115,7 +230,7 @@ impl DeviceStorage {
         display_name: Option<&str>,
     ) -> Result<Device, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query_as::<_, Device>(
+        let device = sqlx::query_as::<_, Device>(
             r#"
             INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -129,7 +244,37 @@ impl DeviceStorage {
         .bind(now)
         .bind(now)
         .fetch_one(&mut **tx)
-        .await
+        .await?;
+
+        let _ = Self::delete_lazy_loaded_members_for_device_tx(tx, user_id, device_id).await;
+
+        let stream_id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO device_lists_stream (user_id, device_id, created_ts)
+            VALUES ($1, $2, $3)
+            RETURNING stream_id
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(now)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
+            VALUES ($1, $2, 'changed', $3, $4)
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(stream_id)
+        .bind(now)
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(device)
     }
 
     pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
@@ -238,6 +383,9 @@ impl DeviceStorage {
                 if res.rows_affected() > 0 {
                     if let Some(device) = existing {
                         let _ = self
+                            .delete_lazy_loaded_members_for_device(&device.user_id, device_id)
+                            .await;
+                        let _ = self
                             .record_device_list_change(&device.user_id, Some(device_id), "deleted")
                             .await;
                     }
@@ -266,6 +414,9 @@ impl DeviceStorage {
         .map(|result| result.rows_affected())?;
 
         if rows_affected > 0 {
+            let _ = self
+                .delete_lazy_loaded_members_for_device(user_id, device_id)
+                .await;
             let _ = self
                 .record_device_list_change(user_id, Some(device_id), "deleted")
                 .await;
@@ -296,6 +447,7 @@ impl DeviceStorage {
         match result {
             Ok(res) => {
                 if res.rows_affected() > 0 {
+                    let _ = self.delete_lazy_loaded_members_for_user(user_id).await;
                     for device_id in device_ids {
                         let _ = self
                             .record_device_list_change(user_id, Some(&device_id), "deleted")
@@ -331,6 +483,9 @@ impl DeviceStorage {
         if rows_affected > 0 {
             for (user_id, device_id) in rows {
                 let _ = self
+                    .delete_lazy_loaded_members_for_device(&user_id, &device_id)
+                    .await;
+                let _ = self
                     .record_device_list_change(&user_id, Some(&device_id), "deleted")
                     .await;
             }
@@ -358,6 +513,9 @@ impl DeviceStorage {
 
         if rows_affected > 0 {
             for device_id in device_ids {
+                let _ = self
+                    .delete_lazy_loaded_members_for_device(user_id, device_id)
+                    .await;
                 let _ = self
                     .record_device_list_change(user_id, Some(device_id.as_str()), "deleted")
                     .await;
@@ -495,6 +653,7 @@ impl DeviceStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn test_device_struct() {
@@ -673,5 +832,147 @@ mod tests {
 
         assert!(device.last_seen_ip.is_some());
         assert!(device.last_seen_ts.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_lazy_loaded_members_are_cleaned_up_with_device_lifecycle() {
+        let pool = match crate::test_utils::prepare_empty_isolated_test_pool().await {
+            Ok(pool) => pool,
+            Err(error) => {
+                eprintln!(
+                    "Skipping device lazy-loaded-members test because test database is unavailable: {}",
+                    error
+                );
+                return;
+            }
+        };
+
+        sqlx::query(
+            r#"
+            CREATE TABLE users (
+                user_id VARCHAR(255) PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*pool)
+        .await
+        .expect("Failed to create users table");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE devices (
+                device_id VARCHAR(255) PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                display_name TEXT,
+                device_key JSONB,
+                last_seen_ts BIGINT,
+                last_seen_ip TEXT,
+                created_ts BIGINT NOT NULL,
+                first_seen_ts BIGINT NOT NULL,
+                appservice_id TEXT,
+                ignored_user_list TEXT
+            )
+            "#,
+        )
+        .execute(&*pool)
+        .await
+        .expect("Failed to create devices table");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE device_lists_stream (
+                stream_id BIGSERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                device_id VARCHAR(255),
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*pool)
+        .await
+        .expect("Failed to create device_lists_stream table");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE device_lists_changes (
+                id BIGSERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                device_id VARCHAR(255),
+                change_type TEXT NOT NULL,
+                stream_id BIGINT NOT NULL,
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*pool)
+        .await
+        .expect("Failed to create device_lists_changes table");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE lazy_loaded_members (
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                member_user_id TEXT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT NOT NULL,
+                PRIMARY KEY (user_id, device_id, room_id, member_user_id)
+            )
+            "#,
+        )
+        .execute(&*pool)
+        .await
+        .expect("Failed to create lazy_loaded_members table");
+
+        sqlx::query(
+            r#"
+            INSERT INTO users (user_id, username, created_ts)
+            VALUES ($1, $2, $3)
+            "#,
+        )
+        .bind("@alice:localhost")
+        .bind("alice")
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(&*pool)
+        .await
+        .expect("Failed to insert test user");
+
+        let storage = DeviceStorage::new(&pool);
+        storage
+            .create_device("DEVICE123", "@alice:localhost", Some("Alice phone"))
+            .await
+            .expect("Failed to create device");
+
+        let members = HashSet::from(["@alice:localhost".to_string(), "@bob:localhost".to_string()]);
+        storage
+            .upsert_lazy_loaded_members(
+                "@alice:localhost",
+                "DEVICE123",
+                "!room:localhost",
+                &members,
+            )
+            .await
+            .expect("Failed to store lazy-loaded members");
+
+        let before_delete = storage
+            .get_lazy_loaded_members("@alice:localhost", "DEVICE123", "!room:localhost")
+            .await
+            .expect("Failed to fetch lazy-loaded members");
+        assert_eq!(before_delete, members);
+
+        let rows = storage
+            .delete_user_device("@alice:localhost", "DEVICE123")
+            .await
+            .expect("Failed to delete device");
+        assert_eq!(rows, 1);
+
+        let after_delete = storage
+            .get_lazy_loaded_members("@alice:localhost", "DEVICE123", "!room:localhost")
+            .await
+            .expect("Failed to fetch lazy-loaded members after delete");
+        assert!(after_delete.is_empty());
     }
 }

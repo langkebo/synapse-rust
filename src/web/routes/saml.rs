@@ -1,9 +1,10 @@
 use crate::common::error::ApiError;
+use crate::web::AuthenticatedUser;
 use crate::web::routes::AppState;
-use crate::web::routes::AuthenticatedUser;
 use axum::{
     extract::{Query, State},
     http::header,
+    middleware,
     response::{IntoResponse, Redirect},
     Json,
 };
@@ -272,7 +273,6 @@ pub async fn get_sp_metadata(State(state): State<AppState>) -> Result<impl IntoR
 
 pub async fn refresh_idp_metadata(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     if !state.services.saml_service.is_enabled() {
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
@@ -288,10 +288,10 @@ pub async fn refresh_idp_metadata(
     }))
 }
 
-pub fn create_saml_router() -> axum::Router<AppState> {
+pub fn create_saml_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
-    axum::Router::new()
+    let public_routes = axum::Router::new()
         .route(
             "/_matrix/client/r0/login/sso/redirect/saml",
             get(saml_login_redirect),
@@ -314,9 +314,17 @@ pub fn create_saml_router() -> axum::Router<AppState> {
             get(saml_logout_callback),
         )
         .route("/_matrix/client/r0/saml/metadata", get(get_saml_metadata))
-        .route("/_matrix/client/r0/saml/sp_metadata", get(get_sp_metadata))
+        .route("/_matrix/client/r0/saml/sp_metadata", get(get_sp_metadata));
+
+    let admin_routes = axum::Router::new()
         .route(
             "/_synapse/admin/v1/saml/metadata/refresh",
             post(refresh_idp_metadata),
         )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ));
+
+    public_routes.merge(admin_routes).with_state(state)
 }

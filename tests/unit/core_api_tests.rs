@@ -117,10 +117,8 @@ fn test_room_topic_length_validation() {
 fn test_invite_list_validation() {
     assert!(is_valid_invite_list(&["@user1:localhost".to_string()]));
     assert!(is_valid_invite_list(&[]));
-    assert!(!is_valid_invite_list(&vec![
-        "@user:localhost".to_string();
-        101
-    ]));
+    let oversized_invite_list = vec!["@user:localhost".to_string(); 101];
+    assert!(!is_valid_invite_list(&oversized_invite_list));
 }
 
 // Test 14: Token expiry calculation

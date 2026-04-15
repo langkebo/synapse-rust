@@ -3,90 +3,22 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde::Deserialize;
 
 use crate::common::ApiError;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
 
-#[allow(dead_code)]
-fn default_irc_protocol() -> ThirdPartyProtocol {
-    let mut field_types = HashMap::new();
-    field_types.insert(
-        "domain".to_string(),
-        FieldType {
-            regexp: "^[A-Za-z0-9.-]+$".to_string(),
-            placeholder: "irc.example.com".to_string(),
-        },
-    );
-    field_types.insert(
-        "channel".to_string(),
-        FieldType {
-            regexp: "^#?[A-Za-z0-9._-]+$".to_string(),
-            placeholder: "#synapse".to_string(),
-        },
-    );
-    field_types.insert(
-        "nick".to_string(),
-        FieldType {
-            regexp: "^[A-Za-z0-9_\\-\\[\\]\\\\`^{}|]+$".to_string(),
-            placeholder: "synapsebot".to_string(),
-        },
-    );
-
-    let mut fields = HashMap::new();
-    fields.insert("domain".to_string(), "irc.example.com".to_string());
-    fields.insert("network".to_string(), "Synapse IRC".to_string());
-
-    ThirdPartyProtocol {
-        user_fields: vec!["domain".to_string(), "nick".to_string()],
-        location_fields: vec!["domain".to_string(), "channel".to_string()],
-        icon: "mxc://synapse-rust/thirdparty/irc".to_string(),
-        field_types,
-        instances: vec![ProtocolInstance {
-            network_id: "irc".to_string(),
-            desc: "Built-in IRC bridge compatibility profile".to_string(),
-            icon: "mxc://synapse-rust/thirdparty/irc".to_string(),
-            fields,
-        }],
-    }
-}
-
-#[allow(dead_code)]
-fn supported_protocol(protocol: &str) -> Option<ThirdPartyProtocol> {
-    match protocol {
-        "irc" => Some(default_irc_protocol()),
-        _ => None,
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThirdPartyProtocol {
-    pub user_fields: Vec<String>,
-    pub location_fields: Vec<String>,
-    pub icon: String,
-    pub field_types: HashMap<String, FieldType>,
-    pub instances: Vec<ProtocolInstance>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FieldType {
-    pub regexp: String,
-    pub placeholder: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProtocolInstance {
-    pub network_id: String,
-    pub desc: String,
-    pub icon: String,
-    pub fields: HashMap<String, String>,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct ProtocolQuery {
     pub search: Option<String>,
+}
+
+fn unsupported_thirdparty(operation: &str) -> ApiError {
+    ApiError::unrecognized(format!(
+        "Third-party network lookup is not implemented for this deployment ({})",
+        operation
+    ))
 }
 
 fn create_thirdparty_compat_router() -> Router<AppState> {
@@ -115,13 +47,7 @@ async fn get_protocols(
     State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let irc = default_irc_protocol();
-    let mut protocols = serde_json::Map::new();
-    protocols.insert(
-        "irc".to_string(),
-        serde_json::to_value(irc).unwrap_or_default(),
-    );
-    Ok(Json(serde_json::Value::Object(protocols)))
+    Err(unsupported_thirdparty("protocols"))
 }
 
 async fn get_protocol(
@@ -129,13 +55,7 @@ async fn get_protocol(
     _auth_user: AuthenticatedUser,
     Path(protocol): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    match supported_protocol(&protocol) {
-        Some(p) => Ok(Json(serde_json::to_value(p).unwrap_or_default())),
-        None => Err(ApiError::not_found(format!(
-            "Protocol {} not found",
-            protocol
-        ))),
-    }
+    Err(unsupported_thirdparty(&format!("protocol={}", protocol)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,8 +72,10 @@ async fn get_location(
     Path(protocol): Path<String>,
     Query(_query): Query<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    let _ = protocol;
-    Ok(Json(vec![]))
+    Err(unsupported_thirdparty(&format!(
+        "location protocol={}",
+        protocol
+    )))
 }
 
 async fn get_location_by_alias(
@@ -161,7 +83,7 @@ async fn get_location_by_alias(
     _auth_user: AuthenticatedUser,
     Query(_query): Query<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Ok(Json(vec![]))
+    Err(unsupported_thirdparty("location query"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -178,8 +100,7 @@ async fn get_user(
     Path(protocol): Path<String>,
     Query(_query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    let _ = protocol;
-    Ok(Json(vec![]))
+    Err(unsupported_thirdparty(&format!("user protocol={}", protocol)))
 }
 
 async fn get_user_by_id(
@@ -187,7 +108,7 @@ async fn get_user_by_id(
     _auth_user: AuthenticatedUser,
     Query(_query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Ok(Json(vec![]))
+    Err(unsupported_thirdparty("user query"))
 }
 
 #[cfg(test)]
@@ -252,16 +173,4 @@ mod tests {
             .all(|path| path.starts_with("/_matrix/client/r0/")));
     }
 
-    #[test]
-    fn test_supported_protocol_returns_irc_profile() {
-        let protocol = super::supported_protocol("irc").expect("irc protocol should exist");
-
-        assert!(protocol.user_fields.iter().any(|field| field == "nick"));
-        assert!(protocol
-            .location_fields
-            .iter()
-            .any(|field| field == "channel"));
-        assert_eq!(protocol.instances.len(), 1);
-        assert_eq!(protocol.instances[0].network_id, "irc");
-    }
 }

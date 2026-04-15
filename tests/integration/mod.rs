@@ -21,6 +21,7 @@ mod api_federation_key_fetch_limits_tests;
 mod api_federation_signature_auth_tests;
 mod api_federation_tests;
 mod api_friend_room_routes_tests;
+mod api_invite_blocklist_routes_tests;
 mod api_input_validation_tests;
 mod api_ip_block_test;
 mod api_media_routes_tests;
@@ -29,6 +30,7 @@ mod api_placeholder_contract_p1p2_tests;
 mod api_profile_tests;
 mod api_protocol_alignment_tests;
 mod api_rate_limit_contract_tests;
+mod api_rendezvous_routes_tests;
 mod api_room_placeholder_contract_tests;
 mod api_room_summary_routes_tests;
 mod api_room_sync_tests;
@@ -40,8 +42,10 @@ mod api_shell_route_fixes_p2_misc_tests;
 mod api_shell_route_fixes_p2_push_tests;
 mod api_sliding_sync_contract_tests;
 mod api_space_routes_tests;
+mod api_sync_filter_tests;
 mod api_sync_isolation_rate_limit_tests;
 mod api_telemetry_alerts_tests;
+mod api_typing_routes_tests;
 mod api_widget_tests;
 mod api_worker_replication_auth_tests;
 mod cache_tests;
@@ -53,8 +57,11 @@ mod missing_features_tests;
 mod password_hash_pool_tests;
 mod protocol_compliance_tests;
 mod regex_cache_tests;
+mod schema_contract_auth_tokens_tests;
 mod transaction_tests;
 mod voice_routes_tests;
+
+mod permission_escalation_tests;
 
 #[cfg(test)]
 mod coverage_tests;
@@ -156,11 +163,11 @@ pub async fn get_admin_token(app: &axum::Router) -> (String, String) {
         .unwrap_or_else(|_| "test_shared_secret".to_string());
 
     use hmac::{Hmac, Mac};
-    use sha2::Sha256;
-    type HmacSha256 = Hmac<Sha256>;
+    use sha1::Sha1;
+    type HmacSha1 = Hmac<Sha1>;
 
     let mac_content = format!("{}\0{}\0{}\0admin", nonce, username, "AdminTest@123");
-    let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes()).unwrap();
+    let mut mac = HmacSha1::new_from_slice(shared_secret.as_bytes()).unwrap();
     mac.update(mac_content.as_bytes());
     let mac_result = mac.finalize();
     let mac_hex = hex::encode(mac_result.into_bytes());
@@ -187,9 +194,17 @@ pub async fn get_admin_token(app: &axum::Router) -> (String, String) {
         .oneshot(with_local_connect_info(register_request))
         .await
         .unwrap();
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
         .await
         .unwrap();
+    assert_eq!(
+        status,
+        axum::http::StatusCode::OK,
+        "admin registration failed with status {}: {}",
+        status,
+        String::from_utf8_lossy(&body)
+    );
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let token = json["access_token"].as_str().unwrap().to_string();
     (token, username)

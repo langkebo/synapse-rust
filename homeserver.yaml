@@ -1,17 +1,17 @@
-server_name: "cjystx.top"
+server_name: "${SERVER_NAME:-cjystx.top}"
 
 server:
-  name: "cjystx.top"
+  name: "${SERVER_NAME:-cjystx.top}"
   host: "0.0.0.0"
   port: 8008
   http_port: 8008
   https_port: 8448
   bind_address: "0.0.0.0"
-  public_baseurl: "https://matrix.cjystx.top"
+  public_baseurl: "${PUBLIC_BASEURL:-https://matrix.cjystx.top}"
   signing_key_path: "/app/data/signing.key"
-  macaroon_secret_key: "change-me-macaroon-secret"
-  form_secret: "change-me-form-secret"
-  registration_shared_secret: "change-me-registration-secret"
+  macaroon_secret_key: "${MACAROON_SECRET:?MACAROON_SECRET is required}"
+  form_secret: "${FORM_SECRET:?FORM_SECRET is required}"
+  registration_shared_secret: "${REGISTRATION_SECRET:?REGISTRATION_SECRET is required}"
   max_upload_size: 104857600
   max_image_resolution: 1920
   enable_registration: true
@@ -28,9 +28,9 @@ server:
 database:
   host: "192.168.97.3"
   port: 5432
-  username: "synapse"
-  password: "ypSgEf1Y8YzivoBsRFnHvH4JLwn2nspX"
-  name: "synapse"
+  username: "${DB_USER:-synapse}"
+  password: "${DB_PASSWORD:?DB_PASSWORD is required}"
+  name: "${DB_NAME:-synapse}"
   pool_size: 10
   max_size: 20
   min_idle: 2
@@ -52,7 +52,7 @@ logging:
 federation:
   enabled: true
   allow_ingress: true
-  server_name: "cjystx.top"
+  server_name: "${SERVER_NAME:-cjystx.top}"
   federation_port: 8448
   connection_pool_size: 100
   max_transaction_payload: 10485760
@@ -60,7 +60,7 @@ federation:
   # signing_key: ""
 
 security:
-  secret: "change_me_jwt_secret_which_is_very_long_at_least_32_bytes_12345"
+  secret: "${SECRET_KEY:?SECRET_KEY is required}"
   expiry_time: 3600
   refresh_token_expiry: 604800
 
@@ -76,17 +76,21 @@ rate_limit:
 
 admin_registration:
   enabled: true
-  secret: "change-me-admin-secret"
-  shared_secret: "change-me-admin-shared-secret"
+  secret: "${ADMIN_REGISTRATION_SECRET:?ADMIN_REGISTRATION_SECRET is required}"
+  shared_secret: "${ADMIN_SECRET:?ADMIN_SECRET is required}"
 
 worker:
   enabled: false
 
 cors:
-  allowed_origins: ["*"]
+  allowed_origins:
+    - "http://localhost:28008"
+    - "http://127.0.0.1:28008"
+    - "http://localhost:6130"
+    - "http://127.0.0.1:6130"
   allow_credentials: true
   allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-  allowed_headers: ["*"]
+  allowed_headers: ["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"]
   max_age_seconds: 3600
 
 smtp:
@@ -98,7 +102,7 @@ voip:
   turn_uris:
     - "turn:vector.im:3478"
   turn_username: "matrix"
-  turn_password: "change-me-turn-password"
+  turn_password: "${TURN_PASSWORD:?TURN_PASSWORD is required}"
 
 push:
   enabled: false
@@ -110,7 +114,7 @@ oidc:
   enabled: true
   issuer: "http://localhost:8180/realms/matrix"
   client_id: "synapse"
-  client_secret: "change-me-oidc-client-secret"
+  client_secret: "${OIDC_CLIENT_SECRET:?OIDC_CLIENT_SECRET is required}"
   scopes:
     - "openid"
     - "profile"
@@ -182,8 +186,8 @@ app_service:
   appservice:
     - id: "openclaw"
       url: "http://host.docker.internal:8080"
-      as_token: "openclaw_as_token_change_this"
-      hs_token: "openclaw_hs_token_change_this"
+      as_token: "${OPENCLAW_AS_TOKEN:?OPENCLAW_AS_TOKEN is required}"
+      hs_token: "${OPENCLAW_HS_TOKEN:?OPENCLAW_HS_TOKEN is required}"
       sender_localpart: "openclaw"
       names:
         - "OpenClaw Bot"

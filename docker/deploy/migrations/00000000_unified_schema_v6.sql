@@ -106,7 +106,8 @@ CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen_ts DESC);
 -- 存储用户的访问令牌
 CREATE TABLE IF NOT EXISTS access_tokens (
     id BIGSERIAL,
-    token TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    token TEXT,
     user_id TEXT NOT NULL,
     device_id TEXT,
     created_ts BIGINT NOT NULL,
@@ -116,12 +117,13 @@ CREATE TABLE IF NOT EXISTS access_tokens (
     ip_address TEXT,
     is_revoked BOOLEAN DEFAULT FALSE,
     CONSTRAINT pk_access_tokens PRIMARY KEY (id),
-    CONSTRAINT uq_access_tokens_token UNIQUE (token),
+    CONSTRAINT uq_access_tokens_token_hash UNIQUE (token_hash),
     CONSTRAINT fk_access_tokens_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_access_tokens_user_id ON access_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_access_tokens_valid ON access_tokens(is_revoked) WHERE is_revoked = FALSE;
+CREATE INDEX IF NOT EXISTS idx_access_tokens_token_hash ON access_tokens(token_hash);
 
 -- 刷新令牌表
 -- 存储用于刷新访问令牌的令牌
@@ -2032,7 +2034,8 @@ CREATE TABLE IF NOT EXISTS report_rate_limits (
     user_id TEXT NOT NULL,
     report_count INTEGER DEFAULT 0,
     is_blocked BOOLEAN DEFAULT FALSE,
-    blocked_until BIGINT,
+    blocked_until_at BIGINT,
+    block_reason TEXT,
     last_report_at BIGINT,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
@@ -2668,6 +2671,8 @@ CREATE TABLE IF NOT EXISTS application_services (
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
     description TEXT,
+    api_key TEXT,
+    config JSONB NOT NULL DEFAULT '{}'::jsonb,
     CONSTRAINT pk_application_services PRIMARY KEY (id),
     CONSTRAINT uq_application_services_id UNIQUE (as_id)
 );

@@ -171,9 +171,18 @@ impl KeyRotationManager {
     pub async fn load_or_create_key(&self) -> Result<(), anyhow::Error> {
         self.ensure_signing_keys_table().await?;
 
-        let existing_key = sqlx::query(
+        let existing_key = sqlx::query_as::<_, SigningKey>(
             r#"
-            SELECT key_id, secret_key, public_key, created_ts, expires_at
+            SELECT
+                server_name,
+                key_id,
+                secret_key,
+                public_key,
+                created_ts,
+                expires_at,
+                key_json,
+                ts_added_ms,
+                ts_valid_until_ms
             FROM federation_signing_keys
             WHERE server_name = $1 AND (expires_at = 0 OR expires_at > $2)
             ORDER BY created_ts DESC
@@ -186,18 +195,7 @@ impl KeyRotationManager {
         .await;
 
         match existing_key {
-            Ok(Some(row)) => {
-                let key = SigningKey {
-                    server_name: row.get("server_name"),
-                    key_id: row.get("key_id"),
-                    secret_key: row.get("secret_key"),
-                    public_key: row.get("public_key"),
-                    created_ts: row.get("created_ts"),
-                    expires_at: row.get("expires_at"),
-                    key_json: row.get("key_json"),
-                    ts_added_ms: row.get("ts_added_ms"),
-                    ts_valid_until_ms: row.get("ts_valid_until_ms"),
-                };
+            Ok(Some(key)) => {
                 *self.current_key.write().await = Some(key);
                 tracing::info!("Loaded existing signing key from database");
                 return Ok(());
@@ -565,6 +563,57 @@ mod tests {
         }
     }
 
+    async fn setup_test_database() -> Option<Arc<PgPool>> {
+        let database_url = env::var("TEST_DATABASE_URL")
+            .or_else(|_| env::var("DATABASE_URL"))
+            .unwrap_or_else(|_| {
+                "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()
+            });
+
+        let pool = match sqlx::postgres::PgPoolOptions::new()
+            .max_connections(5)
+            .acquire_timeout(std::time::Duration::from_secs(10))
+            .connect(&database_url)
+            .await
+        {
+            Ok(pool) => Arc::new(pool),
+            Err(error) => {
+                eprintln!(
+                    "Skipping key rotation database tests because test database is unavailable: {}",
+                    error
+                );
+                return None;
+            }
+        };
+
+        sqlx::query("DROP TABLE IF EXISTS federation_signing_keys CASCADE")
+            .execute(&*pool)
+            .await
+            .ok();
+
+        sqlx::query(
+            r#"
+            CREATE TABLE federation_signing_keys (
+                server_name TEXT NOT NULL,
+                key_id TEXT NOT NULL,
+                secret_key TEXT NOT NULL,
+                public_key TEXT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                expires_at BIGINT NOT NULL,
+                key_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                ts_added_ms BIGINT NOT NULL,
+                ts_valid_until_ms BIGINT NOT NULL,
+                PRIMARY KEY (server_name, key_id)
+            )
+            "#,
+        )
+        .execute(&*pool)
+        .await
+        .expect("Failed to create federation_signing_keys table");
+
+        Some(pool)
+    }
+
     // fn generate_valid_test_key() -> String {
     //     use rand::RngCore;
     //     let mut rng = rand::thread_rng();
@@ -644,7 +693,6 @@ mod tests {
         let pool = create_test_pool().await;
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
-        // Should have empty current key initially
         let current = manager.get_current_key().await.unwrap();
         assert!(current.is_none());
     }
@@ -654,7 +702,6 @@ mod tests {
         let pool = create_test_pool().await;
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
-        // Should rotate when no key exists
         let should_rotate = manager.should_rotate_keys().await;
         assert!(should_rotate);
     }
@@ -664,7 +711,6 @@ mod tests {
         let pool = create_test_pool().await;
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
-        // Create a key that expires in the future
         let future_expires = (Utc::now() + Duration::days(30)).timestamp_millis();
 
         {
@@ -683,7 +729,6 @@ mod tests {
         }
 
         let should_rotate = manager.should_rotate_keys().await;
-        // Should not rotate if key expires after the configured threshold
         assert!(!should_rotate);
     }
 
@@ -692,7 +737,6 @@ mod tests {
         let pool = create_test_pool().await;
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
-        // Create a key that expires within the configured threshold
         let soon_expires = (Utc::now() + Duration::hours(12)).timestamp_millis();
 
         {
@@ -712,6 +756,68 @@ mod tests {
 
         let should_rotate = manager.should_rotate_keys().await;
         assert!(should_rotate);
+    }
+
+    #[tokio::test]
+    async fn test_load_or_create_key_loads_full_existing_record() {
+        let pool = match setup_test_database().await {
+            Some(pool) => pool,
+            None => return,
+        };
+        let manager = KeyRotationManager::new(&pool, "test.example.com");
+        let now = Utc::now().timestamp_millis();
+        let expires_at = now + Duration::days(7).num_milliseconds();
+        let key_json = json!({
+            "secret_key": "secret123",
+            "public_key": "public456"
+        });
+
+        sqlx::query(
+            r#"
+            INSERT INTO federation_signing_keys (
+                server_name,
+                key_id,
+                secret_key,
+                public_key,
+                created_ts,
+                expires_at,
+                key_json,
+                ts_added_ms,
+                ts_valid_until_ms
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "#,
+        )
+        .bind("test.example.com")
+        .bind("ed25519:test")
+        .bind("secret123")
+        .bind("public456")
+        .bind(now)
+        .bind(expires_at)
+        .bind(key_json.clone())
+        .bind(now)
+        .bind(expires_at)
+        .execute(&*pool)
+        .await
+        .expect("Failed to insert test federation signing key");
+
+        manager.load_or_create_key().await.unwrap();
+
+        let current = manager
+            .get_current_key()
+            .await
+            .unwrap()
+            .expect("current signing key should exist");
+
+        assert_eq!(current.server_name, "test.example.com");
+        assert_eq!(current.key_id, "ed25519:test");
+        assert_eq!(current.secret_key, "secret123");
+        assert_eq!(current.public_key, "public456");
+        assert_eq!(current.created_ts, now);
+        assert_eq!(current.expires_at, expires_at);
+        assert_eq!(current.key_json, key_json);
+        assert_eq!(current.ts_added_ms, now);
+        assert_eq!(current.ts_valid_until_ms, expires_at);
     }
 
     #[tokio::test]

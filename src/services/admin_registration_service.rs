@@ -7,10 +7,10 @@ use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use sha1::Sha1;
 use std::sync::Arc;
 
-type HmacSha256 = Hmac<Sha256>;
+type HmacSha1 = Hmac<Sha1>;
 
 #[derive(Clone)]
 pub struct AdminRegistrationService {
@@ -144,17 +144,21 @@ impl AdminRegistrationService {
 
         let start = std::time::Instant::now();
 
-        self.validate_nonce(&request.nonce).await?;
-        self.consume_nonce(&request.nonce).await?;
+        self.validate_and_consume_nonce(&request.nonce).await?;
         self.verify_hmac(&request)?;
 
         let admin = request.admin.unwrap_or(false);
         let displayname = request.displayname.as_deref();
 
-        let (user, access_token, refresh_token, device_id) = self
-            .auth_service
-            .register(&request.username, &request.password, admin, displayname)
-            .await?;
+        let (user, access_token, refresh_token, device_id) = if admin {
+            self.auth_service
+                .register_admin(&request.username, &request.password, displayname)
+                .await?
+        } else {
+            self.auth_service
+                .register(&request.username, &request.password, displayname)
+                .await?
+        };
 
         let duration = start.elapsed().as_secs_f64();
         if let Some(hist) = self
@@ -188,19 +192,17 @@ impl AdminRegistrationService {
         })
     }
 
-    async fn validate_nonce(&self, nonce: &str) -> ApiResult<()> {
+    async fn validate_and_consume_nonce(&self, nonce: &str) -> ApiResult<()> {
         let key = format!("admin:register:nonce:{}", nonce);
-        let exists = self.cache.get::<i64>(&key).await?.is_some();
-        if !exists {
+        let existing = self.cache.get::<i64>(&key).await?;
+        if existing.is_none() {
             return Err(ApiError::bad_request("Unrecognised nonce".to_string()));
         }
-
-        Ok(())
-    }
-
-    async fn consume_nonce(&self, nonce: &str) -> ApiResult<()> {
-        let key = format!("admin:register:nonce:{}", nonce);
-        let _ = self.cache.delete(&key).await;
+        self.cache.delete(&key).await;
+        let after_delete = self.cache.get::<i64>(&key).await?;
+        if after_delete.is_some() {
+            return Err(ApiError::internal("Failed to consume nonce".to_string()));
+        }
         Ok(())
     }
 
@@ -211,7 +213,7 @@ impl AdminRegistrationService {
             ));
         }
 
-        let mut mac = HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
+        let mut mac = HmacSha1::new_from_slice(self.config.shared_secret.as_bytes())
             .map_err(|_| ApiError::internal("Invalid shared secret".to_string()))?;
 
         mac.update(request.nonce.as_bytes());

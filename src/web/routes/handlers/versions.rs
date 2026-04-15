@@ -4,8 +4,7 @@ use crate::web::AppState;
 use axum::{
     extract::State,
     http::{header, StatusCode},
-    routing::get,
-    Json, Router,
+    Json,
 };
 use serde_json::json;
 
@@ -81,18 +80,4 @@ pub async fn get_capabilities() -> impl axum::response::IntoResponse {
             "m.room.suggested": { "enabled": true }
         }
     }))
-}
-
-/// 创建版本路由
-pub fn create_versions_router() -> Router<AppState> {
-    Router::new()
-        .route("/_matrix/client/versions", get(get_client_versions))
-        .route("/_matrix/client/v3/versions", get(get_client_versions))
-        .route("/_matrix/client/r0/version", get(get_server_version))
-        .route("/_matrix/server_version", get(get_server_version))
-        .route("/.well-known/matrix/server", get(get_well_known_server))
-        .route("/.well-known/matrix/client", get(get_well_known_client))
-        .route("/.well-known/matrix/support", get(get_well_known_support))
-        .route("/_matrix/client/v3/capabilities", get(get_capabilities))
-        .route("/_matrix/client/r0/capabilities", get(get_capabilities))
 }

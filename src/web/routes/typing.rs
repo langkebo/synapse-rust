@@ -10,6 +10,27 @@ use axum::{
 };
 use serde_json::{json, Value};
 
+async fn ensure_typing_room_access(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+) -> Result<(), ApiError> {
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to access typing status".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 /// Set typing indicator
 /// PUT /_matrix/client/v3/rooms/{room_id}/typing/{user_id}
 pub async fn set_typing(
@@ -23,6 +44,8 @@ pub async fn set_typing(
             "Cannot set typing for other users".to_string(),
         ));
     }
+
+    ensure_typing_room_access(&state, &auth_user, &room_id).await?;
 
     let timeout = body
         .get("timeout")
@@ -61,8 +84,11 @@ pub async fn set_typing(
 /// GET /_matrix/client/v3/rooms/{room_id}/typing
 pub async fn get_typing_users(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_typing_room_access(&state, &auth_user, &room_id).await?;
+
     let typing = state
         .services
         .typing_service
@@ -76,8 +102,11 @@ pub async fn get_typing_users(
 /// GET /_matrix/client/r0/rooms/{room_id}/typing/{user_id}
 pub async fn get_user_typing(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Path((room_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_typing_room_access(&state, &auth_user, &room_id).await?;
+
     let is_typing = state
         .services
         .typing_service
@@ -91,6 +120,7 @@ pub async fn get_user_typing(
 /// POST /_matrix/client/v3/rooms/typing
 pub async fn bulk_get_typing(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let room_ids = body
@@ -105,6 +135,8 @@ pub async fn bulk_get_typing(
 
     let mut result = serde_json::Map::new();
     for room_id in room_ids {
+        ensure_typing_room_access(&state, &auth_user, &room_id).await?;
+
         let typing = state
             .services
             .typing_service

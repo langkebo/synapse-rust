@@ -80,6 +80,26 @@ impl AuthService {
         &self,
         username: &str,
         password: &str,
+        displayname: Option<&str>,
+    ) -> ApiResult<(User, String, String, String)> {
+        self.register_with_role(username, password, false, displayname)
+            .await
+    }
+
+    pub async fn register_admin(
+        &self,
+        username: &str,
+        password: &str,
+        displayname: Option<&str>,
+    ) -> ApiResult<(User, String, String, String)> {
+        self.register_with_role(username, password, true, displayname)
+            .await
+    }
+
+    async fn register_with_role(
+        &self,
+        username: &str,
+        password: &str,
         admin: bool,
         displayname: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
@@ -120,6 +140,12 @@ impl AuthService {
         }
         if let Err(e) = self.validator.validate_username(username) {
             return Err(ApiError::invalid_username(e.to_string()));
+        }
+        if let Err(e) = self.validator.validate_password(password) {
+            return Err(ApiError::bad_request(format!(
+                "Password does not meet policy requirements: {}",
+                e
+            )));
         }
 
         let existing_user = self
@@ -239,6 +265,12 @@ impl AuthService {
     ) -> ApiResult<(User, String, String, String)> {
         let user = self.get_user_by_username(username).await?;
 
+        if self.is_user_deactivated(&user) {
+            return Err(ApiError::user_deactivated(
+                "User account has been deactivated",
+            ));
+        }
+
         if self.is_account_locked(&user.user_id).await? {
             self.log_login_failure(username, "account_locked");
             return Err(ApiError::rate_limited(
@@ -255,12 +287,6 @@ impl AuthService {
         }
 
         self.clear_login_failures(&user.user_id).await?;
-
-        if self.is_user_deactivated(&user) {
-            return Err(ApiError::user_deactivated(
-                "User account has been deactivated",
-            ));
-        }
 
         if is_legacy_hash(password_hash) {
             if let Err(e) = self.migrate_password(&user.user_id, password).await {
@@ -401,12 +427,18 @@ impl AuthService {
             _ => auth_generate_token(16),
         };
 
-        if !self
+        if let Some(existing_device) = self
             .device_storage
-            .device_exists(&device_id)
+            .get_device(&device_id)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         {
+            if existing_device.user_id != user.user_id {
+                return Err(ApiError::forbidden(
+                    "Device ID already belongs to a different user".to_string(),
+                ));
+            }
+        } else {
             self.device_storage
                 .create_device(&device_id, &user.user_id, None)
                 .await
@@ -471,13 +503,11 @@ impl AuthService {
         for token in &tokens {
             if let Err(e) = self
                 .token_storage
-                .add_to_blacklist(&token.token, user_id, Some("Logout all devices"))
+                .add_hash_to_blacklist(&token.token_hash, user_id, Some("Logout all devices"))
                 .await
             {
                 ::tracing::warn!("Failed to add token to blacklist during logout_all: {}", e);
             }
-            // Invalidate token cache
-            self.cache.delete_token(&token.token).await;
         }
 
         // Delete tokens from database
@@ -539,6 +569,12 @@ impl AuthService {
 
                 match user {
                     Some(u) => {
+                        if u.is_deactivated {
+                            return Err(ApiError::user_deactivated(
+                                "User account has been deactivated",
+                            ));
+                        }
+
                         let device_id = t.device_id.clone().unwrap_or_default();
                         let new_access_token = self
                             .generate_access_token(&u.user_id, &device_id, u.is_admin)
@@ -565,7 +601,10 @@ impl AuthService {
         }
     }
 
-    pub async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool)> {
+    pub async fn validate_token(
+        &self,
+        token: &str,
+    ) -> ApiResult<(String, Option<String>, bool, bool, bool)> {
         ::tracing::debug!(target: "token_validation", "Validating token");
 
         if self
@@ -625,15 +664,39 @@ impl AuthService {
                             .await
                             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
                             .ok_or_else(|| ApiError::unauthorized("User not found".to_string()))?;
+                        self.cache.set(&admin_cache_key, user.is_admin, 60).await?;
                         self.cache
-                            .set(&admin_cache_key, user.is_admin, 3600)
+                            .set(
+                                &format!("user:shadow_banned:{}", cached_claims.sub),
+                                user.is_shadow_banned,
+                                60,
+                            )
+                            .await?;
+                        self.cache
+                            .set(
+                                &format!("user:guest:{}", cached_claims.sub),
+                                user.is_guest,
+                                60,
+                            )
                             .await?;
                         user.is_admin
                     };
+                    let is_shadow_banned = self
+                        .cache
+                        .get::<bool>(&format!("user:shadow_banned:{}", cached_claims.sub))
+                        .await?
+                        .unwrap_or(false);
+                    let is_guest = self
+                        .cache
+                        .get::<bool>(&format!("user:guest:{}", cached_claims.sub))
+                        .await?
+                        .unwrap_or(false);
                     Ok((
                         cached_claims.user_id,
                         cached_claims.device_id.clone(),
                         is_admin,
+                        is_shadow_banned,
+                        is_guest,
                     ))
                 } else {
                     Err(ApiError::unauthorized(
@@ -657,13 +720,25 @@ impl AuthService {
                 self.cache
                     .set_user_active(&cached_claims.sub, is_active, 60)
                     .await;
-                self.cache.set(&admin_cache_key, u.is_admin, 3600).await?;
+                self.cache.set(&admin_cache_key, u.is_admin, 60).await?;
+                self.cache
+                    .set(
+                        &format!("user:shadow_banned:{}", cached_claims.sub),
+                        u.is_shadow_banned,
+                        60,
+                    )
+                    .await?;
+                self.cache
+                    .set(&format!("user:guest:{}", cached_claims.sub), u.is_guest, 60)
+                    .await?;
 
                 if is_active {
                     Ok((
                         cached_claims.user_id,
                         cached_claims.device_id.clone(),
                         u.is_admin,
+                        u.is_shadow_banned,
+                        u.is_guest,
                     ))
                 } else {
                     Err(ApiError::unauthorized("User is deactivated".to_string()))
@@ -705,13 +780,25 @@ impl AuthService {
 
                 self.cache.set_user_active(&claims.sub, true, 60).await;
                 self.cache
-                    .set(&format!("user:admin:{}", claims.sub), is_admin, 3600)
+                    .set(&format!("user:admin:{}", claims.sub), is_admin, 60)
+                    .await?;
+                self.cache
+                    .set(
+                        &format!("user:shadow_banned:{}", claims.sub),
+                        u.is_shadow_banned,
+                        60,
+                    )
+                    .await?;
+                self.cache
+                    .set(&format!("user:guest:{}", claims.sub), u.is_guest, 60)
                     .await?;
                 self.cache.set_token(token, &final_claims, 3600).await;
                 Ok((
                     final_claims.user_id,
                     final_claims.device_id.clone(),
                     is_admin,
+                    u.is_shadow_banned,
+                    u.is_guest,
                 ))
             }
             None => {
@@ -721,7 +808,36 @@ impl AuthService {
         }
     }
 
-    pub async fn change_password(&self, user_id: &str, new_password: &str) -> ApiResult<()> {
+    pub async fn change_password(
+        &self,
+        user_id: &str,
+        current_password: Option<&str>,
+        new_password: &str,
+    ) -> ApiResult<()> {
+        if let Some(pwd) = current_password {
+            let user = self
+                .user_storage
+                .get_user_by_id(user_id)
+                .await
+                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+                .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+
+            if let Some(ref password_hash) = user.password_hash {
+                if !self.verify_user_password(pwd, password_hash).await? {
+                    return Err(ApiError::unauthorized(
+                        "Current password is incorrect".to_string(),
+                    ));
+                }
+            }
+        }
+
+        if let Err(e) = self.validator.validate_password(new_password) {
+            return Err(ApiError::bad_request(format!(
+                "Password does not meet policy requirements: {}",
+                e
+            )));
+        }
+
         let password_hash = self.hash_password(new_password)?;
         self.user_storage
             .update_password(user_id, &password_hash)
@@ -753,6 +869,7 @@ impl AuthService {
             .map_err(|e| ApiError::internal(format!("Failed to delete devices: {}", e)))?;
 
         self.cache.delete(&format!("user:active:{}", user_id)).await;
+        self.cache.delete(&format!("user:admin:{}", user_id)).await;
 
         Ok(())
     }
@@ -825,12 +942,7 @@ impl AuthService {
     }
 
     fn hash_token(token: &str) -> String {
-        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(token.as_bytes());
-        let result = hasher.finalize();
-        URL_SAFE_NO_PAD.encode(result)
+        crate::common::crypto::hash_token(token)
     }
 
     fn decode_token(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
@@ -924,6 +1036,39 @@ impl AuthService {
             return Ok(-1);
         }
 
+        let power_levels_content: Option<serde_json::Value> = sqlx::query_scalar(
+            r#"
+            SELECT content
+            FROM events
+            WHERE room_id = $1
+              AND event_type = 'm.room.power_levels'
+              AND state_key = ''
+            ORDER BY origin_server_ts DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        if let Some(content) = power_levels_content {
+            if let Some(level) = content
+                .get("users")
+                .and_then(|users| users.get(user_id))
+                .and_then(|level| level.as_i64())
+            {
+                return Ok(level);
+            }
+
+            if let Some(level) = content
+                .get("users_default")
+                .and_then(|level| level.as_i64())
+            {
+                return Ok(level);
+            }
+        }
+
         let room_creator: Option<String> =
             sqlx::query_scalar("SELECT creator FROM rooms WHERE room_id = $1")
                 .bind(room_id)
@@ -940,25 +1085,359 @@ impl AuthService {
         Ok(0)
     }
 
+    async fn get_room_power_levels_content(
+        &self,
+        room_id: &str,
+    ) -> ApiResult<Option<serde_json::Value>> {
+        sqlx::query_scalar(
+            r#"
+            SELECT content
+            FROM events
+            WHERE room_id = $1
+              AND event_type = 'm.room.power_levels'
+              AND state_key = ''
+            ORDER BY origin_server_ts DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))
+    }
+
+    pub async fn get_required_state_event_power_level(
+        &self,
+        room_id: &str,
+        event_type: &str,
+    ) -> ApiResult<i64> {
+        let power_levels_content = self.get_room_power_levels_content(room_id).await?;
+        if let Some(content) = power_levels_content {
+            if let Some(level) = content
+                .get("events")
+                .and_then(|events| events.get(event_type))
+                .and_then(|level| level.as_i64())
+            {
+                return Ok(level);
+            }
+
+            if let Some(level) = content
+                .get("state_default")
+                .and_then(|level| level.as_i64())
+            {
+                return Ok(level);
+            }
+        }
+
+        if event_type == "m.room.power_levels" {
+            return Ok(100);
+        }
+
+        Ok(50)
+    }
+
+    pub async fn get_required_message_event_power_level(
+        &self,
+        room_id: &str,
+        event_type: &str,
+    ) -> ApiResult<i64> {
+        let power_levels_content = self.get_room_power_levels_content(room_id).await?;
+        if let Some(content) = power_levels_content {
+            if let Some(level) = content
+                .get("events")
+                .and_then(|events| events.get(event_type))
+                .and_then(|level| level.as_i64())
+            {
+                return Ok(level);
+            }
+
+            if let Some(level) = content
+                .get("events_default")
+                .and_then(|level| level.as_i64())
+            {
+                return Ok(level);
+            }
+        }
+
+        Ok(0)
+    }
+
+    pub async fn verify_message_event_write(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        _is_server_admin: bool,
+    ) -> ApiResult<()> {
+        let power_level = self.get_user_power_level(room_id, user_id).await?;
+        let required = self
+            .get_required_message_event_power_level(room_id, event_type)
+            .await?;
+
+        if power_level < required {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "unauthorized_message_event_write",
+                user_id = user_id,
+                room_id = room_id,
+                event_type = event_type,
+                power_level = power_level,
+                required = required,
+                "User attempted to send message event without sufficient permission"
+            );
+            return Err(ApiError::forbidden(
+                "Insufficient permission to send this event".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub async fn verify_state_event_write(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        _is_server_admin: bool,
+    ) -> ApiResult<()> {
+        let power_level = self.get_user_power_level(room_id, user_id).await?;
+        let required = self
+            .get_required_state_event_power_level(room_id, event_type)
+            .await?;
+
+        if power_level < required {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "unauthorized_state_event_write",
+                user_id = user_id,
+                room_id = room_id,
+                event_type = event_type,
+                power_level = power_level,
+                required = required,
+                "User attempted to send state event without sufficient permission"
+            );
+            return Err(ApiError::forbidden(
+                "Insufficient permission to send this state event".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub async fn verify_power_levels_change(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        new_power_levels_content: &serde_json::Value,
+        _is_server_admin: bool,
+    ) -> ApiResult<()> {
+        let actor_level = self.get_user_power_level(room_id, user_id).await?;
+
+        let current_content = self.get_room_power_levels_content(room_id).await?;
+
+        if let Some(current) = current_content {
+            if let Some(new_users) = new_power_levels_content
+                .get("users")
+                .and_then(|u| u.as_object())
+            {
+                let current_users = current.get("users").and_then(|u| u.as_object());
+                for (target_user, new_level_val) in new_users {
+                    let new_level = new_level_val.as_i64().unwrap_or(0);
+                    let current_level = current_users
+                        .and_then(|cu| cu.get(target_user))
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or_else(|| {
+                            current
+                                .get("users_default")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0)
+                        });
+
+                    if new_level > current_level && actor_level < new_level {
+                        ::tracing::warn!(
+                            target: "security_audit",
+                            event = "unauthorized_power_level_elevation",
+                            user_id = user_id,
+                            room_id = room_id,
+                            target_user = target_user,
+                            actor_level = actor_level,
+                            new_level = new_level,
+                            "User attempted to set power level above their own"
+                        );
+                        return Err(ApiError::forbidden(
+                            "Cannot set power level higher than your own".to_string(),
+                        ));
+                    }
+
+                    if current_level >= actor_level && new_level != current_level {
+                        ::tracing::warn!(
+                            target: "security_audit",
+                            event = "unauthorized_power_level_change",
+                            user_id = user_id,
+                            room_id = room_id,
+                            target_user = target_user,
+                            actor_level = actor_level,
+                            current_level = current_level,
+                            new_level = new_level,
+                            "User attempted to change power level of user at or above their own level"
+                        );
+                        return Err(ApiError::forbidden(
+                            "Cannot change power level of user at or above your level".to_string(),
+                        ));
+                    }
+                }
+            }
+
+            if let Some(new_events) = new_power_levels_content
+                .get("events")
+                .and_then(|e| e.as_object())
+            {
+                let current_events = current.get("events").and_then(|e| e.as_object());
+                for (event_type, new_level_val) in new_events {
+                    let new_level = new_level_val.as_i64().unwrap_or(0);
+                    let current_level = current_events
+                        .and_then(|ce| ce.get(event_type))
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or_else(|| {
+                            current
+                                .get("events_default")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0)
+                        });
+
+                    if new_level > actor_level {
+                        ::tracing::warn!(
+                            target: "security_audit",
+                            event = "unauthorized_event_level_change",
+                            user_id = user_id,
+                            room_id = room_id,
+                            event_type = event_type,
+                            actor_level = actor_level,
+                            new_level = new_level,
+                            "User attempted to set event power level above their own"
+                        );
+                        return Err(ApiError::forbidden(
+                            "Cannot set event power level above your own".to_string(),
+                        ));
+                    }
+
+                    if current_level > actor_level && new_level != current_level {
+                        ::tracing::warn!(
+                            target: "security_audit",
+                            event = "unauthorized_event_level_change_above_self",
+                            user_id = user_id,
+                            room_id = room_id,
+                            event_type = event_type,
+                            actor_level = actor_level,
+                            current_level = current_level,
+                            new_level = new_level,
+                            "User attempted to change event power level above their own"
+                        );
+                        return Err(ApiError::forbidden(
+                            "Cannot change event power level above your own".to_string(),
+                        ));
+                    }
+                }
+            }
+
+            let scalar_checks = [
+                (
+                    "users_default",
+                    current
+                        .get("users_default")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0),
+                ),
+                (
+                    "events_default",
+                    current
+                        .get("events_default")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0),
+                ),
+                (
+                    "state_default",
+                    current
+                        .get("state_default")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(50),
+                ),
+                (
+                    "ban",
+                    current.get("ban").and_then(|v| v.as_i64()).unwrap_or(50),
+                ),
+                (
+                    "kick",
+                    current.get("kick").and_then(|v| v.as_i64()).unwrap_or(50),
+                ),
+                (
+                    "redact",
+                    current.get("redact").and_then(|v| v.as_i64()).unwrap_or(50),
+                ),
+                (
+                    "invite",
+                    current.get("invite").and_then(|v| v.as_i64()).unwrap_or(0),
+                ),
+                (
+                    "notifications",
+                    current
+                        .get("notifications")
+                        .and_then(|v| v.as_object())
+                        .and_then(|n| n.get("room").and_then(|r| r.as_i64()))
+                        .unwrap_or(50),
+                ),
+            ];
+
+            for (key, current_level) in &scalar_checks {
+                if let Some(new_level) = new_power_levels_content.get(key).and_then(|v| v.as_i64())
+                {
+                    if new_level != *current_level {
+                        if *current_level > actor_level {
+                            return Err(ApiError::forbidden(format!(
+                                "Cannot change {} level: current level {} is above your own {}",
+                                key, current_level, actor_level
+                            )));
+                        }
+                        if new_level > actor_level {
+                            return Err(ApiError::forbidden(format!(
+                                "Cannot set {} level above your own: {} > {}",
+                                key, new_level, actor_level
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn verify_room_moderator(
         &self,
         room_id: &str,
         user_id: &str,
-        is_server_admin: bool,
+        _is_server_admin: bool,
     ) -> ApiResult<()> {
-        if is_server_admin {
-            return Ok(());
-        }
-
         let power_level = self.get_user_power_level(room_id, user_id).await?;
 
-        if power_level < 50 {
+        let required_level = self
+            .get_room_power_levels_content(room_id)
+            .await?
+            .and_then(|content| {
+                content
+                    .get("state_default")
+                    .and_then(|level| level.as_i64())
+            })
+            .unwrap_or(50);
+
+        if power_level < required_level {
             ::tracing::warn!(
                 target: "security_audit",
                 event = "unauthorized_room_moderator_action",
                 user_id = user_id,
                 room_id = room_id,
                 power_level = power_level,
+                required_level = required_level,
                 "User attempted moderator action without sufficient permission"
             );
             return Err(ApiError::forbidden(
@@ -974,16 +1453,18 @@ impl AuthService {
         room_id: &str,
         actor_user_id: &str,
         target_user_id: &str,
-        is_server_admin: bool,
+        _is_server_admin: bool,
     ) -> ApiResult<()> {
-        if is_server_admin {
-            return Ok(());
-        }
-
         let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
         let target_power = self.get_user_power_level(room_id, target_user_id).await?;
 
-        if actor_power < 50 {
+        let required_power = self
+            .get_room_power_levels_content(room_id)
+            .await?
+            .and_then(|content| content.get("kick").and_then(|level| level.as_i64()))
+            .unwrap_or(50);
+
+        if actor_power < required_power {
             ::tracing::warn!(
                 target: "security_audit",
                 event = "unauthorized_kick_action",
@@ -1045,16 +1526,18 @@ impl AuthService {
         room_id: &str,
         actor_user_id: &str,
         target_user_id: &str,
-        is_server_admin: bool,
+        _is_server_admin: bool,
     ) -> ApiResult<()> {
-        if is_server_admin {
-            return Ok(());
-        }
-
         let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
         let target_power = self.get_user_power_level(room_id, target_user_id).await?;
 
-        if actor_power < 50 {
+        let required_power = self
+            .get_room_power_levels_content(room_id)
+            .await?
+            .and_then(|content| content.get("ban").and_then(|level| level.as_i64()))
+            .unwrap_or(50);
+
+        if actor_power < required_power {
             ::tracing::warn!(
                 target: "security_audit",
                 event = "unauthorized_ban_action",
@@ -1062,10 +1545,11 @@ impl AuthService {
                 target_user_id = target_user_id,
                 room_id = room_id,
                 actor_power = actor_power,
-                "User attempted to ban without moderator permission"
+                required_power = required_power,
+                "User attempted to ban without sufficient permission"
             );
             return Err(ApiError::forbidden(
-                "Moderator permission required to ban users".to_string(),
+                "Insufficient permission to ban users".to_string(),
             ));
         }
 
@@ -1111,6 +1595,46 @@ impl AuthService {
         Ok(())
     }
 
+    pub async fn can_invite_user(
+        &self,
+        room_id: &str,
+        actor_user_id: &str,
+        is_server_admin: bool,
+    ) -> ApiResult<()> {
+        if is_server_admin {
+            let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
+            if actor_power < 0 {
+                return Err(ApiError::forbidden(
+                    "Server admin must be a room member to invite".to_string(),
+                ));
+            }
+        }
+
+        let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
+        let required_power = self
+            .get_room_power_levels_content(room_id)
+            .await?
+            .and_then(|content| content.get("invite").and_then(|level| level.as_i64()))
+            .unwrap_or(0);
+
+        if actor_power < required_power {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "unauthorized_invite_action",
+                actor_user_id = actor_user_id,
+                room_id = room_id,
+                actor_power = actor_power,
+                required_power = required_power,
+                "User attempted to invite without sufficient permission"
+            );
+            return Err(ApiError::forbidden(
+                "Insufficient permission to invite users".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     pub async fn can_redact_event(
         &self,
         room_id: &str,
@@ -1128,7 +1652,13 @@ impl AuthService {
             return Ok(());
         }
 
-        if actor_power < 50 {
+        let required_power = self
+            .get_room_power_levels_content(room_id)
+            .await?
+            .and_then(|content| content.get("redact").and_then(|level| level.as_i64()))
+            .unwrap_or(50);
+
+        if actor_power < required_power {
             ::tracing::warn!(
                 target: "security_audit",
                 event = "unauthorized_redact_action",
@@ -1786,4 +2316,4 @@ mod tests {
 }
 
 pub mod authorization;
-pub use authorization::{Action, AuthorizationContext, AuthorizationService, ResourceType};
+pub use authorization::{Action, AuthorizationContext, ResourceType};

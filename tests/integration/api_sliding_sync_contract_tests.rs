@@ -139,6 +139,89 @@ async fn send_room_message(app: &axum::Router, token: &str, room_id: &str) -> St
     json["event_id"].as_str().unwrap().to_string()
 }
 
+async fn upload_device_keys(
+    app: &axum::Router,
+    token: &str,
+    user_id: &str,
+    device_id: &str,
+    key_suffix: &str,
+) {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/upload")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_keys": {
+                    "user_id": user_id,
+                    "device_id": device_id,
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+                    "keys": {
+                        format!("curve25519:{}", device_id): format!("curve25519-{}", key_suffix),
+                        format!("ed25519:{}", device_id): format!("ed25519-{}", key_suffix)
+                    },
+                    "signatures": {
+                        user_id: {
+                            format!("ed25519:{}", device_id): format!("signature-{}", key_suffix)
+                        }
+                    }
+                },
+                "one_time_keys": {
+                    format!("signed_curve25519:{}", key_suffix): {
+                        "key": format!("otk-{}", key_suffix)
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(super::with_local_connect_info(request))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn send_to_device_message(
+    app: &axum::Router,
+    token: &str,
+    event_type: &str,
+    txn_id: &str,
+    recipient_user_id: &str,
+    recipient_device_id: &str,
+    content: Value,
+) {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v3/sendToDevice/{}/{}",
+            event_type, txn_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "messages": {
+                    recipient_user_id: {
+                        recipient_device_id: content
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(super::with_local_connect_info(request))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
 async fn send_read_receipt(
     app: &axum::Router,
     token: &str,
@@ -585,6 +668,374 @@ async fn test_sliding_sync_room_subscriptions_includes_room() {
     assert_eq!(status, StatusCode::OK, "{:?}", body);
 
     assert!(body["rooms"].get(&room_id).is_some());
+}
+
+#[tokio::test]
+async fn test_sliding_sync_list_filters_apply_to_query_results() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token = super::create_test_user(&app).await;
+    let (user_id, device_id) = whoami(&app, &token).await;
+    let device_id = device_id.unwrap_or_else(|| "default".to_string());
+
+    let room_dm = create_room(&app, &token).await;
+    let room_group = create_room(&app, &token).await;
+
+    let storage = SlidingSyncStorage::new(pool.clone());
+    storage
+        .upsert_room(
+            &user_id,
+            &device_id,
+            &room_dm,
+            None,
+            Some("main"),
+            2000,
+            0,
+            0,
+            true,
+            false,
+            false,
+            false,
+            Some("DM Room"),
+            None,
+            2000,
+        )
+        .await
+        .unwrap();
+    storage
+        .upsert_room(
+            &user_id,
+            &device_id,
+            &room_group,
+            None,
+            Some("main"),
+            1000,
+            0,
+            0,
+            false,
+            false,
+            false,
+            false,
+            Some("Group Room"),
+            None,
+            1000,
+        )
+        .await
+        .unwrap();
+
+    let (status, body) = post_sliding_sync(
+        &app,
+        Some(&token),
+        json!({
+            "lists": {
+                "main": {
+                    "ranges": [[0, 9]],
+                    "sort": ["by_recency"],
+                    "filters": {
+                        "is_dm": true
+                    }
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{:?}", body);
+    assert_eq!(body["lists"]["main"]["count"], 1);
+    assert_eq!(
+        body["lists"]["main"]["ops"][0]["room_ids"],
+        json!([room_dm])
+    );
+    assert!(body["rooms"].get(&room_dm).is_some());
+    assert!(body["rooms"].get(&room_group).is_none());
+}
+
+#[tokio::test]
+async fn test_sliding_sync_room_response_includes_timeline_and_required_state() {
+    let Some((app, _pool)) = setup_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token = super::create_test_user(&app).await;
+    let room_id = create_room(&app, &token).await;
+    send_room_message(&app, &token, &room_id).await;
+
+    let (status, body) = post_sliding_sync(
+        &app,
+        Some(&token),
+        json!({
+            "room_subscriptions": {
+                room_id.clone(): {
+                    "timeline_limit": 1,
+                    "required_state": [["m.room.create", ""]]
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{:?}", body);
+
+    let room = &body["rooms"][room_id.clone()];
+    assert_eq!(room["room_id"], room_id);
+    assert_eq!(room["timeline"].as_array().unwrap().len(), 1);
+    assert_eq!(room["timeline"][0]["type"], "m.room.message");
+    assert_eq!(room["required_state"].as_array().unwrap().len(), 1);
+    assert_eq!(room["required_state"][0]["type"], "m.room.create");
+    assert!(room["prev_batch"].as_str().unwrap().starts_with('t'));
+}
+
+#[tokio::test]
+async fn test_sliding_sync_uses_incremental_ops_for_follow_up_request() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token = super::create_test_user(&app).await;
+    let (user_id, device_id) = whoami(&app, &token).await;
+    let device_id = device_id.unwrap_or_else(|| "default".to_string());
+    let conn_id = "conn-incremental";
+
+    let room_a = create_room(&app, &token).await;
+    let room_b = create_room(&app, &token).await;
+    let room_c = create_room(&app, &token).await;
+
+    let storage = SlidingSyncStorage::new(pool.clone());
+    storage
+        .upsert_room(
+            &user_id,
+            &device_id,
+            &room_a,
+            Some(conn_id),
+            Some("main"),
+            2000,
+            0,
+            0,
+            false,
+            false,
+            false,
+            false,
+            Some("A"),
+            None,
+            2000,
+        )
+        .await
+        .unwrap();
+    storage
+        .upsert_room(
+            &user_id,
+            &device_id,
+            &room_b,
+            Some(conn_id),
+            Some("main"),
+            1000,
+            0,
+            0,
+            false,
+            false,
+            false,
+            false,
+            Some("B"),
+            None,
+            1000,
+        )
+        .await
+        .unwrap();
+
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token),
+        json!({
+            "conn_id": conn_id,
+            "lists": {
+                "main": {
+                    "ranges": [[0, 1]],
+                    "sort": ["by_recency"]
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+    assert_eq!(first_body["lists"]["main"]["ops"][0]["op"], "SYNC");
+
+    storage
+        .upsert_room(
+            &user_id,
+            &device_id,
+            &room_c,
+            Some(conn_id),
+            Some("main"),
+            3000,
+            0,
+            0,
+            false,
+            false,
+            false,
+            false,
+            Some("C"),
+            None,
+            3000,
+        )
+        .await
+        .unwrap();
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {
+                "main": {
+                    "ranges": [[0, 1]],
+                    "sort": ["by_recency"]
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+
+    let ops = second_body["lists"]["main"]["ops"].as_array().unwrap();
+    assert!(ops.iter().any(|op| op["op"] == "INSERT"));
+    assert!(ops.iter().any(|op| op["op"] == "DELETE"));
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_e2ee_returns_key_counts_and_device_list_deltas() {
+    let Some((app, _pool)) = setup_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (user_a, device_a) = whoami(&app, &token_a).await;
+    let (user_b, device_b) = whoami(&app, &token_b).await;
+    let device_a = device_a.unwrap_or_else(|| "default".to_string());
+    let device_b = device_b.unwrap_or_else(|| "default".to_string());
+
+    upload_device_keys(&app, &token_a, &user_a, &device_a, "alice-otk").await;
+
+    let conn_id = "conn-e2ee";
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+    assert_eq!(
+        first_body["extensions"]["e2ee"]["device_one_time_keys_count"]["signed_curve25519"],
+        1
+    );
+    assert_eq!(
+        first_body["extensions"]["e2ee"]["device_unused_fallback_key_types"],
+        json!([])
+    );
+
+    upload_device_keys(&app, &token_b, &user_b, &device_b, "bob-otk").await;
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+    let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"]
+        .as_array()
+        .unwrap();
+    assert!(changed.iter().any(|entry| entry == &json!(user_b)));
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_to_device_returns_events_and_next_batch() {
+    let Some((app, _pool)) = setup_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (user_a, device_a) = whoami(&app, &token_a).await;
+    let (_user_b, _device_b) = whoami(&app, &token_b).await;
+    let device_a = device_a.unwrap_or_else(|| "default".to_string());
+
+    send_to_device_message(
+        &app,
+        &token_b,
+        "org.example.test",
+        "txn-to-device-1",
+        &user_a,
+        &device_a,
+        json!({ "body": "hello-to-device" }),
+    )
+    .await;
+
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "lists": {},
+            "extensions": {
+                "to_device": {
+                    "enabled": true,
+                    "limit": 10
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+    assert_eq!(
+        first_body["extensions"]["to_device"]["events"][0]["type"],
+        "org.example.test"
+    );
+    assert_eq!(
+        first_body["extensions"]["to_device"]["events"][0]["content"]["body"],
+        "hello-to-device"
+    );
+    let next_batch = first_body["extensions"]["to_device"]["next_batch"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "lists": {},
+            "extensions": {
+                "to_device": {
+                    "enabled": true,
+                    "since": next_batch,
+                    "limit": 10
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+    assert_eq!(second_body["extensions"]["to_device"]["events"], json!([]));
+    assert!(second_body["extensions"]["to_device"]["next_batch"].is_string());
 }
 
 #[tokio::test]

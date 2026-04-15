@@ -10,6 +10,7 @@ use synapse_rust::common::config::{
     RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, VoipConfig, WorkerConfig,
 };
 use synapse_rust::services::ServiceContainer;
+use synapse_rust::storage::event_report::EventReportStorage;
 use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
@@ -112,6 +113,10 @@ fn create_test_config() -> Config {
             allow_legacy_hashes: false,
             login_failure_lockout_threshold: 5,
             login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
         },
         search: SearchConfig {
             enabled: false,
@@ -125,6 +130,11 @@ fn create_test_config() -> Config {
             shared_secret: "test_shared_secret".to_string(),
             nonce_timeout_seconds: 60,
             allow_external_access: false,
+            production_only: true,
+            ip_whitelist: Vec::new(),
+            require_captcha: false,
+            require_manual_approval: false,
+            approval_tokens: Vec::new(),
         },
         worker: WorkerConfig::default(),
         cors: CorsConfig::default(),
@@ -138,6 +148,7 @@ fn create_test_config() -> Config {
         retention: synapse_rust::common::config::RetentionConfig::default(),
         telemetry: synapse_rust::common::telemetry_config::OpenTelemetryConfig::default(),
         prometheus: synapse_rust::common::telemetry_config::PrometheusConfig::default(),
+        performance: synapse_rust::common::config::PerformanceConfig::default(),
     }
 }
 
@@ -207,6 +218,14 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> Option<Stri
         .ok()?;
     let json: Value = serde_json::from_slice(&body).ok()?;
     json.get("room_id")?.as_str().map(|value| value.to_string())
+}
+
+async fn delete_room(pool: &sqlx::PgPool, room_id: &str) {
+    sqlx::query("DELETE FROM rooms WHERE room_id = $1")
+        .bind(room_id)
+        .execute(pool)
+        .await
+        .ok();
 }
 
 #[tokio::test]
@@ -434,6 +453,73 @@ async fn test_room_invite_route_returns_not_found_for_missing_user() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
+}
+
+#[tokio::test]
+async fn test_room_invite_route_rejects_non_member_inviter() {
+    let Some(app) = setup_test_app().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let Some(alice_token) =
+        register_user(&app, &format!("invite_owner_{}", rand::random::<u32>())).await
+    else {
+        eprintln!("Skipping test: failed to register alice");
+        return;
+    };
+
+    let Some(eve_token) =
+        register_user(&app, &format!("invite_intruder_{}", rand::random::<u32>())).await
+    else {
+        eprintln!("Skipping test: failed to register eve");
+        return;
+    };
+
+    let Some(bob_token) =
+        register_user(&app, &format!("invite_target_{}", rand::random::<u32>())).await
+    else {
+        eprintln!("Skipping test: failed to register bob");
+        return;
+    };
+
+    let Some(room_id) = create_room(&app, &alice_token, "Invite Authorization Room").await else {
+        eprintln!("Skipping test: failed to create room");
+        return;
+    };
+
+    let request_whoami = Request::builder()
+        .uri("/_matrix/client/r0/account/whoami")
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .body(Body::empty())
+        .unwrap();
+    let response_whoami = ServiceExt::<Request<Body>>::oneshot(app.clone(), request_whoami)
+        .await
+        .unwrap();
+    let body_whoami = axum::body::to_bytes(response_whoami.into_body(), 1024)
+        .await
+        .unwrap();
+    let json_whoami: Value = serde_json::from_slice(&body_whoami).unwrap();
+    let bob_user_id = json_whoami["user_id"].as_str().unwrap();
+
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .header("Authorization", format!("Bearer {}", eve_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": bob_user_id }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
 
 #[tokio::test]
@@ -1131,6 +1217,152 @@ async fn test_relations_routes_work_across_v1_and_r0() {
 }
 
 #[tokio::test]
+async fn test_report_room_v3_uses_report_rate_limits_contract_and_returns_expected_payload() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let Some(access_token) =
+        register_user(&app, &format!("report_room_v3_{}", rand::random::<u32>())).await
+    else {
+        eprintln!("Skipping test: failed to register user");
+        return;
+    };
+    let Some(room_id) = create_room(&app, &access_token, "Report Room Contract").await else {
+        eprintln!("Skipping test: failed to create room");
+        return;
+    };
+
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{}/report", room_id))
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "reason": "spam",
+                "description": "integration coverage for blocked_until_at"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["report_id"].is_number());
+    assert_eq!(json["room_id"], room_id);
+    assert_eq!(json["status"], "submitted");
+
+    let report_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM event_reports
+        WHERE room_id = $1
+          AND event_id = $2
+        "#,
+    )
+    .bind(&room_id)
+    .bind(format!("room_report:{room_id}"))
+    .fetch_one(&*pool)
+    .await
+    .expect("Failed to verify room report row");
+    assert_eq!(report_count, 1);
+
+    let blocked_until_ts_exists: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'report_rate_limits'
+              AND column_name = 'blocked_until_ts'
+        )
+        "#,
+    )
+    .fetch_one(&*pool)
+    .await
+    .expect("Failed to inspect blocked_until_ts column");
+    assert!(
+        !blocked_until_ts_exists,
+        "Legacy blocked_until_ts column should not be referenced by the current schema"
+    );
+
+    let blocked_until_at_exists: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'report_rate_limits'
+              AND column_name = 'blocked_until_at'
+        )
+        "#,
+    )
+    .fetch_one(&*pool)
+    .await
+    .expect("Failed to inspect blocked_until_at column");
+    assert!(blocked_until_at_exists);
+
+    let storage = EventReportStorage::new(&pool);
+    let blocked_until_at = chrono::Utc::now().timestamp_millis() + 60_000;
+    let reporter = sqlx::query_scalar::<_, String>(
+        "SELECT reporter_user_id FROM event_reports WHERE room_id = $1 ORDER BY received_ts DESC LIMIT 1",
+    )
+    .bind(&room_id)
+    .fetch_one(&*pool)
+    .await
+    .expect("Failed to load reporter user id");
+
+    storage
+        .block_user_reports(
+            &reporter,
+            blocked_until_at,
+            "rate limited in integration test",
+        )
+        .await
+        .expect("Failed to block reporter");
+
+    let stored_blocked_until_at: Option<i64> =
+        sqlx::query_scalar("SELECT blocked_until_at FROM report_rate_limits WHERE user_id = $1")
+            .bind(&reporter)
+            .fetch_one(&*pool)
+            .await
+            .expect("Failed to inspect persisted blocked_until_at");
+    assert_eq!(stored_blocked_until_at, Some(blocked_until_at));
+
+    let rate_limit = storage
+        .check_rate_limit(&reporter)
+        .await
+        .expect("Failed to evaluate report rate limit");
+    assert!(!rate_limit.is_allowed);
+    assert_eq!(
+        rate_limit.block_reason.as_deref(),
+        Some("rate limited in integration test")
+    );
+
+    storage
+        .unblock_user_reports(&reporter)
+        .await
+        .expect("Failed to unblock reporter");
+
+    let unblocked_rate_limit = storage
+        .check_rate_limit(&reporter)
+        .await
+        .expect("Failed to evaluate report rate limit after unblock");
+    assert!(unblocked_rate_limit.is_allowed);
+
+    delete_room(&pool, &room_id).await;
+}
+
+#[tokio::test]
 async fn test_reaction_send_routes_work_across_r0_and_v3() {
     let Some(app) = setup_test_app().await else {
         eprintln!("Skipping test: database not available");
@@ -1435,6 +1667,132 @@ async fn test_room_timeline_route_returns_real_messages() {
 }
 
 #[tokio::test]
+async fn test_room_messages_route_accepts_sync_prev_batch_token() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let username = format!("room_messages_sync_{}", rand::random::<u32>());
+    let Some(token) = register_user(&app, &username).await else {
+        return;
+    };
+
+    let request_whoami = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/account/whoami")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let response_whoami = ServiceExt::<Request<Body>>::oneshot(app.clone(), request_whoami)
+        .await
+        .unwrap();
+    assert_eq!(response_whoami.status(), StatusCode::OK);
+    let body_whoami = axum::body::to_bytes(response_whoami.into_body(), 2048)
+        .await
+        .unwrap();
+    let whoami_json: Value = serde_json::from_slice(&body_whoami).unwrap();
+    let user_id = whoami_json["user_id"].as_str().unwrap();
+
+    let Some(room_id) = create_room(&app, &token, "Room Messages Sync Token").await else {
+        return;
+    };
+
+    for body in ["msg-1", "msg-2", "msg-3"] {
+        let send_request = Request::builder()
+            .method("PUT")
+            .uri(format!(
+                "/_matrix/client/v3/rooms/{}/send/m.room.message/{}_{}",
+                room_id,
+                body,
+                rand::random::<u32>()
+            ))
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({ "msgtype": "m.text", "body": body }).to_string(),
+            ))
+            .unwrap();
+        let send_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), send_request)
+            .await
+            .unwrap();
+        assert_eq!(send_response.status(), StatusCode::OK);
+    }
+
+    let create_filter_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/user/{}/filter", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room": {
+                    "timeline": {
+                        "limit": 2,
+                        "types": ["m.room.message"]
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let create_filter_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), create_filter_request)
+            .await
+            .unwrap();
+    assert_eq!(create_filter_response.status(), StatusCode::OK);
+    let create_filter_body = axum::body::to_bytes(create_filter_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let create_filter_json: Value = serde_json::from_slice(&create_filter_body).unwrap();
+    let filter_id = create_filter_json["filter_id"].as_str().unwrap();
+
+    let sync_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/sync?filter={}", filter_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let sync_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), sync_request)
+        .await
+        .unwrap();
+    assert_eq!(sync_response.status(), StatusCode::OK);
+    let sync_body = axum::body::to_bytes(sync_response.into_body(), 128 * 1024)
+        .await
+        .unwrap();
+    let sync_json: Value = serde_json::from_slice(&sync_body).unwrap();
+    let prev_batch = sync_json["rooms"]["join"][room_id.as_str()]["timeline"]["prev_batch"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(prev_batch.starts_with('t'));
+
+    let messages_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/messages?from={}&dir=b&limit=5",
+            room_id, prev_batch
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let messages_response = ServiceExt::<Request<Body>>::oneshot(app, messages_request)
+        .await
+        .unwrap();
+    assert_eq!(messages_response.status(), StatusCode::OK);
+
+    let messages_body = axum::body::to_bytes(messages_response.into_body(), 128 * 1024)
+        .await
+        .unwrap();
+    let messages_json: Value = serde_json::from_slice(&messages_body).unwrap();
+    let chunk = messages_json["chunk"].as_array().unwrap();
+    assert!(!chunk.is_empty());
+    assert_eq!(messages_json["start"], prev_batch);
+    assert_eq!(chunk[0]["type"], "m.room.message");
+    assert_eq!(chunk[0]["content"]["body"], "msg-1");
+    assert!(messages_json["end"].as_str().unwrap().starts_with('t'));
+}
+
+#[tokio::test]
 async fn test_room_timeline_route_rejects_non_member() {
     let Some(app) = setup_test_app().await else {
         return;
@@ -1468,6 +1826,75 @@ async fn test_room_timeline_route_rejects_non_member() {
         .await
         .unwrap();
     assert_eq!(timeline_response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_room_messages_route_rejects_non_member() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let Some(alice_token) =
+        register_user(&app, &format!("messages_owner_{}", rand::random::<u32>())).await
+    else {
+        return;
+    };
+    let Some(bob_token) =
+        register_user(&app, &format!("messages_guest_{}", rand::random::<u32>())).await
+    else {
+        return;
+    };
+
+    let Some(room_id) = create_room(&app, &alice_token, "Messages Protected Room").await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/messages?from=0&dir=b&limit=10",
+            room_id
+        ))
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_room_state_route_rejects_non_member() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let Some(alice_token) =
+        register_user(&app, &format!("state_owner_{}", rand::random::<u32>())).await
+    else {
+        return;
+    };
+    let Some(bob_token) =
+        register_user(&app, &format!("state_guest_{}", rand::random::<u32>())).await
+    else {
+        return;
+    };
+
+    let Some(room_id) = create_room(&app, &alice_token, "State Protected Room").await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/r0/rooms/{}/state", room_id))
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

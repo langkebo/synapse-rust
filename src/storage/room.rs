@@ -559,7 +559,11 @@ impl RoomStorage {
         _created_by: &str,
     ) -> Result<(), sqlx::Error> {
         let creation_ts = chrono::Utc::now().timestamp_millis();
-        let server_name = "localhost";
+        let server_name = alias
+            .rsplit_once(':')
+            .map(|(_, server_name)| server_name)
+            .filter(|server_name| !server_name.is_empty())
+            .unwrap_or("localhost");
         sqlx::query(
             r#"
             INSERT INTO room_aliases (room_alias, room_id, server_name, created_ts)

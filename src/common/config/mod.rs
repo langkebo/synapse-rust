@@ -869,6 +869,55 @@ pub struct Config {
     /// Prometheus 配置
     #[serde(default)]
     pub prometheus: crate::common::telemetry_config::PrometheusConfig,
+    /// 性能优化配置
+    #[serde(default)]
+    pub performance: PerformanceConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PerformanceConfig {
+    #[serde(default = "default_sync_event_limit")]
+    pub sync_event_limit: u32,
+    #[serde(default = "default_sync_poll_interval_ms")]
+    pub sync_poll_interval_ms: u64,
+    #[serde(default = "default_sync_slow_request_threshold_ms")]
+    pub sync_slow_request_threshold_ms: u64,
+    #[serde(default = "default_sync_to_device_limit")]
+    pub sync_to_device_limit: u32,
+    #[serde(default = "default_sync_ephemeral_limit")]
+    pub sync_ephemeral_limit: u32,
+}
+
+impl Default for PerformanceConfig {
+    fn default() -> Self {
+        Self {
+            sync_event_limit: default_sync_event_limit(),
+            sync_poll_interval_ms: default_sync_poll_interval_ms(),
+            sync_slow_request_threshold_ms: default_sync_slow_request_threshold_ms(),
+            sync_to_device_limit: default_sync_to_device_limit(),
+            sync_ephemeral_limit: default_sync_ephemeral_limit(),
+        }
+    }
+}
+
+fn default_sync_event_limit() -> u32 {
+    100
+}
+
+fn default_sync_poll_interval_ms() -> u64 {
+    250
+}
+
+fn default_sync_slow_request_threshold_ms() -> u64 {
+    750
+}
+
+fn default_sync_to_device_limit() -> u32 {
+    200
+}
+
+fn default_sync_ephemeral_limit() -> u32 {
+    100
 }
 
 // ============================================================================
@@ -1592,6 +1641,18 @@ pub struct SecurityConfig {
     /// 锁定持续时间（秒）
     #[serde(default = "default_login_lockout_duration_seconds")]
     pub login_lockout_duration_seconds: u64,
+    /// 是否强制管理员登录必须通过 MFA
+    #[serde(default)]
+    pub admin_mfa_required: bool,
+    /// 管理员 TOTP 共享密钥，支持 Base32；解析失败时回退为原始字节
+    #[serde(default)]
+    pub admin_mfa_shared_secret: String,
+    /// 允许的时间漂移窗口（30 秒步长）
+    #[serde(default = "default_admin_mfa_allowed_drift_steps")]
+    pub admin_mfa_allowed_drift_steps: u32,
+    /// 是否启用基于 user_type 的管理员 RBAC
+    #[serde(default = "default_admin_rbac_enabled")]
+    pub admin_rbac_enabled: bool,
 }
 
 fn default_login_failure_lockout_threshold() -> u32 {
@@ -1600,6 +1661,14 @@ fn default_login_failure_lockout_threshold() -> u32 {
 
 fn default_login_lockout_duration_seconds() -> u64 {
     900
+}
+
+fn default_admin_mfa_allowed_drift_steps() -> u32 {
+    1
+}
+
+fn default_admin_rbac_enabled() -> bool {
+    true
 }
 
 fn default_argon2_m_cost() -> u32 {
@@ -1693,6 +1762,16 @@ pub struct AdminRegistrationConfig {
     pub nonce_timeout_seconds: u64,
     #[serde(default = "default_admin_registration_allow_external_access")]
     pub allow_external_access: bool,
+    #[serde(default = "default_admin_registration_production_only")]
+    pub production_only: bool,
+    #[serde(default)]
+    pub ip_whitelist: Vec<String>,
+    #[serde(default)]
+    pub require_captcha: bool,
+    #[serde(default)]
+    pub require_manual_approval: bool,
+    #[serde(default)]
+    pub approval_tokens: Vec<String>,
 }
 
 fn default_admin_registration_enabled() -> bool {
@@ -1711,6 +1790,10 @@ fn default_admin_registration_allow_external_access() -> bool {
     false
 }
 
+fn default_admin_registration_production_only() -> bool {
+    true
+}
+
 impl Default for AdminRegistrationConfig {
     fn default() -> Self {
         Self {
@@ -1718,6 +1801,11 @@ impl Default for AdminRegistrationConfig {
             shared_secret: default_admin_registration_shared_secret(),
             nonce_timeout_seconds: default_admin_registration_nonce_timeout(),
             allow_external_access: default_admin_registration_allow_external_access(),
+            production_only: default_admin_registration_production_only(),
+            ip_whitelist: Vec::new(),
+            require_captcha: false,
+            require_manual_approval: false,
+            approval_tokens: Vec::new(),
         }
     }
 }
@@ -1980,6 +2068,8 @@ impl Config {
         }
 
         self.security.secret = resolve_env_in_string(&self.security.secret)?;
+        self.security.admin_mfa_shared_secret =
+            resolve_env_in_string(&self.security.admin_mfa_shared_secret)?;
 
         self.search.elasticsearch_url = resolve_env_in_string(&self.search.elasticsearch_url)?;
 
@@ -2013,6 +2103,18 @@ impl Config {
 
         self.admin_registration.shared_secret =
             resolve_env_in_string(&self.admin_registration.shared_secret)?;
+        self.admin_registration.ip_whitelist = self
+            .admin_registration
+            .ip_whitelist
+            .iter()
+            .map(|value| resolve_env_in_string(value))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.admin_registration.approval_tokens = self
+            .admin_registration
+            .approval_tokens
+            .iter()
+            .map(|value| resolve_env_in_string(value))
+            .collect::<Result<Vec<_>, _>>()?;
 
         if self.voip.is_enabled() {
             self.voip.turn_shared_secret = self
@@ -2040,6 +2142,13 @@ impl Config {
             return Err(
                 "admin_registration.enabled is true but shared_secret is not configured. \
                  Please set admin_registration.shared_secret in your configuration file."
+                    .to_string(),
+            );
+        }
+
+        if self.security.admin_mfa_required && self.security.admin_mfa_shared_secret.is_empty() {
+            return Err(
+                "security.admin_mfa_required is true but admin_mfa_shared_secret is not configured."
                     .to_string(),
             );
         }
@@ -2288,6 +2397,10 @@ mod tests {
                 allow_legacy_hashes: false,
                 login_failure_lockout_threshold: 5,
                 login_lockout_duration_seconds: 900,
+                admin_mfa_required: false,
+                admin_mfa_shared_secret: String::new(),
+                admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
+                admin_rbac_enabled: default_admin_rbac_enabled(),
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -2315,6 +2428,7 @@ mod tests {
             retention: RetentionConfig::default(),
             telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
+            performance: PerformanceConfig::default(),
         };
 
         let url = config.database_url();
@@ -2420,6 +2534,10 @@ mod tests {
                 allow_legacy_hashes: false,
                 login_failure_lockout_threshold: 5,
                 login_lockout_duration_seconds: 900,
+                admin_mfa_required: false,
+                admin_mfa_shared_secret: String::new(),
+                admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
+                admin_rbac_enabled: default_admin_rbac_enabled(),
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -2446,6 +2564,7 @@ mod tests {
             retention: RetentionConfig::default(),
             telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
+            performance: PerformanceConfig::default(),
             ..Config::default()
         };
 
@@ -2606,6 +2725,10 @@ mod tests {
             allow_legacy_hashes: false,
             login_failure_lockout_threshold: 5,
             login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
+            admin_rbac_enabled: default_admin_rbac_enabled(),
         };
 
         assert!(config.secret.len() > 16);

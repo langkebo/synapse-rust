@@ -112,6 +112,10 @@ fn create_test_config() -> Config {
             allow_legacy_hashes: false,
             login_failure_lockout_threshold: 5,
             login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
         },
         search: SearchConfig {
             enabled: false,
@@ -125,6 +129,11 @@ fn create_test_config() -> Config {
             shared_secret: "test_shared_secret".to_string(),
             nonce_timeout_seconds: 60,
             allow_external_access: false,
+            production_only: true,
+            ip_whitelist: Vec::new(),
+            require_captcha: false,
+            require_manual_approval: false,
+            approval_tokens: Vec::new(),
         },
         worker: WorkerConfig::default(),
         cors: CorsConfig::default(),
@@ -138,6 +147,7 @@ fn create_test_config() -> Config {
         retention: synapse_rust::common::config::RetentionConfig::default(),
         telemetry: synapse_rust::common::telemetry_config::OpenTelemetryConfig::default(),
         prometheus: synapse_rust::common::telemetry_config::PrometheusConfig::default(),
+        performance: synapse_rust::common::config::PerformanceConfig::default(),
     }
 }
 

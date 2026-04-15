@@ -244,10 +244,90 @@ impl OidcService {
             )));
         }
 
-        response
+        let token_response: OidcTokenResponse = response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse token response: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to parse token response: {}", e)))?;
+
+        if let Some(ref id_token) = token_response.id_token {
+            if let Err(e) = self.validate_id_token(id_token) {
+                tracing::warn!("OIDC ID token validation failed: {}", e);
+            }
+        }
+
+        Ok(token_response)
+    }
+
+    fn validate_id_token(&self, id_token: &str) -> Result<(), String> {
+        let parts: Vec<&str> = id_token.split('.').collect();
+        if parts.len() != 3 {
+            return Err("Invalid ID token format: expected 3 parts".to_string());
+        }
+
+        let payload_bytes = URL_SAFE_NO_PAD
+            .decode(parts[1])
+            .map_err(|e| format!("Invalid ID token payload base64: {}", e))?;
+
+        let payload: serde_json::Value = serde_json::from_slice(&payload_bytes)
+            .map_err(|e| format!("Invalid ID token payload JSON: {}", e))?;
+
+        let token_issuer = payload
+            .get("iss")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing 'iss' claim in ID token".to_string())?;
+
+        if token_issuer != self.config.issuer {
+            return Err(format!(
+                "ID token issuer mismatch: expected {}, got {}",
+                self.config.issuer, token_issuer
+            ));
+        }
+
+        let audiences = payload
+            .get("aud")
+            .ok_or_else(|| "Missing 'aud' claim in ID token".to_string())?;
+
+        let audience_matches = if let Some(aud_str) = audiences.as_str() {
+            aud_str == self.config.client_id
+        } else if let Some(aud_arr) = audiences.as_array() {
+            aud_arr
+                .iter()
+                .any(|v| v.as_str() == Some(&self.config.client_id))
+        } else {
+            false
+        };
+
+        if !audience_matches {
+            return Err(format!(
+                "ID token audience mismatch: expected {}",
+                self.config.client_id
+            ));
+        }
+
+        let now = chrono::Utc::now().timestamp();
+        let expires_at = payload
+            .get("exp")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        if expires_at < now {
+            return Err(format!(
+                "ID token expired: exp={} now={}",
+                expires_at, now
+            ));
+        }
+
+        let azp = payload.get("azp").and_then(|v| v.as_str());
+        if let Some(azp_val) = azp {
+            if azp_val != self.config.client_id {
+                return Err(format!(
+                    "ID token authorized party mismatch: expected {}, got {}",
+                    self.config.client_id, azp_val
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn refresh_token(&self, refresh_token: &str) -> Result<OidcTokenResponse, ApiError> {

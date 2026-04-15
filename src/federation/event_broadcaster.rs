@@ -74,7 +74,11 @@ impl EventBroadcaster {
             }
         };
 
-        let txn_id = format!("txn_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4());
+        let txn_id = format!(
+            "txn_{}_{}",
+            chrono::Utc::now().timestamp_millis(),
+            uuid::Uuid::new_v4()
+        );
 
         for destination in &destinations {
             if destination == &self.server_name {
@@ -126,7 +130,11 @@ impl EventBroadcaster {
             }
         };
 
-        let txn_id = format!("edu_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4());
+        let txn_id = format!(
+            "edu_{}_{}",
+            chrono::Utc::now().timestamp_millis(),
+            uuid::Uuid::new_v4()
+        );
 
         let transaction = FederationTransaction {
             transaction_id: txn_id,

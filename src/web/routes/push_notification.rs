@@ -3,8 +3,7 @@ use crate::services::push_notification_service::SendNotificationRequest;
 use crate::storage::push_notification::{
     CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest,
 };
-use crate::web::routes::AppState;
-use crate::web::routes::AuthenticatedUser;
+use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
@@ -258,7 +257,7 @@ pub async fn delete_rule(
 
 pub async fn process_queue(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _admin: AdminUser,
     Query(query): Query<ProcessQueueQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let batch_size = query.batch_size.unwrap_or(100);
@@ -277,7 +276,7 @@ pub async fn process_queue(
 
 pub async fn cleanup_logs(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _admin: AdminUser,
     Query(query): Query<CleanupQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let days = query.days.unwrap_or(30);
@@ -294,10 +293,10 @@ pub async fn cleanup_logs(
     })))
 }
 
-pub fn create_push_notification_router() -> axum::Router<AppState> {
+pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
-    axum::Router::new()
+    let public_routes = axum::Router::new()
         .route("/_matrix/client/r0/push/devices", get(get_devices))
         .route("/_matrix/client/r0/push/devices", post(register_device))
         .route(
@@ -310,7 +309,15 @@ pub fn create_push_notification_router() -> axum::Router<AppState> {
         .route(
             "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}",
             delete(delete_rule),
-        )
+        );
+
+    let admin_routes = axum::Router::new()
         .route("/_synapse/admin/v1/push/process", post(process_queue))
         .route("/_synapse/admin/v1/push/cleanup", post(cleanup_logs))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ));
+
+    public_routes.merge(admin_routes).with_state(state)
 }

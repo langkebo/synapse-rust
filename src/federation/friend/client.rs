@@ -13,6 +13,11 @@ pub struct FriendFederationClient {
 
 impl FriendFederationClient {
     pub fn new(server_name: String) -> Self {
+        tracing::warn!(
+            "FriendFederationClient created with test keypair - NOT suitable for production. \
+             Server: {}",
+            server_name
+        );
         Self {
             client: Client::new(),
             server_name,

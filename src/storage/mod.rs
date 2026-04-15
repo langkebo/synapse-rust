@@ -301,7 +301,7 @@ mod tests {
     fn test_access_token_struct_fields() {
         let token = AccessToken {
             id: 1,
-            token: "test_token_123".to_string(),
+            token_hash: "test_token_hash_123".to_string(),
             user_id: "@test:example.com".to_string(),
             device_id: Some("DEVICE123".to_string()),
             created_ts: 1234567890000,
@@ -312,7 +312,7 @@ mod tests {
             is_revoked: false,
         };
         assert_eq!(token.id, 1);
-        assert_eq!(token.token, "test_token_123");
+        assert_eq!(token.token_hash, "test_token_hash_123");
     }
 
     #[test]

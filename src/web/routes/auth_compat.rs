@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson};
 use crate::web::routes::AppState;
+use crate::web::utils::admin_auth::enforce_admin_login_mfa;
 use axum::{
     extract::{Query, State},
     Json,
@@ -52,14 +53,13 @@ pub(crate) async fn register(
         .validator
         .validate_password(password)?;
 
-    let admin = false;
     let displayname = body.get("displayname").and_then(|v| v.as_str());
 
     Ok(Json(
         state
             .services
             .registration_service
-            .register_user(username, password, admin, displayname)
+            .register_user(username, password, displayname)
             .await?,
     ))
 }
@@ -302,6 +302,9 @@ pub(crate) async fn login(
 
     let device_id = body.get("device_id").and_then(|v| v.as_str());
     let initial_display_name = body.get("initial_display_name").and_then(|v| v.as_str());
+    let mfa_code = body.get("mfa_code").and_then(|v| v.as_str());
+
+    enforce_admin_login_mfa(&state, username, mfa_code).await?;
 
     let (user, access_token, refresh_token, device_id) = state
         .services

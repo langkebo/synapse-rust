@@ -71,6 +71,76 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
 }
 
 #[tokio::test]
+async fn test_room_summary_route_rejects_non_member() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let owner_token = register_user(&app, "room_summary_owner_read_guard").await;
+    let guest_token = register_user(&app, "room_summary_guest_read_guard").await;
+    let room_id = create_room(&app, &owner_token, "Protected summary room").await;
+
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .header("Authorization", format!("Bearer {}", guest_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_room_summary_members_route_rejects_non_member() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let owner_token = register_user(&app, "room_summary_owner_members_guard").await;
+    let guest_token = register_user(&app, "room_summary_guest_members_guard").await;
+    let room_id = create_room(&app, &owner_token, "Protected summary members room").await;
+
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/r0/rooms/{}/summary/members", room_id))
+        .header("Authorization", format!("Bearer {}", guest_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_room_summary_create_rejects_non_member() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let owner_token = register_user(&app, "room_summary_owner_write_guard").await;
+    let guest_token = register_user(&app, "room_summary_guest_write_guard").await;
+    let room_id = create_room(&app, &owner_token, "Protected summary write room").await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .header("Authorization", format!("Bearer {}", guest_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room_id": room_id,
+                "name": "should be rejected"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
 async fn test_room_summary_read_routes_share_across_versions() {
     let Some(app) = setup_test_app().await else {
         return;
@@ -288,4 +358,42 @@ async fn test_room_summary_snapshot_exposes_members_state_and_stats() {
             .unwrap_or_default()
             > 0
     );
+}
+
+#[tokio::test]
+async fn test_room_summary_internal_summaries_route_returns_list_object() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(&app, "room_summary_internal_list").await;
+    let room_id = create_room(&app, &token, "Internal list summary room").await;
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_synapse/room_summary/v1/summaries")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert!(json.is_object());
+    let summaries = json["summaries"]
+        .as_array()
+        .expect("summaries should be an array");
+    let rooms = json["rooms"].as_array().expect("rooms should be an array");
+    let chunk = json["chunk"].as_array().expect("chunk should be an array");
+
+    assert!(!summaries.is_empty());
+    assert_eq!(summaries[0]["room_id"], room_id);
+    assert_eq!(rooms, summaries);
+    assert_eq!(chunk, summaries);
+    assert!(json.get("next_batch").is_none());
 }

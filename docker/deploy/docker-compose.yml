@@ -14,9 +14,12 @@ services:
     image: postgres:16-alpine
     container_name: synapse-postgres
     restart: unless-stopped
+    cpus: ${POSTGRES_CPU_LIMIT:-1.5}
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-1536m}
+    pids_limit: ${POSTGRES_PIDS_LIMIT:-256}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synapse_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: ${POSTGRES_DB:-synapse}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
@@ -30,8 +33,6 @@ services:
       start_period: 30s
     networks:
       - synapse-network
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
 
   # ===========================================================================
   # Redis 缓存
@@ -40,49 +41,44 @@ services:
     image: redis:7-alpine
     container_name: synapse-redis
     restart: unless-stopped
+    cpus: ${REDIS_CPU_LIMIT:-1.0}
+    mem_limit: ${REDIS_MEMORY_LIMIT:-512m}
+    pids_limit: ${REDIS_PIDS_LIMIT:-128}
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: [ "CMD-SHELL", "redis-cli ping | grep PONG" ]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - synapse-network
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
 
   # ===========================================================================
   # 数据库迁移服务 (一次性运行)
   # ===========================================================================
   migrator:
-    image: synapse-rust:local
-    pull_policy: never
+    image: postgres:16-alpine
     container_name: synapse-migrator
+    cpus: ${MIGRATOR_CPU_LIMIT:-1.0}
+    mem_limit: ${MIGRATOR_MEMORY_LIMIT:-1024m}
+    pids_limit: ${MIGRATOR_PIDS_LIMIT:-128}
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-synapse_password}@postgres:5432/${POSTGRES_DB:-synapse}
-      RUN_MIGRATIONS: "true"
-      SERVER_NAME: ${SERVER_NAME:-localhost}
-      PUBLIC_BASEURL: ${PUBLIC_BASEURL:-http://localhost:8008}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synapse_password}
-      POSTGRES_DB: ${POSTGRES_DB:-synapse}
-      ADMIN_SHARED_SECRET: ${ADMIN_SHARED_SECRET:-}
-      JWT_SECRET: ${JWT_SECRET:-}
-      REGISTRATION_SHARED_SECRET: ${REGISTRATION_SHARED_SECRET:-}
-      RUST_LOG: ${RUST_LOG:-info}
-      ALLOWED_ORIGINS: "http://localhost:8008,http://localhost:80,http://localhost:443,http://localhost:28008"
-      CORS_ORIGIN_PATTERN: "http://localhost:*"
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      DB_NAME: ${POSTGRES_DB:-synapse}
     volumes:
-      - ./migrations:/app/migrations:ro
-      - ./config/homeserver.yaml:/app/config/homeserver.yaml:ro
+      - ./migrations:/migrations:ro
+      - ./scripts/container-migrate.sh:/scripts/container-migrate.sh:ro
     networks:
       - synapse-network
-    command: [ "/bin/bash", "/app/scripts/db_migrate.sh", "migrate" ]
+    command: [ "/bin/sh", "/scripts/container-migrate.sh", "migrate" ]
     restart: "no"
 
   # ===========================================================================
@@ -93,6 +89,9 @@ services:
     pull_policy: never
     container_name: synapse-app
     restart: unless-stopped
+    cpus: ${SYNAPSE_CPU_LIMIT:-2.0}
+    mem_limit: ${SYNAPSE_MEMORY_LIMIT:-2048m}
+    pids_limit: ${SYNAPSE_PIDS_LIMIT:-512}
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,13 +103,17 @@ services:
       PUBLIC_BASEURL: ${PUBLIC_BASEURL:-http://localhost:8008}
 
       # 数据库配置
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-synapse_password}@postgres:5432/${POSTGRES_DB:-synapse}
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-synapse}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synapse_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: ${POSTGRES_DB:-synapse}
+      SYNAPSE__DATABASE__POOL_SIZE: ${SYNAPSE__DATABASE__POOL_SIZE:-20}
+      SYNAPSE__DATABASE__MAX_SIZE: ${SYNAPSE__DATABASE__MAX_SIZE:-50}
+      SYNAPSE__DATABASE__MIN_IDLE: ${SYNAPSE__DATABASE__MIN_IDLE:-10}
+      SYNAPSE__DATABASE__CONNECTION_TIMEOUT: ${SYNAPSE__DATABASE__CONNECTION_TIMEOUT:-60}
 
       # Redis 配置
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
 
       # 管理员配置
       ADMIN_SHARED_SECRET: ${ADMIN_SHARED_SECRET:?ADMIN_SHARED_SECRET must be set in .env}
@@ -153,6 +156,9 @@ services:
     image: nginx:alpine
     container_name: synapse-nginx
     restart: unless-stopped
+    cpus: ${NGINX_CPU_LIMIT:-0.5}
+    mem_limit: ${NGINX_MEMORY_LIMIT:-256m}
+    pids_limit: ${NGINX_PIDS_LIMIT:-128}
     depends_on:
       synapse:
         condition: service_healthy

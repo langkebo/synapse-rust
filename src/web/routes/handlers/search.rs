@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::web::routes::{AppState, AuthenticatedUser};
+use crate::web::routes::{account_compat::can_view_profile_for_requester, AppState, AuthenticatedUser};
 use axum::{
     extract::{Json, Path, Query, State},
     routing::{get, post},
@@ -356,7 +356,7 @@ async fn search_room_events(
 
 async fn search_users(
     state: &AppState,
-    _user_id: &str,
+    user_id: &str,
     search: &UsersSearch,
 ) -> Result<Value, ApiError> {
     let limit = search.limit.unwrap_or(10) as i64;
@@ -377,16 +377,23 @@ async fn search_users(
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let results: Vec<Value> = rows
-        .iter()
-        .map(|row| {
-            json!({
-                "user_id": row.get::<Option<String>, _>("user_id"),
-                "display_name": row.get::<Option<String>, _>("displayname"),
-                "avatar_url": row.get::<Option<String>, _>("avatar_url")
-            })
-        })
-        .collect();
+    let mut results = Vec::new();
+    for row in rows {
+        let target_user_id = match row.get::<Option<String>, _>("user_id") {
+            Some(user_id) => user_id,
+            None => continue,
+        };
+
+        if !can_view_profile_for_requester(state, Some(user_id), &target_user_id).await? {
+            continue;
+        }
+
+        results.push(json!({
+            "user_id": target_user_id,
+            "display_name": row.get::<Option<String>, _>("displayname"),
+            "avatar_url": row.get::<Option<String>, _>("avatar_url")
+        }));
+    }
 
     Ok(json!({
         "results": results,
@@ -930,7 +937,7 @@ struct SearchRecipientsRequest {
 
 async fn search_recipients(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Json(body): Json<SearchRecipientsRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.limit.unwrap_or(10).min(50) as i64;
@@ -958,17 +965,21 @@ async fn search_recipients(
     .await
     .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
 
-    let results: Vec<Value> = users
-        .iter()
-        .map(|row| {
-            json!({
-                "user_id": row.get::<String, _>("user_id"),
-                "username": row.get::<String, _>("username"),
-                "display_name": row.get::<Option<String>, _>("displayname"),
-                "avatar_url": row.get::<Option<String>, _>("avatar_url"),
-            })
-        })
-        .collect();
+    let mut results = Vec::new();
+    for row in users {
+        let target_user_id = row.get::<String, _>("user_id");
+        if !can_view_profile_for_requester(&state, Some(&auth_user.user_id), &target_user_id).await?
+        {
+            continue;
+        }
+
+        results.push(json!({
+            "user_id": target_user_id,
+            "username": row.get::<String, _>("username"),
+            "display_name": row.get::<Option<String>, _>("displayname"),
+            "avatar_url": row.get::<Option<String>, _>("avatar_url"),
+        }));
+    }
 
     Ok(Json(json!({
         "results": results,

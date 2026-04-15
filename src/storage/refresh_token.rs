@@ -263,6 +263,23 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
+    pub async fn revoke_token_cas(&self, token_hash: &str, reason: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            UPDATE refresh_tokens SET
+                is_revoked = TRUE,
+                revoked_reason = $2
+            WHERE token_hash = $1 AND is_revoked = FALSE
+            "#,
+        )
+        .bind(token_hash)
+        .bind(reason)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn revoke_token_by_id(&self, id: i64, reason: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"

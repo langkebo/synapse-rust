@@ -190,6 +190,10 @@ pub fn compute_hash(data: impl AsRef<[u8]>) -> String {
     URL_SAFE_NO_PAD.encode(&hasher.finalize()[..])
 }
 
+pub fn hash_token(token: &str) -> String {
+    compute_hash(token)
+}
+
 pub fn hmac_sha256(key: impl AsRef<[u8]>, data: impl AsRef<[u8]>) -> Vec<u8> {
     let key = key.as_ref();
     let data = data.as_ref();

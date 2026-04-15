@@ -3,7 +3,7 @@
 //! 提供启动时的 Schema 验证，不在服务启动阶段执行运行时索引修复。
 //!
 //! 使用方法:
-//! ```rust,ignore
+//! ```text
 //! use synapse_rust::storage::schema_health_check::run_schema_health_check;
 //!
 //! #[tokio::main]
@@ -25,6 +25,7 @@ const CORE_TABLES: &[&str] = &[
     "users",
     "devices",
     "rooms",
+    "room_aliases",
     "events",
     "event_relations",
     "room_memberships",
@@ -35,6 +36,7 @@ const CORE_TABLES: &[&str] = &[
     "user_directory",
     "federation_signing_keys",
     "rate_limits",
+    "report_rate_limits",
     "server_notices",
     "user_notification_settings",
     "widgets",
@@ -60,6 +62,11 @@ const CORE_COLUMNS: &[(&str, &str)] = &[
     ("rooms", "creator"),
     ("rooms", "created_ts"),
     ("rooms", "is_public"),
+    // room_aliases 表
+    ("room_aliases", "room_alias"),
+    ("room_aliases", "room_id"),
+    ("room_aliases", "server_name"),
+    ("room_aliases", "created_ts"),
     // events 表
     ("events", "event_id"),
     ("events", "room_id"),
@@ -79,7 +86,7 @@ const CORE_COLUMNS: &[(&str, &str)] = &[
     ("room_memberships", "invited_ts"),
     ("room_memberships", "left_ts"),
     // access_tokens 表
-    ("access_tokens", "token"),
+    ("access_tokens", "token_hash"),
     ("access_tokens", "user_id"),
     ("access_tokens", "device_id"),
     ("access_tokens", "created_ts"),
@@ -103,6 +110,14 @@ const CORE_COLUMNS: &[(&str, &str)] = &[
     ("rate_limits", "user_id"),
     ("rate_limits", "messages_per_second"),
     ("rate_limits", "burst_count"),
+    // report_rate_limits 表
+    ("report_rate_limits", "user_id"),
+    ("report_rate_limits", "report_count"),
+    ("report_rate_limits", "last_report_at"),
+    ("report_rate_limits", "blocked_until_at"),
+    ("report_rate_limits", "block_reason"),
+    ("report_rate_limits", "created_ts"),
+    ("report_rate_limits", "updated_ts"),
     // server_notices 表
     ("server_notices", "id"),
     ("server_notices", "user_id"),
@@ -180,7 +195,7 @@ const REQUIRED_INDEXES: &[(&str, &str, &str, Option<&str>)] = &[
     ),
     // access_tokens 表索引
     ("idx_access_tokens_user", "access_tokens", "user_id", None),
-    ("idx_access_tokens_token", "access_tokens", "token", None),
+    ("idx_access_tokens_token_hash", "access_tokens", "token_hash", None),
     // refresh_tokens 表索引
     ("idx_refresh_tokens_user", "refresh_tokens", "user_id", None),
     // user_threepids 表索引
