@@ -3,10 +3,24 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
+use std::sync::Arc;
+use synapse_rust::cache::{CacheConfig, CacheManager};
+use synapse_rust::services::ServiceContainer;
+use synapse_rust::web::routes::create_router;
+use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+    let pool = super::get_test_pool().await?;
+    let container = ServiceContainer::new_test_with_pool(pool.clone());
+    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let state = AppState::new(container, cache);
+    Some((create_router(state), pool))
+}
+
 async fn setup_test_app() -> Option<axum::Router> {
-    super::setup_test_app().await
+    let (app, _) = setup_test_app_with_pool().await?;
+    Some(app)
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -38,6 +52,14 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         json["access_token"].as_str().unwrap().to_string(),
         json["user_id"].as_str().unwrap().to_string(),
     )
+}
+
+async fn promote_to_super_admin(pool: &sqlx::PgPool, user_id: &str) {
+    sqlx::query("UPDATE users SET is_admin = TRUE, user_type = 'super_admin' WHERE user_id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .expect("failed to promote user to super_admin");
 }
 
 async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
@@ -683,12 +705,13 @@ async fn test_admin_pusher_query_requires_existing_user_and_returns_created_push
 
 #[tokio::test]
 async fn test_admin_send_server_notice_persists_notice_for_target_user() {
-    let Some(app) = setup_test_app().await else {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
         return;
     };
 
     let (_, user_id) = register_user(&app, "server_notice_target").await;
-    let (admin_token, _) = super::get_admin_token(&app).await;
+    let (admin_token, admin_user_id) = register_user(&app, "server_notice_admin").await;
+    promote_to_super_admin(&pool, &admin_user_id).await;
 
     let send_notice_request = Request::builder()
         .method("POST")
@@ -718,7 +741,26 @@ async fn test_admin_send_server_notice_persists_notice_for_target_user() {
     let send_notice_json: Value = serde_json::from_slice(&send_notice_body).unwrap();
     assert!(send_notice_json["event_id"].as_str().is_some());
     assert!(send_notice_json["room_id"].as_str().is_some());
+    let room_id = send_notice_json["room_id"].as_str().unwrap();
+    let event_id = send_notice_json["event_id"].as_str().unwrap();
     let notice_id = send_notice_json["notice_id"].as_i64().unwrap();
+
+    let room_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM rooms WHERE room_id = $1)")
+            .bind(room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect server notice room");
+    assert!(room_exists, "server notice room should be persisted");
+
+    let event_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM events WHERE event_id = $1 AND room_id = $2)")
+            .bind(event_id)
+            .bind(room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect server notice event");
+    assert!(event_exists, "server notice event should be persisted");
 
     let list_notices_request = Request::builder()
         .method("GET")
@@ -744,6 +786,6 @@ async fn test_admin_send_server_notice_persists_notice_for_target_user() {
         .any(|notice| {
             notice["id"] == notice_id
                 && notice["user_id"] == user_id
-                && notice["event_id"] == send_notice_json["event_id"]
+                && notice["event_id"] == event_id
         }));
 }

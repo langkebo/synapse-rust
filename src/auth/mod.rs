@@ -1147,8 +1147,11 @@ impl AuthService {
         room_id: &str,
         user_id: &str,
         event_type: &str,
-        _is_server_admin: bool,
+        is_server_admin: bool,
     ) -> ApiResult<()> {
+        if is_server_admin {
+            return Ok(());
+        }
         let power_level = self.get_user_power_level(room_id, user_id).await?;
         let required = self
             .get_required_message_event_power_level(room_id, event_type)
@@ -1178,8 +1181,11 @@ impl AuthService {
         room_id: &str,
         user_id: &str,
         event_type: &str,
-        _is_server_admin: bool,
+        is_server_admin: bool,
     ) -> ApiResult<()> {
+        if is_server_admin {
+            return Ok(());
+        }
         let power_level = self.get_user_power_level(room_id, user_id).await?;
         let required = self
             .get_required_state_event_power_level(room_id, event_type)
@@ -1209,8 +1215,11 @@ impl AuthService {
         room_id: &str,
         user_id: &str,
         new_power_levels_content: &serde_json::Value,
-        _is_server_admin: bool,
+        is_server_admin: bool,
     ) -> ApiResult<()> {
+        if is_server_admin {
+            return Ok(());
+        }
         let actor_level = self.get_user_power_level(room_id, user_id).await?;
 
         let current_content = self.get_room_power_levels_content(room_id).await?;
