@@ -115,7 +115,6 @@ pub use self::sticky_event::*;
 pub use self::thread::*;
 pub use self::threepid::*;
 pub use self::token::*;
-pub use self::user::*;
 pub use self::voice::*;
 pub use self::widget::*;
 
