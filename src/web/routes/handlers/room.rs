@@ -2963,23 +2963,26 @@ pub(crate) async fn get_room_metadata(
         "created_ts": room.created_ts
     });
 
-    if response.get("name").is_some_and(|v| v.is_null()) {
-        response.as_object_mut().unwrap().remove("name");
-    }
-    if response.get("topic").is_some_and(|v| v.is_null()) {
-        response.as_object_mut().unwrap().remove("topic");
-    }
-    if response.get("avatar_url").is_some_and(|v| v.is_null()) {
-        response.as_object_mut().unwrap().remove("avatar_url");
-    }
-    if response.get("canonical_alias").is_some_and(|v| v.is_null()) {
-        response.as_object_mut().unwrap().remove("canonical_alias");
-    }
-    if response.get("creator").is_some_and(|v| v.is_null()) {
-        response.as_object_mut().unwrap().remove("creator");
-    }
-    if response.get("encryption").is_some_and(|v| v.is_null()) {
-        response.as_object_mut().unwrap().remove("encryption");
+    // Remove null fields from response
+    if let Some(obj) = response.as_object_mut() {
+        if obj.get("name").is_some_and(|v| v.is_null()) {
+            obj.remove("name");
+        }
+        if obj.get("topic").is_some_and(|v| v.is_null()) {
+            obj.remove("topic");
+        }
+        if obj.get("avatar_url").is_some_and(|v| v.is_null()) {
+            obj.remove("avatar_url");
+        }
+        if obj.get("canonical_alias").is_some_and(|v| v.is_null()) {
+            obj.remove("canonical_alias");
+        }
+        if obj.get("creator").is_some_and(|v| v.is_null()) {
+            obj.remove("creator");
+        }
+        if obj.get("encryption").is_some_and(|v| v.is_null()) {
+            obj.remove("encryption");
+        }
     }
 
     Ok(Json(response))

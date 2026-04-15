@@ -497,7 +497,7 @@ pub async fn app_service_transactions(
     state
         .services
         .app_service_manager
-        .send_transaction(&as_id, events.clone())
+        .send_transaction(&as_id, events)
         .await?;
 
     Ok(empty_json())

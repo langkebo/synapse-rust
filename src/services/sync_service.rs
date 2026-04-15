@@ -1022,7 +1022,7 @@ impl SyncService {
         for room_id in &rooms_to_include {
             let events = room_events.get(room_id).cloned().unwrap_or_default();
             let (timeline_events, timeline_limited) =
-                Self::apply_timeline_limit(events.clone(), timeline_limit);
+                Self::apply_timeline_limit(&events, timeline_limit);
             let state_events = Self::apply_sync_filter_to_values(
                 state_by_room.get(room_id).cloned().unwrap_or_default(),
                 room_filter.and_then(|filter| filter.state.as_ref()),
@@ -1189,7 +1189,7 @@ impl SyncService {
         )?;
 
         let (timeline_events, timeline_limited) =
-            Self::apply_timeline_limit(events.clone(), self.sync_event_limit());
+            Self::apply_timeline_limit(&events, self.sync_event_limit());
         let lazy_load_members = Self::room_filter_requests_lazy_members(room_filter);
         let state_list = Self::apply_sync_filter_to_values(
             state_list,
@@ -1298,7 +1298,7 @@ impl SyncService {
             event_fields,
             event_format,
         } = request;
-        let (events, limited) = Self::apply_timeline_limit(events, timeline_limit);
+        let (events, limited) = Self::apply_timeline_limit(&events, timeline_limit);
         let event_list: Vec<Value> = events
             .iter()
             .map(|event| {
@@ -1820,13 +1820,13 @@ impl SyncService {
         }
     }
 
-    fn apply_timeline_limit(events: Vec<RoomEvent>, timeline_limit: i64) -> (Vec<RoomEvent>, bool) {
+    fn apply_timeline_limit(events: &[RoomEvent], timeline_limit: i64) -> (Vec<RoomEvent>, bool) {
         if timeline_limit <= 0 {
             return (Vec::new(), !events.is_empty());
         }
 
         let limited = events.len() as i64 > timeline_limit;
-        let mut events: Vec<RoomEvent> = events.into_iter().take(timeline_limit as usize).collect();
+        let mut events: Vec<RoomEvent> = events.iter().take(timeline_limit as usize).cloned().collect();
         events.reverse();
         (events, limited)
     }
@@ -3254,7 +3254,7 @@ mod tests {
     #[test]
     fn test_apply_timeline_limit_truncates_events() {
         let (events, limited) = SyncService::apply_timeline_limit(
-            vec![
+            &[
                 sample_room_event("1"),
                 sample_room_event("2"),
                 sample_room_event("3"),
