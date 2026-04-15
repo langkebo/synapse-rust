@@ -674,6 +674,102 @@ async fn test_admin_get_room_returns_room_details_after_create_room() {
 }
 
 #[tokio::test]
+async fn test_admin_room_listing_requires_existing_room() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let missing_room_id = format!("!missing_room_listing_{}:localhost", rand::random::<u32>());
+    let encoded_room_id = encode_path_segment(&missing_room_id);
+
+    let set_public_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_synapse/admin/v1/rooms/{}/listings/public",
+            encoded_room_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let set_public_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_public_request)
+        .await
+        .unwrap();
+    assert_eq!(set_public_response.status(), StatusCode::NOT_FOUND);
+
+    let in_directory: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)")
+            .bind(&missing_room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect room directory after rejected publish");
+    assert!(!in_directory);
+
+    let set_private_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/rooms/{}/listings/public",
+            encoded_room_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let set_private_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), set_private_request)
+            .await
+            .unwrap();
+    assert_eq!(set_private_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_admin_room_block_writes_require_existing_room() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let missing_room_id = format!("!missing_room_block_{}:localhost", rand::random::<u32>());
+    let encoded_room_id = encode_path_segment(&missing_room_id);
+
+    let block_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/rooms/{}/block", encoded_room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "block": true,
+                "reason": "test"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let block_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), block_request)
+        .await
+        .unwrap();
+    assert_eq!(block_response.status(), StatusCode::NOT_FOUND);
+
+    let is_blocked: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM blocked_rooms WHERE room_id = $1)")
+            .bind(&missing_room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect blocked_rooms after rejected block");
+    assert!(!is_blocked);
+
+    let unblock_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/rooms/{}/unblock", encoded_room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let unblock_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unblock_request)
+        .await
+        .unwrap();
+    assert_eq!(unblock_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_admin_room_make_admin_accepts_put_and_updates_power_levels() {
     let Some(app) = setup_test_app().await else {
         return;
@@ -962,6 +1058,139 @@ async fn test_admin_device_management_supports_delete_compat_routes() {
 }
 
 #[tokio::test]
+async fn test_admin_shadow_ban_requires_existing_user() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let missing_user_id = format!("@missing_shadow_{}:localhost", rand::random::<u32>());
+    let encoded_user_id = encode_path_segment(&missing_user_id);
+
+    let shadow_ban_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/shadow_ban",
+            encoded_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let shadow_ban_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), shadow_ban_request)
+        .await
+        .unwrap();
+    assert_eq!(shadow_ban_response.status(), StatusCode::NOT_FOUND);
+
+    let unshadow_ban_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/shadow_ban",
+            encoded_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let unshadow_ban_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), unshadow_ban_request)
+            .await
+            .unwrap();
+    assert_eq!(unshadow_ban_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_admin_rate_limit_writes_require_existing_user() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let missing_user_id = format!("@missing_ratelimit_{}:localhost", rand::random::<u32>());
+    let encoded_user_id = encode_path_segment(&missing_user_id);
+
+    let set_rate_limit_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/rate_limit",
+            encoded_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "messages_per_second": 1.5,
+                "burst_count": 3
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_rate_limit_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), set_rate_limit_request)
+            .await
+            .unwrap();
+    assert_eq!(set_rate_limit_response.status(), StatusCode::NOT_FOUND);
+
+    let stored_rate_limit: Option<f64> =
+        sqlx::query_scalar("SELECT messages_per_second FROM rate_limits WHERE user_id = $1")
+            .bind(&missing_user_id)
+            .fetch_optional(&*pool)
+            .await
+            .expect("failed to inspect rejected rate limit write");
+    assert!(stored_rate_limit.is_none());
+
+    let set_override_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/override_ratelimit",
+            encoded_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "messages_per_second": 2.0,
+                "burst_count": 4
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_override_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), set_override_request)
+            .await
+            .unwrap();
+    assert_eq!(set_override_response.status(), StatusCode::NOT_FOUND);
+
+    let delete_rate_limit_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/rate_limit",
+            encoded_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_rate_limit_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_rate_limit_request)
+            .await
+            .unwrap();
+    assert_eq!(delete_rate_limit_response.status(), StatusCode::NOT_FOUND);
+
+    let delete_override_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/override_ratelimit",
+            encoded_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_override_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_override_request)
+            .await
+            .unwrap();
+    assert_eq!(delete_override_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_admin_retention_policy_preserves_expire_on_clients() {
     let Some((app, pool)) = setup_test_app_with_pool().await else {
         return;
@@ -1092,4 +1321,52 @@ async fn test_admin_retention_policy_preserves_expire_on_clients() {
         .execute(&*pool)
         .await
         .expect("failed to cleanup server_retention_policy");
+}
+
+#[tokio::test]
+async fn test_admin_room_retention_policy_requires_existing_room() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    sqlx::query("UPDATE users SET user_type = 'super_admin' WHERE username = $1")
+        .bind(&admin_username)
+        .execute(&*pool)
+        .await
+        .expect("failed to promote admin test user to super_admin");
+
+    let missing_room_id = format!("!missing_retention_room_{}:localhost", rand::random::<u32>());
+    let encoded_room_id = encode_path_segment(&missing_room_id);
+
+    let set_room_policy_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_synapse/admin/v1/retention/policy/{}",
+            encoded_room_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "max_lifetime": 172_800_000_i64,
+                "min_lifetime": 7_200_000_i64,
+                "expire_on_clients": true
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_room_policy_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), set_room_policy_request)
+            .await
+            .unwrap();
+    assert_eq!(set_room_policy_response.status(), StatusCode::NOT_FOUND);
+
+    let has_policy: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_retention_policies WHERE room_id = $1)")
+            .bind(&missing_room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect room_retention_policies after rejected write");
+    assert!(!has_policy);
 }

@@ -397,6 +397,16 @@ pub async fn block_room(
     headers: HeaderMap,
     Json(body): Json<BlockRoomRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
@@ -459,6 +469,16 @@ pub async fn unblock_room(
     Path(room_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     sqlx::query("DELETE FROM blocked_rooms WHERE room_id = $1")
         .bind(&room_id)
         .execute(&*state.services.room_storage.pool)
@@ -1307,11 +1327,15 @@ pub async fn set_room_public(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    sqlx::query("UPDATE rooms SET is_public = true WHERE room_id = $1")
+    let result = sqlx::query("UPDATE rooms SET is_public = true WHERE room_id = $1")
         .bind(&room_id)
         .execute(&*state.services.room_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
 
     // Add to directory
     let now = chrono::Utc::now().timestamp_millis();
@@ -1337,11 +1361,15 @@ pub async fn set_room_private(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    sqlx::query("UPDATE rooms SET is_public = false WHERE room_id = $1")
+    let result = sqlx::query("UPDATE rooms SET is_public = false WHERE room_id = $1")
         .bind(&room_id)
         .execute(&*state.services.room_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
 
     // Remove from directory
     sqlx::query("DELETE FROM room_directory WHERE room_id = $1")

@@ -64,13 +64,30 @@ pub async fn get_directory_room(
 
 pub async fn set_room_alias_handler(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(room_alias): Path<String>,
     Json(body): Json<SetRoomAliasBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
 
     let room_id = &body.room_id;
+
+    let membership = state
+        .services
+        .member_storage
+        .get_member(room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    let is_member = membership
+        .as_ref()
+        .is_some_and(|m| m.membership == "join");
+
+    if !is_member {
+        return Err(ApiError::forbidden(
+            "You must be a room member to set an alias",
+        ));
+    }
 
     state
         .services
@@ -88,10 +105,36 @@ pub async fn set_room_alias_handler(
 
 pub async fn remove_room_alias(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
+
+    let existing = state
+        .services
+        .directory_service
+        .get_room_id_by_alias(&room_alias)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get alias: {}", e)))?;
+
+    if let Some(room_id) = &existing {
+        let membership = state
+            .services
+            .member_storage
+            .get_member(room_id, &auth_user.user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+        let is_member = membership
+            .as_ref()
+            .is_some_and(|m| m.membership == "join");
+
+        if !is_member {
+            return Err(ApiError::forbidden(
+                "You must be a room member to remove an alias",
+            ));
+        }
+    }
 
     state
         .services
