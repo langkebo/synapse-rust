@@ -379,6 +379,21 @@ async fn test_admin_federation_blacklist_cache_and_confirm_routes_work() {
         .unwrap();
     assert_eq!(add_response.status(), StatusCode::OK);
 
+    let duplicate_add_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_synapse/admin/v1/federation/blacklist/{}",
+            server_name
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let duplicate_add_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), duplicate_add_request)
+            .await
+            .unwrap();
+    assert_eq!(duplicate_add_response.status(), StatusCode::CONFLICT);
+
     let list_request = Request::builder()
         .uri("/_synapse/admin/v1/federation/blacklist")
         .header("Authorization", format!("Bearer {}", admin_token))
