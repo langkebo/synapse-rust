@@ -95,7 +95,7 @@ pub(crate) use extractors::extract_token_from_headers;
 pub use extractors::{
     AdminUser, AuthExtractor, AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser,
 };
-pub(crate) use room_access::ensure_room_member_or_admin;
+pub(crate) use room_access::{ensure_room_member, ensure_room_member_or_admin};
 pub use feature_flags::create_feature_flags_router;
 pub use federation::create_federation_router;
 pub use friend_room::create_friend_router;
