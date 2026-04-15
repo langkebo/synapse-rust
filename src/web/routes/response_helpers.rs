@@ -2,6 +2,7 @@ use axum::{http::StatusCode, Json};
 use serde_json::{json, Value};
 
 use crate::common::ApiError;
+use super::AppState;
 
 pub(crate) fn require_found<T>(value: Option<T>, message: &'static str) -> Result<T, ApiError> {
     value.ok_or_else(|| ApiError::not_found(message))
@@ -38,6 +39,33 @@ pub(crate) fn empty_json() -> Json<Value> {
 
 pub(crate) fn status_json(status: &'static str) -> Json<Value> {
     Json(json!({ "status": status }))
+}
+
+pub(crate) async fn filter_users_with_shared_rooms(
+    state: &AppState,
+    current_user_id: &str,
+    requested_users: &[String],
+) -> Vec<String> {
+    let mut allowed = vec![current_user_id.to_string()];
+
+    for user_id in requested_users {
+        if user_id == current_user_id {
+            continue;
+        }
+
+        let shared = state
+            .services
+            .member_storage
+            .share_common_room(current_user_id, user_id)
+            .await
+            .unwrap_or(false);
+
+        if shared {
+            allowed.push(user_id.clone());
+        }
+    }
+
+    allowed
 }
 
 #[cfg(test)]

@@ -301,7 +301,7 @@ async fn test_schema_contract_presence_query_and_write_read_closure() {
     assert_eq!(subscribers, vec![subscriber.clone()]);
 
     let batch = storage
-        .get_presence_batch(&vec![subscriber.clone(), target.clone()])
+        .get_presence_batch(&[subscriber.clone(), target.clone()])
         .await
         .expect("Failed to get presence batch");
     assert_eq!(batch.len(), 2);

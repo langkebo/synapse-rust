@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::services::sync_service::SyncServiceRequest;
 use crate::web::routes::{extract_token_from_headers, AppState};
 use axum::{
     extract::{Json, Query, State},
@@ -13,7 +14,7 @@ pub(crate) async fn sync(
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, device_id, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, device_id, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
     let full_state = parse_bool_query_param(&params, "full_state").unwrap_or(false);
@@ -21,6 +22,7 @@ pub(crate) async fn sync(
         .get("set_presence")
         .and_then(|v| v.as_str())
         .unwrap_or("online");
+    let filter = params.get("filter").and_then(|v| v.as_str());
     let since = params.get("since").and_then(|v| v.as_str());
 
     let file_config = state
@@ -70,14 +72,15 @@ pub(crate) async fn sync(
 
     let sync_result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
-        state.services.sync_service.sync(
-            &user_id,
-            device_id.as_deref(),
+        state.services.sync_service.sync_with_request(SyncServiceRequest {
+            user_id: &user_id,
+            device_id: device_id.as_deref(),
             timeout,
             full_state,
             set_presence,
+            filter_id: filter,
             since,
-        ),
+        }),
     )
     .await;
 
@@ -108,7 +111,7 @@ pub(crate) async fn get_events(
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     let from = params.get("from").and_then(|v| v.as_str()).unwrap_or("0");
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);

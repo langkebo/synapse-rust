@@ -43,7 +43,6 @@ impl RegistrationService {
         &self,
         username: &str,
         password: &str,
-        admin: bool,
         displayname: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         if !self.enable_registration {
@@ -53,7 +52,7 @@ impl RegistrationService {
         let start = std::time::Instant::now();
         let result = self
             .auth_service
-            .register(username, password, admin, displayname)
+            .register(username, password, displayname)
             .await;
 
         let duration = start.elapsed().as_secs_f64();
@@ -158,9 +157,14 @@ impl RegistrationService {
         }))
     }
 
-    pub async fn change_password(&self, user_id: &str, new_password: &str) -> ApiResult<()> {
+    pub async fn change_password(
+        &self,
+        user_id: &str,
+        current_password: Option<&str>,
+        new_password: &str,
+    ) -> ApiResult<()> {
         self.auth_service
-            .change_password(user_id, new_password)
+            .change_password(user_id, current_password, new_password)
             .await?;
         Ok(())
     }
@@ -300,9 +304,7 @@ mod tests {
             None,
         );
 
-        let result = registration_service
-            .register_user("test", "pass", false, None)
-            .await;
+        let result = registration_service.register_user("test", "pass", None).await;
         assert!(matches!(result, Err(ApiError::Forbidden { .. })));
     }
 }

@@ -133,6 +133,29 @@ impl MediaService {
         _filename: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let media_id = random_string(32);
+        self.store_media_with_id(user_id, &media_id, content, content_type)
+            .await
+    }
+
+    pub async fn upload_media_with_id(
+        &self,
+        user_id: &str,
+        media_id: &str,
+        content: &[u8],
+        content_type: &str,
+        _filename: Option<&str>,
+    ) -> ApiResult<serde_json::Value> {
+        self.store_media_with_id(user_id, media_id, content, content_type)
+            .await
+    }
+
+    async fn store_media_with_id(
+        &self,
+        user_id: &str,
+        media_id: &str,
+        content: &[u8],
+        content_type: &str,
+    ) -> ApiResult<serde_json::Value> {
         let extension = self.get_extension_from_content_type(content_type);
         let user_id_encoded = user_id
             .replace('@', "_at_")
@@ -160,6 +183,13 @@ impl MediaService {
                     e
                 )));
             }
+        }
+
+        if self.find_media_file_name(media_id).await?.is_some() {
+            return Err(ApiError::conflict(format!(
+                "Media ID already exists: {}",
+                media_id
+            )));
         }
 
         let content_vec = content.to_vec();
@@ -220,6 +250,26 @@ impl MediaService {
         Ok(json_metadata)
     }
 
+    async fn find_media_file_name(&self, media_id: &str) -> ApiResult<Option<String>> {
+        let media_path = self.media_path.clone();
+        let media_id = media_id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            if let Ok(entries) = std::fs::read_dir(&media_path) {
+                for entry in entries.flatten() {
+                    if let Some(file_name) = entry.file_name().to_str() {
+                        if media_file_matches_id(file_name, &media_id) {
+                            return Some(file_name.to_string());
+                        }
+                    }
+                }
+            }
+            None
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("Task error: {}", e)))
+    }
+
     pub async fn get_media(&self, _server_name: &str, media_id: &str) -> Option<Vec<u8>> {
         let media_path = self.media_path.clone();
         let media_id = media_id.to_string();
@@ -228,7 +278,7 @@ impl MediaService {
             if let Ok(entries) = std::fs::read_dir(media_path) {
                 for entry in entries.flatten() {
                     if let Some(file_name) = entry.file_name().to_str() {
-                        if file_name.starts_with(&media_id) {
+                        if media_file_matches_id(file_name, &media_id) {
                             if let Ok(content) = std::fs::read(entry.path()) {
                                 return Some(content);
                             }
@@ -405,7 +455,7 @@ impl MediaService {
             if let Ok(entries) = std::fs::read_dir(media_path) {
                 for entry in entries.flatten() {
                     if let Some(file_name) = entry.file_name().to_str() {
-                        if file_name.starts_with(&media_id) {
+                        if media_file_matches_id(file_name, &media_id) {
                             let metadata = serde_json::json!({
                                 "media_id": media_id,
                                 "content_uri": format!("/_matrix/media/v3/download/{}", file_name),
@@ -460,7 +510,7 @@ impl MediaService {
             if let Ok(entries) = std::fs::read_dir(&media_path) {
                 for entry in entries.flatten() {
                     if let Some(file_name) = entry.file_name().to_str() {
-                        if file_name.starts_with(&media_id) {
+                        if media_file_matches_id(file_name, &media_id) {
                             if let Ok(metadata) = entry.metadata() {
                                 let parts: Vec<&str> = file_name.split('.').collect();
                                 let uploader = if parts.len() >= 3 {
@@ -506,7 +556,7 @@ impl MediaService {
             if let Ok(entries) = std::fs::read_dir(&media_path) {
                 for entry in entries.flatten() {
                     if let Some(file_name) = entry.file_name().to_str() {
-                        if file_name.starts_with(&media_id) {
+                        if media_file_matches_id(file_name, &media_id) {
                             let path = entry.path();
                             if let Err(e) = std::fs::remove_file(&path) {
                                 return Err(format!("Failed to delete media file: {}", e));
@@ -528,6 +578,12 @@ impl MediaService {
 
         result.map_err(ApiError::not_found)
     }
+}
+
+fn media_file_matches_id(file_name: &str, media_id: &str) -> bool {
+    file_name
+        .strip_prefix(media_id)
+        .is_some_and(|rest| rest.starts_with('.'))
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use super::{AppState, AuthenticatedUser};
 use crate::common::ApiError;
-use crate::services::VoiceMessageUploadParams;
+use crate::services::{VoiceMessageInfo, VoiceMessageUploadParams};
 use axum::{
     extract::{Path, State},
     routing::{delete, get, post},
@@ -214,15 +214,10 @@ async fn convert_voice_message(
         return Err(ApiError::bad_request(e));
     }
 
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "message": "Conversion simulation successful. (Backend FFmpeg not connected)",
-        "message_id": message_id,
-        "target_format": target_format,
-        "quality": quality,
-        "bitrate": bitrate,
-        "converted_content": null
-    })))
+    Err(ApiError::unrecognized(format!(
+        "Voice conversion is not supported by this deployment yet (message_id={}, target_format={}, quality={}, bitrate={})",
+        message_id, target_format, quality, bitrate
+    )))
 }
 
 #[axum::debug_handler]
@@ -264,16 +259,10 @@ async fn optimize_voice_message(
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "message": "Optimization simulation successful. (Backend FFmpeg not connected)",
-        "message_id": message_id,
-        "target_size_kb": target_size_kb,
-        "preserve_quality": preserve_quality,
-        "remove_silence": remove_silence,
-        "normalize_volume": normalize_volume,
-        "optimized_content": null
-    })))
+    Err(ApiError::unrecognized(format!(
+        "Voice optimization is not supported by this deployment yet (message_id={}, target_size_kb={}, preserve_quality={}, remove_silence={}, normalize_volume={})",
+        message_id, target_size_kb, preserve_quality, remove_silence, normalize_volume
+    )))
 }
 
 #[axum::debug_handler]
@@ -337,6 +326,16 @@ async fn upload_voice_message(
     let room_id = body.get("room_id").and_then(|v| v.as_str());
     let session_id = body.get("session_id").and_then(|v| v.as_str());
 
+    if let Some(target_room_id) = room_id.filter(|id| !id.is_empty()) {
+        ensure_voice_room_access(
+            &state,
+            &auth_user,
+            target_room_id,
+            "You must be a member of this room to upload voice messages",
+        )
+        .await?;
+    }
+
     match voice_service
         .save_voice_message(VoiceMessageUploadParams {
             user_id: auth_user.user_id,
@@ -356,7 +355,7 @@ async fn upload_voice_message(
 #[axum::debug_handler]
 async fn voice_transcription(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let event_id = body
@@ -382,12 +381,11 @@ async fn voice_transcription(
         .map_err(|e| ApiError::internal(format!("Failed to get voice message: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Voice message not found".to_string()))?;
 
-    let transcription = voice_message.transcription.unwrap_or_else(|| {
-        format!(
-            "Transcription not available for voice message {}",
-            event_id
-        )
-    });
+    ensure_voice_message_access(&state, &auth_user, &voice_message).await?;
+
+    let transcription = voice_message
+        .transcription
+        .unwrap_or_else(|| format!("Transcription not available for voice message {}", event_id));
 
     Ok(Json(serde_json::json!({
         "event_id": event_id,
@@ -409,10 +407,18 @@ fn extract_voice_message_id_from_mxc(mxc: &str) -> Option<String> {
 #[axum::debug_handler]
 async fn get_voice_message(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(message_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let voice_service = &state.services.voice_service;
+
+    let voice_message = voice_service
+        .get_voice_message_info(&message_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get voice message: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Voice message not found".to_string()))?;
+
+    ensure_voice_message_access(&state, &auth_user, &voice_message).await?;
 
     match voice_service.get_voice_message(&message_id).await {
         Ok(Some((content, content_type))) => {
@@ -438,8 +444,16 @@ async fn delete_voice_message(
 ) -> Result<Json<Value>, ApiError> {
     let voice_service = &state.services.voice_service;
 
+    let voice_message = voice_service
+        .get_voice_message_info(&message_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get voice message: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Voice message not found".to_string()))?;
+
+    ensure_voice_message_delete_access(&auth_user, &voice_message)?;
+
     match voice_service
-        .delete_voice_message(&auth_user.user_id, &message_id)
+        .delete_voice_message(&voice_message.user_id, &message_id)
         .await
     {
         Ok(true) => Ok(Json(serde_json::json!({
@@ -454,9 +468,11 @@ async fn delete_voice_message(
 #[axum::debug_handler]
 async fn get_user_voice_messages(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_voice_user_access(&auth_user.user_id, &user_id)?;
+
     let voice_service = &state.services.voice_service;
 
     match voice_service.get_user_messages(&user_id, 50, 0).await {
@@ -468,9 +484,17 @@ async fn get_user_voice_messages(
 #[axum::debug_handler]
 async fn get_room_voice_messages(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_voice_room_access(
+        &state,
+        &auth_user,
+        &room_id,
+        "You must be a member of this room to view voice messages",
+    )
+    .await?;
+
     let voice_service = &state.services.voice_service;
 
     match voice_service.get_room_messages(&room_id, 50).await {
@@ -482,8 +506,11 @@ async fn get_room_voice_messages(
 #[axum::debug_handler]
 async fn get_user_voice_stats(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_voice_user_access(&auth_user.user_id, &user_id)?;
+
     let voice_service = &state.services.voice_service;
 
     match voice_service.get_user_stats(&user_id, None, None).await {
@@ -506,4 +533,75 @@ async fn get_current_user_voice_stats(
         Ok(result) => Ok(Json(result)),
         Err(e) => Err(ApiError::internal(e.to_string())),
     }
+}
+
+fn ensure_voice_user_access(auth_user_id: &str, target_user_id: &str) -> Result<(), ApiError> {
+    if auth_user_id != target_user_id {
+        return Err(ApiError::forbidden(
+            "You can only access your own voice data".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+async fn ensure_voice_room_access(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+    error_message: &str,
+) -> Result<(), ApiError> {
+    if auth_user.is_admin {
+        return Ok(());
+    }
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member {
+        return Err(ApiError::forbidden(error_message.to_string()));
+    }
+
+    Ok(())
+}
+
+async fn ensure_voice_message_access(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    voice_message: &VoiceMessageInfo,
+) -> Result<(), ApiError> {
+    if auth_user.is_admin || auth_user.user_id == voice_message.user_id {
+        return Ok(());
+    }
+
+    if !voice_message.room_id.is_empty() {
+        return ensure_voice_room_access(
+            state,
+            auth_user,
+            &voice_message.room_id,
+            "You must be a member of this room to access this voice message",
+        )
+        .await;
+    }
+
+    Err(ApiError::forbidden(
+        "You can only access your own voice data".to_string(),
+    ))
+}
+
+fn ensure_voice_message_delete_access(
+    auth_user: &AuthenticatedUser,
+    voice_message: &VoiceMessageInfo,
+) -> Result<(), ApiError> {
+    if auth_user.is_admin || auth_user.user_id == voice_message.user_id {
+        return Ok(());
+    }
+
+    Err(ApiError::forbidden(
+        "You can only delete your own voice data".to_string(),
+    ))
 }

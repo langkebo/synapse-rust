@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use synapse_rust::storage::event_report::*;
     use synapse_rust::services::ServiceContainer;
+    use synapse_rust::storage::event_report::*;
 
     #[test]
     fn test_create_event_report_request() {
@@ -71,8 +71,8 @@ mod tests {
             id: 1,
             user_id: "@user:example.com".to_string(),
             report_count: 10,
-            last_report_ts: Some(1234567890),
-            blocked_until_ts: None,
+            last_report_at: Some(1234567890),
+            blocked_until_at: None,
             is_blocked: false,
             block_reason: None,
             created_ts: 1234560000,
@@ -88,13 +88,13 @@ mod tests {
     fn test_event_report_stats_struct() {
         let stats = EventReportStats {
             id: 1,
-            stat_date: chrono::NaiveDate::from_ymd_opt(2026, 2, 13).unwrap(),
+            stat_date: chrono::NaiveDate::from_ymd_opt(2026, 2, 13)
+                .expect("test date should be valid"),
             total_reports: 100,
             open_reports: 20,
             resolved_reports: 70,
             dismissed_reports: 10,
-            avg_resolution_time_ms: Some(3600000),
-            reports_by_reason: None,
+            avg_resolution_time_ms: Some(3_600_000),
             created_ts: 1234567890,
             updated_ts: 1234567890,
         };
@@ -153,8 +153,12 @@ mod tests {
             return;
         }
 
-        let reports = result.unwrap();
-        assert!(reports.is_empty() || reports.len() > 0);
+        match result {
+            Ok(reports) => assert!(reports.is_empty() || !reports.is_empty()),
+            Err(error) => {
+                panic!("Expected get_all_reports to succeed after availability check: {error}")
+            }
+        }
     }
 
     #[tokio::test]
@@ -168,8 +172,12 @@ mod tests {
             return;
         }
 
-        let reports = result.unwrap();
-        assert!(reports.is_empty() || reports.len() > 0);
+        match result {
+            Ok(reports) => assert!(reports.is_empty() || !reports.is_empty()),
+            Err(error) => panic!(
+                "Expected get_reports_by_status to succeed after availability check: {error}"
+            ),
+        }
     }
 
     #[tokio::test]
@@ -183,8 +191,12 @@ mod tests {
             return;
         }
 
-        let report = result.unwrap();
-        assert!(report.is_none());
+        match result {
+            Ok(report) => assert!(report.is_none()),
+            Err(error) => {
+                panic!("Expected get_report to succeed after availability check: {error}")
+            }
+        }
     }
 
     #[tokio::test]
@@ -198,8 +210,12 @@ mod tests {
             return;
         }
 
-        let reports = result.unwrap();
-        assert!(reports.is_empty());
+        match result {
+            Ok(reports) => assert!(reports.is_empty()),
+            Err(error) => {
+                panic!("Expected get_reports_by_event to succeed after availability check: {error}")
+            }
+        }
     }
 
     #[tokio::test]
@@ -207,14 +223,20 @@ mod tests {
         let container = ServiceContainer::new_test();
         let service = &container.event_report_service;
 
-        let result = service.get_reports_by_room("!nonexistent:example.com", 100, 0).await;
+        let result = service
+            .get_reports_by_room("!nonexistent:example.com", 100, 0)
+            .await;
         if result.is_err() {
             eprintln!("Skipping test_get_reports_by_room: database table not available");
             return;
         }
 
-        let reports = result.unwrap();
-        assert!(reports.is_empty());
+        match result {
+            Ok(reports) => assert!(reports.is_empty()),
+            Err(error) => {
+                panic!("Expected get_reports_by_room to succeed after availability check: {error}")
+            }
+        }
     }
 
     #[tokio::test]
@@ -228,8 +250,12 @@ mod tests {
             return;
         }
 
-        let check = result.unwrap();
-        assert!(check.is_allowed);
+        match result {
+            Ok(check) => assert!(check.is_allowed),
+            Err(error) => {
+                panic!("Expected check_rate_limit to succeed after availability check: {error}")
+            }
+        }
     }
 
     #[tokio::test]
@@ -243,7 +269,9 @@ mod tests {
             return;
         }
 
-        let _count = result.unwrap();
+        if let Err(error) = result {
+            panic!("Expected count_all_reports to succeed after availability check: {error}");
+        }
     }
 
     #[tokio::test]
@@ -257,7 +285,9 @@ mod tests {
             return;
         }
 
-        let _count = result.unwrap();
+        if let Err(error) = result {
+            panic!("Expected count_reports_by_status to succeed after availability check: {error}");
+        }
     }
 
     #[tokio::test]
@@ -271,7 +301,9 @@ mod tests {
             return;
         }
 
-        let _stats = result.unwrap();
+        if let Err(error) = result {
+            panic!("Expected get_stats to succeed after availability check: {error}");
+        }
     }
 
     #[tokio::test]
@@ -285,7 +317,11 @@ mod tests {
             return;
         }
 
-        let history = result.unwrap();
-        assert!(history.is_empty() || history.len() > 0);
+        match result {
+            Ok(history) => assert!(history.is_empty() || !history.is_empty()),
+            Err(error) => {
+                panic!("Expected get_report_history to succeed after availability check: {error}")
+            }
+        }
     }
 }

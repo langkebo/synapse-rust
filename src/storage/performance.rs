@@ -88,21 +88,24 @@ impl PerformanceMonitor {
         let pool_size = self.pool.size();
         let num_idle = self.pool.num_idle() as u32;
 
-        // Get max_connections from the pool's options
-        // Note: sqlx doesn't expose max_connections directly, so we use size() as an approximation
-        // In production, you should store max_connections when creating the pool
-        let max_connections = std::env::var("DB_MAX_CONNECTIONS")
+        let max_connections = std::env::var("SYNAPSE__DATABASE__MAX_SIZE")
             .ok()
             .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(5);
+            .or_else(|| {
+                std::env::var("DB_MAX_CONNECTIONS")
+                    .ok()
+                    .and_then(|s| s.parse::<u32>().ok())
+            })
+            .unwrap_or_else(|| pool_size.max(1));
+        let active_connections = pool_size.saturating_sub(num_idle);
 
         PoolStatistics {
             total_connections: pool_size,
             idle_connections: num_idle,
-            active_connections: pool_size - num_idle,
+            active_connections,
             max_connections,
-            utilization_percent: if pool_size > 0 {
-                ((pool_size - num_idle) as f64 / pool_size as f64) * 100.0
+            utilization_percent: if max_connections > 0 {
+                (active_connections as f64 / max_connections as f64) * 100.0
             } else {
                 0.0
             },
@@ -250,7 +253,7 @@ impl PerformanceMonitor {
 /// Helper for timing database queries.
 ///
 /// # Example
-/// ```ignore
+/// ```text
 /// let result = time_query(&monitor, "get_user", async {
 ///     user_storage.get_user(user_id).await
 /// }).await?;
@@ -275,7 +278,7 @@ where
 /// Macro for automatically timing queries.
 ///
 /// # Example
-/// ```ignore
+/// ```text
 /// let user = timed_query!(monitor, "get_user", user_storage.get_user(user_id)).await?;
 /// ```
 #[macro_export]

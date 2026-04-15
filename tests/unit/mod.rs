@@ -15,8 +15,10 @@ mod core_api_tests;
 mod db_schema_smoke_tests;
 mod e2ee_api_tests;
 mod event_report_api_tests;
+mod event_storage_tests;
 mod federation_api_tests;
 mod federation_cache_api_tests;
+mod federation_service_tests;
 mod friend_api_tests;
 mod invite_blocklist_tests;
 mod key_backup_api_tests;
@@ -51,6 +53,9 @@ mod directory_service_tests;
 mod dm_service_tests;
 mod typing_service_tests;
 mod voice_service_tests;
+
+mod authorization_power_level_tests;
+mod security_critical_tests;
 
 #[cfg(test)]
 mod coverage_tests;

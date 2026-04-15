@@ -298,6 +298,14 @@ impl QueryCache {
         }
     }
 
+    async fn record_batch_access_stats(&self, hits: u64, misses: u64, total_entries: usize) {
+        let mut stats = self.stats.write().await;
+        stats.hits += hits;
+        stats.misses += misses;
+        stats.total_entries = total_entries;
+        stats.hit_rate = self.calculate_hit_rate_direct(&stats);
+    }
+
     async fn update_total_entries(&self) {
         let total = self.rooms.read().await.len()
             + self.users.read().await.len()
@@ -488,23 +496,28 @@ impl QueryCache {
     ) -> HashMap<String, Option<serde_json::Value>> {
         let cache = self.rooms.read().await;
         let mut results = HashMap::new();
+        let mut hits = 0u64;
+        let mut misses = 0u64;
+        let total_entries = cache.len();
 
         for room_id in room_ids {
             if let Some(entry) = cache.get(room_id) {
                 if entry.created_at.elapsed() <= self.config.room_ttl {
-                    let mut stats = self.stats.write().await;
-                    stats.hits += 1;
+                    hits += 1;
                     results.insert(room_id.clone(), Some(entry.value.clone()));
                 } else {
+                    misses += 1;
                     results.insert(room_id.clone(), None);
                 }
             } else {
-                let mut stats = self.stats.write().await;
-                stats.misses += 1;
+                misses += 1;
                 results.insert(room_id.clone(), None);
             }
         }
 
+        drop(cache);
+        self.record_batch_access_stats(hits, misses, total_entries)
+            .await;
         results
     }
 
@@ -514,23 +527,28 @@ impl QueryCache {
     ) -> HashMap<String, Option<serde_json::Value>> {
         let cache = self.users.read().await;
         let mut results = HashMap::new();
+        let mut hits = 0u64;
+        let mut misses = 0u64;
+        let total_entries = cache.len();
 
         for user_id in user_ids {
             if let Some(entry) = cache.get(user_id) {
                 if entry.created_at.elapsed() <= self.config.user_ttl {
-                    let mut stats = self.stats.write().await;
-                    stats.hits += 1;
+                    hits += 1;
                     results.insert(user_id.clone(), Some(entry.value.clone()));
                 } else {
+                    misses += 1;
                     results.insert(user_id.clone(), None);
                 }
             } else {
-                let mut stats = self.stats.write().await;
-                stats.misses += 1;
+                misses += 1;
                 results.insert(user_id.clone(), None);
             }
         }
 
+        drop(cache);
+        self.record_batch_access_stats(hits, misses, total_entries)
+            .await;
         results
     }
 }
@@ -608,6 +626,55 @@ mod tests {
 
         let retrieved = cache.get_room("!test:server").await;
         assert_eq!(retrieved, None);
+    }
+
+    #[tokio::test]
+    async fn test_get_multi_rooms_updates_stats_once() {
+        let cache = QueryCache::default();
+        cache
+            .set_room("!room-a:example.com", serde_json::json!({"name": "A"}))
+            .await;
+
+        let results = cache
+            .get_multi_rooms(&[
+                "!room-a:example.com".to_string(),
+                "!room-b:example.com".to_string(),
+            ])
+            .await;
+
+        assert!(results["!room-a:example.com"].is_some());
+        assert!(results["!room-b:example.com"].is_none());
+
+        let stats = cache.get_stats().await;
+        assert_eq!(stats.hits, 1);
+        assert_eq!(stats.misses, 1);
+        assert_eq!(stats.total_entries, 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_multi_users_updates_stats_once() {
+        let cache = QueryCache::default();
+        cache
+            .set_user(
+                "@alice:example.com",
+                serde_json::json!({"displayname": "Alice"}),
+            )
+            .await;
+
+        let results = cache
+            .get_multi_users(&[
+                "@alice:example.com".to_string(),
+                "@bob:example.com".to_string(),
+            ])
+            .await;
+
+        assert!(results["@alice:example.com"].is_some());
+        assert!(results["@bob:example.com"].is_none());
+
+        let stats = cache.get_stats().await;
+        assert_eq!(stats.hits, 1);
+        assert_eq!(stats.misses, 1);
+        assert_eq!(stats.total_entries, 1);
     }
 
     #[tokio::test]

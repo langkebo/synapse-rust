@@ -85,6 +85,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.93.0
           components: rustfmt, clippy
 
       - name: Cache cargo
@@ -154,12 +155,17 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
 
       - name: Run security audit
-        continue-on-error: true
         run: |
           cargo install cargo-audit --locked
-          cargo audit
+          bash scripts/run_cargo_audit.sh
+          if git grep -n "rand::rng()" -- '*.rs'; then
+            echo "rand::rng() is temporarily banned until RUSTSEC-2026-0097 is resolved"
+            exit 1
+          fi
 
   build:
     name: Build Check
@@ -170,6 +176,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
 
       - name: Build release
         run: cargo build --release --all-features --locked
@@ -204,6 +212,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.93.0
           components: llvm-tools-preview
 
       - name: Install tarpaulin
@@ -229,7 +238,7 @@ jobs:
           REDIS_URL: redis://localhost:6379
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         run: |
-          cargo tarpaulin --out Xml --out Json --out Html --scope Unit --scope Integration --ignore-tests false
+          cargo tarpaulin --out Xml --out Json --out Html --include-tests --locked
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

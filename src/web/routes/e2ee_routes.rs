@@ -1,5 +1,5 @@
 use super::{AppState, AuthenticatedUser};
-use crate::web::routes::response_helpers::empty_json;
+use crate::web::routes::response_helpers::{empty_json, filter_users_with_shared_rooms};
 use crate::web::routes::MatrixJson;
 use crate::ApiError;
 use axum::{
@@ -274,16 +274,18 @@ async fn key_changes(
 #[axum::debug_handler]
 async fn device_list_update(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let users = body
+    let requested_users = body
         .get("users")
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("Missing users array".to_string()))?
         .iter()
         .filter_map(|v| v.as_str().map(String::from))
         .collect::<Vec<String>>();
+
+    let users = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
 
     let since = body
         .get("since")
@@ -312,7 +314,6 @@ async fn device_list_update(
                         "device_data": {
                             "display_name": device.display_name,
                             "last_seen_ts": device.last_seen_ts,
-                            "last_seen_ip": device.last_seen_ip,
                         }
                     }));
                 }
@@ -374,9 +375,9 @@ async fn device_list_update(
             continue;
         }
 
-        let row = sqlx::query_as::<_, (Option<String>, Option<i64>, Option<String>)>(
+        let row = sqlx::query_as::<_, (Option<String>, Option<i64>)>(
             r#"
-            SELECT display_name, last_seen_ts, last_seen_ip
+            SELECT display_name, last_seen_ts
             FROM devices
             WHERE user_id = $1 AND device_id = $2
             "#,
@@ -387,14 +388,13 @@ async fn device_list_update(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get device data: {}", e)))?;
 
-        if let Some((display_name, last_seen_ts, last_seen_ip)) = row {
+        if let Some((display_name, last_seen_ts)) = row {
             changed.push(json!({
                 "user_id": user_id,
                 "device_id": device_id,
                 "device_data": {
                     "display_name": display_name,
                     "last_seen_ts": last_seen_ts,
-                    "last_seen_ip": last_seen_ip,
                 }
             }));
         }
@@ -443,6 +443,19 @@ async fn room_key_distribution(
         ));
     }
 
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| crate::error::ApiError::internal(format!("Database error: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(crate::error::ApiError::forbidden(
+            "You must be a room member to access room keys".to_string(),
+        ));
+    }
+
     let mut session = state
         .services
         .megolm_service
@@ -452,7 +465,6 @@ async fn room_key_distribution(
         .flatten();
 
     if session.is_none() {
-        let _ = auth_user;
         return Err(crate::error::ApiError::not_found(
             "Room key session not found".to_string(),
         ));

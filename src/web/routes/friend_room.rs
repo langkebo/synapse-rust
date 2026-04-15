@@ -252,7 +252,7 @@ async fn get_friends(
         .friend_room_service
         .create_friend_list_room(&auth_user.user_id)
         .await?;
-    
+
     let friends = state
         .services
         .friend_room_service

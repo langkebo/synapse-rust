@@ -4609,7 +4609,6 @@ dependencies = [
  "config",
  "criterion",
  "dashmap",
- "deadpool 0.12.3",
  "deadpool-postgres",
  "deadpool-redis",
  "ed25519-dalek",

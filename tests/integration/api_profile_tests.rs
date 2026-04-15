@@ -3,10 +3,23 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
+use std::sync::Arc;
+use synapse_rust::cache::CacheManager;
+use synapse_rust::services::ServiceContainer;
+use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
     super::setup_test_app().await
+}
+
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+    let pool = super::get_test_pool().await?;
+    let container = ServiceContainer::new_test_with_pool(pool.clone());
+    let cache = std::sync::Arc::new(CacheManager::new(Default::default()));
+    let state = AppState::new(container, cache);
+
+    Some((synapse_rust::web::create_router(state), pool))
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -44,6 +57,27 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         json["access_token"].as_str().unwrap().to_string(),
         json["user_id"].as_str().unwrap().to_string(),
     )
+}
+
+async fn set_profile_visibility_private(pool: &sqlx::PgPool, user_id: &str) {
+    let now = chrono::Utc::now().timestamp_millis();
+
+    sqlx::query(
+        r#"
+        INSERT INTO user_privacy_settings (
+            user_id, allow_presence_lookup, allow_profile_lookup, allow_room_invites, created_ts, updated_ts
+        )
+        VALUES ($1, TRUE, FALSE, TRUE, $2, $2)
+        ON CONFLICT (user_id) DO UPDATE SET
+            allow_profile_lookup = FALSE,
+            updated_ts = $2
+        "#,
+    )
+    .bind(user_id)
+    .bind(now)
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -327,4 +361,394 @@ async fn test_account_routes_work_across_r0_and_v3() {
         .unwrap();
     let v3_3pid_json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(r0_3pid_json, v3_3pid_json);
+}
+
+#[tokio::test]
+async fn test_private_profile_subfields_follow_profile_visibility() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (alice_token, alice_id) =
+        register_user(&app, &format!("profile_private_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, _) =
+        register_user(&app, &format!("profile_private_bob_{}", rand::random::<u32>())).await;
+
+    let set_displayname = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/profile/{}/displayname", alice_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "displayname": "Alice Private" }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_displayname)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let set_avatar = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/profile/{}/avatar_url", alice_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "avatar_url": "mxc://localhost/alice-private" }).to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_avatar)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    set_profile_visibility_private(&pool, &alice_id).await;
+
+    for path in [
+        format!("/_matrix/client/v3/profile/{}/displayname", alice_id),
+        format!("/_matrix/client/v3/profile/{}/avatar_url", alice_id),
+    ] {
+        let forbidden_request = Request::builder()
+            .method("GET")
+            .uri(&path)
+            .header("Authorization", format!("Bearer {}", bob_token))
+            .body(Body::empty())
+            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_request)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "path: {path}");
+    }
+
+    let own_displayname_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/profile/{}/displayname", alice_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), own_displayname_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["displayname"], "Alice Private");
+
+    let own_avatar_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/profile/{}/avatar_url", alice_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, own_avatar_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["avatar_url"], "mxc://localhost/alice-private");
+}
+
+#[tokio::test]
+async fn test_user_directory_profile_respects_profile_visibility() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (alice_token, alice_id) =
+        register_user(&app, &format!("directory_private_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, _) =
+        register_user(&app, &format!("directory_private_bob_{}", rand::random::<u32>())).await;
+
+    let set_displayname = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/profile/{}/displayname", alice_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "displayname": "Alice Directory" }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_displayname)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    set_profile_visibility_private(&pool, &alice_id).await;
+
+    let forbidden_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v3/user_directory/profiles/{}",
+            alice_id
+        ))
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let own_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v3/user_directory/profiles/{}",
+            alice_id
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, own_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["user_id"], alice_id);
+    assert_eq!(json["displayname"], "Alice Directory");
+}
+
+#[tokio::test]
+async fn test_user_directory_search_and_list_respect_profile_visibility() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (alice_token, alice_id) =
+        register_user(&app, &format!("directory_list_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_id) =
+        register_user(&app, &format!("directory_list_bob_{}", rand::random::<u32>())).await;
+
+    let set_displayname = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/profile/{}/displayname", alice_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "displayname": "Directory Hidden Alice" }).to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_displayname)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    set_profile_visibility_private(&pool, &alice_id).await;
+
+    let search_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/user_directory/search")
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "search_term": "Directory Hidden Alice",
+                "limit": 10
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), search_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let results = json["results"].as_array().unwrap();
+    assert!(results.iter().all(|entry| entry["user_id"] != alice_id));
+
+    let list_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/user_directory/list")
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "limit": 50,
+                "offset": 0
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, list_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 8192)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let users = json["users"].as_array().unwrap();
+    assert!(users.iter().all(|entry| entry["user_id"] != alice_id));
+    assert!(users.iter().any(|entry| entry["user_id"] == bob_id));
+}
+
+#[tokio::test]
+async fn test_client_search_users_respects_profile_visibility() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (alice_token, alice_id) =
+        register_user(&app, &format!("search_hidden_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_id) =
+        register_user(&app, &format!("search_hidden_bob_{}", rand::random::<u32>())).await;
+
+    let set_displayname = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/profile/{}/displayname", alice_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "displayname": "Search Hidden Alice" }).to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_displayname)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    set_profile_visibility_private(&pool, &alice_id).await;
+
+    let search_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/search")
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "search_categories": {
+                    "users": {
+                        "search_term": "Search Hidden Alice",
+                        "limit": 10
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), search_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let results = json["search_categories"]["users"]["results"]
+        .as_array()
+        .unwrap();
+    assert!(results.iter().all(|entry| entry["user_id"] != alice_id));
+
+    let own_search_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/search")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "search_categories": {
+                    "users": {
+                        "search_term": "Search Hidden Alice",
+                        "limit": 10
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, own_search_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let results = json["search_categories"]["users"]["results"]
+        .as_array()
+        .unwrap();
+    assert!(results.iter().any(|entry| entry["user_id"] == alice_id));
+    assert!(results.iter().all(|entry| entry["user_id"] != bob_id));
+}
+
+#[tokio::test]
+async fn test_search_recipients_respects_profile_visibility() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (alice_token, alice_id) =
+        register_user(&app, &format!("recipient_hidden_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, _) =
+        register_user(&app, &format!("recipient_hidden_bob_{}", rand::random::<u32>())).await;
+
+    let set_displayname = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/profile/{}/displayname", alice_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "displayname": "Recipient Hidden Alice" }).to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_displayname)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    set_profile_visibility_private(&pool, &alice_id).await;
+
+    let search_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/search_recipients")
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "search_term": "Recipient Hidden Alice",
+                "limit": 10
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), search_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let results = json["results"].as_array().unwrap();
+    assert!(results.iter().all(|entry| entry["user_id"] != alice_id));
+
+    let own_search_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/search_recipients")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "search_term": "Recipient Hidden Alice",
+                "limit": 10
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, own_search_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let results = json["results"].as_array().unwrap();
+    assert!(results.iter().any(|entry| entry["user_id"] == alice_id));
 }

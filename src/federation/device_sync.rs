@@ -24,6 +24,7 @@ pub struct DeviceInfo {
     pub keys: Option<Value>,
     pub device_display_name: Option<String>,
     pub last_seen_ts: Option<i64>,
+    #[serde(skip)]
     pub last_seen_ip: Option<String>,
     pub is_blocked: bool,
     pub verified: bool,
@@ -122,10 +123,6 @@ impl DeviceSyncManager {
                 "https://{}/_matrix/federation/v1/user/devices/{}",
                 origin, user_id
             ),
-            format!(
-                "http://{}:8448/_matrix/federation/v1/user/devices/{}",
-                origin, user_id
-            ),
         ];
 
         for url in urls {
@@ -190,20 +187,13 @@ impl DeviceSyncManager {
                     .unwrap_or("")
                     .to_string(),
                 keys: d.get("keys").cloned(),
-                device_display_name: d
-                    .get("device_display_name")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-                last_seen_ts: d.get("last_seen_ts").and_then(|v| v.as_i64()),
-                last_seen_ip: d
-                    .get("last_seen_ip")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-                is_blocked: d
-                    .get("is_blocked")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false),
-                verified: d.get("verified").and_then(|v| v.as_bool()).unwrap_or(false),
+                // Federation user/devices responses should only be used for key material.
+                // Ignore local-only metadata even if a remote server sends extra fields.
+                device_display_name: None,
+                last_seen_ts: None,
+                last_seen_ip: None,
+                is_blocked: false,
+                verified: false,
             })
             .filter(|d| !d.device_id.is_empty())
             .collect();
@@ -263,11 +253,6 @@ impl DeviceSyncManager {
         let urls = vec![
             format!(
                 "https://{}/_matrix/federation/v1/send/{}",
-                origin,
-                uuid::Uuid::new_v4()
-            ),
-            format!(
-                "http://{}:8448/_matrix/federation/v1/send/{}",
                 origin,
                 uuid::Uuid::new_v4()
             ),
@@ -348,6 +333,9 @@ impl DeviceSyncManager {
                 .unwrap_or(Utc::now());
             let expiry_date = last_seen_time + Duration::days(DEVICE_KEY_EXPIRY_DAYS);
             expiry_date < Utc::now()
+        } else if device.keys.is_some() {
+            // Federated user/devices responses do not include last_seen metadata.
+            false
         } else {
             true
         }
@@ -580,6 +568,40 @@ mod tests {
     }
 
     #[test]
+    fn test_remote_device_fields_are_safely_ignored() {
+        let device_json = json!({
+            "device_id": "REMOTE_DEVICE",
+            "user_id": "@remote:example.com",
+            "keys": {
+                "ed25519:REMOTE_DEVICE": "key"
+            },
+            "device_display_name": "Remote Phone",
+            "last_seen_ts": 1234567890,
+            "last_seen_ip": "10.0.0.1",
+            "is_blocked": true,
+            "verified": true
+        });
+
+        let device = DeviceInfo {
+            device_id: device_json["device_id"].as_str().unwrap().to_string(),
+            user_id: device_json["user_id"].as_str().unwrap().to_string(),
+            keys: device_json.get("keys").cloned(),
+            device_display_name: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
+            is_blocked: false,
+            verified: false,
+        };
+
+        assert_eq!(device.device_id, "REMOTE_DEVICE");
+        assert!(device.device_display_name.is_none());
+        assert!(device.last_seen_ts.is_none());
+        assert!(device.last_seen_ip.is_none());
+        assert!(!device.is_blocked);
+        assert!(!device.verified);
+    }
+
+    #[test]
     fn test_device_cache_ttl_constant() {
         assert_eq!(DEVICE_SYNC_CACHE_TTL, 3600);
     }
@@ -657,7 +679,7 @@ mod tests {
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
-        // Device with no last_seen_ts should be considered expired
+        // Devices without last_seen_ts and without key material are considered expired.
         let device = DeviceInfo {
             device_id: "NO_TS".to_string(),
             user_id: "@user:test".to_string(),
@@ -670,6 +692,31 @@ mod tests {
         };
 
         assert!(manager.is_device_key_expired(&device));
+    }
+
+    #[tokio::test]
+    async fn test_is_device_key_not_expired_for_federation_shape() {
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .unwrap(),
+        );
+        let manager = DeviceSyncManager::new(&pool, None, None);
+
+        let device = DeviceInfo {
+            device_id: "REMOTE".to_string(),
+            user_id: "@user:test".to_string(),
+            keys: Some(json!({
+                "ed25519:REMOTE": "key"
+            })),
+            device_display_name: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
+            is_blocked: false,
+            verified: false,
+        };
+
+        assert!(!manager.is_device_key_expired(&device));
     }
 
     #[tokio::test]

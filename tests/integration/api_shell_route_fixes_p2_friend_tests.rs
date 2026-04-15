@@ -70,7 +70,7 @@ async fn accept_friend_request(app: &axum::Router, access_token: &str, requester
     let encoded_user_id = urlencoding::encode(requester_user_id);
     let request = Request::builder()
         .method("POST")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v1/friends/request/{}/accept",
             encoded_user_id
         ))
@@ -105,7 +105,7 @@ async fn test_update_friend_note_returns_confirmation() {
     let encoded_bob_id = urlencoding::encode(&bob_id);
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v1/friends/{}/note",
             encoded_bob_id
         ))
@@ -168,7 +168,7 @@ async fn test_update_friend_status_returns_confirmation() {
     let encoded_bob_id = urlencoding::encode(&bob_id);
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v1/friends/{}/status",
             encoded_bob_id
         ))
@@ -234,7 +234,7 @@ async fn test_update_friend_displayname_returns_confirmation() {
     let encoded_bob_id = urlencoding::encode(&bob_id);
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v1/friends/{}/displayname",
             encoded_bob_id
         ))

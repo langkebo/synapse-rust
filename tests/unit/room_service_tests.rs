@@ -15,6 +15,7 @@ use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::room::RoomStorage;
 use synapse_rust::storage::room_summary::RoomSummaryStorage;
 use synapse_rust::storage::user::UserStorage;
+use synapse_rust::storage::CreateEventParams;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -40,15 +41,28 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             user_id VARCHAR(255) PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT,
-            displayname TEXT,
-            avatar_url TEXT,
             is_admin BOOLEAN DEFAULT FALSE,
             is_guest BOOLEAN DEFAULT FALSE,
             is_shadow_banned BOOLEAN DEFAULT FALSE,
             is_deactivated BOOLEAN DEFAULT FALSE,
             created_ts BIGINT NOT NULL,
             updated_ts BIGINT,
-            generation BIGINT DEFAULT 0
+            displayname TEXT,
+            avatar_url TEXT,
+            email TEXT,
+            phone TEXT,
+            generation BIGINT DEFAULT 0,
+            consent_version TEXT,
+            appservice_id TEXT,
+            user_type TEXT,
+            invalid_update_at BIGINT,
+            migration_state TEXT,
+            password_changed_ts BIGINT,
+            is_password_change_required BOOLEAN DEFAULT FALSE,
+            password_expires_at BIGINT,
+            failed_login_attempts INT DEFAULT 0,
+            locked_until BIGINT,
+            must_change_password BOOLEAN DEFAULT FALSE
         )
     "#,
     )
@@ -169,7 +183,14 @@ fn create_room_service(pool: &Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> 
         room_storage: RoomStorage::new(pool),
         member_storage,
         event_storage,
-        user_storage: UserStorage::new(pool, cache),
+        user_storage: UserStorage::new(pool, cache.clone()),
+        auth_service: synapse_rust::auth::AuthService::new(
+            &pool,
+            cache,
+            Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),
+            &synapse_rust::common::config::SecurityConfig::default(),
+            "localhost",
+        ),
         room_summary_service,
         validator: Arc::new(Validator::default()),
         server_name: "localhost".to_string(),
@@ -205,7 +226,7 @@ fn test_create_room_success() {
         let id = unique_id();
         let alice_id = format!("@alice_{}:localhost", id);
         let alice_name = format!("alice_{}", id);
-        create_test_user(&*pool, &alice_id, &alice_name).await;
+        create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
@@ -244,18 +265,21 @@ fn test_join_room_success() {
         let alice_name = format!("alice_{}", id);
         let bob_id = format!("@bob_{}:localhost", id);
         let bob_name = format!("bob_{}", id);
-        create_test_user(&*pool, &alice_id, &alice_name).await;
-        create_test_user(&*pool, &bob_id, &bob_name).await;
+        create_test_user(&pool, &alice_id, &alice_name).await;
+        create_test_user(&pool, &bob_id, &bob_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
 
-        let config = CreateRoomConfig::default();
+        let config = CreateRoomConfig {
+            visibility: Some("public".to_string()),
+            ..Default::default()
+        };
         let room_val = room_service.create_room(&alice_id, config).await.unwrap();
         let room_id = room_val["room_id"].as_str().unwrap();
 
         let result = room_service.join_room(room_id, &bob_id).await;
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "join_room failed: {:?}", result.err());
 
         let members = room_service
             .get_room_members(room_id, &alice_id)
@@ -277,7 +301,7 @@ fn test_send_message_success() {
         let id = unique_id();
         let alice_id = format!("@alice_{}:localhost", id);
         let alice_name = format!("alice_{}", id);
-        create_test_user(&*pool, &alice_id, &alice_name).await;
+        create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
@@ -309,6 +333,132 @@ fn test_send_message_success() {
 }
 
 #[test]
+fn test_get_room_messages_supports_sync_prev_batch_token() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = match setup_test_database().await {
+            Some(pool) => pool,
+            None => return,
+        };
+        let id = unique_id();
+        let alice_id = format!("@alice_{}:localhost", id);
+        let alice_name = format!("alice_{}", id);
+        create_test_user(&pool, &alice_id, &alice_name).await;
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let room_service = create_room_service(&pool, cache.clone());
+
+        let config = CreateRoomConfig::default();
+        let room_val = room_service.create_room(&alice_id, config).await.unwrap();
+        let room_id = room_val["room_id"].as_str().unwrap();
+        let base_ts = chrono::Utc::now().timestamp_millis() + 10_000;
+
+        for ts in [base_ts + 1000, base_ts + 2000, base_ts + 3000] {
+            room_service
+                .event_storage
+                .create_event(
+                    CreateEventParams {
+                        event_id: format!("$timeline_{id}_{ts}"),
+                        room_id: room_id.to_string(),
+                        user_id: alice_id.clone(),
+                        event_type: "m.room.message".to_string(),
+                        content: json!({"msgtype": "m.text", "body": format!("msg-{ts}")}),
+                        state_key: None,
+                        origin_server_ts: ts,
+                    },
+                    None,
+                )
+                .await
+                .unwrap();
+        }
+
+        let messages = room_service
+            .get_room_messages(room_id, base_ts + 3000, 2, "b")
+            .await
+            .unwrap();
+
+        assert_eq!(messages["start"], format!("t{}", base_ts + 3000));
+        assert_eq!(messages["end"], format!("t{}", base_ts + 1000));
+
+        let chunk = messages["chunk"].as_array().unwrap();
+        assert_eq!(chunk.len(), 2);
+        assert_eq!(chunk[0]["origin_server_ts"], base_ts + 2000);
+        assert_eq!(chunk[1]["origin_server_ts"], base_ts + 1000);
+        assert_eq!(
+            chunk[0]["content"]["body"],
+            format!("msg-{}", base_ts + 2000)
+        );
+        assert_eq!(
+            chunk[1]["content"]["body"],
+            format!("msg-{}", base_ts + 1000)
+        );
+    });
+}
+
+#[test]
+fn test_get_room_messages_supports_forward_pagination_from_stream_token() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = match setup_test_database().await {
+            Some(pool) => pool,
+            None => return,
+        };
+        let id = unique_id();
+        let alice_id = format!("@alice_{}:localhost", id);
+        let alice_name = format!("alice_{}", id);
+        create_test_user(&pool, &alice_id, &alice_name).await;
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let room_service = create_room_service(&pool, cache.clone());
+
+        let config = CreateRoomConfig::default();
+        let room_val = room_service.create_room(&alice_id, config).await.unwrap();
+        let room_id = room_val["room_id"].as_str().unwrap();
+        let base_ts = chrono::Utc::now().timestamp_millis() + 10_000;
+
+        for ts in [base_ts + 1000, base_ts + 2000, base_ts + 3000] {
+            room_service
+                .event_storage
+                .create_event(
+                    CreateEventParams {
+                        event_id: format!("$forward_timeline_{id}_{ts}"),
+                        room_id: room_id.to_string(),
+                        user_id: alice_id.clone(),
+                        event_type: "m.room.message".to_string(),
+                        content: json!({"msgtype": "m.text", "body": format!("msg-{ts}")}),
+                        state_key: None,
+                        origin_server_ts: ts,
+                    },
+                    None,
+                )
+                .await
+                .unwrap();
+        }
+
+        let messages = room_service
+            .get_room_messages(room_id, base_ts + 1000, 2, "f")
+            .await
+            .unwrap();
+
+        assert_eq!(messages["start"], format!("t{}", base_ts + 1000));
+        assert_eq!(messages["end"], format!("t{}", base_ts + 3000));
+
+        let chunk = messages["chunk"].as_array().unwrap();
+        assert_eq!(chunk.len(), 2);
+        assert_eq!(chunk[0]["origin_server_ts"], base_ts + 2000);
+        assert_eq!(chunk[1]["origin_server_ts"], base_ts + 3000);
+        assert_eq!(
+            chunk[0]["content"]["body"],
+            format!("msg-{}", base_ts + 2000)
+        );
+        assert_eq!(
+            chunk[1]["content"]["body"],
+            format!("msg-{}", base_ts + 3000)
+        );
+    });
+}
+
+#[test]
 fn test_invite_user_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
@@ -321,8 +471,8 @@ fn test_invite_user_success() {
         let alice_name = format!("alice_{}", id);
         let bob_id = format!("@bob_{}:localhost", id);
         let bob_name = format!("bob_{}", id);
-        create_test_user(&*pool, &alice_id, &alice_name).await;
-        create_test_user(&*pool, &bob_id, &bob_name).await;
+        create_test_user(&pool, &alice_id, &alice_name).await;
+        create_test_user(&pool, &bob_id, &bob_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
@@ -332,7 +482,7 @@ fn test_invite_user_success() {
         let room_id = room_val["room_id"].as_str().unwrap();
 
         let result = room_service.invite_user(room_id, &alice_id, &bob_id).await;
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "invite_user failed: {:?}", result.err());
 
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let member = member_storage
@@ -357,8 +507,8 @@ fn test_ban_user_success() {
         let alice_name = format!("alice_{}", id);
         let bob_id = format!("@bob_{}:localhost", id);
         let bob_name = format!("bob_{}", id);
-        create_test_user(&*pool, &alice_id, &alice_name).await;
-        create_test_user(&*pool, &bob_id, &bob_name).await;
+        create_test_user(&pool, &alice_id, &alice_name).await;
+        create_test_user(&pool, &bob_id, &bob_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
@@ -370,7 +520,7 @@ fn test_ban_user_success() {
         let result = room_service
             .ban_user(room_id, &bob_id, &alice_id, Some("Spam"))
             .await;
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "ban_user failed: {:?}", result.err());
 
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let member = member_storage
@@ -394,7 +544,7 @@ fn test_upgrade_room_success() {
         let id = unique_id();
         let alice_id = format!("@alice_{}:localhost", id);
         let alice_name = format!("alice_{}", id);
-        create_test_user(&*pool, &alice_id, &alice_name).await;
+        create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
@@ -425,7 +575,7 @@ fn test_upgrade_room_not_found() {
         let id = unique_id();
         let alice_id = format!("@alice_{}:localhost", id);
         let alice_name = format!("alice_{}", id);
-        create_test_user(&*pool, &alice_id, &alice_name).await;
+        create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());

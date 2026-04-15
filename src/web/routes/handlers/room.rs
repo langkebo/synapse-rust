@@ -1,4 +1,4 @@
-use crate::common::ApiError;
+use crate::common::{parse_stream_token, ApiError};
 use crate::e2ee::backup::models::BackupKeyInfo;
 use crate::services::CreateRoomConfig;
 use crate::storage::room::{Receipt, RoomStorage};
@@ -15,6 +15,75 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{types::JsonValue, Row};
 use std::collections::HashSet;
+
+fn parse_room_messages_from_token(params: &Value) -> i64 {
+    params
+        .get("from")
+        .and_then(|v| v.as_str())
+        .and_then(|token| parse_stream_token(token).or_else(|| token.parse().ok()))
+        .unwrap_or(0)
+}
+
+async fn ensure_room_view_access(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+) -> Result<(), ApiError> {
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to view events".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn normalize_room_event_type(event_type: &str) -> String {
+    if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
+        event_type.to_string()
+    } else {
+        format!("m.room.{}", event_type)
+    }
+}
+
+async fn ensure_room_state_write_access(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+    event_type: &str,
+) -> Result<(), ApiError> {
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to send state events".to_string(),
+        ));
+    }
+
+    if auth_user.is_admin {
+        return Ok(());
+    }
+
+    state
+        .services
+        .auth_service
+        .verify_state_event_write(room_id, &auth_user.user_id, event_type, auth_user.is_admin)
+        .await?;
+
+    Ok(())
+}
 
 pub(crate) async fn get_single_event(
     State(state): State<AppState>,
@@ -484,7 +553,7 @@ pub(crate) async fn get_my_rooms(
 
 pub(crate) async fn get_messages(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -500,11 +569,9 @@ pub(crate) async fn get_messages(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let from = params
-        .get("from")
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+
+    let from = parse_room_messages_from_token(&params);
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
 
@@ -512,7 +579,7 @@ pub(crate) async fn get_messages(
         state
             .services
             .room_service
-            .get_room_messages(&room_id, from as i64, limit as i64, direction)
+            .get_room_messages(&room_id, from, limit as i64, direction)
             .await?,
     ))
 }
@@ -532,6 +599,25 @@ pub(crate) async fn send_message(
         ));
     }
 
+    state
+        .services
+        .auth_service
+        .verify_message_event_write(
+            &room_id,
+            &auth_user.user_id,
+            &event_type,
+            auth_user.is_admin,
+        )
+        .await?;
+
+    if event_type == "m.room.power_levels" {
+        state
+            .services
+            .auth_service
+            .verify_power_levels_change(&room_id, &auth_user.user_id, &body, auth_user.is_admin)
+            .await?;
+    }
+
     Ok(Json(
         state
             .services
@@ -549,7 +635,7 @@ pub(crate) async fn join_room(
     validate_room_id(&room_id)?;
 
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     state
         .services
@@ -569,7 +655,7 @@ pub(crate) async fn join_room_by_id_or_alias(
     body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
         room_id_or_alias.clone()
@@ -683,14 +769,99 @@ pub(crate) async fn forget_room(
 }
 
 pub(crate) async fn room_initial_sync(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    Err(ApiError::unrecognized(
-        "room initialSync is not supported".to_string(),
-    ))
+
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to access initial sync".to_string(),
+        ));
+    }
+
+    let from = params
+        .get("from")
+        .and_then(|value| parse_stream_token(value).or_else(|| value.parse::<i64>().ok()))
+        .unwrap_or(0);
+    let limit = params
+        .get("limit")
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(10)
+        .clamp(1, 100);
+
+    let state_events = state
+        .services
+        .event_storage
+        .get_state_events(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room state: {}", e)))?
+        .into_iter()
+        .map(|event| {
+            json!({
+                "event_id": event.event_id,
+                "room_id": event.room_id,
+                "sender": event.sender,
+                "type": event.event_type,
+                "state_key": event.state_key.unwrap_or_default(),
+                "content": event.content,
+                "origin_server_ts": event.origin_server_ts,
+                "unsigned": event.unsigned.unwrap_or_else(|| json!({}))
+            })
+        })
+        .collect::<Vec<Value>>();
+
+    let members = state
+        .services
+        .room_service
+        .get_room_members(&room_id, &auth_user.user_id)
+        .await?;
+    let messages = state
+        .services
+        .room_service
+        .get_room_messages(&room_id, from, limit, "b")
+        .await?;
+
+    let member_events = members
+        .get("chunk")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let visibility = if room.is_public { "public" } else { "private" };
+
+    Ok(Json(json!({
+        "room_id": room.room_id,
+        "membership": "join",
+        "visibility": visibility,
+        "messages": messages,
+        "pagination_chunk": messages.get("chunk").cloned().unwrap_or_else(|| json!([])),
+        "state": state_events,
+        "members": member_events,
+        "presence": [],
+        "receipts": {},
+        "account_data": [],
+        "name": room.name,
+        "topic": room.topic,
+        "canonical_alias": room.canonical_alias,
+        "join_rule": room.join_rule
+    })))
 }
 
 pub(crate) async fn get_room_members(
@@ -701,7 +872,7 @@ pub(crate) async fn get_room_members(
     validate_room_id(&room_id)?;
 
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     let room = state
         .services
@@ -753,7 +924,7 @@ pub(crate) async fn get_room_members_recent(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
     let members = state
         .services
         .room_service
@@ -862,6 +1033,12 @@ pub(crate) async fn invite_user(
 
     state
         .services
+        .auth_service
+        .can_invite_user(&room_id, &auth_user.user_id, auth_user.is_admin)
+        .await?;
+
+    state
+        .services
         .room_service
         .invite_user(&room_id, &auth_user.user_id, invitee)
         .await?;
@@ -880,7 +1057,7 @@ pub(crate) async fn knock_room(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
         room_id_or_alias.clone()
@@ -931,7 +1108,7 @@ pub(crate) async fn invite_user_by_room(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     validate_room_id(&room_id)?;
 
@@ -941,6 +1118,21 @@ pub(crate) async fn invite_user_by_room(
         .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
 
     validate_user_id(invitee)?;
+
+    let is_admin = state
+        .services
+        .user_storage
+        .get_user_by_id(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to load user: {}", e)))?
+        .map(|user| user.is_admin)
+        .unwrap_or(false);
+
+    state
+        .services
+        .auth_service
+        .can_invite_user(&room_id, &user_id, is_admin)
+        .await?;
 
     ::tracing::info!("User {} inviting {} to room {}", user_id, invitee, room_id);
 
@@ -963,7 +1155,7 @@ pub(crate) async fn create_room(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     let visibility = body.get("visibility").and_then(|v| v.as_str());
     if let Some(v) = visibility {
@@ -1177,6 +1369,7 @@ pub(crate) async fn get_user_rooms(
 
 pub(crate) async fn get_room_state(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -1191,6 +1384,8 @@ pub(crate) async fn get_room_state(
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{}' not found", room_id)));
     }
+
+    ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let events = state
         .services
@@ -1216,7 +1411,7 @@ pub(crate) async fn get_room_state(
 
 pub(crate) async fn get_state_by_type(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -1231,6 +1426,8 @@ pub(crate) async fn get_state_by_type(
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{}' not found", room_id)));
     }
+
+    ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
         event_type.clone()
@@ -1263,10 +1460,12 @@ pub(crate) async fn get_state_by_type(
 
 pub(crate) async fn get_state_event(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path((room_id, event_type, state_key)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
+
+    ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
         event_type.clone()
@@ -1314,28 +1513,13 @@ pub(crate) async fn send_state_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to send state events".to_string(),
-        ));
-    }
-
     let content = body;
 
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
-    let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
-        event_type.clone()
-    } else {
-        format!("m.room.{}", event_type)
-    };
+    let final_event_type = normalize_room_event_type(&event_type);
+    ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
 
     let beacon_info_params = if final_event_type.starts_with("m.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
@@ -1434,26 +1618,11 @@ pub(crate) async fn put_state_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to send state events".to_string(),
-        ));
-    }
-
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
-    let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
-        event_type.clone()
-    } else {
-        format!("m.room.{}", event_type)
-    };
+    let final_event_type = normalize_room_event_type(&event_type);
+    ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
 
     if (final_event_type.starts_with("m.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
@@ -1556,10 +1725,12 @@ pub(crate) async fn put_state_event(
 
 pub(crate) async fn get_state_event_empty_key(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
+
+    ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
         event_type.clone()
@@ -1630,11 +1801,8 @@ pub(crate) async fn put_state_event_empty_key(
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
-    let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
-        event_type.clone()
-    } else {
-        format!("m.room.{}", event_type)
-    };
+    let final_event_type = normalize_room_event_type(&event_type);
+    ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
 
     let event = state
         .services
@@ -1672,11 +1840,8 @@ pub(crate) async fn put_state_event_no_key(
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
-    let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
-        event_type.clone()
-    } else {
-        format!("m.room.{}", event_type)
-    };
+    let final_event_type = normalize_room_event_type(&event_type);
+    ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
 
     let event = state
         .services
@@ -2307,76 +2472,6 @@ pub(crate) async fn get_room_capabilities(
     })))
 }
 
-pub(crate) async fn get_room_user_fragments(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path((room_id, user_id)): Path<(String, String)>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    validate_user_id(&user_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to view fragments".to_string(),
-        ));
-    }
-
-    let _ = user_id;
-    Err(ApiError::unrecognized(
-        "Room fragments endpoint is not supported".to_string(),
-    ))
-}
-
-pub(crate) async fn get_room_service_types(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to view service types".to_string(),
-        ));
-    }
-
-    Err(ApiError::unrecognized(
-        "Room service types endpoint is not supported".to_string(),
-    ))
-}
-
 async fn latest_room_key_backup_version(
     state: &AppState,
     user_id: &str,
@@ -2729,41 +2824,6 @@ pub(crate) async fn get_room_message_queue(
     })))
 }
 
-pub(crate) async fn get_room_device(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path((room_id, device_id)): Path<(String, String)>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to view device info".to_string(),
-        ));
-    }
-
-    let _ = device_id;
-    Err(ApiError::unrecognized(
-        "Room device endpoint is not supported".to_string(),
-    ))
-}
-
 pub(crate) async fn get_room_timeline(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -2795,11 +2855,7 @@ pub(crate) async fn get_room_timeline(
         ));
     }
 
-    let from = params
-        .get("from")
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let from = parse_room_messages_from_token(&params);
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
 
@@ -2807,7 +2863,7 @@ pub(crate) async fn get_room_timeline(
         state
             .services
             .room_service
-            .get_room_messages(&room_id, from as i64, limit as i64, direction)
+            .get_room_messages(&room_id, from, limit as i64, direction)
             .await?,
     ))
 }
@@ -2986,40 +3042,6 @@ pub(crate) async fn get_room_encrypted_events(
     })))
 }
 
-pub(crate) async fn get_room_reduced_events(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to view reduced events".to_string(),
-        ));
-    }
-
-    Err(ApiError::unrecognized(
-        "Room reduced events endpoint is not supported".to_string(),
-    ))
-}
-
 pub(crate) async fn forward_room_keys(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -3053,40 +3075,6 @@ pub(crate) async fn forward_room_keys(
         "etag": version,
         "version": version
     })))
-}
-
-pub(crate) async fn get_room_rendered(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to view rendered events".to_string(),
-        ));
-    }
-
-    Err(ApiError::unrecognized(
-        "Room rendered endpoint is not supported".to_string(),
-    ))
 }
 
 pub(crate) async fn get_room_event_url(
@@ -3160,76 +3148,6 @@ pub(crate) async fn get_room_event_url(
         "urls": urls,
         "total": urls.len()
     })))
-}
-
-pub(crate) async fn translate_room_event(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path((room_id, _event_id)): Path<(String, String)>,
-    Json(_body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to translate events".to_string(),
-        ));
-    }
-
-    Err(ApiError::unrecognized(
-        "Room event translation endpoint is not supported".to_string(),
-    ))
-}
-
-pub(crate) async fn convert_room_event(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path((room_id, _event_id)): Path<(String, String)>,
-    Json(_body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to convert events".to_string(),
-        ));
-    }
-
-    Err(ApiError::unrecognized(
-        "Room event conversion endpoint is not supported".to_string(),
-    ))
 }
 
 pub(crate) async fn sign_room_event(
@@ -3476,75 +3394,6 @@ pub(crate) async fn get_room_invites(
     })))
 }
 
-pub(crate) async fn get_vault_data(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to view vault data".to_string(),
-        ));
-    }
-
-    Err(ApiError::unrecognized(
-        "Room vault data endpoint is not supported".to_string(),
-    ))
-}
-
-pub(crate) async fn set_vault_data(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
-    Json(_body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to set vault data".to_string(),
-        ));
-    }
-
-    Err(ApiError::unrecognized(
-        "Room vault data endpoint is not supported".to_string(),
-    ))
-}
-
 pub(crate) async fn get_retention_policy(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -3619,40 +3468,6 @@ pub(crate) async fn get_retention_policy(
             })))
         }
     }
-}
-
-pub(crate) async fn get_room_external_ids(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to view external IDs".to_string(),
-        ));
-    }
-
-    Err(ApiError::unrecognized(
-        "Room external IDs endpoint is not supported".to_string(),
-    ))
 }
 
 pub(crate) async fn get_room_spaces(
@@ -3735,40 +3550,6 @@ pub(crate) async fn get_room_spaces(
         "rooms": rooms,
         "spaces": spaces
     })))
-}
-
-pub(crate) async fn get_room_event_perspective(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    validate_room_id(&room_id)?;
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a member of this room to view event perspective".to_string(),
-        ));
-    }
-
-    Err(ApiError::unrecognized(
-        "Room event perspective endpoint is not supported".to_string(),
-    ))
 }
 
 pub(crate) async fn search_room_messages(
@@ -3989,6 +3770,22 @@ pub(crate) async fn redact_event(
         )
         .await
         .map_err(|e| ApiError::internal(format!("Failed to redact event: {}", e)))?;
+
+    state
+        .services
+        .event_storage
+        .redact_event_content(&event_id)
+        .await
+        .map_err(|e| {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "redaction_content_failed",
+                event_id = %event_id,
+                error = %e,
+                "Redaction event created but content redaction failed"
+            );
+            ApiError::internal(format!("Failed to redact event content: {}", e))
+        })?;
 
     Ok(Json(json!({
         "event_id": new_event_id

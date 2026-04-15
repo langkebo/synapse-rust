@@ -553,5 +553,9 @@ pub fn create_background_update_router(state: AppState) -> Router<AppState> {
             "/_synapse/admin/v1/background_updates/stats",
             get(get_stats),
         )
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ))
         .with_state(state)
 }

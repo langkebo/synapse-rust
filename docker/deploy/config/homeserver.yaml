@@ -52,6 +52,7 @@ database:
   username: "${POSTGRES_USER}"
   password: "${POSTGRES_PASSWORD}"
   name: "${POSTGRES_DB}"
+  # 默认值与 deploy/.env 保持一致，运行时可由 SYNAPSE__DATABASE__* 覆盖。
   pool_size: 20
   max_size: 50
   min_idle: 10

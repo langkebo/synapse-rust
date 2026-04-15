@@ -89,6 +89,20 @@ async fn set_account_data(
         ));
     }
 
+    if data_type.len() > 128 {
+        return Err(ApiError::bad_request(
+            "data_type too long (max 128 characters)".to_string(),
+        ));
+    }
+
+    let body_str = serde_json::to_string(&body)
+        .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {}", e)))?;
+    if body_str.len() > 65536 {
+        return Err(ApiError::bad_request(
+            "Account data too large (max 64KB)".to_string(),
+        ));
+    }
+
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(

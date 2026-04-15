@@ -389,7 +389,7 @@ async fn oidc_token(
                 state
                     .services
                     .registration_service
-                    .register_user(&localpart, &random_password, false, Some(&displayname))
+                    .register_user(&localpart, &random_password, Some(&displayname))
                     .await
                     .map_err(|e| {
                         ApiError::internal(format!("Failed to register OIDC user: {}", e))
@@ -816,7 +816,7 @@ async fn oidc_callback(
         match state
             .services
             .auth_service
-            .register(&oidc_user.localpart, &random_password, false, displayname)
+            .register(&oidc_user.localpart, &random_password, displayname)
             .await
         {
             Ok(result) => result,

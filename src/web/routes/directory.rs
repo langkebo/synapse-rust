@@ -1,5 +1,5 @@
 use crate::services::directory_service::DirectoryService;
-use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::{validate_room_alias, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -44,6 +44,8 @@ pub async fn get_directory_room(
     State(state): State<AppState>,
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_alias(&room_alias)?;
+
     let room_id = state
         .services
         .directory_service
@@ -66,10 +68,7 @@ pub async fn set_room_alias_handler(
     Path(room_alias): Path<String>,
     Json(body): Json<SetRoomAliasBody>,
 ) -> Result<Json<Value>, ApiError> {
-    // Validate room_alias path parameter
-    if room_alias.len() > 255 {
-        return Err(ApiError::bad_request("Room alias too long".to_string()));
-    }
+    validate_room_alias(&room_alias)?;
 
     let room_id = &body.room_id;
 
@@ -92,6 +91,8 @@ pub async fn remove_room_alias(
     _auth_user: AuthenticatedUser,
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_alias(&room_alias)?;
+
     state
         .services
         .directory_service
@@ -109,6 +110,8 @@ pub async fn get_alias_servers(
     State(state): State<AppState>,
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_alias(&room_alias)?;
+
     let room_id = state
         .services
         .directory_service

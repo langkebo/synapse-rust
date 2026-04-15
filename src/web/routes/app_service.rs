@@ -15,8 +15,7 @@ use crate::storage::application_service::{
 use crate::web::routes::response_helpers::{
     created_json_from, empty_json, json_from, json_vec_from, require_found,
 };
-use crate::web::routes::AppState;
-use crate::web::routes::AuthenticatedUser;
+use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterAppServiceBody {
@@ -49,6 +48,8 @@ impl RegisterAppServiceBody {
             rate_limited: self.rate_limited,
             protocols: self.protocols,
             namespaces: self.namespaces,
+            api_key: None,
+            config: None,
         })
     }
 }
@@ -193,7 +194,7 @@ fn extract_as_token(headers: &HeaderMap) -> Result<String, ApiError> {
 
 pub async fn register_app_service(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _admin: AdminUser,
     Json(body): Json<RegisterAppServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = body.into_request()?;
@@ -206,6 +207,7 @@ pub async fn register_app_service(
 pub async fn get_app_service(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let service = state.services.app_service_manager.get(&as_id).await?;
 
@@ -217,6 +219,7 @@ pub async fn get_app_service(
 
 pub async fn list_app_services(
     State(state): State<AppState>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let services = state.services.app_service_manager.get_all_active().await?;
 
@@ -226,7 +229,7 @@ pub async fn list_app_services(
 pub async fn update_app_service(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
-    _auth_user: AuthenticatedUser,
+    _admin: AdminUser,
     Json(body): Json<UpdateAppServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = body.into_request();
@@ -243,7 +246,7 @@ pub async fn update_app_service(
 pub async fn delete_app_service(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
-    _auth_user: AuthenticatedUser,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state
         .services
@@ -257,6 +260,7 @@ pub async fn delete_app_service(
 pub async fn ping_app_service(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let is_alive = state.services.app_service_manager.ping(&as_id).await?;
 
@@ -269,6 +273,7 @@ pub async fn ping_app_service(
 pub async fn set_app_service_state(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    _admin: AdminUser,
     Json(body): Json<SetStateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let state_entry = state
@@ -283,6 +288,7 @@ pub async fn set_app_service_state(
 pub async fn get_app_service_state(
     State(state): State<AppState>,
     Path((as_id, state_key)): Path<(String, String)>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let state_entry = state
         .services
@@ -299,6 +305,7 @@ pub async fn get_app_service_state(
 pub async fn get_app_service_states(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let states = state
         .services
@@ -312,6 +319,7 @@ pub async fn get_app_service_states(
 pub async fn register_virtual_user(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    _admin: AdminUser,
     Json(body): Json<RegisterVirtualUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let user = state
@@ -331,6 +339,7 @@ pub async fn register_virtual_user(
 pub async fn get_virtual_users(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let users = state
         .services
@@ -344,6 +353,7 @@ pub async fn get_virtual_users(
 pub async fn get_namespaces(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let namespaces = state
         .services
@@ -357,6 +367,7 @@ pub async fn get_namespaces(
 pub async fn get_pending_events(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    _admin: AdminUser,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -372,6 +383,7 @@ pub async fn get_pending_events(
 pub async fn push_event(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    _admin: AdminUser,
     Json(body): Json<PushEventBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let event = state
@@ -400,6 +412,7 @@ pub async fn push_event(
 
 pub async fn query_user(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Query(query): Query<QueryUser>,
 ) -> Result<impl IntoResponse, ApiError> {
     let as_id = state
@@ -416,6 +429,7 @@ pub async fn query_user(
 
 pub async fn query_room_alias(
     State(state): State<AppState>,
+    _admin: AdminUser,
     Query(query): Query<QueryAlias>,
 ) -> Result<impl IntoResponse, ApiError> {
     let as_id = state
@@ -430,7 +444,10 @@ pub async fn query_room_alias(
     })))
 }
 
-pub async fn get_statistics(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+pub async fn get_statistics(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
     let stats = state.services.app_service_manager.get_statistics().await?;
 
     Ok(Json(stats))
@@ -561,7 +578,7 @@ pub async fn app_service_query(
 }
 
 pub fn create_app_service_router(state: AppState) -> Router<AppState> {
-    Router::new()
+    let public_routes = Router::new()
         .route(
             "/_matrix/client/v1/user/{user_id}/appservice",
             get(get_user_appservice),
@@ -579,7 +596,9 @@ pub fn create_app_service_router(state: AppState) -> Router<AppState> {
             "/_matrix/app/v1/rooms/{alias}",
             get(app_service_room_alias_query),
         )
-        .route("/_matrix/app/v1/{as_id}", get(app_service_query))
+        .route("/_matrix/app/v1/{as_id}", get(app_service_query));
+
+    let admin_routes = Router::new()
         .route("/_synapse/admin/v1/appservices", get(list_app_services))
         .route("/_synapse/admin/v1/appservices", post(register_app_service))
         .route(
@@ -639,15 +658,24 @@ pub fn create_app_service_router(state: AppState) -> Router<AppState> {
             "/_synapse/admin/v1/appservices/statistics",
             get(get_statistics),
         )
-        .with_state(state)
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ));
+
+    public_routes.merge(admin_routes).with_state(state)
 }
 
 #[axum::debug_handler]
 async fn get_user_appservice(
     State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    if auth_user.user_id != user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden("Access denied".to_string()));
+    }
+
     Ok(Json(serde_json::json!({
         "user_id": user_id,
         "appservices": []

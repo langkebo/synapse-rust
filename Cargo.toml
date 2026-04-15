@@ -25,7 +25,6 @@ http = "1"
 
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros"] }
 ipnetwork = "0.20"
-deadpool = "0.12"
 deadpool-postgres = "0.12"
 
 redis = { version = "0.27", features = ["aio", "tokio-comp"] }
@@ -116,6 +115,12 @@ wiremock = "0.6"
 [profile.dev]
 opt-level = 1
 debug = true
+
+[profile.test]
+opt-level = 0
+debug = 0
+codegen-units = 256
+incremental = true
 
 [profile.release]
 opt-level = 3

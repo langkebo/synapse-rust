@@ -160,6 +160,211 @@ fn encode_room_id(room_id: &str) -> String {
     room_id.replace('!', "%21").replace(':', "%3A")
 }
 
+async fn assert_matrix_error(
+    app: &axum::Router,
+    request: Request<Body>,
+    expected_status: StatusCode,
+    expected_errcode: &str,
+) {
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), expected_status);
+
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], expected_errcode);
+}
+
+#[tokio::test]
+async fn test_power_levels_contract_allows_explicit_room_admin_to_kick() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let alice = format!("power_levels_alice_{}", rand::random::<u32>());
+    let bob = format!("power_levels_bob_{}", rand::random::<u32>());
+    let charlie = format!("power_levels_charlie_{}", rand::random::<u32>());
+    let (alice_token, alice_user_id) = register_user(&app, &alice).await;
+    let (bob_token, bob_user_id) = register_user(&app, &bob).await;
+    let (charlie_token, charlie_user_id) = register_user(&app, &charlie).await;
+
+    let room_id = create_room(&app, &alice_token, "Power Level Kick Contract").await;
+
+    let power_levels_response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("PUT")
+            .uri(format!(
+                "/_matrix/client/r0/rooms/{}/state/m.room.power_levels",
+                room_id
+            ))
+            .header("Authorization", format!("Bearer {}", alice_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "users": {
+                        alice_user_id.clone(): 100,
+                        bob_user_id.clone(): 100,
+                        charlie_user_id.clone(): 0
+                    },
+                    "users_default": 0,
+                    "events_default": 0,
+                    "state_default": 50,
+                    "ban": 50,
+                    "kick": 50,
+                    "redact": 50,
+                    "invite": 0
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(power_levels_response.status(), StatusCode::OK);
+
+    invite_user(&app, &alice_token, &room_id, &bob_user_id).await;
+    invite_user(&app, &alice_token, &room_id, &charlie_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+    join_room(&app, &charlie_token, &room_id).await;
+
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("POST")
+            .uri(format!("/_matrix/client/r0/rooms/{}/kick", room_id))
+            .header("Authorization", format!("Bearer {}", bob_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({ "user_id": charlie_user_id, "reason": "moderation" }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_protected_state_events_contract_rejects_regular_members() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let alice = format!("protected_state_alice_{}", rand::random::<u32>());
+    let bob = format!("protected_state_bob_{}", rand::random::<u32>());
+    let (alice_token, _) = register_user(&app, &alice).await;
+    let (bob_token, bob_user_id) = register_user(&app, &bob).await;
+
+    let room_id = create_room(&app, &alice_token, "Protected State Events").await;
+    invite_user(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    for (event_type, body) in [
+        ("m.room.join_rules", json!({ "join_rule": "public" })),
+        (
+            "m.room.power_levels",
+            json!({
+                "users": {},
+                "users_default": 0,
+                "events_default": 0,
+                "state_default": 50,
+                "ban": 50,
+                "kick": 50,
+                "redact": 50,
+                "invite": 0
+            }),
+        ),
+    ] {
+        assert_matrix_error(
+            &app,
+            Request::builder()
+                .method("PUT")
+                .uri(format!(
+                    "/_matrix/client/r0/rooms/{}/state/{}",
+                    room_id, event_type
+                ))
+                .header("Authorization", format!("Bearer {}", bob_token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "M_FORBIDDEN",
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn test_state_default_contract_rejects_regular_member_topic_write() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let alice = format!("state_default_alice_{}", rand::random::<u32>());
+    let bob = format!("state_default_bob_{}", rand::random::<u32>());
+    let (alice_token, _) = register_user(&app, &alice).await;
+    let (bob_token, bob_user_id) = register_user(&app, &bob).await;
+
+    let room_id = create_room(&app, &alice_token, "State Default Contract").await;
+    invite_user(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("PUT")
+            .uri(format!("/_matrix/client/r0/rooms/{}/state/m.room.topic", room_id))
+            .header("Authorization", format!("Bearer {}", bob_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "topic": "member overwrite" }).to_string()))
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "M_FORBIDDEN",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_invite_only_join_contract_rejects_uninvited_user() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let alice = format!("invite_only_alice_{}", rand::random::<u32>());
+    let bob = format!("invite_only_bob_{}", rand::random::<u32>());
+    let (alice_token, _) = register_user(&app, &alice).await;
+    let (bob_token, _) = register_user(&app, &bob).await;
+
+    let room_id = create_room_with_initial_state(
+        &app,
+        &alice_token,
+        "Invite Only Contract",
+        vec![json!({
+            "type": "m.room.join_rules",
+            "content": { "join_rule": "invite" }
+        })],
+    )
+    .await;
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+            .header("Authorization", format!("Bearer {}", bob_token))
+            .body(Body::empty())
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "M_FORBIDDEN",
+    )
+    .await;
+}
+
 #[tokio::test]
 async fn test_room_info_contract_reflects_invites_and_guest_access() {
     let Some(app) = super::setup_test_app().await else {
@@ -322,7 +527,7 @@ async fn test_scanner_info_contract_is_not_empty_success() {
     assert_eq!(json["event_id"], event_id);
     assert_eq!(json["status"], "not_configured");
     assert!(
-        json["message"].as_str().unwrap_or("").trim().len() >= 1,
+        !json["message"].as_str().unwrap_or("").trim().is_empty(),
         "message should not be empty"
     );
 }

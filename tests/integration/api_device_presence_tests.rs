@@ -78,6 +78,37 @@ async fn login_user(app: &axum::Router, username: &str) -> String {
     json["access_token"].as_str().unwrap().to_string()
 }
 
+async fn login_user_with_device(
+    app: &axum::Router,
+    username: &str,
+    device_id: &str,
+) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/login")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "type": "m.login.password",
+                "user": username,
+                "password": "Password123!",
+                "device_id": device_id
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    (status, json)
+}
+
 #[tokio::test]
 async fn test_device_management() {
     let Some(app) = setup_test_app().await else {
@@ -151,6 +182,29 @@ async fn test_device_management() {
     // Some servers require UIA (User Interactive Authentication) for deleting devices.
     // Our implementation might just return 200 for now if UIA is not fully implemented.
     assert!(response.status() == StatusCode::OK || response.status() == StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_login_rejects_device_id_owned_by_another_user() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let alice = format!("device_owner_{}", rand::random::<u32>());
+    let bob = format!("device_attacker_{}", rand::random::<u32>());
+
+    register_user(&app, &alice).await;
+    register_user(&app, &bob).await;
+
+    let shared_device_id = format!("SHAREDDEVICE{}", rand::random::<u32>());
+
+    let (alice_status, alice_json) = login_user_with_device(&app, &alice, &shared_device_id).await;
+    assert_eq!(alice_status, StatusCode::OK);
+    assert_eq!(alice_json["device_id"], shared_device_id);
+
+    let (bob_status, bob_json) = login_user_with_device(&app, &bob, &shared_device_id).await;
+    assert_eq!(bob_status, StatusCode::FORBIDDEN);
+    assert_eq!(bob_json["errcode"], "M_FORBIDDEN");
 }
 
 #[tokio::test]
@@ -239,6 +293,61 @@ async fn test_presence_status_shared_across_r0_and_v3() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["presence"], "unavailable");
     assert_eq!(json["status_msg"], "cross-version presence");
+}
+
+#[tokio::test]
+async fn test_presence_read_rejects_other_user() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (owner_token, owner_user_id) =
+        register_user(&app, &format!("presence_owner_{}", rand::random::<u32>())).await;
+    let (guest_token, _) =
+        register_user(&app, &format!("presence_guest_{}", rand::random::<u32>())).await;
+
+    let set_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/presence/{}/status", owner_user_id))
+        .header("Authorization", format!("Bearer {}", owner_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "presence": "online",
+                "status_msg": "private presence"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_request)
+        .await
+        .unwrap();
+    assert_eq!(set_response.status(), StatusCode::OK);
+
+    let guest_request = Request::builder()
+        .uri(format!(
+            "/_matrix/client/v3/presence/{}/status",
+            owner_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", guest_token))
+        .body(Body::empty())
+        .unwrap();
+    let guest_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), guest_request)
+        .await
+        .unwrap();
+    assert_eq!(guest_response.status(), StatusCode::FORBIDDEN);
+
+    let owner_request = Request::builder()
+        .uri(format!(
+            "/_matrix/client/v3/presence/{}/status",
+            owner_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", owner_token))
+        .body(Body::empty())
+        .unwrap();
+    let owner_response = ServiceExt::<Request<Body>>::oneshot(app, owner_request)
+        .await
+        .unwrap();
+    assert_eq!(owner_response.status(), StatusCode::OK);
 }
 
 #[tokio::test]

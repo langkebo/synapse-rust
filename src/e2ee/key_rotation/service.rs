@@ -132,16 +132,45 @@ impl KeyRotationService {
         self.storage.get_rotation_status(user_id).await
     }
 
-    async fn share_new_key(&self, _room_id: &str, _session: &MegolmSession) -> Result<(), ApiError> {
-        Ok(())
+    async fn share_new_key(&self, room_id: &str, session: &MegolmSession) -> Result<(), ApiError> {
+        tracing::info!(
+            "Sharing new megolm key for room {}, session {}",
+            room_id,
+            session.session_id
+        );
+        self.storage
+            .record_key_share(room_id, &session.session_id, "rotated")
+            .await
+            .map_err(|e| {
+                tracing::warn!("Failed to record key share for rotation: {}", e);
+                ApiError::internal(format!("Failed to record key share: {}", e))
+            })
     }
 
-    async fn mark_session_as_rotated(&self, _room_id: &str, _user_id: &str) -> Result<(), ApiError> {
-        Ok(())
+    async fn mark_session_as_rotated(&self, room_id: &str, user_id: &str) -> Result<(), ApiError> {
+        tracing::info!(
+            "Marking session as rotated for user {} in room {}",
+            user_id,
+            room_id
+        );
+        self.storage
+            .mark_rotated(user_id, room_id)
+            .await
+            .map_err(|e| {
+                tracing::warn!("Failed to mark session as rotated: {}", e);
+                ApiError::internal(format!("Failed to mark session as rotated: {}", e))
+            })
     }
 
-    async fn should_rotate_for_room(&self, _user_id: &str, _room_id: &str) -> Result<bool, ApiError> {
-        Ok(true)
+    async fn should_rotate_for_room(&self, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
+        let sessions = self.megolm_service.get_room_sessions(room_id).await?;
+        for session in &sessions {
+            if self.should_rotate(session).await? {
+                return Ok(true);
+            }
+        }
+        let needs_rotation = self.storage.check_needs_rotation(user_id, room_id).await?;
+        Ok(needs_rotation)
     }
 }
 
@@ -183,8 +212,80 @@ impl KeyRotationStorage {
         Ok(())
     }
 
-    pub async fn get_encrypted_rooms(&self, _user_id: &str) -> Result<Vec<String>, ApiError> {
-        Ok(Vec::new())
+    pub async fn get_encrypted_rooms(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
+        let rows = sqlx::query_as::<_, (String,)>(
+            r#"
+            SELECT DISTINCT r.room_id 
+            FROM rooms r
+            INNER JOIN room_memberships rm ON r.room_id = rm.room_id
+            INNER JOIN room_events re ON r.room_id = re.room_id
+            WHERE rm.user_id = $1 
+              AND rm.membership = 'join'
+              AND re.event_type = 'm.room.encryption'
+            "#
+        )
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    pub async fn record_key_share(
+        &self,
+        room_id: &str,
+        session_id: &str,
+        share_reason: &str,
+    ) -> Result<(), ApiError> {
+        sqlx::query(
+            r#"
+            INSERT INTO megolm_key_shares (room_id, session_id, share_reason, shared_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (room_id, session_id) DO UPDATE SET share_reason = $3, shared_at = NOW()
+            "#
+        )
+        .bind(room_id)
+        .bind(session_id)
+        .bind(share_reason)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn mark_rotated(&self, user_id: &str, room_id: &str) -> Result<(), ApiError> {
+        sqlx::query(
+            r#"
+            INSERT INTO key_rotation_state (user_id, room_id, is_rotated, rotated_at)
+            VALUES ($1, $2, TRUE, NOW())
+            ON CONFLICT (user_id, room_id) DO UPDATE SET is_rotated = TRUE, rotated_at = NOW()
+            "#
+        )
+        .bind(user_id)
+        .bind(room_id)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn check_needs_rotation(&self, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
+        let row = sqlx::query_as::<_, (bool,)>(
+            r#"
+            SELECT COALESCE(is_rotated, FALSE) FROM key_rotation_state 
+            WHERE user_id = $1 AND room_id = $2
+            "#
+        )
+        .bind(user_id)
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(row.is_none() || !row.unwrap().0)
     }
 
     pub async fn delete_expired_sessions(&self) -> Result<i64, ApiError> {

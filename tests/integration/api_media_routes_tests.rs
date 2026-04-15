@@ -247,12 +247,13 @@ async fn test_media_upload_and_route_boundaries_are_preserved() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let (server_name, media_id) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
+    let named_media_id = format!("boundary_media_{}", rand::random::<u32>());
 
     let v3_put_upload_request = Request::builder()
         .method("PUT")
         .uri(format!(
             "/_matrix/media/v3/upload/{}/{}?filename=modern.txt",
-            server_name, media_id
+            server_name, named_media_id
         ))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "text/plain")
@@ -301,4 +302,222 @@ async fn test_media_upload_and_route_boundaries_are_preserved() {
         .await
         .unwrap();
     assert_eq!(r0_delete_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_named_media_upload_uses_provided_media_id() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(
+        &app,
+        &format!("media_routes_named_{}", rand::random::<u32>()),
+    )
+    .await;
+
+    let bootstrap_upload_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/media/v3/upload?filename=bootstrap.txt")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("bootstrap"))
+        .unwrap();
+    let bootstrap_upload_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), bootstrap_upload_request)
+            .await
+            .unwrap();
+    assert_eq!(bootstrap_upload_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(bootstrap_upload_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let (server_name, _) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
+    let named_media_id = format!("named_media_{}", rand::random::<u32>());
+
+    let named_upload_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/media/v3/upload/{}/{}?filename=named.txt",
+            server_name, named_media_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("named-upload"))
+        .unwrap();
+    let named_upload_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), named_upload_request)
+            .await
+            .unwrap();
+    assert_eq!(named_upload_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(named_upload_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        json["content_uri"].as_str().unwrap(),
+        format!("mxc://{}/{}", server_name, named_media_id)
+    );
+    assert_eq!(json["media_id"].as_str().unwrap(), named_media_id);
+
+    let download_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/media/v3/download/{}/{}",
+            server_name, named_media_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let download_response = ServiceExt::<Request<Body>>::oneshot(app, download_request)
+        .await
+        .unwrap();
+    assert_eq!(download_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(download_response.into_body(), 2048)
+        .await
+        .unwrap();
+    assert_eq!(body.as_ref(), b"named-upload");
+}
+
+#[tokio::test]
+async fn test_named_media_upload_rejects_duplicate_media_id() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(
+        &app,
+        &format!("media_routes_duplicate_{}", rand::random::<u32>()),
+    )
+    .await;
+
+    let media_id = format!("fixed_media_{}", rand::random::<u32>());
+    let bootstrap_upload_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/media/v3/upload?filename=bootstrap.txt")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("bootstrap"))
+        .unwrap();
+    let bootstrap_upload_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), bootstrap_upload_request)
+            .await
+            .unwrap();
+    assert_eq!(bootstrap_upload_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(bootstrap_upload_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let (server_name, _) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
+
+    let first_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/media/v3/upload/{}/{}?filename=first.txt",
+            server_name, media_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("first"))
+        .unwrap();
+    let first_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), first_request)
+        .await
+        .unwrap();
+    assert_eq!(first_response.status(), StatusCode::OK);
+
+    let duplicate_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/media/v3/upload/{}/{}?filename=second.txt",
+            server_name, media_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("second"))
+        .unwrap();
+    let duplicate_response =
+        ServiceExt::<Request<Body>>::oneshot(app, duplicate_request)
+            .await
+            .unwrap();
+    assert_eq!(duplicate_response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_named_media_upload_rejects_non_local_server_name() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(
+        &app,
+        &format!("media_routes_server_name_{}", rand::random::<u32>()),
+    )
+    .await;
+
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/media/v3/upload/{}/{}?filename=bad.txt",
+            "remote.example.com",
+            format!("fixed_media_{}", rand::random::<u32>())
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("bad-server-name"))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], "M_BAD_JSON");
+}
+
+#[tokio::test]
+async fn test_legacy_media_download_missing_returns_not_found_status() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let missing_media_id = format!("missing_media_{}", rand::random::<u32>());
+
+    let v1_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/media/v1/download/{}/{}",
+            "example.com", missing_media_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let v1_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v1_request)
+        .await
+        .unwrap();
+    assert_eq!(v1_response.status(), StatusCode::NOT_FOUND);
+
+    let body = axum::body::to_bytes(v1_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], "M_NOT_FOUND");
+
+    let r1_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/media/r1/download/{}/{}/missing.txt",
+            "example.com", missing_media_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let r1_response = ServiceExt::<Request<Body>>::oneshot(app, r1_request)
+        .await
+        .unwrap();
+    assert_eq!(r1_response.status(), StatusCode::NOT_FOUND);
+
+    let body = axum::body::to_bytes(r1_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], "M_NOT_FOUND");
 }

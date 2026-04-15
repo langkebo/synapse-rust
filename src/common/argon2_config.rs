@@ -421,6 +421,10 @@ mod tests {
             allow_legacy_hashes: false,
             login_failure_lockout_threshold: 5,
             login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
         };
 
         let config = Argon2Config::from(security);

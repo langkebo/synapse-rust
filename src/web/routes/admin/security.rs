@@ -66,6 +66,8 @@ pub async fn shadow_ban_user(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
+    state.services.auth_service.cache.delete(&format!("user:shadow_banned:{}", user_id)).await;
+
     record_audit_event(
         &state,
         &admin.user_id,
@@ -92,6 +94,8 @@ pub async fn unshadow_ban_user(
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    state.services.auth_service.cache.delete(&format!("user:shadow_banned:{}", user_id)).await;
 
     record_audit_event(
         &state,

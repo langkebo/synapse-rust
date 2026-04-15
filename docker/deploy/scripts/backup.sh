@@ -3,10 +3,18 @@
 # 备份脚本
 # =============================================================================
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
+
+compose() {
+    if command -v docker-compose &> /dev/null; then
+        docker-compose "$@"
+    else
+        docker compose "$@"
+    fi
+}
 
 # 加载环境变量
 if [ -f ".env" ]; then
@@ -38,7 +46,7 @@ mkdir -p "$BACKUP_DIR/$BACKUP_NAME"
 backup_database() {
     log_info "备份数据库..."
     
-    docker-compose exec -T postgres pg_dump -U "${POSTGRES_USER:-synapse}" "${POSTGRES_DB:-synapse}" > "$BACKUP_DIR/$BACKUP_NAME/database.sql"
+    compose exec -T postgres pg_dump -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-synapse}" > "$BACKUP_DIR/$BACKUP_NAME/database.sql"
     
     log_success "数据库备份完成"
 }
@@ -47,10 +55,8 @@ backup_database() {
 backup_media() {
     log_info "备份媒体文件..."
     
-    docker run --rm \
-        -v synapse_media:/media \
-        -v "$BACKUP_DIR/$BACKUP_NAME:/backup" \
-        alpine tar czf /backup/media.tar.gz -C /media .
+    mkdir -p media
+    tar czf "$BACKUP_DIR/$BACKUP_NAME/media.tar.gz" -C media .
     
     log_success "媒体文件备份完成"
 }

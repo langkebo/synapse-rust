@@ -330,6 +330,165 @@ async fn test_room_key_distribution_contract_returns_not_found_without_session()
 }
 
 #[tokio::test]
+async fn test_room_key_distribution_contract_rejects_non_members() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let owner_username = format!("key_dist_owner_{}", rand::random::<u32>());
+    let attacker_username = format!("key_dist_attacker_{}", rand::random::<u32>());
+    let (owner_token, _) = register_user(&app, &owner_username).await;
+    let (attacker_token, _) = register_user(&app, &attacker_username).await;
+    let room_id = create_room(&app, &owner_token, "Key Distribution Access Control").await;
+    let encoded_room_id = encode_room_id(&room_id);
+
+    for path in [
+        format!(
+            "/_matrix/client/r0/rooms/{}/keys/distribution",
+            encoded_room_id
+        ),
+        format!(
+            "/_matrix/client/v3/rooms/{}/keys/distribution",
+            encoded_room_id
+        ),
+    ] {
+        assert_matrix_error(
+            &app,
+            Request::builder()
+                .method("GET")
+                .uri(path)
+                .header("Authorization", format!("Bearer {}", attacker_token))
+                .body(Body::empty())
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "M_FORBIDDEN",
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn test_change_password_uia_rejects_dummy_auth() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let username = format!("change_password_dummy_{}", rand::random::<u32>());
+    let (token, _) = register_user(&app, &username).await;
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/_matrix/client/v3/account/password")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "new_password": "NewPassword123!",
+                    "auth": { "type": "m.login.dummy" }
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+        StatusCode::UNAUTHORIZED,
+        "M_UNAUTHORIZED",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_key_rotation_contract_rejects_non_admin_users() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let username = format!("key_rotation_user_{}", rand::random::<u32>());
+    let (token, _) = register_user(&app, &username).await;
+
+    for (method, path) in [
+        ("POST", "/_matrix/client/v1/keys/rotation/rotate"),
+        ("PUT", "/_matrix/client/v1/keys/rotation/config"),
+    ] {
+        let body = match method {
+            "PUT" => json!({ "enabled": true, "interval_days": 30 }).to_string(),
+            _ => "{}".to_string(),
+        };
+
+        assert_matrix_error(
+            &app,
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "M_FORBIDDEN",
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn test_key_rotation_config_contract_returns_unrecognized_for_admin() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, _) = super::get_admin_token(&app).await;
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("PUT")
+            .uri("/_matrix/client/v1/keys/rotation/config")
+            .header("Authorization", format!("Bearer {}", admin_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({ "enabled": true, "interval_days": 30 }).to_string(),
+            ))
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "M_UNRECOGNIZED",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let username = format!("thirdparty_contract_{}", rand::random::<u32>());
+    let (token, _) = register_user(&app, &username).await;
+
+    for path in [
+        "/_matrix/client/v3/thirdparty/protocols",
+        "/_matrix/client/r0/thirdparty/protocol/irc",
+        "/_matrix/client/v3/thirdparty/location/irc?alias=%23demo:localhost",
+        "/_matrix/client/v3/thirdparty/user/irc?userid=%40alice:localhost",
+        "/_matrix/client/v3/thirdparty/location?alias=%23demo:localhost",
+        "/_matrix/client/v3/thirdparty/user?userid=%40alice:localhost",
+    ] {
+        assert_matrix_error(
+            &app,
+            Request::builder()
+                .method("GET")
+                .uri(path)
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "M_UNRECOGNIZED",
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
 async fn test_report_room_contract_returns_unrecognized() {
     let Some(app) = super::setup_test_app().await else {
         return;
@@ -485,11 +644,11 @@ async fn test_room_thread_contract_returns_replies_when_thread_exists() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert!(json["reply_count"].as_i64().unwrap_or(0) >= 1);
-    assert!(json["replies"].as_array().unwrap().len() >= 1);
+    assert!(!json["replies"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]
-async fn test_room_initial_sync_contract_is_explicitly_unrecognized() {
+async fn test_room_initial_sync_contract_returns_state_members_and_messages() {
     let Some(app) = super::setup_test_app().await else {
         return;
     };
@@ -497,23 +656,146 @@ async fn test_room_initial_sync_contract_is_explicitly_unrecognized() {
     let username = format!("initial_sync_{}", rand::random::<u32>());
     let (token, _) = register_user(&app, &username).await;
     let room_id = create_room(&app, &token, "Initial Sync Contract").await;
+    let event_id = send_message(&app, &token, &room_id, "initial_sync_txn").await;
     let encoded_room_id = encode_room_id(&room_id);
 
-    assert_matrix_error(
-        &app,
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
         Request::builder()
             .method("GET")
             .uri(format!(
-                "/_matrix/client/r0/rooms/{}/initialSync",
+                "/_matrix/client/r0/rooms/{}/initialSync?limit=5",
                 encoded_room_id
             ))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap(),
-        StatusCode::BAD_REQUEST,
-        "M_UNRECOGNIZED",
     )
-    .await;
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["room_id"], room_id);
+    assert_eq!(json["membership"], "join");
+    assert!(matches!(
+        json["visibility"].as_str(),
+        Some("public" | "private")
+    ));
+    assert!(json["state"]
+        .as_array()
+        .is_some_and(|events| !events.is_empty()));
+    assert!(json["members"]
+        .as_array()
+        .is_some_and(|events| !events.is_empty()));
+    assert!(json["pagination_chunk"].is_array());
+    assert!(json["messages"]["chunk"]
+        .as_array()
+        .is_some_and(|events| events.iter().any(|event| event["event_id"] == event_id)));
+    assert!(json["state"]
+        .as_array()
+        .is_some_and(|events| events.iter().any(|event| event["type"] == "m.room.create")));
+}
+
+#[tokio::test]
+async fn test_removed_private_room_placeholder_routes_return_404() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let username = format!("room_placeholder_removed_{}", rand::random::<u32>());
+    let (token, _) = register_user(&app, &username).await;
+    let room_id = create_room(&app, &token, "Removed Room Placeholder Contract").await;
+    let encoded_room_id = encode_room_id(&room_id);
+
+    let cases = vec![
+        (
+            "GET",
+            format!(
+                "/_matrix/client/v3/rooms/{}/fragments/@user:localhost",
+                encoded_room_id
+            ),
+        ),
+        (
+            "GET",
+            format!("/_matrix/client/v3/rooms/{}/service_types", encoded_room_id),
+        ),
+        (
+            "GET",
+            format!(
+                "/_matrix/client/v3/rooms/{}/event_perspective",
+                encoded_room_id
+            ),
+        ),
+        (
+            "GET",
+            format!(
+                "/_matrix/client/v3/rooms/{}/reduced_events",
+                encoded_room_id
+            ),
+        ),
+        (
+            "GET",
+            format!("/_matrix/client/v3/rooms/{}/rendered/", encoded_room_id),
+        ),
+        (
+            "POST",
+            format!(
+                "/_matrix/client/v3/rooms/{}/translate/{}",
+                encoded_room_id,
+                "$event:localhost".replace('$', "%24")
+            ),
+        ),
+        (
+            "POST",
+            format!(
+                "/_matrix/client/v3/rooms/{}/convert/{}",
+                encoded_room_id,
+                "$event:localhost".replace('$', "%24")
+            ),
+        ),
+        (
+            "GET",
+            format!("/_matrix/client/v3/rooms/{}/vault_data", encoded_room_id),
+        ),
+        (
+            "PUT",
+            format!("/_matrix/client/v3/rooms/{}/vault_data", encoded_room_id),
+        ),
+        (
+            "GET",
+            format!("/_matrix/client/v3/rooms/{}/external_ids", encoded_room_id),
+        ),
+        (
+            "GET",
+            format!(
+                "/_matrix/client/v3/rooms/{}/device/DEVICEID",
+                encoded_room_id
+            ),
+        ),
+    ];
+
+    for (method, uri) in cases {
+        let request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(if method == "PUT" {
+                Body::from(json!({}).to_string())
+            } else {
+                Body::empty()
+            })
+            .unwrap();
+
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
 }
 
 #[tokio::test]

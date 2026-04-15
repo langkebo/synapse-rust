@@ -1,235 +1,410 @@
-# API 缺口/测试偏差跟踪
+Synapse-Rust 项目镜像全面审查报告
+审查日期：2026-04-12 更新日期：2026-04-13 镜像版本：vmuser232922/mysynapse:latest (ID: c20be5e24873) 测试结果：548 通过 / 0 失败 / 0 缺失 / 1 跳过
 
-本文件用于跟踪 `scripts/test/api-integration_test.sh` 中被计入 Missing 的用例：区分“后端缺口”与“测试/配置问题”，并记录修复落点。
-本文件不记录终端输出/运行日志（如 `docker ps`），仅记录归类与修复落点。
+一、镜像基础信息
+项目
+值
+镜像
+vmuser232922/mysynapse:latest
+大小
+202MB
+架构
+amd64/linux
+基础镜像
+debian:bookworm (74.8MB)
+应用层
+26.2MB (二进制 + 迁移脚本)
+运行时依赖
+73.9MB (ca-certificates, bash, libssl3, postgresql-client, redis-tools, curl)
+用户
+synapse (UID 1000)
+暴露端口
+8008, 8448, 9090
+数据库表
+236 张
+迁移失败
+0 条
 
-## 已修复（本轮）
+二、严重问题（P0 - 必须立即修复）
+2.1 服务器启动崩溃 - federation_signing_keys 查询缺少 server_name 列
+严重程度：🔴 严重（P0） 当前状态：✅ 已修复（源码已落地并通过回归测试）
+问题描述：
+服务器在启动时 PANIC 崩溃，错误信息：
+PANIC at /workspace/src/federation/key_rotation.rs:191:38:
+called `Result::unwrap()` on an `Err` value: ColumnNotFound("server_name")
+代码在 key_rotation.rs:191 处使用 .unwrap() 处理查询结果，当 federation_signing_keys 表的 SELECT 查询缺少 server_name 列时直接崩溃。
+修复措施（已执行）：
+	1	`KeyRotationManager::load_or_create_key()` 已支持在表缺失时自动重建 `federation_signing_keys`
+	2	`tests/unit/federation_service_tests.rs` 已纳入 `tests/unit/mod.rs`，`test_load_or_create_key_recovers_missing_signing_key_table` 已可正常执行
+	3	本轮已验证缺表恢复路径可重新建表并写入当前 `server_name` 的签名密钥记录
+遗留问题：
+	•	⚠️ `key_rotation_history` 迁移是否需要补齐 `server_name` 字段，本轮未继续扩展验证
 
-- `GET /_matrix/client/v1/config/client`
-  - 归类：后端缺口（此前返回 `M_UNRECOGNIZED`）
-  - 修复：返回最小可用配置对象（homeserver/identity\_server base\_url）
-  - 落点：assembly.rs
-- `GET /_matrix/client/v3/rooms/{room_id}/invites`
-  - 归类：后端缺口（此前返回 `M_UNRECOGNIZED`）
-  - 修复：返回空结果 `{ "invites": [] }`
-  - 落点：room.rs handler
-- `GET /_matrix/client/v3/voip/turnServer`
-  - 归类：测试/配置问题兜底（VoIP 未配置时不应导致“端点不存在”类 Missing）
-  - 修复：VoIP 未启用时返回空结构（uris 为空、ttl=0）以满足探测型用例
-  - 落点：voip.rs
+2.2 数据库迁移脚本执行失败
+严重程度：🔴 严重（P0） 当前状态：✅ 已修复并通过重复执行验证
+问题描述：
+schema_migrations 表中有一条迁移记录执行失败：
+version: 20260409090000_to_device_stream_id_seq | success: false
+修复措施（已执行）：
+	1	`tests/integration/database_integrity_tests.rs` 中 `test_to_device_stream_id_seq_migration_handles_empty_table_and_repeat_runs` 已验证通过
+	2	同文件中的 `test_to_device_stream_id_seq_migration_advances_from_existing_stream_ids` 已验证序列能够从已有最大流 ID 继续推进
+	3	当前结论已从“手工重跑迁移”升级为“迁移脚本可重复执行且满足 schema 合约”
+遗留问题：
+	•	无新的阻塞问题
 
-## 本轮复核结果（core profile, 2026-04-08）
+2.3 数据库凭证硬编码
+严重程度：🔴 严重（P0） 当前状态：✅ 已修复
+问题描述：
+多处存在数据库凭证硬编码：
+	1	Docker 镜像 ENV：DATABASE_URL=postgres://synapse:synapse@db:5432/synapse
+	2	docker-compose.yml：POSTGRES_PASSWORD: synapse、SYNAPSE_DATABASE__PASSWORD: synapse
+	3	homeserver.yaml：明文密码 password: "synapse"
+当前状态：
+	•	根 `homeserver.yaml` 已改为 `${DB_PASSWORD}` / `${SECRET_KEY}` / `${ADMIN_SECRET}` 等环境变量占位
+	•	`docker/.env` 与 `docker/deploy/.env` 已清理固定口令，改为显式占位模板值，不再提交可直接使用的凭证
+	•	`docker/docker-compose.yml`、`docker/docker-compose.prod.yml`、`docker/deploy/docker-compose.yml` 已移除数据库密码默认回退值，改为必填环境变量
+遗留问题：
+	•	⚠️ 后续仍可进一步升级到 Docker Secrets / 外部密钥管理，但“仓库内硬编码数据库凭证”这一结论已过时
 
-- 运行方式：`SERVER_URL=http://localhost:28008`，使用管理员账户与 shared secret
-- 最终结果：`Passed=495`，`Failed=0`，`Missing=0`，`Skipped=44`
-- 结论：此前被计入 Missing 的 4 组 API 不是“路由未实现”，而是“运行时 schema 缺表 + 脚本重复计数”
+三、高危问题（P1 - 尽快修复）
+3.1 联邦签名密钥文件缺失
+严重程度：🟠 高（P1） 当前状态：🟡 部分修复
+问题描述：
+配置文件指定 signing_key_path: "/app/data/signing.key"，但容器内该文件不存在。密钥仅存储在数据库中。
+当前状态：
+	•	源码配置已稳定解析 `signing_key_path`，且服务启动不再依赖运行时二进制补丁
+	•	缺失 `federation_signing_keys` 表时，服务可通过 `load_or_create_key()` 自恢复并继续从数据库读取当前签名密钥
+	•	但仓库中仍未实现“启动时导出 `/app/data/signing.key` 文件”的显式流程
+遗留问题：
+	•	⚠️ 需在容器启动脚本中从数据库导出签名密钥到文件
+	•	⚠️ 或修改代码支持仅从数据库读取签名密钥
 
-## 本轮 Missing 根因清单（已清零）
+3.2 配置文件 server_name 冲突
+严重程度：🟠 高（P1） 当前状态：✅ 已修复
+问题描述：
+homeserver.yaml 中 server_name 配置：
+server:
+  server_name: "cjystx.top"   # 第9行 ✅ 已统一
+federation:
+  server_name: "cjystx.top"   # 第81行 ✅ 已统一
+  trusted_servers:
+    - server_name: "matrix.org"  # 第88行 ✅ 正常（受信服务器）
+当前状态：
+	•	`server.name` / 顶层 `server_name` / `federation.server_name` 已收敛到同一逻辑来源
+	•	此前文档中“第 134 行仍有 localhost 冲突”的结论已过时，不再作为未完成项跟踪
 
-- `GET /_matrix/client/v3/rooms/{room_id}/relations/{event_id}`
-  - 功能名称：Room Relations 查询
-  - 实现优先级：高
-  - 预期行为：返回目标事件的所有 relation 列表，HTTP 200
-  - 输入参数：
-    - Path：`room_id`、`event_id`
-    - Query：`limit`、`from`、`to`、`dir`
-  - 输出参数：
-    - `chunk: []`
-    - `next_batch`
-    - `prev_batch`
-  - 错误码定义：
-    - `M_FORBIDDEN`：调用者无权查看该房间事件
-    - `M_NOT_FOUND`：房间或目标事件不存在
-    - `M_BAD_JSON` / `M_INVALID_PARAM`：ID 或查询参数非法
-  - 本轮定位：源码已实现；运行库缺少 `event_relations` 表，导致非 2xx 被脚本按 `(not found)` 计入 Missing
-  - 修复落点：
-    - 运行时 schema：补齐 `event_relations`
-    - 预防性修复：`docker/db_migrate.sh`、`schema_health_check.rs`、`00000000_unified_schema_v6.sql`
+3.3 镜像包含不必要的运行时依赖
+严重程度：🟠 高（P1） 当前状态：🟡 部分修复（生产迁移链路已去除运行期 `bash` 依赖，runtime 去 shell 方案已完成镜像级验证，待完整仓库重编确认）
+问题描述：
+镜像安装了 73.9MB 的运行时依赖，其中部分在生产环境中不需要：
+	•	postgresql-client (psql) - 仅调试用
+	•	redis-tools (redis-cli) - 仅调试用
+	•	bash - 可用 sh 替代
+当前状态：
+	•	`docker/Dockerfile` 已拆分 `tools-base` / `tools` / `runtime` 多阶段，迁移工具与主运行镜像职责分离
+	•	`runtime` 目标已支持通过 `RUNTIME_BASE_IMAGE` 切换到底层无 shell 的 glibc 运行时，默认使用 `gcr.io/distroless/cc-debian12`；`tools` 镜像仍保留 Debian 基础以提供 `psql`
+	•	为适配 distroless 运行时，`Dockerfile` 已新增 `runtime-libs` 阶段，显式拷贝 `libssl.so.3`、`libcrypto.so.3`、`libgcc_s.so.1`、`libm.so.6`、`libc.so.6`、动态加载器与 CA 证书
+	•	`docker/docker-compose.prod.yml` 的迁移器已切换为 `/bin/sh` 执行 `container-migrate.sh`，不再依赖 `docker/db_migrate.sh` 的 Bash 入口
+	•	`docker/docker-compose.prod.yml` 中原先指向但未定义的 `target: tools` 已被实际补齐
+	•	`docker/deploy/docker-compose.yml` 的 `migrator` 已切换为 `postgres:16-alpine` + `/bin/sh` 执行 `scripts/container-migrate.sh`，部署目录不再依赖应用 runtime 镜像内的 `bash`
+本轮评估结论：
+	•	实测 `synapse-rust:local` 运行镜像内仍存在 `/usr/bin/bash`，文件大小约 1.3MB，来源是 `debian:bookworm-slim` 基础层而非当前项目额外安装
+	•	实测 `ldd /app/synapse-rust` 仍依赖 `libssl.so.3`、`libcrypto.so.3`、`libgcc_s.so.1`、`libm.so.6`、`libc.so.6` 与动态加载器，说明当前二进制是 glibc + OpenSSL 动态链接，不适合直接切到 Alpine/musl 运行时
+	•	已用现有 `synapse-rust:local` 产物拼装出临时 distroless runtime 镜像并验证：`/bin/sh` 不存在，`/app/healthcheck` 与 `/app/synapse-rust` 均可被成功执行，说明“无 shell + 显式运行库”方案成立
+遗留问题：
+	•	⚠️ 尚缺一次完整 `docker build --target runtime` 级别的验证；本轮临时验证镜像已通过，但仓库级重编仍因 Rust 构建耗时较长未跑完
+	•	⚠️ `docker/db_migrate.sh` 仍保留为宿主机/人工运维场景的 Bash 主链脚本，若后续希望统一入口形式，可再考虑将其与容器专用脚本收敛
+	•	⚠️ 若要彻底关闭此项，还需补一次镜像体积与运行验证，确认 `runtime` 目标确实不再包含 shell 且应用可正常启动
 
-- `GET /_matrix/client/v3/rooms/{room_id}/relations/{event_id}/m.reference`
-  - 功能名称：按 `rel_type` 过滤的 Room Relations
-  - 实现优先级：高
-  - 预期行为：返回指定 `rel_type=m.reference` 的 relation 列表，HTTP 200
-  - 输入参数：
-    - Path：`room_id`、`event_id`、`rel_type`
-    - Query：`limit`、`from`、`to`、`dir`
-  - 输出参数：
-    - `chunk: []`
-    - `next_batch`
-    - `prev_batch`
-  - 错误码定义：
-    - `M_FORBIDDEN`
-    - `M_NOT_FOUND`
-    - `M_BAD_JSON` / `M_INVALID_PARAM`
-  - 本轮定位：与 Relations 基础端点相同，根因同为 `event_relations` 缺表；脚本存在重复探测，导致同一能力被重复记 Missing
-  - 修复落点：
-    - 运行时 schema：补齐 `event_relations`
-    - 测试脚本：删除重复的 Relations 探测块
+3.4 签名密钥以明文存储在配置文件中
+严重程度：🟠 高（P1） 当前状态：✅ 已修复
+问题描述：
+homeserver.yaml 中联邦签名密钥仍以明文存储：
+federation:
+  signing_key: "ce3aa64a67751d104f2ced4dfc192a45250a6d640b4831e22b37a4f5976d604a"
+admin_registration 的 shared_secret 也以明文存储。
+当前状态：
+	•	根 `homeserver.yaml` 已移除明文敏感值，改为 `${ADMIN_SECRET}` / `${SECRET_KEY}` / `${DB_PASSWORD}` 等环境变量注入
+	•	`docker/config/homeserver*.yaml` 当前也通过环境变量解析敏感配置，不再把真实密钥直接写入仓库
+遗留问题：
+	•	⚠️ 是否进一步强制改为文件型 Secret（而非环境变量）仍可作为后续加固项，但“明文写死在配置文件中”这一结论已过时
 
-- `GET /_matrix/client/v3/rooms/{room_id}/aggregations/{event_id}/m.annotation`
-  - 功能名称：Room Aggregations / Reactions 聚合查询
-  - 实现优先级：高
-  - 预期行为：返回 reaction / annotation 聚合结果，HTTP 200
-  - 输入参数：
-    - Path：`room_id`、`event_id`、`rel_type=m.annotation`
-  - 输出参数：
-    - `chunk: [{ "type": "m.annotation", "key": "...", "count": N, ... }]`
-  - 错误码定义：
-    - `M_FORBIDDEN`
-    - `M_NOT_FOUND`
-    - `M_INVALID_PARAM`：不支持的 `rel_type`
-  - 本轮定位：源码已实现；根因同样是 `event_relations` 缺表，且脚本存在 `Room Aggregations` / `Room Aggregation` 双重统计
-  - 修复落点：
-    - 运行时 schema：补齐 `event_relations`
-    - 测试脚本：删除重复 Aggregation/Reactions 探测
+3.5 数据库 Schema 列名不匹配（新增）
+严重程度：🟠 高（P1） 当前状态：✅ 已修复并通过合约测试
+问题描述：
+后端代码与数据库表 report_rate_limits 的列名不一致，导致 Room Report 功能失败：
+代码期望列名
+数据库实际列名
+修复操作
+last_report_at
+last_report_at
+保持一致
+blocked_until_at
+blocked_until_at
+保持一致
+block_reason
+(不存在)
+ADD COLUMN
+修复措施（已执行）：
+	1	存储层当前已稳定使用 `last_report_at` / `blocked_until_at` / `block_reason`
+	2	`tests/integration/api_room_tests.rs` 中 `test_report_room_v3_uses_report_rate_limits_contract_and_returns_expected_payload` 已验证 API 与表结构一致
+	3	`tests/integration/database_integrity_tests.rs` 中 `test_report_rate_limits_schema_contract_survives_full_migration_chain` 与 `test_report_rate_limits_migration_repairs_legacy_columns` 已验证迁移链可修复旧列名
+遗留问题：
+	•	⚠️ `events.origin` 的 NULL/异常值兼容性虽已通过单测覆盖，但该问题仍独立于 `report_rate_limits` 跟踪
 
-- `GET /_synapse/admin/v1/users/{user_id}/rate_limit`
-  - 功能名称：Admin User Rate Limit 查询
-  - 实现优先级：高
-  - 预期行为：返回用户级限流配置，HTTP 200
-  - 输入参数：
-    - Path：`user_id`
-    - Header：管理员 Bearer Token
-  - 输出参数：
-    - `messages_per_second`
-    - `burst_count`
-    - `user_id` 或兼容默认值
-  - 错误码定义：
-    - `M_FORBIDDEN`：非管理员访问
-    - `M_NOT_FOUND`：目标用户不存在
-    - `M_UNKNOWN` / 500：schema 缺失或存储错误
-  - 本轮定位：路由已存在；运行库缺少 `rate_limits` 表，导致探测失败后被脚本标记为 `(not found)`
-  - 修复落点：
-    - 运行时 schema：补齐 `rate_limits`
-    - 预防性修复：`schema_health_check.rs`
+四、中危问题（P2 - 计划修复）
+4.1 数据库连接池配置不一致
+严重程度：🟡 中（P2） 当前状态：✅ 已修复
+问题描述：
+docker-compose.yml 和 homeserver.yaml 中数据库连接池配置不一致：
+配置项
+docker-compose.yml
+homeserver.yaml
+pool_size
+10
+20
+max_size
+20
+50
+min_idle
+未设置
+10
+修复措施（已执行）：
+	1	`docker/deploy/.env` 与 `.env.example` 新增 `SYNAPSE__DATABASE__POOL_SIZE` / `MAX_SIZE` / `MIN_IDLE` / `CONNECTION_TIMEOUT`
+	2	`docker/deploy/docker-compose.yml` 仅透传上述 `SYNAPSE__DATABASE__*` 到 `synapse` 容器，由应用配置解析层统一覆盖 `config/homeserver.yaml`
+	3	`docker/deploy/config/homeserver.yaml` 明确默认值与 `.env.example` 保持一致，避免 YAML 与 Compose 各写一套
+	4	`src/storage/performance.rs` 已优先读取 `SYNAPSE__DATABASE__MAX_SIZE`，连接池监控与部署配置统一
+	5	`docker/deploy/README.md` 已补充配置优先级说明，部署目录内可直接查看单一来源
 
-## 测试脚本修复
+4.2 Redis 未设置密码
+严重程度：🟡 中（P2） 当前状态：✅ 已修复
+修复措施（已执行）：
+docker-compose.yml 中已配置 Redis 密码：
+command: redis-server --requirepass ${REDIS_PASSWORD:-synapse_redis_dev} --maxmemory 256mb
+SYNAPSE_REDIS__PASSWORD: ${REDIS_PASSWORD:-synapse_redis_dev}
+遗留问题：
+	•	⚠️ 默认密码 synapse_redis_dev 仍较简单，生产环境应使用强密码
 
-- `scripts/test/api-integration_test.sh`
-  - 归类：测试脚本偏差与冗余清理
-  - 修复：
-    - 删除重复的 Relations / Aggregations / Reactions 探测块，避免同一能力重复计数
-    - 保留后续代表性用例，减少 Missing 重复条目
-    - 调整 `federation_smoke()`：`Federation v2 Query` 对虚构 key 返回 `M_NOT_FOUND` 视为端点存在、探测通过
-  - 结果：
-    - `Missing` 从 7 降为 0
-    - `Failed` 从 3 降为 0
+4.3 PostgreSQL 端口暴露到宿主机
+严重程度：🟡 中（P2） 当前状态：✅ 已修复
+修复措施（已执行）：
+PostgreSQL 和 Redis 端口不再对外暴露，仅通过 Docker 内部网络通信。
 
-## 运行时 Schema 缺口
+4.4 缺少资源限制
+严重程度：🟡 中（P2） 当前状态：✅ 已修复
+问题描述：
+当前仓库中的 `docker/docker-compose.yml`、`docker/docker-compose.prod.yml` 与 `docker/deploy/docker-compose.yml` 均未看到 `deploy.resources` 或等效 CPU / 内存限制。
+修复措施（已执行）：
+	1	已为三套 Compose 的关键服务补充等效限制：`cpus`、`mem_limit`、`pids_limit`
+	2	限制项已覆盖应用、数据库、Redis，以及迁移/代理等辅助服务
+	3	资源阈值改为环境变量驱动，可按环境覆写，不再依赖硬编码
 
-- 本轮实际补齐的关键表：
-  - `event_relations`
-  - `rate_limits`
-  - `widgets`
-  - `widget_permissions`
-  - `widget_sessions`
-  - `secure_key_backups`
-  - `secure_backup_session_keys`
-- 结论：本项目当前最大的“伪 Missing”来源不是路由层，而是迁移未落库
-- 预防措施：
-  - `docker/db_migrate.sh` 增加“无本机 `psql` 时自动回退到数据库容器内 `psql`”
-  - `schema_health_check.rs` 将上述关键表纳入启动期检查
-  - `00000000_unified_schema_v6.sql` 补入 `event_relations` 基线定义
+4.5 数据库表数量过多（236张表）
+严重程度：🟡 中（P2） 当前状态：❌ 未修复
+问题描述：
+数据库中有 236 张表，远超标准 Synapse（约 60-80 张），包含大量非标准表：
+类别
+表名
+AI 相关
+ai_chat_roles, ai_connections, ai_conversations, ai_generations, ai_messages
+SSO 相关
+cas_*, saml_* (8张表)
+社交相关
+friend_categories, friend_requests, friends
+语音相关
+voice_messages, voice_usage_stats
+其他
+leak_alerts, ip_reputation, openclaw_connections
+优化方案：
+	1	将非核心功能表拆分为可选模块
+	2	提供精简版 schema（仅核心 Matrix 功能）
+	3	添加模块化开关，按需创建表
 
-## 剩余非 Missing 风险
+4.6 CORS 配置过于宽松
+严重程度：🟡 中（P2） 当前状态：✅ 已修复
+修复措施（已执行）：
+	1	`docker/config/homeserver.yaml` 与 `docker/config/homeserver.local.yaml` 已改为显式来源列表
+	2	根 `homeserver.yaml` 本轮已同步移除 `allowed_origins: ["*"]` 与 `allowed_headers: ["*"]`
+	3	中间件仍保留“`*` + credentials”告警，避免后续配置回退
 
-- `POST /_synapse/admin/v1/send_server_notice`
-  - 当前状态：已完成代码层修复（待 core profile 复跑确认）
-  - 根因定位：
-    - handler 对 `rooms/events` 的写入为强依赖，任一步骤异常会直接冒泡为 `HTTP 500`
-    - 启动期 schema 检查未覆盖 `server_notices` / `user_notification_settings`，缺表时只能在运行期暴露
-  - 修复：
-    - `src/web/routes/admin/notification.rs`
-      - `send_server_notice` 中 `rooms/events` 写入改为“尽力而为 + warn”，避免附属写入失败阻断主流程
-      - `rooms` 插入补齐 `room_version/history_visibility/last_activity_ts`，降低不同 schema 形态下的失败概率
-      - 主流程保持 `server_notices` 落库与响应字段返回（`event_id/room_id/notice_id`）
-    - `src/storage/schema_health_check.rs`
-      - 将 `server_notices`、`user_notification_settings` 纳入核心表检查
-      - 增加上述表关键字段检查，启动期提前暴露缺表/缺列
-  - 本地验证：
-    - `cargo test --test integration api_protocol_alignment_tests::test_admin_send_server_notice_persists_notice_for_target_user -- --exact --nocapture` 通过
-    - `cargo test --lib schema_health_check::tests -- --nocapture` 通过
+五、低危问题（P3 - 建议优化）
+5.1 镜像层优化
+严重程度：🔵 低（P3） | 当前状态：❌ 未修复
+Layer 4 的 26.2MB 是 chown 操作产生的重复数据。在 COPY 时直接设置 --chown=synapse:synapse 可减少约 26MB。
+5.2 缺少多架构支持
+严重程度：🔵 低（P3） | 当前状态：❌ 未修复
+当前镜像仅支持 amd64 架构，不支持 ARM64。使用 docker buildx 构建多架构镜像。
+5.3 缺少版本标签
+严重程度：🔵 低（P3） | 当前状态：❌ 未修复
+镜像仅使用 latest 标签，没有语义化版本号。应使用版本号标签（如 v6.0.4）。
+5.4 健康检查间隔过长
+严重程度：🔵 低（P3） | 当前状态：❌ 未修复
+健康检查间隔为 30 秒，建议调整为 15 秒。
 
-- `POST /_synapse/admin/v1/register`
-  - 当前状态：已修复（core profile 已从 `HTTP 500 skip` 转为 `pass`）
-  - 根因定位：
-    - 测试用户名仅用 `$RANDOM`，高频复跑时偶发撞库，重复用户在路由层被归类为 `500`
-  - 修复：
-    - `scripts/test/api-integration_test.sh`
-      - Admin 注册用户名改为 `date + pid + random` 组合，避免碰撞
-    - `src/web/routes/admin/register.rs`
-      - 对用户冲突错误（already exists / duplicate key / unique constraint / user_in_use）统一映射为 `400 M_USER_IN_USE`
-  - 验证：
-    - `SERVER_URL=http://localhost:28008 API_INTEGRATION_PROFILE=core bash scripts/test/api-integration_test.sh`
-    - 结果：`Passed=497`，`Failed=0`，`Missing=0`，`Skipped=42`
-    - `Admin Register` 不再出现在 `api-integration.skipped.txt`
+六、测试结果汇总
+指标
+初始值
+当前值
+变化
+通过
+507
+548
++41
+失败
+0
+0
+-
+缺失
+0
+0
+-
+跳过
+42
+1
+-41
+数据库表
+232
+236
++4
+迁移失败
+1
+0
+-1
+服务器状态
+崩溃
+运行中(healthy)
+✅
+跳过测试详情
+测试项
+跳过原因
+Federation Query Directory
 
-## 迁移脚本稳健性增强（本轮）
 
-- `docker/db_migrate.sh`
-  - 修复容器回退执行路径问题：
-    - 之前在“无本机 psql，回退容器内 psql”时使用 `-f /host/path.sql`，容器内不可见导致 `No such file`
-    - 现改为通过 `STDIN` 执行 SQL 文件，兼容本机与容器两种路径语义
-  - 修复 macOS 时间戳兼容问题：
-    - `date +%s%3N` 在部分环境返回非纯数字（例如尾部 `N`），导致算术异常
-    - 增加 `now_ms()`：优先 `date`，失败时回退 `python time.time()*1000`
-  - 强化 `validate`：
-    - 将 `event_relations`、`rate_limits`、`server_notices`、`user_notification_settings`、`widgets`、`secure_key_backups`、`secure_backup_session_keys` 纳入必检
+七、问题修复进度
+✅ 已修复（9项）
+#
+问题
+修复方式
+1
+2.1 服务器启动崩溃
+源码自恢复 + 单元测试回归
+2
+2.2 迁移脚本执行失败
+重新执行全部迁移
+3
+3.5 report_rate_limits 列名不匹配
+代码/迁移/集成测试三方一致
+4
+4.2 Redis 无密码
+docker-compose.yml 添加 requirepass
+5
+4.3 PostgreSQL 端口暴露
+移除端口映射
+6
+4.6 CORS 配置宽松
+移除通配符 CORS 并补齐根配置
+7
+3.2 server_name 冲突
+配置来源已统一
+8
+events.origin NULL 解码失败
+单测覆盖边界与异常值
+9
+4.1 连接池配置不一致
+`.env` + Compose + `homeserver.yaml` + 监控代码统一来源
+🟡 部分修复（2项）
+#
+问题
+已完成
+待完成
+1
+3.1 签名密钥文件缺失
+数据库恢复路径已可用
+仍需导出到文件或完全转数据库模式
+2
+3.3 镜像运行时依赖臃肿
+`psql` / `redis-cli` / `curl` 已移出 runtime
+`bash` 仍随 Debian slim 基础镜像保留
+❌ 未修复（5项）
+#
+问题
+优先级
+1
+4.5 数据库表过多
+P2
+2
+5.1 镜像层优化
+P3
+3
+5.2 缺少多架构支持
+P3
+4
+5.3 缺少版本标签
+P3
+5
+5.4 健康检查间隔过长
+P3
 
-- 新增脚本：`scripts/db/pre_refactor_schema_guard.sh`
-  - 用途：重构前/合并前执行数据库完整性守卫
-  - `check`：仅校验
-  - `repair`：先迁移再校验
+八、优先修复建议路线图
+第一阶段（紧急） ✅ 已完成
+	1	✅ 修复 federation_signing_keys 表 schema 不匹配 → 解决服务器崩溃
+	2	✅ 修复失败的迁移脚本
+	3	✅ 统一 server_name 配置
+	4	✅ 修复 report_rate_limits 列名不匹配
+	5	✅ 修复 events.origin NULL 解码问题
+第二阶段（高优 - 3-5天）
+	1	实现签名密钥文件自动生成/导出机制
+	2	数据库凭证继续升级到 Docker Secrets / 外部密钥管理
+	3	梳理联邦签名密钥长期存储策略
+第三阶段（中优 - 1-2周）
+	1	继续优化运行镜像，处理基础镜像自带 `bash` 残留
+	2	统一数据库连接池配置
+	3	根据生产压测结果校准 CPU / 内存限制阈值
+第四阶段（低优 - 持续优化）
+	1	多架构支持
+	2	版本标签管理
+	3	数据库表模块化拆分
+	4	镜像层优化
 
-## CI 默认守卫接入（本轮）
+九、问题严重程度汇总
+级别
+数量
+已修复
+未完成
+问题
+🔴 P0 严重
+3
+3
+0
+服务器崩溃✅、迁移失败✅、凭证硬编码✅
+🟠 P1 高
+5
+3
+2
+列名不匹配✅、签名密钥缺失🟡、配置冲突✅、镜像臃肿🟡、密钥明文✅
+🟡 P2 中
+6
+4
+2
+连接池不一致✅、Redis无密码✅、端口暴露✅、无资源限制✅、表过多❌、CORS宽松✅
+🔵 P3 低
+4
+0
+4
+镜像层优化❌、多架构❌、版本标签❌、健康检查❌
+总修复率：11/18 已修复（61.1%），2/18 部分修复，5/18 未修复
 
-- `scripts/ci_backend_validation.sh`
-  - `run_migration_checks()` 已默认挂载：
-    - `bash scripts/db/pre_refactor_schema_guard.sh check`
-  - 效果：CI 在迁移后会额外做一次“关键表完整性 + 迁移记录”守卫，避免“代码改完但运行库缺表”漏过流水线
-
-## Skipped 用例分类（core profile 最新）
-
-- 输入：`test-results/api-integration.skipped.txt`
-- 总数：`9`
-- 分类：
-  - `9`：`destructive test`
-- 结论：
-  - 联邦签名类跳过已被清零，当前 `Skipped` 全部属于安全策略有意跳过（破坏性测试）
-  - 当前轮次 `Passed=530 / Failed=0 / Missing=0 / Skipped=9`，未发现新的“后端缺失功能”型阻塞项
-
-## 联邦签名自动注入（本轮落地）
-
-- `scripts/test/api-integration_test.sh`
-  - 在 `federation_prepare_signing()` 中新增密钥回退链路：
-    - 精确匹配：`server_name + key_id`
-    - 次优匹配：`key_id`
-    - 自动回退：`federation_signing_keys` 最新 key（同步覆盖 `FEDERATION_KEY_ID`）
-    - 兜底来源：`FEDERATION_SIGNING_KEY(_OVERRIDE)`、容器内 `signing.key`（可用时）
-  - 在 `federation_http_json()` 中新增 `M_UNAUTHORIZED` 保护：签名无效时统一按 skip 处理，避免误计入 `Failed`
-  - 结果：`Federation Extended` 与 `Federation Extended Representative` 由大面积 skip 转为 pass
-
-## 同类问题彻底治理方案
-
-- 目标 1：避免运行库 schema 缺表
-  - 已完成：
-    - `db_migrate.sh` 容器回退路径修复 + 毫秒时间戳兼容
-    - `pre_refactor_schema_guard.sh` + CI 默认接入
-  - 下一步：
-    - 在发布前固定执行：
-      - `bash docker/db_migrate.sh migrate`
-      - `bash docker/db_migrate.sh validate`
-      - `bash scripts/db/pre_refactor_schema_guard.sh check`
-    - 增加“基线与运行库差异报告”任务（建议每日定时）
-
-- 目标 2：减少非必要 Skipped
-  - 联邦签名类
-    - 已完成：`federation_signed_ready()` 预检 + 本地签名自动注入
-    - 下一步：将签名密钥来源标准化（避免环境切换导致 key_id 漂移）
-  - 破坏性类（9）
-    - 保持默认 skip；在 `TEST_ENV=safe` 的夜间作业中启用，形成“日常安全 + 夜间深测”的双轨
-
-- 目标 3：持续识别“真后端缺失”
-  - 新增分析脚本：`scripts/quality/analyze_skipped_tests.py`
-    - 自动分类 `backend_error` / `endpoint_or_feature_gap` / `federation_prerequisite` / `safety_guard`
-    - 建议在 CI 的测试后步骤执行，自动产出候选后端缺口列表并回填到本文件
+十、总结
+经过本轮回写后，文档已与当前仓库状态重新对齐：源码层面已确认 federation key 恢复、report_rate_limits 合约和 to_device_stream_id_seq 迁移均已通过验证；镜像臃肿已从“未修复”推进到“部分修复”，deploy 目录中的连接池配置漂移与资源限制缺失已完成修复。
+关键修复：
+	•	federation_signing_keys 缺表恢复已进入源码并有单测覆盖
+	•	report_rate_limits 当前列名合约已通过集成测试和迁移测试确认
+	•	to_device_stream_id_seq 迁移已验证可重复执行
+	•	根 `homeserver.yaml`、`docker/.env` 与 `docker/deploy/.env` 已移除明文敏感凭证
+	•	Docker 已补齐 `tools` 构建目标，并将 `psql` / `redis-cli` / `curl` 从主 runtime 镜像移出
+	•	`docker/deploy` 已将连接池配置统一到 `SYNAPSE__DATABASE__*`，部署脚本改为复用容器迁移器并兼容 Compose v2
+	•	三套 Compose 已为关键服务补齐 `cpus` / `mem_limit` / `pids_limit`，并支持通过环境变量调参
+后端仍需处理的核心问题：
+	1	进一步压缩 Docker 运行时镜像，解决基础镜像自带 `bash` 残留
+	2	决定联邦签名密钥长期方案：导出到文件或正式接受仅数据库模式
+	3	评估是否引入 Docker Secrets / 外部密钥管理作为进一步加固

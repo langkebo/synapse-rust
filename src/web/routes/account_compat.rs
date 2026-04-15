@@ -16,8 +16,71 @@ pub(crate) async fn whoami(
     Ok(Json(json!({
         "user_id": auth_user.user_id,
         "device_id": auth_user.device_id,
-        "is_guest": false
+        "is_guest": auth_user.is_guest
     })))
+}
+
+pub(crate) async fn can_view_profile_for_requester(
+    state: &AppState,
+    requester_id: Option<&str>,
+    user_id: &str,
+) -> Result<bool, ApiError> {
+    let privacy_settings = sqlx::query("SELECT * FROM user_privacy_settings WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if let Some(settings) = privacy_settings {
+        if let Ok(visibility) = settings.try_get::<String, _>("profile_visibility") {
+            match visibility.as_str() {
+                "private" => {
+                    if requester_id != Some(user_id) {
+                        return Ok(false);
+                    }
+                }
+                "contacts" => {
+                    if requester_id != Some(user_id) {
+                        return Ok(false);
+                    }
+                }
+                _ => {}
+            }
+        } else if let Ok(allow_lookup) = settings.try_get::<bool, _>("allow_profile_lookup") {
+            if !allow_lookup && requester_id != Some(user_id) {
+                return Ok(false);
+            }
+        }
+    }
+
+    Ok(true)
+}
+
+pub(crate) async fn enforce_profile_visibility(
+    state: &AppState,
+    headers: &HeaderMap,
+    user_id: &str,
+) -> Result<(), ApiError> {
+    let token = extract_token_from_headers(headers).ok();
+    let requester_id = if let Some(t) = token {
+        state
+            .services
+            .auth_service
+            .validate_token(&t)
+            .await
+            .ok()
+            .map(|(id, _, _, _, _)| id)
+    } else {
+        None
+    };
+
+    if !can_view_profile_for_requester(state, requester_id.as_deref(), user_id).await? {
+        return Err(ApiError::forbidden(
+            "Profile is private or not visible to you".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 pub(crate) async fn get_profile(
@@ -26,45 +89,7 @@ pub(crate) async fn get_profile(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-
-    let token = extract_token_from_headers(&headers).ok();
-    let requester_id = if let Some(t) = token {
-        state
-            .services
-            .auth_service
-            .validate_token(&t)
-            .await
-            .ok()
-            .map(|(id, _, _)| id)
-    } else {
-        None
-    };
-
-    let privacy_settings = state
-        .services
-        .privacy_storage
-        .get_settings(&user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-    if let Some(settings) = privacy_settings {
-        let visibility = settings.profile_visibility.as_str();
-        match visibility {
-            "private" => {
-                if requester_id.as_deref() != Some(user_id.as_str()) {
-                    return Err(ApiError::forbidden("Profile is private".to_string()));
-                }
-            }
-            "contacts" => {
-                if requester_id.as_deref() != Some(user_id.as_str()) {
-                    return Err(ApiError::forbidden(
-                        "Profile is only visible to contacts".to_string(),
-                    ));
-                }
-            }
-            _ => {}
-        }
-    }
+    enforce_profile_visibility(&state, &headers, &user_id).await?;
 
     Ok(Json(
         state
@@ -77,9 +102,11 @@ pub(crate) async fn get_profile(
 
 pub(crate) async fn get_displayname(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
+    enforce_profile_visibility(&state, &headers, &user_id).await?;
 
     let profile = state
         .services
@@ -97,9 +124,11 @@ pub(crate) async fn get_displayname(
 
 pub(crate) async fn get_avatar_url(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
+    enforce_profile_visibility(&state, &headers, &user_id).await?;
 
     let profile = state
         .services
@@ -212,21 +241,7 @@ pub(crate) async fn change_password_uia(
     let auth = body.get("auth").cloned().unwrap_or(serde_json::json!({}));
     let auth_type = auth.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
-    if auth_type == "m.login.dummy" {
-        state
-            .services
-            .auth_service
-            .validator
-            .validate_password(new_password)?;
-
-        state
-            .services
-            .registration_service
-            .change_password(&auth_user.user_id, new_password)
-            .await?;
-
-        Ok(Json(json!({})))
-    } else if auth_type == "m.login.password" {
+    if auth_type == "m.login.password" {
         let password = auth
             .get("password")
             .and_then(|v| v.as_str())
@@ -279,7 +294,7 @@ pub(crate) async fn change_password_uia(
             state
                 .services
                 .registration_service
-                .change_password(&auth_user.user_id, new_password)
+                .change_password(&auth_user.user_id, Some(password), new_password)
                 .await?;
 
             Ok(Json(json!({})))
@@ -290,7 +305,7 @@ pub(crate) async fn change_password_uia(
         }
     } else {
         Err(ApiError::unauthorized(
-            "Authentication required".to_string(),
+            "m.login.password authentication required".to_string(),
         ))
     }
 }

@@ -193,6 +193,12 @@ pub async fn create_dm_room(
 
     let invite_list = body.invite.clone().unwrap_or_default();
 
+    if invite_list.len() > 20 {
+        return Err(ApiError::bad_request(
+            "DM room cannot have more than 20 invitees",
+        ));
+    }
+
     let users_to_invite = if !invite_list.is_empty() {
         invite_list.clone()
     } else if let Some(ref uid) = body.user_id {

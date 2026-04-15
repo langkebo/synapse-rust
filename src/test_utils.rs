@@ -310,10 +310,6 @@ fn candidate_database_urls() -> Vec<String> {
         }
     }
 
-    if urls.is_empty() && !db_tests_required() {
-        return urls;
-    }
-
     for fallback in [
         "postgresql://synapse:synapse@localhost:5432/synapse",
         "postgresql://synapse:synapse@localhost:5432/synapse_test",
@@ -326,18 +322,6 @@ fn candidate_database_urls() -> Vec<String> {
     }
 
     urls
-}
-
-fn db_tests_required() -> bool {
-    for key in ["DB_TESTS_REQUIRED", "INTEGRATION_TESTS_REQUIRED"] {
-        if let Ok(value) = std::env::var(key) {
-            let value = value.trim().to_ascii_lowercase();
-            if value == "1" || value == "true" || value == "yes" || value == "required" {
-                return true;
-            }
-        }
-    }
-    std::env::var("CI").is_ok()
 }
 
 fn next_test_schema_name() -> String {
