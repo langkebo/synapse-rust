@@ -195,7 +195,12 @@ const REQUIRED_INDEXES: &[(&str, &str, &str, Option<&str>)] = &[
     ),
     // access_tokens 表索引
     ("idx_access_tokens_user", "access_tokens", "user_id", None),
-    ("idx_access_tokens_token_hash", "access_tokens", "token_hash", None),
+    (
+        "idx_access_tokens_token_hash",
+        "access_tokens",
+        "token_hash",
+        None,
+    ),
     // refresh_tokens 表索引
     ("idx_refresh_tokens_user", "refresh_tokens", "user_id", None),
     // user_threepids 表索引

@@ -77,9 +77,10 @@ async fn test_rendezvous_session_requires_session_key_before_binding() {
         .uri(format!("/_matrix/client/v1/rendezvous/{}", session_id))
         .body(Body::empty())
         .unwrap();
-    let unauthorized_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthorized_get)
-        .await
-        .unwrap();
+    let unauthorized_get_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthorized_get)
+            .await
+            .unwrap();
     assert_eq!(unauthorized_get_response.status(), StatusCode::UNAUTHORIZED);
 
     let authorized_get = Request::builder()
@@ -112,7 +113,10 @@ async fn test_rendezvous_session_requires_session_key_before_binding() {
         ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthorized_send)
             .await
             .unwrap();
-    assert_eq!(unauthorized_send_response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        unauthorized_send_response.status(),
+        StatusCode::UNAUTHORIZED
+    );
 
     let authorized_send = Request::builder()
         .method("POST")

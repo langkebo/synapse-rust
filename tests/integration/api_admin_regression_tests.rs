@@ -319,7 +319,10 @@ async fn test_admin_room_reports_follow_current_event_report_schema() {
 
     let missing_room_id = format!("!missing-report-room-{}:localhost", rand::random::<u32>());
     let missing_request = Request::builder()
-        .uri(format!("/_synapse/admin/v1/rooms/{}/reports", missing_room_id))
+        .uri(format!(
+            "/_synapse/admin/v1/rooms/{}/reports",
+            missing_room_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -352,7 +355,10 @@ async fn test_admin_room_collection_queries_require_existing_room() {
         format!("/_synapse/admin/v1/rooms/{}/messages", missing_room_id),
         format!("/_synapse/admin/v1/rooms/{}/block", missing_room_id),
         format!("/_synapse/admin/v1/rooms/{}/room_listings", missing_room_id),
-        format!("/_synapse/admin/v1/rooms/{}/forward_extremities", missing_room_id),
+        format!(
+            "/_synapse/admin/v1/rooms/{}/forward_extremities",
+            missing_room_id
+        ),
         format!("/_synapse/admin/v1/rooms/{}/token_sync", missing_room_id),
     ] {
         let request = Request::builder()
@@ -382,7 +388,10 @@ async fn test_admin_room_collection_queries_require_existing_room() {
 
     let search_request = Request::builder()
         .method("POST")
-        .uri(format!("/_synapse/admin/v1/rooms/{}/search", missing_room_id))
+        .uri(format!(
+            "/_synapse/admin/v1/rooms/{}/search",
+            missing_room_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "search_term": "hello" }).to_string()))
@@ -408,9 +417,10 @@ async fn test_admin_room_member_delete_requires_existing_targets() {
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
 
-    let (_, managed_user_id) = register_user(&app, &format!("managed_member_{}", rand::random::<u32>()))
-        .await
-        .expect("failed to register managed user");
+    let (_, managed_user_id) =
+        register_user(&app, &format!("managed_member_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register managed user");
 
     let missing_room_id = format!("missing-room-{}", rand::random::<u32>());
     let missing_room_request = Request::builder()
@@ -439,10 +449,9 @@ async fn test_admin_room_member_delete_requires_existing_targets() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let missing_user_response =
-        ServiceExt::<Request<Body>>::oneshot(app, missing_user_request)
-            .await
-            .unwrap();
+    let missing_user_response = ServiceExt::<Request<Body>>::oneshot(app, missing_user_request)
+        .await
+        .unwrap();
     assert_eq!(missing_user_response.status(), StatusCode::NOT_FOUND);
 }
 
@@ -504,7 +513,10 @@ async fn test_admin_space_collection_queries_require_existing_space() {
     .expect("failed to seed space fixture");
 
     let users_request = Request::builder()
-        .uri(format!("/_synapse/admin/v1/spaces/{}/users", existing_space_id))
+        .uri(format!(
+            "/_synapse/admin/v1/spaces/{}/users",
+            existing_space_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -519,7 +531,10 @@ async fn test_admin_space_collection_queries_require_existing_space() {
     assert_eq!(users_json, json!({ "users": [], "total": 0 }));
 
     let rooms_request = Request::builder()
-        .uri(format!("/_synapse/admin/v1/spaces/{}/rooms", existing_space_id))
+        .uri(format!(
+            "/_synapse/admin/v1/spaces/{}/rooms",
+            existing_space_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -534,7 +549,10 @@ async fn test_admin_space_collection_queries_require_existing_space() {
     assert_eq!(rooms_json, json!({ "rooms": [], "total": 0 }));
 
     let stats_request = Request::builder()
-        .uri(format!("/_synapse/admin/v1/spaces/{}/stats", existing_space_id))
+        .uri(format!(
+            "/_synapse/admin/v1/spaces/{}/stats",
+            existing_space_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -961,15 +979,20 @@ async fn test_moderation_report_score_requires_admin() {
         return;
     };
 
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("report_score_admin_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(
+        &app,
+        &format!("report_score_admin_{}", rand::random::<u32>()),
+    )
+    .await
+    .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
 
-    let (user_token, _) = register_user(&app, &format!("report_score_user_{}", rand::random::<u32>()))
-        .await
-        .expect("failed to register regular user");
+    let (user_token, _) = register_user(
+        &app,
+        &format!("report_score_user_{}", rand::random::<u32>()),
+    )
+    .await
+    .expect("failed to register regular user");
 
     let room_id = create_room(&app, &admin_token, "Moderation Report Score").await;
     let event_id = send_message(&app, &admin_token, &room_id, "moderation-report-score").await;
@@ -1044,7 +1067,10 @@ async fn test_room_alias_delete_requires_member_or_admin() {
 
     let create_alias_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/directory/room/{}", encoded_alias))
+        .uri(format!(
+            "/_matrix/client/v3/directory/room/{}",
+            encoded_alias
+        ))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "room_id": room_id }).to_string()))
@@ -1056,7 +1082,10 @@ async fn test_room_alias_delete_requires_member_or_admin() {
 
     let unauthenticated_request = Request::builder()
         .method("DELETE")
-        .uri(format!("/_matrix/client/v3/directory/room/{}", encoded_alias))
+        .uri(format!(
+            "/_matrix/client/v3/directory/room/{}",
+            encoded_alias
+        ))
         .body(Body::empty())
         .unwrap();
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_request)
@@ -1066,7 +1095,10 @@ async fn test_room_alias_delete_requires_member_or_admin() {
 
     let user_v3_request = Request::builder()
         .method("DELETE")
-        .uri(format!("/_matrix/client/v3/directory/room/{}", encoded_alias))
+        .uri(format!(
+            "/_matrix/client/v3/directory/room/{}",
+            encoded_alias
+        ))
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -1091,7 +1123,10 @@ async fn test_room_alias_delete_requires_member_or_admin() {
 
     let admin_request = Request::builder()
         .method("DELETE")
-        .uri(format!("/_matrix/client/v3/directory/room/{}", encoded_alias))
+        .uri(format!(
+            "/_matrix/client/v3/directory/room/{}",
+            encoded_alias
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -1102,7 +1137,10 @@ async fn test_room_alias_delete_requires_member_or_admin() {
 
     let lookup_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/directory/room/{}", encoded_alias))
+        .uri(format!(
+            "/_matrix/client/v3/directory/room/{}",
+            encoded_alias
+        ))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -1119,10 +1157,9 @@ async fn test_room_summary_internal_write_routes_require_admin() {
         return;
     };
 
-    let (owner_token, _) =
-        register_user(&app, &format!("summary_owner_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register owner");
+    let (owner_token, _) = register_user(&app, &format!("summary_owner_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register owner");
     let (admin_token, admin_user_id) =
         register_user(&app, &format!("summary_admin_{}", rand::random::<u32>()))
             .await
@@ -1301,7 +1338,10 @@ async fn test_account_validity_write_endpoints_require_existing_user() {
     .expect("failed to register super admin user");
     promote_to_admin_with_role(&pool, &admin_user_id, "super_admin").await;
 
-    let missing_user_id = format!("@missing_account_validity_{}:localhost", rand::random::<u32>());
+    let missing_user_id = format!(
+        "@missing_account_validity_{}:localhost",
+        rand::random::<u32>()
+    );
     let expiration_ts = chrono::Utc::now().timestamp_millis() + 86_400_000_i64;
 
     let create_request = Request::builder()
@@ -1332,11 +1372,12 @@ async fn test_account_validity_write_endpoints_require_existing_user() {
         String::from_utf8_lossy(&create_body)
     );
 
-    let validity_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM account_validity WHERE user_id = $1")
-        .bind(&missing_user_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("failed to inspect account_validity table");
+    let validity_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM account_validity WHERE user_id = $1")
+            .bind(&missing_user_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect account_validity table");
     assert_eq!(validity_count, 0);
 
     let renew_request = Request::builder()
@@ -1448,9 +1489,10 @@ async fn test_user_admin_cannot_grant_admin_via_set_admin() {
             .expect("failed to register user admin");
     promote_to_admin_with_role(&pool, &user_admin_id, "user_admin").await;
 
-    let (_, target_user_id) = register_user(&app, &format!("target_user_{}", rand::random::<u32>()))
-        .await
-        .expect("failed to register target user");
+    let (_, target_user_id) =
+        register_user(&app, &format!("target_user_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register target user");
 
     let request = Request::builder()
         .method("PUT")
@@ -1471,11 +1513,12 @@ async fn test_user_admin_cannot_grant_admin_via_set_admin() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 
-    let target_admin: Option<bool> = sqlx::query_scalar("SELECT is_admin FROM users WHERE user_id = $1")
-        .bind(&target_user_id)
-        .fetch_optional(&*pool)
-        .await
-        .expect("failed to query target admin status");
+    let target_admin: Option<bool> =
+        sqlx::query_scalar("SELECT is_admin FROM users WHERE user_id = $1")
+            .bind(&target_user_id)
+            .fetch_optional(&*pool)
+            .await
+            .expect("failed to query target admin status");
     assert_eq!(target_admin, Some(false));
 }
 
@@ -1492,10 +1535,9 @@ async fn test_user_admin_cannot_assign_admin_fields_via_user_update_v2() {
             .expect("failed to register user admin");
     promote_to_admin_with_role(&pool, &user_admin_id, "user_admin").await;
 
-    let (_, target_user_id) =
-        register_user(&app, &format!("target_v2_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register target user");
+    let (_, target_user_id) = register_user(&app, &format!("target_v2_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register target user");
 
     let request = Request::builder()
         .method("PUT")
@@ -1570,11 +1612,12 @@ async fn test_super_admin_can_grant_admin_via_set_admin() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["success"], true);
 
-    let target_admin: Option<bool> = sqlx::query_scalar("SELECT is_admin FROM users WHERE user_id = $1")
-        .bind(&target_user_id)
-        .fetch_optional(&*pool)
-        .await
-        .expect("failed to query target admin status");
+    let target_admin: Option<bool> =
+        sqlx::query_scalar("SELECT is_admin FROM users WHERE user_id = $1")
+            .bind(&target_user_id)
+            .fetch_optional(&*pool)
+            .await
+            .expect("failed to query target admin status");
     assert_eq!(target_admin, Some(true));
 }
 
@@ -1591,9 +1634,10 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
             .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
 
-    let (user_token, _) = register_user(&app, &format!("appservice_user_{}", rand::random::<u32>()))
-        .await
-        .expect("failed to register regular user");
+    let (user_token, _) =
+        register_user(&app, &format!("appservice_user_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register regular user");
 
     let as_id = format!("admin_regression_as_{}", rand::random::<u32>());
     let create_body = json!({
@@ -1956,13 +2000,12 @@ async fn test_external_service_delete_enforces_unauth_user_admin_states() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
-    let deleted = sqlx::query_scalar::<_, String>(
-        "SELECT as_id FROM application_services WHERE as_id = $1",
-    )
-    .bind(&as_id)
-    .fetch_optional(&*pool)
-    .await
-    .expect("failed to query deleted external service");
+    let deleted =
+        sqlx::query_scalar::<_, String>("SELECT as_id FROM application_services WHERE as_id = $1")
+            .bind(&as_id)
+            .fetch_optional(&*pool)
+            .await
+            .expect("failed to query deleted external service");
     assert!(deleted.is_none());
 }
 
@@ -2152,7 +2195,10 @@ async fn test_external_webhook_accepts_payload_embedded_signature() {
 
     let (admin_token, admin_user_id) = register_user(
         &app,
-        &format!("external_webhook_payload_sig_admin_{}", rand::random::<u32>()),
+        &format!(
+            "external_webhook_payload_sig_admin_{}",
+            rand::random::<u32>()
+        ),
     )
     .await
     .expect("failed to register admin user");

@@ -250,9 +250,7 @@ async fn verification_mac(
     }
 
     if body.mac.is_empty() {
-        return Err(ApiError::bad_request(
-            "MAC must not be empty".to_string(),
-        ));
+        return Err(ApiError::bad_request("MAC must not be empty".to_string()));
     }
 
     let verified = state

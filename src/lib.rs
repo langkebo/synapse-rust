@@ -12,8 +12,6 @@ pub mod web;
 pub mod worker;
 
 #[allow(ambiguous_glob_reexports)]
-pub use auth::*;
-#[allow(ambiguous_glob_reexports)]
 pub use cache::*;
 #[allow(ambiguous_glob_reexports)]
 pub use common::*;

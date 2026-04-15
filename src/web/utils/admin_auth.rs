@@ -1,5 +1,5 @@
-use crate::common::ApiError;
 use crate::common::config::SecurityConfig;
+use crate::common::ApiError;
 use crate::storage::User;
 use crate::web::routes::AppState;
 use axum::http::{HeaderMap, Method};
@@ -24,7 +24,11 @@ pub(crate) async fn authorize_admin_request(
     state: &AppState,
 ) -> Result<AuthorizedAdmin, ApiError> {
     let access_token = super::auth::bearer_token(headers)?;
-    let (user_id, device_id, is_admin, _, _) = state.services.auth_service.validate_token(&access_token).await?;
+    let (user_id, device_id, is_admin, _, _) = state
+        .services
+        .auth_service
+        .validate_token(&access_token)
+        .await?;
 
     if !is_admin {
         return Err(ApiError::forbidden("Admin access required".to_string()));
@@ -45,9 +49,7 @@ pub(crate) async fn authorize_admin_request(
     }
 
     let role = normalize_admin_role(user.user_type.as_deref());
-    if state.services.config.security.admin_rbac_enabled
-        && !is_role_allowed(&role, method, path)
-    {
+    if state.services.config.security.admin_rbac_enabled && !is_role_allowed(&role, method, path) {
         return Err(ApiError::forbidden(format!(
             "Admin role '{}' is not allowed to access this resource",
             role
@@ -64,11 +66,7 @@ pub(crate) async fn authorize_admin_request(
                 ApiError::forbidden("Sensitive admin operation requires MFA code".to_string())
             })?;
 
-        verify_totp_code(
-            &state.services.config.security,
-            mfa_code,
-            Some(&user),
-        )?;
+        verify_totp_code(&state.services.config.security, mfa_code, Some(&user))?;
     }
 
     Ok(AuthorizedAdmin {
@@ -176,7 +174,10 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
 }
 
 fn is_sensitive_admin_request(method: &Method, path: &str) -> bool {
-    if matches!(*method, Method::POST | Method::PUT | Method::PATCH | Method::DELETE) {
+    if matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    ) {
         return true;
     }
 
@@ -195,12 +196,16 @@ fn verify_totp_code(
     }
 
     let secret = decode_secret(&security.admin_mfa_shared_secret).ok_or_else(|| {
-        ApiError::forbidden("Admin MFA is enabled but no valid TOTP secret is configured".to_string())
+        ApiError::forbidden(
+            "Admin MFA is enabled but no valid TOTP secret is configured".to_string(),
+        )
     })?;
 
     let provided_code = provided_code.trim();
     if provided_code.len() != 6 || !provided_code.chars().all(|ch| ch.is_ascii_digit()) {
-        return Err(ApiError::forbidden("Invalid admin MFA code format".to_string()));
+        return Err(ApiError::forbidden(
+            "Invalid admin MFA code format".to_string(),
+        ));
     }
 
     let now = SystemTime::now()
@@ -220,7 +225,9 @@ fn verify_totp_code(
         }
     }
 
-    let user_id = user.map(|value| value.user_id.as_str()).unwrap_or("unknown");
+    let user_id = user
+        .map(|value| value.user_id.as_str())
+        .unwrap_or("unknown");
     tracing::warn!(target: "admin_auth", user_id, "Admin MFA verification failed");
     Err(ApiError::forbidden("Invalid admin MFA code".to_string()))
 }

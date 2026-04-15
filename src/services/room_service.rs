@@ -764,7 +764,8 @@ impl RoomService {
             .into_iter()
             .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
         {
-            event.content
+            event
+                .content
                 .get("join_rule")
                 .and_then(|value| value.as_str())
                 .map(|value| value.to_string())
@@ -812,9 +813,7 @@ impl RoomService {
                 .as_ref()
                 .is_none_or(|member| member.membership != "invite")
         {
-            return Err(ApiError::forbidden(
-                "Room is invite-only".to_string(),
-            ));
+            return Err(ApiError::forbidden("Room is invite-only".to_string()));
         }
 
         self.member_storage

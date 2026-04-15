@@ -207,7 +207,9 @@ impl OlmService {
             let signature = account.sign(message);
             Ok(signature.to_base64())
         } else {
-            Err(ApiError::internal("Olm account not initialized - cannot sign"))
+            Err(ApiError::internal(
+                "Olm account not initialized - cannot sign",
+            ))
         }
     }
 
@@ -381,8 +383,11 @@ impl OlmService {
         if let Some(ref account) = *account {
             let session_config = SessionConfig::version_2();
 
-            let mut session =
-                account.create_outbound_session(session_config, *their_identity_key, *their_one_time_key);
+            let mut session = account.create_outbound_session(
+                session_config,
+                *their_identity_key,
+                *their_one_time_key,
+            );
 
             let message = session.encrypt(b"");
             let message_type = if message.message_type() == vodozemac::olm::MessageType::PreKey {

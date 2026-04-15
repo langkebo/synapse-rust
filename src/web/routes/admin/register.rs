@@ -156,8 +156,8 @@ fn verify_mac(
         message.extend(ut.as_bytes());
     }
 
-    let mut mac = HmacSha1::new_from_slice(shared_secret.as_bytes())
-        .expect("HMAC can take key of any size");
+    let mut mac =
+        HmacSha1::new_from_slice(shared_secret.as_bytes()).expect("HMAC can take key of any size");
     mac.update(&message);
     let result = mac.finalize();
 
@@ -267,9 +267,7 @@ fn runtime_environment() -> String {
         .to_ascii_lowercase()
 }
 
-fn ensure_admin_registration_environment(
-    production_only: bool,
-) -> Result<(), Box<Response<Body>>> {
+fn ensure_admin_registration_environment(production_only: bool) -> Result<(), Box<Response<Body>>> {
     if production_only && runtime_environment() != "production" {
         return Err(Box::new(register_error_response(
             403,
@@ -317,8 +315,8 @@ fn ensure_admin_registration_ip_policy(
         )));
     }
 
-    if let Some(client_ip) = extract_registration_client_ip(headers)
-        .and_then(|ip| ip.parse::<IpAddr>().ok())
+    if let Some(client_ip) =
+        extract_registration_client_ip(headers).and_then(|ip| ip.parse::<IpAddr>().ok())
     {
         if !ip_matches_whitelist(client_ip, ip_whitelist) {
             return Err(Box::new(register_error_response(
@@ -363,7 +361,12 @@ async fn verify_additional_registration_controls(
         }
     }
 
-    if state.services.config.admin_registration.require_manual_approval {
+    if state
+        .services
+        .config
+        .admin_registration
+        .require_manual_approval
+    {
         let approval_token = payload.approval_token.as_ref().ok_or_else(|| {
             register_error_response(400, "M_INVALID_PARAM", "approval_token is required")
         })?;
@@ -541,20 +544,23 @@ async fn register(
     );
 
     let register_result = auth_service
-        .register(&payload.username, &payload.password, payload.admin, Some(&display_name))
+        .register(
+            &payload.username,
+            &payload.password,
+            payload.admin,
+            Some(&display_name),
+        )
         .await;
 
     match register_result {
-        Ok((_user, access_token, refresh_token, device_id)) => {
-            Ok(Json(RegisterResponse {
-                access_token,
-                refresh_token,
-                expires_in: 3600,
-                device_id,
-                user_id: user_id.clone(),
-                home_server: config.server.name.clone(),
-            }))
-        }
+        Ok((_user, access_token, refresh_token, device_id)) => Ok(Json(RegisterResponse {
+            access_token,
+            refresh_token,
+            expires_in: 3600,
+            device_id,
+            user_id: user_id.clone(),
+            home_server: config.server.name.clone(),
+        })),
         Err(e) => {
             let error_msg = e.to_string();
             let error_msg_lower = error_msg.to_lowercase();
@@ -630,8 +636,17 @@ mod tests {
     #[test]
     fn test_ip_matches_whitelist_supports_ip_and_cidr() {
         let whitelist = vec!["127.0.0.1".to_string(), "10.0.0.0/8".to_string()];
-        assert!(ip_matches_whitelist("127.0.0.1".parse().unwrap(), &whitelist));
-        assert!(ip_matches_whitelist("10.10.1.3".parse().unwrap(), &whitelist));
-        assert!(!ip_matches_whitelist("192.168.1.10".parse().unwrap(), &whitelist));
+        assert!(ip_matches_whitelist(
+            "127.0.0.1".parse().unwrap(),
+            &whitelist
+        ));
+        assert!(ip_matches_whitelist(
+            "10.10.1.3".parse().unwrap(),
+            &whitelist
+        ));
+        assert!(!ip_matches_whitelist(
+            "192.168.1.10".parse().unwrap(),
+            &whitelist
+        ));
     }
 }

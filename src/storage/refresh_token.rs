@@ -263,7 +263,11 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
-    pub async fn revoke_token_cas(&self, token_hash: &str, reason: &str) -> Result<bool, sqlx::Error> {
+    pub async fn revoke_token_cas(
+        &self,
+        token_hash: &str,
+        reason: &str,
+    ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
             UPDATE refresh_tokens SET

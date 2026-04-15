@@ -999,7 +999,11 @@ impl FriendRoomService {
     }
 
     /// 查询任意用户的好友列表 (支持本地和远程)
-    pub async fn query_user_friends(&self, requester_id: &str, target_user_id: &str) -> ApiResult<Vec<String>> {
+    pub async fn query_user_friends(
+        &self,
+        requester_id: &str,
+        target_user_id: &str,
+    ) -> ApiResult<Vec<String>> {
         if requester_id != target_user_id {
             return Err(ApiError::forbidden(
                 "You can only query your own friend list".to_string(),

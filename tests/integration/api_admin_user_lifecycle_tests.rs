@@ -81,10 +81,9 @@ async fn test_admin_user_stats_reflect_real_counts() {
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "deactivated": true }).to_string()))
         .unwrap();
-    let deactivate_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), deactivate_request)
-            .await
-            .unwrap();
+    let deactivate_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), deactivate_request)
+        .await
+        .unwrap();
     assert_eq!(deactivate_response.status(), StatusCode::OK);
 
     let updated_request = Request::builder()

@@ -37,7 +37,6 @@ pub async fn disable_encryption(
     State(service): State<Arc<MegolmService>>,
     Path(room_id): Path<String>,
 ) -> Result<Json<()>, ApiError> {
-
     let sessions = service.get_room_sessions(&room_id).await?;
 
     for session in sessions {

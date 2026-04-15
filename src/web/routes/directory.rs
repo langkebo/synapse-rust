@@ -79,9 +79,7 @@ pub async fn set_room_alias_handler(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
 
-    let is_member = membership
-        .as_ref()
-        .is_some_and(|m| m.membership == "join");
+    let is_member = membership.as_ref().is_some_and(|m| m.membership == "join");
 
     if !is_member {
         return Err(ApiError::forbidden(
@@ -125,9 +123,7 @@ pub async fn remove_room_alias(
             .await
             .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
 
-        let is_member = membership
-            .as_ref()
-            .is_some_and(|m| m.membership == "join");
+        let is_member = membership.as_ref().is_some_and(|m| m.membership == "join");
 
         if !is_member {
             return Err(ApiError::forbidden(

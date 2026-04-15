@@ -369,17 +369,28 @@ async fn test_private_profile_subfields_follow_profile_visibility() {
         return;
     };
 
-    let (alice_token, alice_id) =
-        register_user(&app, &format!("profile_private_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, _) =
-        register_user(&app, &format!("profile_private_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, alice_id) = register_user(
+        &app,
+        &format!("profile_private_alice_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (bob_token, _) = register_user(
+        &app,
+        &format!("profile_private_bob_{}", rand::random::<u32>()),
+    )
+    .await;
 
     let set_displayname = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/profile/{}/displayname", alice_id))
+        .uri(format!(
+            "/_matrix/client/v3/profile/{}/displayname",
+            alice_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({ "displayname": "Alice Private" }).to_string()))
+        .body(Body::from(
+            json!({ "displayname": "Alice Private" }).to_string(),
+        ))
         .unwrap();
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_displayname)
         .await
@@ -388,7 +399,10 @@ async fn test_private_profile_subfields_follow_profile_visibility() {
 
     let set_avatar = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/profile/{}/avatar_url", alice_id))
+        .uri(format!(
+            "/_matrix/client/v3/profile/{}/avatar_url",
+            alice_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -420,7 +434,10 @@ async fn test_private_profile_subfields_follow_profile_visibility() {
 
     let own_displayname_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/profile/{}/displayname", alice_id))
+        .uri(format!(
+            "/_matrix/client/v3/profile/{}/displayname",
+            alice_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
@@ -436,7 +453,10 @@ async fn test_private_profile_subfields_follow_profile_visibility() {
 
     let own_avatar_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/profile/{}/avatar_url", alice_id))
+        .uri(format!(
+            "/_matrix/client/v3/profile/{}/avatar_url",
+            alice_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
@@ -457,17 +477,28 @@ async fn test_user_directory_profile_respects_profile_visibility() {
         return;
     };
 
-    let (alice_token, alice_id) =
-        register_user(&app, &format!("directory_private_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, _) =
-        register_user(&app, &format!("directory_private_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, alice_id) = register_user(
+        &app,
+        &format!("directory_private_alice_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (bob_token, _) = register_user(
+        &app,
+        &format!("directory_private_bob_{}", rand::random::<u32>()),
+    )
+    .await;
 
     let set_displayname = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/profile/{}/displayname", alice_id))
+        .uri(format!(
+            "/_matrix/client/v3/profile/{}/displayname",
+            alice_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({ "displayname": "Alice Directory" }).to_string()))
+        .body(Body::from(
+            json!({ "displayname": "Alice Directory" }).to_string(),
+        ))
         .unwrap();
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_displayname)
         .await
@@ -517,14 +548,23 @@ async fn test_user_directory_search_and_list_respect_profile_visibility() {
         return;
     };
 
-    let (alice_token, alice_id) =
-        register_user(&app, &format!("directory_list_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_id) =
-        register_user(&app, &format!("directory_list_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, alice_id) = register_user(
+        &app,
+        &format!("directory_list_alice_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (bob_token, bob_id) = register_user(
+        &app,
+        &format!("directory_list_bob_{}", rand::random::<u32>()),
+    )
+    .await;
 
     let set_displayname = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/profile/{}/displayname", alice_id))
+        .uri(format!(
+            "/_matrix/client/v3/profile/{}/displayname",
+            alice_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -594,14 +634,23 @@ async fn test_client_search_users_respects_profile_visibility() {
         return;
     };
 
-    let (alice_token, alice_id) =
-        register_user(&app, &format!("search_hidden_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_id) =
-        register_user(&app, &format!("search_hidden_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, alice_id) = register_user(
+        &app,
+        &format!("search_hidden_alice_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (bob_token, bob_id) = register_user(
+        &app,
+        &format!("search_hidden_bob_{}", rand::random::<u32>()),
+    )
+    .await;
 
     let set_displayname = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/profile/{}/displayname", alice_id))
+        .uri(format!(
+            "/_matrix/client/v3/profile/{}/displayname",
+            alice_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -683,14 +732,23 @@ async fn test_search_recipients_respects_profile_visibility() {
         return;
     };
 
-    let (alice_token, alice_id) =
-        register_user(&app, &format!("recipient_hidden_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, _) =
-        register_user(&app, &format!("recipient_hidden_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, alice_id) = register_user(
+        &app,
+        &format!("recipient_hidden_alice_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (bob_token, _) = register_user(
+        &app,
+        &format!("recipient_hidden_bob_{}", rand::random::<u32>()),
+    )
+    .await;
 
     let set_displayname = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/profile/{}/displayname", alice_id))
+        .uri(format!(
+            "/_matrix/client/v3/profile/{}/displayname",
+            alice_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(

@@ -108,7 +108,11 @@ fn secure_compare(a: &str, b: &str) -> bool {
     let b_bytes = b.as_bytes();
     let max_len = a_bytes.len().max(b_bytes.len());
 
-    let mut result: u8 = if a_bytes.len() != b_bytes.len() { 0xFF } else { 0 };
+    let mut result: u8 = if a_bytes.len() != b_bytes.len() {
+        0xFF
+    } else {
+        0
+    };
 
     for i in 0..max_len {
         let a_byte = a_bytes.get(i).copied().unwrap_or(0);

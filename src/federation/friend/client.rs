@@ -14,24 +14,21 @@ pub struct FriendFederationClient {
 
 impl FriendFederationClient {
     pub fn new(server_name: String) -> Self {
-        let signing_key_id = std::env::var("FEDERATION_SIGNING_KEY_ID")
-            .unwrap_or_else(|_| "ed25519:0".to_string());
+        let signing_key_id =
+            std::env::var("FEDERATION_SIGNING_KEY_ID").unwrap_or_else(|_| "ed25519:0".to_string());
 
         let signing_key = std::env::var("FEDERATION_SIGNING_KEY")
             .ok()
             .and_then(|key_b64| {
-                STANDARD_NO_PAD
-                    .decode(&key_b64)
-                    .ok()
-                    .and_then(|bytes| {
-                        if bytes.len() == 32 {
-                            let mut arr = [0u8; 32];
-                            arr.copy_from_slice(&bytes);
-                            Some(SigningKey::from_bytes(&arr))
-                        } else {
-                            None
-                        }
-                    })
+                STANDARD_NO_PAD.decode(&key_b64).ok().and_then(|bytes| {
+                    if bytes.len() == 32 {
+                        let mut arr = [0u8; 32];
+                        arr.copy_from_slice(&bytes);
+                        Some(SigningKey::from_bytes(&arr))
+                    } else {
+                        None
+                    }
+                })
             });
 
         if signing_key.is_none() {
@@ -89,8 +86,7 @@ impl FriendFederationClient {
         let body_str = serde_json::to_string(content)
             .map_err(|e| ApiError::internal(format!("Failed to serialize body: {}", e)))?;
 
-        let auth_header =
-            self.sign_request("PUT", &path, destination, Some(content))?;
+        let auth_header = self.sign_request("PUT", &path, destination, Some(content))?;
 
         tracing::info!("Sending federation invite to {}", url);
         let response = self
