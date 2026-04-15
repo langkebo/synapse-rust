@@ -938,10 +938,12 @@ pub async fn get_user_sessions(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let user = resolve_user(&state, &user_id).await?;
+
     let devices = sqlx::query(
         "SELECT device_id, display_name, last_seen_ts, last_seen_ip FROM devices WHERE user_id = $1"
     )
-    .bind(&user_id)
+    .bind(&user.user_id)
     .fetch_all(&*state.services.device_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -960,7 +962,7 @@ pub async fn get_user_sessions(
         .collect();
 
     Ok(Json(json!({
-        "user_id": user_id,
+        "user_id": user.user_id,
         "sessions": sessions,
         "total": sessions.len()
     })))

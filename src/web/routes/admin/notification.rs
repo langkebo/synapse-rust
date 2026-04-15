@@ -68,6 +68,21 @@ pub fn create_notification_router(_state: AppState) -> Router<AppState> {
         )
 }
 
+async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
+    let user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if user.is_none() {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ServerNoticeRequest {
     pub user_id: String,
@@ -547,6 +562,8 @@ pub async fn get_user_notification(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&state, &user_id).await?;
+
     let setting = sqlx::query("SELECT enabled FROM user_notification_settings WHERE user_id = $1")
         .bind(&user_id)
         .fetch_optional(&*state.services.user_storage.pool)
@@ -568,6 +585,8 @@ pub async fn update_user_notification(
     Path(user_id): Path<String>,
     Json(body): Json<UserNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&state, &user_id).await?;
+
     sqlx::query(
         "INSERT INTO user_notification_settings (user_id, enabled) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET enabled = $2"
     )
@@ -586,16 +605,7 @@ pub async fn get_user_pushers(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = state
-        .services
-        .user_storage
-        .get_user_by_identifier(&user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-    if user.is_none() {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    ensure_user_exists(&state, &user_id).await?;
 
     let pushers = sqlx::query(
         "SELECT pushkey, kind, app_id, app_display_name, device_display_name, profile_tag, lang, data FROM pushers WHERE user_id = $1"
@@ -632,6 +642,8 @@ pub async fn delete_user_pusher(
     State(state): State<AppState>,
     Path((user_id, pushkey)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&state, &user_id).await?;
+
     let result = sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2")
         .bind(&user_id)
         .bind(&pushkey)

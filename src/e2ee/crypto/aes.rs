@@ -1,5 +1,6 @@
 use crate::e2ee::crypto::CryptoError;
 use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
+use base64::Engine;
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use dashmap::DashSet;
 use generic_array::GenericArray;
@@ -12,7 +13,7 @@ use typenum::U32;
 const NONCE_HISTORY_SIZE: usize = 10000;
 const NONCE_COUNTER_MAX: u64 = (1u64 << 32) - 1;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Aes256GcmKey {
     bytes: [u8; 32],
 }
@@ -33,9 +34,25 @@ impl Aes256GcmKey {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Aes256GcmNonce {
     bytes: [u8; 12],
+}
+
+impl Serialize for Aes256GcmNonce {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(self.bytes))
+    }
+}
+
+impl<'de> Deserialize<'de> for Aes256GcmNonce {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&s)
+            .map_err(serde::de::Error::custom)?;
+        Self::from_bytes(&bytes).map_err(serde::de::Error::custom)
+    }
 }
 
 impl Aes256GcmNonce {
@@ -60,9 +77,25 @@ impl Aes256GcmNonce {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct XChaCha20Poly1305Nonce {
     bytes: [u8; 24],
+}
+
+impl Serialize for XChaCha20Poly1305Nonce {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(self.bytes))
+    }
+}
+
+impl<'de> Deserialize<'de> for XChaCha20Poly1305Nonce {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&s)
+            .map_err(serde::de::Error::custom)?;
+        Self::from_bytes(&bytes).map_err(serde::de::Error::custom)
+    }
 }
 
 impl XChaCha20Poly1305Nonce {
@@ -87,10 +120,44 @@ impl XChaCha20Poly1305Nonce {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Aes256GcmCiphertext {
     nonce: Aes256GcmNonce,
     ciphertext: Vec<u8>,
+}
+
+impl Serialize for Aes256GcmCiphertext {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("Aes256GcmCiphertext", 2)?;
+        state.serialize_field("nonce", &self.nonce)?;
+        state.serialize_field(
+            "ciphertext",
+            &base64::engine::general_purpose::STANDARD.encode(&self.ciphertext),
+        )?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Aes256GcmCiphertext {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let nonce: Aes256GcmNonce = serde_json::from_value(
+            value
+                .get("nonce")
+                .ok_or_else(|| serde::de::Error::missing_field("nonce"))?
+                .clone(),
+        )
+        .map_err(serde::de::Error::custom)?;
+        let ct_str = value
+            .get("ciphertext")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| serde::de::Error::missing_field("ciphertext"))?;
+        let ciphertext = base64::engine::general_purpose::STANDARD
+            .decode(ct_str)
+            .map_err(serde::de::Error::custom)?;
+        Ok(Self::new(nonce, ciphertext))
+    }
 }
 
 impl Aes256GcmCiphertext {
@@ -113,10 +180,44 @@ impl AsRef<[u8]> for Aes256GcmCiphertext {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct XChaCha20Poly1305Ciphertext {
     nonce: XChaCha20Poly1305Nonce,
     ciphertext: Vec<u8>,
+}
+
+impl Serialize for XChaCha20Poly1305Ciphertext {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("XChaCha20Poly1305Ciphertext", 2)?;
+        state.serialize_field("nonce", &self.nonce)?;
+        state.serialize_field(
+            "ciphertext",
+            &base64::engine::general_purpose::STANDARD.encode(&self.ciphertext),
+        )?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for XChaCha20Poly1305Ciphertext {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let nonce: XChaCha20Poly1305Nonce = serde_json::from_value(
+            value
+                .get("nonce")
+                .ok_or_else(|| serde::de::Error::missing_field("nonce"))?
+                .clone(),
+        )
+        .map_err(serde::de::Error::custom)?;
+        let ct_str = value
+            .get("ciphertext")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| serde::de::Error::missing_field("ciphertext"))?;
+        let ciphertext = base64::engine::general_purpose::STANDARD
+            .decode(ct_str)
+            .map_err(serde::de::Error::custom)?;
+        Ok(Self::new(nonce, ciphertext))
+    }
 }
 
 impl XChaCha20Poly1305Ciphertext {
@@ -164,7 +265,7 @@ impl NonceTracker {
     }
 
     pub fn check_and_record(&self, nonce: &[u8]) -> Result<(), CryptoError> {
-        if self.used_nonces.contains(nonce) {
+        if !self.used_nonces.insert(nonce.to_vec()) {
             return Err(CryptoError::NonceReuseDetected);
         }
 
@@ -172,7 +273,6 @@ impl NonceTracker {
             self.prune_old_nonces();
         }
 
-        self.used_nonces.insert(nonce.to_vec());
         self.counter.fetch_add(1, Ordering::SeqCst);
 
         Ok(())
@@ -235,7 +335,7 @@ impl SecureNonceGenerator {
 
     pub fn generate_aes_gcm_nonce(&self) -> Result<Aes256GcmNonce, CryptoError> {
         let counter = self.counter.fetch_add(1, Ordering::SeqCst);
-        if counter > NONCE_COUNTER_MAX {
+        if counter >= NONCE_COUNTER_MAX {
             return Err(CryptoError::NonceCounterOverflow);
         }
 
@@ -251,7 +351,7 @@ impl SecureNonceGenerator {
 
     pub fn generate_xchacha_nonce(&self) -> Result<XChaCha20Poly1305Nonce, CryptoError> {
         let counter = self.counter.fetch_add(1, Ordering::SeqCst);
-        if counter > NONCE_COUNTER_MAX {
+        if counter >= NONCE_COUNTER_MAX {
             return Err(CryptoError::NonceCounterOverflow);
         }
 

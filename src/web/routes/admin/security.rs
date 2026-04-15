@@ -140,6 +140,8 @@ pub async fn get_user_rate_limit(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&state, &user_id).await?;
+
     let limit =
         sqlx::query("SELECT messages_per_second, burst_count FROM rate_limits WHERE user_id = $1")
             .bind(&user_id)
