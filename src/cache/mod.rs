@@ -1365,7 +1365,6 @@ pub struct RedisPoolMetrics {
 
 impl CacheManager {
     /// 获取 Redis 连接池监控指标
-    #[allow(dead_code)]
     pub fn get_redis_pool_metrics_sync(&self) -> Option<RedisPoolMetrics> {
         // 简化的同步版本，返回基础指标
         Some(RedisPoolMetrics {

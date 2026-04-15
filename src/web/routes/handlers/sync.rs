@@ -101,7 +101,6 @@ pub(crate) async fn sync(
 }
 
 #[derive(Serialize)]
-#[allow(dead_code)]
 pub(crate) struct FilterResponse {
     filter_id: String,
     room: Option<Value>,

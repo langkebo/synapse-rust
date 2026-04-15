@@ -27,6 +27,15 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
     super::get_admin_token(app).await
 }
 
+async fn promote_admin_role(pool: &sqlx::PgPool, username: &str, role: &str) {
+    sqlx::query("UPDATE users SET is_admin = TRUE, user_type = $2 WHERE username = $1")
+        .bind(username)
+        .bind(role)
+        .execute(pool)
+        .await
+        .expect("failed to promote admin role");
+}
+
 async fn create_test_user(app: &axum::Router) -> String {
     let username = format!("user_{}", rand::random::<u32>());
     let password = "Password123!";
@@ -722,6 +731,85 @@ async fn test_admin_room_listing_requires_existing_room() {
 }
 
 #[tokio::test]
+async fn test_admin_room_listing_private_removes_directory_entry() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "Directory Toggle Room"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+
+    let create_body = axum::body::to_bytes(create_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let create_json: Value = serde_json::from_slice(&create_body).unwrap();
+    let room_id = create_json["room_id"].as_str().unwrap().to_string();
+    let encoded_room_id = encode_path_segment(&room_id);
+
+    let set_public_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_synapse/admin/v1/rooms/{}/listings/public",
+            encoded_room_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let set_public_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), set_public_request)
+            .await
+            .unwrap();
+    assert_eq!(set_public_response.status(), StatusCode::OK);
+
+    let in_directory_after_publish: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)")
+            .bind(&room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect room directory after publish");
+    assert!(in_directory_after_publish);
+
+    let set_private_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/rooms/{}/listings/public",
+            encoded_room_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let set_private_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), set_private_request)
+            .await
+            .unwrap();
+    assert_eq!(set_private_response.status(), StatusCode::OK);
+
+    let in_directory_after_private: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)")
+            .bind(&room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect room directory after unpublish");
+    assert!(!in_directory_after_private);
+}
+
+#[tokio::test]
 async fn test_admin_room_block_writes_require_existing_room() {
     let Some((app, pool)) = setup_test_app_with_pool().await else {
         return;
@@ -852,11 +940,12 @@ async fn test_admin_room_make_admin_accepts_put_and_updates_power_levels() {
 
 #[tokio::test]
 async fn test_admin_room_member_management_supports_path_and_body_routes() {
-    let Some(app) = setup_test_app().await else {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    promote_admin_role(&pool, &admin_username, "super_admin").await;
     let user_token = create_test_user(&app).await;
 
     let whoami_request = Request::builder()
@@ -881,7 +970,13 @@ async fn test_admin_room_member_management_supports_path_and_body_routes() {
         .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({"name": "Admin Member Room"}).to_string()))
+        .body(Body::from(
+            json!({
+                "name": "Admin Member Room",
+                "visibility": "public"
+            })
+            .to_string(),
+        ))
         .unwrap();
     let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
         .await
@@ -938,6 +1033,14 @@ async fn test_admin_room_member_management_supports_path_and_body_routes() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["membership"], "ban");
+
+    let member_count_after_ban: i64 =
+        sqlx::query_scalar("SELECT member_count FROM room_summaries WHERE room_id = $1")
+            .bind(&room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect room member count after ban");
+    assert_eq!(member_count_after_ban, 1);
 
     let kick_request = Request::builder()
         .method("POST")

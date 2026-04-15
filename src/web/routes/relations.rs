@@ -49,7 +49,6 @@ pub fn create_relations_router(state: AppState) -> Router<AppState> {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct RelationsQuery {
     limit: Option<i64>,
     from: Option<String>,

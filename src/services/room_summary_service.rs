@@ -108,7 +108,6 @@ impl RoomSummaryService {
             .ok_or_else(|| ApiError::not_found("Room summary not found after sync"))
     }
 
-    #[allow(dead_code)]
     async fn get_initial_state_events(
         &self,
         room_id: &str,

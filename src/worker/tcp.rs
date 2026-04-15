@@ -10,7 +10,6 @@ use tracing::{debug, error, info, warn};
 
 pub struct TcpReplicationServer {
     listener: TcpListener,
-    #[allow(dead_code)]
     protocol: ReplicationProtocol,
     server_name: String,
     command_tx: Sender<ReplicationCommand>,
@@ -173,7 +172,6 @@ impl TcpReplicationServer {
 pub struct TcpReplicationClient {
     stream: Option<TcpStream>,
     protocol: ReplicationProtocol,
-    #[allow(dead_code)]
     server_name: String,
     worker_name: String,
 }

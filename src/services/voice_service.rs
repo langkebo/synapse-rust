@@ -8,7 +8,6 @@ use std::sync::Arc;
 use tokio::fs;
 
 #[derive(Debug, sqlx::FromRow)]
-#[allow(dead_code)]
 struct VoiceMessageDBRow {
     id: i64,
     event_id: String,

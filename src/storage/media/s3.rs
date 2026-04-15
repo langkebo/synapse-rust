@@ -5,7 +5,6 @@ use async_trait::async_trait;
 
 pub struct S3Backend {
     config: S3Config,
-    #[allow(dead_code)]
     client: Option<()>,
 }
 
