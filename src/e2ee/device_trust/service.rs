@@ -7,7 +7,6 @@ use crate::e2ee::device_trust::models::*;
 use crate::e2ee::device_trust::storage::DeviceTrustStorage;
 use crate::e2ee::verification::VerificationService;
 use crate::error::ApiError;
-use rand::Rng;
 use std::sync::Arc;
 
 pub struct DeviceTrustService {
@@ -502,7 +501,7 @@ fn generate_verification_token() -> String {
     use rand::RngCore;
     let mut bytes = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut bytes);
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&bytes)
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
 #[cfg(test)]

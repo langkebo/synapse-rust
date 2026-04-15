@@ -19,6 +19,7 @@ pub mod rate_limit;
 pub mod rate_limit_config;
 pub mod regex_cache;
 pub mod sanitizer;
+pub mod sanitizer_v2;
 pub mod security;
 pub mod task_queue;
 pub mod telemetry_config;

@@ -11,6 +11,7 @@ default = ["server"]
 server = ["dep:axum", "dep:tower-http", "dep:tower_governor"]
 runtime-ddl = []
 performance-tests = []
+test-utils = []
 
 [dependencies]
 tokio = { version = "1.49", features = ["full", "test-util"] }
@@ -96,6 +97,7 @@ elasticsearch = "8.15.0-alpha.1"
 
 reqwest = { version = "0.12", features = ["json"] }
 validator = { version = "0.20.0", features = ["derive"] }
+ammonia = "4.1"
 infer = "0.19.0"
 textwrap = "0.16"
 

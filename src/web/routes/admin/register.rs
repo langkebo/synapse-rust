@@ -540,32 +540,12 @@ async fn register(
         &config.server.name,
     );
 
-    let register_result = if payload.admin {
-        auth_service
-            .register_admin(&payload.username, &payload.password, Some(&display_name))
-            .await
-    } else {
-        auth_service
-            .register(&payload.username, &payload.password, Some(&display_name))
-            .await
-    };
+    let register_result = auth_service
+        .register(&payload.username, &payload.password, payload.admin, Some(&display_name))
+        .await;
 
     match register_result {
         Ok((_user, access_token, refresh_token, device_id)) => {
-            if payload.admin {
-                if let Err(e) = sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
-                    .bind(&user_id)
-                    .execute(&*state.services.user_storage.pool)
-                    .await
-                {
-                    return Err(register_error_response(
-                        500,
-                        "M_UNKNOWN",
-                        format!("Failed to update admin status: {}", e),
-                    ));
-                }
-            }
-
             Ok(Json(RegisterResponse {
                 access_token,
                 refresh_token,

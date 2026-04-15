@@ -1389,6 +1389,21 @@ async fn test_admin_room_retention_policy_requires_existing_room() {
             .unwrap();
     assert_eq!(set_room_policy_response.status(), StatusCode::NOT_FOUND);
 
+    let get_room_policy_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_synapse/admin/v1/retention/policy/{}",
+            encoded_room_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_room_policy_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), get_room_policy_request)
+            .await
+            .unwrap();
+    assert_eq!(get_room_policy_response.status(), StatusCode::NOT_FOUND);
+
     let has_policy: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_retention_policies WHERE room_id = $1)")
             .bind(&missing_room_id)
@@ -1396,6 +1411,62 @@ async fn test_admin_room_retention_policy_requires_existing_room() {
             .await
             .expect("failed to inspect room_retention_policies after rejected write");
     assert!(!has_policy);
+}
+
+#[tokio::test]
+async fn test_admin_retention_run_requires_existing_room() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    sqlx::query("UPDATE users SET user_type = 'super_admin' WHERE username = $1")
+        .bind(&admin_username)
+        .execute(&*pool)
+        .await
+        .expect("failed to promote admin test user to super_admin");
+
+    sqlx::query(
+        "INSERT INTO server_retention_policy (id, max_lifetime, min_lifetime, expire_on_clients, created_ts, updated_ts)
+         VALUES (1, $1, $2, FALSE, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
+         ON CONFLICT (id) DO UPDATE SET max_lifetime = EXCLUDED.max_lifetime, min_lifetime = EXCLUDED.min_lifetime, updated_ts = EXTRACT(EPOCH FROM NOW())::BIGINT * 1000",
+    )
+    .bind(86_400_000_i64)
+    .bind(3_600_000_i64)
+    .execute(&*pool)
+    .await
+    .expect("failed to seed server_retention_policy");
+
+    let missing_room_id = format!("!missing_retention_run_{}:localhost", rand::random::<u32>());
+    let run_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/retention/run")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room_id": missing_room_id
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let run_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), run_request)
+        .await
+        .unwrap();
+    assert_eq!(run_response.status(), StatusCode::NOT_FOUND);
+
+    let has_cleanup_log: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM retention_cleanup_logs WHERE room_id = $1)")
+            .bind(&missing_room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect retention_cleanup_logs after rejected run");
+    assert!(!has_cleanup_log);
+
+    sqlx::query("DELETE FROM server_retention_policy WHERE id = 1")
+        .execute(&*pool)
+        .await
+        .expect("failed to cleanup server_retention_policy");
 }
 
 #[tokio::test]
@@ -1506,6 +1577,109 @@ async fn test_admin_user_notification_write_requires_existing_user() {
     let get_existing_notification_json: Value =
         serde_json::from_slice(&get_existing_notification_body).unwrap();
     assert_eq!(get_existing_notification_json["enabled"], json!(true));
+}
+
+#[tokio::test]
+async fn test_admin_notification_specific_targets_require_existing_users() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let missing_user_id = format!("@missing_notice_target_{}:localhost", rand::random::<u32>());
+    let rejected_title = format!("Rejected notification {}", rand::random::<u32>());
+
+    let create_missing_target_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/notifications")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "title": rejected_title,
+                "content": "Should be rejected",
+                "target_audience": "specific",
+                "target_user_ids": [missing_user_id]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let create_missing_target_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), create_missing_target_request)
+            .await
+            .unwrap();
+    assert_eq!(create_missing_target_response.status(), StatusCode::NOT_FOUND);
+
+    let rejected_notification_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM server_notifications WHERE title = $1")
+            .bind(&rejected_title)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect rejected server notification");
+    assert_eq!(rejected_notification_count, 0);
+
+    let create_valid_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/notifications")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "title": "Baseline notification",
+                "content": "Initial content",
+                "target_audience": "all"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let create_valid_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), create_valid_request)
+            .await
+            .unwrap();
+    assert_eq!(create_valid_response.status(), StatusCode::OK);
+
+    let create_valid_body = axum::body::to_bytes(create_valid_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let created_notification: Value = serde_json::from_slice(&create_valid_body).unwrap();
+    let notification_id = created_notification["id"]
+        .as_i64()
+        .expect("created notification id");
+
+    let update_missing_target_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_synapse/admin/v1/notifications/{}",
+            notification_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "target_audience": "specific",
+                "target_user_ids": [format!(
+                    "@missing_notice_update_{}:localhost",
+                    rand::random::<u32>()
+                )]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let update_missing_target_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), update_missing_target_request)
+            .await
+            .unwrap();
+    assert_eq!(update_missing_target_response.status(), StatusCode::NOT_FOUND);
+
+    let persisted_notification: (String, serde_json::Value) = sqlx::query_as(
+        "SELECT target_audience, target_user_ids FROM server_notifications WHERE id = $1",
+    )
+    .bind(notification_id)
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to inspect persisted notification after rejected update");
+    assert_eq!(persisted_notification.0, "all");
+    assert_eq!(persisted_notification.1, json!([]));
 }
 
 #[tokio::test]

@@ -101,6 +101,17 @@ pub async fn get_room_retention_policy(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let policy = sqlx::query(
         "SELECT max_lifetime, min_lifetime, expire_on_clients FROM room_retention_policies WHERE room_id = $1",
     )
@@ -169,6 +180,16 @@ pub async fn run_retention(
 ) -> Result<Json<Value>, ApiError> {
     match body.room_id {
         Some(room_id) => {
+            if !state
+                .services
+                .room_storage
+                .room_exists(&room_id)
+                .await
+                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            {
+                return Err(ApiError::not_found("Room not found".to_string()));
+            }
+
             let log = state
                 .services
                 .retention_service

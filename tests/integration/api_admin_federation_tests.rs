@@ -287,6 +287,19 @@ async fn test_admin_federation_destination_writes_require_existing_destination()
         .unwrap();
     assert_eq!(delete_response.status(), StatusCode::NOT_FOUND);
 
+    let get_request = Request::builder()
+        .uri(format!(
+            "/_synapse/admin/v1/federation/destinations/{}",
+            missing_destination
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request)
+        .await
+        .unwrap();
+    assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
+
     let rooms_request = Request::builder()
         .uri(format!(
             "/_synapse/admin/v1/federation/destinations/{}/rooms",

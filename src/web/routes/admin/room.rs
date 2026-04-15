@@ -1076,6 +1076,26 @@ async fn join_room_member_internal(
     room_id: &str,
     user_id: &str,
 ) -> Result<Value, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    if !state
+        .services
+        .user_storage
+        .user_exists(user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check user: {}", e)))?
+    {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     let existing_membership = state
         .services
         .member_storage
@@ -1104,6 +1124,26 @@ async fn remove_room_member_internal(
     room_id: &str,
     user_id: &str,
 ) -> Result<Value, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    if !state
+        .services
+        .user_storage
+        .user_exists(user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check user: {}", e)))?
+    {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     let existing_membership = state
         .services
         .member_storage

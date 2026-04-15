@@ -83,6 +83,14 @@ async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiEr
     Ok(())
 }
 
+async fn ensure_target_users_exist(state: &AppState, user_ids: &[String]) -> Result<(), ApiError> {
+    for user_id in user_ids {
+        ensure_user_exists(state, user_id).await?;
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ServerNoticeRequest {
     pub user_id: String,
@@ -128,6 +136,9 @@ pub async fn create_notification(
     State(state): State<AppState>,
     Json(body): Json<CreateNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let requested_target_user_ids = body.target_user_ids.clone().unwrap_or_default();
+    ensure_target_users_exist(&state, &requested_target_user_ids).await?;
+
     let target_user_ids = serde_json::to_value(body.target_user_ids.unwrap_or_default())
         .unwrap_or(serde_json::json!([]));
 
@@ -238,6 +249,8 @@ pub async fn update_notification(
     let notification_type = body.notification_type.unwrap_or_else(|| "info".to_string());
     let priority = body.priority.unwrap_or(0);
     let target_audience = body.target_audience.unwrap_or_else(|| "all".to_string());
+    let requested_target_user_ids = body.target_user_ids.clone().unwrap_or_default();
+    ensure_target_users_exist(&state, &requested_target_user_ids).await?;
     let target_user_ids = serde_json::to_value(body.target_user_ids.unwrap_or_default())
         .unwrap_or(serde_json::json!([]));
     let now = chrono::Utc::now().timestamp_millis();

@@ -80,26 +80,6 @@ impl AuthService {
         &self,
         username: &str,
         password: &str,
-        displayname: Option<&str>,
-    ) -> ApiResult<(User, String, String, String)> {
-        self.register_with_role(username, password, false, displayname)
-            .await
-    }
-
-    pub async fn register_admin(
-        &self,
-        username: &str,
-        password: &str,
-        displayname: Option<&str>,
-    ) -> ApiResult<(User, String, String, String)> {
-        self.register_with_role(username, password, true, displayname)
-            .await
-    }
-
-    async fn register_with_role(
-        &self,
-        username: &str,
-        password: &str,
         admin: bool,
         displayname: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
@@ -2314,6 +2294,3 @@ mod tests {
         assert_ne!(token1, token2, "Each token should be unique");
     }
 }
-
-pub mod authorization;
-pub use authorization::{Action, AuthorizationContext, ResourceType};
