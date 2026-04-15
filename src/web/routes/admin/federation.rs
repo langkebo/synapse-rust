@@ -205,6 +205,18 @@ pub async fn get_destination_rooms(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let destination_exists =
+        sqlx::query("SELECT server_name FROM federation_servers WHERE server_name = $1")
+            .bind(&destination)
+            .fetch_optional(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            .is_some();
+
+    if !destination_exists {
+        return Err(ApiError::not_found("Destination not found".to_string()));
+    }
+
     let rooms = sqlx::query(
         "SELECT DISTINCT room_id FROM federation_queue WHERE destination = $1 AND room_id IS NOT NULL ORDER BY room_id",
     )

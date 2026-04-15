@@ -280,6 +280,40 @@ async fn test_admin_room_history_purge() {
     // 这里可以查询房间消息，验证旧消息已被删除
 }
 
+#[tokio::test]
+async fn test_admin_purge_history_requires_existing_room() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+    let (admin_token, _) = super::get_admin_token(&app).await;
+
+    let missing_room_id = format!("!missingpurge{}:localhost", rand::random::<u32>());
+    let encoded_room_id = missing_room_id.replace('!', "%21").replace(':', "%3A");
+
+    let purge_history_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_synapse/admin/v1/rooms/{}/purge_history",
+            encoded_room_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "delete_local_events": true,
+                "purge_up_to_ts": chrono::Utc::now().timestamp_millis()
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, purge_history_request)
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
 /// 测试批量房间查询和搜索
 #[tokio::test]
 async fn test_admin_room_list_and_search() {

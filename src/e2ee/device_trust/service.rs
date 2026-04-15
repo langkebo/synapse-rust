@@ -130,8 +130,11 @@ impl DeviceTrustService {
                 Ok(status.trust_level != DeviceTrustLevel::Blocked)
             }
             None => {
-                // New device - allow initially
-                Ok(true)
+                if self.config.require_verification_for_history {
+                    Ok(false)
+                } else {
+                    Ok(true)
+                }
             }
         }
     }
@@ -252,7 +255,7 @@ impl DeviceTrustService {
                 &[0u8; 32],
                 "verification",
             )
-            .unwrap_or_default();
+            .map_err(|e| ApiError::internal(format!("Failed to compute commitment: {}", e)))?;
 
         request.commitment = Some(commitment);
         request.pubkey = Some(public_key);
@@ -264,8 +267,7 @@ impl DeviceTrustService {
         let event = E2eeSecurityEvent::new(user_id, "verification_requested")
             .with_device(new_device_id)
             .with_data(serde_json::json!({
-                "method": method.to_string(),
-                "token": token
+                "method": method.to_string()
             }));
 
         let _ = self.storage.log_security_event(&event).await;
@@ -346,12 +348,11 @@ impl DeviceTrustService {
                 .update_request_status(token, VerificationRequestStatus::Rejected)
                 .await?;
 
-            // Optionally block the device
             self.storage
                 .set_device_trust(
                     &request.user_id,
                     &request.new_device_id,
-                    DeviceTrustLevel::Blocked,
+                    DeviceTrustLevel::Unverified,
                     None,
                 )
                 .await?;
@@ -367,7 +368,7 @@ impl DeviceTrustService {
 
             Ok(VerificationRespondResponse {
                 success: true,
-                trust_level: Some("blocked".to_string()),
+                trust_level: Some("unverified".to_string()),
             })
         }
     }
@@ -484,10 +485,7 @@ impl DeviceTrustService {
         let count = self.storage.cleanup_expired_requests().await?;
 
         if count > 0 {
-            eprintln!(
-                "[DeviceTrust] Cleaned up {} expired verification requests",
-                count
-            );
+            tracing::info!("Cleaned up {} expired verification requests", count);
         }
 
         Ok(count)
@@ -501,8 +499,9 @@ impl DeviceTrustService {
 /// Generate a secure verification token
 fn generate_verification_token() -> String {
     use base64::Engine;
-    let mut rng = rand::thread_rng();
-    let bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
+    use rand::RngCore;
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&bytes)
 }
 

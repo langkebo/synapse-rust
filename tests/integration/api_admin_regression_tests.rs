@@ -316,6 +316,191 @@ async fn test_admin_room_reports_follow_current_event_report_schema() {
     assert_eq!(json["reports"][0]["event_id"], event_id);
     assert_eq!(json["reports"][0]["user_id"], admin_user_id);
     assert_eq!(json["reports"][0]["content"], "seeded report");
+
+    let missing_room_id = format!("!missing-report-room-{}:localhost", rand::random::<u32>());
+    let missing_request = Request::builder()
+        .uri(format!("/_synapse/admin/v1/rooms/{}/reports", missing_room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let missing_response = ServiceExt::<Request<Body>>::oneshot(app, missing_request)
+        .await
+        .unwrap();
+    assert_eq!(missing_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_admin_room_collection_queries_require_existing_room() {
+    let _guard = test_mutex().lock().await;
+    let Some((app, pool)) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, admin_user_id) = register_user(
+        &app,
+        &format!("admin_room_queries_{}", rand::random::<u32>()),
+    )
+    .await
+    .expect("failed to register admin user");
+    promote_to_admin(&pool, &admin_user_id).await;
+
+    let missing_room_id = format!("missing-room-{}", rand::random::<u32>());
+
+    for uri in [
+        format!("/_synapse/admin/v1/rooms/{}/members", missing_room_id),
+        format!("/_synapse/admin/v1/rooms/{}/state", missing_room_id),
+        format!("/_synapse/admin/v1/rooms/{}/messages", missing_room_id),
+        format!("/_synapse/admin/v1/rooms/{}/block", missing_room_id),
+        format!("/_synapse/admin/v1/rooms/{}/room_listings", missing_room_id),
+        format!("/_synapse/admin/v1/rooms/{}/forward_extremities", missing_room_id),
+        format!("/_synapse/admin/v1/rooms/{}/token_sync", missing_room_id),
+    ] {
+        let request = Request::builder()
+            .uri(&uri)
+            .header("Authorization", format!("Bearer {}", admin_token))
+            .body(Body::empty())
+            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
+    }
+
+    let event_context_request = Request::builder()
+        .uri(format!(
+            "/_synapse/admin/v1/rooms/{}/event_context/$missing-event:localhost",
+            missing_room_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let event_context_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), event_context_request)
+            .await
+            .unwrap();
+    assert_eq!(event_context_response.status(), StatusCode::NOT_FOUND);
+
+    let search_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/rooms/{}/search", missing_room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "search_term": "hello" }).to_string()))
+        .unwrap();
+    let search_response = ServiceExt::<Request<Body>>::oneshot(app, search_request)
+        .await
+        .unwrap();
+    assert_eq!(search_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_admin_space_collection_queries_require_existing_space() {
+    let _guard = test_mutex().lock().await;
+    let Some((app, pool)) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, admin_user_id) = register_user(
+        &app,
+        &format!("admin_space_queries_{}", rand::random::<u32>()),
+    )
+    .await
+    .expect("failed to register admin user");
+    promote_to_admin(&pool, &admin_user_id).await;
+
+    let missing_space_id = format!("missing-space-{}", rand::random::<u32>());
+
+    for uri in [
+        format!("/_synapse/admin/v1/spaces/{}/users", missing_space_id),
+        format!("/_synapse/admin/v1/spaces/{}/rooms", missing_space_id),
+        format!("/_synapse/admin/v1/spaces/{}/stats", missing_space_id),
+    ] {
+        let request = Request::builder()
+            .uri(&uri)
+            .header("Authorization", format!("Bearer {}", admin_token))
+            .body(Body::empty())
+            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
+    }
+
+    let existing_space_id = format!("admin-space-{}", rand::random::<u32>());
+    let room_id = format!("!{}:localhost", existing_space_id);
+    let now = chrono::Utc::now().timestamp_millis();
+    sqlx::query(
+        r#"
+        INSERT INTO spaces (
+            space_id, room_id, name, topic, creator, join_rule, visibility, is_public, created_ts
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#,
+    )
+    .bind(&existing_space_id)
+    .bind(&room_id)
+    .bind(Some("Admin Space"))
+    .bind(Some("empty child resources"))
+    .bind(&admin_user_id)
+    .bind("invite")
+    .bind("private")
+    .bind(false)
+    .bind(now)
+    .execute(&*pool)
+    .await
+    .expect("failed to seed space fixture");
+
+    let users_request = Request::builder()
+        .uri(format!("/_synapse/admin/v1/spaces/{}/users", existing_space_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let users_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), users_request)
+        .await
+        .unwrap();
+    assert_eq!(users_response.status(), StatusCode::OK);
+    let users_body = axum::body::to_bytes(users_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let users_json: Value = serde_json::from_slice(&users_body).unwrap();
+    assert_eq!(users_json, json!({ "users": [], "total": 0 }));
+
+    let rooms_request = Request::builder()
+        .uri(format!("/_synapse/admin/v1/spaces/{}/rooms", existing_space_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let rooms_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), rooms_request)
+        .await
+        .unwrap();
+    assert_eq!(rooms_response.status(), StatusCode::OK);
+    let rooms_body = axum::body::to_bytes(rooms_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let rooms_json: Value = serde_json::from_slice(&rooms_body).unwrap();
+    assert_eq!(rooms_json, json!({ "rooms": [], "total": 0 }));
+
+    let stats_request = Request::builder()
+        .uri(format!("/_synapse/admin/v1/spaces/{}/stats", existing_space_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let stats_response = ServiceExt::<Request<Body>>::oneshot(app, stats_request)
+        .await
+        .unwrap();
+    assert_eq!(stats_response.status(), StatusCode::OK);
+    let stats_body = axum::body::to_bytes(stats_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let stats_json: Value = serde_json::from_slice(&stats_body).unwrap();
+    assert_eq!(
+        stats_json,
+        json!({
+            "space_id": existing_space_id,
+            "member_count": 0,
+            "child_room_count": 0
+        })
+    );
 }
 
 #[tokio::test]

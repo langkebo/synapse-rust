@@ -147,6 +147,20 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
         )
 }
 
+async fn ensure_space_exists(state: &AppState, space_id: &str) -> Result<(), ApiError> {
+    let space: Option<String> = sqlx::query_scalar("SELECT space_id FROM spaces WHERE space_id = $1")
+        .bind(space_id)
+        .fetch_optional(&*state.services.room_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if space.is_none() {
+        return Err(ApiError::not_found("Space not found".to_string()));
+    }
+
+    Ok(())
+}
+
 #[axum::debug_handler]
 pub async fn get_room_aliases_admin(
     _admin: AdminUser,
@@ -295,6 +309,16 @@ pub async fn get_room_members_admin(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let members = state
         .services
         .member_storage
@@ -326,6 +350,16 @@ pub async fn get_room_state_admin(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let events = state
         .services
         .event_storage
@@ -356,6 +390,16 @@ pub async fn get_room_messages_admin(
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let limit = params
         .get("limit")
         .and_then(|v| v.parse().ok())
@@ -447,6 +491,16 @@ pub async fn get_room_block_status(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let result = sqlx::query("SELECT room_id, blocked_at FROM blocked_rooms WHERE room_id = $1")
         .bind(&room_id)
         .fetch_optional(&*state.services.room_storage.pool)
@@ -578,6 +632,16 @@ pub async fn purge_history(
         .get("purge_up_to_ts")
         .and_then(|v| v.as_i64())
         .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
+
+    if !state
+        .services
+        .room_storage
+        .room_exists(room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
 
     let deleted_count = state
         .services
@@ -767,6 +831,8 @@ pub async fn get_space_users(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_space_exists(&state, &space_id).await?;
+
     let users = sqlx::query(
         "SELECT user_id FROM space_members WHERE space_id = $1 AND membership = 'join'",
     )
@@ -788,6 +854,8 @@ pub async fn get_space_rooms(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_space_exists(&state, &space_id).await?;
+
     let rooms = sqlx::query("SELECT room_id FROM space_children WHERE space_id = $1")
         .bind(&space_id)
         .fetch_all(&*state.services.room_storage.pool)
@@ -807,6 +875,8 @@ pub async fn get_space_stats(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_space_exists(&state, &space_id).await?;
+
     let member_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'",
     )
@@ -1300,11 +1370,15 @@ pub async fn get_room_listings(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let is_public: bool = sqlx::query_scalar("SELECT is_public FROM rooms WHERE room_id = $1")
+    let is_public: Option<bool> = sqlx::query_scalar("SELECT is_public FROM rooms WHERE room_id = $1")
         .bind(&room_id)
-        .fetch_one(&*state.services.room_storage.pool)
+        .fetch_optional(&*state.services.room_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let Some(is_public) = is_public else {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    };
 
     let in_directory: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)")
@@ -1394,27 +1468,24 @@ pub async fn get_event_context_admin(
     let room_id = room_id.replace("%21", "!").replace("%3A", ":");
     let event_id = event_id.replace("%24", "$").replace("%3A", ":");
 
+    let room_exists = state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let event = state
         .services
         .event_storage
         .get_event(&event_id)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-        .unwrap_or_else(|| crate::storage::event::RoomEvent {
-            event_id: event_id.clone(),
-            room_id: room_id.clone(),
-            user_id: format!("@unknown:{}", state.services.config.server.name),
-            event_type: "m.room.message".to_string(),
-            content: json!({}),
-            state_key: None,
-            depth: 0,
-            origin_server_ts: 0,
-            processed_ts: 0,
-            not_before: 0,
-            status: Some("missing".to_string()),
-            reference_image: None,
-            origin: "missing".to_string(),
-        });
+        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
         return Err(ApiError::not_found(
@@ -1598,6 +1669,17 @@ pub async fn search_room_messages_admin(
     Path(room_id): Path<String>,
     Json(body): Json<SearchRoomMessagesRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let limit = body.limit.unwrap_or(50).min(200) as i64;
     let search_pattern = format!("%{}%", body.search_term.to_lowercase());
 
@@ -1670,6 +1752,17 @@ pub async fn get_room_forward_extremities(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let count: i64 = sqlx::query_scalar(
         r#"
         SELECT COUNT(*) FROM room_events

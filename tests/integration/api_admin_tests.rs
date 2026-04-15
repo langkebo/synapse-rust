@@ -1188,6 +1188,33 @@ async fn test_admin_rate_limit_writes_require_existing_user() {
             .await
             .unwrap();
     assert_eq!(delete_override_response.status(), StatusCode::NOT_FOUND);
+
+    let get_rate_limit_request = Request::builder()
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/rate_limit",
+            encoded_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_rate_limit_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), get_rate_limit_request)
+            .await
+            .unwrap();
+    assert_eq!(get_rate_limit_response.status(), StatusCode::NOT_FOUND);
+
+    let get_override_request = Request::builder()
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/override_ratelimit",
+            encoded_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_override_response = ServiceExt::<Request<Body>>::oneshot(app, get_override_request)
+        .await
+        .unwrap();
+    assert_eq!(get_override_response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -1369,4 +1396,659 @@ async fn test_admin_room_retention_policy_requires_existing_room() {
             .await
             .expect("failed to inspect room_retention_policies after rejected write");
     assert!(!has_policy);
+}
+
+#[tokio::test]
+async fn test_admin_user_notification_write_requires_existing_user() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let missing_user_id = format!("@missing_notification_{}:localhost", rand::random::<u32>());
+    let encoded_user_id = encode_path_segment(&missing_user_id);
+
+    let get_notification_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/notification",
+            encoded_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_notification_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), get_notification_request)
+            .await
+            .unwrap();
+    assert_eq!(get_notification_response.status(), StatusCode::NOT_FOUND);
+
+    let update_notification_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/notification",
+            encoded_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "enabled": false
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let update_notification_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), update_notification_request)
+            .await
+            .unwrap();
+    assert_eq!(update_notification_response.status(), StatusCode::NOT_FOUND);
+
+    let has_setting: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM user_notification_settings WHERE user_id = $1)",
+    )
+    .bind(&missing_user_id)
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to inspect user_notification_settings after rejected write");
+    assert!(!has_setting);
+
+    let username = format!("notification_user_{}", rand::random::<u32>());
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let register_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
+        .await
+        .unwrap();
+    assert_eq!(register_response.status(), StatusCode::OK);
+
+    let register_body = axum::body::to_bytes(register_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let register_json: Value = serde_json::from_slice(&register_body).unwrap();
+    let existing_user_id = register_json["user_id"]
+        .as_str()
+        .expect("registered user_id")
+        .to_string();
+    let encoded_existing_user_id = encode_path_segment(&existing_user_id);
+
+    let get_existing_notification_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/notification",
+            encoded_existing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_existing_notification_response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        get_existing_notification_request,
+    )
+    .await
+    .unwrap();
+    assert_eq!(get_existing_notification_response.status(), StatusCode::OK);
+
+    let get_existing_notification_body =
+        axum::body::to_bytes(get_existing_notification_response.into_body(), 4096)
+            .await
+            .unwrap();
+    let get_existing_notification_json: Value =
+        serde_json::from_slice(&get_existing_notification_body).unwrap();
+    assert_eq!(get_existing_notification_json["enabled"], json!(true));
+}
+
+#[tokio::test]
+async fn test_admin_user_presence_queries_require_existing_user() {
+    let Some((app, _pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let missing_user_id = format!("@missing_presence_{}:localhost", rand::random::<u32>());
+    let encoded_missing_user_id = encode_path_segment(&missing_user_id);
+
+    let whois_missing_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_synapse/admin/v1/whois/{}",
+            encoded_missing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let whois_missing_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), whois_missing_request)
+            .await
+            .unwrap();
+    assert_eq!(whois_missing_response.status(), StatusCode::NOT_FOUND);
+
+    let whois_device_missing_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_synapse/admin/v1/whois/{}/missing-device",
+            encoded_missing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let whois_device_missing_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), whois_device_missing_request)
+            .await
+            .unwrap();
+    assert_eq!(whois_device_missing_response.status(), StatusCode::NOT_FOUND);
+
+    let sessions_missing_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_synapse/admin/v1/user_sessions/{}",
+            encoded_missing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let sessions_missing_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), sessions_missing_request)
+            .await
+            .unwrap();
+    assert_eq!(sessions_missing_response.status(), StatusCode::NOT_FOUND);
+
+    let username = format!("presence_user_{}", rand::random::<u32>());
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let register_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
+        .await
+        .unwrap();
+    assert_eq!(register_response.status(), StatusCode::OK);
+
+    let register_body = axum::body::to_bytes(register_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let register_json: Value = serde_json::from_slice(&register_body).unwrap();
+    let existing_user_id = register_json["user_id"]
+        .as_str()
+        .expect("registered user_id")
+        .to_string();
+    let encoded_existing_user_id = encode_path_segment(&existing_user_id);
+
+    let whois_existing_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_synapse/admin/v1/whois/{}",
+            encoded_existing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let whois_existing_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), whois_existing_request)
+            .await
+            .unwrap();
+    assert_eq!(whois_existing_response.status(), StatusCode::OK);
+
+    let whois_existing_body = axum::body::to_bytes(whois_existing_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let whois_existing_json: Value = serde_json::from_slice(&whois_existing_body).unwrap();
+    assert_eq!(whois_existing_json["user_id"], json!(existing_user_id));
+    assert!(whois_existing_json["devices"].is_array());
+
+    let sessions_existing_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_synapse/admin/v1/user_sessions/{}",
+            encoded_existing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let sessions_existing_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), sessions_existing_request)
+            .await
+            .unwrap();
+    assert_eq!(sessions_existing_response.status(), StatusCode::OK);
+
+    let sessions_existing_body =
+        axum::body::to_bytes(sessions_existing_response.into_body(), 4096)
+            .await
+            .unwrap();
+    let sessions_existing_json: Value = serde_json::from_slice(&sessions_existing_body).unwrap();
+    assert_eq!(sessions_existing_json["user_id"], json!(existing_user_id));
+    assert!(sessions_existing_json["sessions"].is_array());
+}
+
+#[tokio::test]
+async fn test_admin_delete_user_media_requires_existing_user() {
+    let Some((app, _pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let missing_user_id = format!("@missing_media_{}:localhost", rand::random::<u32>());
+    let encoded_missing_user_id = encode_path_segment(&missing_user_id);
+
+    let delete_missing_user_media_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/media",
+            encoded_missing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_missing_user_media_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_missing_user_media_request)
+            .await
+            .unwrap();
+    assert_eq!(
+        delete_missing_user_media_response.status(),
+        StatusCode::NOT_FOUND
+    );
+
+    let get_missing_user_media_request = Request::builder()
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/media",
+            encoded_missing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_missing_user_media_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), get_missing_user_media_request)
+            .await
+            .unwrap();
+    assert_eq!(get_missing_user_media_response.status(), StatusCode::NOT_FOUND);
+
+    let username = format!("media_user_{}", rand::random::<u32>());
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let register_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
+        .await
+        .unwrap();
+    assert_eq!(register_response.status(), StatusCode::OK);
+    let register_body = axum::body::to_bytes(register_response.into_body(), 10240)
+        .await
+        .unwrap();
+    let register_json: Value = serde_json::from_slice(&register_body).unwrap();
+    let user_id = register_json["user_id"].as_str().unwrap().to_string();
+    let encoded_user_id = encode_path_segment(&user_id);
+
+    let get_existing_user_media_request = Request::builder()
+        .uri(format!("/_synapse/admin/v1/users/{}/media", encoded_user_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_existing_user_media_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), get_existing_user_media_request)
+            .await
+            .unwrap();
+    assert_eq!(get_existing_user_media_response.status(), StatusCode::OK);
+    let get_existing_user_media_body =
+        axum::body::to_bytes(get_existing_user_media_response.into_body(), 10240)
+            .await
+            .unwrap();
+    let get_existing_user_media_json: Value =
+        serde_json::from_slice(&get_existing_user_media_body).unwrap();
+    assert_eq!(get_existing_user_media_json, json!({ "media": [], "total": 0 }));
+
+    let delete_existing_user_media_request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/_synapse/admin/v1/users/{}/media", encoded_user_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_existing_user_media_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_existing_user_media_request)
+            .await
+            .unwrap();
+    assert_eq!(delete_existing_user_media_response.status(), StatusCode::OK);
+    let delete_existing_user_media_body =
+        axum::body::to_bytes(delete_existing_user_media_response.into_body(), 10240)
+            .await
+            .unwrap();
+    let delete_existing_user_media_json: Value =
+        serde_json::from_slice(&delete_existing_user_media_body).unwrap();
+    assert_eq!(delete_existing_user_media_json, json!({ "deleted": 0 }));
+}
+
+#[tokio::test]
+async fn test_admin_delete_user_pusher_requires_existing_user() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let missing_user_id = format!("@missing_pusher_{}:localhost", rand::random::<u32>());
+    let encoded_missing_user_id = encode_path_segment(&missing_user_id);
+    let orphan_pushkey = format!("orphan-pushkey-{}", rand::random::<u32>());
+    let now = chrono::Utc::now().timestamp_millis();
+
+    sqlx::query(
+        "INSERT INTO pushers (user_id, device_id, pushkey, pushkey_ts, kind, app_id, app_display_name, device_display_name, profile_tag, lang, data, created_ts, updated_ts) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10, $11, $11)",
+    )
+    .bind(&missing_user_id)
+    .bind(format!("DEVICE{}", rand::random::<u32>()))
+    .bind(&orphan_pushkey)
+    .bind(now)
+    .bind("http")
+    .bind("com.example.orphan")
+    .bind("Orphan Push")
+    .bind("Orphan Device")
+    .bind("en")
+    .bind(json!({ "url": "https://push.example.test/_matrix/push/v1/notify" }))
+    .bind(now)
+    .execute(&*pool)
+    .await
+    .expect("failed to seed orphan pusher");
+
+    let delete_missing_user_pusher_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/pushers/{}",
+            encoded_missing_user_id, orphan_pushkey
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_missing_user_pusher_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_missing_user_pusher_request)
+            .await
+            .unwrap();
+    assert_eq!(
+        delete_missing_user_pusher_response.status(),
+        StatusCode::NOT_FOUND
+    );
+
+    let orphan_still_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pushers WHERE user_id = $1 AND pushkey = $2)")
+            .bind(&missing_user_id)
+            .bind(&orphan_pushkey)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect orphan pusher after rejected delete");
+    assert!(orphan_still_exists);
+
+    let username = format!("pusher_user_{}", rand::random::<u32>());
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let register_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
+        .await
+        .unwrap();
+    assert_eq!(register_response.status(), StatusCode::OK);
+    let register_body = axum::body::to_bytes(register_response.into_body(), 10240)
+        .await
+        .unwrap();
+    let register_json: Value = serde_json::from_slice(&register_body).unwrap();
+    let user_id = register_json["user_id"].as_str().unwrap().to_string();
+    let access_token = register_json["access_token"].as_str().unwrap().to_string();
+
+    let pushkey = format!("pushkey-{}", rand::random::<u32>());
+    let set_pusher_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/pushers/set")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "pushkey": pushkey,
+                "kind": "http",
+                "app_id": "com.example.admin-test",
+                "app_display_name": "Admin Test Push",
+                "device_display_name": "Admin Test Device",
+                "lang": "en",
+                "data": {
+                    "url": "https://push.example.test/_matrix/push/v1/notify"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_pusher_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_pusher_request)
+        .await
+        .unwrap();
+    assert_eq!(set_pusher_response.status(), StatusCode::OK);
+
+    let encoded_user_id = encode_path_segment(&user_id);
+    let delete_existing_user_pusher_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/pushers/{}",
+            encoded_user_id, pushkey
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_existing_user_pusher_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_existing_user_pusher_request)
+            .await
+            .unwrap();
+    assert_eq!(delete_existing_user_pusher_response.status(), StatusCode::OK);
+
+    let pusher_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pushers WHERE user_id = $1 AND pushkey = $2)")
+            .bind(&user_id)
+            .bind(&pushkey)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect pusher after admin delete");
+    assert!(!pusher_exists);
+}
+
+#[tokio::test]
+async fn test_admin_user_token_routes_require_existing_user() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let missing_user_id = format!("@missing_tokens_{}:localhost", rand::random::<u32>());
+    let encoded_missing_user_id = encode_path_segment(&missing_user_id);
+
+    let get_missing_user_tokens_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/tokens",
+            encoded_missing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_missing_user_tokens_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), get_missing_user_tokens_request)
+            .await
+            .unwrap();
+    assert_eq!(get_missing_user_tokens_response.status(), StatusCode::NOT_FOUND);
+
+    let get_missing_user_refresh_tokens_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/refresh_tokens",
+            encoded_missing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_missing_user_refresh_tokens_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), get_missing_user_refresh_tokens_request)
+            .await
+            .unwrap();
+    assert_eq!(
+        get_missing_user_refresh_tokens_response.status(),
+        StatusCode::NOT_FOUND
+    );
+
+    let delete_missing_user_token_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/tokens/1",
+            encoded_missing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_missing_user_token_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_missing_user_token_request)
+            .await
+            .unwrap();
+    assert_eq!(delete_missing_user_token_response.status(), StatusCode::NOT_FOUND);
+
+    let delete_missing_user_refresh_token_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/refresh_tokens/1",
+            encoded_missing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_missing_user_refresh_token_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_missing_user_refresh_token_request)
+            .await
+            .unwrap();
+    assert_eq!(
+        delete_missing_user_refresh_token_response.status(),
+        StatusCode::NOT_FOUND
+    );
+
+    let username = format!("token_user_{}", rand::random::<u32>());
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let register_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
+        .await
+        .unwrap();
+    assert_eq!(register_response.status(), StatusCode::OK);
+    let register_body = axum::body::to_bytes(register_response.into_body(), 10240)
+        .await
+        .unwrap();
+    let register_json: Value = serde_json::from_slice(&register_body).unwrap();
+    let user_id = register_json["user_id"].as_str().unwrap().to_string();
+    let encoded_user_id = encode_path_segment(&user_id);
+    let now = chrono::Utc::now().timestamp_millis();
+
+    let access_token_id: i64 = sqlx::query_scalar(
+        "INSERT INTO access_tokens (token_hash, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked) VALUES ($1, NULL, $2, $3, $4, NULL, NULL, NULL, NULL, FALSE) RETURNING id",
+    )
+    .bind(format!("admin-test-access-hash-{}", rand::random::<u64>()))
+    .bind(&user_id)
+    .bind(format!("DEVICE{}", rand::random::<u32>()))
+    .bind(now)
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to seed access token");
+
+    let refresh_token_id: i64 = sqlx::query_scalar(
+        "INSERT INTO refresh_tokens (token_hash, user_id, device_id, access_token_id, scope, created_ts, expires_at, client_info, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, NULL, NULL) RETURNING id",
+    )
+    .bind(format!("admin-test-refresh-hash-{}", rand::random::<u64>()))
+    .bind(&user_id)
+    .bind(format!("DEVICE{}", rand::random::<u32>()))
+    .bind(access_token_id.to_string())
+    .bind("offline_access")
+    .bind(now)
+    .bind(json!({ "source": "admin-test" }))
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to seed refresh token");
+
+    let delete_user_token_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/tokens/{}",
+            encoded_user_id, access_token_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_user_token_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_user_token_request)
+            .await
+            .unwrap();
+    assert_eq!(delete_user_token_response.status(), StatusCode::OK);
+
+    let access_token_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM access_tokens WHERE id = $1 AND user_id = $2)")
+            .bind(access_token_id)
+            .bind(&user_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect access token after admin delete");
+    assert!(!access_token_exists);
+
+    let delete_refresh_token_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/refresh_tokens/{}",
+            encoded_user_id, refresh_token_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_refresh_token_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_refresh_token_request)
+            .await
+            .unwrap();
+    assert_eq!(delete_refresh_token_response.status(), StatusCode::OK);
+
+    let refresh_token_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM refresh_tokens WHERE id = $1 AND user_id = $2)")
+            .bind(refresh_token_id)
+            .bind(&user_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect refresh token after admin delete");
+    assert!(!refresh_token_exists);
 }
