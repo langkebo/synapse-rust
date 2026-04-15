@@ -855,7 +855,7 @@ pub async fn batch_create_users(
 
         let result = sqlx::query(
             r#"
-            INSERT INTO users (user_id, username, password_hash, displayname, is_admin, creation_ts, updated_ts)
+            INSERT INTO users (user_id, username, password_hash, displayname, is_admin, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (username) DO NOTHING
             "#
@@ -871,7 +871,8 @@ pub async fn batch_create_users(
         .await;
 
         match result {
-            Ok(_) => created.push(username.clone()),
+            Ok(r) if r.rows_affected() > 0 => created.push(username.clone()),
+            Ok(_) => failed.push(username),
             Err(_) => failed.push(username),
         }
     }

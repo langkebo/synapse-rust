@@ -354,7 +354,7 @@ pub async fn add_to_blacklist(
 ) -> Result<Json<Value>, ApiError> {
     let now = chrono::Utc::now().timestamp_millis();
 
-    sqlx::query(
+    let result = sqlx::query(
         "INSERT INTO federation_blacklist (server_name, added_ts, added_by) VALUES ($1, $2, $3) ON CONFLICT (server_name) DO NOTHING"
     )
     .bind(&server_name)
@@ -363,6 +363,10 @@ pub async fn add_to_blacklist(
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::conflict("Server is already blacklisted".to_string()));
+    }
 
     Ok(Json(json!({})))
 }
