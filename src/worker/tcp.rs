@@ -38,6 +38,12 @@ impl TcpReplicationServer {
     }
 
     pub async fn run(&self) -> Result<(), std::io::Error> {
+        let shared_secret = std::env::var("REPLICATION_SHARED_SECRET")
+            .unwrap_or_else(|_| {
+                tracing::warn!("REPLICATION_SHARED_SECRET not set - replication connections will be unauthenticated!");
+                String::new()
+            });
+
         loop {
             let (stream, addr) = self.listener.accept().await?;
             info!("New replication connection from {}", addr);
@@ -45,10 +51,11 @@ impl TcpReplicationServer {
             let protocol = ReplicationProtocol::new();
             let server_name = self.server_name.clone();
             let command_tx = self.command_tx.clone();
+            let secret = shared_secret.clone();
 
             tokio::spawn(async move {
                 if let Err(e) =
-                    Self::handle_connection(stream, protocol, server_name, command_tx).await
+                    Self::handle_connection(stream, protocol, server_name, command_tx, &secret).await
                 {
                     error!("Connection error from {}: {}", addr, e);
                 }
@@ -61,10 +68,54 @@ impl TcpReplicationServer {
         protocol: ReplicationProtocol,
         server_name: String,
         command_tx: Sender<ReplicationCommand>,
+        shared_secret: &str,
     ) -> Result<(), ReplicationError> {
         let (reader, mut writer) = stream.into_split();
         let mut reader = BufReader::new(reader);
         let mut line = String::new();
+
+        if !shared_secret.is_empty() {
+            writer
+                .write_all(b"AUTH_REQUIRED\n")
+                .await
+                .map_err(|e| ReplicationError::IoError(e.to_string()))?;
+
+            line.clear();
+            let bytes_read = reader
+                .read_line(&mut line)
+                .await
+                .map_err(|e| ReplicationError::IoError(e.to_string()))?;
+
+            if bytes_read == 0 {
+                return Err(ReplicationError::ConnectionClosed);
+            }
+
+            let auth_line = line.trim();
+            if !auth_line.starts_with("AUTH ") {
+                tracing::warn!("Replication connection rejected: no AUTH command received");
+                return Err(ReplicationError::IoError("Authentication required".to_string()));
+            }
+
+            let provided_secret = auth_line.strip_prefix("AUTH ").unwrap_or("");
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(provided_secret.as_bytes());
+            let provided_hash = hex::encode(hasher.finalize());
+
+            let mut expected_hasher = Sha256::new();
+            expected_hasher.update(shared_secret.as_bytes());
+            let expected_hash = hex::encode(expected_hasher.finalize());
+
+            if provided_hash != expected_hash {
+                tracing::warn!("Replication connection rejected: invalid authentication");
+                return Err(ReplicationError::IoError("Authentication failed".to_string()));
+            }
+
+            writer
+                .write_all(b"AUTH_OK\n")
+                .await
+                .map_err(|e| ReplicationError::IoError(e.to_string()))?;
+        }
 
         writer
             .write_all(

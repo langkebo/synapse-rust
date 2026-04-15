@@ -132,6 +132,16 @@ pub async fn set_room_retention_policy(
     Path(room_id): Path<String>,
     Json(body): Json<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     sqlx::query(
         "INSERT INTO room_retention_policies (room_id, max_lifetime, min_lifetime, expire_on_clients, is_server_default, created_ts, updated_ts) VALUES ($1, $2, $3, $4, FALSE, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) ON CONFLICT (room_id) DO UPDATE SET max_lifetime = $2, min_lifetime = $3, expire_on_clients = $4, updated_ts = EXTRACT(EPOCH FROM NOW())::BIGINT * 1000"
     )
