@@ -148,14 +148,7 @@ pub async fn get_destination(
             "last_successful_ts": row.get::<Option<i64>, _>("last_successful_connect_at"),
             "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default()
         }))),
-        None => Ok(Json(json!({
-            "destination": destination,
-            "retry_last_ts": null,
-            "retry_interval": null,
-            "failure_ts": null,
-            "last_successful_ts": null,
-            "failure_count": 0
-        }))),
+        None => Err(ApiError::not_found("Destination not found".to_string())),
     }
 }
 

@@ -41,7 +41,7 @@ impl UserId {
 pub(crate) use auth::extract_token_from_headers;
 pub use auth::{AdminUser, AuthExtractor, AuthenticatedUser, OptionalAuthenticatedUser};
 pub use json::MatrixJson;
-pub use pagination::Pagination;
+pub use pagination::{OffsetPagination, PaginatedResponse, Pagination};
 
 // ============== DeviceId ==============
 

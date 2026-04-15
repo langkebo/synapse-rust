@@ -229,6 +229,21 @@ pub struct AccountValidityResponse {
     pub updated_ts: i64,
 }
 
+async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
+    let user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to load user: {}", e)))?;
+
+    if user.is_none() {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
+    Ok(())
+}
+
 impl From<AccountValidity> for AccountValidityResponse {
     fn from(v: AccountValidity) -> Self {
         Self {
@@ -621,6 +636,8 @@ pub async fn create_account_validity(
     _auth_user: AdminUser,
     Json(body): Json<CreateAccountValidityBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    ensure_user_exists(&state, &body.user_id).await?;
+
     let request = CreateAccountValidityRequest {
         user_id: body.user_id,
         expiration_ts: body.expiration_ts,
@@ -660,6 +677,18 @@ pub async fn renew_account(
     Path(user_id): Path<String>,
     Json(body): Json<RenewAccountBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    ensure_user_exists(&state, &user_id).await?;
+
+    if state
+        .services
+        .account_validity_service
+        .get_validity(&user_id)
+        .await?
+        .is_none()
+    {
+        return Err(ApiError::not_found("Account validity not found"));
+    }
+
     let validity = state
         .services
         .account_validity_service

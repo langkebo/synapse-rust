@@ -150,15 +150,10 @@ impl AdminRegistrationService {
         let admin = request.admin.unwrap_or(false);
         let displayname = request.displayname.as_deref();
 
-        let (user, access_token, refresh_token, device_id) = if admin {
-            self.auth_service
-                .register_admin(&request.username, &request.password, displayname)
-                .await?
-        } else {
-            self.auth_service
-                .register(&request.username, &request.password, displayname)
-                .await?
-        };
+        let (user, access_token, refresh_token, device_id) = self
+            .auth_service
+            .register(&request.username, &request.password, admin, displayname)
+            .await?;
 
         let duration = start.elapsed().as_secs_f64();
         if let Some(hist) = self
