@@ -16,7 +16,7 @@ use crate::web::routes::response_helpers::{
     created_json, created_json_from, json_from, json_vec_from, require_found,
 };
 use crate::web::routes::AppState;
-use crate::web::routes::{AdminUser, AuthenticatedUser};
+use crate::web::routes::{ensure_room_member_or_admin, AdminUser, AuthenticatedUser};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryLimit {
@@ -173,21 +173,13 @@ async fn ensure_room_summary_access(
     room_id: &str,
     action: &str,
 ) -> Result<(), ApiError> {
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(format!(
-            "You must be a member of this room to {} room summary",
-            action
-        )));
-    }
-
-    Ok(())
+    ensure_room_member_or_admin(
+        state,
+        auth_user,
+        room_id,
+        &format!("You must be a member of this room to {} room summary", action),
+    )
+    .await
 }
 
 pub async fn get_room_summary(

@@ -42,6 +42,7 @@ pub mod relations;
 pub mod rendezvous;
 mod response_helpers;
 pub mod room;
+mod room_access;
 pub mod room_summary;
 pub mod saml;
 pub mod sliding_sync;
@@ -94,6 +95,7 @@ pub(crate) use extractors::extract_token_from_headers;
 pub use extractors::{
     AdminUser, AuthExtractor, AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser,
 };
+pub(crate) use room_access::ensure_room_member_or_admin;
 pub use feature_flags::create_feature_flags_router;
 pub use federation::create_federation_router;
 pub use friend_room::create_friend_router;
