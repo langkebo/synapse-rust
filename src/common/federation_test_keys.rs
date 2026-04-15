@@ -1,13 +1,18 @@
+#[cfg(any(test, feature = "test-utils"))]
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
+#[cfg(any(test, feature = "test-utils"))]
 use ed25519_dalek::{Signer, SigningKey as DalekSigningKey, Verifier, VerifyingKey};
+#[cfg(any(test, feature = "test-utils"))]
 use rand::{Rng, RngCore};
 
+#[cfg(any(test, feature = "test-utils"))]
 pub struct FederationTestKeypair {
     pub key_id: String,
     pub secret_key: String,
     pub public_key: String,
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 pub fn generate_federation_test_keypair() -> FederationTestKeypair {
     let mut rng = rand::thread_rng();
     let mut secret_bytes = [0u8; 32];
@@ -27,6 +32,7 @@ pub fn generate_federation_test_keypair() -> FederationTestKeypair {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 pub fn sign_federation_request(
     secret_key: &str,
     method: &str,
@@ -58,6 +64,7 @@ pub fn sign_federation_request(
     ))
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 pub fn verify_federation_signature(
     public_key: &str,
     method: &str,
@@ -97,6 +104,7 @@ pub fn verify_federation_signature(
     Ok(true)
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 fn extract_signature_from_header(header: &str) -> Result<String, String> {
     let parts: Vec<&str> = header.split(',').collect();
 
@@ -110,6 +118,7 @@ fn extract_signature_from_header(header: &str) -> Result<String, String> {
     Err("Signature not found in header".to_string())
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 fn generate_random_string(length: usize) -> String {
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     let mut rng = rand::thread_rng();

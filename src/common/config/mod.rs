@@ -1927,12 +1927,12 @@ impl Config {
 
         tracing::info!("Configuration loaded, resolving environment variables...");
         tracing::debug!(
-            "Before resolution - federation.signing_key: {:?}",
-            config_values.federation.signing_key
+            "Before resolution - federation.signing_key: [REDACTED] ({} chars)",
+            config_values.federation.signing_key.as_ref().map_or(0, |k| k.len())
         );
         tracing::debug!(
-            "Before resolution - security.secret: {}",
-            config_values.security.secret
+            "Before resolution - security.secret: [REDACTED] ({} chars)",
+            config_values.security.secret.len()
         );
 
         config_values
@@ -1945,12 +1945,12 @@ impl Config {
 
         tracing::info!("Environment variables resolved successfully");
         tracing::debug!(
-            "After resolution - federation.signing_key: {:?}",
-            config_values.federation.signing_key
+            "After resolution - federation.signing_key: [REDACTED] ({} chars)",
+            config_values.federation.signing_key.as_ref().map_or(0, |k| k.len())
         );
         tracing::debug!(
-            "After resolution - security.secret: {}",
-            config_values.security.secret
+            "After resolution - security.secret: [REDACTED] ({} chars)",
+            config_values.security.secret.len()
         );
 
         Ok(config_values)
@@ -2215,6 +2215,11 @@ impl Config {
     }
 
     pub fn redis_url(&self) -> String {
+        if let Some(password) = &self.redis.password {
+            if !password.is_empty() {
+                return format!("redis://:{}@{}:{}", password, self.redis.host, self.redis.port);
+            }
+        }
         format!("redis://{}:{}", self.redis.host, self.redis.port)
     }
 }
@@ -2253,12 +2258,9 @@ fn resolve_env_in_string(value: &str) -> Result<String, String> {
             let default_value = parts[1];
 
             let val = std::env::var(var_name).unwrap_or_else(|_| default_value.to_string());
-            std::env::set_var(var_name, &val);
-            tracing::debug!(
-                "Resolved env var {} (with assign): {} -> {}",
-                var_name,
-                full_match,
-                val
+            tracing::warn!(
+                "Config uses ':=' (assign) syntax for env var {} - this is a security risk and will be removed in a future version. Use ':-' (default) instead.",
+                var_name
             );
             val
         } else if inner.contains(":?") {

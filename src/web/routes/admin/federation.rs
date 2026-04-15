@@ -87,6 +87,13 @@ pub struct ConfirmRequest {
     pub accept: bool,
 }
 
+fn unsupported_admin_federation_feature(feature: &str) -> ApiError {
+    ApiError::unrecognized(format!(
+        "Admin federation endpoint '{}' is not implemented in this deployment",
+        feature
+    ))
+}
+
 #[axum::debug_handler]
 pub async fn get_destinations(
     _admin: AdminUser,
@@ -296,10 +303,8 @@ pub async fn confirm_federation(
     State(_state): State<AppState>,
     Json(body): Json<ConfirmRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(json!({
-        "server_name": body.server_name,
-        "confirmed": body.accept
-    })))
+    let _ = (&body.server_name, body.accept);
+    Err(unsupported_admin_federation_feature("confirm"))
 }
 
 #[axum::debug_handler]
