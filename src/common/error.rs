@@ -642,8 +642,14 @@ impl ApiError {
             ApiError::Conflict(msg) => msg.clone(),
             ApiError::RateLimited => "Rate limited".to_string(),
             ApiError::RateLimitedWithRetry(_) => "Rate limited".to_string(),
-            ApiError::Internal(msg) => format!("Internal error: {}", msg),
-            ApiError::Database(msg) => format!("Database error: {}", msg),
+            ApiError::Internal(msg) => {
+                tracing::error!("Internal error: {}", msg);
+                "An internal error occurred".to_string()
+            }
+            ApiError::Database(msg) => {
+                tracing::error!("Database error: {}", msg);
+                "A database error occurred".to_string()
+            }
             ApiError::Cache(msg) => format!("Cache error: {}", msg),
             ApiError::Authentication(msg) => msg.clone(),
             ApiError::Validation(msg) => msg.clone(),

@@ -104,16 +104,16 @@ pub fn verify_password(
 }
 
 fn secure_compare(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
     let a_bytes = a.as_bytes();
     let b_bytes = b.as_bytes();
-    let len = a_bytes.len();
+    let max_len = a_bytes.len().max(b_bytes.len());
 
-    let mut result: u8 = 0;
-    for i in 0..len {
-        result |= a_bytes[i] ^ b_bytes[i];
+    let mut result: u8 = if a_bytes.len() != b_bytes.len() { 0xFF } else { 0 };
+
+    for i in 0..max_len {
+        let a_byte = a_bytes.get(i).copied().unwrap_or(0);
+        let b_byte = b_bytes.get(i).copied().unwrap_or(0);
+        result |= a_byte ^ b_byte;
     }
     result == 0
 }

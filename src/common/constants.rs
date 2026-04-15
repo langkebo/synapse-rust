@@ -110,7 +110,7 @@ pub const DEFAULT_GUEST_ACCESS: &str = "forbidden";
 // ============================================================================
 
 /// Acceptable timestamp window in seconds (1 year in each direction)
-pub const TIMESTAMP_WINDOW_SECONDS: i64 = 365 * 24 * 60 * 60;
+pub const TIMESTAMP_WINDOW_SECONDS: i64 = 5 * 60;
 
 // ============================================================================
 // Token Expiry

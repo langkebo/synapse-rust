@@ -49,6 +49,11 @@ impl ConfigManager {
 
     pub fn get_redis_url(&self) -> String {
         let config = self.read_config("get_redis_url");
+        if let Some(password) = &config.redis.password {
+            if !password.is_empty() {
+                return format!("redis://:{}@{}:{}", password, config.redis.host, config.redis.port);
+            }
+        }
         format!("redis://{}:{}", config.redis.host, config.redis.port)
     }
 

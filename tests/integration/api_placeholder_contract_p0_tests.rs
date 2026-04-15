@@ -457,6 +457,33 @@ async fn test_key_rotation_config_contract_returns_unrecognized_for_admin() {
 }
 
 #[tokio::test]
+async fn test_admin_server_placeholder_contract_returns_unrecognized_for_admin() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, _) = super::get_admin_token(&app).await;
+
+    for path in [
+        "/_synapse/admin/v1/backups",
+        "/_synapse/admin/v1/experimental_features",
+    ] {
+        assert_matrix_error(
+            &app,
+            Request::builder()
+                .method("GET")
+                .uri(path)
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "M_UNRECOGNIZED",
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
 async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
     let Some(app) = super::setup_test_app().await else {
         return;

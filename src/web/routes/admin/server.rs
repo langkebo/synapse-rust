@@ -5,7 +5,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
 
@@ -48,14 +47,14 @@ pub async fn get_backups(
     _admin: AdminUser,
     State(_state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(json!({
-        "backups": []
-    })))
+    Err(unsupported_admin_server_feature("backups"))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct RestartRequest {
-    pub reason: Option<String>,
+fn unsupported_admin_server_feature(feature: &str) -> ApiError {
+    ApiError::unrecognized(format!(
+        "Admin server endpoint '{}' is not implemented in this deployment",
+        feature
+    ))
 }
 
 #[axum::debug_handler]
@@ -81,16 +80,16 @@ pub async fn purge_media_cache(
         .and_then(|v| v.as_i64())
         .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
 
-    Ok(Json(json!({ "deleted": 0 })))
+    Err(unsupported_admin_server_feature("purge_media_cache"))
 }
 
 #[axum::debug_handler]
 pub async fn restart_server(
     _admin: AdminUser,
     State(_state): State<AppState>,
-    Json(_body): Json<RestartRequest>,
+    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(json!({})))
+    Err(unsupported_admin_server_feature("restart"))
 }
 
 #[axum::debug_handler]
@@ -239,51 +238,5 @@ pub async fn get_experimental_features(
     _admin: AdminUser,
     State(_state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(json!({
-        "features": {
-            "msc3401_native_groups": true,
-            "msc3967_implicit_room_invite": true
-        }
-    })))
-}
-
-#[axum::debug_handler]
-pub async fn get_background_updates_status(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
-    let pending: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM background_updates WHERE NOT completed")
-            .fetch_one(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-    Ok(Json(json!({
-        "enabled": true,
-        "current_updates": [],
-        "total_pending": pending
-    })))
-}
-
-#[axum::debug_handler]
-pub async fn enable_background_updates(
-    _admin: AdminUser,
-    State(_state): State<AppState>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let enabled = body
-        .get("enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-
-    Ok(Json(json!({ "enabled": enabled })))
-}
-
-#[axum::debug_handler]
-pub async fn run_background_updates(
-    _admin: AdminUser,
-    State(_state): State<AppState>,
-    Json(_body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    Ok(Json(json!({ "started": true })))
+    Err(unsupported_admin_server_feature("experimental_features"))
 }

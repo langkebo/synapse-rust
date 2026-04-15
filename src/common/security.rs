@@ -217,12 +217,12 @@ pub struct ConstantTimeComparison;
 
 impl ConstantTimeComparison {
     pub fn compare_bytes(a: &[u8], b: &[u8]) -> bool {
-        if a.len() != b.len() {
-            return false;
-        }
+        let max_len = a.len().max(b.len());
+        let mut result: u8 = if a.len() != b.len() { 0xFF } else { 0 };
 
-        let mut result: u8 = 0;
-        for (a_byte, b_byte) in a.iter().zip(b.iter()) {
+        for i in 0..max_len {
+            let a_byte = a.get(i).copied().unwrap_or(0);
+            let b_byte = b.get(i).copied().unwrap_or(0);
             result |= a_byte ^ b_byte;
         }
         result == 0

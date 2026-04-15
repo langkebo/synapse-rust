@@ -2,17 +2,13 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use hmac::{Hmac, Mac};
 use serde_json::{json, Value};
-use sha2::Sha256;
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
-
-type HmacSha256 = Hmac<Sha256>;
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
@@ -28,72 +24,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 }
 
 async fn get_admin_token(app: &axum::Router) -> (String, String) {
-    // 1. Get nonce
-    let request = Request::builder()
-        .uri("/_synapse/admin/v1/register/nonce")
-        .body(Body::empty())
-        .unwrap();
-
-    let response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
-            .await
-            .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    let nonce = json["nonce"].as_str().unwrap().to_string();
-
-    // 2. Register admin
-    let username = format!("admin_{}", rand::random::<u32>());
-    let password = "password123";
-    let shared_secret = "test_shared_secret"; // From ServiceContainer::new_test
-
-    let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes()).unwrap();
-    let mut message = nonce.as_bytes().to_vec();
-    message.push(b'\0');
-    message.extend(username.as_bytes());
-    message.push(b'\0');
-    message.extend(password.as_bytes());
-    message.push(b'\0');
-    message.extend(b"admin");
-    mac.update(&message);
-
-    let expected_mac = mac.finalize().into_bytes();
-    let mac_hex = expected_mac
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<String>();
-
-    let request = Request::builder()
-        .method("POST")
-        .uri("/_synapse/admin/v1/register")
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({
-                "nonce": nonce,
-                "username": username,
-                "password": password,
-                "admin": true,
-                "mac": mac_hex
-            })
-            .to_string(),
-        ))
-        .unwrap();
-
-    let response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
-            .await
-            .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    (json["access_token"].as_str().unwrap().to_string(), username)
+    super::get_admin_token(app).await
 }
 
 async fn create_test_user(app: &axum::Router) -> String {
@@ -1028,4 +959,137 @@ async fn test_admin_device_management_supports_delete_compat_routes() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert!(json["devices_deleted"].as_i64().unwrap_or_default() >= 1);
+}
+
+#[tokio::test]
+async fn test_admin_retention_policy_preserves_expire_on_clients() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    sqlx::query("UPDATE users SET user_type = 'super_admin' WHERE username = $1")
+        .bind(&admin_username)
+        .execute(&*pool)
+        .await
+        .expect("failed to promote admin test user to super_admin");
+    let server_max_lifetime = 86_400_000_i64 + i64::from(rand::random::<u16>());
+    let server_min_lifetime = 3_600_000_i64 + i64::from(rand::random::<u16>());
+
+    let set_server_policy_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/retention/policy")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "max_lifetime": server_max_lifetime,
+                "min_lifetime": server_min_lifetime,
+                "expire_on_clients": true
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_server_policy_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), set_server_policy_request)
+            .await
+            .unwrap();
+    assert_eq!(set_server_policy_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(set_server_policy_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["expire_on_clients"], true);
+
+    let get_server_policy_request = Request::builder()
+        .uri("/_synapse/admin/v1/retention/policy")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_server_policy_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), get_server_policy_request)
+            .await
+            .unwrap();
+    assert_eq!(get_server_policy_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(get_server_policy_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["max_lifetime"].as_i64(), Some(server_max_lifetime));
+    assert_eq!(json["min_lifetime"].as_i64(), Some(server_min_lifetime));
+    assert_eq!(json["expire_on_clients"], true);
+
+    let create_room_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "name": "Retention Admin Room" }).to_string()))
+        .unwrap();
+    let create_room_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_room_request)
+        .await
+        .unwrap();
+    assert_eq!(create_room_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(create_room_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let room_id = json["room_id"].as_str().unwrap().to_string();
+
+    let set_room_policy_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/retention/policy/{}", room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "max_lifetime": 172_800_000_i64,
+                "min_lifetime": 7_200_000_i64,
+                "expire_on_clients": true
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_room_policy_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), set_room_policy_request)
+            .await
+            .unwrap();
+    assert_eq!(set_room_policy_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(set_room_policy_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["expire_on_clients"], true);
+
+    let get_room_policy_request = Request::builder()
+        .uri(format!("/_synapse/admin/v1/retention/policy/{}", room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_room_policy_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), get_room_policy_request)
+            .await
+            .unwrap();
+    assert_eq!(get_room_policy_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(get_room_policy_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["room_id"], room_id);
+    assert_eq!(json["expire_on_clients"], true);
+
+    sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1")
+        .bind(&room_id)
+        .execute(&*pool)
+        .await
+        .expect("failed to cleanup room_retention_policies");
+    sqlx::query("DELETE FROM server_retention_policy WHERE id = 1")
+        .execute(&*pool)
+        .await
+        .expect("failed to cleanup server_retention_policy");
 }

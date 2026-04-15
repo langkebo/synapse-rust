@@ -1,5 +1,7 @@
+#[cfg(any(test, feature = "test-utils"))]
 use synapse_rust::common::federation_test_keys::generate_federation_test_keypair;
 
+#[cfg(any(test, feature = "test-utils"))]
 fn main() {
     println!("Generating federation test keypair...");
     println!();
@@ -11,9 +13,15 @@ fn main() {
     println!("Public Key (base64): {}", keypair.public_key);
     println!();
 
-    // Also output as environment variables for easy use
     println!("# Environment variables:");
     println!("export FEDERATION_KEY_ID=\"{}\"", keypair.key_id);
     println!("export FEDERATION_SECRET_KEY=\"{}\"", keypair.secret_key);
     println!("export FEDERATION_PUBLIC_KEY=\"{}\"", keypair.public_key);
+}
+
+#[cfg(not(any(test, feature = "test-utils")))]
+fn main() {
+    eprintln!("This tool is only available with --features test-utils or in test mode.");
+    eprintln!("Use: cargo run --bin generate_test_keypair --features test-utils");
+    std::process::exit(1);
 }

@@ -1,4 +1,4 @@
-use crate::web::routes::{AdminUser, ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     routing::{get, post, put},
@@ -9,8 +9,9 @@ use serde_json::{json, Value};
 
 pub async fn get_key_rotation_status(
     State(state): State<AppState>,
-    _admin_user: AdminUser,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_key_rotation_admin(&auth_user)?;
     let config = &state.services.config.federation;
 
     Ok(Json(json!({
@@ -21,8 +22,9 @@ pub async fn get_key_rotation_status(
 
 pub async fn rotate_keys(
     State(state): State<AppState>,
-    admin_user: AdminUser,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_key_rotation_admin(&auth_user)?;
     let key_id = format!("ed25519:{}", uuid::Uuid::new_v4());
     let now = Utc::now().timestamp_millis();
     let device_id = "default".to_string();
@@ -33,7 +35,7 @@ pub async fn rotate_keys(
         VALUES ($1, $2, $3, $4)
         "#,
     )
-    .bind(&admin_user.user_id)
+    .bind(&auth_user.user_id)
     .bind(&device_id)
     .bind(&key_id)
     .bind(now)
@@ -44,7 +46,7 @@ pub async fn rotate_keys(
     ::tracing::warn!(
         target: "security_audit",
         event = "admin_key_rotation",
-        admin_user_id = admin_user.user_id,
+        admin_user_id = auth_user.user_id,
         key_id = key_id,
         "Admin performed key rotation"
     );
@@ -140,13 +142,14 @@ pub async fn revoke_old_keys(
 
 pub async fn configure_key_rotation(
     State(_state): State<AppState>,
-    admin_user: AdminUser,
+    auth_user: AuthenticatedUser,
     Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_key_rotation_admin(&auth_user)?;
     ::tracing::info!(
         target: "security_audit",
         event = "admin_key_rotation_config",
-        admin_user_id = admin_user.user_id,
+        admin_user_id = auth_user.user_id,
         "Rejected unsupported key rotation configuration request"
     );
 
@@ -154,6 +157,14 @@ pub async fn configure_key_rotation(
         "Key rotation configuration is not implemented; server-side settings remain authoritative"
             .to_string(),
     ))
+}
+
+fn ensure_key_rotation_admin(auth_user: &AuthenticatedUser) -> Result<(), ApiError> {
+    if auth_user.is_admin {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden("Admin access required".to_string()))
+    }
 }
 
 pub async fn check_needs_rotation(

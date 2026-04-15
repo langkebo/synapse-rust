@@ -2,7 +2,6 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use hmac::{Hmac, Mac};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -11,8 +10,6 @@ use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
-
-type HmacSha256 = Hmac<sha2::Sha256>;
 
 async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>)> {
     let pool = super::get_test_pool().await?;
@@ -24,69 +21,14 @@ async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>)> {
     Some((create_router(state), pool))
 }
 
-async fn get_admin_token(app: &axum::Router) -> String {
-    let request = Request::builder()
-        .uri("/_synapse/admin/v1/register/nonce")
-        .body(Body::empty())
-        .unwrap();
-
-    let response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
-            .await
-            .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), 1024)
+async fn get_super_admin_token(app: &axum::Router, pool: &PgPool) -> String {
+    let (token, username) = super::get_admin_token(app).await;
+    sqlx::query("UPDATE users SET user_type = 'super_admin' WHERE username = $1")
+        .bind(&username)
+        .execute(pool)
         .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    let nonce = json["nonce"].as_str().unwrap().to_string();
-    let username = format!("admin_fed_{}", rand::random::<u32>());
-    let password = "password123";
-
-    let mut mac = HmacSha256::new_from_slice(b"test_shared_secret").unwrap();
-    mac.update(nonce.as_bytes());
-    mac.update(b"\0");
-    mac.update(username.as_bytes());
-    mac.update(b"\0");
-    mac.update(password.as_bytes());
-    mac.update(b"\0");
-    mac.update(b"admin");
-
-    let mac_hex = mac
-        .finalize()
-        .into_bytes()
-        .iter()
-        .map(|byte| format!("{:02x}", byte))
-        .collect::<String>();
-
-    let request = Request::builder()
-        .method("POST")
-        .uri("/_synapse/admin/v1/register")
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({
-                "nonce": nonce,
-                "username": username,
-                "password": password,
-                "admin": true,
-                "mac": mac_hex
-            })
-            .to_string(),
-        ))
-        .unwrap();
-
-    let response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request))
-            .await
-            .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    json["access_token"].as_str().unwrap().to_string()
+        .expect("failed to promote admin test user to super_admin");
+    token
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> String {
@@ -121,7 +63,7 @@ async fn test_admin_federation_destinations_routes_work() {
     let Some((app, pool)) = setup_test_context().await else {
         return;
     };
-    let admin_token = get_admin_token(&app).await;
+    let admin_token = get_super_admin_token(&app, &pool).await;
     let suffix = rand::random::<u32>();
     let server_name = format!("fed-{}.example.com", suffix);
     let replacement = format!("target-{}.example.com", suffix);
@@ -314,7 +256,7 @@ async fn test_admin_federation_blacklist_cache_and_confirm_routes_work() {
     let Some((app, pool)) = setup_test_context().await else {
         return;
     };
-    let admin_token = get_admin_token(&app).await;
+    let admin_token = get_super_admin_token(&app, &pool).await;
     let suffix = rand::random::<u32>();
     let server_name = format!("blocked-{}.example.com", suffix);
     let cache_key_one = format!("fed-cache-one-{}", suffix);
@@ -365,12 +307,12 @@ async fn test_admin_federation_blacklist_cache_and_confirm_routes_work() {
     let confirm_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), confirm_request)
         .await
         .unwrap();
-    assert_eq!(confirm_response.status(), StatusCode::OK);
+    assert_eq!(confirm_response.status(), StatusCode::BAD_REQUEST);
     let confirm_body = axum::body::to_bytes(confirm_response.into_body(), 2048)
         .await
         .unwrap();
     let confirm_json: Value = serde_json::from_slice(&confirm_body).unwrap();
-    assert_eq!(confirm_json["confirmed"], true);
+    assert_eq!(confirm_json["errcode"], "M_UNRECOGNIZED");
 
     for key in [&cache_key_one, &cache_key_two] {
         sqlx::query(

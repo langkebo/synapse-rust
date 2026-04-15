@@ -1,34 +1,82 @@
-use crate::common::federation_test_keys::{
-    generate_federation_test_keypair, sign_federation_request, FederationTestKeypair,
-};
 use crate::common::{ApiError, ApiResult};
+use crate::federation::signing::canonical_federation_request_bytes;
+use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
+use ed25519_dalek::{Signer, SigningKey};
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 
 pub struct FriendFederationClient {
     client: Client,
     server_name: String,
-    keypair: FederationTestKeypair,
+    signing_key_id: String,
+    signing_key: Option<SigningKey>,
 }
 
 impl FriendFederationClient {
     pub fn new(server_name: String) -> Self {
-        tracing::warn!(
-            "FriendFederationClient created with test keypair - NOT suitable for production. \
-             Server: {}",
-            server_name
-        );
+        let signing_key_id = std::env::var("FEDERATION_SIGNING_KEY_ID")
+            .unwrap_or_else(|_| "ed25519:0".to_string());
+
+        let signing_key = std::env::var("FEDERATION_SIGNING_KEY")
+            .ok()
+            .and_then(|key_b64| {
+                STANDARD_NO_PAD
+                    .decode(&key_b64)
+                    .ok()
+                    .and_then(|bytes| {
+                        if bytes.len() == 32 {
+                            let mut arr = [0u8; 32];
+                            arr.copy_from_slice(&bytes);
+                            Some(SigningKey::from_bytes(&arr))
+                        } else {
+                            None
+                        }
+                    })
+            });
+
+        if signing_key.is_none() {
+            tracing::error!(
+                "FEDERATION_SIGNING_KEY not set or invalid - friend federation will not work"
+            );
+        }
+
         Self {
             client: Client::new(),
             server_name,
-            keypair: generate_federation_test_keypair(),
+            signing_key_id,
+            signing_key,
         }
     }
 
-    /// 发送好友邀请到远程服务器
-    ///
-    /// PUT /_matrix/federation/v1/send_join/{roomId}/{eventId}
-    /// 这里简化为发送一个自定义的好友请求事件
+    fn sign_request(
+        &self,
+        method: &str,
+        path: &str,
+        destination: &str,
+        content: Option<&Value>,
+    ) -> Result<String, ApiError> {
+        let signing_key = self
+            .signing_key
+            .as_ref()
+            .ok_or_else(|| ApiError::internal("Federation signing key not configured"))?;
+
+        let message = canonical_federation_request_bytes(
+            method,
+            path,
+            &self.server_name,
+            destination,
+            content,
+        );
+
+        let signature = signing_key.sign(&message);
+        let sig_b64 = STANDARD_NO_PAD.encode(signature.to_bytes());
+
+        Ok(format!(
+            "X-Matrix origin={},destination={},key=\"{}\",sig=\"{}\"",
+            self.server_name, destination, self.signing_key_id, sig_b64
+        ))
+    }
+
     pub async fn send_invite(
         &self,
         destination: &str,
@@ -38,22 +86,12 @@ impl FriendFederationClient {
         let path = format!("/_matrix/federation/v1/send/{}", uuid::Uuid::new_v4());
         let url = format!("https://{}{}", destination, path);
 
-        // 1. 构造请求体
         let body_str = serde_json::to_string(content)
             .map_err(|e| ApiError::internal(format!("Failed to serialize body: {}", e)))?;
 
-        // 2. 签名
-        let auth_header = sign_federation_request(
-            &self.keypair.secret_key,
-            "PUT",
-            &path,
-            &self.server_name,
-            destination,
-            Some(&body_str),
-        )
-        .map_err(|e| ApiError::internal(format!("Failed to sign request: {}", e)))?;
+        let auth_header =
+            self.sign_request("PUT", &path, destination, Some(content))?;
 
-        // 3. 发送请求
         tracing::info!("Sending federation invite to {}", url);
         let response = self
             .client
@@ -75,9 +113,6 @@ impl FriendFederationClient {
         Ok(())
     }
 
-    /// 查询远程用户的好友列表
-    ///
-    /// GET /_matrix/federation/v1/user/friends/{userId}
     pub async fn query_remote_friends(
         &self,
         destination: &str,
@@ -86,18 +121,8 @@ impl FriendFederationClient {
         let path = format!("/_matrix/federation/v1/user/friends/{}", user_id);
         let url = format!("https://{}{}", destination, path);
 
-        // 1. 签名 (GET 请求无 Body)
-        let auth_header = sign_federation_request(
-            &self.keypair.secret_key,
-            "GET",
-            &path,
-            &self.server_name,
-            destination,
-            None,
-        )
-        .map_err(|e| ApiError::internal(format!("Failed to sign request: {}", e)))?;
+        let auth_header = self.sign_request("GET", &path, destination, None)?;
 
-        // 2. 发送请求
         tracing::info!("Querying remote friends from {}", url);
         let response = self
             .client
@@ -118,7 +143,6 @@ impl FriendFederationClient {
             )));
         }
 
-        // 3. 解析响应
         let body: Value = response
             .json()
             .await
@@ -144,13 +168,6 @@ mod tests {
     fn test_friend_federation_client_creation() {
         let client = FriendFederationClient::new("example.com".to_string());
         assert_eq!(client.server_name, "example.com");
-    }
-
-    #[test]
-    fn test_federation_client_keypair() {
-        let client = FriendFederationClient::new("test.server".to_string());
-        assert!(!client.keypair.public_key.is_empty());
-        assert!(!client.keypair.secret_key.is_empty());
     }
 
     #[test]
