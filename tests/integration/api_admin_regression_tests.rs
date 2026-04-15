@@ -1293,7 +1293,13 @@ async fn test_account_validity_write_endpoints_require_existing_user() {
         return;
     };
 
-    let (admin_token, _) = super::get_admin_token(&app).await;
+    let (admin_token, admin_user_id) = register_user(
+        &app,
+        &format!("account_validity_super_admin_{}", rand::random::<u32>()),
+    )
+    .await
+    .expect("failed to register super admin user");
+    promote_to_admin_with_role(&pool, &admin_user_id, "super_admin").await;
 
     let missing_user_id = format!("@missing_account_validity_{}:localhost", rand::random::<u32>());
     let expiration_ts = chrono::Utc::now().timestamp_millis() + 86_400_000_i64;
@@ -1315,7 +1321,16 @@ async fn test_account_validity_write_endpoints_require_existing_user() {
     let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
         .await
         .unwrap();
-    assert_eq!(create_response.status(), StatusCode::NOT_FOUND);
+    let create_status = create_response.status();
+    let create_body = axum::body::to_bytes(create_response.into_body(), 8192)
+        .await
+        .unwrap();
+    assert_eq!(
+        create_status,
+        StatusCode::NOT_FOUND,
+        "unexpected create response: {}",
+        String::from_utf8_lossy(&create_body)
+    );
 
     let validity_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM account_validity WHERE user_id = $1")
         .bind(&missing_user_id)
@@ -1343,7 +1358,81 @@ async fn test_account_validity_write_endpoints_require_existing_user() {
     let renew_response = ServiceExt::<Request<Body>>::oneshot(app, renew_request)
         .await
         .unwrap();
-    assert_eq!(renew_response.status(), StatusCode::NOT_FOUND);
+    let renew_status = renew_response.status();
+    let renew_body = axum::body::to_bytes(renew_response.into_body(), 8192)
+        .await
+        .unwrap();
+    assert_eq!(
+        renew_status,
+        StatusCode::NOT_FOUND,
+        "unexpected renew response: {}",
+        String::from_utf8_lossy(&renew_body)
+    );
+}
+
+#[tokio::test]
+async fn test_admin_batch_create_users_reports_conflicts_as_failed() {
+    let _guard = test_mutex().lock().await;
+    let Some((app, pool)) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, admin_user_id) = register_user(
+        &app,
+        &format!("batch_create_admin_{}", rand::random::<u32>()),
+    )
+    .await
+    .expect("failed to register admin user");
+    promote_to_admin(&pool, &admin_user_id).await;
+
+    let existing_username = format!("batch_existing_{}", rand::random::<u32>());
+    register_user(&app, &existing_username)
+        .await
+        .expect("failed to register existing batch user");
+
+    let new_username = format!("batch_new_{}", rand::random::<u32>());
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/users/batch")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "users": [
+                    { "username": existing_username },
+                    { "username": new_username }
+                ]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 8192)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["total"], 2);
+    assert_eq!(json["created"], json!([new_username]));
+    assert_eq!(json["failed"], json!([existing_username]));
+
+    let existing_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE username = $1")
+        .bind(json["failed"][0].as_str().unwrap())
+        .fetch_one(&*pool)
+        .await
+        .expect("failed to inspect existing user count");
+    assert_eq!(existing_count, 1);
+
+    let new_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE username = $1")
+        .bind(json["created"][0].as_str().unwrap())
+        .fetch_one(&*pool)
+        .await
+        .expect("failed to inspect newly created user count");
+    assert_eq!(new_count, 1);
 }
 
 #[tokio::test]
