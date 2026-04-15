@@ -50,7 +50,6 @@ struct FcmNotification {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 struct FcmResponse {
     #[serde(default)]
     success: u32,
@@ -63,7 +62,6 @@ struct FcmResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 struct FcmResult {
     #[serde(default)]
     message_id: Option<String>,

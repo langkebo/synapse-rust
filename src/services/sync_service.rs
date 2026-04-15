@@ -301,7 +301,6 @@ pub struct SyncService {
     event_storage: EventStorage,
     room_storage: RoomStorage,
     filter_storage: FilterStorage,
-    #[allow(dead_code)]
     device_storage: DeviceStorage,
     lazy_loaded_members_cache: Arc<RwLock<HashMap<LazyLoadedMembersCacheKey, HashSet<String>>>>,
     metrics: Arc<MetricsCollector>,
@@ -760,7 +759,6 @@ impl SyncService {
         }
     }
 
-    #[allow(dead_code)]
     async fn poll_for_events(
         &self,
         room_ids: &[String],

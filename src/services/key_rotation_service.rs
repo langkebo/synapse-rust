@@ -59,7 +59,6 @@ pub trait KeyRotationService: Send + Sync {
 }
 
 pub struct KeyRotationServiceImpl {
-    #[allow(dead_code)]
     records: Arc<RwLock<HashMap<String, Vec<KeyRotationRecord>>>>,
     config: KeyRotationConfig,
 }
@@ -67,7 +66,6 @@ pub struct KeyRotationServiceImpl {
 impl KeyRotationServiceImpl {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             records: Arc::new(RwLock::new(HashMap::new())),
             config: KeyRotationConfig::default(),
         }
@@ -75,7 +73,6 @@ impl KeyRotationServiceImpl {
 
     pub fn with_config(config: KeyRotationConfig) -> Self {
         Self {
-            #[allow(dead_code)]
             records: Arc::new(RwLock::new(HashMap::new())),
             config,
         }

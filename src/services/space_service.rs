@@ -9,7 +9,6 @@ use tracing::{error, info, instrument, warn};
 pub struct SpaceService {
     space_storage: Arc<SpaceStorage>,
     room_storage: Arc<RoomStorage>,
-    #[allow(dead_code)]
     event_storage: Arc<EventStorage>,
     server_name: String,
 }

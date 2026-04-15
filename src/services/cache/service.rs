@@ -15,7 +15,6 @@ struct MemoryCache {
     max_entries: usize,
 }
 
-#[allow(dead_code)]
 struct CacheEntryInner {
     value: Vec<u8>,
     created_at: i64,

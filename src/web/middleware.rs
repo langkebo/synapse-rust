@@ -13,7 +13,6 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::json;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,8 +32,6 @@ static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
         })
 });
 
-const FEDERATION_SIGNATURE_TTL_MS: u64 = 300 * 1000;
-
 #[derive(Clone, Debug)]
 pub struct FederationRequestAuth {
     pub origin: String,
@@ -50,7 +47,6 @@ pub struct FederationRequestAuth {
 /// In production, this should be used with axum's middleware system
 pub struct CsrfTokenManager {
     secret: String,
-    #[allow(dead_code)]
     token_ttl: std::time::Duration,
 }
 
@@ -63,7 +59,6 @@ impl CsrfTokenManager {
     }
 
     /// Generate a CSRF token for a session
-    #[allow(dead_code)]
     pub fn generate_token(&self, session_id: &str) -> String {
         let issued_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -75,7 +70,6 @@ impl CsrfTokenManager {
     }
 
     /// Validate a CSRF token
-    #[allow(dead_code)]
     pub fn validate_token(&self, token: &str, session_id: &str) -> bool {
         let parts: Vec<&str> = token.split(':').collect();
         if parts.len() != 3 {
@@ -275,208 +269,6 @@ pub fn validate_bind_address_for_dev_mode(host: &str) -> Result<(), String> {
     }
 
     Ok(())
-}
-const FEDERATION_KEY_CACHE_TTL: u64 = 3600;
-#[allow(dead_code)]
-const FEDERATION_SIGNATURE_CACHE_TTL: u64 = 300;
-#[allow(dead_code)]
-const FEDERATION_KEY_ROTATION_GRACE_PERIOD_MS: u64 = 600 * 1000; // 10分钟宽限期
-
-#[allow(dead_code)]
-fn verify_signature_timestamp(signature_ts: i64) -> Result<(), ApiError> {
-    let now = chrono::Utc::now().timestamp_millis();
-    let tolerance = FEDERATION_SIGNATURE_TTL_MS as i64;
-
-    if (signature_ts - now).abs() > tolerance {
-        tracing::warn!(
-            "Signature timestamp out of tolerance: {}ms (tolerance: {}ms)",
-            (signature_ts - now).abs(),
-            tolerance
-        );
-        Err(ApiError::unauthorized(
-            "Signature timestamp out of tolerance".to_string(),
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-#[allow(dead_code)]
-async fn verify_federation_signature_with_timestamp(
-    state: &crate::web::routes::AppState,
-    origin: &str,
-    key_id: &str,
-    signature: &str,
-    signature_ts: i64,
-    signed_bytes: &[u8],
-) -> Result<(), ApiError> {
-    verify_signature_timestamp(signature_ts)?;
-
-    verify_federation_signature(state, origin, key_id, signature, signed_bytes, false).await
-}
-
-#[allow(dead_code)]
-async fn verify_with_key_rotation(
-    state: &crate::web::routes::AppState,
-    origin: &str,
-    key_id: &str,
-    signature: &str,
-    signed_bytes: &[u8],
-) -> Result<(), ApiError> {
-    match verify_federation_signature_with_cache(
-        state,
-        origin,
-        key_id,
-        signature,
-        signed_bytes,
-        false,
-    )
-    .await
-    {
-        Ok(()) => {
-            tracing::debug!(
-                "Signature verified with current key for {}:{}",
-                origin,
-                key_id
-            );
-            return Ok(());
-        }
-        Err(e) => {
-            tracing::debug!(
-                "Current key verification failed, trying historical keys: {}",
-                e
-            );
-        }
-    }
-
-    let historical_key = get_historical_key(state, origin, key_id).await?;
-    if let Some(public_key) = historical_key {
-        let signature_bytes = decode_ed25519_signature(signature)
-            .map_err(|_| ApiError::unauthorized("Invalid signature format".to_string()))?;
-
-        let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&public_key)
-            .map_err(|_| ApiError::unauthorized("Invalid public key".to_string()))?;
-
-        match verifying_key.verify_strict(signed_bytes, &signature_bytes) {
-            Ok(()) => {
-                tracing::info!(
-                    "Signature verified with historical key for {}:{} (key rotation detected)",
-                    origin,
-                    key_id
-                );
-                return Ok(());
-            }
-            Err(e) => {
-                tracing::debug!("Historical key verification failed: {:?}", e);
-            }
-        }
-    }
-
-    Err(ApiError::unauthorized(
-        "Signature verification failed with all available keys".to_string(),
-    ))
-}
-
-async fn get_historical_key(
-    state: &crate::web::routes::AppState,
-    origin: &str,
-    key_id: &str,
-) -> Result<Option<[u8; 32]>, ApiError> {
-    let cache_key = format!("federation:historical_key:{}:{}", origin, key_id);
-    if let Ok(Some(cached)) = state.cache.get::<String>(&cache_key).await {
-        if let Ok(key) = decode_ed25519_public_key(&cached) {
-            return Ok(Some(key));
-        }
-    }
-
-    #[derive(sqlx::FromRow)]
-    struct HistoricalKeyRow {
-        public_key: String,
-    }
-
-    let row = sqlx::query_as::<_, HistoricalKeyRow>(
-        r#"
-        SELECT public_key FROM federation_signing_keys
-        WHERE server_name = $1 AND key_id = $2 AND expires_at < $3
-        ORDER BY created_ts DESC LIMIT 1
-        "#,
-    )
-    .bind(origin)
-    .bind(key_id)
-    .bind(chrono::Utc::now().timestamp_millis())
-    .fetch_optional(state.services.user_storage.pool.as_ref())
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to query historical key: {}", e)))?;
-
-    if let Some(key_row) = row {
-        if let Ok(key_bytes) = decode_ed25519_public_key(&key_row.public_key) {
-            let ttl = FEDERATION_KEY_CACHE_TTL;
-            let _ = state.cache.set(&cache_key, &key_row.public_key, ttl).await;
-            return Ok(Some(key_bytes));
-        }
-    }
-
-    Ok(None)
-}
-
-#[allow(dead_code)]
-async fn prewarm_federation_keys(state: &crate::web::routes::AppState, origins: &[&str]) {
-    for origin in origins {
-        if let Err(e) = prewarm_keys_for_origin(state, origin).await {
-            tracing::warn!("Failed to prewarm keys for {}: {}", origin, e);
-        }
-    }
-}
-
-#[allow(dead_code)]
-async fn prewarm_keys_for_origin(
-    state: &crate::web::routes::AppState,
-    origin: &str,
-) -> Result<(), ApiError> {
-    let cache_key = format!("federation:server_keys:{}", origin);
-
-    if let Ok(Some(_)) = state.cache.get::<String>(&cache_key).await {
-        tracing::debug!("Server keys already cached for {}", origin);
-        return Ok(());
-    }
-
-    let urls = [
-        format!("https://{}/_matrix/key/v2/server", origin),
-        format!("https://{}:8448/_matrix/key/v2/server", origin),
-    ];
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(2))
-        .build()
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-
-    for url in urls {
-        match client.get(&url).send().await {
-            Ok(resp) if resp.status().is_success() => match resp.json::<Value>().await {
-                Ok(json) => {
-                    let keys_json = serde_json::to_string(&json).unwrap_or_default();
-                    let ttl = FEDERATION_KEY_CACHE_TTL;
-                    let _ = state.cache.set(&cache_key, keys_json, ttl).await;
-                    tracing::info!("Successfully prewarmed keys for {}", origin);
-                    return Ok(());
-                }
-                Err(e) => {
-                    tracing::debug!("Failed to parse response from {}: {}", url, e);
-                }
-            },
-            Err(e) => {
-                tracing::debug!("Failed to fetch keys from {}: {}", url, e);
-            }
-            _ => {
-                tracing::debug!("Non-success status from {}", url);
-            }
-        }
-    }
-
-    Err(ApiError::not_found(format!(
-        "Failed to prewarm keys for {}: no valid response",
-        origin
-    )))
 }
 
 pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
@@ -1472,62 +1264,6 @@ async fn verify_federation_signature(
                 "Signature verification failed".to_string(),
             ))
         }
-    }
-}
-
-#[allow(dead_code)]
-async fn verify_batch_signatures(
-    state: &crate::web::routes::AppState,
-    signatures: &HashMap<String, HashMap<String, String>>,
-    _origin: &str,
-    signed_bytes: &[u8],
-) -> Result<(), ApiError> {
-    if signatures.is_empty() {
-        return Err(ApiError::unauthorized("No signatures provided".to_string()));
-    }
-
-    let mut first_error = None;
-
-    for (sig_origin, key_signatures) in signatures {
-        for (key_id, signature) in key_signatures {
-            match verify_federation_signature_with_cache(
-                state,
-                sig_origin,
-                key_id,
-                signature,
-                signed_bytes,
-                false,
-            )
-            .await
-            {
-                Ok(()) => {
-                    tracing::debug!(
-                        "Signature verified successfully for {}:{}",
-                        sig_origin,
-                        key_id
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Signature verification failed for {}:{}: {}",
-                        sig_origin,
-                        key_id,
-                        e
-                    );
-                    if first_error.is_none() {
-                        first_error = Some(e);
-                    }
-                }
-            }
-        }
-    }
-
-    if let Some(error) = first_error {
-        Err(error)
-    } else {
-        Err(ApiError::unauthorized(
-            "No valid signatures found".to_string(),
-        ))
     }
 }
 

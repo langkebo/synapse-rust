@@ -3,7 +3,6 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
-#[allow(dead_code)]
 const DEFAULT_CACHE_TTL_SECONDS: i64 = 3600;
 const RUNTIME_DB_INIT_ENV: &str = "SYNAPSE_ENABLE_RUNTIME_DB_INIT";
 
@@ -688,7 +687,6 @@ impl DatabaseInitService {
     }
 
     #[cfg(feature = "runtime-ddl")]
-    #[allow(dead_code)]
     async fn step_schema_repair(&self) -> Result<Vec<String>, sqlx::Error> {
         self.schema_validator.repair_missing_columns().await
     }
@@ -698,13 +696,11 @@ impl DatabaseInitService {
     }
 
     #[cfg(feature = "runtime-ddl")]
-    #[allow(dead_code)]
     async fn step_create_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
         self.schema_validator.create_missing_indexes().await
     }
 
     #[cfg(feature = "runtime-ddl")]
-    #[allow(dead_code)]
     async fn step_create_e2ee_tables(&self) -> Result<String, sqlx::Error> {
         sqlx::query(
             r#"
@@ -745,7 +741,6 @@ impl DatabaseInitService {
     /// 创建 E2EE 核心表 - 包括 Olm 和 Megolm 会话表
     /// 这些表在迁移文件中定义，确保在迁移失败时也能创建
     #[cfg(feature = "runtime-ddl")]
-    #[allow(dead_code)]
     async fn step_create_e2ee_core_tables(&self) -> Result<String, sqlx::Error> {
         // Create olm_accounts table
         sqlx::query(
@@ -894,7 +889,6 @@ impl DatabaseInitService {
     }
 
     #[cfg(feature = "runtime-ddl")]
-    #[allow(dead_code)]
     async fn step_ensure_additional_tables(&self) -> Result<String, sqlx::Error> {
         // Ensure typing table exists
         sqlx::query(

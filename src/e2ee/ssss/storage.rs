@@ -254,7 +254,6 @@ impl SecretStorage {
 mod tests {
     use super::*;
 
-    #[allow(dead_code)]
     fn create_test_storage(pool: &PgPool) -> SecretStorage {
         SecretStorage::new(pool)
     }

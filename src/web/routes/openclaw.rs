@@ -926,7 +926,6 @@ fn encrypt_api_key(key: &str) -> String {
     BASE64_STANDARD.encode(&combined)
 }
 
-#[allow(dead_code)]
 fn decrypt_api_key(encrypted: &str) -> Option<String> {
     use aes_gcm::aead::Aead;
     use aes_gcm::{Aes256Gcm, KeyInit, Nonce};

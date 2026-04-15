@@ -18,7 +18,6 @@ pub struct WorkerManager {
     server_name: String,
     local_worker_id: Option<String>,
     connections: Arc<RwLock<HashMap<String, ReplicationConnection>>>,
-    #[allow(dead_code)]
     protocol: ReplicationProtocol,
     bus: Option<Arc<WorkerBus>>,
     stream_manager: Option<Arc<StreamWriterManager>>,

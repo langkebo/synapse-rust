@@ -17,19 +17,15 @@ use serde_json::{json, Value};
 #[derive(Debug, Deserialize)]
 struct CreateThreadBody {
     #[serde(default)]
-    #[allow(dead_code)]
     room_id: Option<String>,
     root_event_id: String,
-    #[allow(dead_code)]
     content: serde_json::Value,
-    #[allow(dead_code)]
     origin_server_ts: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
 struct CreateReplyBody {
     #[serde(default)]
-    #[allow(dead_code)]
     thread_id: Option<String>,
     event_id: String,
     root_event_id: String,

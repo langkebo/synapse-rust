@@ -75,7 +75,6 @@ impl WorkerBus {
         *self.connected.read().await
     }
 
-    #[allow(dead_code)]
     fn channel_name(&self, channel: &str) -> String {
         format!("{}:{}", self.config.channel_prefix, channel)
     }

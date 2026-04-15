@@ -79,7 +79,6 @@ impl Default for PushGatewayConfig {
 #[derive(Debug)]
 pub struct PushGateway {
     client: Client,
-    #[allow(dead_code)]
     config: PushGatewayConfig,
 }
 

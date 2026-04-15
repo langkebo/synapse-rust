@@ -375,7 +375,6 @@ pub(crate) async fn get_threepids(
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct AddThreepidRequest {
     #[serde(rename = "threePidCreds")]
     three_pid_creds: Option<ThreepidCreds>,
@@ -383,7 +382,6 @@ struct AddThreepidRequest {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct ThreepidCreds {
     client_secret: Option<String>,
     sid: Option<String>,

@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use url::form_urlencoded;
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct ServiceTicketQuery {
     service: String,
     renew: Option<bool>,
@@ -21,7 +20,6 @@ struct ServiceTicketQuery {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct ValidateQuery {
     service: String,
     ticket: String,
@@ -36,7 +34,6 @@ struct ProxyQuery {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct ProxyValidateQuery {
     service: String,
     ticket: String,
@@ -70,13 +67,11 @@ struct SetAttributeBody {
 }
 
 #[derive(Debug, Serialize)]
-#[allow(dead_code)]
 struct ServiceTicketResponse {
     ticket: String,
 }
 
 #[derive(Debug, Serialize)]
-#[allow(dead_code)]
 struct ProxyTicketResponse {
     ticket: String,
 }

@@ -39,7 +39,6 @@ pub struct OlmService {
     account: RwLock<Option<Account>>,
     storage: OlmStorage,
     session_manager: RwLock<Option<Arc<OlmSessionManager>>>,
-    #[allow(dead_code)]
     cache: Arc<CacheManager>,
     user_id: RwLock<Option<String>>,
     device_id: RwLock<Option<String>>,
