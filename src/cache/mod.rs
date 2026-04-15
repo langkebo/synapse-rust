@@ -1201,14 +1201,15 @@ mod tests {
         let config = CacheConfig::default();
         let manager = CacheManager::new(config);
 
+        let now = chrono::Utc::now().timestamp();
         let claims = Claims {
             sub: "test_subject".to_string(),
             user_id: "@test:example.com".to_string(),
             jti: "test-jti-cache-ops".to_string(),
             admin: false,
             device_id: Some("DEVICE123".to_string()),
-            exp: 1234567890,
-            iat: 1234567890,
+            exp: now + 3600, // Expire in 1 hour
+            iat: now,
         };
 
         manager.set_token("test_token", &claims, 3600).await;

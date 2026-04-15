@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn test_cache_ttl_token() {
         let ttl = CacheTtl::token();
-        assert_eq!(ttl, Duration::from_secs(86400));
+        assert_eq!(ttl, Duration::from_secs(300)); // 5 min - must be short to respect revocation
     }
 
     #[test]
