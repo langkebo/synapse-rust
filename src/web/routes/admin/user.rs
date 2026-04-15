@@ -720,12 +720,26 @@ pub async fn get_user_stats(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let total_users = state
-        .services
-        .user_storage
-        .get_user_count()
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get user count: {}", e)))?;
+    let stats = sqlx::query(
+        r#"
+        SELECT
+            COUNT(*)::BIGINT AS total_users,
+            COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = FALSE)::BIGINT AS active_users,
+            COUNT(*) FILTER (WHERE COALESCE(is_admin, FALSE) = TRUE)::BIGINT AS admin_users,
+            COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = TRUE)::BIGINT AS deactivated_users,
+            COUNT(*) FILTER (WHERE COALESCE(is_guest, FALSE) = TRUE)::BIGINT AS guest_users
+        FROM users
+        "#,
+    )
+    .fetch_one(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to get user stats: {}", e)))?;
+
+    let total_users = stats.get::<i64, _>("total_users");
+    let active_users = stats.get::<i64, _>("active_users");
+    let admin_users = stats.get::<i64, _>("admin_users");
+    let deactivated_users = stats.get::<i64, _>("deactivated_users");
+    let guest_users = stats.get::<i64, _>("guest_users");
 
     let room_count = state
         .services
@@ -742,12 +756,12 @@ pub async fn get_user_stats(
 
     Ok(Json(json!({
         "total_users": total_users,
-        "active_users": total_users,
-        "admin_users": 1,
-        "deactivated_users": 0,
-        "guest_users": 0,
+        "active_users": active_users,
+        "admin_users": admin_users,
+        "deactivated_users": deactivated_users,
+        "guest_users": guest_users,
         "average_rooms_per_user": average_rooms_per_user,
-        "user_registration_enabled": true
+        "user_registration_enabled": state.services.config.server.enable_registration
     })))
 }
 

@@ -126,7 +126,7 @@ impl CacheTtl {
     }
 
     pub fn token() -> Duration {
-        Duration::from_secs(86400) // 24 hours
+        Duration::from_secs(300) // 5 min - must be short to respect revocation
     }
 
     pub fn public_rooms() -> Duration {

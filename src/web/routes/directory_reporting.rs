@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::web::extractors::{AdminUser, AuthenticatedUser, OptionalAuthenticatedUser};
+use crate::web::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::routes::{
     account_compat::{can_view_profile_for_requester, enforce_profile_visibility},
     extract_token_from_headers, validate_event_id, validate_room_alias, validate_room_id,
@@ -167,10 +167,14 @@ pub(crate) async fn report_event(
 
 pub(crate) async fn update_report_score(
     State(state): State<AppState>,
-    _auth_user: AdminUser,
+    auth_user: AuthenticatedUser,
     Path((_room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    if !auth_user.is_admin {
+        return Err(ApiError::forbidden("Admin access required".to_string()));
+    }
+
     validate_event_id(&event_id)?;
 
     let score =

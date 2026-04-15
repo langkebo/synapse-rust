@@ -181,7 +181,15 @@ impl RedisCache {
     pub async fn new(
         config: &crate::common::config::RedisConfig,
     ) -> Result<Self, redis::RedisError> {
-        let conn_str = format!("redis://{}:{}", config.host, config.port);
+        let conn_str = if let Some(password) = &config.password {
+            if !password.is_empty() {
+                format!("redis://:{}@{}:{}", password, config.host, config.port)
+            } else {
+                format!("redis://{}:{}", config.host, config.port)
+            }
+        } else {
+            format!("redis://{}:{}", config.host, config.port)
+        };
         let cfg = Config::from_url(conn_str);
 
         let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
@@ -802,19 +810,26 @@ impl CacheManager {
     }
 
     pub async fn get_token(&self, token: &str) -> Option<Claims> {
-        // L1: Local Cache
         if let Some(claims) = self.local.get(token) {
-            return Some(claims);
+            if claims.exp >= chrono::Utc::now().timestamp() {
+                return Some(claims);
+            } else {
+                self.local.remove(token);
+                return None;
+            }
         }
 
-        // L2: Redis Cache
         if self.use_redis {
             if let Some(redis) = &self.redis {
                 if let Some(val) = redis.get(token).await {
-                    if let Ok(claims) = serde_json::from_str(&val) {
-                        // Populate L1
-                        self.local.set(token, &claims);
-                        return Some(claims);
+                    if let Ok(claims) = serde_json::from_str::<Claims>(&val) {
+                        if claims.exp >= chrono::Utc::now().timestamp() {
+                            self.local.set(token, &claims);
+                            return Some(claims);
+                        } else {
+                            let _ = redis.delete(token).await;
+                            return None;
+                        }
                     }
                 }
             }

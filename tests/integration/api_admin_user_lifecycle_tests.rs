@@ -3,7 +3,125 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
+use sqlx::PgPool;
+use std::sync::Arc;
+use synapse_rust::cache::{CacheConfig, CacheManager};
+use synapse_rust::services::ServiceContainer;
+use synapse_rust::web::routes::create_router;
+use synapse_rust::web::AppState;
 use tower::ServiceExt;
+
+async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>)> {
+    let pool = super::get_test_pool().await?;
+    let container = ServiceContainer::new_test_with_pool(pool.clone());
+    let pool = container.user_storage.pool.clone();
+    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let state = AppState::new(container, cache);
+
+    Some((create_router(state), pool))
+}
+
+async fn get_super_admin_token(app: &axum::Router, pool: &PgPool) -> String {
+    let (token, username) = super::get_admin_token(app).await;
+    sqlx::query("UPDATE users SET user_type = 'super_admin' WHERE username = $1")
+        .bind(&username)
+        .execute(pool)
+        .await
+        .expect("failed to promote admin test user to super_admin");
+    token
+}
+
+#[tokio::test]
+async fn test_admin_user_stats_reflect_real_counts() {
+    let Some((app, pool)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool).await;
+
+    let baseline_request = Request::builder()
+        .uri("/_synapse/admin/v1/user_stats")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let baseline_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), baseline_request)
+        .await
+        .unwrap();
+    assert_eq!(baseline_response.status(), StatusCode::OK);
+    let baseline_body = axum::body::to_bytes(baseline_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let baseline_json: Value = serde_json::from_slice(&baseline_body).unwrap();
+
+    let username = format!("stats_user_{}", rand::random::<u32>());
+    let user_id = format!("@{}:localhost", username);
+    let encoded_user_id = user_id.replace('@', "%40").replace(':', "%3A");
+
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let register_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
+        .await
+        .unwrap();
+    assert_eq!(register_response.status(), StatusCode::OK);
+
+    let deactivate_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_synapse/admin/v2/users/{}", encoded_user_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "deactivated": true }).to_string()))
+        .unwrap();
+    let deactivate_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), deactivate_request)
+            .await
+            .unwrap();
+    assert_eq!(deactivate_response.status(), StatusCode::OK);
+
+    let updated_request = Request::builder()
+        .uri("/_synapse/admin/v1/user_stats")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let updated_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), updated_request)
+        .await
+        .unwrap();
+    assert_eq!(updated_response.status(), StatusCode::OK);
+    let updated_body = axum::body::to_bytes(updated_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let updated_json: Value = serde_json::from_slice(&updated_body).unwrap();
+
+    assert_eq!(
+        updated_json["total_users"].as_i64().unwrap(),
+        baseline_json["total_users"].as_i64().unwrap() + 1
+    );
+    assert_eq!(
+        updated_json["deactivated_users"].as_i64().unwrap(),
+        baseline_json["deactivated_users"].as_i64().unwrap() + 1
+    );
+    assert_eq!(
+        updated_json["active_users"].as_i64().unwrap(),
+        baseline_json["active_users"].as_i64().unwrap()
+    );
+    assert_eq!(
+        updated_json["admin_users"].as_i64().unwrap(),
+        baseline_json["admin_users"].as_i64().unwrap()
+    );
+    assert_eq!(
+        updated_json["user_registration_enabled"].as_bool(),
+        baseline_json["user_registration_enabled"].as_bool()
+    );
+}
 
 /// 测试用户管理完整生命周期：注册 → 查询 → 封禁 → 解封 → 删除
 #[tokio::test]
