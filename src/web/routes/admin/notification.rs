@@ -376,6 +376,13 @@ pub async fn send_server_notice(
     );
     let now = chrono::Utc::now().timestamp_millis();
     let server_user = format!("@server:{}", state.services.config.server.name);
+    let mut tx = state
+        .services
+        .event_storage
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let room_result = sqlx::query(
         r#"
@@ -392,11 +399,14 @@ pub async fn send_server_notice(
     .bind("System notifications")
     .bind(&server_user)
     .bind(now)
-    .execute(&*state.services.event_storage.pool)
-    .await;
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to create server notice room: {}", e)))?;
 
-    if let Err(e) = room_result {
-        ::tracing::warn!("Failed to create server notice room: {}", e);
+    if room_result.rows_affected() == 0 {
+        return Err(ApiError::internal(
+            "Failed to create server notice room".to_string(),
+        ));
     }
 
     let message_event_id = format!(
@@ -423,11 +433,16 @@ pub async fn send_server_notice(
     .bind(json!({"creator": server_user}))
     .bind(now)
     .bind(&server_user)
-    .execute(&*state.services.event_storage.pool)
-    .await;
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        ApiError::internal(format!("Failed to create server notice create event: {}", e))
+    })?;
 
-    if let Err(e) = create_result {
-        ::tracing::warn!("Failed to create room event: {}", e);
+    if create_result.rows_affected() == 0 {
+        return Err(ApiError::internal(
+            "Failed to create server notice create event".to_string(),
+        ));
     }
 
     let message_result = sqlx::query(
@@ -445,14 +460,19 @@ pub async fn send_server_notice(
     }))
     .bind(now)
     .bind(&server_user)
-    .execute(&*state.services.event_storage.pool)
-    .await;
-
-    if let Err(e) = message_result {
-        ::tracing::warn!(
-            "Failed to persist m.room.message event for server notice (fallback to metadata-only notice): {}",
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        ApiError::internal(format!(
+            "Failed to persist m.room.message event for server notice: {}",
             e
-        );
+        ))
+    })?;
+
+    if message_result.rows_affected() == 0 {
+        return Err(ApiError::internal(
+            "Failed to persist m.room.message event for server notice".to_string(),
+        ));
     }
 
     let notice_content = json!({
@@ -470,9 +490,13 @@ pub async fn send_server_notice(
     .bind(&message_event_id)
     .bind(notice_content.to_string())
     .bind(now)
-    .fetch_one(&*state.services.event_storage.pool)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(
         json!({ "event_id": message_event_id, "room_id": room_id, "notice_id": notice_id }),
