@@ -88,24 +88,24 @@ flyway-migrate:
 # Test Commands
 test:
 	@echo "Running all tests..."
-	@cargo test
+	@cargo test --locked
 
 test-unit:
 	@echo "Running unit tests..."
-	@cargo test --lib
+	@cargo test --lib --locked
 
 test-integration:
 	@echo "Running integration tests..."
-	@cargo test --test '*'
+	@cargo test --locked --test '*'
 
 test-coverage:
 	@echo "Running tests with coverage..."
-	@cargo tarpaulin --out Html --out Xml --out Json --scope Unit --scope Integration
+	@cargo tarpaulin --out Html --out Xml --out Json --include-tests --locked
 
 # Code Quality Commands
 lint:
 	@echo "Running linter..."
-	@cargo clippy --all-targets --all-features -- -D warnings || true
+	@cargo clippy --all-features --locked -- -D warnings
 
 fmt:
 	@echo "Formatting code..."
@@ -113,7 +113,7 @@ fmt:
 
 check: fmt lint
 	@echo "Running all checks..."
-	@cargo check --all-targets --all-features
+	@cargo check --all-features --locked
 
 # Build Commands
 build:

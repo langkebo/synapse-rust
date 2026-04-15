@@ -13,7 +13,6 @@ mod tests {
             as_token: "test_as_token_123".to_string(),
             hs_token: "test_hs_token_456".to_string(),
             sender: "@bridge-bot:test.com".to_string(),
-            name: Some("Test Bridge".to_string()),
             description: Some("A test application service".to_string()),
             rate_limited: Some(false),
             protocols: Some(vec!["irc".to_string(), "matrix".to_string()]),
@@ -28,6 +27,8 @@ mod tests {
                 }],
                 "rooms": []
             })),
+            api_key: None,
+            config: None,
         }
     }
 
@@ -150,7 +151,6 @@ mod tests {
             as_token: format!("token_{}", uuid::Uuid::new_v4()),
             hs_token: format!("hs_token_{}", uuid::Uuid::new_v4()),
             sender: "@bridge-bot:test.com".to_string(),
-            name: Some("Test Bridge".to_string()),
             description: Some("A test application service".to_string()),
             rate_limited: Some(false),
             protocols: Some(vec!["irc".to_string()]),
@@ -159,6 +159,8 @@ mod tests {
                 "aliases": [],
                 "rooms": []
             })),
+            api_key: None,
+            config: None,
         };
 
         let result = manager.register(request).await;
@@ -201,7 +203,6 @@ mod tests {
             as_token: format!("as_token_{}", unique_id),
             hs_token: format!("hs_token_{}", unique_id),
             sender: "@irc-bot:test.com".to_string(),
-            name: Some("IRC Bridge".to_string()),
             description: None,
             rate_limited: None,
             protocols: None,
@@ -210,6 +211,8 @@ mod tests {
                 "aliases": [],
                 "rooms": []
             })),
+            api_key: None,
+            config: None,
         };
 
         let _service = manager.register(request).await.unwrap();
@@ -231,11 +234,12 @@ mod tests {
             as_token: format!("token_{}", unique_id),
             hs_token: format!("hs_{}", unique_id),
             sender: "@bot:test.com".to_string(),
-            name: None,
             description: None,
             rate_limited: None,
             protocols: None,
             namespaces: None,
+            api_key: None,
+            config: None,
         };
 
         let service = manager.register(request).await.unwrap();
@@ -260,11 +264,12 @@ mod tests {
             as_token: format!("token_{}", unique_id),
             hs_token: format!("hs_{}", unique_id),
             sender: "@bot:test.com".to_string(),
-            name: None,
             description: None,
             rate_limited: None,
             protocols: None,
             namespaces: None,
+            api_key: None,
+            config: None,
         };
 
         let service = manager.register(request).await.unwrap();
@@ -299,11 +304,12 @@ mod tests {
             as_token: format!("token_{}", unique_id),
             hs_token: format!("hs_{}", unique_id),
             sender: "@bot:test.com".to_string(),
-            name: None,
             description: None,
             rate_limited: None,
             protocols: None,
             namespaces: None,
+            api_key: None,
+            config: None,
         };
 
         let service = manager.register(request).await.unwrap();

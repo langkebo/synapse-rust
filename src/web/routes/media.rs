@@ -109,6 +109,45 @@ async fn upload_media_common(
     ))
 }
 
+async fn upload_media_with_id_common(
+    state: &AppState,
+    user_id: &str,
+    server_name: &str,
+    media_id: &str,
+    params: &Value,
+    headers: &HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, ApiError> {
+    if server_name != state.services.server_name {
+        return Err(ApiError::bad_request(format!(
+            "server_name must match local server: {}",
+            state.services.server_name
+        )));
+    }
+
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+
+    let filename = params.get("filename").and_then(|v| v.as_str());
+    let content_bytes = body.to_vec();
+
+    if content_bytes.is_empty() {
+        return Err(ApiError::bad_request(
+            "No file content provided".to_string(),
+        ));
+    }
+
+    Ok(Json(
+        state
+            .services
+            .media_service
+            .upload_media_with_id(user_id, media_id, &content_bytes, content_type, filename)
+            .await?,
+    ))
+}
+
 async fn download_media_common(
     state: &AppState,
     server_name: &str,
@@ -130,14 +169,15 @@ fn media_response_headers(content_type: String, content_length: usize) -> [(Stri
     ]
 }
 
-fn media_error_response(error: ApiError) -> ([(String, String); 2], Vec<u8>) {
+fn media_error_response(error: ApiError) -> (StatusCode, [(String, String); 2], Vec<u8>) {
+    let status = error.http_status();
     let error_body = serde_json::to_vec(&json!({
         "errcode": error.code(),
         "error": error.message()
     }))
     .unwrap_or_else(|_| br#"{"errcode":"M_UNKNOWN","error":"Internal error"}"#.to_vec());
     let headers = media_response_headers("application/json".to_string(), error_body.len());
-    (headers, error_body)
+    (status, headers, error_body)
 }
 
 async fn upload_media_v3(
@@ -236,12 +276,21 @@ pub async fn quota_alerts(
 async fn upload_media_with_id(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((_server_name, _media_id)): Path<(String, String)>,
+    Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    upload_media_common(&state, &auth_user.user_id, &params, &headers, body).await
+    upload_media_with_id_common(
+        &state,
+        &auth_user.user_id,
+        &server_name,
+        &media_id,
+        &params,
+        &headers,
+        body,
+    )
+    .await
 }
 
 async fn download_media(
@@ -325,7 +374,7 @@ async fn download_media_v1(
     match download_media_common(&state, &server_name, &media_id).await {
         Ok((content_type, content)) => {
             let headers = media_response_headers(content_type, content.len());
-            (headers, content)
+            (StatusCode::OK, headers, content)
         }
         Err(error) => media_error_response(error),
     }
@@ -338,7 +387,7 @@ async fn download_media_v1_with_filename(
     match download_media_common(&state, &server_name, &media_id).await {
         Ok((content_type, content)) => {
             let headers = media_response_headers(content_type, content.len());
-            (headers, content)
+            (StatusCode::OK, headers, content)
         }
         Err(error) => media_error_response(error),
     }

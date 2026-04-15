@@ -1,6 +1,7 @@
 use super::*;
 use crate::web::middleware::{
     cors_middleware, csrf_middleware, rate_limit_middleware, security_headers_middleware,
+    shadow_ban_middleware,
 };
 use axum::{
     extract::State,
@@ -15,7 +16,7 @@ async fn get_client_config(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let config = &state.services.config;
     let base_url = config.server.get_public_baseurl();
-    
+
     Ok(Json(json!({
         "homeserver": {
             "base_url": base_url,
@@ -165,15 +166,15 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_app_service_router(state.clone()))
         .merge(create_room_summary_router(state.clone()))
         .merge(create_event_report_router(state.clone()))
-        .merge(create_feature_flags_router())
+        .merge(create_feature_flags_router(state.clone()))
         .merge(create_background_update_router(state.clone()))
-        .merge(create_module_router());
+        .merge(create_module_router(state.clone()));
 
     router = router.merge(create_worker_router(state.clone()));
 
     // Optional authentication capabilities - only expose when enabled
     if state.services.saml_service.is_enabled() {
-        router = router.merge(create_saml_router());
+        router = router.merge(create_saml_router(state.clone()));
     }
     if state.services.oidc_service.is_some() {
         router = router.merge(create_oidc_router(state.clone()));
@@ -185,10 +186,10 @@ pub fn create_router(state: AppState) -> Router {
     }
 
     router = router
-        .merge(cas_routes())
-        .merge(create_captcha_router())
-        .merge(create_push_notification_router())
-        .merge(create_telemetry_router())
+        .merge(cas_routes(state.clone()))
+        .merge(create_captcha_router(state.clone()))
+        .merge(create_push_notification_router(state.clone()))
+        .merge(create_telemetry_router(state.clone()))
         .merge(create_thirdparty_router(state.clone()))
         .merge(create_tags_router(state.clone()))
         .nest("/_matrix/client/r0", create_client_capabilities_router())
@@ -223,6 +224,10 @@ pub fn create_router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             rate_limit_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            shadow_ban_middleware,
         ))
         .with_state(state)
 }

@@ -211,7 +211,7 @@ pub async fn acknowledge_alert(
     Ok(Json(alert))
 }
 
-pub fn create_telemetry_router() -> axum::Router<AppState> {
+pub fn create_telemetry_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
     axum::Router::new()
@@ -230,6 +230,11 @@ pub fn create_telemetry_router() -> axum::Router<AppState> {
             post(acknowledge_alert),
         )
         .route("/_synapse/admin/v1/telemetry/health", get(health_check))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ))
+        .with_state(state)
 }
 
 fn request_id(headers: &HeaderMap) -> String {

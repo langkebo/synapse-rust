@@ -8,13 +8,36 @@ use axum::{
 };
 use serde_json::{json, Value};
 
+async fn ensure_invite_list_view_access(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+) -> Result<(), ApiError> {
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room membership: {}", e)))?;
+
+    if !is_member && !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "You must be a member of this room to view invite restrictions".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 /// Get room invite blocklist
 /// GET /_matrix/client/v3/rooms/{room_id}/invite_blocklist
 pub async fn get_invite_blocklist(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_invite_list_view_access(&state, &auth_user, &room_id).await?;
+
     let blocklist = state
         .services
         .invite_blocklist_storage
@@ -77,9 +100,11 @@ pub async fn set_invite_blocklist(
 /// GET /_matrix/client/v3/rooms/{room_id}/invite_allowlist
 pub async fn get_invite_allowlist(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_invite_list_view_access(&state, &auth_user, &room_id).await?;
+
     let allowlist = state
         .services
         .invite_blocklist_storage

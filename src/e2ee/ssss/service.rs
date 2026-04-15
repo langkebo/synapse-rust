@@ -188,8 +188,29 @@ impl SecretStorageService {
             ));
         }
 
-        let session_key = Aes256GcmKey::generate();
-        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&session_key, secret.as_bytes())
+        let nonce_bytes = BASE64
+            .decode(parts[0])
+            .map_err(|e| ApiError::bad_request(format!("Invalid nonce base64: {}", e)))?;
+        let ciphertext_bytes = BASE64
+            .decode(parts[1])
+            .map_err(|e| ApiError::bad_request(format!("Invalid ciphertext base64: {}", e)))?;
+
+        if nonce_bytes.len() < 12 {
+            return Err(ApiError::bad_request("Nonce too short".to_string()));
+        }
+
+        let mut nonce_arr = [0u8; 12];
+        nonce_arr.copy_from_slice(&nonce_bytes[..12]);
+
+        if ciphertext_bytes.len() < 32 {
+            return Err(ApiError::bad_request("Ciphertext too short to extract key".to_string()));
+        }
+
+        let mut key_arr = [0u8; 32];
+        key_arr.copy_from_slice(&ciphertext_bytes[..32]);
+        let key = Aes256GcmKey::from_bytes(key_arr);
+
+        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, secret.as_bytes())
             .map_err(|e| ApiError::internal(format!("Encryption failed: {}", e)))?;
 
         Ok(BASE64.encode(&encrypted))
@@ -291,17 +312,9 @@ impl SecretStorageService {
 }
 
 fn compute_hmac(data: &str, key: &[u8]) -> [u8; 32] {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    key.hash(&mut hasher);
-    data.hash(&mut hasher);
-    let hash = hasher.finish();
-
+    let digest = crate::common::crypto::hmac_sha256(key, data.as_bytes());
     let mut result = [0u8; 32];
-    result[..8].copy_from_slice(&hash.to_le_bytes());
-    result[8..].copy_from_slice(&hash.to_be_bytes());
+    result.copy_from_slice(&digest[..32]);
     result
 }
 

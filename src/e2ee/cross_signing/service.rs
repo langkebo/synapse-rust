@@ -615,7 +615,29 @@ impl CrossSigningService {
         let has_self_signing = self_signing_key.is_some();
         let has_user_signing = user_signing_key.is_some();
 
-        let is_verified = has_master && has_self_signing && has_user_signing;
+        let mut is_verified = false;
+        if let (Some(mk), Some(ssk)) = (&master_key, &self_signing_key) {
+            let ssk_signature_valid = self.verify_cross_signing_signature(
+                &mk.public_key,
+                &mk.signatures,
+                &ssk.public_key,
+                "self_signing",
+            );
+            let mk_signature_valid = self.verify_cross_signing_signature(
+                &ssk.public_key,
+                &ssk.signatures,
+                &mk.public_key,
+                "master",
+            );
+            is_verified = ssk_signature_valid || mk_signature_valid;
+        }
+
+        if !is_verified && has_master && has_self_signing && has_user_signing {
+            tracing::warn!(
+                "Cross-signing keys exist for user {} but signature chain is invalid",
+                user_id
+            );
+        }
 
         Ok(UserVerificationStatus {
             user_id: user_id.to_string(),
@@ -625,5 +647,70 @@ impl CrossSigningService {
             has_user_signing_key: has_user_signing,
             verified_at: if is_verified { Some(Utc::now()) } else { None },
         })
+    }
+
+    fn verify_cross_signing_signature(
+        &self,
+        signing_public_key: &str,
+        signatures: &serde_json::Value,
+        target_key: &str,
+        key_type: &str,
+    ) -> bool {
+        let public_key = match Ed25519PublicKey::from_base64(signing_public_key) {
+            Ok(pk) => pk,
+            Err(_) => return false,
+        };
+
+        let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(public_key.as_bytes()) {
+            Ok(vk) => vk,
+            Err(_) => return false,
+        };
+
+        let sig_obj = match signatures.as_object() {
+            Some(obj) => obj,
+            None => return false,
+        };
+
+        for (_signer_id, key_sigs) in sig_obj {
+            if let Some(key_sigs_obj) = key_sigs.as_object() {
+                for (signing_key_id, signature_value) in key_sigs_obj {
+                    let _ = signing_key_id;
+                    let signature_str = match signature_value.as_str() {
+                        Some(s) => s,
+                        None => continue,
+                    };
+
+                    let signature_bytes = match base64::Engine::decode(
+                        &base64::engine::general_purpose::STANDARD,
+                        signature_str,
+                    ) {
+                        Ok(bytes) => bytes,
+                        Err(_) => continue,
+                    };
+
+                    if signature_bytes.len() != 64 {
+                        continue;
+                    }
+
+                    let mut sig_array = [0u8; 64];
+                    sig_array.copy_from_slice(&signature_bytes);
+
+                    let ed25519_sig = match ed25519_dalek::Signature::from_slice(&sig_array) {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+
+                    let message = format!("{}:{}", key_type, target_key);
+                    if verifying_key
+                        .verify(message.as_bytes(), &ed25519_sig)
+                        .is_ok()
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 }

@@ -120,6 +120,12 @@ async fn evict_user(
                 "room_id": room_id,
                 "error": e.to_string()
             }));
+        } else {
+            let _ = state
+                .services
+                .room_storage
+                .decrement_member_count(room_id)
+                .await;
         }
     }
 
@@ -160,6 +166,16 @@ async fn resolve_user(state: &AppState, identifier: &str) -> Result<User, ApiErr
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))
+}
+
+fn ensure_super_admin_for_privilege_change(admin: &AdminUser) -> Result<(), ApiError> {
+    if admin.role != "super_admin" {
+        return Err(ApiError::forbidden(
+            "Only super_admin can modify admin privileges or admin roles".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 #[axum::debug_handler]
@@ -245,10 +261,12 @@ async fn get_user(
 
 #[axum::debug_handler]
 async fn delete_user(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_super_admin_for_privilege_change(&admin)?;
+
     let user = resolve_user(&state, &user_id).await?;
 
     state
@@ -266,11 +284,13 @@ async fn delete_user(
 
 #[axum::debug_handler]
 pub async fn set_admin(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_super_admin_for_privilege_change(&admin)?;
+
     let admin_status = body
         .get("admin")
         .and_then(|v| v.as_bool())
@@ -294,10 +314,12 @@ pub async fn set_admin(
 
 #[axum::debug_handler]
 pub async fn deactivate_user(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_super_admin_for_privilege_change(&admin)?;
+
     let user = resolve_user(&state, &user_id).await?;
 
     state
@@ -311,11 +333,13 @@ pub async fn deactivate_user(
 
 #[axum::debug_handler]
 pub async fn reset_user_password(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
     Json(body): Json<ResetPasswordBody>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_super_admin_for_privilege_change(&admin)?;
+
     state
         .services
         .auth_service
@@ -327,7 +351,7 @@ pub async fn reset_user_password(
     state
         .services
         .registration_service
-        .change_password(&user.user_id, &body.new_password)
+        .change_password(&user.user_id, None, &body.new_password)
         .await?;
 
     Ok(Json(json!({})))
@@ -421,10 +445,12 @@ pub async fn delete_user_device_admin_compat(
 
 #[axum::debug_handler]
 pub async fn login_as_user(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_super_admin_for_privilege_change(&admin)?;
+
     let user = state
         .services
         .user_storage
@@ -456,10 +482,12 @@ pub async fn login_as_user(
 
 #[axum::debug_handler]
 pub async fn logout_user_devices(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_super_admin_for_privilege_change(&admin)?;
+
     let user = resolve_user(&state, &user_id).await?;
     let result = sqlx::query("DELETE FROM devices WHERE user_id = $1")
         .bind(&user.user_id)
@@ -599,11 +627,15 @@ pub async fn get_user_v2(
 
 #[axum::debug_handler]
 pub async fn create_or_update_user_v2(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
     Json(body): Json<CreateUpdateUserRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    if body.admin.is_some() || body.user_type.is_some() {
+        ensure_super_admin_for_privilege_change(&admin)?;
+    }
+
     let now = chrono::Utc::now().timestamp_millis();
 
     let existing_user = state
@@ -784,10 +816,15 @@ pub struct BatchCreateUser {
 
 #[axum::debug_handler]
 pub async fn batch_create_users(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Json(body): Json<BatchCreateUsersRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let has_admin_request = body.users.iter().any(|u| u.admin.unwrap_or(false));
+    if has_admin_request {
+        ensure_super_admin_for_privilege_change(&admin)?;
+    }
+
     let mut created = Vec::new();
     let mut failed = Vec::new();
     let now = chrono::Utc::now().timestamp_millis();
@@ -841,25 +878,42 @@ pub struct BatchDeactivateRequest {
 
 #[axum::debug_handler]
 pub async fn batch_deactivate_users(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Json(body): Json<BatchDeactivateRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_super_admin_for_privilege_change(&admin)?;
+
     let mut deactivated = Vec::new();
+    let mut failed = Vec::new();
 
-    for user_id in body.users {
-        sqlx::query("UPDATE users SET is_deactivated = true WHERE user_id = $1")
-            .bind(&user_id)
+    if body.users.len() > 100 {
+        return Err(ApiError::bad_request(
+            "Too many users in batch request (max 100)".to_string(),
+        ));
+    }
+
+    for user_id in &body.users {
+        if !user_id.starts_with('@') || !user_id.contains(':') {
+            failed.push(user_id.clone());
+            continue;
+        }
+
+        let result = sqlx::query("UPDATE users SET is_deactivated = true WHERE user_id = $1")
+            .bind(user_id)
             .execute(&*state.services.user_storage.pool)
-            .await
-            .ok();
+            .await;
 
-        deactivated.push(user_id);
+        match result {
+            Ok(r) if r.rows_affected() > 0 => deactivated.push(user_id.clone()),
+            _ => failed.push(user_id.clone()),
+        }
     }
 
     Ok(Json(json!({
         "deactivated": deactivated,
-        "total": deactivated.len()
+        "failed": failed,
+        "total": body.users.len()
     })))
 }
 
@@ -990,16 +1044,17 @@ pub async fn update_account(
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     }
 
-    if let Some(admin) = body.admin {
+    if let Some(admin_status) = body.admin {
+        ensure_super_admin_for_privilege_change(&admin)?;
         sqlx::query("UPDATE users SET is_admin = $1 WHERE user_id = $2")
-            .bind(admin)
+            .bind(admin_status)
             .bind(canonical_user_id)
             .execute(&*state.services.user_storage.pool)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
         state
             .cache
-            .set(&format!("user:admin:{}", canonical_user_id), admin, 3600)
+            .set(&format!("user:admin:{}", canonical_user_id), admin_status, 3600)
             .await?;
     }
 

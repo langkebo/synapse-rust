@@ -186,6 +186,70 @@ async fn test_e2ee_keys() {
 }
 
 #[tokio::test]
+async fn test_sync_returns_device_one_time_keys_count() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, user_id) =
+        register_user(&app, &format!("sync_e2ee_{}", rand::random::<u32>())).await;
+
+    let upload_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/upload")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_keys": {
+                    "user_id": user_id.clone(),
+                    "device_id": "SYNC_DEVICE",
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+                    "keys": {
+                        "curve25519:SYNC_DEVICE": "sync-curve",
+                        "ed25519:SYNC_DEVICE": "sync-ed"
+                    },
+                    "signatures": {
+                        user_id.clone(): {
+                            "ed25519:SYNC_DEVICE": "sync-signature"
+                        }
+                    }
+                },
+                "one_time_keys": {
+                    "signed_curve25519:sync1": {
+                        "key": "sync-key-1"
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let upload_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), upload_request)
+        .await
+        .unwrap();
+    assert_eq!(upload_response.status(), StatusCode::OK);
+
+    let sync_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/sync")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let sync_response = ServiceExt::<Request<Body>>::oneshot(app, sync_request)
+        .await
+        .unwrap();
+    assert_eq!(sync_response.status(), StatusCode::OK);
+
+    let sync_body = axum::body::to_bytes(sync_response.into_body(), 32 * 1024)
+        .await
+        .unwrap();
+    let sync_json: Value = serde_json::from_slice(&sync_body).unwrap();
+    assert_eq!(
+        sync_json["device_one_time_keys_count"]["signed_curve25519"],
+        1
+    );
+}
+
+#[tokio::test]
 async fn test_e2ee_shared_routes_across_versions() {
     let Some(app) = setup_test_app().await else {
         return;

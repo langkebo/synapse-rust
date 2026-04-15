@@ -1,13 +1,40 @@
 use crate::common::ApiError;
-use crate::web::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
+use crate::web::extractors::{AdminUser, AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::routes::{
-    extract_token_from_headers, validate_event_id, validate_room_id, validate_user_id, AppState,
+    account_compat::{can_view_profile_for_requester, enforce_profile_visibility},
+    extract_token_from_headers, validate_event_id, validate_room_alias, validate_room_id,
+    validate_user_id, AppState,
 };
 use axum::{
     extract::{Json, Path, Query, State},
     http::HeaderMap,
 };
 use serde_json::{json, Value};
+
+async fn ensure_room_alias_write_allowed(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+) -> Result<(), ApiError> {
+    if auth_user.is_admin {
+        return Ok(());
+    }
+
+    let is_member = state
+        .services
+        .member_storage
+        .is_member(room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+    if !is_member {
+        return Err(ApiError::forbidden(
+            "You must be a room member to manage aliases".to_string(),
+        ));
+    }
+
+    Ok(())
+}
 
 pub(crate) async fn get_user_directory_profile(
     State(state): State<AppState>,
@@ -18,6 +45,7 @@ pub(crate) async fn get_user_directory_profile(
     let _ = state.services.auth_service.validate_token(&token).await?;
 
     validate_user_id(&user_id)?;
+    enforce_profile_visibility(&state, &headers, &user_id).await?;
 
     let user = state
         .services
@@ -40,7 +68,7 @@ pub(crate) async fn search_user_directory(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let (_, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (requester_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     let search_query = body
         .get("search_term")
@@ -56,16 +84,18 @@ pub(crate) async fn search_user_directory(
         .search_users(&search_query, limit)
         .await?;
 
-    let users: Vec<Value> = results
-        .into_iter()
-        .map(|u| {
-            json!({
-                "user_id": u.user_id,
-                "display_name": u.displayname.unwrap_or_else(|| u.username.clone()),
-                "avatar_url": u.avatar_url
-            })
-        })
-        .collect();
+    let mut users = Vec::new();
+    for u in results {
+        if !can_view_profile_for_requester(&state, Some(&requester_id), &u.user_id).await? {
+            continue;
+        }
+
+        users.push(json!({
+            "user_id": u.user_id,
+            "display_name": u.displayname.unwrap_or_else(|| u.username.clone()),
+            "avatar_url": u.avatar_url
+        }));
+    }
 
     Ok(Json(json!({
         "limited": users.len() >= limit as usize,
@@ -79,7 +109,7 @@ pub(crate) async fn list_user_directory(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let (_, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (requester_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as i64;
     let offset = body.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as i64;
@@ -92,16 +122,18 @@ pub(crate) async fn list_user_directory(
         .get_users_paginated(limit, offset)
         .await?;
 
-    let users_json: Vec<Value> = users
-        .into_iter()
-        .map(|u| {
-            json!({
-                "user_id": u.user_id,
-                "display_name": u.displayname.unwrap_or_else(|| u.username.clone()),
-                "avatar_url": u.avatar_url
-            })
-        })
-        .collect();
+    let mut users_json = Vec::new();
+    for u in users {
+        if !can_view_profile_for_requester(&state, Some(&requester_id), &u.user_id).await? {
+            continue;
+        }
+
+        users_json.push(json!({
+            "user_id": u.user_id,
+            "display_name": u.displayname.unwrap_or_else(|| u.username.clone()),
+            "avatar_url": u.avatar_url
+        }));
+    }
 
     Ok(Json(json!({
         "total": total_count,
@@ -135,7 +167,7 @@ pub(crate) async fn report_event(
 
 pub(crate) async fn update_report_score(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path((_room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -177,7 +209,10 @@ pub(crate) async fn report_room(
         .get("reason")
         .and_then(|v| v.as_str())
         .map(str::to_string);
-    let description = body.get("description").and_then(|v| v.as_str()).map(str::to_string);
+    let description = body
+        .get("description")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
 
     let request = crate::storage::event_report::CreateEventReportRequest {
         event_id: format!("room_report:{}", room_id),
@@ -247,6 +282,8 @@ pub(crate) async fn set_room_alias(
     auth_user: AuthenticatedUser,
     Path((room_id, room_alias)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_alias(&room_alias)?;
+
     if room_alias.len() > 255 {
         return Err(ApiError::bad_request(
             "Alias too long (max 255 characters)".to_string(),
@@ -263,18 +300,7 @@ pub(crate) async fn set_room_alias(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a room member to set an alias".to_string(),
-        ));
-    }
+    ensure_room_alias_write_allowed(&state, &auth_user, &room_id).await?;
 
     state
         .services
@@ -290,9 +316,10 @@ pub(crate) async fn set_room_alias(
 
 pub(crate) async fn delete_room_alias(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path((room_id, _room_alias)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_room_alias_write_allowed(&state, &auth_user, &room_id).await?;
     state
         .services
         .room_service
@@ -306,6 +333,7 @@ pub(crate) async fn get_room_by_alias(
     _auth_user: OptionalAuthenticatedUser,
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_alias(&room_alias)?;
     let room_id = state
         .services
         .room_service
@@ -324,6 +352,7 @@ pub(crate) async fn set_room_alias_direct(
     Path(room_alias): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_alias(&room_alias)?;
     let room_id = body
         .get("room_id")
         .and_then(|v| v.as_str())
@@ -331,12 +360,6 @@ pub(crate) async fn set_room_alias_direct(
 
     if !room_id.starts_with('!') {
         return Err(ApiError::bad_request("Invalid room_id format".to_string()));
-    }
-
-    if room_alias.len() > 255 {
-        return Err(ApiError::bad_request(
-            "Alias too long (max 255 characters)".to_string(),
-        ));
     }
 
     if !state
@@ -349,18 +372,7 @@ pub(crate) async fn set_room_alias_direct(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden(
-            "You must be a room member to set an alias".to_string(),
-        ));
-    }
+    ensure_room_alias_write_allowed(&state, &auth_user, room_id).await?;
 
     state
         .services
@@ -377,9 +389,18 @@ pub(crate) async fn set_room_alias_direct(
 #[axum::debug_handler]
 pub(crate) async fn delete_room_alias_direct(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_alias(&room_alias)?;
+    if let Some(room_id) = state
+        .services
+        .room_service
+        .get_room_by_alias(&room_alias)
+        .await?
+    {
+        ensure_room_alias_write_allowed(&state, &auth_user, &room_id).await?;
+    }
     state
         .services
         .room_service

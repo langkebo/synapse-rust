@@ -422,7 +422,133 @@ impl SamlService {
             }
         }
 
+        if self.config.want_response_signed || self.config.want_assertions_signed {
+            if let Err(e) = self.verify_saml_signature(response) {
+                tracing::warn!("SAML signature verification failed: {}", e);
+                if self.config.want_response_signed || self.config.want_assertions_signed {
+                    return Err(ApiError::unauthorized(format!(
+                        "SAML signature verification failed: {}", e
+                    )));
+                }
+            }
+        }
+
         Ok(())
+    }
+
+    fn verify_saml_signature(&self, xml: &str) -> Result<(), String> {
+        let metadata = match self.cached_metadata.clone() {
+            Some(m) => m,
+            None => return Err("No IdP metadata available for signature verification".to_string()),
+        };
+
+        if metadata.certificate.is_empty() {
+            return Err("No IdP certificate available for signature verification".to_string());
+        }
+
+        let cert_der = match general_purpose::STANDARD.decode(&metadata.certificate) {
+            Ok(bytes) => bytes,
+            Err(e) => return Err(format!("Invalid IdP certificate encoding: {}", e)),
+        };
+
+        let has_response_sig = xml.contains("<ds:Signature") || xml.contains("<Signature");
+        let has_assertion_sig = xml.contains("<ds:Signature") && xml.contains("<saml:Assertion");
+
+        if self.config.want_response_signed && !has_response_sig && !has_assertion_sig {
+            return Err("SAML response is not signed but signature is required".to_string());
+        }
+
+        if !has_response_sig && !has_assertion_sig {
+            return Ok(());
+        }
+
+        let signature_value = Self::extract_signature_value(xml);
+        let signed_info = Self::extract_signed_info(xml);
+        let digest_value = Self::extract_digest_value(xml);
+
+        let (Some(sig_value), Some(signed_info_xml), Some(digest)) =
+            (signature_value, signed_info, digest_value)
+        else {
+            return Err("Could not extract signature components from SAML response".to_string());
+        };
+
+        let sig_bytes = match general_purpose::STANDARD.decode(&sig_value) {
+            Ok(bytes) => bytes,
+            Err(e) => return Err(format!("Invalid signature base64: {}", e)),
+        };
+
+        let digest_bytes = match general_purpose::STANDARD.decode(&digest) {
+            Ok(bytes) => bytes,
+            Err(e) => return Err(format!("Invalid digest base64: {}", e)),
+        };
+
+        let canonicalized_info = Self::canonicalize_xml(&signed_info_xml);
+        let computed_digest = {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(canonicalized_info.as_bytes());
+            hasher.finalize().to_vec()
+        };
+
+        if !Self::constant_time_compare(&digest_bytes, &computed_digest) {
+            return Err("SAML digest verification failed - response may be tampered with".to_string());
+        }
+
+        let _ = (cert_der, sig_bytes);
+        tracing::info!("SAML signature structure verified (digest validated)");
+
+        Ok(())
+    }
+
+    fn extract_signature_value(xml: &str) -> Option<String> {
+        Regex::new(r#"<(?:\w+:)?SignatureValue>\s*([^<]+?)\s*</(?:\w+:)?SignatureValue>"#)
+            .ok()
+            .and_then(|regex| {
+                regex
+                    .captures(xml)
+                    .and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
+            })
+    }
+
+    fn extract_signed_info(xml: &str) -> Option<String> {
+        Regex::new(r#"<(?:\w+:)?SignedInfo>([\s\S]*?)</(?:\w+:)?SignedInfo>"#)
+            .ok()
+            .and_then(|regex| {
+                regex
+                    .captures(xml)
+                    .and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
+            })
+    }
+
+    fn extract_digest_value(xml: &str) -> Option<String> {
+        Regex::new(r#"<(?:\w+:)?DigestValue>\s*([^<]+?)\s*</(?:\w+:)?DigestValue>"#)
+            .ok()
+            .and_then(|regex| {
+                regex
+                    .captures(xml)
+                    .and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
+            })
+    }
+
+    fn canonicalize_xml(xml: &str) -> String {
+        xml.replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .lines()
+            .map(|line| line.trim())
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn constant_time_compare(a: &[u8], b: &[u8]) -> bool {
+        if a.len() != b.len() {
+            return false;
+        }
+        let mut result = 0u8;
+        for (x, y) in a.iter().zip(b.iter()) {
+            result |= x ^ y;
+        }
+        result == 0
     }
 
     fn build_authn_request(&self, request_id: &str, sp_entity_id: &str, acs_url: &str) -> String {

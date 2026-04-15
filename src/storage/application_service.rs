@@ -8,7 +8,9 @@ pub struct ApplicationService {
     pub id: i64,
     pub as_id: String,
     pub url: String,
+    #[serde(skip_serializing)]
     pub as_token: String,
+    #[serde(skip_serializing)]
     pub hs_token: String,
     #[serde(rename = "sender")]
     #[sqlx(rename = "sender_localpart")]
@@ -20,6 +22,9 @@ pub struct ApplicationService {
     pub created_ts: i64,
     pub updated_ts: Option<i64>,
     pub description: Option<String>,
+    #[serde(skip_serializing)]
+    pub api_key: Option<String>,
+    pub config: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -86,6 +91,8 @@ pub struct RegisterApplicationServiceRequest {
     pub rate_limited: Option<bool>,
     pub protocols: Option<Vec<String>>,
     pub namespaces: Option<serde_json::Value>,
+    pub api_key: Option<String>,
+    pub config: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -95,6 +102,8 @@ pub struct UpdateApplicationServiceRequest {
     pub rate_limited: Option<bool>,
     pub protocols: Option<Vec<String>>,
     pub is_enabled: Option<bool>,
+    pub api_key: Option<String>,
+    pub config: Option<serde_json::Value>,
 }
 
 impl UpdateApplicationServiceRequest {
@@ -124,6 +133,16 @@ impl UpdateApplicationServiceRequest {
 
     pub fn is_enabled(mut self, is_enabled: bool) -> Self {
         self.is_enabled = Some(is_enabled);
+        self
+    }
+
+    pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
+    }
+
+    pub fn config(mut self, config: serde_json::Value) -> Self {
+        self.config = Some(config);
         self
     }
 }
@@ -164,14 +183,15 @@ impl ApplicationServiceStorage {
             "aliases": [],
             "rooms": []
         }));
+        let config = request.config.unwrap_or(serde_json::json!({}));
 
         let service = sqlx::query_as::<_, ApplicationService>(
             r#"
             INSERT INTO application_services (
                 as_id, url, as_token, hs_token, sender_localpart, is_enabled,
-                rate_limited, protocols, namespaces, created_ts, description
+                rate_limited, protocols, namespaces, created_ts, description, api_key, config
             )
-            VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
             "#,
         )
@@ -185,6 +205,8 @@ impl ApplicationServiceStorage {
         .bind(&namespaces)
         .bind(now)
         .bind(&request.description)
+        .bind(&request.api_key)
+        .bind(&config)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -312,6 +334,7 @@ impl ApplicationServiceStorage {
         request: &UpdateApplicationServiceRequest,
     ) -> Result<ApplicationService, sqlx::Error> {
         let protocols = request.protocols.clone();
+        let config = request.config.clone();
         sqlx::query_as::<_, ApplicationService>(
             r#"
             UPDATE application_services SET
@@ -320,7 +343,9 @@ impl ApplicationServiceStorage {
                 rate_limited = COALESCE($4, rate_limited),
                 protocols = COALESCE($5::text[], protocols),
                 is_enabled = COALESCE($6, is_enabled),
-                updated_ts = $7
+                api_key = COALESCE($7, api_key),
+                config = COALESCE($8::jsonb, config),
+                updated_ts = $9
             WHERE as_id = $1
             RETURNING *
             "#,
@@ -331,6 +356,8 @@ impl ApplicationServiceStorage {
         .bind(request.rate_limited)
         .bind(protocols)
         .bind(request.is_enabled)
+        .bind(&request.api_key)
+        .bind(&config)
         .bind(chrono::Utc::now().timestamp_millis())
         .fetch_one(&*self.pool)
         .await
@@ -807,6 +834,8 @@ mod tests {
                 "aliases": [{"exclusive": true, "regex": "#_irc_.*:example.com"}],
                 "rooms": []
             })),
+            api_key: None,
+            config: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();

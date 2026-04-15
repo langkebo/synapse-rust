@@ -138,7 +138,6 @@ impl SecureBackupService {
         backup_id: &str,
         passphrase: &str,
     ) -> Result<BackupRestoreResult, ApiError> {
-        // 1. Get backup auth data
         let row: (String, String, i64) = sqlx::query_as(
             "SELECT backup_id, auth_data, key_count FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2"
         )
@@ -151,28 +150,52 @@ impl SecureBackupService {
         let auth_data: serde_json::Value = serde_json::from_str(&row.1)
             .map_err(|e| ApiError::internal(format!("Invalid auth data: {}", e)))?;
 
-        // 2. Extract salt and derive key
         let salt = auth_data
             .get("salt")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ApiError::bad_request("Missing salt in backup".to_string()))?;
 
+        let iterations = auth_data
+            .get("kdf")
+            .and_then(|kdf| kdf.get("iterations"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(500000);
+
         let salt_bytes = BASE64
             .decode(salt)
             .map_err(|e| ApiError::internal(format!("Invalid salt: {}", e)))?;
 
-        let _key = self.derive_key(passphrase, &salt_bytes, 500000)?;
+        let key = self.derive_key(passphrase, &salt_bytes, iterations)?;
 
-        // 3. Get encrypted session keys from backup
-        // Note: In a real implementation, we'd store the encrypted keys in a separate table
-        // For now, we'll return the count
-        let key_count = row.2;
+        let encrypted_keys = sqlx::query(
+            "SELECT session_key FROM secure_backup_session_keys WHERE user_id = $1 AND backup_id = $2"
+        )
+        .bind(user_id)
+        .bind(backup_id)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        // 4. Try to decrypt to verify passphrase
-        // In a full implementation, we'd decrypt and restore each key
+        let mut restored_count: i64 = 0;
+        for row in &encrypted_keys {
+            use sqlx::Row;
+            let encrypted_b64: String = row.get("session_key");
+            let encrypted_bytes = BASE64
+                .decode(&encrypted_b64)
+                .map_err(|e| ApiError::internal(format!("Invalid base64 in session key: {}", e)))?;
+
+            match self._decrypt_aes_gcm(&key, &encrypted_bytes) {
+                Ok(_) => restored_count += 1,
+                Err(_) => {
+                    return Err(ApiError::unauthorized(
+                        "Decryption failed - invalid passphrase".to_string(),
+                    ));
+                }
+            }
+        }
 
         Ok(BackupRestoreResult {
-            restored_key_count: key_count,
+            restored_key_count: if restored_count > 0 { restored_count } else { row.2 },
             backup_id: backup_id.to_string(),
         })
     }
@@ -184,16 +207,22 @@ impl SecureBackupService {
         backup_id: &str,
         passphrase: &str,
     ) -> Result<bool, ApiError> {
-        // Try to restore - if successful, passphrase is valid
         match self
             .restore_with_passphrase(user_id, backup_id, passphrase)
             .await
         {
             Ok(_) => Ok(true),
-            Err(e) if e.message().contains("not found") || e.message().contains("passphrase") => {
-                Ok(false)
+            Err(e) => {
+                let msg = e.message().to_lowercase();
+                if msg.contains("invalid passphrase")
+                    || msg.contains("decryption failed")
+                    || msg.contains("unauthorized")
+                {
+                    Ok(false)
+                } else {
+                    Err(e)
+                }
             }
-            Err(_) => Ok(false),
         }
     }
 
@@ -265,9 +294,10 @@ impl SecureBackupService {
         &self,
         passphrase: &str,
         salt: &[u8],
-        _iterations: i64,
+        iterations: i64,
     ) -> Result<[u8; 32], ApiError> {
-        let params = Params::new(65536, 3, 4, Some(32))
+        let iterations = iterations.max(10000) as u32;
+        let params = Params::new(65536, iterations, 4, Some(32))
             .map_err(|e| ApiError::internal(format!("Argon2 params error: {}", e)))?;
 
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);

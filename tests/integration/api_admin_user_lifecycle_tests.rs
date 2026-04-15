@@ -41,6 +41,7 @@ async fn test_admin_user_lifecycle_management() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let user_token = json["access_token"].as_str().unwrap().to_string();
+    let user_refresh_token = json["refresh_token"].as_str().unwrap().to_string();
 
     // 2. 查询用户信息（验证用户存在且活跃）
     let encoded_user_id = user_id.replace('@', "%40").replace(':', "%3A");
@@ -100,7 +101,31 @@ async fn test_admin_user_lifecycle_management() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["deactivated"], true);
 
-    // 5. 验证被封禁用户无法使用 token（可选，取决于实现）
+    // 5. 验证被封禁用户无法使用 refresh token 刷新会话
+    let refresh_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/refresh")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "refresh_token": user_refresh_token
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), refresh_request)
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], "M_USER_DEACTIVATED");
+
+    // 6. 验证被封禁用户无法继续使用既有 access token
     let test_banned_request = Request::builder()
         .uri("/_matrix/client/r0/account/whoami")
         .header("Authorization", format!("Bearer {}", user_token))
@@ -117,7 +142,7 @@ async fn test_admin_user_lifecycle_management() {
         "Deactivated user should not be able to use their token"
     );
 
-    // 6. 解封用户（设置 deactivated = false）
+    // 7. 解封用户（设置 deactivated = false）
     let reactivate_request = Request::builder()
         .method("PUT")
         .uri(format!("/_synapse/admin/v2/users/{}", encoded_user_id))
@@ -137,7 +162,7 @@ async fn test_admin_user_lifecycle_management() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    // 7. 验证用户已解封
+    // 8. 验证用户已解封
     let verify_reactivated_request = Request::builder()
         .uri(format!("/_synapse/admin/v2/users/{}", encoded_user_id))
         .header("Authorization", format!("Bearer {}", admin_token))
@@ -155,7 +180,7 @@ async fn test_admin_user_lifecycle_management() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["deactivated"], false);
 
-    // 8. 删除用户（永久删除）
+    // 9. 删除用户（永久删除）
     let delete_request = Request::builder()
         .method("DELETE")
         .uri(format!("/_synapse/admin/v2/users/{}", encoded_user_id))
@@ -173,7 +198,7 @@ async fn test_admin_user_lifecycle_management() {
         "User deletion should succeed"
     );
 
-    // 9. 验证用户已被删除（查询返回 404）
+    // 10. 验证用户已被删除（查询返回 404）
     let verify_deleted_request = Request::builder()
         .uri(format!("/_synapse/admin/v2/users/{}", encoded_user_id))
         .header("Authorization", format!("Bearer {}", admin_token))

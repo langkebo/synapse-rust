@@ -218,7 +218,7 @@ pub async fn get_user_tokens(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let tokens = sqlx::query(
-        "SELECT id, token, device_id, created_ts, expires_at, is_revoked FROM access_tokens WHERE user_id = $1 ORDER BY created_ts DESC"
+        "SELECT id, device_id, created_ts, expires_at, is_revoked FROM access_tokens WHERE user_id = $1 ORDER BY created_ts DESC"
     )
     .bind(&user_id)
     .fetch_all(&*state.services.token_storage.pool)
@@ -270,7 +270,7 @@ pub async fn get_user_refresh_tokens(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let tokens = sqlx::query(
-        "SELECT id, token_hash, device_id, created_ts, expires_at, is_revoked FROM refresh_tokens WHERE user_id = $1 ORDER BY created_ts DESC"
+        "SELECT id, device_id, created_ts, expires_at, is_revoked FROM refresh_tokens WHERE user_id = $1 ORDER BY created_ts DESC"
     )
     .bind(&user_id)
     .fetch_all(&*state.services.token_storage.pool)

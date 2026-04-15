@@ -8,7 +8,7 @@
 #   3. 运行 ./deploy.sh
 # =============================================================================
 
-set -e
+set -euo pipefail
 
 # 颜色定义
 RED='\033[0;31m'
@@ -37,6 +37,14 @@ log_error() {
 # 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+compose() {
+    if command -v docker-compose &> /dev/null; then
+        docker-compose "$@"
+    else
+        docker compose "$@"
+    fi
+}
 
 # 显示横幅
 show_banner() {
@@ -107,7 +115,7 @@ check_env_file() {
     source .env
     
     # 检查必要的环境变量
-    local required_vars=("SERVER_NAME" "PUBLIC_BASEURL" "POSTGRES_PASSWORD" "ADMIN_SHARED_SECRET" "JWT_SECRET")
+    local required_vars=("SERVER_NAME" "PUBLIC_BASEURL" "POSTGRES_PASSWORD" "REDIS_PASSWORD" "ADMIN_SHARED_SECRET" "JWT_SECRET" "REGISTRATION_SHARED_SECRET")
     local missing_vars=()
     
     for var in "${required_vars[@]}"; do
@@ -120,7 +128,7 @@ check_env_file() {
         log_error "以下环境变量需要配置: ${missing_vars[*]}"
         
         # 提供自动生成密钥的选项
-        local secret_vars=("POSTGRES_PASSWORD" "ADMIN_SHARED_SECRET" "JWT_SECRET" "REGISTRATION_SHARED_SECRET")
+        local secret_vars=("POSTGRES_PASSWORD" "REDIS_PASSWORD" "ADMIN_SHARED_SECRET" "JWT_SECRET" "REGISTRATION_SHARED_SECRET")
         local need_generate=false
         
         for var in "${secret_vars[@]}"; do
@@ -154,6 +162,7 @@ create_directories() {
     
     mkdir -p ssl
     mkdir -p migrations
+    mkdir -p media
     
     log_success "目录创建完成"
 }
@@ -198,7 +207,7 @@ prepare_images() {
     fi
     
     log_info "拉取基础服务镜像..."
-    docker-compose pull postgres redis nginx 2>/dev/null || true
+    compose pull postgres redis nginx 2>/dev/null || true
     
     log_success "镜像准备完成"
 }
@@ -207,7 +216,7 @@ prepare_images() {
 stop_containers() {
     log_info "停止现有容器..."
     
-    docker-compose down --remove-orphans 2>/dev/null || true
+    compose down --remove-orphans 2>/dev/null || true
     
     log_success "容器已停止"
 }
@@ -217,7 +226,7 @@ start_services() {
     log_info "启动服务..."
     
     # 首先启动数据库
-    docker-compose up -d postgres redis
+    compose up -d postgres redis
     
     log_info "等待数据库就绪..."
     sleep 10
@@ -227,7 +236,7 @@ start_services() {
     local retry=0
     
     while [ $retry -lt $max_retries ]; do
-        if docker-compose exec -T postgres pg_isready -U "${POSTGRES_USER:-postgres}" > /dev/null 2>&1; then
+        if compose exec -T postgres pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" > /dev/null 2>&1; then
             log_success "数据库已就绪"
             break
         fi
@@ -240,91 +249,14 @@ start_services() {
         exit 1
     fi
     
-    # 直接在 PostgreSQL 容器中执行迁移
     log_info "执行数据库迁移..."
-    
-    # 创建 schema_migrations 表
-    docker-compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" <<EOF
-CREATE TABLE IF NOT EXISTS schema_migrations (
-    id BIGSERIAL PRIMARY KEY,
-    version TEXT NOT NULL,
-    name TEXT,
-    checksum TEXT,
-    applied_ts BIGINT,
-    execution_time_ms BIGINT,
-    success BOOLEAN NOT NULL DEFAULT TRUE,
-    description TEXT,
-    executed_at TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT uq_schema_migrations_version UNIQUE (version)
-);
-EOF
-    
-    # 执行所有迁移文件（按文件名排序）
-    local migration_count=0
-    local failed_count=0
-    for sql_file in $(ls migrations/*.sql 2>/dev/null | sort); do
-        if [ -f "$sql_file" ]; then
-            local filename=$(basename "$sql_file")
-            local version="${filename%.sql}"
-            
-            local applied=$(docker-compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" -tAc "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = '$version' AND success = true)" 2>/dev/null | tr -d '[:space:]')
-            
-            if [ "$applied" != "t" ]; then
-                log_info "应用迁移: $filename"
-                local start_time=$(python3 -c "import time; print(int(time.time() * 1000))")
-                
-                local migrate_output=$(docker-compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" -v ON_ERROR_STOP=1 < "$sql_file" 2>&1)
-                local migrate_status=$?
-                
-                if [ $migrate_status -eq 0 ]; then
-                    local end_time=$(python3 -c "import time; print(int(time.time() * 1000))")
-                    local duration=$((end_time - start_time))
-                    docker-compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" -c "INSERT INTO schema_migrations (version, name, applied_ts, execution_time_ms, success, description) VALUES ('$version', '$filename', EXTRACT(EPOCH FROM NOW()) * 1000, $duration, true, 'Applied successfully') ON CONFLICT (version) DO UPDATE SET success = true, applied_ts = EXTRACT(EPOCH FROM NOW()) * 1000, execution_time_ms = $duration" > /dev/null 2>&1
-                    migration_count=$((migration_count + 1))
-                    log_success "迁移成功: $filename (${duration}ms)"
-                else
-                    local end_time=$(python3 -c "import time; print(int(time.time() * 1000))")
-                    local duration=$((end_time - start_time))
-                    docker-compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" -c "INSERT INTO schema_migrations (version, name, applied_ts, execution_time_ms, success, description) VALUES ('$version', '$filename', EXTRACT(EPOCH FROM NOW()) * 1000, $duration, false, 'Migration failed') ON CONFLICT (version) DO UPDATE SET success = false, applied_ts = EXTRACT(EPOCH FROM NOW()) * 1000" > /dev/null 2>&1
-                    failed_count=$((failed_count + 1))
-                    log_error "迁移失败: $filename"
-                    log_error "错误信息: $migrate_output"
-                fi
-            else
-                log_info "跳过已应用迁移: $filename"
-            fi
-        fi
-    done
-    
-    if [ $failed_count -gt 0 ]; then
-        log_warning "数据库迁移完成 (成功: $migration_count, 失败: $failed_count)"
-    else
-        log_success "数据库迁移完成 (应用了 $migration_count 个迁移)"
-    fi
-    
-    # 验证必需表是否存在
-    log_info "验证数据库表结构..."
-    local required_tables=("users" "rooms" "events" "devices" "room_memberships" "access_tokens" "refresh_tokens" "presence" "event_relations" "federation_signing_keys" "rate_limits" "server_notices" "user_notification_settings" "widgets" "secure_key_backups" "secure_backup_session_keys" "space_members" "room_summary_members" "federation_cache" "feature_flags")
-    local missing_tables=()
-    
-    for table in "${required_tables[@]}"; do
-        local exists=$(docker-compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" -tAc "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '$table');" 2>/dev/null | tr -d '[:space:]')
-        if [ "$exists" != "t" ]; then
-            missing_tables+=("$table")
-        fi
-    done
-    
-    if [ ${#missing_tables[@]} -gt 0 ]; then
-        log_error "缺少以下必需表: ${missing_tables[*]}"
-        log_error "请检查迁移文件是否完整"
-        exit 1
-    fi
-    
-    log_success "数据库表结构验证通过 (${#required_tables[@]} 个表)"
+    compose run --rm --no-deps migrator
+    compose run --rm --no-deps --entrypoint /bin/sh migrator /scripts/container-migrate.sh validate
+    log_success "数据库迁移和校验完成"
     
     # 启动主应用
     log_info "启动 Synapse 应用..."
-    docker-compose up -d synapse
+    compose up -d synapse
     
     # 等待应用就绪
     log_info "等待应用启动..."
@@ -348,7 +280,7 @@ EOF
     
     # 启动 Nginx
     log_info "启动 Nginx..."
-    docker-compose up -d nginx
+    compose up -d nginx
     
     log_success "所有服务已启动"
 }
@@ -357,7 +289,7 @@ EOF
 show_status() {
     echo ""
     log_info "服务状态:"
-    docker-compose ps
+    compose ps
     echo ""
 }
 
@@ -377,10 +309,10 @@ show_access_info() {
     echo "  API:   ${PUBLIC_BASEURL}/_matrix/client/versions"
     echo ""
     echo "管理命令:"
-    echo "  查看日志:   docker-compose logs -f synapse"
-    echo "  停止服务:   docker-compose down"
-    echo "  重启服务:   docker-compose restart"
-    echo "  查看状态:   docker-compose ps"
+    echo "  查看日志:   docker compose logs -f synapse"
+    echo "  停止服务:   docker compose down"
+    echo "  重启服务:   docker compose restart"
+    echo "  查看状态:   docker compose ps"
     echo ""
     echo "注册管理员:"
     echo "  使用 ADMIN_SHARED_SECRET 注册管理员账户"

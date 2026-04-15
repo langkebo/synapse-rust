@@ -118,7 +118,7 @@ async fn test_update_dm_room_returns_confirmation() {
     // Update DM room mapping
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!("/_matrix/client/v3/direct/{}", room_id))
+        .uri(format!("/_matrix/client/v3/direct/{}", room_id))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::from(
@@ -169,7 +169,7 @@ async fn test_set_invite_blocklist_returns_confirmation() {
     // Set invite blocklist
     let request = Request::builder()
         .method("POST")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v3/rooms/{}/invite_blocklist",
             room_id
         ))
@@ -233,7 +233,7 @@ async fn test_set_invite_allowlist_returns_confirmation() {
     // Set invite allowlist
     let request = Request::builder()
         .method("POST")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v3/rooms/{}/invite_allowlist",
             room_id
         ))
@@ -315,14 +315,16 @@ async fn test_send_rendezvous_message_returns_confirmation() {
         .expect("Failed to read response body");
     let create_body: Value = serde_json::from_slice(&body).expect("Failed to parse response");
     let session_id = create_body["session_id"].as_str().unwrap();
+    let session_key = create_body["key"].as_str().unwrap();
 
     // Send message
     let request = Request::builder()
         .method("POST")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v1/rendezvous/{}/messages",
             session_id
         ))
+        .header("X-Matrix-Rendezvous-Key", session_key)
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -378,7 +380,7 @@ async fn test_empty_blocklist_returns_confirmation() {
     // Set empty blocklist (clear blocklist)
     let request = Request::builder()
         .method("POST")
-        .uri(&format!(
+        .uri(format!(
             "/_matrix/client/v3/rooms/{}/invite_blocklist",
             room_id
         ))
@@ -434,7 +436,7 @@ async fn test_update_dm_with_content_returns_confirmation() {
     // Update DM room with content format
     let request = Request::builder()
         .method("PUT")
-        .uri(&format!("/_matrix/client/v3/direct/{}", room_id))
+        .uri(format!("/_matrix/client/v3/direct/{}", room_id))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::from(

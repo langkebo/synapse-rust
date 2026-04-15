@@ -241,8 +241,8 @@ async fn test_schema_contract_auth_token_tables_shape() {
     );
 
     assert!(
-        has_unique_constraint_on(&pool, "access_tokens", &["token"]).await,
-        "Expected access_tokens UNIQUE(token)"
+        has_unique_constraint_on(&pool, "access_tokens", &["token_hash"]).await,
+        "Expected access_tokens UNIQUE(token_hash)"
     );
     assert!(
         has_unique_constraint_on(&pool, "refresh_tokens", &["token_hash"]).await,
@@ -253,6 +253,15 @@ async fn test_schema_contract_auth_token_tables_shape() {
         "Expected token_blacklist UNIQUE(token_hash)"
     );
 
+    assert_column(
+        &pool,
+        "access_tokens",
+        "token_hash",
+        &["text", "character varying"],
+        true,
+        None,
+    )
+    .await;
     assert_column(
         &pool,
         "access_tokens",
@@ -301,6 +310,7 @@ async fn test_schema_contract_auth_token_tables_shape() {
 
     for index_name in [
         "idx_access_tokens_user_id",
+        "idx_access_tokens_token_hash",
         "idx_access_tokens_valid",
         "idx_refresh_tokens_user_id",
         "idx_refresh_tokens_revoked",
@@ -352,7 +362,24 @@ async fn test_schema_contract_auth_token_query_and_write_read_closure() {
         .await
         .expect("Failed to fetch access token")
         .expect("Expected access token row");
-    assert_eq!(fetched_access.token, access_token_value);
+    assert_eq!(fetched_access.token_hash.len(), 43);
+
+    let raw_access_row = sqlx::query(
+        "SELECT token, token_hash FROM access_tokens WHERE id = $1"
+    )
+    .bind(created_access.id)
+    .fetch_one(&*pool)
+    .await
+    .expect("Failed to fetch raw access token row");
+    assert!(
+        raw_access_row.get::<Option<String>, _>("token").is_none(),
+        "Expected access token plaintext to be cleared in storage"
+    );
+    assert_eq!(
+        raw_access_row
+            .get::<String, _>("token_hash"),
+        fetched_access.token_hash
+    );
 
     token_storage
         .add_to_blacklist(&access_token_value, &user_id, Some("logout"))
@@ -394,7 +421,7 @@ async fn test_schema_contract_auth_token_query_and_write_read_closure() {
             device_id: Some(device_id.clone()),
             access_token_id: Some(created_access.id.to_string()),
             scope: Some("refresh".to_string()),
-            expires_at: chrono::Utc::now().timestamp_millis() + 3600_000,
+            expires_at: chrono::Utc::now().timestamp_millis() + 3_600_000,
             client_info: None,
             ip_address: None,
             user_agent: None,

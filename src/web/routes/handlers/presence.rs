@@ -3,12 +3,24 @@ use crate::web::routes::{validate_presence_status, validate_user_id, AppState, A
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 
+fn ensure_presence_access(
+    auth_user: &AuthenticatedUser,
+    target_user_id: &str,
+) -> Result<(), ApiError> {
+    if auth_user.user_id != target_user_id && !auth_user.is_admin {
+        return Err(ApiError::forbidden("Access denied".to_string()));
+    }
+
+    Ok(())
+}
+
 pub(crate) async fn get_presence(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
+    ensure_presence_access(&auth_user, &user_id)?;
 
     let user_exists = state
         .services
@@ -47,10 +59,7 @@ pub(crate) async fn set_presence(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-
-    if auth_user.user_id != user_id && !auth_user.is_admin {
-        return Err(ApiError::forbidden("Access denied".to_string()));
-    }
+    ensure_presence_access(&auth_user, &user_id)?;
 
     let presence = body
         .get("presence")
@@ -169,9 +178,7 @@ pub(crate) async fn get_presence_list(
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if auth_user.user_id != user_id && !auth_user.is_admin {
-        return Err(ApiError::forbidden("Access denied".to_string()));
-    }
+    ensure_presence_access(&auth_user, &user_id)?;
 
     let subscriptions = state
         .services

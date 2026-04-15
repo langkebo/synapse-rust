@@ -1,12 +1,15 @@
 use crate::common::ApiError;
 use crate::storage::rendezvous::*;
-use crate::web::routes::{AppState, AuthenticatedUser};
+use crate::web::routes::{AppState, OptionalAuthenticatedUser};
 use axum::{
     extract::{Json, Path, State},
+    http::HeaderMap,
     routing::{delete, get, post, put},
     Router,
 };
 use serde_json::{json, Value};
+
+const RENDEZVOUS_KEY_HEADER: &str = "x-matrix-rendezvous-key";
 
 pub fn create_rendezvous_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -94,17 +97,78 @@ async fn create_session(
     })))
 }
 
-async fn get_session(
-    State(state): State<AppState>,
-    Path(session_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let session = state
+fn extract_rendezvous_key(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(RENDEZVOUS_KEY_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+}
+
+async fn load_rendezvous_session(
+    state: &AppState,
+    session_id: &str,
+) -> Result<RendezvousSession, ApiError> {
+    state
         .services
         .rendezvous_storage
-        .get_session(&session_id)
+        .get_session(session_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get session: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Session not found or expired".to_string()))?;
+        .ok_or_else(|| ApiError::not_found("Session not found or expired".to_string()))
+}
+
+async fn ensure_rendezvous_session_access(
+    state: &AppState,
+    headers: &HeaderMap,
+    auth_user: &OptionalAuthenticatedUser,
+    session_id: &str,
+    action: &str,
+) -> Result<RendezvousSession, ApiError> {
+    let session = load_rendezvous_session(state, session_id).await?;
+
+    if let Some(session_key) = extract_rendezvous_key(headers) {
+        if session.key == session_key {
+            return Ok(session);
+        }
+
+        return Err(ApiError::unauthorized(format!(
+            "Invalid rendezvous key for {}",
+            action
+        )));
+    }
+
+    if auth_user.is_admin {
+        return Ok(session);
+    }
+
+    if let (Some(auth_user_id), Some(bound_user_id)) =
+        (auth_user.user_id.as_ref(), session.user_id.as_ref())
+    {
+        if auth_user_id == bound_user_id {
+            return Ok(session);
+        }
+
+        return Err(ApiError::forbidden(format!(
+            "You are not allowed to {} this rendezvous session",
+            action
+        )));
+    }
+
+    Err(ApiError::unauthorized(format!(
+        "Rendezvous access to {} requires the {} header or the bound user",
+        action, RENDEZVOUS_KEY_HEADER
+    )))
+}
+
+async fn get_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    auth_user: OptionalAuthenticatedUser,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let session =
+        ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "read")
+            .await?;
 
     Ok(Json(json!({
         "session_id": session.session_id,
@@ -119,10 +183,13 @@ async fn get_session(
 
 async fn update_session(
     State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    headers: HeaderMap,
+    auth_user: OptionalAuthenticatedUser,
     Path(session_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "update").await?;
+
     let status = body
         .get("status")
         .and_then(|v| v.as_str())
@@ -136,6 +203,11 @@ async fn update_session(
         .map_err(|e| ApiError::internal(format!("Failed to update session: {}", e)))?;
 
     if status == "connected" {
+        let user_id = auth_user
+            .user_id
+            .as_ref()
+            .ok_or_else(ApiError::missing_token)?
+            .clone();
         let device_id = auth_user
             .device_id
             .clone()
@@ -143,19 +215,13 @@ async fn update_session(
         state
             .services
             .rendezvous_storage
-            .bind_user_to_session(&session_id, &auth_user.user_id, &device_id)
+            .bind_user_to_session(&session_id, &user_id, &device_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to bind user: {}", e)))?;
     }
 
     if status == "completed" {
-        let session = state
-            .services
-            .rendezvous_storage
-            .get_session(&session_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get session: {}", e)))?
-            .ok_or_else(|| ApiError::not_found("Session not found".to_string()))?;
+        let session = load_rendezvous_session(&state, &session_id).await?;
 
         if let Some(user_id) = &session.user_id {
             let device_id = session
@@ -190,8 +256,12 @@ async fn update_session(
 
 async fn delete_session(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    auth_user: OptionalAuthenticatedUser,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "delete").await?;
+
     state
         .services
         .rendezvous_storage
@@ -204,9 +274,14 @@ async fn delete_session(
 
 async fn send_message(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    auth_user: OptionalAuthenticatedUser,
     Path(session_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "send messages")
+        .await?;
+
     let message_type = body
         .get("type")
         .and_then(|v| v.as_str())
@@ -238,8 +313,13 @@ async fn send_message(
 
 async fn get_messages(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    auth_user: OptionalAuthenticatedUser,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "read messages")
+        .await?;
+
     let msg_storage = RendezvousMessageStorage::new(state.services.rendezvous_storage.pool.clone());
 
     let messages = msg_storage

@@ -57,6 +57,44 @@ pub fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+pub fn validate_room_alias(room_alias: &str) -> Result<(), ApiError> {
+    if room_alias.is_empty() {
+        return Err(ApiError::invalid_input(
+            "room_alias is required".to_string(),
+        ));
+    }
+    if !room_alias.starts_with('#') {
+        return Err(ApiError::invalid_input(
+            "Invalid room_alias format: must start with #".to_string(),
+        ));
+    }
+    if room_alias.len() > 255 {
+        return Err(ApiError::invalid_input(
+            "room_alias too long (max 255 characters)".to_string(),
+        ));
+    }
+
+    let Some((localpart, server_name)) = room_alias[1..].rsplit_once(':') else {
+        return Err(ApiError::invalid_input(
+            "Invalid room_alias format: must be #alias:server".to_string(),
+        ));
+    };
+
+    if localpart.is_empty() {
+        return Err(ApiError::invalid_input(
+            "Invalid room_alias format: alias cannot be empty".to_string(),
+        ));
+    }
+
+    if server_name.is_empty() {
+        return Err(ApiError::invalid_input(
+            "Invalid room_alias format: server cannot be empty".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 pub fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
     if event_id.is_empty() {
         return Err(ApiError::invalid_input("event_id is required".to_string()));
@@ -121,6 +159,21 @@ mod tests {
     fn test_validate_room_id_invalid() {
         assert!(validate_room_id("").is_err());
         assert!(validate_room_id("room:example.com").is_err());
+    }
+
+    #[test]
+    fn test_validate_room_alias_valid() {
+        assert!(validate_room_alias("#room:example.com").is_ok());
+        assert!(validate_room_alias("#room-name:matrix.org").is_ok());
+    }
+
+    #[test]
+    fn test_validate_room_alias_invalid() {
+        assert!(validate_room_alias("").is_err());
+        assert!(validate_room_alias("room:example.com").is_err());
+        assert!(validate_room_alias("#:example.com").is_err());
+        assert!(validate_room_alias("#room").is_err());
+        assert!(validate_room_alias("#room:").is_err());
     }
 
     #[test]

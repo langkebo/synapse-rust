@@ -1,7 +1,7 @@
 # synapse-rust Docker 部署指南
 
-> **版本**: v1.0.0  
-> **更新日期**: 2026-04-02  
+> **版本**: v1.1.0  
+> **更新日期**: 2026-04-13  
 > **Docker 镜像**: `vmuser232922/mysynapse:latest`
 
 ---
@@ -31,11 +31,11 @@
 | postgres | postgres:16-alpine | PostgreSQL 数据库 |
 | redis | redis:7-alpine | Redis 缓存 |
 | nginx | nginx:alpine | 反向代理 |
-| migrator | vmuser232922/mysynapse:latest | 数据库迁移服务 |
+| migrator | postgres:16-alpine | 基于 `psql` 的一次性迁移服务 |
 
 ### 目录结构
 
-```
+```text
 docker/deploy/
 ├── docker-compose.yml      # Docker Compose 配置
 ├── .env.example            # 环境变量模板
@@ -108,10 +108,13 @@ cd docker/deploy
 # 2. 复制环境变量模板
 cp .env.example .env
 
-# 3. 编辑 .env 文件，只需修改以下两项
+# 3. 编辑 .env 文件，至少修改以下两项
 nano .env
 # SERVER_NAME=matrix.example.com
 # PUBLIC_BASEURL=https://matrix.example.com
+# 可按需调整:
+# SYNAPSE__DATABASE__POOL_SIZE=20
+# SYNAPSE__DATABASE__MAX_SIZE=50
 
 # 4. 运行部署脚本 (自动生成安全密钥)
 chmod +x deploy.sh
@@ -125,11 +128,13 @@ chmod +x deploy.sh
 | 密钥 | 说明 | 生成方式 |
 |------|------|---------|
 | `POSTGRES_PASSWORD` | 数据库密码 | 32位随机密码 |
+| `REDIS_PASSWORD` | Redis 密码 | 32位随机密码 |
 | `ADMIN_SHARED_SECRET` | 管理员密钥 | 64位十六进制 |
 | `JWT_SECRET` | JWT 签名密钥 | Base64 编码 |
 | `REGISTRATION_SHARED_SECRET` | 注册密钥 | 64位十六进制 |
 
 手动生成密钥：
+
 ```bash
 # 生成所有密钥
 ./scripts/generate-secrets.sh all
@@ -151,6 +156,7 @@ PUBLIC_BASEURL=https://matrix.example.com
 
 # 以下密钥由 deploy.sh 自动生成，无需手动配置
 # POSTGRES_PASSWORD=...
+# REDIS_PASSWORD=...
 # ADMIN_SHARED_SECRET=...
 # JWT_SECRET=...
 # REGISTRATION_SHARED_SECRET=...
@@ -169,6 +175,11 @@ PUBLIC_BASEURL=https://matrix.example.com
 | `POSTGRES_USER` | 数据库用户名 | synapse | |
 | `POSTGRES_PASSWORD` | 数据库密码 | (自动生成) | |
 | `POSTGRES_DB` | 数据库名称 | synapse | |
+| `SYNAPSE__DATABASE__POOL_SIZE` | 数据库连接池预热大小 | 20 | |
+| `SYNAPSE__DATABASE__MAX_SIZE` | 数据库连接池最大连接数 | 50 | |
+| `SYNAPSE__DATABASE__MIN_IDLE` | 数据库连接池最小空闲连接 | 10 | |
+| `SYNAPSE__DATABASE__CONNECTION_TIMEOUT` | 数据库连接获取超时（秒） | 60 | |
+| `REDIS_PASSWORD` | Redis 密码 | (自动生成) | |
 | `REDIS_PORT` | Redis 端口 | 6379 | |
 | `SYNAPSE_PORT` | Synapse 内部端口 | 8008 | |
 | `FEDERATION_PORT` | Matrix 联邦端口 | 8448 | |
@@ -193,6 +204,18 @@ PUBLIC_BASEURL=https://matrix.example.com
 # 或使用 openssl
 openssl rand -hex 32
 ```
+
+---
+
+### 配置优先级
+
+数据库连接池配置已统一为单一来源：
+
+1. `.env` / `.env.example` 中的 `SYNAPSE__DATABASE__*`
+2. `docker-compose.yml` 将这些变量透传到 `synapse` 容器
+3. 应用通过 `SYNAPSE__` 前缀覆盖 `config/homeserver.yaml` 中的默认值
+
+如果不显式设置，`homeserver.yaml` 中的默认值与 `.env.example` 保持一致，不会再出现 Compose 与 YAML 各写一套的漂移。
 
 ---
 
@@ -231,11 +254,14 @@ cp -r /path/to/synapse-rust/migrations ./migrations/
 ### 步骤 4: 启动服务
 
 ```bash
-# 运行部署脚本
+# 4. 启动部署脚本
 ./deploy.sh
 
 # 或手动启动
 docker compose up -d
+
+# 如需从宿主机直连 PostgreSQL/Redis，显式叠加开发态 override
+docker compose -f docker-compose.yml -f docker-compose.dev-host-access.yml up -d
 ```
 
 ### 步骤 5: 验证部署
@@ -310,8 +336,8 @@ docker compose exec nginx nginx -s reload
 # 进入 Synapse 容器
 docker compose exec synapse /bin/sh
 
-# 进入数据库容器
-docker compose exec postgres /bin/bash
+# 进入 PostgreSQL 容器
+docker compose exec postgres /bin/sh
 
 # 连接数据库
 docker compose exec postgres psql -U synapse -d synapse
@@ -397,6 +423,7 @@ docker run --rm -v synapse_media:/media -v $(pwd):/backup alpine tar czf /backup
 **症状**: Synapse 无法启动，日志显示数据库连接错误
 
 **解决方案**:
+
 ```bash
 # 检查数据库状态
 docker compose ps postgres
@@ -413,6 +440,7 @@ docker compose exec synapse ping postgres
 **症状**: migrator 容器退出码非 0
 
 **解决方案**:
+
 ```bash
 # 查看迁移日志
 docker compose logs migrator
@@ -429,6 +457,7 @@ docker compose logs migrator
 **症状**: 访问服务返回 502 Bad Gateway
 
 **解决方案**:
+
 ```bash
 # 检查 Synapse 是否运行
 docker compose ps synapse
@@ -445,6 +474,7 @@ docker compose restart synapse nginx
 **症状**: 服务频繁重启，OOM 错误
 
 **解决方案**:
+
 ```bash
 # 增加系统内存
 # 或限制容器内存
@@ -490,7 +520,7 @@ curl -f http://localhost:8008/health
 docker compose exec postgres pg_isready
 
 # 检查 Redis 连接
-docker compose exec redis redis-cli ping
+docker compose exec redis redis-cli -a "$REDIS_PASSWORD" ping
 ```
 
 ### 网络排查
@@ -522,8 +552,8 @@ docker compose down -v
 | 服务 | 镜像 | 端口 | 说明 |
 |------|------|------|------|
 | synapse | vmuser232922/mysynapse:latest | 8008, 8448 | Matrix 主服务器 |
-| postgres | postgres:16-alpine | 5432 | PostgreSQL 数据库 |
-| redis | redis:7-alpine | 6379 | Redis 缓存 |
+| postgres | postgres:16-alpine | 容器内 5432 | PostgreSQL 数据库 |
+| redis | redis:7-alpine | 容器内 6379 | Redis 缓存 |
 | nginx | nginx:alpine | 80, 443, 8448 | 反向代理 |
 | migrator | vmuser232922/mysynapse:latest | - | 数据库迁移服务 |
 
@@ -535,15 +565,16 @@ docker compose down -v
 | 443 | HTTPS | 安全 Web 访问入口 |
 | 8008 | HTTP | Synapse 客户端 API (内部) |
 | 8448 | HTTPS | Matrix 联邦端口 (服务器间通信) |
-| 5432 | TCP | PostgreSQL 数据库 |
-| 6379 | TCP | Redis 缓存 |
+| 5432 | TCP | PostgreSQL 数据库，仅在显式叠加 `docker-compose.dev-host-access.yml` 时暴露到宿主机 |
+| 6379 | TCP | Redis 缓存，仅在显式叠加 `docker-compose.dev-host-access.yml` 时暴露到宿主机 |
 
 ### 联邦配置
 
 Matrix 联邦允许不同服务器之间进行通信。要启用联邦功能：
 
 1. **DNS 配置**: 确保您的域名有正确的 SRV 记录
-   ```
+
+   ```text
    _matrix._tcp.example.com. 3600 IN SRV 10 5 8448 matrix.example.com.
    ```
 
@@ -552,6 +583,7 @@ Matrix 联邦允许不同服务器之间进行通信。要启用联邦功能：
 3. **SSL 证书**: 联邦端口必须使用有效的 SSL 证书
 
 4. **测试联邦**:
+
    ```bash
    # 测试联邦连接
    curl https://matrix.example.com:8448/_matrix/federation/v1/version

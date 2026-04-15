@@ -10,7 +10,7 @@
 //!
 //! # 示例
 //!
-//! ```rust,ignore
+//! ```text
 //! use synapse_rust::services::{TypingService, TypingServiceImpl};
 //!
 //! #[tokio::main]
@@ -67,7 +67,7 @@ pub trait TypingService: Send + Sync {
     ///
     /// # 示例
     ///
-    /// ```rust,ignore
+    /// ```text
     /// service.set_typing("!room:example.com", "@alice:example.com", 30000).await?;
     /// ```
     async fn set_typing(&self, room_id: &str, user_id: &str, timeout_ms: u64) -> ApiResult<()>;
@@ -129,7 +129,7 @@ impl TypingServiceImpl {
     ///
     /// # 示例
     ///
-    /// ```rust,ignore
+    /// ```text
     /// let service = TypingServiceImpl::new();
     /// ```
     pub fn new() -> Self {

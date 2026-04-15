@@ -1,6 +1,6 @@
 use crate::common::error::ApiError;
 use crate::services::captcha_service::{SendCaptchaRequest, VerifyCaptchaRequest};
-use crate::web::routes::AppState;
+use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Query, State},
     response::IntoResponse,
@@ -109,7 +109,10 @@ pub struct CaptchaIdQuery {
     pub captcha_id: String,
 }
 
-pub async fn cleanup_expired(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+pub async fn cleanup_expired(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
     let count = state.services.captcha_service.cleanup_expired().await?;
 
     Ok(Json(serde_json::json!({
@@ -118,10 +121,10 @@ pub async fn cleanup_expired(State(state): State<AppState>) -> Result<impl IntoR
     })))
 }
 
-pub fn create_captcha_router() -> axum::Router<AppState> {
+pub fn create_captcha_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
-    axum::Router::new()
+    let public_routes = axum::Router::new()
         .route(
             "/_matrix/client/r0/register/captcha/send",
             post(send_captcha),
@@ -133,6 +136,14 @@ pub fn create_captcha_router() -> axum::Router<AppState> {
         .route(
             "/_matrix/client/r0/register/captcha/status",
             get(get_captcha_status),
-        )
+        );
+
+    let admin_routes = axum::Router::new()
         .route("/_synapse/admin/v1/captcha/cleanup", post(cleanup_expired))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ));
+
+    public_routes.merge(admin_routes).with_state(state)
 }

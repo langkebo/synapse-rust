@@ -559,6 +559,8 @@ mod tests {
             rate_limited: None,
             protocols: None,
             namespaces: None,
+            api_key: None,
+            config: None,
         };
         assert_eq!(request.as_id, "minimal-as");
         assert!(request.description.is_none());
@@ -581,6 +583,8 @@ mod tests {
                 "aliases": [],
                 "rooms": []
             })),
+            api_key: None,
+            config: None,
         };
         assert_eq!(
             request.description,

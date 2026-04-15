@@ -131,11 +131,10 @@ mod schema_contract_p0_suite {
         let (data_type, is_nullable, column_default, char_max_len) =
             row.unwrap_or_else(|| panic!("Missing column {table_name}.{column_name}"));
 
-        assert_eq!(
+        assert!(
             expected_data_types
                 .iter()
                 .any(|expected| data_type == *expected),
-            true,
             "Unexpected type for {table_name}.{column_name}: {data_type}"
         );
         let is_nullable_bool = is_nullable == "YES";

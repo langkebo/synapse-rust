@@ -1,7 +1,7 @@
 use crate::common::error::ApiError;
 use crate::services::module_service::*;
 use crate::storage::module::*;
-use crate::web::routes::{AppState, AuthenticatedUser};
+use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -386,7 +386,7 @@ pub struct SpamCheckQuery {
 
 pub async fn create_module(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CreateModuleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateModuleRequest {
@@ -410,7 +410,7 @@ pub async fn create_module(
 
 pub async fn get_module(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path(module_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let module = state
@@ -425,7 +425,7 @@ pub async fn get_module(
 
 pub async fn get_modules_by_type(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path(module_type): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let modules = state
@@ -441,7 +441,7 @@ pub async fn get_modules_by_type(
 
 pub async fn get_all_modules(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Query(query): Query<ListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -460,7 +460,7 @@ pub async fn get_all_modules(
 
 pub async fn update_module_config(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path(module_name): Path<String>,
     Json(body): Json<UpdateModuleConfigBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -475,7 +475,7 @@ pub async fn update_module_config(
 
 pub async fn enable_module(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path(module_name): Path<String>,
     Json(body): Json<EnableModuleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -490,7 +490,7 @@ pub async fn enable_module(
 
 pub async fn delete_module(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path(module_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -504,7 +504,7 @@ pub async fn delete_module(
 
 pub async fn check_spam(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CheckSpamBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let context = SpamCheckContext {
@@ -522,7 +522,7 @@ pub async fn check_spam(
 
 pub async fn check_third_party_rule(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CheckThirdPartyRuleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let context = ThirdPartyRuleContext {
@@ -545,7 +545,7 @@ pub async fn check_third_party_rule(
 
 pub async fn get_spam_check_result(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path(event_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = state
@@ -560,7 +560,7 @@ pub async fn get_spam_check_result(
 
 pub async fn get_spam_check_results_by_sender(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path(sender): Path<String>,
     Query(query): Query<SpamCheckQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -582,7 +582,7 @@ pub async fn get_spam_check_results_by_sender(
 
 pub async fn get_third_party_rule_results(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path(event_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let results = state
@@ -601,7 +601,7 @@ pub async fn get_third_party_rule_results(
 
 pub async fn get_execution_logs(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path(module_name): Path<String>,
     Query(query): Query<SpamCheckQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -618,7 +618,7 @@ pub async fn get_execution_logs(
 
 pub async fn create_account_validity(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CreateAccountValidityBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateAccountValidityRequest {
@@ -641,7 +641,7 @@ pub async fn create_account_validity(
 
 pub async fn get_account_validity(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let validity = state
@@ -656,7 +656,7 @@ pub async fn get_account_validity(
 
 pub async fn renew_account(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path(user_id): Path<String>,
     Json(body): Json<RenewAccountBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -671,7 +671,7 @@ pub async fn renew_account(
 
 pub async fn create_password_auth_provider(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CreatePasswordAuthProviderBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreatePasswordAuthProviderRequest {
@@ -699,7 +699,7 @@ pub async fn create_password_auth_provider(
 
 pub async fn get_password_auth_providers(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let providers = state
         .services
@@ -718,7 +718,7 @@ pub async fn get_password_auth_providers(
 
 pub async fn create_presence_route(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CreatePresenceRouteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreatePresenceRouteRequest {
@@ -744,7 +744,7 @@ pub async fn create_presence_route(
 
 pub async fn get_presence_routes(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let routes = state
         .services
@@ -763,7 +763,7 @@ pub async fn get_presence_routes(
 
 pub async fn create_media_callback(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CreateMediaCallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateMediaCallbackRequest {
@@ -792,7 +792,7 @@ pub async fn create_media_callback(
 
 pub async fn get_media_callbacks(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Path(callback_type): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let callbacks = state
@@ -812,7 +812,7 @@ pub async fn get_media_callbacks(
 
 pub async fn get_all_media_callbacks(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let callbacks = state
         .services
@@ -831,7 +831,7 @@ pub async fn get_all_media_callbacks(
 
 pub async fn create_rate_limit_callback(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CreateRateLimitCallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateRateLimitCallbackRequest {
@@ -857,7 +857,7 @@ pub async fn create_rate_limit_callback(
 
 pub async fn get_rate_limit_callbacks(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let callbacks = state
         .services
@@ -876,7 +876,7 @@ pub async fn get_rate_limit_callbacks(
 
 pub async fn create_account_data_callback(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
     Json(body): Json<CreateAccountDataCallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateAccountDataCallbackRequest {
@@ -904,7 +904,7 @@ pub async fn create_account_data_callback(
 
 pub async fn get_account_data_callbacks(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let callbacks = state
         .services
@@ -921,7 +921,7 @@ pub async fn get_account_data_callbacks(
     Ok(Json(responses))
 }
 
-pub fn create_module_router() -> Router<AppState> {
+pub fn create_module_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/modules", post(create_module))
         .route("/_synapse/admin/v1/modules", get(get_all_modules))
@@ -1019,4 +1019,9 @@ pub fn create_module_router() -> Router<AppState> {
             "/_synapse/admin/v1/account_data_callbacks",
             get(get_account_data_callbacks),
         )
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ))
+        .with_state(state)
 }

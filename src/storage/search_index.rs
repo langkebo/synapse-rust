@@ -88,23 +88,21 @@ impl SearchIndexStorage {
         query: &SearchQuery,
     ) -> Result<Vec<SearchResult>, sqlx::Error> {
         let search_pattern = format!("%{}%", query.search_term.to_lowercase());
-        let limit = query.limit.unwrap_or(20);
-        let offset = query.offset.unwrap_or(0);
+        let limit = query.limit.unwrap_or(20).min(100);
+        let offset = query.offset.unwrap_or(0).max(0);
 
-        // Simple search query
-        let sql = format!(
+        let rows = sqlx::query(
             "SELECT event_id, room_id, user_id, event_type, content, created_ts 
              FROM search_index 
              WHERE LOWER(content) LIKE $1
              ORDER BY created_ts DESC 
-             LIMIT {} OFFSET {}",
-            limit, offset
-        );
-
-        let rows = sqlx::query(&sql)
-            .bind(&search_pattern)
-            .fetch_all(&self.pool)
-            .await?;
+             LIMIT $2 OFFSET $3"
+        )
+        .bind(&search_pattern)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
 
         let results: Vec<SearchResult> = rows
             .iter()

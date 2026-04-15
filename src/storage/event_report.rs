@@ -41,8 +41,8 @@ pub struct ReportRateLimit {
     pub id: i64,
     pub user_id: String,
     pub report_count: i32,
-    pub last_report_ts: Option<i64>,
-    pub blocked_until_ts: Option<i64>,
+    pub last_report_at: Option<i64>,
+    pub blocked_until_at: Option<i64>,
     pub is_blocked: bool,
     pub block_reason: Option<String>,
     pub created_ts: i64,
@@ -52,12 +52,12 @@ pub struct ReportRateLimit {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct EventReportStats {
     pub id: i64,
-    pub date: chrono::NaiveDate,
+    pub stat_date: chrono::NaiveDate,
     pub total_reports: i32,
     pub open_reports: i32,
     pub resolved_reports: i32,
     pub dismissed_reports: i32,
-    pub avg_resolution_time_hours: Option<i32>,
+    pub avg_resolution_time_ms: Option<i64>,
     pub created_ts: i64,
     pub updated_ts: i64,
 }
@@ -93,6 +93,34 @@ pub struct ReportRateLimitCheck {
 pub struct EventReportStorage {
     pool: Arc<PgPool>,
 }
+
+const REPORT_RATE_LIMIT_SELECT: &str = r#"
+    SELECT
+        id,
+        user_id,
+        report_count,
+        last_report_at,
+        blocked_until_at,
+        is_blocked,
+        block_reason,
+        created_ts,
+        COALESCE(updated_ts, created_ts) AS updated_ts
+    FROM report_rate_limits
+"#;
+
+const EVENT_REPORT_STATS_SELECT: &str = r#"
+    SELECT
+        id,
+        stat_date,
+        total_reports,
+        open_reports,
+        resolved_reports,
+        dismissed_reports,
+        avg_resolution_time_ms,
+        created_ts,
+        COALESCE(updated_ts, created_ts) AS updated_ts
+    FROM event_report_stats
+"#;
 
 impl EventReportStorage {
     pub fn new(pool: &Arc<PgPool>) -> Self {
@@ -327,9 +355,10 @@ impl EventReportStorage {
         &self,
         user_id: &str,
     ) -> Result<ReportRateLimitCheck, sqlx::Error> {
-        let limit = sqlx::query_as::<_, ReportRateLimit>(
-            "SELECT * FROM report_rate_limits WHERE user_id = $1",
-        )
+        let limit = sqlx::query_as::<_, ReportRateLimit>(&format!(
+            "{} WHERE user_id = $1",
+            REPORT_RATE_LIMIT_SELECT
+        ))
         .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
@@ -344,11 +373,14 @@ impl EventReportStorage {
             }),
             Some(l) => {
                 if l.is_blocked {
-                    if let Some(blocked_until) = l.blocked_until_ts {
+                    if let Some(blocked_until) = l.blocked_until_at {
                         let now = Utc::now().timestamp_millis();
                         if blocked_until < now {
-                            sqlx::query("UPDATE report_rate_limits SET is_blocked = FALSE, blocked_until_ts = NULL, block_reason = NULL WHERE user_id = $1")
+                            sqlx::query(
+                                "UPDATE report_rate_limits SET is_blocked = FALSE, blocked_until_at = NULL, block_reason = NULL, updated_ts = $2 WHERE user_id = $1",
+                            )
                                 .bind(user_id)
+                                .bind(now)
                                 .execute(&*self.pool)
                                 .await?;
                             return Ok(ReportRateLimitCheck {
@@ -366,7 +398,9 @@ impl EventReportStorage {
                 }
 
                 let one_day_ago = Utc::now().timestamp_millis() - 86400000;
-                if l.last_report_ts.unwrap_or(0) > one_day_ago {
+                if l.last_report_at
+                    .is_some_and(|last_report_at| last_report_at > one_day_ago)
+                {
                     if l.report_count >= max_reports_per_day {
                         return Ok(ReportRateLimitCheck {
                             is_allowed: false,
@@ -394,23 +428,27 @@ impl EventReportStorage {
         let now = Utc::now().timestamp_millis();
         let one_day_ago = now - 86400000;
 
-        let existing = sqlx::query_as::<_, ReportRateLimit>(
-            "SELECT * FROM report_rate_limits WHERE user_id = $1",
-        )
+        let existing = sqlx::query_as::<_, ReportRateLimit>(&format!(
+            "{} WHERE user_id = $1",
+            REPORT_RATE_LIMIT_SELECT
+        ))
         .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
         match existing {
             Some(l) => {
-                let new_count = if l.last_report_ts.unwrap_or(0) < one_day_ago {
+                let new_count = if l
+                    .last_report_at
+                    .is_none_or(|last_report_at| last_report_at < one_day_ago)
+                {
                     1
                 } else {
                     l.report_count + 1
                 };
 
                 sqlx::query(
-                    "UPDATE report_rate_limits SET report_count = $2, last_report_ts = $3 WHERE user_id = $1",
+                    "UPDATE report_rate_limits SET report_count = $2, last_report_at = $3, updated_ts = $3 WHERE user_id = $1",
                 )
                 .bind(user_id)
                 .bind(new_count)
@@ -420,7 +458,7 @@ impl EventReportStorage {
             }
             None => {
                 sqlx::query(
-                    "INSERT INTO report_rate_limits (user_id, report_count, last_report_ts, created_ts, updated_ts) VALUES ($1, 1, $2, $2, $2)",
+                    "INSERT INTO report_rate_limits (user_id, report_count, last_report_at, created_ts, updated_ts) VALUES ($1, 1, $2, $2, $2)",
                 )
                 .bind(user_id)
                 .bind(now)
@@ -442,11 +480,11 @@ impl EventReportStorage {
 
         sqlx::query(
             r#"
-            INSERT INTO report_rate_limits (user_id, is_blocked, blocked_until_ts, block_reason, created_ts, updated_ts)
+            INSERT INTO report_rate_limits (user_id, is_blocked, blocked_until_at, block_reason, created_ts, updated_ts)
             VALUES ($1, TRUE, $2, $3, $4, $4)
             ON CONFLICT (user_id) DO UPDATE SET
                 is_blocked = TRUE,
-                blocked_until_ts = $2,
+                blocked_until_at = $2,
                 block_reason = $3,
                 updated_ts = $4
             "#,
@@ -462,10 +500,12 @@ impl EventReportStorage {
     }
 
     pub async fn unblock_user_reports(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
         sqlx::query(
-            "UPDATE report_rate_limits SET is_blocked = FALSE, blocked_until_ts = NULL, block_reason = NULL WHERE user_id = $1",
+            "UPDATE report_rate_limits SET is_blocked = FALSE, blocked_until_at = NULL, block_reason = NULL, updated_ts = $2 WHERE user_id = $1",
         )
         .bind(user_id)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -473,9 +513,10 @@ impl EventReportStorage {
     }
 
     pub async fn get_stats(&self, days: i32) -> Result<Vec<EventReportStats>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, EventReportStats>(
-            "SELECT id, date, total_reports, open_reports, resolved_reports, dismissed_reports, avg_resolution_time_hours, created_ts, updated_ts FROM event_report_stats WHERE date >= CURRENT_DATE - $1 ORDER BY date DESC",
-        )
+        let rows = sqlx::query_as::<_, EventReportStats>(&format!(
+            "{} WHERE stat_date >= CURRENT_DATE - $1 ORDER BY stat_date DESC",
+            EVENT_REPORT_STATS_SELECT
+        ))
         .bind(days)
         .fetch_all(&*self.pool)
         .await?;
@@ -546,7 +587,7 @@ mod tests {
             resolution_reason: None,
         };
         assert!(report.reason.is_some());
-        assert_eq!(report.reason.unwrap(), "Inappropriate content");
+        assert_eq!(report.reason.as_deref(), Some("Inappropriate content"));
     }
 
     #[test]
@@ -573,8 +614,8 @@ mod tests {
             id: 1,
             user_id: "@user:example.com".to_string(),
             report_count: 5,
-            last_report_ts: Some(1234567890),
-            blocked_until_ts: None,
+            last_report_at: Some(1234567890),
+            blocked_until_at: None,
             is_blocked: false,
             block_reason: None,
             created_ts: 1234567800,

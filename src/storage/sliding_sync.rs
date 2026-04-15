@@ -1,5 +1,5 @@
 use serde::{de::Deserializer, Deserialize, Serialize};
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, QueryBuilder};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -49,6 +49,16 @@ pub struct SlidingSyncRoom {
     pub timestamp: i64,
     pub created_ts: i64,
     pub updated_ts: i64,
+}
+
+pub struct SlidingSyncListQuery<'a> {
+    pub user_id: &'a str,
+    pub device_id: &'a str,
+    pub conn_id: Option<&'a str>,
+    pub list_key: &'a str,
+    pub start: u32,
+    pub end: u32,
+    pub filters: Option<&'a SlidingSyncFilters>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -425,30 +435,74 @@ impl SlidingSyncStorage {
 
     pub async fn get_rooms_for_list(
         &self,
+        query_params: SlidingSyncListQuery<'_>,
+    ) -> Result<Vec<SlidingSyncRoom>, sqlx::Error> {
+        let SlidingSyncListQuery {
+            user_id,
+            device_id,
+            conn_id,
+            list_key,
+            start,
+            end,
+            filters,
+        } = query_params;
+        self.ensure_schema().await?;
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT * FROM sliding_sync_rooms
+            WHERE user_id = "#,
+        );
+        query.push_bind(user_id);
+        query.push(" AND device_id = ");
+        query.push_bind(device_id);
+        query.push(" AND (conn_id = ");
+        query.push_bind(conn_id);
+        query.push(" OR (");
+        query.push_bind(conn_id);
+        query.push(" IS NULL AND conn_id IS NULL)) AND list_key = ");
+        query.push_bind(list_key);
+
+        Self::push_room_filters(&mut query, filters);
+
+        query.push(" ORDER BY bump_stamp DESC");
+        query.push(" LIMIT ");
+        query.push_bind((end.saturating_sub(start) + 1) as i64);
+        query.push(" OFFSET ");
+        query.push_bind(start as i64);
+
+        query
+            .build_query_as::<SlidingSyncRoom>()
+            .fetch_all(&*self.pool)
+            .await
+    }
+
+    pub async fn count_rooms_for_list(
+        &self,
         user_id: &str,
         device_id: &str,
         conn_id: Option<&str>,
         list_key: &str,
-        start: u32,
-        end: u32,
-    ) -> Result<Vec<SlidingSyncRoom>, sqlx::Error> {
+        filters: Option<&SlidingSyncFilters>,
+    ) -> Result<i64, sqlx::Error> {
         self.ensure_schema().await?;
-        sqlx::query_as::<_, SlidingSyncRoom>(
+        let mut query = QueryBuilder::<Postgres>::new(
             r#"
-            SELECT * FROM sliding_sync_rooms 
-            WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL)) AND list_key = $4
-            ORDER BY bump_stamp DESC
-            LIMIT $6 OFFSET $5
-            "#,
-        )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(conn_id)
-        .bind(list_key)
-        .bind(start as i64)
-        .bind((end - start + 1) as i64)
-        .fetch_all(&*self.pool)
-        .await
+            SELECT COUNT(*) FROM sliding_sync_rooms
+            WHERE user_id = "#,
+        );
+        query.push_bind(user_id);
+        query.push(" AND device_id = ");
+        query.push_bind(device_id);
+        query.push(" AND (conn_id = ");
+        query.push_bind(conn_id);
+        query.push(" OR (");
+        query.push_bind(conn_id);
+        query.push(" IS NULL AND conn_id IS NULL)) AND list_key = ");
+        query.push_bind(list_key);
+
+        Self::push_room_filters(&mut query, filters);
+
+        query.build_query_scalar().fetch_one(&*self.pool).await
     }
 
     pub async fn get_room(
@@ -520,6 +574,37 @@ impl SlidingSyncStorage {
         .await?;
 
         self.get_room(user_id, device_id, room_id, conn_id).await
+    }
+
+    fn push_room_filters(query: &mut QueryBuilder<Postgres>, filters: Option<&SlidingSyncFilters>) {
+        let Some(filters) = filters else {
+            return;
+        };
+
+        if let Some(is_dm) = filters.is_dm {
+            query.push(" AND is_dm = ");
+            query.push_bind(is_dm);
+        }
+
+        if let Some(is_encrypted) = filters.is_encrypted {
+            query.push(" AND is_encrypted = ");
+            query.push_bind(is_encrypted);
+        }
+
+        if let Some(is_invite) = filters.is_invite {
+            query.push(" AND invited = ");
+            query.push_bind(is_invite);
+        }
+
+        if let Some(is_tombstoned) = filters.is_tombstoned {
+            query.push(" AND is_tombstoned = ");
+            query.push_bind(is_tombstoned);
+        }
+
+        if let Some(room_name_like) = filters.room_name_like.as_deref() {
+            query.push(" AND COALESCE(name, '') ILIKE ");
+            query.push_bind(format!("%{}%", room_name_like));
+        }
     }
 
     pub async fn delete_room(

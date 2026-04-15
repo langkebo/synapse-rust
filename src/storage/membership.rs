@@ -25,6 +25,12 @@ pub struct RoomMember {
     pub join_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct UserRoomMembership {
+    pub room_id: String,
+    pub membership: String,
+}
+
 #[derive(Clone)]
 pub struct RoomMemberStorage {
     pub pool: Arc<Pool<Postgres>>,
@@ -254,6 +260,40 @@ impl RoomMemberStorage {
         .await?;
 
         Ok(rows)
+    }
+
+    pub async fn get_sync_rooms(
+        &self,
+        user_id: &str,
+        include_leave: bool,
+    ) -> Result<Vec<UserRoomMembership>, sqlx::Error> {
+        let memberships = if include_leave {
+            sqlx::query_as::<_, UserRoomMembership>(
+                r#"
+                SELECT room_id, membership
+                FROM room_memberships
+                WHERE user_id = $1 AND membership IN ('join', 'leave')
+                ORDER BY updated_ts DESC NULLS LAST, room_id ASC
+                "#,
+            )
+            .bind(user_id)
+            .fetch_all(&*self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, UserRoomMembership>(
+                r#"
+                SELECT room_id, membership
+                FROM room_memberships
+                WHERE user_id = $1 AND membership = 'join'
+                ORDER BY updated_ts DESC NULLS LAST, room_id ASC
+                "#,
+            )
+            .bind(user_id)
+            .fetch_all(&*self.pool)
+            .await?
+        };
+
+        Ok(memberships)
     }
 
     pub async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {

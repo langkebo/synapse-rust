@@ -1,3 +1,4 @@
+use crate::web::routes::response_helpers::filter_users_with_shared_rooms;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -64,7 +65,6 @@ pub async fn get_devices(
                 "device_id": d.device_id,
                 "display_name": d.display_name,
                 "last_seen_ts": d.last_seen_ts,
-                "last_seen_ip": d.last_seen_ip,
             })
         })
         .collect();
@@ -92,12 +92,10 @@ pub async fn get_device(
                 "device_id": d.device_id,
                 "display_name": d.display_name,
                 "last_seen_ts": d.last_seen_ts,
-                "last_seen_ip": d.last_seen_ip,
             },
             "device_id": d.device_id,
             "display_name": d.display_name,
             "last_seen_ts": d.last_seen_ts,
-            "last_seen_ip": d.last_seen_ip,
         }))),
         Some(_) => Err(ApiError::not_found("Device not found".to_string())),
         None => Err(ApiError::not_found("Device not found".to_string())),
@@ -186,16 +184,18 @@ pub async fn delete_devices(
 
 pub async fn get_device_list_updates(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let users = body
+    let requested_users = body
         .get("users")
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("Missing users array".to_string()))?
         .iter()
         .filter_map(|v| v.as_str().map(String::from))
         .collect::<Vec<String>>();
+
+    let users = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
 
     let since = body
         .get("since")
@@ -224,7 +224,6 @@ pub async fn get_device_list_updates(
                         "device_data": {
                             "display_name": device.display_name,
                             "last_seen_ts": device.last_seen_ts,
-                            "last_seen_ip": device.last_seen_ip,
                         }
                     }));
                 }
@@ -286,9 +285,9 @@ pub async fn get_device_list_updates(
             continue;
         }
 
-        let row = sqlx::query_as::<_, (Option<String>, Option<i64>, Option<String>)>(
+        let row = sqlx::query_as::<_, (Option<String>, Option<i64>)>(
             r#"
-            SELECT display_name, last_seen_ts, last_seen_ip
+            SELECT display_name, last_seen_ts
             FROM devices
             WHERE user_id = $1 AND device_id = $2
             "#,
@@ -299,14 +298,13 @@ pub async fn get_device_list_updates(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get device data: {}", e)))?;
 
-        if let Some((display_name, last_seen_ts, last_seen_ip)) = row {
+        if let Some((display_name, last_seen_ts)) = row {
             changed.push(json!({
                 "user_id": user_id,
                 "device_id": device_id,
                 "device_data": {
                     "display_name": display_name,
                     "last_seen_ts": last_seen_ts,
-                    "last_seen_ip": last_seen_ip,
                 }
             }));
         }
