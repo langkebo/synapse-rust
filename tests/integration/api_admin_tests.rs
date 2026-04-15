@@ -733,7 +733,10 @@ async fn test_admin_room_block_writes_require_existing_room() {
 
     let block_request = Request::builder()
         .method("POST")
-        .uri(format!("/_synapse/admin/v1/rooms/{}/block", encoded_room_id))
+        .uri(format!(
+            "/_synapse/admin/v1/rooms/{}/block",
+            encoded_room_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -759,7 +762,10 @@ async fn test_admin_room_block_writes_require_existing_room() {
 
     let unblock_request = Request::builder()
         .method("POST")
-        .uri(format!("/_synapse/admin/v1/rooms/{}/unblock", encoded_room_id))
+        .uri(format!(
+            "/_synapse/admin/v1/rooms/{}/unblock",
+            encoded_room_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -1282,11 +1288,14 @@ async fn test_admin_retention_policy_preserves_expire_on_clients() {
         .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({ "name": "Retention Admin Room" }).to_string()))
+        .body(Body::from(
+            json!({ "name": "Retention Admin Room" }).to_string(),
+        ))
         .unwrap();
-    let create_room_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_room_request)
-        .await
-        .unwrap();
+    let create_room_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), create_room_request)
+            .await
+            .unwrap();
     assert_eq!(create_room_response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(create_room_response.into_body(), 1024)
@@ -1363,7 +1372,10 @@ async fn test_admin_room_retention_policy_requires_existing_room() {
         .await
         .expect("failed to promote admin test user to super_admin");
 
-    let missing_room_id = format!("!missing_retention_room_{}:localhost", rand::random::<u32>());
+    let missing_room_id = format!(
+        "!missing_retention_room_{}:localhost",
+        rand::random::<u32>()
+    );
     let encoded_room_id = encode_path_segment(&missing_room_id);
 
     let set_room_policy_request = Request::builder()
@@ -1404,12 +1416,13 @@ async fn test_admin_room_retention_policy_requires_existing_room() {
             .unwrap();
     assert_eq!(get_room_policy_response.status(), StatusCode::NOT_FOUND);
 
-    let has_policy: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_retention_policies WHERE room_id = $1)")
-            .bind(&missing_room_id)
-            .fetch_one(&*pool)
-            .await
-            .expect("failed to inspect room_retention_policies after rejected write");
+    let has_policy: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM room_retention_policies WHERE room_id = $1)",
+    )
+    .bind(&missing_room_id)
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to inspect room_retention_policies after rejected write");
     assert!(!has_policy);
 }
 
@@ -1455,12 +1468,13 @@ async fn test_admin_retention_run_requires_existing_room() {
         .unwrap();
     assert_eq!(run_response.status(), StatusCode::NOT_FOUND);
 
-    let has_cleanup_log: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM retention_cleanup_logs WHERE room_id = $1)")
-            .bind(&missing_room_id)
-            .fetch_one(&*pool)
-            .await
-            .expect("failed to inspect retention_cleanup_logs after rejected run");
+    let has_cleanup_log: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM retention_cleanup_logs WHERE room_id = $1)",
+    )
+    .bind(&missing_room_id)
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to inspect retention_cleanup_logs after rejected run");
     assert!(!has_cleanup_log);
 
     sqlx::query("DELETE FROM server_retention_policy WHERE id = 1")
@@ -1562,12 +1576,10 @@ async fn test_admin_user_notification_write_requires_existing_user() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let get_existing_notification_response = ServiceExt::<Request<Body>>::oneshot(
-        app.clone(),
-        get_existing_notification_request,
-    )
-    .await
-    .unwrap();
+    let get_existing_notification_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), get_existing_notification_request)
+            .await
+            .unwrap();
     assert_eq!(get_existing_notification_response.status(), StatusCode::OK);
 
     let get_existing_notification_body =
@@ -1608,7 +1620,10 @@ async fn test_admin_notification_specific_targets_require_existing_users() {
         ServiceExt::<Request<Body>>::oneshot(app.clone(), create_missing_target_request)
             .await
             .unwrap();
-    assert_eq!(create_missing_target_response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        create_missing_target_response.status(),
+        StatusCode::NOT_FOUND
+    );
 
     let rejected_notification_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM server_notifications WHERE title = $1")
@@ -1669,7 +1684,10 @@ async fn test_admin_notification_specific_targets_require_existing_users() {
         ServiceExt::<Request<Body>>::oneshot(app.clone(), update_missing_target_request)
             .await
             .unwrap();
-    assert_eq!(update_missing_target_response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        update_missing_target_response.status(),
+        StatusCode::NOT_FOUND
+    );
 
     let persisted_notification: (String, serde_json::Value) = sqlx::query_as(
         "SELECT target_audience, target_user_ids FROM server_notifications WHERE id = $1",
@@ -1720,7 +1738,10 @@ async fn test_admin_user_presence_queries_require_existing_user() {
         ServiceExt::<Request<Body>>::oneshot(app.clone(), whois_device_missing_request)
             .await
             .unwrap();
-    assert_eq!(whois_device_missing_response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        whois_device_missing_response.status(),
+        StatusCode::NOT_FOUND
+    );
 
     let sessions_missing_request = Request::builder()
         .method("GET")
@@ -1803,10 +1824,9 @@ async fn test_admin_user_presence_queries_require_existing_user() {
             .unwrap();
     assert_eq!(sessions_existing_response.status(), StatusCode::OK);
 
-    let sessions_existing_body =
-        axum::body::to_bytes(sessions_existing_response.into_body(), 4096)
-            .await
-            .unwrap();
+    let sessions_existing_body = axum::body::to_bytes(sessions_existing_response.into_body(), 4096)
+        .await
+        .unwrap();
     let sessions_existing_json: Value = serde_json::from_slice(&sessions_existing_body).unwrap();
     assert_eq!(sessions_existing_json["user_id"], json!(existing_user_id));
     assert!(sessions_existing_json["sessions"].is_array());
@@ -1852,7 +1872,10 @@ async fn test_admin_delete_user_media_requires_existing_user() {
         ServiceExt::<Request<Body>>::oneshot(app.clone(), get_missing_user_media_request)
             .await
             .unwrap();
-    assert_eq!(get_missing_user_media_response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        get_missing_user_media_response.status(),
+        StatusCode::NOT_FOUND
+    );
 
     let username = format!("media_user_{}", rand::random::<u32>());
     let register_request = Request::builder()
@@ -1880,7 +1903,10 @@ async fn test_admin_delete_user_media_requires_existing_user() {
     let encoded_user_id = encode_path_segment(&user_id);
 
     let get_existing_user_media_request = Request::builder()
-        .uri(format!("/_synapse/admin/v1/users/{}/media", encoded_user_id))
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/media",
+            encoded_user_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -1895,11 +1921,17 @@ async fn test_admin_delete_user_media_requires_existing_user() {
             .unwrap();
     let get_existing_user_media_json: Value =
         serde_json::from_slice(&get_existing_user_media_body).unwrap();
-    assert_eq!(get_existing_user_media_json, json!({ "media": [], "total": 0 }));
+    assert_eq!(
+        get_existing_user_media_json,
+        json!({ "media": [], "total": 0 })
+    );
 
     let delete_existing_user_media_request = Request::builder()
         .method("DELETE")
-        .uri(format!("/_synapse/admin/v1/users/{}/media", encoded_user_id))
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/media",
+            encoded_user_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -1965,13 +1997,14 @@ async fn test_admin_delete_user_pusher_requires_existing_user() {
         StatusCode::NOT_FOUND
     );
 
-    let orphan_still_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pushers WHERE user_id = $1 AND pushkey = $2)")
-            .bind(&missing_user_id)
-            .bind(&orphan_pushkey)
-            .fetch_one(&*pool)
-            .await
-            .expect("failed to inspect orphan pusher after rejected delete");
+    let orphan_still_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pushers WHERE user_id = $1 AND pushkey = $2)",
+    )
+    .bind(&missing_user_id)
+    .bind(&orphan_pushkey)
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to inspect orphan pusher after rejected delete");
     assert!(orphan_still_exists);
 
     let username = format!("pusher_user_{}", rand::random::<u32>());
@@ -2039,15 +2072,19 @@ async fn test_admin_delete_user_pusher_requires_existing_user() {
         ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_existing_user_pusher_request)
             .await
             .unwrap();
-    assert_eq!(delete_existing_user_pusher_response.status(), StatusCode::OK);
+    assert_eq!(
+        delete_existing_user_pusher_response.status(),
+        StatusCode::OK
+    );
 
-    let pusher_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pushers WHERE user_id = $1 AND pushkey = $2)")
-            .bind(&user_id)
-            .bind(&pushkey)
-            .fetch_one(&*pool)
-            .await
-            .expect("failed to inspect pusher after admin delete");
+    let pusher_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pushers WHERE user_id = $1 AND pushkey = $2)",
+    )
+    .bind(&user_id)
+    .bind(&pushkey)
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to inspect pusher after admin delete");
     assert!(!pusher_exists);
 }
 
@@ -2074,7 +2111,10 @@ async fn test_admin_user_token_routes_require_existing_user() {
         ServiceExt::<Request<Body>>::oneshot(app.clone(), get_missing_user_tokens_request)
             .await
             .unwrap();
-    assert_eq!(get_missing_user_tokens_response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        get_missing_user_tokens_response.status(),
+        StatusCode::NOT_FOUND
+    );
 
     let get_missing_user_refresh_tokens_request = Request::builder()
         .method("GET")
@@ -2107,7 +2147,10 @@ async fn test_admin_user_token_routes_require_existing_user() {
         ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_missing_user_token_request)
             .await
             .unwrap();
-    assert_eq!(delete_missing_user_token_response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        delete_missing_user_token_response.status(),
+        StatusCode::NOT_FOUND
+    );
 
     let delete_missing_user_refresh_token_request = Request::builder()
         .method("DELETE")
@@ -2118,10 +2161,12 @@ async fn test_admin_user_token_routes_require_existing_user() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let delete_missing_user_refresh_token_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_missing_user_refresh_token_request)
-            .await
-            .unwrap();
+    let delete_missing_user_refresh_token_response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        delete_missing_user_refresh_token_request,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         delete_missing_user_refresh_token_response.status(),
         StatusCode::NOT_FOUND
@@ -2193,13 +2238,14 @@ async fn test_admin_user_token_routes_require_existing_user() {
             .unwrap();
     assert_eq!(delete_user_token_response.status(), StatusCode::OK);
 
-    let access_token_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM access_tokens WHERE id = $1 AND user_id = $2)")
-            .bind(access_token_id)
-            .bind(&user_id)
-            .fetch_one(&*pool)
-            .await
-            .expect("failed to inspect access token after admin delete");
+    let access_token_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM access_tokens WHERE id = $1 AND user_id = $2)",
+    )
+    .bind(access_token_id)
+    .bind(&user_id)
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to inspect access token after admin delete");
     assert!(!access_token_exists);
 
     let delete_refresh_token_request = Request::builder()
@@ -2217,12 +2263,13 @@ async fn test_admin_user_token_routes_require_existing_user() {
             .unwrap();
     assert_eq!(delete_refresh_token_response.status(), StatusCode::OK);
 
-    let refresh_token_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM refresh_tokens WHERE id = $1 AND user_id = $2)")
-            .bind(refresh_token_id)
-            .bind(&user_id)
-            .fetch_one(&*pool)
-            .await
-            .expect("failed to inspect refresh token after admin delete");
+    let refresh_token_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM refresh_tokens WHERE id = $1 AND user_id = $2)",
+    )
+    .bind(refresh_token_id)
+    .bind(&user_id)
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to inspect refresh token after admin delete");
     assert!(!refresh_token_exists);
 }

@@ -305,7 +305,7 @@ impl DMService for DMServiceImpl {
     async fn is_dm_room(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
         let dms = self.dm_rooms.read().await;
         let user_dms = self.user_dms.read().await;
-        
+
         if !dms.contains_key(room_id) {
             return Ok(false);
         }

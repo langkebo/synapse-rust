@@ -307,10 +307,16 @@ async fn test_get_room_widget_capabilities_forbidden_for_non_member() {
         return;
     };
 
-    let owner_token = register_user(&app, &format!("widget_caps_owner_{}", rand::random::<u32>()))
-        .await;
-    let outsider_token =
-        register_user(&app, &format!("widget_caps_outsider_{}", rand::random::<u32>())).await;
+    let owner_token = register_user(
+        &app,
+        &format!("widget_caps_owner_{}", rand::random::<u32>()),
+    )
+    .await;
+    let outsider_token = register_user(
+        &app,
+        &format!("widget_caps_outsider_{}", rand::random::<u32>()),
+    )
+    .await;
     let room_id = create_room(&app, &owner_token).await;
     let widget_id = create_widget(&app, &owner_token, &room_id).await;
 
@@ -373,8 +379,11 @@ async fn test_get_widget_session_forbidden_for_unrelated_user() {
         return;
     };
 
-    let owner_token =
-        register_user(&app, &format!("widget_session_owner_{}", rand::random::<u32>())).await;
+    let owner_token = register_user(
+        &app,
+        &format!("widget_session_owner_{}", rand::random::<u32>()),
+    )
+    .await;
     let outsider_token = register_user(
         &app,
         &format!("widget_session_outsider_{}", rand::random::<u32>()),
@@ -386,7 +395,10 @@ async fn test_get_widget_session_forbidden_for_unrelated_user() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/widgets/sessions/{}", session_id))
+        .uri(format!(
+            "/_matrix/client/v1/widgets/sessions/{}",
+            session_id
+        ))
         .header("Authorization", format!("Bearer {}", outsider_token))
         .body(Body::empty())
         .unwrap();

@@ -364,20 +364,17 @@ async fn test_schema_contract_auth_token_query_and_write_read_closure() {
         .expect("Expected access token row");
     assert_eq!(fetched_access.token_hash.len(), 43);
 
-    let raw_access_row = sqlx::query(
-        "SELECT token, token_hash FROM access_tokens WHERE id = $1"
-    )
-    .bind(created_access.id)
-    .fetch_one(&*pool)
-    .await
-    .expect("Failed to fetch raw access token row");
+    let raw_access_row = sqlx::query("SELECT token, token_hash FROM access_tokens WHERE id = $1")
+        .bind(created_access.id)
+        .fetch_one(&*pool)
+        .await
+        .expect("Failed to fetch raw access token row");
     assert!(
         raw_access_row.get::<Option<String>, _>("token").is_none(),
         "Expected access token plaintext to be cleared in storage"
     );
     assert_eq!(
-        raw_access_row
-            .get::<String, _>("token_hash"),
+        raw_access_row.get::<String, _>("token_hash"),
         fetched_access.token_hash
     );
 

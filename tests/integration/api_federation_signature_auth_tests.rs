@@ -83,11 +83,11 @@ fn signed_request(
 
 fn tiny_png() -> Vec<u8> {
     vec![
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
-        0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
-        0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
-        0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xC9, 0xFE, 0x92,
-        0xEF, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
+        0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8,
+        0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xC9, 0xFE, 0x92, 0xEF, 0x00, 0x00, 0x00,
+        0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     ]
 }
 
@@ -234,7 +234,10 @@ async fn test_federation_exchange_third_party_invite_rejects_sender_domain_misma
         .await
         .unwrap();
 
-    let uri = format!("/_matrix/federation/v1/exchange_third_party_invite/{}", room_id);
+    let uri = format!(
+        "/_matrix/federation/v1/exchange_third_party_invite/{}",
+        room_id
+    );
     let body = json!({
         "event_id": format!("$invite:{}", server_name),
         "room_id": room_id,
@@ -696,10 +699,9 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
         .await
         .unwrap();
     assert_eq!(get_state_ids_response.status(), StatusCode::OK);
-    let get_state_ids_body =
-        axum::body::to_bytes(get_state_ids_response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+    let get_state_ids_body = axum::body::to_bytes(get_state_ids_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let get_state_ids_json: Value = serde_json::from_slice(&get_state_ids_body).unwrap();
     let pdu_ids = get_state_ids_json["pdu_ids"].as_array().unwrap();
     let auth_chain_ids = get_state_ids_json["auth_chain_ids"].as_array().unwrap();
@@ -1034,10 +1036,9 @@ async fn test_federation_event_endpoints_return_spec_shaped_pdu_response() {
         .await
         .unwrap();
     assert_eq!(get_room_event_response.status(), StatusCode::OK);
-    let get_room_event_body =
-        axum::body::to_bytes(get_room_event_response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+    let get_room_event_body = axum::body::to_bytes(get_room_event_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let get_room_event_json: Value = serde_json::from_slice(&get_room_event_body).unwrap();
     let get_room_event_pdus = get_room_event_json["pdus"].as_array().unwrap();
     assert_eq!(get_room_event_json["origin"], server_name);
@@ -2117,7 +2118,10 @@ async fn test_federation_send_join_rejects_uninvited_user_for_invite_only_room()
         .clone()
         .oneshot(signed_request(
             "PUT",
-            &format!("/_matrix/federation/v1/send_join/{}/{}", room_id, event_id_v1),
+            &format!(
+                "/_matrix/federation/v1/send_join/{}/{}",
+                room_id, event_id_v1
+            ),
             server_name,
             key_id,
             &signing_key,
@@ -2142,7 +2146,10 @@ async fn test_federation_send_join_rejects_uninvited_user_for_invite_only_room()
     let response_v2 = app
         .oneshot(signed_request(
             "PUT",
-            &format!("/_matrix/federation/v2/send_join/{}/{}", room_id, event_id_v2),
+            &format!(
+                "/_matrix/federation/v2/send_join/{}/{}",
+                room_id, event_id_v2
+            ),
             server_name,
             key_id,
             &signing_key,

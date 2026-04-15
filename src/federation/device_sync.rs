@@ -118,12 +118,10 @@ impl DeviceSyncManager {
             return Ok(devices);
         }
 
-        let urls = vec![
-            format!(
-                "https://{}/_matrix/federation/v1/user/devices/{}",
-                origin, user_id
-            ),
-        ];
+        let urls = vec![format!(
+            "https://{}/_matrix/federation/v1/user/devices/{}",
+            origin, user_id
+        )];
 
         for url in urls {
             match self.fetch_devices_from_url(&url).await {
@@ -250,13 +248,11 @@ impl DeviceSyncManager {
             }
         });
 
-        let urls = vec![
-            format!(
-                "https://{}/_matrix/federation/v1/send/{}",
-                origin,
-                uuid::Uuid::new_v4()
-            ),
-        ];
+        let urls = vec![format!(
+            "https://{}/_matrix/federation/v1/send/{}",
+            origin,
+            uuid::Uuid::new_v4()
+        )];
 
         for url in urls {
             match self.http_client.put(&url).json(&payload).send().await {

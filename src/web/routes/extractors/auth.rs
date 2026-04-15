@@ -48,14 +48,16 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
             let token = token_result?;
             let result = state.services.auth_service.validate_token(&token).await;
             match result {
-                Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(AuthenticatedUser {
-                    user_id,
-                    device_id,
-                    is_admin,
-                    is_shadow_banned,
-                    is_guest,
-                    access_token: token,
-                }),
+                Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
+                    Ok(AuthenticatedUser {
+                        user_id,
+                        device_id,
+                        is_admin,
+                        is_shadow_banned,
+                        is_guest,
+                        access_token: token,
+                    })
+                }
                 Err(e) => Err(e),
             }
         }
@@ -99,14 +101,16 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
         async move {
             match token_result {
                 Ok(token) => match state.services.auth_service.validate_token(&token).await {
-                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(OptionalAuthenticatedUser {
-                        user_id: Some(user_id),
-                        device_id,
-                        is_admin,
-                        is_shadow_banned,
-                        is_guest,
-                        access_token: Some(token),
-                    }),
+                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
+                        Ok(OptionalAuthenticatedUser {
+                            user_id: Some(user_id),
+                            device_id,
+                            is_admin,
+                            is_shadow_banned,
+                            is_guest,
+                            access_token: Some(token),
+                        })
+                    }
                     Err(_) => Ok(OptionalAuthenticatedUser {
                         user_id: None,
                         device_id: None,

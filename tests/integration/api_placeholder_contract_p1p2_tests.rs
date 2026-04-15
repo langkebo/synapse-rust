@@ -318,10 +318,15 @@ async fn test_state_default_contract_rejects_regular_member_topic_write() {
         &app,
         Request::builder()
             .method("PUT")
-            .uri(format!("/_matrix/client/r0/rooms/{}/state/m.room.topic", room_id))
+            .uri(format!(
+                "/_matrix/client/r0/rooms/{}/state/m.room.topic",
+                room_id
+            ))
             .header("Authorization", format!("Bearer {}", bob_token))
             .header("Content-Type", "application/json")
-            .body(Body::from(json!({ "topic": "member overwrite" }).to_string()))
+            .body(Body::from(
+                json!({ "topic": "member overwrite" }).to_string(),
+            ))
             .unwrap(),
         StatusCode::FORBIDDEN,
         "M_FORBIDDEN",

@@ -205,10 +205,7 @@ impl VerificationStorage {
             .collect())
     }
 
-    pub async fn get_sas_state(
-        &self,
-        transaction_id: &str,
-    ) -> Result<Option<SasState>, ApiError> {
+    pub async fn get_sas_state(&self, transaction_id: &str) -> Result<Option<SasState>, ApiError> {
         let row = sqlx::query_as::<_, (
             String, String, Option<String>, String, String, serde_json::Value, Option<String>, Option<String>, Option<Vec<u8>>, Option<String>
         )>(
@@ -219,7 +216,19 @@ impl VerificationStorage {
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get SAS state: {}", e)))?;
 
-        if let Some((tx_id, from_device, to_device, method, state, exchange_hashes, commitment, pubkey, sas_bytes, mac)) = row {
+        if let Some((
+            tx_id,
+            from_device,
+            to_device,
+            method,
+            state,
+            exchange_hashes,
+            commitment,
+            pubkey,
+            sas_bytes,
+            mac,
+        )) = row
+        {
             Ok(Some(SasState {
                 tx_id,
                 from_device,

@@ -39,10 +39,7 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    (
-        token,
-        json["user_id"].as_str().unwrap().to_string(),
-    )
+    (token, json["user_id"].as_str().unwrap().to_string())
 }
 
 async fn promote_admin_role(pool: &sqlx::PgPool, username: &str, role: &str) {

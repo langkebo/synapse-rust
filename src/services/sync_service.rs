@@ -1648,10 +1648,7 @@ impl SyncService {
         }
     }
 
-    async fn apply_lazy_load_members(
-        &self,
-        request: LazyLoadMembersRequest<'_>,
-    ) -> Vec<Value> {
+    async fn apply_lazy_load_members(&self, request: LazyLoadMembersRequest<'_>) -> Vec<Value> {
         let LazyLoadMembersRequest {
             state_events,
             timeline_events,

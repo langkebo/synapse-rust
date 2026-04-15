@@ -427,7 +427,8 @@ impl SamlService {
                 tracing::warn!("SAML signature verification failed: {}", e);
                 if self.config.want_response_signed || self.config.want_assertions_signed {
                     return Err(ApiError::unauthorized(format!(
-                        "SAML signature verification failed: {}", e
+                        "SAML signature verification failed: {}",
+                        e
                     )));
                 }
             }
@@ -491,7 +492,9 @@ impl SamlService {
         };
 
         if !Self::constant_time_compare(&digest_bytes, &computed_digest) {
-            return Err("SAML digest verification failed - response may be tampered with".to_string());
+            return Err(
+                "SAML digest verification failed - response may be tampered with".to_string(),
+            );
         }
 
         let _ = (cert_der, sig_bytes);

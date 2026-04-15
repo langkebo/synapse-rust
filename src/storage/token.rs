@@ -157,7 +157,8 @@ impl AccessTokenStorage {
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         let token_hash = Self::hash_token(token);
-        self.add_hash_to_blacklist(&token_hash, user_id, reason).await
+        self.add_hash_to_blacklist(&token_hash, user_id, reason)
+            .await
     }
 
     pub async fn add_hash_to_blacklist(

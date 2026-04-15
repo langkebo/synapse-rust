@@ -55,7 +55,8 @@ impl TcpReplicationServer {
 
             tokio::spawn(async move {
                 if let Err(e) =
-                    Self::handle_connection(stream, protocol, server_name, command_tx, &secret).await
+                    Self::handle_connection(stream, protocol, server_name, command_tx, &secret)
+                        .await
                 {
                     error!("Connection error from {}: {}", addr, e);
                 }
@@ -93,7 +94,9 @@ impl TcpReplicationServer {
             let auth_line = line.trim();
             if !auth_line.starts_with("AUTH ") {
                 tracing::warn!("Replication connection rejected: no AUTH command received");
-                return Err(ReplicationError::IoError("Authentication required".to_string()));
+                return Err(ReplicationError::IoError(
+                    "Authentication required".to_string(),
+                ));
             }
 
             let provided_secret = auth_line.strip_prefix("AUTH ").unwrap_or("");
@@ -108,7 +111,9 @@ impl TcpReplicationServer {
 
             if provided_hash != expected_hash {
                 tracing::warn!("Replication connection rejected: invalid authentication");
-                return Err(ReplicationError::IoError("Authentication failed".to_string()));
+                return Err(ReplicationError::IoError(
+                    "Authentication failed".to_string(),
+                ));
             }
 
             writer

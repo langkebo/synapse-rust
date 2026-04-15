@@ -12,8 +12,8 @@ pub mod token;
 pub mod user;
 
 use crate::web::routes::AppState;
-use axum::Router;
 use axum::middleware;
+use axum::Router;
 
 pub use audit::create_audit_router;
 pub use federation::create_federation_router;

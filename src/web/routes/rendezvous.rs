@@ -167,8 +167,7 @@ async fn get_session(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let session =
-        ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "read")
-            .await?;
+        ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "read").await?;
 
     Ok(Json(json!({
         "session_id": session.session_id,

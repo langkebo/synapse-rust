@@ -484,7 +484,8 @@ async fn test_voice_message_content_requires_message_access() {
     let attacker_token = create_test_user(&app).await;
     let room_id = create_room(&app, &owner_token).await;
 
-    let (upload_status, upload_json) = upload_voice_message(&app, &owner_token, Some(&room_id)).await;
+    let (upload_status, upload_json) =
+        upload_voice_message(&app, &owner_token, Some(&room_id)).await;
     assert_eq!(upload_status, StatusCode::OK);
     let event_id = upload_json["event_id"].as_str().unwrap();
 
@@ -539,7 +540,8 @@ async fn test_voice_transcription_requires_message_access() {
     let attacker_token = create_test_user(&app).await;
     let room_id = create_room(&app, &owner_token).await;
 
-    let (upload_status, upload_json) = upload_voice_message(&app, &owner_token, Some(&room_id)).await;
+    let (upload_status, upload_json) =
+        upload_voice_message(&app, &owner_token, Some(&room_id)).await;
     assert_eq!(upload_status, StatusCode::OK);
     let event_id = upload_json["event_id"].as_str().unwrap();
 
@@ -579,7 +581,8 @@ async fn test_voice_delete_requires_message_ownership() {
     let attacker_token = create_test_user(&app).await;
     let room_id = create_room(&app, &owner_token).await;
 
-    let (upload_status, upload_json) = upload_voice_message(&app, &owner_token, Some(&room_id)).await;
+    let (upload_status, upload_json) =
+        upload_voice_message(&app, &owner_token, Some(&room_id)).await;
     assert_eq!(upload_status, StatusCode::OK);
     let event_id = upload_json["event_id"].as_str().unwrap();
 
@@ -613,7 +616,8 @@ async fn test_voice_delete_allows_admin_override() {
     let (admin_token, _) = super::get_admin_token(&app).await;
     let room_id = create_room(&app, &owner_token).await;
 
-    let (upload_status, upload_json) = upload_voice_message(&app, &owner_token, Some(&room_id)).await;
+    let (upload_status, upload_json) =
+        upload_voice_message(&app, &owner_token, Some(&room_id)).await;
     assert_eq!(upload_status, StatusCode::OK);
     let event_id = upload_json["event_id"].as_str().unwrap();
 

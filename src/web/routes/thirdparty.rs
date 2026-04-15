@@ -100,7 +100,10 @@ async fn get_user(
     Path(protocol): Path<String>,
     Query(_query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(unsupported_thirdparty(&format!("user protocol={}", protocol)))
+    Err(unsupported_thirdparty(&format!(
+        "user protocol={}",
+        protocol
+    )))
 }
 
 async fn get_user_by_id(
@@ -172,5 +175,4 @@ mod tests {
             .iter()
             .all(|path| path.starts_with("/_matrix/client/r0/")));
     }
-
 }

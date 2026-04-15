@@ -1,6 +1,6 @@
 use crate::common::error::ApiError;
-use crate::web::AuthenticatedUser;
 use crate::web::routes::AppState;
+use crate::web::AuthenticatedUser;
 use axum::{
     extract::{Query, State},
     http::header,

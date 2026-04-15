@@ -307,7 +307,10 @@ async fn test_presence_read_rejects_other_user() {
 
     let set_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/presence/{}/status", owner_user_id))
+        .uri(format!(
+            "/_matrix/client/v3/presence/{}/status",
+            owner_user_id
+        ))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
         .body(Body::from(

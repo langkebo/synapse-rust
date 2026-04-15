@@ -148,11 +148,12 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
 }
 
 async fn ensure_space_exists(state: &AppState, space_id: &str) -> Result<(), ApiError> {
-    let space: Option<String> = sqlx::query_scalar("SELECT space_id FROM spaces WHERE space_id = $1")
-        .bind(space_id)
-        .fetch_optional(&*state.services.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let space: Option<String> =
+        sqlx::query_scalar("SELECT space_id FROM spaces WHERE space_id = $1")
+            .bind(space_id)
+            .fetch_optional(&*state.services.room_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     if space.is_none() {
         return Err(ApiError::not_found("Space not found".to_string()));
@@ -1410,11 +1411,12 @@ pub async fn get_room_listings(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let is_public: Option<bool> = sqlx::query_scalar("SELECT is_public FROM rooms WHERE room_id = $1")
-        .bind(&room_id)
-        .fetch_optional(&*state.services.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let is_public: Option<bool> =
+        sqlx::query_scalar("SELECT is_public FROM rooms WHERE room_id = $1")
+            .bind(&room_id)
+            .fetch_optional(&*state.services.room_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let Some(is_public) = is_public else {
         return Err(ApiError::not_found("Room not found".to_string()));

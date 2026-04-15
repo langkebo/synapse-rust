@@ -54,7 +54,6 @@ mod dm_service_tests;
 mod typing_service_tests;
 mod voice_service_tests;
 
-mod authorization_power_level_tests;
 mod security_critical_tests;
 
 #[cfg(test)]

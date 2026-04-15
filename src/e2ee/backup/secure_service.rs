@@ -195,7 +195,11 @@ impl SecureBackupService {
         }
 
         Ok(BackupRestoreResult {
-            restored_key_count: if restored_count > 0 { restored_count } else { row.2 },
+            restored_key_count: if restored_count > 0 {
+                restored_count
+            } else {
+                row.2
+            },
             backup_id: backup_id.to_string(),
         })
     }

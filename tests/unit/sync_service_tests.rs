@@ -633,10 +633,13 @@ fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
             .unwrap();
 
         let room_val = room_service
-            .create_room("@alice:localhost", CreateRoomConfig {
-                visibility: Some("public".to_string()),
-                ..Default::default()
-            })
+            .create_room(
+                "@alice:localhost",
+                CreateRoomConfig {
+                    visibility: Some("public".to_string()),
+                    ..Default::default()
+                },
+            )
             .await
             .unwrap();
         let room_id = room_val["room_id"].as_str().unwrap().to_string();
@@ -1232,10 +1235,13 @@ fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
             .unwrap();
 
         let room_val = room_service
-            .create_room("@alice:localhost", CreateRoomConfig {
-                visibility: Some("public".to_string()),
-                ..Default::default()
-            })
+            .create_room(
+                "@alice:localhost",
+                CreateRoomConfig {
+                    visibility: Some("public".to_string()),
+                    ..Default::default()
+                },
+            )
             .await
             .unwrap();
         let room_id = room_val["room_id"].as_str().unwrap().to_string();
@@ -1429,10 +1435,13 @@ fn test_include_redundant_members_survives_service_restart_with_persisted_cache(
             .unwrap();
 
         let room_val = room_service
-            .create_room("@alice:localhost", CreateRoomConfig {
-                visibility: Some("public".to_string()),
-                ..Default::default()
-            })
+            .create_room(
+                "@alice:localhost",
+                CreateRoomConfig {
+                    visibility: Some("public".to_string()),
+                    ..Default::default()
+                },
+            )
             .await
             .unwrap();
         let room_id = room_val["room_id"].as_str().unwrap().to_string();
@@ -1612,10 +1621,13 @@ fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart() {
             .unwrap();
 
         let room_val = room_service
-            .create_room("@alice:localhost", CreateRoomConfig {
-                visibility: Some("public".to_string()),
-                ..Default::default()
-            })
+            .create_room(
+                "@alice:localhost",
+                CreateRoomConfig {
+                    visibility: Some("public".to_string()),
+                    ..Default::default()
+                },
+            )
             .await
             .unwrap();
         let room_id = room_val["room_id"].as_str().unwrap().to_string();

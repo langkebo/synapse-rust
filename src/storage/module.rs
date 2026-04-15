@@ -675,10 +675,10 @@ impl ModuleStorage {
     #[instrument(skip(self))]
     pub async fn set_renewal_token(&self, user_id: &str, token: &str) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE account_validity SET renewal_token = $2 WHERE user_id = $1")
-        .bind(user_id)
-        .bind(token)
-        .execute(&*self.pool)
-        .await?;
+            .bind(user_id)
+            .bind(token)
+            .execute(&*self.pool)
+            .await?;
 
         Ok(())
     }

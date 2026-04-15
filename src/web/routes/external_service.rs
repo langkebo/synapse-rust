@@ -94,7 +94,11 @@ fn extract_webhook_auth(headers: &HeaderMap, payload_signature: Option<&str>) ->
                 .get("x-webhook-token")
                 .and_then(|value| value.to_str().ok())
         })
-        .or_else(|| headers.get("x-api-key").and_then(|value| value.to_str().ok()))
+        .or_else(|| {
+            headers
+                .get("x-api-key")
+                .and_then(|value| value.to_str().ok())
+        })
         .map(ToOwned::to_owned);
 
     let signature = headers

@@ -130,9 +130,7 @@ impl MegolmService {
         let session = self.load_session(session_id).await?;
         let session_key = self.decrypt_session_key(&session.session_key)?;
 
-        let encrypted_key = self.encrypt_session_key(
-            &Aes256GcmKey::from_bytes(session_key)
-        )?;
+        let encrypted_key = self.encrypt_session_key(&Aes256GcmKey::from_bytes(session_key))?;
 
         for user_id in user_ids {
             let cache_key = format!("megolm_session_key:{}:{}", user_id, session_id);

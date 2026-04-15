@@ -305,16 +305,10 @@ impl OidcService {
         }
 
         let now = chrono::Utc::now().timestamp();
-        let expires_at = payload
-            .get("exp")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        let expires_at = payload.get("exp").and_then(|v| v.as_i64()).unwrap_or(0);
 
         if expires_at < now {
-            return Err(format!(
-                "ID token expired: exp={} now={}",
-                expires_at, now
-            ));
+            return Err(format!("ID token expired: exp={} now={}", expires_at, now));
         }
 
         let azp = payload.get("azp").and_then(|v| v.as_str());

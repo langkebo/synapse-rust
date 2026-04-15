@@ -96,7 +96,7 @@ impl SearchIndexStorage {
              FROM search_index 
              WHERE LOWER(content) LIKE $1
              ORDER BY created_ts DESC 
-             LIMIT $2 OFFSET $3"
+             LIMIT $2 OFFSET $3",
         )
         .bind(&search_pattern)
         .bind(limit)

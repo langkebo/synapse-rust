@@ -1,5 +1,7 @@
 use crate::common::ApiError;
-use crate::web::routes::{account_compat::can_view_profile_for_requester, AppState, AuthenticatedUser};
+use crate::web::routes::{
+    account_compat::can_view_profile_for_requester, AppState, AuthenticatedUser,
+};
 use axum::{
     extract::{Json, Path, Query, State},
     routing::{get, post},
@@ -968,7 +970,8 @@ async fn search_recipients(
     let mut results = Vec::new();
     for row in users {
         let target_user_id = row.get::<String, _>("user_id");
-        if !can_view_profile_for_requester(&state, Some(&auth_user.user_id), &target_user_id).await?
+        if !can_view_profile_for_requester(&state, Some(&auth_user.user_id), &target_user_id)
+            .await?
         {
             continue;
         }

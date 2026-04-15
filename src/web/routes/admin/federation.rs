@@ -365,7 +365,9 @@ pub async fn add_to_blacklist(
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     if result.rows_affected() == 0 {
-        return Err(ApiError::conflict("Server is already blacklisted".to_string()));
+        return Err(ApiError::conflict(
+            "Server is already blacklisted".to_string(),
+        ));
     }
 
     Ok(Json(json!({})))

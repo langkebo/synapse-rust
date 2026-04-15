@@ -1928,7 +1928,11 @@ impl Config {
         tracing::info!("Configuration loaded, resolving environment variables...");
         tracing::debug!(
             "Before resolution - federation.signing_key: [REDACTED] ({} chars)",
-            config_values.federation.signing_key.as_ref().map_or(0, |k| k.len())
+            config_values
+                .federation
+                .signing_key
+                .as_ref()
+                .map_or(0, |k| k.len())
         );
         tracing::debug!(
             "Before resolution - security.secret: [REDACTED] ({} chars)",
@@ -1946,7 +1950,11 @@ impl Config {
         tracing::info!("Environment variables resolved successfully");
         tracing::debug!(
             "After resolution - federation.signing_key: [REDACTED] ({} chars)",
-            config_values.federation.signing_key.as_ref().map_or(0, |k| k.len())
+            config_values
+                .federation
+                .signing_key
+                .as_ref()
+                .map_or(0, |k| k.len())
         );
         tracing::debug!(
             "After resolution - security.secret: [REDACTED] ({} chars)",
@@ -2217,7 +2225,10 @@ impl Config {
     pub fn redis_url(&self) -> String {
         if let Some(password) = &self.redis.password {
             if !password.is_empty() {
-                return format!("redis://:{}@{}:{}", password, self.redis.host, self.redis.port);
+                return format!(
+                    "redis://:{}@{}:{}",
+                    password, self.redis.host, self.redis.port
+                );
             }
         }
         format!("redis://{}:{}", self.redis.host, self.redis.port)

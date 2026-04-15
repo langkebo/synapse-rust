@@ -25,7 +25,8 @@ impl DeviceKeyService {
         request: KeyQueryRequest,
         local_server_name: &str,
     ) -> Result<KeyQueryResponse, ApiError> {
-        self.query_keys_internal(request, Some(local_server_name)).await
+        self.query_keys_internal(request, Some(local_server_name))
+            .await
     }
 
     async fn query_keys_internal(
@@ -221,7 +222,8 @@ impl DeviceKeyService {
         request: KeyClaimRequest,
         local_server_name: &str,
     ) -> Result<KeyClaimResponse, ApiError> {
-        self.claim_keys_internal(request, Some(local_server_name)).await
+        self.claim_keys_internal(request, Some(local_server_name))
+            .await
     }
 
     async fn claim_keys_internal(

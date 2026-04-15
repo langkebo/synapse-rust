@@ -102,7 +102,10 @@ async fn test_room_summary_members_route_rejects_non_member() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/rooms/{}/summary/members", room_id))
+        .uri(format!(
+            "/_matrix/client/r0/rooms/{}/summary/members",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
