@@ -1071,7 +1071,11 @@ pub async fn update_account(
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
         state
             .cache
-            .set(&format!("user:admin:{}", canonical_user_id), admin_status, 3600)
+            .set(
+                &format!("user:admin:{}", canonical_user_id),
+                admin_status,
+                3600,
+            )
             .await?;
     }
 

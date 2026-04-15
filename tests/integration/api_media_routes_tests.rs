@@ -436,10 +436,9 @@ async fn test_named_media_upload_rejects_duplicate_media_id() {
         .header("Content-Type", "text/plain")
         .body(Body::from("second"))
         .unwrap();
-    let duplicate_response =
-        ServiceExt::<Request<Body>>::oneshot(app, duplicate_request)
-            .await
-            .unwrap();
+    let duplicate_response = ServiceExt::<Request<Body>>::oneshot(app, duplicate_request)
+        .await
+        .unwrap();
     assert_eq!(duplicate_response.status(), StatusCode::CONFLICT);
 }
 
@@ -470,7 +469,9 @@ async fn test_named_media_upload_rejects_non_local_server_name() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
-    let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 2048)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_BAD_JSON");
 }

@@ -225,10 +225,16 @@ async fn test_user_appservice_endpoint_is_self_only_for_non_admins() {
         return;
     };
 
-    let (alice_token, alice_id) =
-        register_user(&app, &format!("appservice_self_alice_{}", rand::random::<u32>())).await;
-    let (_, bob_id) =
-        register_user(&app, &format!("appservice_self_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, alice_id) = register_user(
+        &app,
+        &format!("appservice_self_alice_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (_, bob_id) = register_user(
+        &app,
+        &format!("appservice_self_bob_{}", rand::random::<u32>()),
+    )
+    .await;
     let (admin_token, _) = get_admin_token(&app).await;
 
     let own_request = Request::builder()

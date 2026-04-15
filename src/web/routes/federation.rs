@@ -2148,7 +2148,8 @@ async fn get_state(
         .get_state_events(&room_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
-    let (pdus, auth_chain) = build_federation_state_payload(&state.services.server_name, &mut events);
+    let (pdus, auth_chain) =
+        build_federation_state_payload(&state.services.server_name, &mut events);
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -2418,9 +2419,9 @@ fn parse_backfill_query(raw_query: Option<String>) -> Result<(Vec<String>, i64),
             match key.as_ref() {
                 "v" if !value.is_empty() => event_ids.push(value.into_owned()),
                 "limit" => {
-                    limit = value
-                        .parse::<i64>()
-                        .map_err(|_| ApiError::bad_request("Invalid limit query parameter".to_string()))?;
+                    limit = value.parse::<i64>().map_err(|_| {
+                        ApiError::bad_request("Invalid limit query parameter".to_string())
+                    })?;
                 }
                 _ => {}
             }
@@ -2753,8 +2754,9 @@ async fn get_room_hierarchy(
         )
         .await?;
 
-    let response = serde_json::to_value(hierarchy)
-        .map_err(|e| ApiError::internal(format!("Failed to serialize hierarchy response: {}", e)))?;
+    let response = serde_json::to_value(hierarchy).map_err(|e| {
+        ApiError::internal(format!("Failed to serialize hierarchy response: {}", e))
+    })?;
 
     Ok(Json(response))
 }

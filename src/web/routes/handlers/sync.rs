@@ -72,15 +72,18 @@ pub(crate) async fn sync(
 
     let sync_result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
-        state.services.sync_service.sync_with_request(SyncServiceRequest {
-            user_id: &user_id,
-            device_id: device_id.as_deref(),
-            timeout,
-            full_state,
-            set_presence,
-            filter_id: filter,
-            since,
-        }),
+        state
+            .services
+            .sync_service
+            .sync_with_request(SyncServiceRequest {
+                user_id: &user_id,
+                device_id: device_id.as_deref(),
+                timeout,
+                full_state,
+                set_presence,
+                filter_id: filter,
+                since,
+            }),
     )
     .await;
 

@@ -111,8 +111,8 @@ pub fn verify_event_content_hash(event: &Value) -> Result<(), String> {
 }
 
 pub fn check_pdu_size_limits(event: &Value) -> Result<(), String> {
-    let event_json = serde_json::to_string(event)
-        .map_err(|e| format!("Failed to serialize event: {}", e))?;
+    let event_json =
+        serde_json::to_string(event).map_err(|e| format!("Failed to serialize event: {}", e))?;
 
     if event_json.len() > MAX_PDU_SIZE_BYTES {
         return Err(format!(
@@ -210,7 +210,12 @@ fn redact_event_for_hash(event: &Value) -> Option<Value> {
     let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
     let allowed_content_keys: &[&str] = match event_type {
-        "m.room.member" => &["membership", "third_party_invite", "displayname", "avatar_url"],
+        "m.room.member" => &[
+            "membership",
+            "third_party_invite",
+            "displayname",
+            "avatar_url",
+        ],
         "m.room.create" => &["creator", "room_version", "type", "m.federate"],
         "m.room.join_rules" => &["join_rule", "allow"],
         "m.room.power_levels" => &[
@@ -225,7 +230,13 @@ fn redact_event_for_hash(event: &Value) -> Option<Value> {
             "invite",
         ],
         "m.room.history_visibility" => &["history_visibility"],
-        "m.room.encrypted" => &["algorithm", "ciphertext", "session_id", "sender_key", "device_id"],
+        "m.room.encrypted" => &[
+            "algorithm",
+            "ciphertext",
+            "session_id",
+            "sender_key",
+            "device_id",
+        ],
         _ => &[],
     };
 

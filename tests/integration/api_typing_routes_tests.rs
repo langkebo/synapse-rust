@@ -99,7 +99,10 @@ async fn test_typing_read_routes_reject_non_members() {
     let (guest_token, _) = register_user(&app, "typing_guard_guest_reads").await;
     let room_id = create_room(&app, &owner_token, "Typing Guard Reads").await;
 
-    assert_eq!(set_typing(&app, &owner_token, &room_id, &owner_user_id).await, StatusCode::OK);
+    assert_eq!(
+        set_typing(&app, &owner_token, &room_id, &owner_user_id).await,
+        StatusCode::OK
+    );
 
     let room_request = Request::builder()
         .method("GET")
@@ -136,7 +139,10 @@ async fn test_typing_write_and_bulk_routes_require_room_access() {
     let (guest_token, guest_user_id) = register_user(&app, "typing_guard_guest_write").await;
     let room_id = create_room(&app, &owner_token, "Typing Guard Writes").await;
 
-    assert_eq!(set_typing(&app, &owner_token, &room_id, &owner_user_id).await, StatusCode::OK);
+    assert_eq!(
+        set_typing(&app, &owner_token, &room_id, &owner_user_id).await,
+        StatusCode::OK
+    );
     assert_eq!(
         set_typing(&app, &guest_token, &room_id, &guest_user_id).await,
         StatusCode::FORBIDDEN

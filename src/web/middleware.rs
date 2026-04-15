@@ -1001,7 +1001,10 @@ pub async fn shadow_ban_middleware(
     next: axum::middleware::Next,
 ) -> Response {
     let method = request.method().clone();
-    let is_write = matches!(method, Method::POST | Method::PUT | Method::DELETE | Method::PATCH);
+    let is_write = matches!(
+        method,
+        Method::POST | Method::PUT | Method::DELETE | Method::PATCH
+    );
 
     if !is_write {
         return next.run(request).await;
@@ -1024,8 +1027,16 @@ pub async fn shadow_ban_middleware(
                     "Shadow-banned user attempted write operation - silently dropping"
                 );
 
-                if path.contains("/send/") || path.contains("/invite") || path.contains("/join") || path.contains("/leave") || path.contains("/kick") || path.contains("/ban") || path.contains("/redact") {
-                    return Json(json!({"event_id": format!("${}", uuid::Uuid::new_v4())})).into_response();
+                if path.contains("/send/")
+                    || path.contains("/invite")
+                    || path.contains("/join")
+                    || path.contains("/leave")
+                    || path.contains("/kick")
+                    || path.contains("/ban")
+                    || path.contains("/redact")
+                {
+                    return Json(json!({"event_id": format!("${}", uuid::Uuid::new_v4())}))
+                        .into_response();
                 }
 
                 return Json(json!({})).into_response();
@@ -1058,7 +1069,10 @@ pub async fn shadow_ban_middleware(
                         method = method.to_string(),
                         "Guest user attempted restricted write operation"
                     );
-                    return ApiError::forbidden("Guest access is not allowed for this endpoint".to_string()).into_response();
+                    return ApiError::forbidden(
+                        "Guest access is not allowed for this endpoint".to_string(),
+                    )
+                    .into_response();
                 }
             }
 
@@ -1079,7 +1093,11 @@ pub async fn admin_auth_middleware(
     let request_id = resolve_request_id(&headers);
     let client_ip = extract_client_ip(
         &headers,
-        &["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()],
+        &[
+            "x-forwarded-for".to_string(),
+            "x-real-ip".to_string(),
+            "forwarded".to_string(),
+        ],
     );
 
     let admin = match authorize_admin_request(&headers, &method, &path, &state).await {

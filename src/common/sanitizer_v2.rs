@@ -10,14 +10,39 @@ static DEFAULT_SANITIZER: Lazy<Builder<'static>> = Lazy::new(|| {
 
     // 允许的标签（Matrix 富文本格式）
     let allowed_tags: HashSet<&str> = [
-        "p", "br", "span", "div",
-        "strong", "em", "u", "s", "del",
-        "code", "pre", "blockquote",
-        "ul", "ol", "li",
-        "h1", "h2", "h3", "h4", "h5", "h6",
-        "a", "img",
-        "table", "thead", "tbody", "tr", "th", "td",
-    ].iter().copied().collect();
+        "p",
+        "br",
+        "span",
+        "div",
+        "strong",
+        "em",
+        "u",
+        "s",
+        "del",
+        "code",
+        "pre",
+        "blockquote",
+        "ul",
+        "ol",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "a",
+        "img",
+        "table",
+        "thead",
+        "tbody",
+        "tr",
+        "th",
+        "td",
+    ]
+    .iter()
+    .copied()
+    .collect();
 
     builder.tags(allowed_tags);
 
@@ -36,9 +61,10 @@ static DEFAULT_SANITIZER: Lazy<Builder<'static>> = Lazy::new(|| {
     builder.link_rel(Some("noopener noreferrer"));
 
     // 允许的 URL 协议
-    let allowed_protocols: HashSet<&str> = [
-        "http", "https", "mailto", "matrix",
-    ].iter().copied().collect();
+    let allowed_protocols: HashSet<&str> = ["http", "https", "mailto", "matrix"]
+        .iter()
+        .copied()
+        .collect();
 
     builder.url_schemes(allowed_protocols);
 
@@ -107,12 +133,8 @@ impl ContentSanitizer {
 
         // 根据模式选择净化器
         match self.mode {
-            SanitizerMode::Default => {
-                DEFAULT_SANITIZER.clean(input).to_string()
-            }
-            SanitizerMode::Strict => {
-                STRICT_SANITIZER.clean(input).to_string()
-            }
+            SanitizerMode::Default => DEFAULT_SANITIZER.clean(input).to_string(),
+            SanitizerMode::Strict => STRICT_SANITIZER.clean(input).to_string(),
             SanitizerMode::Custom => {
                 // 自定义配置可以在这里实现
                 DEFAULT_SANITIZER.clean(input).to_string()

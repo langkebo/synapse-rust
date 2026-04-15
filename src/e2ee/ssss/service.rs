@@ -203,7 +203,9 @@ impl SecretStorageService {
         nonce_arr.copy_from_slice(&nonce_bytes[..12]);
 
         if ciphertext_bytes.len() < 32 {
-            return Err(ApiError::bad_request("Ciphertext too short to extract key".to_string()));
+            return Err(ApiError::bad_request(
+                "Ciphertext too short to extract key".to_string(),
+            ));
         }
 
         let mut key_arr = [0u8; 32];

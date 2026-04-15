@@ -85,7 +85,12 @@ pub async fn shadow_ban_user(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    state.services.auth_service.cache.delete(&format!("user:shadow_banned:{}", user_id)).await;
+    state
+        .services
+        .auth_service
+        .cache
+        .delete(&format!("user:shadow_banned:{}", user_id))
+        .await;
 
     record_audit_event(
         &state,
@@ -118,7 +123,12 @@ pub async fn unshadow_ban_user(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    state.services.auth_service.cache.delete(&format!("user:shadow_banned:{}", user_id)).await;
+    state
+        .services
+        .auth_service
+        .cache
+        .delete(&format!("user:shadow_banned:{}", user_id))
+        .await;
 
     record_audit_event(
         &state,

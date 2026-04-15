@@ -286,20 +286,28 @@ impl IdentityService {
 
     fn validate_id_server(&self, id_server: &str) -> ApiResult<()> {
         if id_server.is_empty() {
-            return Err(ApiError::bad_request("id_server cannot be empty".to_string()));
+            return Err(ApiError::bad_request(
+                "id_server cannot be empty".to_string(),
+            ));
         }
 
         if id_server.contains('/') || id_server.contains('\\') {
-            return Err(ApiError::bad_request("id_server must be a hostname only".to_string()));
+            return Err(ApiError::bad_request(
+                "id_server must be a hostname only".to_string(),
+            ));
         }
 
         if id_server.starts_with('.') || id_server.ends_with('.') {
-            return Err(ApiError::bad_request("id_server has invalid format".to_string()));
+            return Err(ApiError::bad_request(
+                "id_server has invalid format".to_string(),
+            ));
         }
 
         let host = id_server.split(':').next().unwrap_or("");
         if host.is_empty() {
-            return Err(ApiError::bad_request("id_server has empty hostname".to_string()));
+            return Err(ApiError::bad_request(
+                "id_server has empty hostname".to_string(),
+            ));
         }
 
         if host == "localhost"
@@ -319,7 +327,8 @@ impl IdentityService {
             ));
         }
 
-        if !self.trusted_servers.is_empty() && !self.trusted_servers.iter().any(|s| s == id_server) {
+        if !self.trusted_servers.is_empty() && !self.trusted_servers.iter().any(|s| s == id_server)
+        {
             return Err(ApiError::bad_request(format!(
                 "id_server '{}' is not in the trusted servers list",
                 id_server

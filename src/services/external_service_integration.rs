@@ -194,8 +194,9 @@ impl ExternalServiceIntegration {
             return Ok(());
         }
 
-        let payload_bytes = serde_json::to_vec(payload)
-            .map_err(|e| ApiError::internal(format!("Failed to serialize webhook payload: {}", e)))?;
+        let payload_bytes = serde_json::to_vec(payload).map_err(|e| {
+            ApiError::internal(format!("Failed to serialize webhook payload: {}", e))
+        })?;
 
         let signature_matches = auth
             .signature
@@ -203,8 +204,8 @@ impl ExternalServiceIntegration {
             .map(|signature| {
                 let normalized = signature.strip_prefix("sha256=").unwrap_or(signature);
                 secrets.iter().any(|secret| {
-                    let expected =
-                        URL_SAFE_NO_PAD.encode(crate::common::crypto::hmac_sha256(secret, &payload_bytes));
+                    let expected = URL_SAFE_NO_PAD
+                        .encode(crate::common::crypto::hmac_sha256(secret, &payload_bytes));
                     normalized == expected || signature == expected
                 })
             })
@@ -361,8 +362,9 @@ impl ExternalServiceIntegration {
             .map_err(|e| ApiError::internal(format!("Failed to get service: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
-        let signed_payload = serde_json::to_value(&payload)
-            .map_err(|e| ApiError::internal(format!("Failed to serialize webhook payload: {}", e)))?;
+        let signed_payload = serde_json::to_value(&payload).map_err(|e| {
+            ApiError::internal(format!("Failed to serialize webhook payload: {}", e))
+        })?;
         self.verify_webhook_auth(&service, &auth, &signed_payload)?;
 
         let event_content = serde_json::json!({
@@ -427,8 +429,9 @@ impl ExternalServiceIntegration {
             .map_err(|e| ApiError::internal(format!("Failed to get service: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
-        let signed_payload = serde_json::to_value(&payload)
-            .map_err(|e| ApiError::internal(format!("Failed to serialize webhook payload: {}", e)))?;
+        let signed_payload = serde_json::to_value(&payload).map_err(|e| {
+            ApiError::internal(format!("Failed to serialize webhook payload: {}", e))
+        })?;
         self.verify_webhook_auth(&service, &auth, &signed_payload)?;
 
         let event_content = match payload.action.as_str() {
@@ -498,8 +501,9 @@ impl ExternalServiceIntegration {
             .map_err(|e| ApiError::internal(format!("Failed to get service: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
-        let mut signed_payload = serde_json::to_value(&payload)
-            .map_err(|e| ApiError::internal(format!("Failed to serialize webhook payload: {}", e)))?;
+        let mut signed_payload = serde_json::to_value(&payload).map_err(|e| {
+            ApiError::internal(format!("Failed to serialize webhook payload: {}", e))
+        })?;
         if let Some(object) = signed_payload.as_object_mut() {
             object.remove("signature");
         }
@@ -762,13 +766,13 @@ mod tests {
     #[tokio::test]
     async fn test_verify_webhook_auth_accepts_direct_token_and_hmac_signature() {
         let integration = ExternalServiceIntegration::new(
-            Arc::new(crate::storage::application_service::ApplicationServiceStorage::new(
-                &Arc::new(
+            Arc::new(
+                crate::storage::application_service::ApplicationServiceStorage::new(&Arc::new(
                     sqlx::postgres::PgPoolOptions::new()
                         .connect_lazy("postgres://localhost/test")
                         .expect("lazy pool"),
-                ),
-            )),
+                )),
+            ),
             "example.com".to_string(),
         );
         let service = ApplicationService {

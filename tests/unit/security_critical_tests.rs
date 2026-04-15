@@ -1,8 +1,15 @@
 use serde_json::json;
 
-fn validate_password_change_request(auth_type: &str, has_password: bool, user_matches: bool) -> Result<(), String> {
+fn validate_password_change_request(
+    auth_type: &str,
+    has_password: bool,
+    user_matches: bool,
+) -> Result<(), String> {
     if auth_type != "m.login.password" {
-        return Err(format!("m.login.password authentication required, got: {}", auth_type));
+        return Err(format!(
+            "m.login.password authentication required, got: {}",
+            auth_type
+        ));
     }
 
     if !has_password {
@@ -59,7 +66,11 @@ fn test_password_change_uia_flow_rejects_dummy() {
     let valid_flow = uia_flows.as_array().unwrap().iter().find(|flow| {
         flow.get("stages")
             .and_then(|s| s.as_array())
-            .map(|stages| stages.iter().any(|s| s.as_str() == Some("m.login.password")))
+            .map(|stages| {
+                stages
+                    .iter()
+                    .any(|s| s.as_str() == Some("m.login.password"))
+            })
             .unwrap_or(false)
     });
 
@@ -82,7 +93,10 @@ fn test_deactivated_user_cannot_refresh_token() {
         "is_deactivated": true
     });
 
-    let is_deactivated = user.get("is_deactivated").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_deactivated = user
+        .get("is_deactivated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     assert!(is_deactivated);
 }
 
@@ -93,7 +107,10 @@ fn test_active_user_can_refresh_token() {
         "is_deactivated": false
     });
 
-    let is_deactivated = user.get("is_deactivated").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_deactivated = user
+        .get("is_deactivated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     assert!(!is_deactivated);
 }
 
@@ -104,7 +121,10 @@ fn test_revoked_refresh_token_rejected() {
         "expires_at": null
     });
 
-    let is_revoked = token_data.get("is_revoked").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_revoked = token_data
+        .get("is_revoked")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     assert!(is_revoked);
 }
 
@@ -130,7 +150,10 @@ fn test_device_ownership_different_user_rejected() {
     });
 
     let requesting_user = "@bob:example.com";
-    let device_owner = existing_device.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
+    let device_owner = existing_device
+        .get("user_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     assert_ne!(requesting_user, device_owner);
 }
@@ -143,7 +166,10 @@ fn test_device_ownership_same_user_allowed() {
     });
 
     let requesting_user = "@alice:example.com";
-    let device_owner = existing_device.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
+    let device_owner = existing_device
+        .get("user_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     assert_eq!(requesting_user, device_owner);
 }
@@ -248,7 +274,10 @@ fn test_account_data_write_only_for_owner() {
     let can_write_other = owner == other;
 
     assert!(can_write_own, "User should write own account data");
-    assert!(!can_write_other, "User should NOT write other's account data");
+    assert!(
+        !can_write_other,
+        "User should NOT write other's account data"
+    );
 }
 
 #[test]
@@ -256,8 +285,14 @@ fn test_event_delete_only_by_admin() {
     let regular_user = json!({"user_id": "@user:example.com", "is_admin": false});
     let admin_user = json!({"user_id": "@admin:example.com", "is_admin": true});
 
-    let regular_can_delete = regular_user.get("is_admin").and_then(|v| v.as_bool()).unwrap_or(false);
-    let admin_can_delete = admin_user.get("is_admin").and_then(|v| v.as_bool()).unwrap_or(false);
+    let regular_can_delete = regular_user
+        .get("is_admin")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let admin_can_delete = admin_user
+        .get("is_admin")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     assert!(!regular_can_delete, "Regular user should NOT delete events");
     assert!(admin_can_delete, "Admin should be able to delete events");
@@ -298,7 +333,10 @@ fn test_refresh_token_expiry_boundary() {
         .get("expires_at")
         .and_then(|v| v.as_i64())
         .is_none();
-    assert!(no_expiry_valid, "Token with no expiry should not be expired by time");
+    assert!(
+        no_expiry_valid,
+        "Token with no expiry should not be expired by time"
+    );
 }
 
 #[test]
@@ -315,22 +353,37 @@ fn test_revoked_token_always_rejected() {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    assert!(is_revoked, "Revoked token must be rejected even if not expired");
+    assert!(
+        is_revoked,
+        "Revoked token must be rejected even if not expired"
+    );
 }
 
 #[test]
 fn test_power_level_boundary_exact_threshold() {
     let power_levels = json!({"ban": 50});
 
-    let ban_threshold = power_levels.get("ban").and_then(|v| v.as_i64()).unwrap_or(50);
+    let ban_threshold = power_levels
+        .get("ban")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(50);
 
     let user_at_threshold: i64 = 50;
     let user_below_threshold: i64 = 49;
     let user_above_threshold: i64 = 51;
 
-    assert!(user_at_threshold >= ban_threshold, "User at exact threshold should be allowed");
-    assert!(user_below_threshold < ban_threshold, "User below threshold should be blocked");
-    assert!(user_above_threshold > ban_threshold, "User above threshold should be allowed");
+    assert!(
+        user_at_threshold >= ban_threshold,
+        "User at exact threshold should be allowed"
+    );
+    assert!(
+        user_below_threshold < ban_threshold,
+        "User below threshold should be blocked"
+    );
+    assert!(
+        user_above_threshold > ban_threshold,
+        "User above threshold should be allowed"
+    );
 }
 
 #[test]
@@ -364,17 +417,29 @@ fn test_key_rotation_endpoints_admin_only() {
     ];
 
     for (_method, _path, requires_admin) in endpoints {
-        assert!(requires_admin, "Key rotation endpoints must require admin access");
+        assert!(
+            requires_admin,
+            "Key rotation endpoints must require admin access"
+        );
     }
 }
 
 #[test]
 fn test_password_change_rejects_all_non_password_auth_types() {
-    let invalid_auth_types = vec!["m.login.dummy", "m.login.recaptcha", "m.login.sso", "m.login.email.identity"];
+    let invalid_auth_types = vec![
+        "m.login.dummy",
+        "m.login.recaptcha",
+        "m.login.sso",
+        "m.login.email.identity",
+    ];
 
     for auth_type in invalid_auth_types {
         let result = validate_password_change_request(auth_type, true, true);
-        assert!(result.is_err(), "Auth type {} should be rejected for password change", auth_type);
+        assert!(
+            result.is_err(),
+            "Auth type {} should be rejected for password change",
+            auth_type
+        );
     }
 }
 
@@ -392,6 +457,12 @@ fn test_join_rule_consistency_with_visibility() {
         _ => "invite",
     };
 
-    assert_eq!(public_join_rule, "public", "Public visibility should set public join rule");
-    assert_eq!(private_join_rule, "invite", "Private visibility should set invite join rule");
+    assert_eq!(
+        public_join_rule, "public",
+        "Public visibility should set public join rule"
+    );
+    assert_eq!(
+        private_join_rule, "invite",
+        "Private visibility should set invite join rule"
+    );
 }
