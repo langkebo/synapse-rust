@@ -7,7 +7,6 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use sha2::Sha256;
 use std::sync::Arc;
-use subtle::ConstantTimeEq;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -221,7 +220,7 @@ impl VerificationService {
             ));
         };
 
-        let (our_secret, our_public) = self.generate_key_pair();
+        let (our_secret, _our_public) = self.generate_key_pair();
 
         let shared_secret = if !other_pubkey.is_empty() && !our_secret.is_empty() {
             self.compute_shared_secret(&our_secret, other_pubkey)?
@@ -236,11 +235,11 @@ impl VerificationService {
 
         let decimal =
             ((sas_bytes[0] as u32) << 16) | ((sas_bytes[1] as u32) << 8) | (sas_bytes[2] as u32);
-        let decimal = (decimal % 900000) + 100000;
+        let _decimal = (decimal % 900000) + 100000;
 
         let emoji_count = 7;
         let mut emojis = Vec::with_capacity(emoji_count);
-        for &byte in sas_bytes.iter().take(emoji_count) {
+        for &byte in sas_bytes.iter() {
             let idx = (byte as usize) % 64;
             emojis.push(SAS_EMOJIS[idx].to_string());
         }
@@ -283,10 +282,7 @@ impl VerificationService {
         };
 
         if let Some(stored_mac) = &sas_state.mac {
-            let mac_bytes = mac.as_bytes();
-            let stored_bytes = stored_mac.as_bytes();
-
-            if !mac_bytes.ct_eq(stored_bytes).unwrap_u8() == 1 {
+            if mac != stored_mac {
                 self.storage
                     .update_state(transaction_id, VerificationState::Cancelled)
                     .await?;
@@ -402,7 +398,7 @@ impl VerificationService {
 fn generate_transaction_id() -> String {
     let mut bytes = [0u8; 16];
     OsRng.fill_bytes(&mut bytes);
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&bytes)
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
 fn slice_from_ref<T>(val: &T) -> &[T] {

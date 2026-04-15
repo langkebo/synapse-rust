@@ -816,7 +816,7 @@ async fn oidc_callback(
         match state
             .services
             .auth_service
-            .register(&oidc_user.localpart, &random_password, displayname)
+            .register(&oidc_user.localpart, &random_password, false, displayname)
             .await
         {
             Ok(result) => result,

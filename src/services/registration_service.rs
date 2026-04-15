@@ -52,7 +52,7 @@ impl RegistrationService {
         let start = std::time::Instant::now();
         let result = self
             .auth_service
-            .register(username, password, displayname)
+            .register(username, password, false, displayname)
             .await;
 
         let duration = start.elapsed().as_secs_f64();

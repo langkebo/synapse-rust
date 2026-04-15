@@ -394,6 +394,59 @@ async fn test_admin_room_collection_queries_require_existing_room() {
 }
 
 #[tokio::test]
+async fn test_admin_room_member_delete_requires_existing_targets() {
+    let _guard = test_mutex().lock().await;
+    let Some((app, pool)) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, admin_user_id) = register_user(
+        &app,
+        &format!("admin_room_member_delete_{}", rand::random::<u32>()),
+    )
+    .await
+    .expect("failed to register admin user");
+    promote_to_admin(&pool, &admin_user_id).await;
+
+    let (_, managed_user_id) = register_user(&app, &format!("managed_member_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register managed user");
+
+    let missing_room_id = format!("missing-room-{}", rand::random::<u32>());
+    let missing_room_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/rooms/{}/members/{}",
+            missing_room_id, managed_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let missing_room_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), missing_room_request)
+            .await
+            .unwrap();
+    assert_eq!(missing_room_response.status(), StatusCode::NOT_FOUND);
+
+    let room_id = create_room(&app, &admin_token, "Admin Member Delete Target").await;
+    let missing_user_id = format!("@missing_member_{}:localhost", rand::random::<u32>());
+    let missing_user_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_synapse/admin/v1/rooms/{}/members/{}",
+            room_id, missing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let missing_user_response =
+        ServiceExt::<Request<Body>>::oneshot(app, missing_user_request)
+            .await
+            .unwrap();
+    assert_eq!(missing_user_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_admin_space_collection_queries_require_existing_space() {
     let _guard = test_mutex().lock().await;
     let Some((app, pool)) = setup_test_app().await else {
@@ -1231,6 +1284,66 @@ async fn test_account_validity_post_enforces_unauth_user_admin_states() {
     assert_eq!(json["user_id"], target_user_id);
     assert_eq!(json["expiration_ts"], expiration_ts);
     assert_eq!(json["is_valid"], true);
+}
+
+#[tokio::test]
+async fn test_account_validity_write_endpoints_require_existing_user() {
+    let _guard = test_mutex().lock().await;
+    let Some((app, pool)) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, _) = super::get_admin_token(&app).await;
+
+    let missing_user_id = format!("@missing_account_validity_{}:localhost", rand::random::<u32>());
+    let expiration_ts = chrono::Utc::now().timestamp_millis() + 86_400_000_i64;
+
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/account_validity")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "user_id": missing_user_id,
+                "expiration_ts": expiration_ts,
+                "is_valid": true
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::NOT_FOUND);
+
+    let validity_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM account_validity WHERE user_id = $1")
+        .bind(&missing_user_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("failed to inspect account_validity table");
+    assert_eq!(validity_count, 0);
+
+    let renew_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_synapse/admin/v1/account_validity/{}/renew",
+            missing_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "renewal_token": "unused",
+                "new_expiration_ts": expiration_ts + 86_400_000_i64
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let renew_response = ServiceExt::<Request<Body>>::oneshot(app, renew_request)
+        .await
+        .unwrap();
+    assert_eq!(renew_response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
