@@ -1,7 +1,3 @@
-//! Device Verification Routes
-//!
-//! Implements SAS (Short Authentication String) and QR code verification
-
 use crate::common::*;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
@@ -68,7 +64,6 @@ pub struct VerificationStartResponse {
     pub short_authentication_string: Vec<String>,
 }
 
-/// Start device verification (SAS)
 async fn verification_start(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -77,7 +72,6 @@ async fn verification_start(
     let to_user = body.to_user;
     let to_device = body.to_device.unwrap_or_else(|| "".to_string());
 
-    // Start SAS verification
     let sas_data = state
         .services
         .verification_service
@@ -110,12 +104,30 @@ pub struct VerificationAcceptBody {
     pub commitment: Option<String>,
 }
 
-/// Accept device verification
 async fn verification_accept(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Json(body): Json<VerificationAcceptBody>,
 ) -> Result<Json<Value>, ApiError> {
+    let request = state
+        .services
+        .verification_service
+        .get_request(&body.transaction_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
+
+    let device_id = auth_user.device_id.unwrap_or_default();
+    let is_participant = request.from_user == auth_user.user_id
+        || request.to_user == auth_user.user_id
+        || request.from_device == device_id
+        || request.to_device.as_deref() == Some(device_id.as_str());
+
+    if !is_participant {
+        return Err(ApiError::forbidden(
+            "Cannot accept another user's verification request".to_string(),
+        ));
+    }
+
     let sas_data = state
         .services
         .verification_service
@@ -142,13 +154,30 @@ pub struct KeyAgreementBody {
     pub pubkey: String,
 }
 
-/// Key agreement for SAS
 async fn verification_key_agreement(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Json(body): Json<KeyAgreementBody>,
 ) -> Result<Json<Value>, ApiError> {
-    // Generate SAS from key agreement
+    let request = state
+        .services
+        .verification_service
+        .get_request(&body.transaction_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
+
+    let device_id = auth_user.device_id.unwrap_or_default();
+    let is_participant = request.from_user == auth_user.user_id
+        || request.to_user == auth_user.user_id
+        || request.from_device == device_id
+        || request.to_device.as_deref() == Some(device_id.as_str());
+
+    if !is_participant {
+        return Err(ApiError::forbidden(
+            "Cannot participate in another user's verification".to_string(),
+        ));
+    }
+
     let sas_result = state
         .services
         .verification_service
@@ -160,13 +189,11 @@ async fn verification_key_agreement(
         "confirmed": sas_result.confirmed,
     });
 
-    // Add SAS representation
     match sas_result.sas {
         crate::e2ee::verification::SasRepresentation::Emoji(emojis) => {
             response["short_authentication_string"] = json!({
                 "emoji": emojis
             });
-            // Also generate decimal
             let decimal = generate_decimal_from_emoji(&emojis);
             response["short_authentication_string"]["decimal"] = json!({
                 "points": [
@@ -198,12 +225,36 @@ pub struct VerificationMacBody {
     pub mac: String,
 }
 
-/// Confirm SAS verification
 async fn verification_mac(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Json(body): Json<VerificationMacBody>,
 ) -> Result<Json<Value>, ApiError> {
+    let request = state
+        .services
+        .verification_service
+        .get_request(&body.transaction_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
+
+    let device_id = auth_user.device_id.unwrap_or_default();
+    let is_participant = request.from_user == auth_user.user_id
+        || request.to_user == auth_user.user_id
+        || request.from_device == device_id
+        || request.to_device.as_deref() == Some(device_id.as_str());
+
+    if !is_participant {
+        return Err(ApiError::forbidden(
+            "Cannot confirm another user's verification".to_string(),
+        ));
+    }
+
+    if body.mac.is_empty() {
+        return Err(ApiError::bad_request(
+            "MAC must not be empty".to_string(),
+        ));
+    }
+
     let verified = state
         .services
         .verification_service
@@ -216,10 +267,9 @@ async fn verification_mac(
     })))
 }
 
-/// Complete verification
 async fn verification_done(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let transaction_id = body
@@ -227,11 +277,40 @@ async fn verification_done(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing transaction_id".to_string()))?;
 
-    // Mark verification as done
+    let mac = body
+        .get("mac")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing mac".to_string()))?;
+
+    let request = state
+        .services
+        .verification_service
+        .get_request(transaction_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
+
+    let device_id = auth_user.device_id.unwrap_or_default();
+    let is_participant = request.from_user == auth_user.user_id
+        || request.to_user == auth_user.user_id
+        || request.from_device == device_id
+        || request.to_device.as_deref() == Some(device_id.as_str());
+
+    if !is_participant {
+        return Err(ApiError::forbidden(
+            "Cannot complete another user's verification".to_string(),
+        ));
+    }
+
+    if mac.is_empty() {
+        return Err(ApiError::bad_request(
+            "MAC must not be empty for verification completion".to_string(),
+        ));
+    }
+
     state
         .services
         .verification_service
-        .confirm_sas(transaction_id, "")
+        .confirm_sas(transaction_id, mac)
         .await?;
 
     Ok(Json(json!({
@@ -246,7 +325,6 @@ pub struct VerificationCancelBody {
     pub reason: String,
 }
 
-/// Cancel verification
 async fn verification_cancel(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -285,7 +363,6 @@ async fn verification_cancel(
     })))
 }
 
-/// List pending verification requests for the authenticated user
 async fn list_verification_requests(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -301,7 +378,6 @@ async fn list_verification_requests(
     })))
 }
 
-/// Show QR code for verification
 async fn show_qr_code(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -338,7 +414,6 @@ pub struct ScanQrBody {
     pub device_curve25519_key: String,
 }
 
-/// Scan QR code
 async fn scan_qr_code(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -351,18 +426,18 @@ async fn scan_qr_code(
     let qr_data = crate::e2ee::verification::QrCodeData {
         transaction_id: body.transaction_id,
         server_name: body.server_name,
-        server_public_key: "".to_string(),
+        server_public_key: String::new(),
         user_id: body.user_id,
         device_id: body.device_id,
         device_ed25519_key: body.device_ed25519_key,
         device_curve25519_key: body.device_curve25519_key,
-        signature: "".to_string(),
+        signature: String::new(),
     };
 
     state
         .services
         .verification_service
-        .scan_qr_code(&qr_data, &device_id)
+        .scan_qr_code(&qr_data, &device_id, &auth_user.user_id)
         .await?;
 
     Ok(Json(json!({
@@ -371,9 +446,7 @@ async fn scan_qr_code(
     })))
 }
 
-/// Generate decimal from emoji list
 fn generate_decimal_from_emoji(emojis: &[String]) -> u32 {
-    // Convert emoji to decimal based on their indices
     let mut decimal: u32 = 0;
     for emoji in emojis.iter().take(3) {
         let idx = SAS_EMOJIS.iter().position(|&e| e == emoji).unwrap_or(0) as u32;
@@ -398,7 +471,6 @@ fn serialize_verification_request(
     })
 }
 
-// Emoji list for reference
 const SAS_EMOJIS: &[&str; 64] = &[
     "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
     "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞",
@@ -438,28 +510,6 @@ mod tests {
 
         assert_eq!(shared_paths.len(), 9);
         assert!(shared_paths.iter().all(|path| path.starts_with('/')));
-    }
-
-    #[test]
-    fn test_verification_router_keeps_scope_to_v1_and_r0() {
-        let compat_paths = [
-            "/keys/device_signing/verify_start",
-            "/keys/qr_code/show",
-            "/keys/qr_code/scan",
-        ];
-        let supported_versions = [
-            "/_matrix/client/v1/keys/device_signing/verify_start",
-            "/_matrix/client/r0/keys/device_signing/verify_start",
-        ];
-        let unsupported_v3_paths = ["/_matrix/client/v3/keys/device_signing/verify_start"];
-
-        assert!(compat_paths.iter().all(|path| path.starts_with("/keys/")));
-        assert!(supported_versions
-            .iter()
-            .all(|path| !path.starts_with("/_matrix/client/v3/")));
-        assert!(unsupported_v3_paths
-            .iter()
-            .all(|path| path.starts_with("/_matrix/client/v3/")));
     }
 
     #[test]

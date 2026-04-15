@@ -151,10 +151,18 @@ pub async fn whois(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+
     let devices = sqlx::query(
         "SELECT device_id, display_name, last_seen_ts, last_seen_ip FROM devices WHERE user_id = $1"
     )
-    .bind(&user_id)
+    .bind(&user.user_id)
     .fetch_all(&*state.services.device_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -172,7 +180,7 @@ pub async fn whois(
         .collect();
 
     Ok(Json(json!({
-        "user_id": user_id,
+        "user_id": user.user_id,
         "devices": connections
     })))
 }
@@ -183,10 +191,18 @@ pub async fn whois_device(
     State(state): State<AppState>,
     Path((user_id, device_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+
     let device = sqlx::query(
         "SELECT device_id, display_name, last_seen_ts, last_seen_ip FROM devices WHERE user_id = $1 AND device_id = $2"
     )
-    .bind(&user_id)
+    .bind(&user.user_id)
     .bind(&device_id)
     .fetch_optional(&*state.services.device_storage.pool)
     .await
@@ -194,7 +210,7 @@ pub async fn whois_device(
 
     match device {
         Some(row) => Ok(Json(json!({
-            "user_id": user_id,
+            "user_id": user.user_id,
             "device_id": row.get::<Option<String>, _>("device_id"),
             "display_name": row.get::<Option<String>, _>("display_name"),
             "last_seen": row.get::<Option<i64>, _>("last_seen_ts"),

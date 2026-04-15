@@ -154,6 +154,17 @@ pub async fn get_user_media(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if user.is_none() {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     let media = sqlx::query(
         "SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts FROM media_metadata WHERE uploader_user_id = $1 ORDER BY created_ts DESC"
     )
@@ -186,6 +197,17 @@ pub async fn delete_user_media(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(&user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if user.is_none() {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     let result = sqlx::query("DELETE FROM media_metadata WHERE uploader_user_id = $1")
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)

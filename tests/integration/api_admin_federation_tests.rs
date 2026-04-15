@@ -286,6 +286,19 @@ async fn test_admin_federation_destination_writes_require_existing_destination()
         .await
         .unwrap();
     assert_eq!(delete_response.status(), StatusCode::NOT_FOUND);
+
+    let rooms_request = Request::builder()
+        .uri(format!(
+            "/_synapse/admin/v1/federation/destinations/{}/rooms",
+            missing_destination
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let rooms_response = ServiceExt::<Request<Body>>::oneshot(app, rooms_request)
+        .await
+        .unwrap();
+    assert_eq!(rooms_response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

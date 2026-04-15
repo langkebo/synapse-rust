@@ -131,6 +131,17 @@ pub async fn get_room_reports(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let reports = sqlx::query(
         "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE room_id = $1 ORDER BY received_ts DESC"
     )
@@ -168,6 +179,17 @@ pub async fn get_room_report(
     State(state): State<AppState>,
     Path((room_id, report_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let report = sqlx::query(
         "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE id = $1 AND room_id = $2"
     )

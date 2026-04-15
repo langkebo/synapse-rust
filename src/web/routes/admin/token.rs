@@ -49,6 +49,21 @@ pub fn create_token_router(_state: AppState) -> Router<AppState> {
         )
 }
 
+async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
+    let user = state
+        .services
+        .user_storage
+        .get_user_by_identifier(user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if user.is_none() {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateTokenRequest {
     pub token: Option<String>,
@@ -217,6 +232,8 @@ pub async fn get_user_tokens(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&state, &user_id).await?;
+
     let tokens = sqlx::query(
         "SELECT id, device_id, created_ts, expires_at, is_revoked FROM access_tokens WHERE user_id = $1 ORDER BY created_ts DESC"
     )
@@ -249,6 +266,8 @@ pub async fn delete_user_token(
     State(state): State<AppState>,
     Path((user_id, token_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&state, &user_id).await?;
+
     let result = sqlx::query("DELETE FROM access_tokens WHERE id = $1 AND user_id = $2")
         .bind(token_id)
         .bind(&user_id)
@@ -269,6 +288,8 @@ pub async fn get_user_refresh_tokens(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&state, &user_id).await?;
+
     let tokens = sqlx::query(
         "SELECT id, device_id, created_ts, expires_at, is_revoked FROM refresh_tokens WHERE user_id = $1 ORDER BY created_ts DESC"
     )
@@ -301,6 +322,8 @@ pub async fn delete_refresh_token(
     State(state): State<AppState>,
     Path((user_id, token_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&state, &user_id).await?;
+
     let result = sqlx::query("DELETE FROM refresh_tokens WHERE id = $1 AND user_id = $2")
         .bind(token_id)
         .bind(&user_id)
