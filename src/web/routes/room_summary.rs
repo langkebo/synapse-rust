@@ -16,7 +16,7 @@ use crate::web::routes::response_helpers::{
     created_json, created_json_from, json_from, json_vec_from, require_found,
 };
 use crate::web::routes::AppState;
-use crate::web::routes::{ensure_room_member_or_admin, AdminUser, AuthenticatedUser};
+use crate::web::routes::{ensure_room_member, AdminUser, AuthenticatedUser};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryLimit {
@@ -167,19 +167,46 @@ fn room_summary_state_json(state: RoomSummaryState) -> Json<serde_json::Value> {
     }))
 }
 
-async fn ensure_room_summary_access(
+async fn ensure_room_summary_read_access(
     state: &AppState,
     auth_user: &AuthenticatedUser,
     room_id: &str,
-    action: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member_or_admin(
+    ensure_room_member(
         state,
         auth_user,
         room_id,
-        &format!("You must be a member of this room to {} room summary", action),
+        "You must be a member of this room to view room summary",
     )
     .await
+}
+
+async fn ensure_room_summary_manage_access(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+) -> Result<(), ApiError> {
+    ensure_room_member(
+        state,
+        auth_user,
+        room_id,
+        "You must be a member of this room to manage room summary",
+    )
+    .await?;
+
+    let is_creator = state
+        .services
+        .room_service
+        .is_room_creator(room_id, &auth_user.user_id)
+        .await?;
+
+    if !is_creator {
+        return Err(ApiError::forbidden(
+            "Only room admins can manage room summary".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 pub async fn get_room_summary(
@@ -187,7 +214,7 @@ pub async fn get_room_summary(
     Path(room_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "view").await?;
+    ensure_room_summary_read_access(&state, &auth_user, &room_id).await?;
 
     let summary = state
         .services
@@ -222,7 +249,7 @@ pub async fn create_room_summary(
     auth_user: AuthenticatedUser,
     Json(body): Json<CreateRoomSummaryRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "manage").await?;
+    ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     let request = create_summary_request_for_room(room_id, body)?;
 
@@ -255,7 +282,7 @@ pub async fn update_room_summary(
     auth_user: AuthenticatedUser,
     Json(body): Json<UpdateSummaryBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "manage").await?;
+    ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     let request = body.into_request();
 
@@ -273,7 +300,7 @@ pub async fn delete_room_summary(
     Path(room_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "manage").await?;
+    ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     state
         .services
@@ -289,7 +316,7 @@ pub async fn sync_room_summary(
     Path(room_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "manage").await?;
+    ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     let summary = state
         .services
@@ -305,7 +332,7 @@ pub async fn get_members(
     Path(room_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "view").await?;
+    ensure_room_summary_read_access(&state, &auth_user, &room_id).await?;
 
     let members = state
         .services
@@ -322,7 +349,7 @@ pub async fn add_member(
     auth_user: AuthenticatedUser,
     Json(body): Json<CreateSummaryMemberRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "manage").await?;
+    ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     let request = create_summary_member_request_for_room(room_id, body);
 
@@ -341,7 +368,7 @@ pub async fn update_member(
     auth_user: AuthenticatedUser,
     Json(body): Json<UpdateMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "manage").await?;
+    ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     let request = body.into_request();
 
@@ -359,7 +386,7 @@ pub async fn remove_member(
     Path((room_id, user_id)): Path<(String, String)>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "manage").await?;
+    ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     state
         .services
@@ -375,7 +402,7 @@ pub async fn get_state(
     Path((room_id, event_type, state_key)): Path<(String, String, String)>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "view").await?;
+    ensure_room_summary_read_access(&state, &auth_user, &room_id).await?;
 
     let state = state
         .services
@@ -395,7 +422,7 @@ pub async fn update_state(
     auth_user: AuthenticatedUser,
     Json(body): Json<UpdateStateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "manage").await?;
+    ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     let state = state
         .services
@@ -417,7 +444,7 @@ pub async fn get_all_state(
     Path(room_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "view").await?;
+    ensure_room_summary_read_access(&state, &auth_user, &room_id).await?;
 
     let states = state
         .services
@@ -445,7 +472,7 @@ pub async fn get_stats(
     Path(room_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "view").await?;
+    ensure_room_summary_read_access(&state, &auth_user, &room_id).await?;
 
     let stats = state
         .services
@@ -472,7 +499,7 @@ pub async fn recalculate_stats(
     Path(room_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "manage").await?;
+    ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     let stats = state
         .services
@@ -505,7 +532,7 @@ pub async fn recalculate_heroes(
     Path(room_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "manage").await?;
+    ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     let hero_ids = state
         .services
@@ -523,7 +550,7 @@ pub async fn clear_unread(
     Path(room_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_room_summary_access(&state, &auth_user, &room_id, "manage").await?;
+    ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     state
         .services

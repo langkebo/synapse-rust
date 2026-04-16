@@ -17,6 +17,7 @@ pub struct OlmSessionManager {
 
 struct OlmSessionEntry {
     session: Session,
+    #[allow(dead_code)]
     session_id: String,
     sender_key: String,
     dirty: bool,

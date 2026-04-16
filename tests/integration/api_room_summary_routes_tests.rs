@@ -70,6 +70,35 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
     json["room_id"].as_str().unwrap().to_string()
 }
 
+async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": user_id }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
 #[tokio::test]
 async fn test_room_summary_route_rejects_non_member() {
     let Some(app) = setup_test_app().await else {
@@ -77,6 +106,7 @@ async fn test_room_summary_route_rejects_non_member() {
     };
     let owner_token = register_user(&app, "room_summary_owner_read_guard").await;
     let guest_token = register_user(&app, "room_summary_guest_read_guard").await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
     let room_id = create_room(&app, &owner_token, "Protected summary room").await;
 
     let request = Request::builder()
@@ -85,10 +115,21 @@ async fn test_room_summary_route_rejects_non_member() {
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let admin_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let admin_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_request)
+        .await
+        .unwrap();
+    assert_eq!(admin_response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -98,6 +139,7 @@ async fn test_room_summary_members_route_rejects_non_member() {
     };
     let owner_token = register_user(&app, "room_summary_owner_members_guard").await;
     let guest_token = register_user(&app, "room_summary_guest_members_guard").await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
     let room_id = create_room(&app, &owner_token, "Protected summary members room").await;
 
     let request = Request::builder()
@@ -109,10 +151,24 @@ async fn test_room_summary_members_route_rejects_non_member() {
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let admin_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/r0/rooms/{}/summary/members",
+            room_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let admin_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_request)
+        .await
+        .unwrap();
+    assert_eq!(admin_response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -122,6 +178,7 @@ async fn test_room_summary_create_rejects_non_member() {
     };
     let owner_token = register_user(&app, "room_summary_owner_write_guard").await;
     let guest_token = register_user(&app, "room_summary_guest_write_guard").await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
     let room_id = create_room(&app, &owner_token, "Protected summary write room").await;
 
     let request = Request::builder()
@@ -133,6 +190,56 @@ async fn test_room_summary_create_rejects_non_member() {
             json!({
                 "room_id": room_id,
                 "name": "should be rejected"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let admin_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room_id": room_id,
+                "name": "admin should be rejected"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let admin_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_request)
+        .await
+        .unwrap();
+    assert_eq!(admin_response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_room_summary_create_rejects_joined_non_creator_member() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (owner_token, _) = register_user_with_id(&app, "room_summary_owner_creator_guard").await;
+    let (member_token, member_user_id) =
+        register_user_with_id(&app, "room_summary_member_creator_guard").await;
+    let room_id = create_room(&app, &owner_token, "Creator-only summary room").await;
+
+    invite_user(&app, &owner_token, &room_id, &member_user_id).await;
+    join_room(&app, &member_token, &room_id).await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .header("Authorization", format!("Bearer {}", member_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room_id": room_id,
+                "name": "joined member should be rejected"
             })
             .to_string(),
         ))

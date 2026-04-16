@@ -184,6 +184,10 @@ pub fn create_router(state: AppState) -> Router {
             get(get_openid_configuration),
         );
     }
+    #[cfg(feature = "openclaw-routes")]
+    if state.services.config.experimental.openclaw_routes_enabled {
+        router = router.merge(create_openclaw_router(state.clone()));
+    }
 
     router = router
         .merge(cas_routes(state.clone()))

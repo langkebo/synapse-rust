@@ -58,6 +58,7 @@ pub struct AlertState {
 }
 
 pub struct AlertManager {
+    #[allow(dead_code)]
     config: AlertConfig,
     rules: Vec<AlertRule>,
     triggered_alerts: Vec<AlertState>,

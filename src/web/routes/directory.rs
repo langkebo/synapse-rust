@@ -1,5 +1,7 @@
 use crate::services::directory_service::DirectoryService;
-use crate::web::routes::{validate_room_alias, ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::{
+    ensure_room_member, validate_room_alias, ApiError, AppState, AuthenticatedUser,
+};
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -21,6 +23,35 @@ pub struct PublicRoomsQuery {
 
 fn default_limit() -> i32 {
     20
+}
+
+async fn ensure_room_alias_write_allowed(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+) -> Result<(), ApiError> {
+    ensure_room_member(
+        state,
+        auth_user,
+        room_id,
+        "You must be a member of this room to manage aliases",
+    )
+    .await?;
+
+    let is_creator = state
+        .services
+        .room_service
+        .is_room_creator(room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room creator: {}", e)))?;
+
+    if !is_creator {
+        return Err(ApiError::forbidden(
+            "Only room admins can manage aliases".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -72,20 +103,7 @@ pub async fn set_room_alias_handler(
 
     let room_id = &body.room_id;
 
-    let membership = state
-        .services
-        .member_storage
-        .get_member(room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    let is_member = membership.as_ref().is_some_and(|m| m.membership == "join");
-
-    if !is_member {
-        return Err(ApiError::forbidden(
-            "You must be a room member to set an alias",
-        ));
-    }
+    ensure_room_alias_write_allowed(&state, &auth_user, room_id).await?;
 
     state
         .services
@@ -116,20 +134,7 @@ pub async fn remove_room_alias(
         .map_err(|e| ApiError::internal(format!("Failed to get alias: {}", e)))?;
 
     if let Some(room_id) = &existing {
-        let membership = state
-            .services
-            .member_storage
-            .get_member(room_id, &auth_user.user_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-        let is_member = membership.as_ref().is_some_and(|m| m.membership == "join");
-
-        if !is_member {
-            return Err(ApiError::forbidden(
-                "You must be a room member to remove an alias",
-            ));
-        }
+        ensure_room_alias_write_allowed(&state, &auth_user, room_id).await?;
     }
 
     state
@@ -235,47 +240,5 @@ pub async fn search_public_rooms(
     Ok(Json(json!({
         "chunk": chunk,
         "total_room_count_estimate": chunk.len(),
-    })))
-}
-
-pub async fn set_canonical_alias(
-    State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let alias = body.get("alias").and_then(|v| v.as_str());
-
-    if let Some(alias_str) = alias {
-        state
-            .services
-            .room_storage
-            .update_canonical_alias(&room_id, alias_str)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed: {}", e)))?;
-
-        Ok(Json(json!({
-            "room_id": room_id,
-            "alias": alias_str,
-            "updated_ts": chrono::Utc::now().timestamp_millis()
-        })))
-    } else {
-        Ok(Json(json!({})))
-    }
-}
-
-pub async fn get_canonical_alias(
-    State(state): State<AppState>,
-    Path(room_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let alias = state
-        .services
-        .room_storage
-        .get_room_alias(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed: {}", e)))?;
-
-    Ok(Json(json!({
-        "alias": alias,
     })))
 }

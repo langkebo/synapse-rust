@@ -31,9 +31,11 @@ pub enum TrendType {
 }
 
 pub struct PerformanceAnalyzer {
+    #[allow(dead_code)]
     baselines: Vec<PerformanceBaseline>,
     recent_metrics: VecDeque<PerformanceMetrics>,
     max_samples: usize,
+    #[allow(dead_code)]
     window_size: Duration,
 }
 

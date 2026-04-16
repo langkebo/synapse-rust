@@ -321,7 +321,7 @@ async fn test_set_canonical_alias_returns_confirmation() {
         .header("Authorization", format!("Bearer {}", access_token))
         .body(Body::from(
             json!({
-                "alias": alias
+                "alias": alias.clone()
             })
             .to_string(),
         ))
@@ -343,6 +343,24 @@ async fn test_set_canonical_alias_returns_confirmation() {
             body.get("event_id").is_some(),
             "Response should contain event_id"
         );
+
+        let room_info_request = Request::builder()
+            .method("GET")
+            .uri(format!("/_matrix/client/v3/rooms/{}", room_id))
+            .header("Authorization", format!("Bearer {}", access_token))
+            .body(Body::empty())
+            .unwrap();
+        let room_info_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), room_info_request)
+            .await
+            .expect("Failed to fetch room info after setting canonical alias");
+        assert_eq!(room_info_response.status(), StatusCode::OK);
+
+        let room_info_body = axum::body::to_bytes(room_info_response.into_body(), 2048)
+            .await
+            .expect("Failed to read room info body");
+        let room_info_json: Value =
+            serde_json::from_slice(&room_info_body).expect("Failed to parse room info");
+        assert_eq!(room_info_json.get("canonical_alias"), Some(&Value::String(alias)));
     } else {
         // If the endpoint doesn't exist or returns different status, skip this test
         eprintln!(
@@ -350,4 +368,65 @@ async fn test_set_canonical_alias_returns_confirmation() {
             response.status()
         );
     }
+}
+
+#[tokio::test]
+async fn test_clear_canonical_alias_removes_projected_room_field() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (access_token, _user_id, _device_id) = register_user(&app, "frank").await;
+    let room_id = create_room(&app, &access_token, "Alias Clear Room").await;
+    let alias = format!("#clear-{}:localhost", rand::random::<u32>());
+
+    let set_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/state/m.room.canonical_alias",
+            room_id
+        ))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .body(Body::from(json!({ "alias": alias }).to_string()))
+        .unwrap();
+    let set_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_request)
+        .await
+        .expect("Failed to set canonical alias before clearing");
+    assert_eq!(set_response.status(), StatusCode::OK);
+
+    let clear_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/state/m.room.canonical_alias",
+            room_id
+        ))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .body(Body::from(json!({}).to_string()))
+        .unwrap();
+    let clear_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), clear_request)
+        .await
+        .expect("Failed to clear canonical alias");
+    assert_eq!(clear_response.status(), StatusCode::OK);
+
+    let metadata_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/rooms/{}/metadata", room_id))
+        .header("Authorization", format!("Bearer {}", access_token))
+        .body(Body::empty())
+        .unwrap();
+    let metadata_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), metadata_request)
+        .await
+        .expect("Failed to fetch room metadata");
+    assert_eq!(metadata_response.status(), StatusCode::OK);
+
+    let metadata_body = axum::body::to_bytes(metadata_response.into_body(), 2048)
+        .await
+        .expect("Failed to read metadata body");
+    let metadata_json: Value =
+        serde_json::from_slice(&metadata_body).expect("Failed to parse metadata");
+    assert!(
+        metadata_json.get("canonical_alias").is_none(),
+        "canonical_alias should be removed from projected room metadata after clearing"
+    );
 }

@@ -39,6 +39,9 @@ jobs:
       - name: No shell routes (empty responses)
         run: bash scripts/detect_shell_routes.sh
 
+      - name: No unwired route candidates
+        run: bash scripts/detect_unwired_route_candidates.sh
+
       - name: Schema table coverage
         run: python3 scripts/check_schema_table_coverage.py
 

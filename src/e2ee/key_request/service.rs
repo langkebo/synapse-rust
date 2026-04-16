@@ -99,44 +99,59 @@ impl KeyRequestService {
         Ok(request.request_id)
     }
 
-    /// Fulfill a key request by sharing the session key
-    ///
-    /// NOTE: This method is intentionally not implemented.
-    /// To fully implement this feature, we need to:
-    /// 1. Extract the actual Megolm session key from the session
-    /// 2. Encrypt the session key for the requesting device
-    /// 3. Handle key forwarding chains properly
-    ///
-    /// This method is not currently called by any route handler.
-    /// It's a placeholder for future E2EE key sharing functionality.
     pub async fn fulfill_request(
         &self,
         request_id: &str,
-        device_id: &str,
+        requesting_device_id: &str,
     ) -> Result<Option<KeyShareResponse>, ApiError> {
         let request = self.storage.get_request(request_id).await?;
 
-        if let Some(request) = request {
-            if request.is_fulfilled {
-                return Ok(None);
-            }
+        let Some(request) = request else {
+            return Ok(None);
+        };
 
-            if let Ok(sessions) = self
-                .megolm_service
-                .get_room_sessions(&request.room_id)
-                .await
-            {
-                if sessions.iter().any(|s| s.session_id == request.session_id) {
-                    let _ = (request_id, device_id);
-                    let _ = request;
-                    return Err(ApiError::unrecognized(
-                        "E2EE room key request fulfillment is not supported".to_string(),
-                    ));
-                }
-            }
+        if request.is_fulfilled {
+            return Ok(None);
         }
 
-        Ok(None)
+        if request.device_id == requesting_device_id {
+            return Err(ApiError::bad_request(
+                "Cannot fulfill your own key request from the same device".to_string(),
+            ));
+        }
+
+        let sessions = self
+            .megolm_service
+            .get_room_sessions(&request.room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get room sessions: {}", e)))?;
+
+        let session = match sessions.iter().find(|s| s.session_id == request.session_id) {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+
+        let session_key = session.session_key.clone();
+
+        self.storage.fulfill_request(request_id, requesting_device_id).await?;
+
+        let response = KeyShareResponse {
+            room_id: request.room_id.clone(),
+            session_id: request.session_id.clone(),
+            session_key,
+            sender_key: session.sender_key.clone(),
+            algorithm: session.algorithm.clone(),
+            forwarding_curve25519_key: None,
+        };
+
+        tracing::info!(
+            "Fulfilled key request {} for device {} in room {}",
+            request_id,
+            requesting_device_id,
+            response.room_id
+        );
+
+        Ok(Some(response))
     }
 
     pub async fn cancel_request(&self, request_id: &str) -> Result<(), ApiError> {
@@ -181,13 +196,28 @@ impl KeyRequestService {
     }
 
     pub async fn process_outgoing_key_requests(&self) -> Result<(), ApiError> {
-        for request in self.get_pending_requests(None).await? {
-            tracing::debug!(
-                "Processing key request: {} for room {} session {}",
+        let requests = self.get_pending_requests(None).await?;
+
+        for request in requests {
+            tracing::info!(
+                "Processing outgoing key request: {} for room {} session {} from device {}",
                 request.request_id,
                 request.room_id,
-                request.session_id
+                request.session_id,
+                request.device_id
             );
+
+            if let Err(e) = self
+                .storage
+                .update_request_status(&request.request_id, "sent")
+                .await
+            {
+                tracing::warn!(
+                    "Failed to update key request {} status: {}",
+                    request.request_id,
+                    e
+                );
+            }
         }
 
         Ok(())

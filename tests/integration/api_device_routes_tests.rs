@@ -52,6 +52,63 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     )
 }
 
+async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "name": name }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["room_id"].as_str().unwrap().to_string()
+}
+
+async fn invite_user_to_room(
+    app: &axum::Router,
+    inviter_token: &str,
+    room_id: &str,
+    invitee_user_id: &str,
+) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .header("Authorization", format!("Bearer {}", inviter_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "user_id": invitee_user_id }).to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
 async fn get_first_device_id(app: &axum::Router, token: &str, path: &str) -> String {
     let request = Request::builder()
         .method("GET")
@@ -271,4 +328,103 @@ async fn test_delete_devices_only_removes_current_users_devices() {
         get_device_response(&app, &token_b, &device_b, "/_matrix/client/v3/devices").await;
     assert_eq!(other_status, StatusCode::OK);
     assert_eq!(other_body["device_id"], device_b);
+}
+
+#[tokio::test]
+async fn test_get_device_returns_not_found_for_other_users_device() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (alice_token, _) = register_user(&app, "device_routes_reader").await;
+    let (bob_token, _) = register_user(&app, "device_routes_target").await;
+    let bob_device = get_first_device_id(&app, &bob_token, "/_matrix/client/v3/devices").await;
+
+    let (status, body) =
+        get_device_response(&app, &alice_token, &bob_device, "/_matrix/client/v3/devices").await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["errcode"], "M_NOT_FOUND");
+}
+
+#[tokio::test]
+async fn test_device_list_updates_filters_users_without_shared_rooms() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (alice_token, alice_user_id) = register_user(&app, "device_updates_alice").await;
+    let (bob_token, bob_user_id) = register_user(&app, "device_updates_bob").await;
+    let bob_device = get_first_device_id(&app, &bob_token, "/_matrix/client/v3/devices").await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/keys/device_list_updates")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "users": [alice_user_id, bob_user_id]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let changed = json["changed"].as_array().unwrap();
+
+    assert!(!changed.iter().any(|entry| {
+        entry["user_id"] == bob_user_id && entry["device_id"] == bob_device
+    }));
+}
+
+#[tokio::test]
+async fn test_device_list_updates_allows_users_with_shared_rooms() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (alice_token, _) = register_user(&app, "device_updates_shared_alice").await;
+    let (bob_token, bob_user_id) = register_user(&app, "device_updates_shared_bob").await;
+    let bob_device = get_first_device_id(&app, &bob_token, "/_matrix/client/v3/devices").await;
+
+    let room_id = create_room(&app, &alice_token, "Device List Updates Shared Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/keys/device_list_updates")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "users": [bob_user_id]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let changed = json["changed"].as_array().unwrap();
+
+    assert!(
+        changed.iter().any(|entry| {
+            entry["user_id"] == bob_user_id && entry["device_id"] == bob_device
+        }),
+        "expected shared-room user's device to be returned"
+    );
 }

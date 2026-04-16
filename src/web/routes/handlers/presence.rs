@@ -1,17 +1,36 @@
 use crate::common::{ApiError, MAX_MESSAGE_LENGTH};
+use crate::web::routes::response_helpers::filter_users_with_shared_rooms;
 use crate::web::routes::{validate_presence_status, validate_user_id, AppState, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 
 fn ensure_presence_access(
     auth_user: &AuthenticatedUser,
     target_user_id: &str,
 ) -> Result<(), ApiError> {
-    if auth_user.user_id != target_user_id && !auth_user.is_admin {
+    if auth_user.user_id != target_user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
     Ok(())
+}
+
+async fn filter_visible_presence_targets(
+    state: &AppState,
+    current_user_id: &str,
+    targets: &[String],
+) -> Vec<String> {
+    let allowed: HashSet<String> = filter_users_with_shared_rooms(state, current_user_id, targets)
+        .await
+        .into_iter()
+        .collect();
+
+    targets
+        .iter()
+        .filter(|target_id| allowed.contains(*target_id))
+        .cloned()
+        .collect()
 }
 
 pub(crate) async fn get_presence(
@@ -97,18 +116,25 @@ pub(crate) async fn presence_list(
     let user_id = &auth_user.user_id;
 
     if let Some(subscribe) = body.get("subscribe").and_then(|v| v.as_array()) {
+        let mut requested_targets = Vec::new();
         for target in subscribe {
             if let Some(target_id) = target.as_str() {
                 validate_user_id(target_id)?;
+                requested_targets.push(target_id.to_string());
+            }
+        }
 
-                if let Err(e) = state
-                    .services
-                    .presence_storage
-                    .add_subscription(user_id, target_id)
-                    .await
-                {
-                    ::tracing::warn!("Failed to add presence subscription: {}", e);
-                }
+        let visible_targets =
+            filter_visible_presence_targets(&state, user_id, &requested_targets).await;
+
+        for target_id in visible_targets {
+            if let Err(e) = state
+                .services
+                .presence_storage
+                .add_subscription(user_id, &target_id)
+                .await
+            {
+                ::tracing::warn!("Failed to add presence subscription: {}", e);
             }
         }
     }
@@ -136,6 +162,7 @@ pub(crate) async fn presence_list(
         .get_subscriptions(user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {}", e)))?;
+    let subscriptions = filter_visible_presence_targets(&state, user_id, &subscriptions).await;
 
     let presence_batch = state
         .services
@@ -186,6 +213,7 @@ pub(crate) async fn get_presence_list(
         .get_subscriptions(&user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {}", e)))?;
+    let subscriptions = filter_visible_presence_targets(&state, &user_id, &subscriptions).await;
 
     let presence_batch = state
         .services

@@ -1,4 +1,4 @@
-use super::{AppState, AuthenticatedUser};
+use super::{ensure_room_member, AppState, AuthenticatedUser};
 use crate::common::ApiError;
 use crate::services::{VoiceMessageInfo, VoiceMessageUploadParams};
 use axum::{
@@ -551,22 +551,7 @@ async fn ensure_voice_room_access(
     room_id: &str,
     error_message: &str,
 ) -> Result<(), ApiError> {
-    if auth_user.is_admin {
-        return Ok(());
-    }
-
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member {
-        return Err(ApiError::forbidden(error_message.to_string()));
-    }
-
-    Ok(())
+    ensure_room_member(state, auth_user, room_id, error_message).await
 }
 
 async fn ensure_voice_message_access(
@@ -574,7 +559,7 @@ async fn ensure_voice_message_access(
     auth_user: &AuthenticatedUser,
     voice_message: &VoiceMessageInfo,
 ) -> Result<(), ApiError> {
-    if auth_user.is_admin || auth_user.user_id == voice_message.user_id {
+    if auth_user.user_id == voice_message.user_id {
         return Ok(());
     }
 
@@ -597,7 +582,7 @@ fn ensure_voice_message_delete_access(
     auth_user: &AuthenticatedUser,
     voice_message: &VoiceMessageInfo,
 ) -> Result<(), ApiError> {
-    if auth_user.is_admin || auth_user.user_id == voice_message.user_id {
+    if auth_user.user_id == voice_message.user_id {
         return Ok(());
     }
 

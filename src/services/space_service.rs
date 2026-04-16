@@ -1,5 +1,4 @@
 use crate::common::ApiError;
-use crate::storage::event::EventStorage;
 use crate::storage::room::RoomStorage;
 use crate::storage::space::*;
 use serde_json::json;
@@ -9,7 +8,6 @@ use tracing::{error, info, instrument, warn};
 pub struct SpaceService {
     space_storage: Arc<SpaceStorage>,
     room_storage: Arc<RoomStorage>,
-    event_storage: Arc<EventStorage>,
     server_name: String,
 }
 
@@ -17,13 +15,11 @@ impl SpaceService {
     pub fn new(
         space_storage: Arc<SpaceStorage>,
         room_storage: Arc<RoomStorage>,
-        event_storage: Arc<EventStorage>,
         server_name: String,
     ) -> Self {
         Self {
             space_storage,
             room_storage,
-            event_storage,
             server_name,
         }
     }
@@ -32,12 +28,8 @@ impl SpaceService {
     pub async fn create_space(&self, request: CreateSpaceRequest) -> Result<Space, ApiError> {
         info!("Creating space: room_id={}", request.room_id);
 
-        let _room = self
-            .room_storage
-            .get_room(&request.room_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
-            .ok_or_else(|| ApiError::not_found("Room not found"))?;
+        self.ensure_room_creator_access(&request.room_id, &request.creator)
+            .await?;
 
         let space = self
             .space_storage
@@ -103,15 +95,7 @@ impl SpaceService {
     ) -> Result<Space, ApiError> {
         info!("Updating space: space_id={}, user={}", space_id, user_id);
 
-        let is_member = self
-            .space_storage
-            .is_space_member(space_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-        if !is_member {
-            return Err(ApiError::forbidden("User is not a member of this space"));
-        }
+        self.ensure_space_creator_access(space_id, user_id).await?;
 
         let space = self
             .space_storage
@@ -162,15 +146,8 @@ impl SpaceService {
             request.space_id, request.room_id
         );
 
-        let is_member = self
-            .space_storage
-            .is_space_member(&request.space_id, &request.sender)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-        if !is_member {
-            return Err(ApiError::forbidden("User is not a member of this space"));
-        }
+        self.ensure_space_creator_access(&request.space_id, &request.sender)
+            .await?;
 
         let _room = self
             .room_storage
@@ -234,15 +211,7 @@ impl SpaceService {
             space_id, room_id
         );
 
-        let is_member = self
-            .space_storage
-            .is_space_member(space_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-        if !is_member {
-            return Err(ApiError::forbidden("User is not a member of this space"));
-        }
+        self.ensure_space_creator_access(space_id, user_id).await?;
 
         self.space_storage
             .remove_child(space_id, room_id)
@@ -416,15 +385,7 @@ impl SpaceService {
             space_id, user_id
         );
 
-        let is_member = self
-            .space_storage
-            .is_space_member(space_id, inviter)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-        if !is_member {
-            return Err(ApiError::forbidden("User is not a member of this space"));
-        }
+        self.ensure_space_creator_access(space_id, inviter).await?;
 
         let member = self
             .space_storage
@@ -582,6 +543,40 @@ impl SpaceService {
             .get_user_spaces(user_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get user spaces: {}", e)))
+    }
+
+    async fn ensure_room_creator_access(&self, room_id: &str, user_id: &str) -> Result<(), ApiError> {
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Room not found"))?;
+
+        if room.creator_user_id.as_deref() != Some(user_id) {
+            return Err(ApiError::forbidden(
+                "Only the room creator can create a space for this room",
+            ));
+        }
+
+        Ok(())
+    }
+
+    async fn ensure_space_creator_access(&self, space_id: &str, user_id: &str) -> Result<(), ApiError> {
+        let space = self
+            .space_storage
+            .get_space(space_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get space: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Space not found"))?;
+
+        if space.creator != user_id {
+            return Err(ApiError::forbidden(
+                "Only the space creator can modify this space",
+            ));
+        }
+
+        Ok(())
     }
 
     #[instrument(skip(self))]

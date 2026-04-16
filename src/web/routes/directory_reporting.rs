@@ -2,7 +2,7 @@ use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::routes::{
     account_compat::{can_view_profile_for_requester, enforce_profile_visibility},
-    ensure_room_member_or_admin, extract_token_from_headers, validate_event_id,
+    ensure_room_member, extract_token_from_headers, validate_event_id,
     validate_room_alias, validate_room_id, validate_user_id, AppState,
 };
 use axum::{
@@ -16,13 +16,28 @@ async fn ensure_room_alias_write_allowed(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member_or_admin(
+    ensure_room_member(
         state,
         auth_user,
         room_id,
-        "You must be a room member to manage aliases",
+        "You must be a member of this room to manage aliases",
     )
-    .await
+    .await?;
+
+    let is_creator = state
+        .services
+        .room_service
+        .is_room_creator(room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room creator: {}", e)))?;
+
+    if !is_creator {
+        return Err(ApiError::forbidden(
+            "Only room admins can manage aliases".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 pub(crate) async fn get_user_directory_profile(
@@ -139,6 +154,23 @@ pub(crate) async fn report_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
+    ensure_room_member(
+        &state,
+        &auth_user,
+        &room_id,
+        "You must be a room member to report events in this room",
+    )
+    .await?;
+
+    let event = state
+        .services
+        .event_storage
+        .get_event(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to load event: {}", e)))?;
+    let Some(event) = event.filter(|event| event.room_id == room_id) else {
+        return Err(ApiError::not_found("Event not found".to_string()));
+    };
 
     let reason = body.get("reason").and_then(|v| v.as_str());
     let score = body.get("score").and_then(|v| v.as_i64()).unwrap_or(-100) as i32;
@@ -146,7 +178,14 @@ pub(crate) async fn report_event(
     let report_id = state
         .services
         .event_storage
-        .report_event(&event_id, &room_id, "", &auth_user.user_id, reason, score)
+        .report_event(
+            &event.event_id,
+            &event.room_id,
+            "",
+            &auth_user.user_id,
+            reason,
+            score,
+        )
         .await?;
 
     Ok(Json(json!({
@@ -155,29 +194,15 @@ pub(crate) async fn report_event(
 }
 
 pub(crate) async fn update_report_score(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
     Path((_room_id, event_id)): Path<(String, String)>,
-    Json(body): Json<Value>,
+    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    if !auth_user.is_admin {
-        return Err(ApiError::forbidden("Admin access required".to_string()));
-    }
-
     validate_event_id(&event_id)?;
-
-    let score =
-        body.get("score")
-            .and_then(|v| v.as_i64())
-            .ok_or_else(|| ApiError::bad_request("Score is required".to_string()))? as i32;
-
-    state
-        .services
-        .event_storage
-        .update_event_report_score_by_event(&event_id, score)
-        .await?;
-
-    Ok(Json(json!({})))
+    Err(ApiError::forbidden(
+        "Report score updates are not available via the client API".to_string(),
+    ))
 }
 
 pub(crate) async fn report_room(
@@ -187,16 +212,13 @@ pub(crate) async fn report_room(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
+    ensure_room_member(
+        &state,
+        &auth_user,
+        &room_id,
+        "You must be a room member to report this room",
+    )
+    .await?;
 
     let reason = body
         .get("reason")
@@ -232,16 +254,34 @@ pub(crate) async fn report_room(
 }
 
 pub(crate) async fn get_scanner_info(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
+    validate_event_id(&event_id)?;
+    ensure_room_member(
+        &state,
+        &auth_user,
+        &room_id,
+        "You must be a room member to view scanner info",
+    )
+    .await?;
+
+    let event = state
+        .services
+        .event_storage
+        .get_event(&event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to load event: {}", e)))?;
+    let Some(event) = event.filter(|event| event.room_id == room_id) else {
+        return Err(ApiError::not_found("Event not found".to_string()));
+    };
 
     Ok(Json(json!({
         "scanner_enabled": false,
         "room_id": room_id,
-        "event_id": event_id,
+        "event_id": event.event_id,
         "status": "not_configured",
         "message": "Content scanner is not enabled on this server"
     })))
@@ -249,9 +289,11 @@ pub(crate) async fn get_scanner_info(
 
 pub(crate) async fn get_room_aliases(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     if !state
         .services
         .room_storage
@@ -261,6 +303,14 @@ pub(crate) async fn get_room_aliases(
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
+
+    ensure_room_member(
+        &state,
+        &auth_user,
+        &room_id,
+        "You must be a room member to view aliases",
+    )
+    .await?;
 
     let aliases = state
         .services

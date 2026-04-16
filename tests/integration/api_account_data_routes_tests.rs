@@ -18,6 +18,22 @@ async fn setup_test_app() -> Option<axum::Router> {
     Some(create_router(state))
 }
 
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+    let pool = super::get_test_pool().await?;
+    let container = ServiceContainer::new_test_with_pool(pool.clone());
+    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let state = AppState::new(container, cache);
+    Some((create_router(state), pool))
+}
+
+async fn promote_to_admin(pool: &sqlx::PgPool, user_id: &str) {
+    sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .expect("failed to promote user to admin");
+}
+
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let request = Request::builder()
         .method("POST")
@@ -456,4 +472,62 @@ async fn test_tags_routes_work_across_v3_and_r0() {
         .await
         .unwrap();
     assert_eq!(v1_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_tags_routes_reject_admin_access_to_other_users_data() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (owner_token, owner_user_id) =
+        register_user(&app, &format!("tags_owner_{}", rand::random::<u32>())).await;
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("tags_admin_{}", rand::random::<u32>())).await;
+    promote_to_admin(&pool, &admin_user_id).await;
+
+    let room_id = "!tags-admin-room:localhost";
+    let owner_put = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v3/user/{}/rooms/{}/tags/m.favourite",
+            owner_user_id, room_id
+        ))
+        .header("Authorization", format!("Bearer {}", owner_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "order": 0.5 }).to_string()))
+        .unwrap();
+    let owner_put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), owner_put)
+        .await
+        .unwrap();
+    assert_eq!(owner_put_response.status(), StatusCode::OK);
+
+    let admin_get = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v3/user/{}/rooms/{}/tags",
+            owner_user_id, room_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let admin_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_get)
+        .await
+        .unwrap();
+    assert_eq!(admin_get_response.status(), StatusCode::FORBIDDEN);
+
+    let admin_put = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v3/user/{}/rooms/{}/tags/m.lowpriority",
+            owner_user_id, room_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "order": 0.9 }).to_string()))
+        .unwrap();
+    let admin_put_response = ServiceExt::<Request<Body>>::oneshot(app, admin_put)
+        .await
+        .unwrap();
+    assert_eq!(admin_put_response.status(), StatusCode::FORBIDDEN);
 }

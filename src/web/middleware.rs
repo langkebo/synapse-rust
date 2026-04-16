@@ -1397,8 +1397,13 @@ async fn fetch_federation_verify_key(
 
     let urls = [
         format!("https://{}/_matrix/key/v2/server", origin),
+        format!("http://{}/_matrix/key/v2/server", origin),
         format!(
             "https://{}/_matrix/key/v2/query/{}/{}",
+            origin, origin, key_id
+        ),
+        format!(
+            "http://{}/_matrix/key/v2/query/{}/{}",
             origin, origin, key_id
         ),
     ];

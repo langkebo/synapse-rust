@@ -1065,6 +1065,22 @@ impl AuthService {
         Ok(0)
     }
 
+    async fn get_joined_user_power_level(&self, room_id: &str, user_id: &str) -> ApiResult<i64> {
+        let member: Option<(String,)> = sqlx::query_as(
+            "SELECT membership FROM room_memberships WHERE room_id = $1 AND user_id = $2",
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .fetch_optional(&*self.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        match member {
+            Some((membership,)) if membership == "join" => self.get_user_power_level(room_id, user_id).await,
+            _ => Ok(-1),
+        }
+    }
+
     async fn get_room_power_levels_content(
         &self,
         room_id: &str,
@@ -1147,12 +1163,8 @@ impl AuthService {
         room_id: &str,
         user_id: &str,
         event_type: &str,
-        is_server_admin: bool,
     ) -> ApiResult<()> {
-        if is_server_admin {
-            return Ok(());
-        }
-        let power_level = self.get_user_power_level(room_id, user_id).await?;
+        let power_level = self.get_joined_user_power_level(room_id, user_id).await?;
         let required = self
             .get_required_message_event_power_level(room_id, event_type)
             .await?;
@@ -1181,12 +1193,8 @@ impl AuthService {
         room_id: &str,
         user_id: &str,
         event_type: &str,
-        is_server_admin: bool,
     ) -> ApiResult<()> {
-        if is_server_admin {
-            return Ok(());
-        }
-        let power_level = self.get_user_power_level(room_id, user_id).await?;
+        let power_level = self.get_joined_user_power_level(room_id, user_id).await?;
         let required = self
             .get_required_state_event_power_level(room_id, event_type)
             .await?;
@@ -1214,15 +1222,11 @@ impl AuthService {
         &self,
         room_id: &str,
         user_id: &str,
-        new_power_levels_content: &serde_json::Value,
-        is_server_admin: bool,
+        new_content: &serde_json::Value,
     ) -> ApiResult<()> {
-        if is_server_admin {
-            return Ok(());
-        }
-        let actor_level = self.get_user_power_level(room_id, user_id).await?;
-
+        let actor_level = self.get_joined_user_power_level(room_id, user_id).await?;
         let current_content = self.get_room_power_levels_content(room_id).await?;
+        let new_power_levels_content = new_content;
 
         if let Some(current) = current_content {
             if let Some(new_users) = new_power_levels_content
@@ -1405,11 +1409,7 @@ impl AuthService {
         &self,
         room_id: &str,
         user_id: &str,
-        is_server_admin: bool,
     ) -> ApiResult<()> {
-        if is_server_admin {
-            return Ok(());
-        }
         let power_level = self.get_user_power_level(room_id, user_id).await?;
 
         let required_level = self
@@ -1445,12 +1445,10 @@ impl AuthService {
         room_id: &str,
         actor_user_id: &str,
         target_user_id: &str,
-        is_server_admin: bool,
     ) -> ApiResult<()> {
-        if is_server_admin {
-            return Ok(());
-        }
-        let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
+        let actor_power = self
+            .get_joined_user_power_level(room_id, actor_user_id)
+            .await?;
         let target_power = self.get_user_power_level(room_id, target_user_id).await?;
 
         let required_power = self
@@ -1521,12 +1519,10 @@ impl AuthService {
         room_id: &str,
         actor_user_id: &str,
         target_user_id: &str,
-        is_server_admin: bool,
     ) -> ApiResult<()> {
-        if is_server_admin {
-            return Ok(());
-        }
-        let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
+        let actor_power = self
+            .get_joined_user_power_level(room_id, actor_user_id)
+            .await?;
         let target_power = self.get_user_power_level(room_id, target_user_id).await?;
 
         let required_power = self
@@ -1593,22 +1589,88 @@ impl AuthService {
         Ok(())
     }
 
-    pub async fn can_invite_user(
+    pub async fn can_unban_user(
         &self,
         room_id: &str,
         actor_user_id: &str,
-        is_server_admin: bool,
+        target_user_id: &str,
     ) -> ApiResult<()> {
-        if is_server_admin {
-            let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
-            if actor_power < 0 {
+        let actor_power = self
+            .get_joined_user_power_level(room_id, actor_user_id)
+            .await?;
+        let target_power = self.get_user_power_level(room_id, target_user_id).await?;
+
+        let required_power = self
+            .get_room_power_levels_content(room_id)
+            .await?
+            .and_then(|content| content.get("ban").and_then(|level| level.as_i64()))
+            .unwrap_or(50);
+
+        if actor_power < required_power {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "unauthorized_unban_action",
+                actor_user_id = actor_user_id,
+                room_id = room_id,
+                actor_power = actor_power,
+                required_power = required_power,
+                "User attempted to unban without sufficient permission"
+            );
+            return Err(ApiError::forbidden(
+                "Insufficient permission to unban users".to_string(),
+            ));
+        }
+
+        if actor_power <= target_power {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "insufficient_power_to_unban",
+                actor_user_id = actor_user_id,
+                target_user_id = target_user_id,
+                room_id = room_id,
+                actor_power = actor_power,
+                target_power = target_power,
+                "User attempted to unban user with equal or higher power level"
+            );
+            return Err(ApiError::forbidden(
+                "Cannot unban users with equal or higher power level".to_string(),
+            ));
+        }
+
+        let room_creator: Option<String> =
+            sqlx::query_scalar("SELECT creator FROM rooms WHERE room_id = $1")
+                .bind(room_id)
+                .fetch_optional(&*self.user_storage.pool)
+                .await
+                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        if let Some(creator) = room_creator {
+            if creator == target_user_id {
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "attempted_unban_room_creator",
+                    actor_user_id = actor_user_id,
+                    target_user_id = target_user_id,
+                    room_id = room_id,
+                    "User attempted to unban room creator"
+                );
                 return Err(ApiError::forbidden(
-                    "Server admin must be a room member to invite".to_string(),
+                    "Cannot unban the room creator".to_string(),
                 ));
             }
         }
 
-        let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
+        Ok(())
+    }
+
+    pub async fn can_invite_user(
+        &self,
+        room_id: &str,
+        actor_user_id: &str,
+    ) -> ApiResult<()> {
+        let actor_power = self
+            .get_joined_user_power_level(room_id, actor_user_id)
+            .await?;
         let required_power = self
             .get_room_power_levels_content(room_id)
             .await?
@@ -1638,13 +1700,23 @@ impl AuthService {
         room_id: &str,
         actor_user_id: &str,
         event_sender_id: &str,
-        is_server_admin: bool,
     ) -> ApiResult<()> {
-        if is_server_admin {
-            return Ok(());
-        }
+        let actor_power = self
+            .get_joined_user_power_level(room_id, actor_user_id)
+            .await?;
 
-        let actor_power = self.get_user_power_level(room_id, actor_user_id).await?;
+        if actor_power < 0 {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "non_member_redact_attempt",
+                actor_user_id = actor_user_id,
+                room_id = room_id,
+                "Non-member attempted to redact a room event"
+            );
+            return Err(ApiError::forbidden(
+                "You must be a member of this room to redact events".to_string(),
+            ));
+        }
 
         if actor_user_id == event_sender_id {
             return Ok(());

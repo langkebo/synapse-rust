@@ -2,8 +2,12 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use base64::engine::general_purpose::STANDARD_NO_PAD;
+use base64::Engine as _;
+use ed25519_dalek::Signer;
 use serde_json::{json, Value};
 use std::sync::Arc;
+use synapse_rust::federation::signing::canonical_federation_request_bytes;
 use tower::ServiceExt;
 use wiremock::{
     matchers::{method, path},
@@ -14,12 +18,53 @@ async fn setup_test_app() -> Option<axum::Router> {
     super::setup_test_app().await
 }
 
-async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+async fn setup_federation_test_app_with_pool(
+    key_id: &str,
+    signing_key_b64: &str,
+) -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
-    let container = synapse_rust::services::ServiceContainer::new_test_with_pool(pool.clone());
+    let mut container = synapse_rust::services::ServiceContainer::new_test_with_pool(pool.clone());
+    container.config.server.name = "localhost".to_string();
+    container.server_name = "localhost".to_string();
+    container.config.federation.enabled = true;
+    container.config.federation.allow_ingress = true;
+    container.config.federation.server_name = "localhost".to_string();
+    container.config.federation.key_id = Some(key_id.to_string());
+    container.config.federation.signing_key = Some(signing_key_b64.to_string());
     let cache = std::sync::Arc::new(synapse_rust::cache::CacheManager::new(Default::default()));
     let state = synapse_rust::web::routes::state::AppState::new(container, cache);
     Some((synapse_rust::web::create_router(state), pool))
+}
+
+fn signed_federation_request(
+    method: &str,
+    uri: &str,
+    origin: &str,
+    key_id: &str,
+    signing_key: &ed25519_dalek::SigningKey,
+    content: Option<&Value>,
+) -> Request<Body> {
+    let signed_bytes = canonical_federation_request_bytes(method, uri, origin, origin, content);
+    let sig = signing_key.sign(&signed_bytes);
+    let sig_b64 = STANDARD_NO_PAD.encode(sig.to_bytes());
+
+    let mut builder = Request::builder().method(method).uri(uri).header(
+        "Authorization",
+        format!(
+            "X-Matrix origin=\"{}\",key=\"{}\",sig=\"{}\"",
+            origin, key_id, sig_b64
+        ),
+    );
+
+    if content.is_some() {
+        builder = builder.header("Content-Type", "application/json");
+    }
+
+    builder
+        .body(Body::from(
+            content.map(Value::to_string).unwrap_or_default(),
+        ))
+        .unwrap()
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -168,18 +213,21 @@ async fn test_federation_queries() {
 
 #[tokio::test]
 async fn test_federation_query_directory_returns_not_found_with_clear_message_for_missing_alias() {
-    let Some(app) = setup_test_app().await else {
+    let key_id = "ed25519:test";
+    let signing_key_seed = [17u8; 32];
+    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
+
+    let Some((app, _pool)) = setup_federation_test_app_with_pool(key_id, &signing_key_b64).await else {
         return;
     };
 
     let alias = format!("#missing-alias-{}:localhost", rand::random::<u32>());
-    let request = Request::builder()
-        .uri(format!(
-            "/_matrix/federation/v1/query/directory?room_alias={}",
-            urlencoding::encode(&alias)
-        ))
-        .body(Body::empty())
-        .unwrap();
+    let uri = format!(
+        "/_matrix/federation/v1/query/directory?room_alias={}",
+        urlencoding::encode(&alias)
+    );
+    let request = signed_federation_request("GET", &uri, "localhost", key_id, &signing_key, None);
 
     let response = ServiceExt::<Request<Body>>::oneshot(app, request)
         .await
@@ -200,7 +248,12 @@ async fn test_federation_query_directory_returns_not_found_with_clear_message_fo
 
 #[tokio::test]
 async fn test_federation_query_directory_resolves_alias_after_creation() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let key_id = "ed25519:test";
+    let signing_key_seed = [18u8; 32];
+    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
+
+    let Some((app, pool)) = setup_federation_test_app_with_pool(key_id, &signing_key_b64).await else {
         return;
     };
 
@@ -210,13 +263,11 @@ async fn test_federation_query_directory_resolves_alias_after_creation() {
 
     set_room_alias(&app, &token, &alias, &room_id).await;
 
-    let request = Request::builder()
-        .uri(format!(
-            "/_matrix/federation/v1/query/directory?room_alias={}",
-            urlencoding::encode(&alias)
-        ))
-        .body(Body::empty())
-        .unwrap();
+    let uri = format!(
+        "/_matrix/federation/v1/query/directory?room_alias={}",
+        urlencoding::encode(&alias)
+    );
+    let request = signed_federation_request("GET", &uri, "localhost", key_id, &signing_key, None);
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
         .unwrap();

@@ -326,7 +326,6 @@ impl ServiceContainer {
         let space_service = Arc::new(crate::services::space_service::SpaceService::new(
             Arc::new(space_storage.clone()),
             Arc::new(room_storage.clone()),
-            Arc::new(event_storage.clone()),
             config.server.name.clone(),
         ));
         let app_service_storage = ApplicationServiceStorage::new(pool);
@@ -763,6 +762,7 @@ fn build_test_config() -> Config {
         telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
         prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
         performance: crate::common::config::PerformanceConfig::default(),
+        experimental: crate::common::config::ExperimentalConfig::default(),
     }
 }
 

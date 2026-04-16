@@ -5,6 +5,7 @@ mod common;
 
 use serde_json::json;
 use std::sync::Arc;
+use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::room::RoomStorage;
 use synapse_rust::web::routes::handlers::room::write_read_markers_from_body;
 
@@ -109,9 +110,11 @@ async fn test_schema_contract_read_markers_handler_m_read_updates_m_fully_read_m
     let (user_id, room_id, event_id_1, event_id_2) = seed_user_room_events(&pool, &suffix).await;
 
     let storage = RoomStorage::new(&pool);
+    let event_storage = EventStorage::new(&pool, "localhost".to_string());
 
     write_read_markers_from_body(
         &storage,
+        &event_storage,
         &room_id,
         &user_id,
         &json!({
@@ -147,6 +150,76 @@ async fn test_schema_contract_read_markers_handler_m_read_updates_m_fully_read_m
         .await
         .expect("Failed to fetch m.marked_unread marker");
     assert_eq!(marked_unread, Some(event_id_2.clone()));
+
+    cleanup_fixtures(&pool, &user_id, &room_id, &[&event_id_1, &event_id_2]).await;
+}
+
+#[tokio::test]
+async fn test_schema_contract_read_markers_handler_rejects_cross_room_event_ids() {
+    let pool = match connect_pool().await {
+        Some(pool) => pool,
+        None => return,
+    };
+
+    let suffix = uuid::Uuid::new_v4().to_string();
+    let (user_id, room_id, event_id_1, event_id_2) = seed_user_room_events(&pool, &suffix).await;
+    let foreign_room_id = format!("!schema-read-markers-foreign-room-{suffix}:localhost");
+    let foreign_event_id = format!("$schema-read-markers-foreign-event-{suffix}");
+
+    sqlx::query(
+        "INSERT INTO rooms (room_id, creator, created_ts) VALUES ($1, $2, $3) ON CONFLICT (room_id) DO NOTHING",
+    )
+    .bind(&foreign_room_id)
+    .bind(&user_id)
+    .bind(0_i64)
+    .execute(&*pool)
+    .await
+    .expect("Failed to seed foreign room fixture");
+
+    sqlx::query(
+        r#"
+        INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts, user_id)
+        VALUES ($1, $2, $3, 'm.room.message', '{}'::jsonb, $4, $3)
+        ON CONFLICT (event_id) DO NOTHING
+        "#,
+    )
+    .bind(&foreign_event_id)
+    .bind(&foreign_room_id)
+    .bind(&user_id)
+    .bind(0_i64)
+    .execute(&*pool)
+    .await
+    .expect("Failed to seed foreign event fixture");
+
+    let storage = RoomStorage::new(&pool);
+    let event_storage = EventStorage::new(&pool, "localhost".to_string());
+
+    let result = write_read_markers_from_body(
+        &storage,
+        &event_storage,
+        &room_id,
+        &user_id,
+        &json!({ "m.fully_read": foreign_event_id }),
+    )
+    .await;
+    assert!(result.is_err(), "cross-room event ids should be rejected");
+
+    let fully_read = storage
+        .get_read_marker(&room_id, &user_id, "m.fully_read")
+        .await
+        .expect("Failed to fetch m.fully_read marker after rejection");
+    assert_eq!(fully_read, None);
+
+    sqlx::query("DELETE FROM events WHERE event_id = $1")
+        .bind(&foreign_event_id)
+        .execute(&*pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM rooms WHERE room_id = $1")
+        .bind(&foreign_room_id)
+        .execute(&*pool)
+        .await
+        .ok();
 
     cleanup_fixtures(&pool, &user_id, &room_id, &[&event_id_1, &event_id_2]).await;
 }

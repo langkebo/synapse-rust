@@ -1,4 +1,5 @@
 use super::{AppState, AuthenticatedUser};
+use crate::web::routes::ensure_room_member;
 use crate::web::routes::response_helpers::{empty_json, filter_users_with_shared_rooms};
 use crate::web::routes::MatrixJson;
 use crate::ApiError;
@@ -152,11 +153,23 @@ async fn upload_keys(
 #[axum::debug_handler]
 async fn query_keys(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body)
+    let mut request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body)
         .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {}", e)))?;
+
+    let requested_users = request
+        .device_keys
+        .as_object()
+        .map(|map| map.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let allowed_users =
+        filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
+
+    if let Some(device_keys) = request.device_keys.as_object_mut() {
+        device_keys.retain(|user_id, _| allowed_users.iter().any(|allowed| allowed == user_id));
+    }
 
     let response = state
         .services
@@ -173,11 +186,23 @@ async fn query_keys(
 #[axum::debug_handler]
 async fn claim_keys(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
+    let mut request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
         .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {}", e)))?;
+
+    let requested_users = request
+        .one_time_keys
+        .as_object()
+        .map(|map| map.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let allowed_users =
+        filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
+
+    if let Some(one_time_keys) = request.one_time_keys.as_object_mut() {
+        one_time_keys.retain(|user_id, _| allowed_users.iter().any(|allowed| allowed == user_id));
+    }
 
     let response = state
         .services
@@ -236,6 +261,11 @@ async fn key_changes(
             row.get("user_id")
         })
         .collect();
+    let changed = filter_users_with_shared_rooms(&state, &auth_user.user_id, &changed)
+        .await
+        .into_iter()
+        .filter(|user_id| user_id != &auth_user.user_id)
+        .collect::<Vec<_>>();
 
     let left_rows = sqlx::query(
         r#"
@@ -264,6 +294,11 @@ async fn key_changes(
             row.get("user_id")
         })
         .collect();
+    let left = filter_users_with_shared_rooms(&state, &auth_user.user_id, &left)
+        .await
+        .into_iter()
+        .filter(|user_id| user_id != &auth_user.user_id)
+        .collect::<Vec<_>>();
 
     Ok(Json(serde_json::json!({
         "changed": changed,
@@ -443,43 +478,17 @@ async fn room_key_distribution(
         ));
     }
 
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| crate::error::ApiError::internal(format!("Database error: {}", e)))?;
+    ensure_room_member(
+        &state,
+        &auth_user,
+        &room_id,
+        "You must be a room member to access room keys",
+    )
+    .await?;
 
-    if !is_member && !auth_user.is_admin {
-        return Err(crate::error::ApiError::forbidden(
-            "You must be a room member to access room keys".to_string(),
-        ));
-    }
-
-    let mut session = state
-        .services
-        .megolm_service
-        .get_outbound_session(&room_id)
-        .await
-        .ok()
-        .flatten();
-
-    if session.is_none() {
-        return Err(crate::error::ApiError::not_found(
-            "Room key session not found".to_string(),
-        ));
-    }
-
-    let session = session.take().ok_or_else(|| {
-        crate::error::ApiError::not_found("Room key session not found".to_string())
-    })?;
-
-    Ok(Json(serde_json::json!({
-        "room_id": room_id,
-        "algorithm": session.algorithm,
-        "session_id": session.session_id,
-        "session_key": session.session_key
-    })))
+    Err(crate::error::ApiError::forbidden(
+        "Room key distribution is not available via the client API".to_string(),
+    ))
 }
 
 #[axum::debug_handler]

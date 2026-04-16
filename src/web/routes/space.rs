@@ -39,6 +39,17 @@ pub(super) async fn resolve_space_by_room(
         .ok_or_else(|| ApiError::not_found("Space not found"))
 }
 
+pub(super) async fn resolve_space(
+    state: &AppState,
+    space_identifier: &str,
+) -> Result<crate::storage::space::Space, ApiError> {
+    if let Some(space) = state.services.space_service.get_space(space_identifier).await? {
+        return Ok(space);
+    }
+
+    resolve_space_by_room(state, space_identifier).await
+}
+
 pub(super) async fn with_resolved_space<T, F, Fut>(
     state: AppState,
     space_room_id: String,
@@ -48,8 +59,60 @@ where
     F: FnOnce(AppState, crate::storage::space::Space) -> Fut,
     Fut: Future<Output = Result<T, ApiError>>,
 {
-    let space = resolve_space_by_room(&state, &space_room_id).await?;
+    let space = resolve_space(&state, &space_room_id).await?;
     operation(state, space).await
+}
+
+pub(super) async fn can_user_view_space(
+    state: &AppState,
+    space: &crate::storage::space::Space,
+    auth_user: &OptionalAuthenticatedUser,
+) -> Result<bool, ApiError> {
+    if space.is_public {
+        return Ok(true);
+    }
+
+    match auth_user.user_id.as_deref() {
+        Some(user_id) => state
+            .services
+            .space_service
+            .check_user_can_see_space(&space.space_id, user_id)
+            .await,
+        None => Ok(false),
+    }
+}
+
+pub(super) async fn ensure_space_visible(
+    state: &AppState,
+    space: &crate::storage::space::Space,
+    auth_user: &OptionalAuthenticatedUser,
+) -> Result<(), ApiError> {
+    if can_user_view_space(state, space, auth_user).await? {
+        return Ok(());
+    }
+
+    if auth_user.user_id.is_some() {
+        Err(ApiError::forbidden("User cannot access this space"))
+    } else {
+        Err(ApiError::unauthorized(
+            "Authentication required for private spaces",
+        ))
+    }
+}
+
+pub(super) async fn with_visible_space<T, F, Fut>(
+    state: AppState,
+    space_room_id: String,
+    auth_user: OptionalAuthenticatedUser,
+    operation: F,
+) -> Result<T, ApiError>
+where
+    F: FnOnce(AppState, crate::storage::space::Space, OptionalAuthenticatedUser) -> Fut,
+    Fut: Future<Output = Result<T, ApiError>>,
+{
+    let space = resolve_space(&state, &space_room_id).await?;
+    ensure_space_visible(&state, &space, &auth_user).await?;
+    operation(state, space, auth_user).await
 }
 
 pub(super) fn validate_request<T>(request: &T) -> Result<(), ApiError>

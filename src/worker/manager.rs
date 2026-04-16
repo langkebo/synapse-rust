@@ -2,7 +2,7 @@ use crate::common::ApiError;
 use crate::worker::bus::{RedisConfig, WorkerBus};
 use crate::worker::health::{HealthCheckConfig, HealthChecker};
 use crate::worker::load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer};
-use crate::worker::protocol::{ReplicationCommand, ReplicationProtocol};
+use crate::worker::protocol::ReplicationCommand;
 use crate::worker::storage::WorkerStorage;
 use crate::worker::stream::StreamWriterManager;
 use crate::worker::tcp::ReplicationConnection;
@@ -18,7 +18,6 @@ pub struct WorkerManager {
     server_name: String,
     local_worker_id: Option<String>,
     connections: Arc<RwLock<HashMap<String, ReplicationConnection>>>,
-    protocol: ReplicationProtocol,
     bus: Option<Arc<WorkerBus>>,
     stream_manager: Option<Arc<StreamWriterManager>>,
     load_balancer: Option<Arc<WorkerLoadBalancer>>,
@@ -32,7 +31,6 @@ impl WorkerManager {
             server_name,
             local_worker_id: None,
             connections: Arc::new(RwLock::new(HashMap::new())),
-            protocol: ReplicationProtocol::new(),
             bus: None,
             stream_manager: None,
             load_balancer: None,
@@ -505,7 +503,7 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal(format!("Failed to get worker: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Worker not found"))?;
 
-        let conn = ReplicationConnection::new(self.server_name.clone(), worker_id.to_string());
+        let conn = ReplicationConnection::new(worker_id.to_string());
         conn.connect(addr)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to connect to worker: {}", e)))?;

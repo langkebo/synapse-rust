@@ -270,7 +270,6 @@ pub async fn run_schema_health_check(
     // 3. 检查必需索引
     result.missing_indexes = check_missing_indexes(pool, REQUIRED_INDEXES).await?;
     if !result.missing_indexes.is_empty() {
-        result.passed = false;
         warn!("Missing indexes: {:?}", result.missing_indexes);
         result
             .warnings

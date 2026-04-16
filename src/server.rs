@@ -35,7 +35,9 @@ pub struct SynapseServer {
     media_path: std::path::PathBuf,
     scheduled_tasks: Arc<ScheduledTasks>,
     metrics_collector: Arc<TaskMetricsCollector>,
+    #[allow(dead_code)]
     rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
+    #[allow(dead_code)]
     config_watcher_handle: Option<tokio::task::JoinHandle<()>>,
 }
 

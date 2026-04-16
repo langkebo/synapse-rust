@@ -16,8 +16,9 @@ pub(super) async fn create_space(
 pub(super) async fn get_space(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
+    auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_resolved_space(state, space_id, |_state, space| async move {
+    with_visible_space(state, space_id, auth_user, |_state, space, _auth_user| async move {
         Ok(json_from::<_, SpaceResponse>(space))
     })
     .await
@@ -26,15 +27,12 @@ pub(super) async fn get_space(
 pub(super) async fn get_space_by_room(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
+    auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let space = state
-        .services
-        .space_service
-        .get_space_by_room(&room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Space not found for this room"))?;
-
-    Ok(json_from::<_, SpaceResponse>(space))
+    with_visible_space(state, room_id, auth_user, |_state, space, _auth_user| async move {
+        Ok(json_from::<_, SpaceResponse>(space))
+    })
+    .await
 }
 
 pub(super) async fn update_space(
@@ -122,10 +120,26 @@ pub(super) async fn search_spaces(
 
 pub(super) async fn get_space_statistics(
     State(state): State<AppState>,
+    auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let stats = state.services.space_service.get_space_statistics().await?;
+    let mut visible_stats = Vec::new();
 
-    Ok(Json(stats))
+    for stat in stats {
+        let Some(space_id) = stat.get("space_id").and_then(|value| value.as_str()) else {
+            continue;
+        };
+
+        let Some(space) = state.services.space_service.get_space(space_id).await? else {
+            continue;
+        };
+
+        if can_user_view_space(&state, &space, &auth_user).await? {
+            visible_stats.push(stat);
+        }
+    }
+
+    Ok(Json(visible_stats))
 }
 
 pub(super) fn create_space_lifecycle_query_routes() -> Router<AppState> {

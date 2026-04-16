@@ -501,6 +501,61 @@ async fn validate_federation_origin_in_room(
     ))
 }
 
+async fn validate_federation_origin_can_observe_room(
+    state: &AppState,
+    room_id: &str,
+    origin: &str,
+) -> ApiResult<()> {
+    let joined_members = state
+        .services
+        .member_storage
+        .get_room_members(room_id, "join")
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to load room members: {}", e)))?;
+
+    if joined_members
+        .iter()
+        .any(|member| user_matches_origin(&member.user_id, origin))
+    {
+        return Ok(());
+    }
+
+    Err(ApiError::not_found("Room not found".to_string()))
+}
+
+async fn validate_federation_origin_shares_user_room(
+    state: &AppState,
+    user_id: &str,
+    origin: &str,
+) -> ApiResult<()> {
+    let joined_room_ids = state
+        .services
+        .room_storage
+        .get_user_rooms(user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to load user rooms: {}", e)))?;
+
+    for room_id in joined_room_ids {
+        let joined_members = state
+            .services
+            .member_storage
+            .get_room_members(&room_id, "join")
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to load room members: {}", e)))?;
+
+        if joined_members
+            .iter()
+            .any(|member| user_matches_origin(&member.user_id, origin))
+        {
+            return Ok(());
+        }
+    }
+
+    Err(ApiError::forbidden(
+        "Authenticated server does not share a room with this user".to_string(),
+    ))
+}
+
 fn increment_counter(state: &AppState, name: &str) {
     if let Some(counter) = state.services.metrics.get_counter(name) {
         counter.inc();
@@ -1158,6 +1213,8 @@ async fn get_user_devices(
         ));
     }
 
+    validate_federation_origin_shares_user_room(&state, &user_id, &_auth.origin).await?;
+
     let devices = state
         .services
         .device_storage
@@ -1564,7 +1621,7 @@ async fn send_transaction(
             if let Err(error) = state
                 .services
                 .auth_service
-                .verify_state_event_write(room_id, user_id, event_type, false)
+                .verify_state_event_write(room_id, user_id, event_type)
                 .await
             {
                 increment_counter(&state, "federation_inbound_txn_pdu_error_total");
@@ -1936,14 +1993,15 @@ async fn get_missing_events(
 async fn get_event_auth(
     State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path((room_id, _event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
 
+    let event = get_room_event_in_room(&state, &room_id, &event_id).await?;
     let auth_events = state
         .services
         .event_storage
-        .get_state_events(&room_id)
+        .get_state_events_at_or_before(&room_id, event.origin_server_ts)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get auth events: {}", e)))?;
 
@@ -2128,6 +2186,57 @@ fn build_federation_state_payload(
     (pdus, auth_chain)
 }
 
+#[derive(Deserialize, Default)]
+struct FederationStateAtEventQuery {
+    event_id: Option<String>,
+}
+
+async fn get_room_event_in_room(
+    state: &AppState,
+    room_id: &str,
+    event_id: &str,
+) -> Result<crate::storage::event::RoomEvent, ApiError> {
+    let event = state
+        .services
+        .event_storage
+        .get_event(event_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+    if event.room_id != room_id {
+        return Err(ApiError::bad_request(
+            "Event does not belong to this room".to_string(),
+        ));
+    }
+
+    Ok(event)
+}
+
+async fn load_federation_state_events(
+    state: &AppState,
+    room_id: &str,
+    event_id: Option<&str>,
+) -> Result<Vec<crate::storage::event::StateEvent>, ApiError> {
+    match event_id {
+        Some(event_id) => {
+            let event = get_room_event_in_room(state, room_id, event_id).await?;
+            state
+                .services
+                .event_storage
+                .get_state_events_at_or_before(room_id, event.origin_server_ts)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))
+        }
+        None => state
+            .services
+            .event_storage
+            .get_state_events(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e))),
+    }
+}
+
 async fn query_destination(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let _ = state;
     Err(ApiError::not_found(
@@ -2139,15 +2248,11 @@ async fn get_state(
     State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
+    Query(query): Query<FederationStateAtEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+    validate_federation_origin_can_observe_room(&state, &room_id, &auth.origin).await?;
 
-    let mut events = state
-        .services
-        .event_storage
-        .get_state_events(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+    let mut events = load_federation_state_events(&state, &room_id, query.event_id.as_deref()).await?;
     let (pdus, auth_chain) =
         build_federation_state_payload(&state.services.server_name, &mut events);
 
@@ -2163,15 +2268,11 @@ async fn get_state_ids(
     State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
+    Query(query): Query<FederationStateAtEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+    validate_federation_origin_can_observe_room(&state, &room_id, &auth.origin).await?;
 
-    let mut events = state
-        .services
-        .event_storage
-        .get_state_events(&room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+    let mut events = load_federation_state_events(&state, &room_id, query.event_id.as_deref()).await?;
     sort_state_events_stably(&mut events);
 
     let pdu_ids: Vec<String> = events.iter().map(|event| event.event_id.clone()).collect();
@@ -2234,13 +2335,14 @@ async fn room_directory_query(
 #[axum::debug_handler]
 async fn profile_query(
     State(state): State<AppState>,
+    Extension(auth): Extension<FederationRequestAuth>,
     Query(params): Query<FederationProfileQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = params
         .user_id
         .ok_or_else(|| ApiError::bad_request("Missing user_id query parameter".to_string()))?;
 
-    build_profile_query_response(&state, &user_id, params.field.as_deref()).await
+    build_profile_query_response(&state, &auth.origin, &user_id, params.field.as_deref()).await
 }
 
 #[derive(Deserialize)]
@@ -2265,17 +2367,26 @@ struct FederationHierarchyQueryParams {
 #[axum::debug_handler]
 async fn profile_query_legacy(
     State(state): State<AppState>,
+    Extension(auth): Extension<FederationRequestAuth>,
     Path(user_id): Path<String>,
     Query(params): Query<FederationProfileFieldQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    build_profile_query_response(&state, &user_id, params.field.as_deref()).await
+    build_profile_query_response(&state, &auth.origin, &user_id, params.field.as_deref()).await
 }
 
 async fn build_profile_query_response(
     state: &AppState,
+    origin: &str,
     user_id: &str,
     field: Option<&str>,
 ) -> Result<Json<Value>, ApiError> {
+    if matches!(field, Some(value) if value != "displayname" && value != "avatar_url") {
+        return Err(ApiError::bad_request(
+            "Invalid field parameter. Allowed values are 'displayname' or 'avatar_url'"
+                .to_string(),
+        ));
+    }
+
     if !user_matches_origin(user_id, &state.services.server_name) {
         return Err(ApiError::not_found(
             "User is not hosted on this server".to_string(),
@@ -2286,8 +2397,9 @@ async fn build_profile_query_response(
         .services
         .registration_service
         .get_profile(user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get profile: {}", e)))?;
+        .await?;
+
+    validate_federation_origin_shares_user_room(state, user_id, origin).await?;
 
     let displayname = profile.get("displayname").cloned().unwrap_or(Value::Null);
     let avatar_url = profile.get("avatar_url").cloned().unwrap_or(Value::Null);
@@ -2303,12 +2415,7 @@ async fn build_profile_query_response(
         Some("avatar_url") => json!({
             "avatar_url": avatar_url
         }),
-        Some(_) => {
-            return Err(ApiError::bad_request(
-                "Invalid field parameter. Allowed values are 'displayname' or 'avatar_url'"
-                    .to_string(),
-            ));
-        }
+        Some(_) => unreachable!("field was validated above"),
     };
 
     Ok(Json(response))
@@ -2443,7 +2550,7 @@ async fn backfill(
     Path(room_id): Path<String>,
     RawQuery(raw_query): RawQuery,
 ) -> Result<Json<Value>, ApiError> {
-    validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+    validate_federation_origin_can_observe_room(&state, &room_id, &auth.origin).await?;
 
     let (v, limit) = parse_backfill_query(raw_query)?;
 
@@ -2454,11 +2561,17 @@ async fn backfill(
         limit
     );
 
-    // 1. Fetch events from local storage (Simulating backfill)
+    let mut backfill_before_ts = i64::MAX;
+    for event_id in &v {
+        let event = get_room_event_in_room(&state, &room_id, event_id).await?;
+        backfill_before_ts = backfill_before_ts.min(event.origin_server_ts);
+    }
+
+    // Fetch only events older than the requested frontier to avoid disclosing newer room history.
     let mut events = state
         .services
         .event_storage
-        .get_room_events(&room_id, limit)
+        .get_room_events_paginated(&room_id, Some(backfill_before_ts), limit, "b")
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     sort_room_events_stably(&mut events);
@@ -2466,7 +2579,7 @@ async fn backfill(
     let mut auth_events = state
         .services
         .event_storage
-        .get_state_events(&room_id)
+        .get_state_events_at_or_before(&room_id, backfill_before_ts)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get auth chain: {}", e)))?;
     let (_, auth_chain) =
@@ -2495,8 +2608,28 @@ async fn keys_claim(
     Extension(auth): Extension<FederationRequestAuth>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
+    let mut request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
         .map_err(|e| ApiError::bad_request(format!("Invalid claim request: {}", e)))?;
+
+    if let Some(one_time_keys) = request.one_time_keys.as_object_mut() {
+        let requested_users = one_time_keys.keys().cloned().collect::<Vec<_>>();
+        let mut allowed_local_users = std::collections::HashSet::new();
+
+        for user_id in requested_users {
+            if !user_matches_origin(&user_id, &state.services.server_name) {
+                continue;
+            }
+
+            if validate_federation_origin_shares_user_room(&state, &user_id, &auth.origin)
+                .await
+                .is_ok()
+            {
+                allowed_local_users.insert(user_id);
+            }
+        }
+
+        one_time_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
+    }
 
     ::tracing::info!(
         target: "security_audit",
@@ -2522,8 +2655,28 @@ async fn keys_query(
     Extension(auth): Extension<FederationRequestAuth>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body)
+    let mut request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body)
         .map_err(|e| ApiError::bad_request(format!("Invalid query request: {}", e)))?;
+
+    if let Some(device_keys) = request.device_keys.as_object_mut() {
+        let requested_users = device_keys.keys().cloned().collect::<Vec<_>>();
+        let mut allowed_local_users = std::collections::HashSet::new();
+
+        for user_id in requested_users {
+            if !user_matches_origin(&user_id, &state.services.server_name) {
+                continue;
+            }
+
+            if validate_federation_origin_shares_user_room(&state, &user_id, &auth.origin)
+                .await
+                .is_ok()
+            {
+                allowed_local_users.insert(user_id);
+            }
+        }
+
+        device_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
+    }
 
     ::tracing::info!(
         target: "security_audit",
@@ -3068,6 +3221,18 @@ async fn openid_userinfo(
         .validate_token(access_token)
         .await?
         .ok_or_else(|| ApiError::unauthorized("Invalid or expired OpenID token".to_string()))?;
+
+    let user_exists = state
+        .services
+        .user_storage
+        .user_exists(&token.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to validate OpenID token subject: {}", e)))?;
+    if !user_exists {
+        return Err(ApiError::unauthorized(
+            "Invalid or expired OpenID token".to_string(),
+        ));
+    }
 
     Ok(Json(json!({
         "sub": token.user_id

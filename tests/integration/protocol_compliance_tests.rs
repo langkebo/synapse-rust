@@ -199,7 +199,7 @@ fn test_receipt_insert() {
             room_storage.add_receipt(sender, target, room_id, event_id, "m.read").await.unwrap();
             // Query from event_receipts table which is what add_receipt actually uses
             let row: (String, String, String,) = sqlx::query_as("SELECT room_id, receipt_type, event_id FROM event_receipts WHERE room_id = $1 AND event_id = $2 AND user_id = $3")
-                .bind(room_id).bind(event_id).bind(target).fetch_one(&pool).await.unwrap();
+                .bind(room_id).bind(event_id).bind(sender).fetch_one(&pool).await.unwrap();
             assert_eq!(row.0, room_id);
             assert_eq!(row.1, "m.read".to_string());
             assert_eq!(row.2, event_id);

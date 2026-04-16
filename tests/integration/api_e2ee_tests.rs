@@ -67,6 +67,92 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
     json["room_id"].as_str().unwrap().to_string()
 }
 
+async fn invite_user_to_room(
+    app: &axum::Router,
+    inviter_token: &str,
+    room_id: &str,
+    invitee_user_id: &str,
+) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .header("Authorization", format!("Bearer {}", inviter_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "user_id": invitee_user_id }).to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn upload_test_device_keys(
+    app: &axum::Router,
+    token: &str,
+    user_id: &str,
+    device_id: &str,
+    include_one_time_key: bool,
+) {
+    let one_time_keys = if include_one_time_key {
+        json!({
+            format!("signed_curve25519:{}_otk", device_id): {
+                "key": format!("{}_otk_value", device_id)
+            }
+        })
+    } else {
+        json!({})
+    };
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/upload")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_keys": {
+                    "user_id": user_id,
+                    "device_id": device_id,
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+                    "keys": {
+                        format!("curve25519:{}", device_id): format!("{}_curve", device_id),
+                        format!("ed25519:{}", device_id): format!("{}_ed", device_id)
+                    },
+                    "signatures": {
+                        user_id: {
+                            format!("ed25519:{}", device_id): format!("{}_sig", device_id)
+                        }
+                    }
+                },
+                "one_time_keys": one_time_keys
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
 #[tokio::test]
 async fn test_e2ee_keys() {
     let Some(app) = setup_test_app().await else {
@@ -456,6 +542,207 @@ async fn test_verification_routes_work_across_v1_and_r0() {
         .await
         .unwrap();
     assert_eq!(v3_start_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_keys_query_filters_users_without_shared_rooms() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (alice_token, alice_user_id) =
+        register_user(&app, &format!("e2ee_query_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_query_bob_{}", rand::random::<u32>())).await;
+
+    upload_test_device_keys(&app, &bob_token, &bob_user_id, "BOB_QUERY_DEVICE", false).await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/query")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_keys": {
+                    alice_user_id.clone(): [],
+                    bob_user_id.clone(): []
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 32 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert!(json["device_keys"].get(&alice_user_id).is_some());
+    assert!(json["device_keys"].get(&bob_user_id).is_none());
+}
+
+#[tokio::test]
+async fn test_keys_query_allows_users_with_shared_rooms() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_room_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_room_bob_{}", rand::random::<u32>())).await;
+
+    upload_test_device_keys(&app, &bob_token, &bob_user_id, "BOB_SHARED_DEVICE", false).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Shared Query Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/query")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_keys": {
+                    bob_user_id.clone(): []
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 32 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert!(json["device_keys"].get(&bob_user_id).is_some());
+}
+
+#[tokio::test]
+async fn test_keys_claim_filters_users_without_shared_rooms() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_claim_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_claim_bob_{}", rand::random::<u32>())).await;
+
+    upload_test_device_keys(&app, &bob_token, &bob_user_id, "BOB_CLAIM_DEVICE", true).await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/claim")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "one_time_keys": {
+                    bob_user_id.clone(): {
+                        "BOB_CLAIM_DEVICE": "signed_curve25519"
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 32 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert!(json["one_time_keys"].get(&bob_user_id).is_none());
+}
+
+#[tokio::test]
+async fn test_key_changes_filters_users_without_shared_rooms() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_changes_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_changes_bob_{}", rand::random::<u32>())).await;
+
+    upload_test_device_keys(&app, &bob_token, &bob_user_id, "BOB_CHANGE_DEVICE", false).await;
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/r0/keys/changes?from=0&to=1000")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 32 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let changed = json["changed"].as_array().unwrap();
+    let left = json["left"].as_array().unwrap();
+
+    assert!(!changed.iter().any(|entry| entry == &json!(bob_user_id)));
+    assert!(!left.iter().any(|entry| entry == &json!(bob_user_id)));
+}
+
+#[tokio::test]
+async fn test_key_changes_allows_users_with_shared_rooms() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_shared_changes_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_shared_changes_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Shared Changes Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+    upload_test_device_keys(&app, &bob_token, &bob_user_id, "BOB_SHARED_CHANGE_DEVICE", false).await;
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/r0/keys/changes?from=0&to=1000")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 32 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let changed = json["changed"].as_array().unwrap();
+    let left = json["left"].as_array().unwrap();
+
+    assert!(changed.iter().any(|entry| entry == &json!(bob_user_id)));
+    assert!(!left.iter().any(|entry| entry == &json!(bob_user_id)));
 }
 
 #[tokio::test]

@@ -872,6 +872,16 @@ pub struct Config {
     /// 性能优化配置
     #[serde(default)]
     pub performance: PerformanceConfig,
+    /// 实验性功能配置
+    #[serde(default)]
+    pub experimental: ExperimentalConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ExperimentalConfig {
+    /// 是否在顶层路由中挂载 OpenClaw 用户路由
+    #[serde(default)]
+    pub openclaw_routes_enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2442,6 +2452,7 @@ mod tests {
             telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
             performance: PerformanceConfig::default(),
+            experimental: ExperimentalConfig::default(),
         };
 
         let url = config.database_url();
@@ -2578,6 +2589,7 @@ mod tests {
             telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
             performance: PerformanceConfig::default(),
+            experimental: ExperimentalConfig::default(),
             ..Config::default()
         };
 

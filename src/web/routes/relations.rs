@@ -52,7 +52,8 @@ pub fn create_relations_router(state: AppState) -> Router<AppState> {
 pub struct RelationsQuery {
     limit: Option<i64>,
     from: Option<String>,
-    to: Option<String>,
+    #[serde(rename = "to")]
+    _to: Option<String>,
     #[serde(rename = "dir")]
     direction: Option<String>,
 }

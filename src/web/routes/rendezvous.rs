@@ -137,10 +137,6 @@ async fn ensure_rendezvous_session_access(
         )));
     }
 
-    if auth_user.is_admin {
-        return Ok(session);
-    }
-
     if let (Some(auth_user_id), Some(bound_user_id)) =
         (auth_user.user_id.as_ref(), session.user_id.as_ref())
     {
