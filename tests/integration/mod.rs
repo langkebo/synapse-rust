@@ -25,6 +25,8 @@ mod api_input_validation_tests;
 mod api_invite_blocklist_routes_tests;
 mod api_ip_block_test;
 mod api_media_routes_tests;
+#[cfg(feature = "openclaw-routes")]
+mod api_openclaw_routes_tests;
 mod api_placeholder_contract_p0_tests;
 mod api_placeholder_contract_p1p2_tests;
 mod api_profile_tests;
@@ -44,6 +46,7 @@ mod api_sliding_sync_contract_tests;
 mod api_space_routes_tests;
 mod api_sync_filter_tests;
 mod api_sync_isolation_rate_limit_tests;
+mod api_sticky_event_tests;
 mod api_telemetry_alerts_tests;
 mod api_typing_routes_tests;
 mod api_widget_tests;
@@ -134,6 +137,14 @@ pub async fn setup_test_app() -> Option<axum::Router> {
 }
 
 pub async fn get_admin_token(app: &axum::Router) -> (String, String) {
+    register_admin_token(app, None).await
+}
+
+pub async fn get_super_admin_token(app: &axum::Router) -> (String, String) {
+    register_admin_token(app, Some("super_admin")).await
+}
+
+async fn register_admin_token(app: &axum::Router, user_type: Option<&str>) -> (String, String) {
     use axum::body::Body;
     use hyper::Request;
     use tower::ServiceExt;
@@ -166,7 +177,13 @@ pub async fn get_admin_token(app: &axum::Router) -> (String, String) {
     use sha1::Sha1;
     type HmacSha1 = Hmac<Sha1>;
 
-    let mac_content = format!("{}\0{}\0{}\0admin", nonce, username, "AdminTest@123");
+    let mac_content = match user_type {
+        Some(user_type) => format!(
+            "{}\0{}\0{}\0admin\0{}",
+            nonce, username, "AdminTest@123", user_type
+        ),
+        None => format!("{}\0{}\0{}\0admin", nonce, username, "AdminTest@123"),
+    };
     let mut mac = HmacSha1::new_from_slice(shared_secret.as_bytes()).unwrap();
     mac.update(mac_content.as_bytes());
     let mac_result = mac.finalize();
@@ -183,6 +200,7 @@ pub async fn get_admin_token(app: &axum::Router) -> (String, String) {
                 "username": &username,
                 "password": "AdminTest@123",
                 "admin": true,
+                "user_type": user_type,
                 "mac": mac_hex
             })
             .to_string(),

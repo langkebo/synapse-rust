@@ -1,5 +1,4 @@
 use crate::storage::device::DeviceStorage;
-use crate::storage::token::AccessTokenStorage;
 use crate::storage::user::UserStorage;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
@@ -7,7 +6,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use validator::Validate;
@@ -32,7 +30,16 @@ pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>
     .await
     .map_err(|e| ApiError::internal(format!("Failed to create guest user: {}", e)))?;
 
-    let now = Utc::now().timestamp_millis();
+    sqlx::query(
+        r#"
+        UPDATE users SET is_guest = TRUE WHERE user_id = $1
+        "#,
+    )
+    .bind(&user.user_id)
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to mark guest user: {}", e)))?;
+
     DeviceStorage::create_device(
         &state.services.device_storage,
         &device_id,
@@ -42,24 +49,18 @@ pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>
     .await
     .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
 
-    let access_token = format!("guest_token_{}", uuid::Uuid::new_v4());
-    let expires_at = now + 86400000;
-
-    AccessTokenStorage::create_token(
-        &state.services.token_storage,
-        &access_token,
-        &user.user_id,
-        Some(&device_id),
-        Some(expires_at),
-    )
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to store token: {}", e)))?;
+    let access_token = state
+        .services
+        .auth_service
+        .generate_access_token(&user.user_id, &device_id, false)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to generate guest token: {}", e)))?;
 
     Ok(Json(json!({
         "access_token": access_token,
         "device_id": device_id,
         "user_id": user.user_id,
-        "expires_in": 86400,
+        "expires_in": state.services.auth_service.token_expiry,
     })))
 }
 

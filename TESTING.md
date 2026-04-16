@@ -33,7 +33,7 @@
 
 | 分类 | 入口 | 作用 | 是否阻断发布 | 备注 |
 |-----|------|------|-------------|------|
-| 主门禁 | `cargo fmt --all -- --check` / `cargo clippy --all-features --locked -- -D warnings` / `cargo test --doc --locked` / `bash scripts/run_ci_tests.sh` / `bash scripts/detect_shell_routes.sh` | 保障格式、静态检查、文档测试、默认回归与仓库治理检查 | 是 | 当前发布判断应以 `.github/workflows/ci.yml` 的 blocking 路径为准 |
+| 主门禁 | `cargo fmt --all -- --check` / `cargo clippy --all-features --locked -- -D warnings` / `cargo test --doc --locked` / `bash scripts/run_ci_tests.sh` / `bash scripts/detect_shell_routes.sh` / `bash scripts/detect_unwired_route_candidates.sh` | 保障格式、静态检查、文档测试、默认回归与仓库治理检查 | 是 | 当前发布判断应以 `.github/workflows/ci.yml` 的 blocking 路径为准 |
 | 扩展验证 | `cargo test --test e2e -- --ignored --nocapture`、覆盖率、专项能力验证、Criterion 基准 | 补充用户路径、覆盖率与专项能力证据 | 否（默认） | 仅补充证据，不自动升级为“已实现并验证” |
 | 手动分析 | `cargo test --features performance-tests --test performance_manual -- --nocapture` | 手动性能分析与人工观察 | 否 | 不计入常规发布门禁 |
 
@@ -50,6 +50,7 @@
 |---------|------|------|
 | `bash scripts/run_ci_tests.sh` | 主门禁 | 当前 CI 等价默认测试入口 |
 | `bash scripts/detect_shell_routes.sh` | 主门禁 | 阻断新增 shell route / 空成功响应回归 |
+| `bash scripts/detect_unwired_route_candidates.sh` | 主门禁 | 阻断新增未接线的导出路由 handler / router factory |
 | `cargo test --test e2e -- --ignored --nocapture` | 扩展验证 | 真实流程需显式启用，默认不纳入自动主门禁 |
 | `cargo tarpaulin --output-dir coverage/ --html` | 扩展验证 | 提供覆盖率证据，不单独阻断发布 |
 | `cargo bench --bench performance_api_benchmarks --no-run` | 扩展验证 | 性能专项基准 |
@@ -63,6 +64,7 @@
 ```bash
 # CI 等价默认回归入口
 bash scripts/run_ci_tests.sh
+bash scripts/detect_unwired_route_candidates.sh
 
 # 仅单元测试
 cargo test --test unit

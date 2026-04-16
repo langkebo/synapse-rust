@@ -1075,15 +1075,8 @@ impl RoomService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
-        let inviter = self
-            .user_storage
-            .get_user_by_id(inviter_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to load inviter: {}", e)))?
-            .ok_or_else(|| ApiError::not_found("Inviter not found".to_string()))?;
-
         self.auth_service
-            .can_invite_user(room_id, inviter_id, inviter.is_admin)
+            .can_invite_user(room_id, inviter_id)
             .await?;
 
         self.member_storage
@@ -1106,6 +1099,74 @@ impl RoomService {
             .map_err(|e| ApiError::internal(format!("Failed to check room: {}", e)))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
+        }
+
+        let effective_join_rule = if let Some(event) = self
+            .event_storage
+            .get_state_events_by_type(room_id, "m.room.join_rules")
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to load room join rules: {}", e)))?
+            .into_iter()
+            .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
+        {
+            event
+                .content
+                .get("join_rule")
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_string())
+        } else {
+            None
+        };
+
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to load room: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+
+        let join_rule = effective_join_rule
+            .or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone()))
+            .unwrap_or_else(|| {
+                if room.is_public {
+                    "public".to_string()
+                } else {
+                    "invite".to_string()
+                }
+            });
+
+        let existing_member = self
+            .member_storage
+            .get_room_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+
+        if let Some(member) = existing_member.as_ref() {
+            match member.membership.as_str() {
+                "join" => {
+                    return Err(ApiError::bad_request(
+                        "You are already joined to this room".to_string(),
+                    ));
+                }
+                "invite" => {
+                    return Err(ApiError::forbidden(
+                        "You have already been invited to this room".to_string(),
+                    ));
+                }
+                "ban" => {
+                    return Err(ApiError::forbidden(
+                        "You are banned from this room".to_string(),
+                    ));
+                }
+                "knock" => return Ok(()),
+                _ => {}
+            }
+        }
+
+        if join_rule != "knock" && join_rule != "knock_restricted" {
+            return Err(ApiError::forbidden(
+                "Room does not allow knock".to_string(),
+            ));
         }
 
         self.member_storage
@@ -1140,15 +1201,8 @@ impl RoomService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
-        let actor = self
-            .user_storage
-            .get_user_by_id(banned_by)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to load banning user: {}", e)))?
-            .ok_or_else(|| ApiError::not_found("Banning user not found".to_string()))?;
-
         self.auth_service
-            .can_ban_user(room_id, banned_by, user_id, actor.is_admin)
+            .can_ban_user(room_id, banned_by, user_id)
             .await?;
 
         self.member_storage
@@ -1545,6 +1599,20 @@ impl RoomService {
             .create_event(params, tx)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to create event: {}", e)))?;
+
+        if should_update_summary
+            && event_type == "m.room.canonical_alias"
+            && state_key.as_deref() == Some("")
+        {
+            let canonical_alias = event.content.get("alias").and_then(|value| value.as_str());
+            if let Err(error) = self
+                .room_storage
+                .set_canonical_alias(&room_id, canonical_alias)
+                .await
+            {
+                ::tracing::warn!("Failed to project canonical alias onto room: {}", error);
+            }
+        }
 
         if should_update_summary {
             if let Err(error) = self

@@ -30,6 +30,7 @@ pub mod media;
 pub mod moderation;
 pub mod module;
 pub mod oidc;
+#[cfg(feature = "openclaw-routes")]
 pub mod openclaw;
 pub mod pinned;
 pub mod presence;
@@ -95,7 +96,9 @@ pub(crate) use extractors::extract_token_from_headers;
 pub use extractors::{
     AdminUser, AuthExtractor, AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser,
 };
-pub(crate) use room_access::{ensure_room_member, ensure_room_member_or_admin};
+pub(crate) use room_access::{
+    ensure_room_member, is_joined_room_member, is_joined_room_member_or_creator,
+};
 pub use feature_flags::create_feature_flags_router;
 pub use federation::create_federation_router;
 pub use friend_room::create_friend_router;
@@ -127,6 +130,7 @@ pub use media::create_media_router;
 pub use moderation::create_moderation_router;
 pub use module::create_module_router;
 pub use oidc::create_oidc_router;
+#[cfg(feature = "openclaw-routes")]
 pub use openclaw::create_openclaw_router;
 pub use presence::create_presence_router;
 pub use push::create_push_router;

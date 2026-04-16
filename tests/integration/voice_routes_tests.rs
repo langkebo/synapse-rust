@@ -86,6 +86,49 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
     json["room_id"].as_str().unwrap().to_string()
 }
 
+async fn create_call_session(
+    app: &axum::Router,
+    token: &str,
+    room_id: &str,
+    call_id: &str,
+) -> (StatusCode, String) {
+    let encoded_room_id = urlencoding::encode(room_id);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!(
+                    "/_matrix/client/v3/rooms/{}/send/m.call.invite/test_txn",
+                    encoded_room_id
+                ))
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "call_id": call_id,
+                        "version": 1,
+                        "offer": {
+                            "type": "offer",
+                            "sdp": "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n"
+                        },
+                        "lifetime": 60000
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, String::from_utf8_lossy(&body).to_string())
+}
+
 async fn upload_voice_message(
     app: &axum::Router,
     token: &str,
@@ -532,6 +575,41 @@ async fn test_voice_message_content_requires_message_access() {
 }
 
 #[tokio::test]
+async fn test_voice_message_content_forbids_admin_override() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let owner_token = create_test_user(&app).await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
+    let room_id = create_room(&app, &owner_token).await;
+
+    let (upload_status, upload_json) =
+        upload_voice_message(&app, &owner_token, Some(&room_id)).await;
+    assert_eq!(upload_status, StatusCode::OK);
+    let event_id = upload_json["event_id"].as_str().unwrap();
+
+    let admin_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/_matrix/client/r0/voice/{}", event_id))
+                .method("GET")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(admin_response.status(), StatusCode::FORBIDDEN);
+
+    let body = axum::body::to_bytes(admin_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], "M_FORBIDDEN");
+}
+
+#[tokio::test]
 async fn test_voice_transcription_requires_message_access() {
     let Some(app) = setup_test_app().await else {
         return;
@@ -608,7 +686,7 @@ async fn test_voice_delete_requires_message_ownership() {
 }
 
 #[tokio::test]
-async fn test_voice_delete_allows_admin_override() {
+async fn test_voice_delete_forbids_admin_override() {
     let Some(app) = setup_test_app().await else {
         return;
     };
@@ -633,14 +711,13 @@ async fn test_voice_delete_allows_admin_override() {
         )
         .await
         .unwrap();
-    assert_eq!(admin_response.status(), StatusCode::OK);
+    assert_eq!(admin_response.status(), StatusCode::FORBIDDEN);
 
     let body = axum::body::to_bytes(admin_response.into_body(), usize::MAX)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["deleted"], true);
-    assert_eq!(json["message_id"], event_id);
+    assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
 
 #[tokio::test]
@@ -720,4 +797,70 @@ async fn test_voip_routes_work_across_r0_and_v3() {
         .await
         .unwrap();
     assert_eq!(r0_call_response.status(), v3_call_response.status());
+}
+
+#[tokio::test]
+async fn test_call_invite_rejects_non_members() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let owner_token = create_test_user(&app).await;
+    let outsider_token = create_test_user(&app).await;
+    let room_id = create_room(&app, &owner_token).await;
+    let call_id = format!("call_{}", rand::random::<u32>());
+
+    let (status, body) = create_call_session(&app, &outsider_token, &room_id, &call_id).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "unexpected response body: {}", body);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["errcode"], "M_FORBIDDEN");
+}
+
+#[tokio::test]
+async fn test_get_call_session_rejects_non_members() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let owner_token = create_test_user(&app).await;
+    let outsider_token = create_test_user(&app).await;
+    let room_id = create_room(&app, &owner_token).await;
+    let call_id = format!("call_{}", rand::random::<u32>());
+
+    let (invite_status, invite_body) = create_call_session(&app, &owner_token, &room_id, &call_id).await;
+    assert_eq!(invite_status, StatusCode::OK, "unexpected invite response body: {}", invite_body);
+    let invite_body: Value = serde_json::from_str(&invite_body).unwrap();
+    assert_eq!(invite_body["call_id"], call_id);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/_matrix/client/v3/rooms/{}/call/{}",
+                    urlencoding::encode(&room_id),
+                    urlencoding::encode(&call_id)
+                ))
+                .header("Authorization", format!("Bearer {}", outsider_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "unexpected get_call_session response body: {}",
+        String::from_utf8_lossy(&body)
+    );
+    assert_eq!(json["errcode"], "M_FORBIDDEN");
 }

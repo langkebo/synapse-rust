@@ -17,7 +17,6 @@ struct MemoryCache {
 
 struct CacheEntryInner {
     value: Vec<u8>,
-    created_at: i64,
     expires_at: Option<i64>,
     hit_count: u64,
 }
@@ -103,7 +102,6 @@ impl CacheService {
         } else {
             let entry = CacheEntryInner {
                 value,
-                created_at: now,
                 expires_at,
                 hit_count: 1,
             };

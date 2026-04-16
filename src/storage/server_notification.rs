@@ -628,6 +628,7 @@ mod tests {
     use super::*;
     use chrono::{Duration, Utc};
 
+    #[allow(dead_code)]
     fn create_test_request() -> CreateNotificationRequest {
         CreateNotificationRequest {
             title: "Test Notification".to_string(),

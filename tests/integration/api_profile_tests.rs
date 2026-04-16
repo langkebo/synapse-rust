@@ -22,6 +22,14 @@ async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)>
     Some((synapse_rust::web::create_router(state), pool))
 }
 
+async fn promote_to_admin(pool: &sqlx::PgPool, user_id: &str) {
+    sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .expect("failed to promote user to admin");
+}
+
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let request = Request::builder()
         .method("POST")
@@ -469,6 +477,36 @@ async fn test_private_profile_subfields_follow_profile_visibility() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["avatar_url"], "mxc://localhost/alice-private");
+}
+
+#[tokio::test]
+async fn test_admin_cannot_update_another_users_profile_via_client_api() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("profile_admin_{}", rand::random::<u32>())).await;
+    let (_target_token, target_user_id) =
+        register_user(&app, &format!("profile_target_{}", rand::random::<u32>())).await;
+    promote_to_admin(&pool, &admin_user_id).await;
+
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/r0/account/profile/{}/displayname",
+            target_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "displayname": "admin overwrite" }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

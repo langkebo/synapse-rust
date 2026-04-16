@@ -672,7 +672,7 @@ async fn get_user_appservice(
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if auth_user.user_id != user_id && !auth_user.is_admin {
+    if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 

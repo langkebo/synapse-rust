@@ -191,6 +191,77 @@ impl DatabaseInitService {
             Err(e) => report.errors.push(format!("索引验证失败: {}", e)),
         }
 
+        #[cfg(feature = "runtime-ddl")]
+        if mode == DatabaseInitMode::Compatible {
+            match self.step_schema_repair().await {
+                Ok(repaired) => {
+                    if !repaired.is_empty() {
+                        info!("运行时补齐了 {} 个缺失列", repaired.len());
+                        report.repairs_performed.extend(repaired);
+                    }
+                }
+                Err(e) => {
+                    report.success = false;
+                    report
+                        .errors
+                        .push(format!("运行时列修复失败: {}", e));
+                }
+            }
+
+            match self.step_create_indexes().await {
+                Ok(created) => {
+                    if !created.is_empty() {
+                        info!("运行时补齐了 {} 个缺失索引", created.len());
+                        report.repairs_performed.extend(created);
+                    }
+                }
+                Err(e) => {
+                    report.success = false;
+                    report
+                        .errors
+                        .push(format!("运行时索引修复失败: {}", e));
+                }
+            }
+
+            match self.step_create_e2ee_tables().await {
+                Ok(message) => report.steps.push(message),
+                Err(e) => {
+                    report.success = false;
+                    report
+                        .errors
+                        .push(format!("运行时 E2EE 兼容表检查失败: {}", e));
+                }
+            }
+
+            match self.step_create_e2ee_core_tables().await {
+                Ok(message) => report.steps.push(message),
+                Err(e) => {
+                    report.success = false;
+                    report
+                        .errors
+                        .push(format!("运行时 E2EE 核心表检查失败: {}", e));
+                }
+            }
+
+            match self.step_ensure_additional_tables().await {
+                Ok(message) => report.steps.push(message),
+                Err(e) => {
+                    report.success = false;
+                    report
+                        .errors
+                        .push(format!("运行时附加表兼容检查失败: {}", e));
+                }
+            }
+
+            match self.step_schema_validation().await {
+                Ok(status) => report.schema_status = Some(status),
+                Err(e) => {
+                    report.success = false;
+                    report.errors.push(format!("运行时修复后 Schema 复检失败: {}", e));
+                }
+            }
+        }
+
         if report.success {
             self.update_init_timestamp().await?;
         }

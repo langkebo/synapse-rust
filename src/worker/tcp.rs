@@ -10,7 +10,6 @@ use tracing::{debug, error, info, warn};
 
 pub struct TcpReplicationServer {
     listener: TcpListener,
-    protocol: ReplicationProtocol,
     server_name: String,
     command_tx: Sender<ReplicationCommand>,
     command_rx: Option<Receiver<ReplicationCommand>>,
@@ -25,7 +24,6 @@ impl TcpReplicationServer {
 
         Ok(Self {
             listener,
-            protocol: ReplicationProtocol::new(),
             server_name,
             command_tx,
             command_rx: Some(command_rx),
@@ -172,16 +170,14 @@ impl TcpReplicationServer {
 pub struct TcpReplicationClient {
     stream: Option<TcpStream>,
     protocol: ReplicationProtocol,
-    server_name: String,
     worker_name: String,
 }
 
 impl TcpReplicationClient {
-    pub fn new(server_name: String, worker_name: String) -> Self {
+    pub fn new(worker_name: String) -> Self {
         Self {
             stream: None,
             protocol: ReplicationProtocol::new(),
-            server_name,
             worker_name,
         }
     }
@@ -311,22 +307,19 @@ impl TcpReplicationClient {
 #[derive(Clone)]
 pub struct ReplicationConnection {
     client: Arc<tokio::sync::Mutex<Option<TcpReplicationClient>>>,
-    server_name: String,
     worker_name: String,
 }
 
 impl ReplicationConnection {
-    pub fn new(server_name: String, worker_name: String) -> Self {
+    pub fn new(worker_name: String) -> Self {
         Self {
             client: Arc::new(tokio::sync::Mutex::new(None)),
-            server_name,
             worker_name,
         }
     }
 
     pub async fn connect(&self, addr: &str) -> Result<(), ReplicationError> {
-        let mut client =
-            TcpReplicationClient::new(self.server_name.clone(), self.worker_name.clone());
+        let mut client = TcpReplicationClient::new(self.worker_name.clone());
         client.connect(addr).await?;
 
         let mut guard = self.client.lock().await;
@@ -373,13 +366,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_replication_client_creation() {
-        let client = TcpReplicationClient::new("server.com".to_string(), "worker1".to_string());
+        let client = TcpReplicationClient::new("worker1".to_string());
         assert!(!client.is_connected());
     }
 
     #[tokio::test]
     async fn test_replication_connection() {
-        let conn = ReplicationConnection::new("server.com".to_string(), "worker1".to_string());
+        let conn = ReplicationConnection::new("worker1".to_string());
         assert!(!conn.is_connected().await);
     }
 

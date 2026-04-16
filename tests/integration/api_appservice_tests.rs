@@ -220,7 +220,7 @@ async fn test_appservice_virtual_user() {
 }
 
 #[tokio::test]
-async fn test_user_appservice_endpoint_is_self_only_for_non_admins() {
+async fn test_user_appservice_endpoint_is_self_only() {
     let Some(app) = setup_test_app().await else {
         return;
     };
@@ -262,5 +262,5 @@ async fn test_user_appservice_endpoint_is_self_only_for_non_admins() {
         .body(Body::empty())
         .unwrap();
     let response = app.oneshot(admin_request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }

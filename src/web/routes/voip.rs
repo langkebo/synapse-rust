@@ -1,8 +1,9 @@
 use crate::common::error::ApiError;
 use crate::services::VoipService;
 use crate::web::routes::response_helpers::empty_json;
-use crate::web::routes::AppState;
-use crate::web::routes::AuthenticatedUser;
+use crate::web::routes::{
+    ensure_room_member, validate_room_id, AppState, AuthenticatedUser,
+};
 use axum::{extract::Path, extract::State, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -157,14 +158,31 @@ use crate::services::call_service::{
     CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent,
 };
 
+async fn ensure_call_room_member(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+) -> Result<(), ApiError> {
+    validate_room_id(room_id)?;
+    ensure_room_member(
+        state,
+        auth_user,
+        room_id,
+        "You must be a member of this room to access call state",
+    )
+    .await
+}
+
 /// Call invite event
 #[axum::debug_handler]
 pub async fn call_invite(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path((room_id, _txn_id)): Path<(String, String)>,
     Json(content): Json<CallInviteEvent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    ensure_call_room_member(&state, &auth_user, &room_id).await?;
+
     let session = state
         .services
         .call_service
@@ -182,9 +200,11 @@ pub async fn call_invite(
 pub async fn call_candidates(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path((room_id, _txn_id)): Path<(String, String)>,
     Json(content): Json<CallCandidatesEvent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    ensure_call_room_member(&state, &auth_user, &room_id).await?;
+
     state
         .services
         .call_service
@@ -199,9 +219,11 @@ pub async fn call_candidates(
 pub async fn call_answer(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path((room_id, _txn_id)): Path<(String, String)>,
     Json(content): Json<CallAnswerEvent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    ensure_call_room_member(&state, &auth_user, &room_id).await?;
+
     let session = state
         .services
         .call_service
@@ -219,9 +241,11 @@ pub async fn call_answer(
 pub async fn call_hangup(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path((room_id, _txn_id)): Path<(String, String)>,
     Json(content): Json<CallHangupEvent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    ensure_call_room_member(&state, &auth_user, &room_id).await?;
+
     state
         .services
         .call_service
@@ -235,9 +259,11 @@ pub async fn call_hangup(
 #[axum::debug_handler]
 pub async fn get_call_session(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path((room_id, call_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    ensure_call_room_member(&state, &auth_user, &room_id).await?;
+
     let session = state
         .services
         .call_service

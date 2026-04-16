@@ -250,6 +250,256 @@ async fn test_power_levels_contract_allows_explicit_room_admin_to_kick() {
 }
 
 #[tokio::test]
+async fn test_power_levels_contract_rejects_non_members() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let owner = format!("power_levels_owner_{}", rand::random::<u32>());
+    let outsider = format!("power_levels_outsider_{}", rand::random::<u32>());
+    let (owner_token, _) = register_user(&app, &owner).await;
+    let (outsider_token, _) = register_user(&app, &outsider).await;
+
+    let room_id = create_room(&app, &owner_token, "Power Levels Membership Contract").await;
+    let encoded_room_id = encode_room_id(&room_id);
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("GET")
+            .uri(format!(
+                "/_matrix/client/v1/rooms/{}/state/m.room.power_levels/",
+                encoded_room_id
+            ))
+            .header("Authorization", format!("Bearer {}", outsider_token))
+            .body(Body::empty())
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "M_FORBIDDEN",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_membership_events_contract_rejects_non_members() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let owner = format!("membership_events_owner_{}", rand::random::<u32>());
+    let outsider = format!("membership_events_outsider_{}", rand::random::<u32>());
+    let (owner_token, _) = register_user(&app, &owner).await;
+    let (outsider_token, _) = register_user(&app, &outsider).await;
+
+    let room_id = create_room(&app, &owner_token, "Membership Events Contract").await;
+    let encoded_room_id = encode_room_id(&room_id);
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/_matrix/client/r0/rooms/{}/get_membership_events",
+                encoded_room_id
+            ))
+            .header("Authorization", format!("Bearer {}", outsider_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "limit": 10 }).to_string()))
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "M_FORBIDDEN",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_pinned_events_contract_rejects_non_members() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let owner = format!("pinned_owner_{}", rand::random::<u32>());
+    let outsider = format!("pinned_outsider_{}", rand::random::<u32>());
+    let (owner_token, _) = register_user(&app, &owner).await;
+    let (outsider_token, _) = register_user(&app, &outsider).await;
+
+    let room_id = create_room(&app, &owner_token, "Pinned Events Visibility Contract").await;
+    let encoded_room_id = encode_room_id(&room_id);
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("GET")
+            .uri(format!(
+                "/_matrix/client/r0/rooms/{}/pinned_events",
+                encoded_room_id
+            ))
+            .header("Authorization", format!("Bearer {}", outsider_token))
+            .body(Body::empty())
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "M_FORBIDDEN",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_pin_event_contract_rejects_non_members() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let owner = format!("pin_event_owner_{}", rand::random::<u32>());
+    let outsider = format!("pin_event_outsider_{}", rand::random::<u32>());
+    let (owner_token, _) = register_user(&app, &owner).await;
+    let (outsider_token, _) = register_user(&app, &outsider).await;
+
+    let room_id = create_room(&app, &owner_token, "Pinned Events Write Contract").await;
+    let event_id = send_message(&app, &owner_token, &room_id, "pin_non_member_txn").await;
+    let encoded_room_id = encode_room_id(&room_id);
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/_matrix/client/r0/rooms/{}/pinned_events",
+                encoded_room_id
+            ))
+            .header("Authorization", format!("Bearer {}", outsider_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "event_id": event_id }).to_string()))
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "M_FORBIDDEN",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_pin_event_contract_rejects_regular_members_without_power() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let owner = format!("pin_member_owner_{}", rand::random::<u32>());
+    let member = format!("pin_member_joined_{}", rand::random::<u32>());
+    let (owner_token, _) = register_user(&app, &owner).await;
+    let (member_token, member_user_id) = register_user(&app, &member).await;
+
+    let room_id = create_room(&app, &owner_token, "Pinned Events Power Contract").await;
+    let event_id = send_message(&app, &owner_token, &room_id, "pin_member_txn").await;
+    invite_user(&app, &owner_token, &room_id, &member_user_id).await;
+    join_room(&app, &member_token, &room_id).await;
+    let encoded_room_id = encode_room_id(&room_id);
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/_matrix/client/r0/rooms/{}/pinned_events",
+                encoded_room_id
+            ))
+            .header("Authorization", format!("Bearer {}", member_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "event_id": event_id }).to_string()))
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "M_FORBIDDEN",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_search_rooms_contract_hides_private_rooms_from_outsiders() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let owner = format!("search_private_owner_{}", rand::random::<u32>());
+    let outsider = format!("search_private_outsider_{}", rand::random::<u32>());
+    let room_name = format!("Private Search Contract {}", rand::random::<u32>());
+    let (owner_token, _) = register_user(&app, &owner).await;
+    let (outsider_token, _) = register_user(&app, &outsider).await;
+
+    let room_id = create_room(&app, &owner_token, &room_name).await;
+
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("POST")
+            .uri("/_matrix/client/r0/search_rooms")
+            .header("Authorization", format!("Bearer {}", outsider_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({ "search_term": room_name, "limit": 10 }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let results = json["results"].as_array().unwrap();
+    assert!(
+        !results
+            .iter()
+            .any(|room| room["room_id"].as_str() == Some(room_id.as_str())),
+        "Outsiders should not discover private rooms via search_rooms"
+    );
+}
+
+#[tokio::test]
+async fn test_search_rooms_contract_allows_members_to_find_joined_private_rooms() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let owner = format!("search_joined_owner_{}", rand::random::<u32>());
+    let member = format!("search_joined_member_{}", rand::random::<u32>());
+    let room_name = format!("Joined Search Contract {}", rand::random::<u32>());
+    let (owner_token, _) = register_user(&app, &owner).await;
+    let (member_token, member_user_id) = register_user(&app, &member).await;
+
+    let room_id = create_room(&app, &owner_token, &room_name).await;
+    invite_user(&app, &owner_token, &room_id, &member_user_id).await;
+    join_room(&app, &member_token, &room_id).await;
+
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("POST")
+            .uri("/_matrix/client/r0/search_rooms")
+            .header("Authorization", format!("Bearer {}", member_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({ "search_term": room_name, "limit": 10 }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let results = json["results"].as_array().unwrap();
+    assert!(
+        results
+            .iter()
+            .any(|room| room["room_id"].as_str() == Some(room_id.as_str())),
+        "Joined members should still be able to find their private rooms via search_rooms"
+    );
+}
+
+#[tokio::test]
 async fn test_protected_state_events_contract_rejects_regular_members() {
     let Some(app) = super::setup_test_app().await else {
         return;
@@ -535,6 +785,39 @@ async fn test_scanner_info_contract_is_not_empty_success() {
         !json["message"].as_str().unwrap_or("").trim().is_empty(),
         "message should not be empty"
     );
+}
+
+#[tokio::test]
+async fn test_scanner_info_contract_rejects_non_members() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let owner = format!("scanner_info_owner_{}", rand::random::<u32>());
+    let outsider = format!("scanner_info_outsider_{}", rand::random::<u32>());
+    let (owner_token, _) = register_user(&app, &owner).await;
+    let (outsider_token, _) = register_user(&app, &outsider).await;
+    let room_id = create_room(&app, &owner_token, "Scanner Info Membership Contract").await;
+    let event_id = send_message(&app, &owner_token, &room_id, "scanner_membership_txn").await;
+
+    let encoded_room_id = encode_room_id(&room_id);
+    let encoded_event_id = urlencoding::encode(&event_id);
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("GET")
+            .uri(format!(
+                "/_matrix/client/v1/rooms/{}/report/{}/scanner_info",
+                encoded_room_id, encoded_event_id
+            ))
+            .header("Authorization", format!("Bearer {}", outsider_token))
+            .body(Body::empty())
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "M_FORBIDDEN",
+    )
+    .await;
 }
 
 #[tokio::test]

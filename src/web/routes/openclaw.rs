@@ -6,7 +6,10 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::net::IpAddr;
 use std::sync::Arc;
+use url::Url;
 
 use crate::common::ApiError;
 use crate::storage::openclaw::{
@@ -227,18 +230,18 @@ pub struct GenerationResponse {
 }
 
 impl From<AiGeneration> for GenerationResponse {
-    fn from(gen: AiGeneration) -> Self {
+    fn from(generation: AiGeneration) -> Self {
         Self {
-            id: gen.id,
-            conversation_id: gen.conversation_id,
-            r#type: gen.r#type,
-            prompt: gen.prompt,
-            result_url: gen.result_url,
-            result_mxc: gen.result_mxc,
-            status: gen.status,
-            error_message: gen.error_message,
-            created_ts: gen.created_ts,
-            completed_ts: gen.completed_ts,
+            id: generation.id,
+            conversation_id: generation.conversation_id,
+            r#type: generation.r#type,
+            prompt: generation.prompt,
+            result_url: generation.result_url,
+            result_mxc: generation.result_mxc,
+            status: generation.status,
+            error_message: generation.error_message,
+            created_ts: generation.created_ts,
+            completed_ts: generation.completed_ts,
         }
     }
 }
@@ -274,69 +277,188 @@ pub struct PaginatedResponse<T> {
 
 pub struct OpenClawState {
     pub storage: OpenClawStorage,
+    pub api_key_encryption_key: Option<[u8; 32]>,
 }
+
+const OPENCLAW_UNSTABLE_PREFIX: &str = "/_matrix/client/unstable/org.synapse_rust.openclaw";
 
 impl FromRef<AppState> for Arc<OpenClawState> {
     fn from_ref(state: &AppState) -> Self {
         Arc::new(OpenClawState {
             storage: OpenClawStorage::new(state.services.user_storage.pool.clone()),
+            api_key_encryption_key: resolve_openclaw_api_key_encryption_key(state),
         })
     }
 }
 
 pub fn create_openclaw_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/api/openclaw/connections",
-            get(list_connections).post(create_connection),
-        )
-        .route(
-            "/api/openclaw/connections/:id",
-            get(get_connection)
-                .put(update_connection)
-                .delete(delete_connection),
-        )
-        .route("/api/openclaw/connections/:id/test", post(test_connection))
-        .route(
-            "/api/openclaw/conversations",
-            get(list_conversations).post(create_conversation),
-        )
-        .route(
-            "/api/openclaw/conversations/:id",
-            get(get_conversation)
-                .put(update_conversation)
-                .delete(delete_conversation),
-        )
-        .route(
-            "/api/openclaw/conversations/:id/messages",
-            get(list_messages).post(send_message),
-        )
-        .route("/api/openclaw/messages/:id", delete(delete_message))
-        .route(
-            "/api/openclaw/generations",
-            get(list_generations).post(create_generation),
-        )
-        .route(
-            "/api/openclaw/generations/:id",
-            get(get_generation).delete(delete_generation),
-        )
-        .route(
-            "/api/openclaw/roles",
-            get(list_chat_roles).post(create_chat_role),
-        )
-        .route(
-            "/api/openclaw/roles/:id",
-            get(get_chat_role)
-                .put(update_chat_role)
-                .delete(delete_chat_role),
+        .nest(
+            OPENCLAW_UNSTABLE_PREFIX,
+            Router::new()
+                .route("/connections", get(list_connections).post(create_connection))
+                .route(
+                    "/connections/{id}",
+                    get(get_connection)
+                        .put(update_connection)
+                        .delete(delete_connection),
+                )
+                .route("/connections/{id}/test", post(test_connection))
+                .route(
+                    "/conversations",
+                    get(list_conversations).post(create_conversation),
+                )
+                .route(
+                    "/conversations/{id}",
+                    get(get_conversation)
+                        .put(update_conversation)
+                        .delete(delete_conversation),
+                )
+                .route(
+                    "/conversations/{id}/messages",
+                    get(list_messages).post(send_message),
+                )
+                .route("/messages/{id}", delete(delete_message))
+                .route("/generations", get(list_generations).post(create_generation))
+                .route(
+                    "/generations/{id}",
+                    get(get_generation).delete(delete_generation),
+                )
+                .route("/roles", get(list_chat_roles).post(create_chat_role))
+                .route(
+                    "/roles/{id}",
+                    get(get_chat_role)
+                        .put(update_chat_role)
+                        .delete(delete_chat_role),
+                ),
         )
         .with_state(state)
+}
+
+fn ensure_openclaw_user_allowed(auth: &AuthInfo) -> Result<(), ApiError> {
+    if auth.is_guest {
+        return Err(ApiError::forbidden(
+            "Guest access to OpenClaw routes is disabled",
+        ));
+    }
+
+    Ok(())
+}
+
+fn openclaw_not_found(message: &'static str) -> ApiError {
+    ApiError::not_found(message)
+}
+
+fn ensure_openclaw_resource_owner(
+    owner_user_id: &str,
+    auth_user_id: &str,
+    not_found_message: &'static str,
+) -> Result<(), ApiError> {
+    if owner_user_id != auth_user_id {
+        return Err(openclaw_not_found(not_found_message));
+    }
+
+    Ok(())
+}
+
+fn validate_openclaw_base_url(base_url: &str) -> Result<(), ApiError> {
+    let url =
+        Url::parse(base_url).map_err(|e| ApiError::bad_request(format!("Invalid base_url: {}", e)))?;
+
+    if url.scheme() != "http" && url.scheme() != "https" {
+        return Err(ApiError::bad_request(
+            "OpenClaw base_url must use http or https".to_string(),
+        ));
+    }
+
+    let host = url
+        .host_str()
+        .ok_or_else(|| ApiError::bad_request("OpenClaw base_url must include a host".to_string()))?;
+
+    let is_forbidden_host = host.eq_ignore_ascii_case("localhost")
+        || host.eq_ignore_ascii_case("localhost.")
+        || host.ends_with(".localhost");
+
+    if is_forbidden_host {
+        return Err(ApiError::bad_request(
+            "OpenClaw base_url cannot target localhost".to_string(),
+        ));
+    }
+
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        let forbidden_ip = match ip {
+            IpAddr::V4(ip) => {
+                ip.is_private()
+                    || ip.is_loopback()
+                    || ip.is_link_local()
+                    || ip.is_broadcast()
+                    || ip.is_multicast()
+                    || ip.is_unspecified()
+            }
+            IpAddr::V6(ip) => {
+                ip.is_loopback()
+                    || ip.is_multicast()
+                    || ip.is_unspecified()
+                    || ip.is_unique_local()
+                    || ip.is_unicast_link_local()
+            }
+        };
+
+        if forbidden_ip {
+            return Err(ApiError::bad_request(
+                "OpenClaw base_url cannot target local or private IP ranges".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn derive_api_key_encryption_key(secret: &str) -> [u8; 32] {
+    let digest = Sha256::digest(secret.as_bytes());
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&digest);
+    key
+}
+
+fn resolve_openclaw_api_key_encryption_key(state: &AppState) -> Option<[u8; 32]> {
+    let explicit = std::env::var("API_KEY_ENCRYPTION_KEY").ok();
+    let config_secret = state
+        .services
+        .config
+        .server
+        .macaroon_secret_key
+        .clone()
+        .or_else(|| Some(state.services.config.security.secret.clone()))
+        .filter(|value| !value.trim().is_empty());
+
+    explicit
+        .filter(|value| !value.trim().is_empty())
+        .or(config_secret)
+        .map(|secret| derive_api_key_encryption_key(secret.trim()))
+}
+
+fn encrypt_optional_api_key(
+    api_key_encryption_key: Option<&[u8; 32]>,
+    api_key: Option<String>,
+) -> Result<Option<String>, ApiError> {
+    match api_key {
+        Some(api_key) => {
+            let key = api_key_encryption_key.ok_or_else(|| {
+                ApiError::internal("OpenClaw API key encryption is not configured".to_string())
+            })?;
+            Ok(Some(encrypt_api_key(&api_key, key)))
+        }
+        None => Ok(None),
+    }
 }
 
 async fn list_connections(
     State(state): State<Arc<OpenClawState>>,
     auth: AuthInfo,
 ) -> Result<Json<Vec<ConnectionResponse>>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let connections = state
         .storage
         .get_user_connections(&auth.user_id)
@@ -356,7 +478,11 @@ async fn create_connection(
     auth: AuthInfo,
     Json(req): Json<CreateConnectionRequest>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
-    let encrypted_key = req.api_key.map(|k| encrypt_api_key(&k));
+    ensure_openclaw_user_allowed(&auth)?;
+    validate_openclaw_base_url(&req.base_url)?;
+
+    let encrypted_key =
+        encrypt_optional_api_key(state.api_key_encryption_key.as_ref(), req.api_key)?;
 
     let conn = state
         .storage
@@ -380,6 +506,8 @@ async fn get_connection(
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let conn = state
         .storage
         .get_connection(id)
@@ -387,9 +515,7 @@ async fn get_connection(
         .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Connection not found"))?;
 
-    if conn.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&conn.user_id, &auth.user_id, "Connection not found")?;
 
     Ok(Json(ConnectionResponse::from(conn)))
 }
@@ -400,6 +526,12 @@ async fn update_connection(
     Path(id): Path<i64>,
     Json(req): Json<UpdateConnectionRequest>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
+    if let Some(base_url) = req.base_url.as_deref() {
+        validate_openclaw_base_url(base_url)?;
+    }
+
     let existing = state
         .storage
         .get_connection(id)
@@ -407,11 +539,10 @@ async fn update_connection(
         .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Connection not found"))?;
 
-    if existing.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Connection not found")?;
 
-    let encrypted_key = req.api_key.map(|k| encrypt_api_key(&k));
+    let encrypted_key =
+        encrypt_optional_api_key(state.api_key_encryption_key.as_ref(), req.api_key)?;
 
     let conn = state
         .storage
@@ -435,6 +566,8 @@ async fn delete_connection(
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let existing = state
         .storage
         .get_connection(id)
@@ -442,9 +575,7 @@ async fn delete_connection(
         .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Connection not found"))?;
 
-    if existing.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Connection not found")?;
 
     state
         .storage
@@ -460,6 +591,8 @@ async fn test_connection(
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let conn = state
         .storage
         .get_connection(id)
@@ -467,9 +600,9 @@ async fn test_connection(
         .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Connection not found"))?;
 
-    if conn.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&conn.user_id, &auth.user_id, "Connection not found")?;
+
+    validate_openclaw_base_url(&conn.base_url)?;
 
     let start = std::time::Instant::now();
     let is_healthy = test_openclaw_health(&conn.base_url).await;
@@ -488,6 +621,8 @@ async fn list_conversations(
     auth: AuthInfo,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<ConversationResponse>>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let conversations = state
         .storage
         .get_user_conversations(&auth.user_id, query.limit, query.offset)
@@ -510,6 +645,19 @@ async fn create_conversation(
     auth: AuthInfo,
     Json(req): Json<CreateConversationRequest>,
 ) -> Result<Json<ConversationResponse>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
+    if let Some(connection_id) = req.connection_id {
+        let conn = state
+            .storage
+            .get_connection(connection_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Connection not found"))?;
+
+        ensure_openclaw_resource_owner(&conn.user_id, &auth.user_id, "Connection not found")?;
+    }
+
     let conv = state
         .storage
         .create_conversation(crate::storage::openclaw::CreateConversationParams {
@@ -532,6 +680,8 @@ async fn get_conversation(
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<ConversationResponse>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let conv = state
         .storage
         .get_conversation(id)
@@ -539,9 +689,7 @@ async fn get_conversation(
         .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
 
-    if conv.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&conv.user_id, &auth.user_id, "Conversation not found")?;
 
     Ok(Json(ConversationResponse::from(conv)))
 }
@@ -552,6 +700,8 @@ async fn update_conversation(
     Path(id): Path<i64>,
     Json(req): Json<UpdateConversationRequest>,
 ) -> Result<Json<ConversationResponse>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let existing = state
         .storage
         .get_conversation(id)
@@ -559,9 +709,7 @@ async fn update_conversation(
         .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
 
-    if existing.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Conversation not found")?;
 
     let conv = state
         .storage
@@ -584,6 +732,8 @@ async fn delete_conversation(
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let existing = state
         .storage
         .get_conversation(id)
@@ -591,9 +741,7 @@ async fn delete_conversation(
         .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
 
-    if existing.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Conversation not found")?;
 
     state
         .storage
@@ -610,6 +758,8 @@ async fn list_messages(
     Path(conversation_id): Path<i64>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<MessageResponse>>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let conv = state
         .storage
         .get_conversation(conversation_id)
@@ -617,9 +767,7 @@ async fn list_messages(
         .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
 
-    if conv.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&conv.user_id, &auth.user_id, "Conversation not found")?;
 
     let messages = state
         .storage
@@ -641,6 +789,8 @@ async fn send_message(
     Path(conversation_id): Path<i64>,
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<MessageResponse>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let conv = state
         .storage
         .get_conversation(conversation_id)
@@ -648,9 +798,7 @@ async fn send_message(
         .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
 
-    if conv.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&conv.user_id, &auth.user_id, "Conversation not found")?;
 
     let role = req.role.unwrap_or_else(|| "user".to_string());
 
@@ -672,9 +820,27 @@ async fn send_message(
 
 async fn delete_message(
     State(state): State<Arc<OpenClawState>>,
-    _auth: AuthInfo,
+    auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
+    let msg = state
+        .storage
+        .get_message(id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get message: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Message not found"))?;
+
+    let conv = state
+        .storage
+        .get_conversation(msg.conversation_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
+
+    ensure_openclaw_resource_owner(&conv.user_id, &auth.user_id, "Conversation not found")?;
+
     state
         .storage
         .delete_message(id)
@@ -689,6 +855,8 @@ async fn list_generations(
     auth: AuthInfo,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<GenerationResponse>>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let generations = state
         .storage
         .get_user_generations(
@@ -716,13 +884,26 @@ async fn create_generation(
     auth: AuthInfo,
     Json(req): Json<CreateGenerationRequest>,
 ) -> Result<Json<GenerationResponse>, ApiError> {
-    let gen = state
+    ensure_openclaw_user_allowed(&auth)?;
+
+    if let Some(conversation_id) = req.conversation_id {
+        let conv = state
+            .storage
+            .get_conversation(conversation_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
+
+        ensure_openclaw_resource_owner(&conv.user_id, &auth.user_id, "Conversation not found")?;
+    }
+
+    let generation = state
         .storage
         .create_generation(&auth.user_id, req.conversation_id, &req.r#type, &req.prompt)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create generation: {}", e)))?;
 
-    Ok(Json(GenerationResponse::from(gen)))
+    Ok(Json(GenerationResponse::from(generation)))
 }
 
 async fn get_generation(
@@ -730,18 +911,18 @@ async fn get_generation(
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<GenerationResponse>, ApiError> {
-    let gen = state
+    ensure_openclaw_user_allowed(&auth)?;
+
+    let generation = state
         .storage
         .get_generation(id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get generation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Generation not found"))?;
 
-    if gen.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&generation.user_id, &auth.user_id, "Generation not found")?;
 
-    Ok(Json(GenerationResponse::from(gen)))
+    Ok(Json(GenerationResponse::from(generation)))
 }
 
 async fn delete_generation(
@@ -749,6 +930,8 @@ async fn delete_generation(
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let existing = state
         .storage
         .get_generation(id)
@@ -756,9 +939,7 @@ async fn delete_generation(
         .map_err(|e| ApiError::internal(format!("Failed to get generation: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Generation not found"))?;
 
-    if existing.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Generation not found")?;
 
     state
         .storage
@@ -773,6 +954,8 @@ async fn list_chat_roles(
     State(state): State<Arc<OpenClawState>>,
     auth: AuthInfo,
 ) -> Result<Json<Vec<ChatRoleResponse>>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let roles = state
         .storage
         .get_user_chat_roles(&auth.user_id)
@@ -789,6 +972,8 @@ async fn create_chat_role(
     auth: AuthInfo,
     Json(req): Json<CreateChatRoleRequest>,
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let role = state
         .storage
         .create_chat_role(crate::storage::openclaw::CreateChatRoleParams {
@@ -814,6 +999,8 @@ async fn get_chat_role(
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let role = state
         .storage
         .get_chat_role(id)
@@ -821,8 +1008,8 @@ async fn get_chat_role(
         .map_err(|e| ApiError::internal(format!("Failed to get chat role: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
 
-    if !role.is_public && role.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
+    if !role.is_public {
+        ensure_openclaw_resource_owner(&role.user_id, &auth.user_id, "Chat role not found")?;
     }
 
     Ok(Json(ChatRoleResponse::from(role)))
@@ -834,6 +1021,8 @@ async fn update_chat_role(
     Path(id): Path<i64>,
     Json(req): Json<UpdateChatRoleRequest>,
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let existing = state
         .storage
         .get_chat_role(id)
@@ -841,9 +1030,7 @@ async fn update_chat_role(
         .map_err(|e| ApiError::internal(format!("Failed to get chat role: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
 
-    if existing.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Chat role not found")?;
 
     let role = state
         .storage
@@ -870,6 +1057,8 @@ async fn delete_chat_role(
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
+    ensure_openclaw_user_allowed(&auth)?;
+
     let existing = state
         .storage
         .get_chat_role(id)
@@ -877,9 +1066,7 @@ async fn delete_chat_role(
         .map_err(|e| ApiError::internal(format!("Failed to get chat role: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
 
-    if existing.user_id != auth.user_id {
-        return Err(ApiError::forbidden("Access denied"));
-    }
+    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Chat role not found")?;
 
     state
         .storage
@@ -890,28 +1077,13 @@ async fn delete_chat_role(
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn get_encryption_key() -> [u8; 32] {
-    use std::env;
-    let key = env::var("API_KEY_ENCRYPTION_KEY").unwrap_or_else(|_| {
-        let default = "synapse-rust-default-encryption-key-change-in-production!!";
-        tracing::warn!("API_KEY_ENCRYPTION_KEY not set, using default (INSECURE for production)");
-        default.to_string()
-    });
-    let mut key_bytes = [0u8; 32];
-    let source = key.as_bytes();
-    let len = std::cmp::min(source.len(), 32);
-    key_bytes[..len].copy_from_slice(&source[..len]);
-    key_bytes
-}
-
-fn encrypt_api_key(key: &str) -> String {
+fn encrypt_api_key(key: &str, encryption_key: &[u8; 32]) -> String {
     use aes_gcm::aead::Aead;
     use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
     use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
     use rand::RngCore;
 
-    let key_bytes = get_encryption_key();
-    let cipher = Aes256Gcm::new_from_slice(&key_bytes).expect("Valid key length");
+    let cipher = Aes256Gcm::new_from_slice(encryption_key).expect("Valid key length");
     let mut nonce_bytes = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
@@ -926,23 +1098,20 @@ fn encrypt_api_key(key: &str) -> String {
     BASE64_STANDARD.encode(&combined)
 }
 
-fn decrypt_api_key(encrypted: &str) -> Option<String> {
-    use aes_gcm::aead::Aead;
-    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
-    use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
+#[cfg(test)]
+mod tests {
+    use super::derive_api_key_encryption_key;
 
-    let combined = BASE64_STANDARD.decode(encrypted).ok()?;
-    if combined.len() < 12 {
-        return None;
+    #[test]
+    fn test_derive_api_key_encryption_key_is_deterministic_and_hashed() {
+        let first = derive_api_key_encryption_key("short-secret");
+        let second = derive_api_key_encryption_key("short-secret");
+        let different = derive_api_key_encryption_key("different-secret");
+
+        assert_eq!(first, second);
+        assert_ne!(first, different);
+        assert_ne!(&first[..12], b"short-secret");
     }
-
-    let (nonce_bytes, ciphertext) = combined.split_at(12);
-    let key_bytes = get_encryption_key();
-    let cipher = Aes256Gcm::new_from_slice(&key_bytes).ok()?;
-    let nonce = Nonce::from_slice(nonce_bytes);
-
-    let plaintext = cipher.decrypt(nonce, ciphertext).ok()?;
-    String::from_utf8(plaintext).ok()
 }
 
 async fn test_openclaw_health(base_url: &str) -> bool {

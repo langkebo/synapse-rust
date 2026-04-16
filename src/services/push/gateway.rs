@@ -79,7 +79,6 @@ impl Default for PushGatewayConfig {
 #[derive(Debug)]
 pub struct PushGateway {
     client: Client,
-    config: PushGatewayConfig,
 }
 
 impl PushGateway {
@@ -89,7 +88,8 @@ impl PushGateway {
             .build()
             .unwrap_or_else(|_| Client::new());
 
-        Self { client, config }
+        let _ = config;
+        Self { client }
     }
 
     pub async fn send_notification(

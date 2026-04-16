@@ -759,36 +759,6 @@ impl SyncService {
         }
     }
 
-    async fn poll_for_events(
-        &self,
-        room_ids: &[String],
-        since_ts: i64,
-        limit: i64,
-        timeout: u64,
-    ) -> ApiResult<HashMap<String, Vec<RoomEvent>>> {
-        let timeout_duration = std::time::Duration::from_millis(timeout);
-        let start = std::time::Instant::now();
-        let poll_interval = self.sync_poll_interval();
-
-        loop {
-            let has_events = self
-                .event_storage
-                .has_room_events_since(room_ids, since_ts)
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to poll for events: {}", e)))?;
-
-            if has_events || start.elapsed() >= timeout_duration {
-                return self
-                    .event_storage
-                    .get_room_events_since_batch(room_ids, since_ts, limit)
-                    .await
-                    .map_err(Into::into);
-            }
-
-            tokio::time::sleep(poll_interval).await;
-        }
-    }
-
     async fn wait_for_incremental_update(
         &self,
         user_id: &str,

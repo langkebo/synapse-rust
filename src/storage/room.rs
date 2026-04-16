@@ -468,10 +468,10 @@ impl RoomStorage {
         Ok(())
     }
 
-    pub async fn update_canonical_alias(
+    pub async fn set_canonical_alias(
         &self,
         room_id: &str,
-        alias: &str,
+        alias: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -483,6 +483,14 @@ impl RoomStorage {
         .execute(&*self.pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn update_canonical_alias(
+        &self,
+        room_id: &str,
+        alias: &str,
+    ) -> Result<(), sqlx::Error> {
+        self.set_canonical_alias(room_id, Some(alias)).await
     }
 
     pub async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
@@ -857,8 +865,8 @@ impl RoomStorage {
 
     pub async fn add_receipt(
         &self,
-        _sender: &str,
-        sent_to: &str,
+        user_id: &str,
+        _sent_to: &str,
         room_id: &str,
         event_id: &str,
         receipt_type: &str,
@@ -875,7 +883,7 @@ impl RoomStorage {
         )
         .bind(event_id)
         .bind(room_id)
-        .bind(sent_to)
+        .bind(user_id)
         .bind(receipt_type)
         .bind(now)
         .bind(receipt_data)

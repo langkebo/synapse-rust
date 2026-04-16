@@ -148,6 +148,7 @@ async fn test_rendezvous_bound_user_can_access_without_key_but_other_user_cannot
     let (session_id, session_key) = create_rendezvous_session(&app).await;
     let owner_token = register_user(&app, "rendezvous_bound_owner").await;
     let guest_token = register_user(&app, "rendezvous_bound_guest").await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
 
     let connect_request = Request::builder()
         .method("PUT")
@@ -183,6 +184,17 @@ async fn test_rendezvous_bound_user_can_access_without_key_but_other_user_cannot
         .await
         .unwrap();
     assert_eq!(guest_get_response.status(), StatusCode::FORBIDDEN);
+
+    let admin_get_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v1/rendezvous/{}", session_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let admin_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_get_request)
+        .await
+        .unwrap();
+    assert_eq!(admin_get_response.status(), StatusCode::FORBIDDEN);
 
     let complete_request = Request::builder()
         .method("PUT")

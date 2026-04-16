@@ -40,7 +40,6 @@ lazy_static::lazy_static! {
 
 #[derive(Clone)]
 struct NonceData {
-    created_ts: u64,
     expires_at: u64,
 }
 
@@ -440,7 +439,6 @@ async fn get_nonce(
         nonces.insert(
             nonce.clone(),
             NonceData {
-                created_ts: now,
                 expires_at: now + timeout,
             },
         );
@@ -552,14 +550,31 @@ async fn register(
         .await;
 
     match register_result {
-        Ok((_user, access_token, refresh_token, device_id)) => Ok(Json(RegisterResponse {
-            access_token,
-            refresh_token,
-            expires_in: 3600,
-            device_id,
-            user_id: user_id.clone(),
-            home_server: config.server.name.clone(),
-        })),
+        Ok((_user, access_token, refresh_token, device_id)) => {
+            if let Some(user_type) = payload.user_type.as_deref() {
+                sqlx::query("UPDATE users SET user_type = $1 WHERE user_id = $2")
+                    .bind(user_type)
+                    .bind(&user_id)
+                    .execute(&*state.services.user_storage.pool)
+                    .await
+                    .map_err(|e| {
+                        register_error_response(
+                            500,
+                            "M_UNKNOWN",
+                            format!("Failed to persist user_type: {}", e),
+                        )
+                    })?;
+            }
+
+            Ok(Json(RegisterResponse {
+                access_token,
+                refresh_token,
+                expires_in: 3600,
+                device_id,
+                user_id: user_id.clone(),
+                home_server: config.server.name.clone(),
+            }))
+        }
         Err(e) => {
             let error_msg = e.to_string();
             let error_msg_lower = error_msg.to_lowercase();

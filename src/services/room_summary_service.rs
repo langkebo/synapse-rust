@@ -108,45 +108,6 @@ impl RoomSummaryService {
             .ok_or_else(|| ApiError::not_found("Room summary not found after sync"))
     }
 
-    async fn get_initial_state_events(
-        &self,
-        room_id: &str,
-    ) -> Result<Vec<crate::storage::event::StateEvent>, ApiError> {
-        let mut all_states = Vec::new();
-
-        let current_states = self
-            .event_storage
-            .get_state_events(room_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get current state: {}", e)))?;
-
-        all_states.extend(current_states);
-
-        if let Some(member_storage) = self.member_storage.as_ref() {
-            let join_members = member_storage
-                .get_room_members(room_id, "join")
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to get join members: {}", e)))?;
-
-            let invite_members = member_storage
-                .get_room_members(room_id, "invite")
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to get invite members: {}", e)))?;
-
-            let all_members: Vec<_> = join_members.into_iter().chain(invite_members).collect();
-
-            if !all_members.is_empty() {
-                info!(
-                    "Found {} initial members for room {}",
-                    all_members.len(),
-                    room_id
-                );
-            }
-        }
-
-        Ok(all_states)
-    }
-
     fn create_request_to_update_request(
         request: &CreateRoomSummaryRequest,
     ) -> UpdateRoomSummaryRequest {
@@ -402,10 +363,16 @@ impl RoomSummaryService {
                     .map(|s| s.to_string());
             }
             Some("m.room.canonical_alias") => {
-                request.canonical_alias = content
+                let canonical_alias = content
                     .get("alias")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                    .and_then(|v| v.as_str());
+                self.storage
+                    .set_canonical_alias(room_id, canonical_alias)
+                    .await
+                    .map_err(|e| {
+                        ApiError::internal(format!("Failed to update canonical alias: {}", e))
+                    })?;
+                return Ok(());
             }
             Some("m.room.join_rules") => {
                 request.join_rule = content

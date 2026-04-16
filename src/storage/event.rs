@@ -410,6 +410,37 @@ impl EventStorage {
         .await
     }
 
+    pub async fn get_state_events_at_or_before(
+        &self,
+        room_id: &str,
+        origin_server_ts: i64,
+    ) -> Result<Vec<StateEvent>, sqlx::Error> {
+        sqlx::query_as::<_, StateEvent>(
+            r#"
+            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
+                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
+                   COALESCE(is_redacted, false) as is_redacted,
+                   COALESCE(origin_server_ts, 0) as origin_server_ts,
+                   depth, NULL::BIGINT as processed_ts, not_before, status, reference_image, origin, user_id
+            FROM (
+                SELECT DISTINCT ON (event_type, state_key)
+                       event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
+                       unsigned, is_redacted, origin_server_ts, depth, not_before, status, reference_image, origin, user_id
+                FROM events
+                WHERE room_id = $1
+                  AND state_key IS NOT NULL
+                  AND origin_server_ts <= $2
+                ORDER BY event_type, state_key, origin_server_ts DESC, event_id DESC
+            ) s
+            ORDER BY origin_server_ts DESC, event_id ASC
+            "#,
+        )
+        .bind(room_id)
+        .bind(origin_server_ts)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
     pub async fn get_state_events_by_type(
         &self,
         room_id: &str,

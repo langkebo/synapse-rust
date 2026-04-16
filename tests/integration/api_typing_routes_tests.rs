@@ -97,6 +97,7 @@ async fn test_typing_read_routes_reject_non_members() {
     };
     let (owner_token, owner_user_id) = register_user(&app, "typing_guard_owner_reads").await;
     let (guest_token, _) = register_user(&app, "typing_guard_guest_reads").await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
     let room_id = create_room(&app, &owner_token, "Typing Guard Reads").await;
 
     assert_eq!(
@@ -124,10 +125,37 @@ async fn test_typing_read_routes_reject_non_members() {
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
-    let user_response = ServiceExt::<Request<Body>>::oneshot(app, user_request)
+    let user_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_request)
         .await
         .unwrap();
     assert_eq!(user_response.status(), StatusCode::FORBIDDEN);
+
+    let admin_room_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/rooms/{}/typing", room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let admin_room_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_room_request)
+            .await
+            .unwrap();
+    assert_eq!(admin_room_response.status(), StatusCode::FORBIDDEN);
+
+    let admin_user_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/typing/{}",
+            room_id, owner_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let admin_user_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_user_request)
+            .await
+            .unwrap();
+    assert_eq!(admin_user_response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -137,6 +165,7 @@ async fn test_typing_write_and_bulk_routes_require_room_access() {
     };
     let (owner_token, owner_user_id) = register_user(&app, "typing_guard_owner_write").await;
     let (guest_token, guest_user_id) = register_user(&app, "typing_guard_guest_write").await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
     let room_id = create_room(&app, &owner_token, "Typing Guard Writes").await;
 
     assert_eq!(
@@ -164,6 +193,11 @@ async fn test_typing_write_and_bulk_routes_require_room_access() {
         .await
         .unwrap();
     assert_eq!(bulk_guest_response.status(), StatusCode::FORBIDDEN);
+
+    assert_eq!(
+        set_typing(&app, &admin_token, &room_id, "@admin:localhost").await,
+        StatusCode::FORBIDDEN
+    );
 
     let bulk_owner_request = Request::builder()
         .method("POST")

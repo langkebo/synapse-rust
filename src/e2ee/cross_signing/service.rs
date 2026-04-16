@@ -674,7 +674,10 @@ impl CrossSigningService {
         for (_signer_id, key_sigs) in sig_obj {
             if let Some(key_sigs_obj) = key_sigs.as_object() {
                 for (signing_key_id, signature_value) in key_sigs_obj {
-                    let _ = signing_key_id;
+                    if !signing_key_id.starts_with("ed25519:") {
+                        continue;
+                    }
+
                     let signature_str = match signature_value.as_str() {
                         Some(s) => s,
                         None => continue,

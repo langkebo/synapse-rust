@@ -8,54 +8,21 @@ use chrono::Utc;
 use serde_json::{json, Value};
 
 pub async fn get_key_rotation_status(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_key_rotation_admin(&auth_user)?;
-    let config = &state.services.config.federation;
-
-    Ok(Json(json!({
-        "enabled": true,
-        "interval_ms": config.key_rotation_grace_period_ms,
-    })))
+    Err(ApiError::forbidden(
+        "Key rotation status is not available via the client API".to_string(),
+    ))
 }
 
 pub async fn rotate_keys(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_key_rotation_admin(&auth_user)?;
-    let key_id = format!("ed25519:{}", uuid::Uuid::new_v4());
-    let now = Utc::now().timestamp_millis();
-    let device_id = "default".to_string();
-
-    sqlx::query(
-        r#"
-        INSERT INTO key_rotation_history (user_id, device_id, key_id, rotated_ts)
-        VALUES ($1, $2, $3, $4)
-        "#,
-    )
-    .bind(&auth_user.user_id)
-    .bind(&device_id)
-    .bind(&key_id)
-    .bind(now)
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to record rotation: {}", e)))?;
-
-    ::tracing::warn!(
-        target: "security_audit",
-        event = "admin_key_rotation",
-        admin_user_id = auth_user.user_id,
-        key_id = key_id,
-        "Admin performed key rotation"
-    );
-
-    Ok(Json(json!({
-        "success": true,
-        "key_id": key_id,
-        "rotated_at": now,
-    })))
+    Err(ApiError::forbidden(
+        "Key rotation is not available via the client API".to_string(),
+    ))
 }
 
 pub async fn get_rotation_history(
@@ -142,29 +109,12 @@ pub async fn revoke_old_keys(
 
 pub async fn configure_key_rotation(
     State(_state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    _auth_user: AuthenticatedUser,
     Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_key_rotation_admin(&auth_user)?;
-    ::tracing::info!(
-        target: "security_audit",
-        event = "admin_key_rotation_config",
-        admin_user_id = auth_user.user_id,
-        "Rejected unsupported key rotation configuration request"
-    );
-
-    Err(ApiError::unrecognized(
-        "Key rotation configuration is not implemented; server-side settings remain authoritative"
-            .to_string(),
+    Err(ApiError::forbidden(
+        "Key rotation configuration is not available via the client API".to_string(),
     ))
-}
-
-fn ensure_key_rotation_admin(auth_user: &AuthenticatedUser) -> Result<(), ApiError> {
-    if auth_user.is_admin {
-        Ok(())
-    } else {
-        Err(ApiError::forbidden("Admin access required".to_string()))
-    }
 }
 
 pub async fn check_needs_rotation(

@@ -148,11 +148,21 @@ async fn upload_media_with_id_common(
     ))
 }
 
+fn ensure_local_media_server_name(state: &AppState, server_name: &str) -> Result<(), ApiError> {
+    if server_name != state.services.server_name {
+        return Err(ApiError::not_found("Media not found".to_string()));
+    }
+
+    Ok(())
+}
+
 async fn download_media_common(
     state: &AppState,
     server_name: &str,
     media_id: &str,
 ) -> Result<(String, Vec<u8>), ApiError> {
+    ensure_local_media_server_name(state, server_name)?;
+
     let content = state
         .services
         .media_service
@@ -332,6 +342,8 @@ async fn get_thumbnail(
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
+    ensure_local_media_server_name(&state, &server_name)?;
+
     let width = params.get("width").and_then(|v| v.as_u64()).unwrap_or(800) as u32;
     let height = params.get("height").and_then(|v| v.as_u64()).unwrap_or(600) as u32;
     let method = params
@@ -440,7 +452,7 @@ async fn delete_media(
     auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let is_admin = auth_user.is_admin;
+    ensure_local_media_server_name(&state, &server_name)?;
 
     let media_info = state
         .services
@@ -453,7 +465,7 @@ async fn delete_media(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    if !is_admin && uploader != auth_user.user_id {
+    if uploader != auth_user.user_id {
         return Err(ApiError::forbidden(
             "You can only delete your own media".to_string(),
         ));
