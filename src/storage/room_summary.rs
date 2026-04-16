@@ -264,6 +264,28 @@ impl RoomSummaryStorage {
         Ok(row)
     }
 
+    pub async fn set_canonical_alias(
+        &self,
+        room_id: &str,
+        canonical_alias: Option<&str>,
+    ) -> Result<RoomSummary, sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+        sqlx::query_as::<_, RoomSummary>(
+            r#"
+            UPDATE room_summaries
+            SET canonical_alias = $2,
+                updated_ts = $3
+            WHERE room_id = $1
+            RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules AS join_rule, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
+            "#,
+        )
+        .bind(room_id)
+        .bind(canonical_alias)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await
+    }
+
     pub async fn delete_summary(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM room_summaries WHERE room_id = $1")
             .bind(room_id)

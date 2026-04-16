@@ -144,6 +144,30 @@ impl KeyRequestStorage {
         Ok(())
     }
 
+    pub async fn update_request_status(
+        &self,
+        request_id: &str,
+        status: &str,
+    ) -> Result<(), ApiError> {
+        let now = chrono::Utc::now().timestamp_millis();
+
+        sqlx::query(
+            r#"
+            UPDATE e2ee_key_requests 
+            SET action = $2, updated_ts = $3
+            WHERE request_id = $1
+            "#,
+        )
+        .bind(request_id)
+        .bind(status)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(())
+    }
+
     pub async fn delete_request(&self, request_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r#"

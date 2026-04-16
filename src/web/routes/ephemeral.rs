@@ -1,7 +1,7 @@
 // Ephemeral Events Routes - 临时事件路由
 // Matrix spec: https://matrix.org/docs/spec/client_server/latest#get-matrix-client-v3-rooms-room-id-ephemeral
 
-use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::{ensure_room_member, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     routing::get,
@@ -36,22 +36,7 @@ pub async fn get_ephemeral_events(
     Path(room_id): Path<String>,
     Query(params): Query<EphemeralParams>,
 ) -> Result<Json<EphemeralResponse>, ApiError> {
-    // Verify user is in the room
-    let user_id = &auth_user.user_id;
-
-    // Check if user is in the room
-    let membership: Option<String> = sqlx::query_scalar(
-        "SELECT membership FROM room_memberships WHERE room_id = $1 AND user_id = $2",
-    )
-    .bind(&room_id)
-    .bind(user_id)
-    .fetch_optional(&*state.services.event_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if membership.is_none() || membership.as_deref() != Some("join") {
-        return Err(ApiError::forbidden("User is not in the room".to_string()));
-    }
+    ensure_room_member(&state, &auth_user, &room_id, "User is not in the room").await?;
 
     let now = chrono::Utc::now().timestamp_millis();
 

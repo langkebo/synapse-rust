@@ -75,10 +75,6 @@ impl WorkerBus {
         *self.connected.read().await
     }
 
-    fn channel_name(&self, channel: &str) -> String {
-        format!("{}:{}", self.config.channel_prefix, channel)
-    }
-
     pub async fn publish(&self, channel: &str, message: &[u8]) -> Result<(), ApiError> {
         if !self.is_connected().await {
             return Err(ApiError::internal("Redis bus not connected"));

@@ -135,6 +135,35 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
     json["room_id"].as_str().unwrap().to_string()
 }
 
+async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": user_id }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .expect("room invite request failed");
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .expect("room join request failed");
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
 #[tokio::test]
 async fn test_public_register_ignores_admin_flag() {
     let _guard = test_mutex().lock().await;
@@ -812,6 +841,65 @@ async fn test_cas_admin_endpoints_require_admin_role() {
         .expect("failed to register regular user");
 
     let forbidden_services_request = Request::builder()
+        .uri("/_synapse/admin/v1/cas/services")
+        .header("Authorization", format!("Bearer {}", user_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_services_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let admin_services_request = Request::builder()
+        .uri("/_synapse/admin/v1/cas/services")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_services_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let forbidden_attrs_request = Request::builder()
+        .uri(format!("/_synapse/admin/v1/cas/users/{}/attributes", user_id))
+        .header("Authorization", format!("Bearer {}", user_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_attrs_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let admin_attrs_request = Request::builder()
+        .uri(format!("/_synapse/admin/v1/cas/users/{}/attributes", user_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_attrs_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_legacy_cas_admin_aliases_remain_admin_protected() {
+    let _guard = test_mutex().lock().await;
+    let Some((app, pool)) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("cas_legacy_admin_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register admin user");
+    promote_to_admin(&pool, &admin_user_id).await;
+
+    let (user_token, user_id) =
+        register_user(&app, &format!("cas_legacy_user_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register regular user");
+
+    let forbidden_services_request = Request::builder()
         .uri("/admin/services")
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
@@ -830,6 +918,22 @@ async fn test_cas_admin_endpoints_require_admin_role() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("Deprecation")
+            .and_then(|value| value.to_str().ok()),
+        Some("true")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("Warning")
+            .and_then(|value| value.to_str().ok()),
+        Some(
+            r#"299 synapse-rust "Legacy CAS admin aliases under /admin are deprecated; use /_synapse/admin/v1/cas/*""#
+        )
+    );
 
     let forbidden_attrs_request = Request::builder()
         .uri(format!("/admin/users/{}/attributes", user_id))
@@ -850,6 +954,13 @@ async fn test_cas_admin_endpoints_require_admin_role() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("Deprecation")
+            .and_then(|value| value.to_str().ok()),
+        Some("true")
+    );
 }
 
 #[tokio::test]
@@ -973,7 +1084,7 @@ async fn test_saml_admin_metadata_refresh_requires_admin_middleware() {
 }
 
 #[tokio::test]
-async fn test_moderation_report_score_requires_admin() {
+async fn test_moderation_report_score_rejects_client_admin_write() {
     let _guard = test_mutex().lock().await;
     let Some((app, pool)) = setup_test_app().await else {
         return;
@@ -1039,11 +1150,11 @@ async fn test_moderation_report_score_requires_admin() {
     let response = ServiceExt::<Request<Body>>::oneshot(app, admin_request)
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
-async fn test_room_alias_delete_requires_member_or_admin() {
+async fn test_room_alias_management_requires_room_creator() {
     let _guard = test_mutex().lock().await;
     let Some((app, pool)) = setup_test_app().await else {
         return;
@@ -1057,11 +1168,17 @@ async fn test_room_alias_delete_requires_member_or_admin() {
             .await
             .expect("failed to register admin");
     promote_to_admin(&pool, &admin_user_id).await;
+    let (member_token, member_user_id) =
+        register_user(&app, &format!("alias_member_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register joined member");
     let (user_token, _) = register_user(&app, &format!("alias_user_{}", rand::random::<u32>()))
         .await
         .expect("failed to register regular user");
 
     let room_id = create_room(&app, &owner_token, "Alias Security").await;
+    invite_user(&app, &owner_token, &room_id, &member_user_id).await;
+    join_room(&app, &member_token, &room_id).await;
     let alias = format!("#alias-security-{}:localhost", rand::random::<u32>());
     let encoded_alias = urlencoding::encode(&alias);
 
@@ -1121,6 +1238,65 @@ async fn test_room_alias_delete_requires_member_or_admin() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
+    let joined_member_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_matrix/client/v3/directory/room/{}",
+            encoded_alias
+        ))
+        .header("Authorization", format!("Bearer {}", member_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), joined_member_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let member_r0_create_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/r0/directory/room/{}/alias/{}",
+            room_id, encoded_alias
+        ))
+        .header("Authorization", format!("Bearer {}", member_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), member_r0_create_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let member_r0_delete_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_matrix/client/r0/directory/room/{}/alias/{}",
+            room_id, encoded_alias
+        ))
+        .header("Authorization", format!("Bearer {}", member_token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), member_r0_delete_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let second_alias = format!("#alias-security-admin-{}:localhost", rand::random::<u32>());
+    let second_encoded_alias = urlencoding::encode(&second_alias);
+    let admin_create_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v3/directory/room/{}",
+            second_encoded_alias
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "room_id": room_id }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_create_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
     let admin_request = Request::builder()
         .method("DELETE")
         .uri(format!(
@@ -1133,7 +1309,7 @@ async fn test_room_alias_delete_requires_member_or_admin() {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_request)
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let lookup_request = Request::builder()
         .method("GET")
@@ -1147,7 +1323,7 @@ async fn test_room_alias_delete_requires_member_or_admin() {
     let response = ServiceExt::<Request<Body>>::oneshot(app, lookup_request)
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]
@@ -2151,7 +2327,7 @@ async fn test_external_webhook_hmac_uses_updated_persisted_secret() {
         "sha256={}",
         URL_SAFE_NO_PAD.encode(synapse_rust::common::crypto::hmac_sha256(
             "old-secret",
-            &serde_json::to_vec(&webhook_payload).unwrap(),
+            serde_json::to_vec(&webhook_payload).unwrap(),
         ))
     );
     let old_request = Request::builder()
@@ -2170,7 +2346,7 @@ async fn test_external_webhook_hmac_uses_updated_persisted_secret() {
         "sha256={}",
         URL_SAFE_NO_PAD.encode(synapse_rust::common::crypto::hmac_sha256(
             "new-secret",
-            &serde_json::to_vec(&webhook_payload).unwrap(),
+            serde_json::to_vec(&webhook_payload).unwrap(),
         ))
     );
     let new_request = Request::builder()
@@ -2240,7 +2416,7 @@ async fn test_external_webhook_accepts_payload_embedded_signature() {
         "sha256={}",
         URL_SAFE_NO_PAD.encode(synapse_rust::common::crypto::hmac_sha256(
             "payload-secret",
-            &serde_json::to_vec(&unsigned_payload).unwrap(),
+            serde_json::to_vec(&unsigned_payload).unwrap(),
         ))
     );
     let signed_payload = json!({

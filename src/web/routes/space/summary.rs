@@ -3,8 +3,9 @@ use super::*;
 pub(super) async fn get_space_summary(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
+    auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_resolved_space(state, space_id, |state, space| async move {
+    with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
         let summary = state
             .services
             .space_service
@@ -20,15 +21,13 @@ pub(super) async fn get_space_summary(
 pub(super) async fn get_space_summary_with_children(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
-    user_id: Option<axum::extract::Extension<String>>,
+    auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id_str = user_id.as_ref().map(|u| u.0.as_str());
-
-    with_resolved_space(state, space_id, |state, space| async move {
+    with_visible_space(state, space_id, auth_user, |state, space, auth_user| async move {
         let summary = state
             .services
             .space_service
-            .get_space_summary_with_children(&space.space_id, user_id_str)
+            .get_space_summary_with_children(&space.space_id, auth_user.user_id.as_deref())
             .await?;
 
         Ok(Json(summary))

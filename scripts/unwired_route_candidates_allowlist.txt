@@ -1,0 +1,4 @@
+# Unwired Route Candidate Allowlist
+# Reviewed exported route handlers/router factories that are intentionally unreachable.
+# Format: relative/path.rs:symbol_name
+# New entries should be rare and should document why the symbol is intentionally not wired.

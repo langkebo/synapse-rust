@@ -52,7 +52,8 @@ struct FcmNotification {
 #[derive(Debug, Clone, Deserialize)]
 struct FcmResponse {
     #[serde(default)]
-    success: u32,
+    #[serde(rename = "success")]
+    _success: u32,
     #[serde(default)]
     failure: u32,
     #[serde(default)]
@@ -64,7 +65,8 @@ struct FcmResponse {
 #[derive(Debug, Clone, Deserialize)]
 struct FcmResult {
     #[serde(default)]
-    message_id: Option<String>,
+    #[serde(rename = "message_id")]
+    _message_id: Option<String>,
     #[serde(default)]
     error: Option<String>,
 }

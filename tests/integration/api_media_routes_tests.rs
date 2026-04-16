@@ -224,6 +224,128 @@ async fn test_media_preview_and_delete_boundaries() {
 }
 
 #[tokio::test]
+async fn test_media_delete_forbids_admin_override() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let owner_token = register_user(&app, &format!("media_owner_{}", rand::random::<u32>())).await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
+
+    let upload_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/media/r0/upload?filename=admin-delete.txt")
+        .header("Authorization", format!("Bearer {}", owner_token))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("owner-media"))
+        .unwrap();
+
+    let upload_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), upload_request)
+        .await
+        .unwrap();
+    assert_eq!(upload_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(upload_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let (server_name, media_id) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
+
+    let admin_delete_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_matrix/media/v3/delete/{}/{}",
+            server_name, media_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let admin_delete_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_delete_request)
+            .await
+            .unwrap();
+    assert_eq!(admin_delete_response.status(), StatusCode::FORBIDDEN);
+
+    let owner_download_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/media/v3/download/{}/{}",
+            server_name, media_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+
+    let owner_download_response =
+        ServiceExt::<Request<Body>>::oneshot(app, owner_download_request)
+            .await
+            .unwrap();
+    assert_eq!(owner_download_response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_media_download_is_public_but_delete_requires_authentication() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(
+        &app,
+        &format!("media_routes_public_read_{}", rand::random::<u32>()),
+    )
+    .await;
+
+    let upload_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/media/v3/upload?filename=public-read.txt")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("public-media"))
+        .unwrap();
+    let upload_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), upload_request)
+        .await
+        .unwrap();
+    assert_eq!(upload_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(upload_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let (server_name, media_id) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
+
+    let anonymous_download_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/media/v3/download/{}/{}",
+            server_name, media_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let anonymous_download_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), anonymous_download_request)
+            .await
+            .unwrap();
+    assert_eq!(anonymous_download_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(anonymous_download_response.into_body(), 2048)
+        .await
+        .unwrap();
+    assert_eq!(body.as_ref(), b"public-media");
+
+    let anonymous_delete_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_matrix/media/v3/delete/{}/{}",
+            server_name, media_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let anonymous_delete_response =
+        ServiceExt::<Request<Body>>::oneshot(app, anonymous_delete_request)
+            .await
+            .unwrap();
+    assert_eq!(anonymous_delete_response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn test_media_upload_and_route_boundaries_are_preserved() {
     let Some(app) = setup_test_app().await else {
         return;
@@ -452,13 +574,14 @@ async fn test_named_media_upload_rejects_non_local_server_name() {
         &format!("media_routes_server_name_{}", rand::random::<u32>()),
     )
     .await;
+    let media_id = format!("fixed_media_{}", rand::random::<u32>());
 
     let request = Request::builder()
         .method("PUT")
         .uri(format!(
             "/_matrix/media/v3/upload/{}/{}?filename=bad.txt",
             "remote.example.com",
-            format!("fixed_media_{}", rand::random::<u32>())
+            media_id
         ))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "text/plain")
@@ -474,6 +597,147 @@ async fn test_named_media_upload_rejects_non_local_server_name() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_BAD_JSON");
+}
+
+#[tokio::test]
+async fn test_media_download_rejects_foreign_server_namespace() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(
+        &app,
+        &format!("media_routes_foreign_download_{}", rand::random::<u32>()),
+    )
+    .await;
+
+    let upload_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/media/v3/upload?filename=foreign-download.txt")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("local-only-media"))
+        .unwrap();
+    let upload_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), upload_request)
+        .await
+        .unwrap();
+    assert_eq!(upload_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(upload_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let (_, media_id) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
+
+    let download_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/media/v3/download/{}/{}",
+            "remote.example.com", media_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let download_response = ServiceExt::<Request<Body>>::oneshot(app, download_request)
+        .await
+        .unwrap();
+    assert_eq!(download_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_media_delete_rejects_foreign_server_namespace() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(
+        &app,
+        &format!("media_routes_foreign_delete_{}", rand::random::<u32>()),
+    )
+    .await;
+
+    let upload_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/media/v3/upload?filename=foreign-delete.txt")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("local-media"))
+        .unwrap();
+    let upload_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), upload_request)
+        .await
+        .unwrap();
+    assert_eq!(upload_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(upload_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let (server_name, media_id) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
+
+    let delete_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_matrix/media/v3/delete/{}/{}",
+            "remote.example.com", media_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request)
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::NOT_FOUND);
+
+    let local_download_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/media/v3/download/{}/{}", server_name, media_id))
+        .body(Body::empty())
+        .unwrap();
+    let local_download_response =
+        ServiceExt::<Request<Body>>::oneshot(app, local_download_request)
+            .await
+            .unwrap();
+    assert_eq!(local_download_response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_media_thumbnail_rejects_foreign_server_namespace() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(
+        &app,
+        &format!("media_routes_foreign_thumbnail_{}", rand::random::<u32>()),
+    )
+    .await;
+
+    let upload_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/media/v3/upload?filename=foreign-thumbnail.txt")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("local-thumbnail-source"))
+        .unwrap();
+    let upload_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), upload_request)
+        .await
+        .unwrap();
+    assert_eq!(upload_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(upload_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let (_, media_id) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
+
+    let thumbnail_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/media/v3/thumbnail/{}/{}?width=64&height=64",
+            "remote.example.com", media_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let thumbnail_response = ServiceExt::<Request<Body>>::oneshot(app, thumbnail_request)
+        .await
+        .unwrap();
+    assert_eq!(thumbnail_response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

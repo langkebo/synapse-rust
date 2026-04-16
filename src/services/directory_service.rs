@@ -100,27 +100,6 @@ pub trait DirectoryService: Send + Sync {
     /// * `alias` - 要删除的别名
     async fn remove_room_alias(&self, alias: &str) -> ApiResult<()>;
 
-    /// 获取房间的规范别名
-    ///
-    /// 规范别名是房间的主要别名，用于标识房间。
-    ///
-    /// # 参数
-    ///
-    /// * `room_id` - 房间 ID
-    ///
-    /// # 返回
-    ///
-    /// 返回规范别名，如果未设置则返回 `None`。
-    async fn get_canonical_alias(&self, room_id: &str) -> ApiResult<Option<String>>;
-
-    /// 设置房间的规范别名
-    ///
-    /// # 参数
-    ///
-    /// * `room_id` - 房间 ID
-    /// * `alias` - 规范别名，传入 `None` 清除规范别名
-    async fn set_canonical_alias(&self, room_id: &str, alias: Option<&str>) -> ApiResult<()>;
-
     /// 获取公共房间列表
     ///
     /// 分页获取公共房间列表。
@@ -167,8 +146,6 @@ pub struct DirectoryServiceImpl {
     aliases: Arc<RwLock<HashMap<String, String>>>,
     /// 房间 ID 到别名列表的映射
     room_aliases: Arc<RwLock<HashMap<String, Vec<String>>>>,
-    /// 房间 ID 到规范别名的映射
-    canonical_aliases: Arc<RwLock<HashMap<String, String>>>,
     /// 公共房间列表
     public_rooms: Arc<RwLock<HashMap<String, DirectoryRoom>>>,
 }
@@ -185,7 +162,6 @@ impl DirectoryServiceImpl {
         Self {
             aliases: Arc::new(RwLock::new(HashMap::new())),
             room_aliases: Arc::new(RwLock::new(HashMap::new())),
-            canonical_aliases: Arc::new(RwLock::new(HashMap::new())),
             public_rooms: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -257,20 +233,6 @@ impl DirectoryService for DirectoryServiceImpl {
             if let Some(aliases_list) = room_aliases.get_mut(&room_id) {
                 aliases_list.retain(|a| a != alias);
             }
-        }
-        Ok(())
-    }
-
-    async fn get_canonical_alias(&self, room_id: &str) -> ApiResult<Option<String>> {
-        Ok(self.canonical_aliases.read().await.get(room_id).cloned())
-    }
-
-    async fn set_canonical_alias(&self, room_id: &str, alias: Option<&str>) -> ApiResult<()> {
-        let mut canonical = self.canonical_aliases.write().await;
-        if let Some(a) = alias {
-            canonical.insert(room_id.to_string(), a.to_string());
-        } else {
-            canonical.remove(room_id);
         }
         Ok(())
     }
@@ -372,42 +334,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(room_id, None);
-    }
-
-    #[tokio::test]
-    async fn test_set_canonical_alias() {
-        let service = DirectoryServiceImpl::new();
-
-        service
-            .set_canonical_alias("!room:example.com", Some("#main:example.com"))
-            .await
-            .unwrap();
-
-        let alias = service
-            .get_canonical_alias("!room:example.com")
-            .await
-            .unwrap();
-        assert_eq!(alias, Some("#main:example.com".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_clear_canonical_alias() {
-        let service = DirectoryServiceImpl::new();
-
-        service
-            .set_canonical_alias("!room:example.com", Some("#main:example.com"))
-            .await
-            .unwrap();
-        service
-            .set_canonical_alias("!room:example.com", None)
-            .await
-            .unwrap();
-
-        let alias = service
-            .get_canonical_alias("!room:example.com")
-            .await
-            .unwrap();
-        assert_eq!(alias, None);
     }
 
     #[tokio::test]

@@ -2,7 +2,10 @@
 // Allows clients to get and set sticky (pinned) event metadata
 
 use crate::web::routes::response_helpers::empty_json;
-use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::{
+    ensure_room_member, validate_event_id, validate_room_id, ApiError, AppState,
+    AuthenticatedUser,
+};
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -26,17 +29,8 @@ pub async fn get_sticky_events(
     Path(room_id): Path<String>,
     Query(query): Query<StickyEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    // Validate room membership
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member {
-        return Err(ApiError::forbidden("Not a member of this room".to_string()));
-    }
+    validate_room_id(&room_id)?;
+    ensure_room_member(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
     // If specific event_type is requested
     if let Some(event_type) = query.event_type {
@@ -95,17 +89,8 @@ pub async fn set_sticky_events(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    // Validate room membership
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member {
-        return Err(ApiError::forbidden("Not a member of this room".to_string()));
-    }
+    validate_room_id(&room_id)?;
+    ensure_room_member(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
     let events = body
         .get("events")
@@ -122,12 +107,30 @@ pub async fn set_sticky_events(
             .get("event_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ApiError::bad_request("Missing event_id".to_string()))?;
+        validate_event_id(event_id)?;
+
+        let stored_event = state
+            .services
+            .event_storage
+            .get_event(event_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to load sticky event: {}", e)))?;
+        let Some(stored_event) = stored_event.filter(|stored_event| stored_event.room_id == room_id)
+        else {
+            return Err(ApiError::not_found("Event not found".to_string()));
+        };
 
         // Set the sticky event
         state
             .services
             .sticky_event_storage
-            .set_sticky_event(&room_id, &auth_user.user_id, event_id, event_type, true)
+            .set_sticky_event(
+                &room_id,
+                &auth_user.user_id,
+                &stored_event.event_id,
+                event_type,
+                true,
+            )
             .await
             .map_err(|e| ApiError::internal(format!("Failed to set sticky event: {}", e)))?;
     }
@@ -142,17 +145,8 @@ pub async fn clear_sticky_event(
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    // Validate room membership
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member {
-        return Err(ApiError::forbidden("Not a member of this room".to_string()));
-    }
+    validate_room_id(&room_id)?;
+    ensure_room_member(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
     state
         .services

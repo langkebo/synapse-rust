@@ -185,7 +185,7 @@ fn create_room_service(pool: &Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> 
         event_storage,
         user_storage: UserStorage::new(pool, cache.clone()),
         auth_service: synapse_rust::auth::AuthService::new(
-            &pool,
+            pool,
             cache,
             Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),
             &synapse_rust::common::config::SecurityConfig::default(),

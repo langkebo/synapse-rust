@@ -3,9 +3,10 @@ use crate::services::cas_service::CasValidationResponse;
 use crate::storage::cas::{CasService as CasServiceModel, RegisterServiceRequest};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
-    extract::{Path, Query, State},
-    http::{header, StatusCode},
-    response::IntoResponse,
+    extract::{Path, Query, Request, State},
+    http::{header, HeaderValue, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -15,16 +16,20 @@ use url::form_urlencoded;
 #[derive(Debug, Deserialize)]
 struct ServiceTicketQuery {
     service: String,
-    renew: Option<bool>,
-    gateway: Option<bool>,
+    #[serde(rename = "renew")]
+    _renew: Option<bool>,
+    #[serde(rename = "gateway")]
+    _gateway: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ValidateQuery {
     service: String,
     ticket: String,
-    pgt_url: Option<String>,
-    renew: Option<bool>,
+    #[serde(rename = "pgt_url")]
+    _pgt_url: Option<String>,
+    #[serde(rename = "renew")]
+    _renew: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,7 +42,8 @@ struct ProxyQuery {
 struct ProxyValidateQuery {
     service: String,
     ticket: String,
-    pgt_url: Option<String>,
+    #[serde(rename = "pgt_url")]
+    _pgt_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,16 +70,6 @@ struct RegisterServiceBody {
 struct SetAttributeBody {
     attribute_name: String,
     attribute_value: String,
-}
-
-#[derive(Debug, Serialize)]
-struct ServiceTicketResponse {
-    ticket: String,
-}
-
-#[derive(Debug, Serialize)]
-struct ProxyTicketResponse {
-    ticket: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -106,7 +102,26 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
         .route("/p3/serviceValidate", get(p3_service_validate))
         .route("/logout", get(logout));
 
-    let admin_routes = Router::new()
+    let standard_admin_routes = Router::new()
+        .route("/_synapse/admin/v1/cas/services", post(register_service))
+        .route("/_synapse/admin/v1/cas/services", get(list_services))
+        .route(
+            "/_synapse/admin/v1/cas/services/{service_id}",
+            delete(delete_service),
+        )
+        .route(
+            "/_synapse/admin/v1/cas/users/{user_id}/attributes",
+            post(set_user_attribute),
+        )
+        .route(
+            "/_synapse/admin/v1/cas/users/{user_id}/attributes",
+            get(get_user_attributes),
+        )
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ));
+    let legacy_admin_routes = Router::new()
         .route("/admin/services", post(register_service))
         .route("/admin/services", get(list_services))
         .route("/admin/services/{service_id}", delete(delete_service))
@@ -121,9 +136,34 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::web::middleware::admin_auth_middleware,
+        ))
+        .route_layer(axum::middleware::from_fn(
+            legacy_cas_admin_alias_deprecation_middleware,
         ));
 
-    public_routes.merge(admin_routes).with_state(state)
+    public_routes
+        .merge(standard_admin_routes)
+        .merge(legacy_admin_routes)
+        .with_state(state)
+}
+
+async fn legacy_cas_admin_alias_deprecation_middleware(
+    request: Request,
+    next: Next,
+) -> Response {
+    let mut response = next.run(request).await;
+
+    response
+        .headers_mut()
+        .insert("Deprecation", HeaderValue::from_static("true"));
+    response.headers_mut().insert(
+        header::WARNING,
+        HeaderValue::from_static(
+            r#"299 synapse-rust "Legacy CAS admin aliases under /admin are deprecated; use /_synapse/admin/v1/cas/*""#,
+        ),
+    );
+
+    response
 }
 
 async fn login_redirect(

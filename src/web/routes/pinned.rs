@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::common::error::ApiError;
-use crate::web::routes::{AppState, AuthenticatedUser};
+use crate::web::routes::{
+    ensure_room_member, validate_event_id, validate_room_id, AppState, AuthenticatedUser,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct PinRequest {
@@ -20,9 +22,18 @@ pub struct PinnedEventsResponse {
 
 pub async fn get_pinned_events(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<PinnedEventsResponse>, ApiError> {
+    validate_room_id(&room_id)?;
+    ensure_room_member(
+        &state,
+        &auth_user,
+        &room_id,
+        "You must be a member of this room to view pinned events",
+    )
+    .await?;
+
     let pinned: Option<String> = sqlx::query_scalar(
         r#"
         SELECT content FROM events
@@ -52,6 +63,21 @@ pub async fn pin_event(
     Path(room_id): Path<String>,
     Json(body): Json<PinRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+    validate_event_id(&body.event_id)?;
+    ensure_room_member(
+        &state,
+        &auth_user,
+        &room_id,
+        "You must be a member of this room to modify pinned events",
+    )
+    .await?;
+    state
+        .services
+        .auth_service
+        .verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events")
+        .await?;
+
     let now = chrono::Utc::now().timestamp_millis();
     let event_id = format!("${}", uuid::Uuid::new_v4());
 
@@ -104,6 +130,21 @@ pub async fn unpin_event(
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+    validate_event_id(&event_id)?;
+    ensure_room_member(
+        &state,
+        &auth_user,
+        &room_id,
+        "You must be a member of this room to modify pinned events",
+    )
+    .await?;
+    state
+        .services
+        .auth_service
+        .verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events")
+        .await?;
+
     let now = chrono::Utc::now().timestamp_millis();
     let new_event_id = format!("${}", uuid::Uuid::new_v4());
 

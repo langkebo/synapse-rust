@@ -13,6 +13,22 @@ async fn setup_test_app() -> Option<axum::Router> {
     super::setup_test_app().await
 }
 
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+    let pool = super::get_test_pool().await?;
+    let container = synapse_rust::services::ServiceContainer::new_test_with_pool(pool.clone());
+    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let state = synapse_rust::web::routes::state::AppState::new(container, cache);
+    Some((synapse_rust::web::create_router(state), pool))
+}
+
+async fn promote_to_admin(pool: &sqlx::PgPool, user_id: &str) {
+    sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .expect("failed to promote user to admin");
+}
+
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let request = Request::builder()
         .method("POST")
@@ -107,6 +123,63 @@ async fn login_user_with_device(
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     (status, json)
+}
+
+async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "name": name }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["room_id"].as_str().unwrap().to_string()
+}
+
+async fn invite_user_to_room(
+    app: &axum::Router,
+    inviter_token: &str,
+    room_id: &str,
+    invitee_user_id: &str,
+) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .header("Authorization", format!("Bearer {}", inviter_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "user_id": invitee_user_id }).to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]
@@ -354,6 +427,53 @@ async fn test_presence_read_rejects_other_user() {
 }
 
 #[tokio::test]
+async fn test_presence_admin_cannot_read_another_users_status() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (owner_token, owner_user_id) =
+        register_user(&app, &format!("presence_admin_owner_{}", rand::random::<u32>())).await;
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("presence_admin_actor_{}", rand::random::<u32>())).await;
+    promote_to_admin(&pool, &admin_user_id).await;
+
+    let set_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/v3/presence/{}/status",
+            owner_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", owner_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "presence": "online",
+                "status_msg": "owner only"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_request)
+        .await
+        .unwrap();
+    assert_eq!(set_response.status(), StatusCode::OK);
+
+    let admin_request = Request::builder()
+        .uri(format!(
+            "/_matrix/client/v3/presence/{}/status",
+            owner_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let admin_response = ServiceExt::<Request<Body>>::oneshot(app, admin_request)
+        .await
+        .unwrap();
+    assert_eq!(admin_response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
 async fn test_presence_list_boundary_is_preserved() {
     let Some(app) = setup_test_app().await else {
         return;
@@ -401,7 +521,7 @@ async fn test_presence_list_after_session_invalidation_and_relogin() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (admin_token, _) = super::get_admin_token(&app).await;
+    let (admin_token, _) = super::get_super_admin_token(&app).await;
     let username = format!("presence_relogin_{}", rand::random::<u32>());
     let (_, user_id) = register_user(&app, &username).await;
 
@@ -438,6 +558,205 @@ async fn test_presence_list_after_session_invalidation_and_relogin() {
         .await
         .unwrap();
     assert_eq!(presence_response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_presence_list_filters_users_without_shared_rooms() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (alice_token, alice_user_id) =
+        register_user(&app, &format!("presence_filter_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("presence_filter_bob_{}", rand::random::<u32>())).await;
+
+    let set_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/presence/{}/status", bob_user_id))
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "presence": "online",
+                "status_msg": "not shared"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_request)
+        .await
+        .unwrap();
+    assert_eq!(set_response.status(), StatusCode::OK);
+
+    let subscribe_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/presence/list")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "subscribe": [bob_user_id]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let subscribe_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), subscribe_request)
+        .await
+        .unwrap();
+    assert_eq!(subscribe_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(subscribe_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let presences = json["presences"].as_array().unwrap();
+    assert!(!presences.iter().any(|entry| entry["user_id"] == bob_user_id));
+
+    let list_request = Request::builder()
+        .uri(format!("/_matrix/client/v3/presence/list/{}", alice_user_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let list_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_request)
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(list_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let presences = json["presences"].as_array().unwrap();
+    assert!(!presences.iter().any(|entry| entry["user_id"] == bob_user_id));
+}
+
+#[tokio::test]
+async fn test_presence_list_allows_users_with_shared_rooms() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (alice_token, alice_user_id) =
+        register_user(&app, &format!("presence_shared_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("presence_shared_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "Presence Shared Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    let set_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/presence/{}/status", bob_user_id))
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "presence": "online",
+                "status_msg": "shared presence"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_request)
+        .await
+        .unwrap();
+    assert_eq!(set_response.status(), StatusCode::OK);
+
+    let subscribe_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/presence/list")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "subscribe": [bob_user_id]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let subscribe_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), subscribe_request)
+        .await
+        .unwrap();
+    assert_eq!(subscribe_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(subscribe_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let presences = json["presences"].as_array().unwrap();
+    assert!(presences.iter().any(|entry| entry["user_id"] == bob_user_id));
+
+    let list_request = Request::builder()
+        .uri(format!("/_matrix/client/v3/presence/list/{}", alice_user_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let list_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_request)
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(list_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let presences = json["presences"].as_array().unwrap();
+    assert!(presences.iter().any(|entry| entry["user_id"] == bob_user_id));
+}
+
+#[tokio::test]
+async fn test_presence_list_hides_stale_unauthorized_subscriptions() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+    let (alice_token, alice_user_id) =
+        register_user(&app, &format!("presence_stale_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("presence_stale_bob_{}", rand::random::<u32>())).await;
+
+    let presence = PresenceStorage::new(
+        pool.clone(),
+        Arc::new(CacheManager::new(CacheConfig::default())),
+    );
+    presence
+        .add_subscription(&alice_user_id, &bob_user_id)
+        .await
+        .expect("failed to create stale subscription");
+
+    let set_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/presence/{}/status", bob_user_id))
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "presence": "online",
+                "status_msg": "stale subscription"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_request)
+        .await
+        .unwrap();
+    assert_eq!(set_response.status(), StatusCode::OK);
+
+    let list_request = Request::builder()
+        .uri(format!("/_matrix/client/v3/presence/list/{}", alice_user_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let list_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_request)
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(list_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let presences = json["presences"].as_array().unwrap();
+    assert!(!presences.iter().any(|entry| entry["user_id"] == bob_user_id));
 }
 
 #[tokio::test]

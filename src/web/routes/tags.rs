@@ -51,7 +51,7 @@ async fn get_global_tags(
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if auth_user.user_id != user_id && !auth_user.is_admin {
+    if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
@@ -85,7 +85,7 @@ async fn get_tags(
     auth_user: AuthenticatedUser,
     Path((user_id, room_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if auth_user.user_id != user_id && !auth_user.is_admin {
+    if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
@@ -112,7 +112,7 @@ async fn put_tag(
     Path((user_id, room_id, tag)): Path<(String, String, String)>,
     Json(content): Json<TagContent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if auth_user.user_id != user_id && !auth_user.is_admin {
+    if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
@@ -137,7 +137,7 @@ async fn delete_tag(
     auth_user: AuthenticatedUser,
     Path((user_id, room_id, tag)): Path<(String, String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if auth_user.user_id != user_id && !auth_user.is_admin {
+    if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 

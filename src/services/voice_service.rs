@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
 
+#[cfg(test)]
 #[derive(Debug, sqlx::FromRow)]
 struct VoiceMessageDBRow {
     id: i64,
@@ -1052,8 +1053,18 @@ mod tests {
         };
 
         assert_eq!(row.id, 1);
+        assert_eq!(row.event_id, "$event:example.com");
+        assert_eq!(row.user_id, "@user:example.com");
+        assert_eq!(row.room_id, "!room:example.com");
+        assert_eq!(row.media_id.as_deref(), Some("media_id"));
         assert_eq!(row.duration_ms, 5000);
+        assert_eq!(row.waveform.as_deref(), Some("waveform_data"));
+        assert_eq!(row.mime_type.as_deref(), Some("audio/ogg"));
+        assert_eq!(row.file_size, Some(102400));
+        assert_eq!(row.transcription.as_deref(), Some("transcribed text"));
         assert!(row.is_processed.unwrap_or(false));
+        assert_eq!(row.processed_ts, Some(1700000000));
+        assert_eq!(row.created_ts, 1699900000);
     }
 
     #[test]
@@ -1081,6 +1092,18 @@ mod tests {
         };
 
         assert!(row.encryption.is_some());
+        assert_eq!(row.event_id, "$encrypted:example.com");
+        assert_eq!(row.user_id, "@user:example.com");
+        assert_eq!(row.room_id, "!room:example.com");
+        assert_eq!(row.media_id, None);
+        assert_eq!(row.duration_ms, 3000);
+        assert_eq!(row.waveform, None);
+        assert_eq!(row.mime_type.as_deref(), Some("audio/ogg"));
+        assert_eq!(row.file_size, Some(51200));
+        assert_eq!(row.transcription, None);
+        assert_eq!(row.is_processed, None);
+        assert_eq!(row.processed_ts, None);
+        assert_eq!(row.created_ts, 1700000000);
         let enc = row.encryption.unwrap();
         assert_eq!(enc.0["algorithm"], "m.megolm.v1.aes-sha2");
     }

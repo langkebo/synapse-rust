@@ -48,15 +48,18 @@ pub(crate) async fn authorize_admin_request(
         ));
     }
 
+    let normalized_path = normalize_admin_path(path);
     let role = normalize_admin_role(user.user_type.as_deref());
-    if state.services.config.security.admin_rbac_enabled && !is_role_allowed(&role, method, path) {
+    if state.services.config.security.admin_rbac_enabled
+        && !is_role_allowed(&role, method, &normalized_path)
+    {
         return Err(ApiError::forbidden(format!(
             "Admin role '{}' is not allowed to access this resource",
             role
         )));
     }
 
-    if should_require_admin_mfa(&state.services.config.security, method, path) {
+    if should_require_admin_mfa(&state.services.config.security, method, &normalized_path) {
         let mfa_code = headers
             .get("x-admin-mfa-code")
             .and_then(|value| value.to_str().ok())
@@ -75,6 +78,18 @@ pub(crate) async fn authorize_admin_request(
         access_token,
         role,
     })
+}
+
+fn normalize_admin_path(path: &str) -> String {
+    if path == "/admin/services" || path.starts_with("/admin/services/") {
+        return path.replacen("/admin/services", "/_synapse/admin/v1/cas/services", 1);
+    }
+
+    if path.starts_with("/admin/users/") && path.ends_with("/attributes") {
+        return path.replacen("/admin/users/", "/_synapse/admin/v1/cas/users/", 1);
+    }
+
+    path.to_string()
 }
 
 pub(crate) async fn enforce_admin_login_mfa(
@@ -148,6 +163,7 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
                 || path.starts_with("/_synapse/admin/v1/notifications")
                 || path.starts_with("/_synapse/admin/v1/media")
                 || path.starts_with("/_synapse/admin/v1/rooms")
+                || path.starts_with("/_synapse/room_summary/v1/")
                 || (is_read && path.starts_with("/_synapse/admin/v1/"))
         }
         "auditor" => {

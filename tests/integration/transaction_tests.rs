@@ -6,8 +6,9 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::{
-    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, FederationConfig, RateLimitConfig,
-    RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, VoipConfig, WorkerConfig,
+    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, ExperimentalConfig,
+    FederationConfig, RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig, ServerConfig,
+    SmtpConfig, VoipConfig, WorkerConfig,
 };
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::create_router;
@@ -148,6 +149,7 @@ fn create_test_config() -> Config {
         telemetry: synapse_rust::common::telemetry_config::OpenTelemetryConfig::default(),
         prometheus: synapse_rust::common::telemetry_config::PrometheusConfig::default(),
         performance: synapse_rust::common::config::PerformanceConfig::default(),
+        experimental: ExperimentalConfig::default(),
     }
 }
 

@@ -64,10 +64,12 @@ fn test_auth_service_register_invalid_username() {
 
         let id = unique_id();
         let invalid_username = format!("user@{}", id);
-        let result = auth.register(&invalid_username, "password", None).await;
+        let result = auth
+            .register(&invalid_username, "password", false, None)
+            .await;
         assert!(matches!(result, Err(ApiError::InvalidUsername(_))));
 
-        let result = auth.register("", "password", None).await;
+        let result = auth.register("", "password", false, None).await;
         assert!(matches!(result, Err(ApiError::BadRequest(_))));
     });
 }
@@ -277,7 +279,7 @@ fn test_no_migration_for_argon2_hash() {
         let user_id = format!("@{}:localhost", username);
 
         let (user, _, _, _) = auth
-            .register(&username, password, None)
+            .register(&username, password, false, None)
             .await
             .expect("Registration should succeed");
 

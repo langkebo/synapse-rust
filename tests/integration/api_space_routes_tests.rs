@@ -133,6 +133,19 @@ async fn add_child(
     assert_eq!(response.status(), StatusCode::CREATED);
 }
 
+async fn setup_test_app_with_pool() -> Option<(axum::Router, std::sync::Arc<sqlx::PgPool>)> {
+    use synapse_rust::cache::CacheManager;
+    use synapse_rust::services::ServiceContainer;
+    use synapse_rust::web::routes::state::AppState;
+
+    let pool = super::get_test_pool().await?;
+    let container = ServiceContainer::new_test_with_pool(pool.clone());
+    let cache = std::sync::Arc::new(CacheManager::new(Default::default()));
+    let state = AppState::new(container, cache);
+
+    Some((synapse_rust::web::create_router(state), pool))
+}
+
 #[tokio::test]
 async fn test_space_summary_suite_keeps_summary_counts_and_child_projection_verified() {
     let Some(app) = super::setup_test_app().await else {
@@ -143,7 +156,7 @@ async fn test_space_summary_suite_keeps_summary_counts_and_child_projection_veri
     let root_room_id = create_room(&app, &token, "Space Summary Root").await;
     let child_room_id = create_room(&app, &token, "Space Summary Child").await;
 
-    create_space(
+    let root_space = create_space(
         &app,
         &token,
         &root_room_id,
@@ -157,11 +170,12 @@ async fn test_space_summary_suite_keeps_summary_counts_and_child_projection_veri
         }),
     )
     .await;
+    let root_space_id = root_space["space_id"].as_str().unwrap().to_string();
     add_child(&app, &token, &root_room_id, &child_room_id, true).await;
 
     for path in [
-        format!("/_matrix/client/v3/spaces/{}/summary", root_room_id),
-        format!("/_matrix/client/r0/spaces/{}/summary", root_room_id),
+        format!("/_matrix/client/v3/spaces/{}/summary", root_space_id),
+        format!("/_matrix/client/r0/spaces/{}/summary", root_space_id),
     ] {
         let request = Request::builder()
             .method("GET")
@@ -186,8 +200,9 @@ async fn test_space_summary_suite_keeps_summary_counts_and_child_projection_veri
         .method("GET")
         .uri(format!(
             "/_matrix/client/v1/spaces/{}/summary/with_children",
-            root_room_id
+            root_space_id
         ))
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
     let response = ServiceExt::<Request<Body>>::oneshot(app, request)
@@ -217,7 +232,7 @@ async fn test_space_children_hierarchy_suite_keeps_nested_chain_verified() {
     let child_space_room_id = create_room(&app, &token, "Hierarchy Child Space").await;
     let leaf_room_id = create_room(&app, &token, "Hierarchy Leaf Room").await;
 
-    create_space(
+    let root_space = create_space(
         &app,
         &token,
         &root_room_id,
@@ -230,7 +245,8 @@ async fn test_space_children_hierarchy_suite_keeps_nested_chain_verified() {
         }),
     )
     .await;
-    create_space(
+    let root_space_id = root_space["space_id"].as_str().unwrap().to_string();
+    let child_space = create_space(
         &app,
         &token,
         &child_space_room_id,
@@ -243,6 +259,7 @@ async fn test_space_children_hierarchy_suite_keeps_nested_chain_verified() {
         }),
     )
     .await;
+    let _child_space_id = child_space["space_id"].as_str().unwrap().to_string();
     add_child(&app, &token, &root_room_id, &child_space_room_id, true).await;
     add_child(&app, &token, &child_space_room_id, &leaf_room_id, false).await;
 
@@ -250,8 +267,9 @@ async fn test_space_children_hierarchy_suite_keeps_nested_chain_verified() {
         .method("GET")
         .uri(format!(
             "/_matrix/client/v3/spaces/{}/children",
-            root_room_id
+            root_space_id
         ))
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
     let children_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), children_request)
@@ -263,6 +281,7 @@ async fn test_space_children_hierarchy_suite_keeps_nested_chain_verified() {
         .await
         .unwrap();
     let children_json: Value = serde_json::from_slice(&children_body).unwrap();
+    assert_eq!(children_json[0]["space_id"], root_space_id);
     assert_eq!(children_json[0]["room_id"], child_space_room_id);
     assert_eq!(children_json[0]["is_suggested"], true);
 
@@ -270,8 +289,9 @@ async fn test_space_children_hierarchy_suite_keeps_nested_chain_verified() {
         .method("GET")
         .uri(format!(
             "/_matrix/client/v1/spaces/{}/hierarchy/v1?max_depth=3&limit=1",
-            root_room_id
+            root_space_id
         ))
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
     let hierarchy_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), hierarchy_request)
@@ -299,6 +319,7 @@ async fn test_space_children_hierarchy_suite_keeps_nested_chain_verified() {
             "/_matrix/client/r0/spaces/room/{}/parents",
             leaf_room_id
         ))
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
     let parents_response = ServiceExt::<Request<Body>>::oneshot(app, parents_request)
@@ -325,7 +346,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
     let root_room_id = create_room(&app, &owner_token, "Membership Root Space").await;
     let child_room_id = create_room(&app, &owner_token, "Membership Child Room").await;
 
-    create_space(
+    let root_space = create_space(
         &app,
         &owner_token,
         &root_room_id,
@@ -339,11 +360,12 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
         }),
     )
     .await;
+    let root_space_id = root_space["space_id"].as_str().unwrap().to_string();
     add_child(&app, &owner_token, &root_room_id, &child_room_id, true).await;
 
     let state_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/spaces/{}/state", root_room_id))
+        .uri(format!("/_matrix/client/v3/spaces/{}/state", root_space_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -368,8 +390,9 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
         .method("GET")
         .uri(format!(
             "/_matrix/client/r0/spaces/{}/members",
-            root_room_id
+            root_space_id
         ))
+        .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
     let members_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), members_request)
@@ -387,7 +410,8 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let rooms_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/spaces/{}/rooms", root_room_id))
+        .uri(format!("/_matrix/client/v1/spaces/{}/rooms", root_space_id))
+        .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
     let rooms_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), rooms_request)
@@ -399,11 +423,12 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
         .await
         .unwrap();
     let rooms_json: Value = serde_json::from_slice(&rooms_body).unwrap();
+    assert_eq!(rooms_json["space_id"], root_space_id);
     assert_eq!(rooms_json["rooms"][0], child_room_id);
 
     let forbidden_join_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/spaces/{}/join", root_room_id))
+        .uri(format!("/_matrix/client/v3/spaces/{}/join", root_space_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
@@ -415,7 +440,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let invite_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/spaces/{}/invite", root_room_id))
+        .uri(format!("/_matrix/client/v3/spaces/{}/invite", root_space_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -432,7 +457,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let join_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/spaces/{}/join", root_room_id))
+        .uri(format!("/_matrix/client/v3/spaces/{}/join", root_space_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
@@ -445,8 +470,9 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
         .method("GET")
         .uri(format!(
             "/_matrix/client/v3/spaces/{}/members",
-            root_room_id
+            root_space_id
         ))
+        .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
     let joined_members_response =
@@ -467,7 +493,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let leave_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/spaces/{}/leave", root_room_id))
+        .uri(format!("/_matrix/client/v1/spaces/{}/leave", root_space_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
@@ -480,8 +506,9 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
         .method("GET")
         .uri(format!(
             "/_matrix/client/v3/spaces/{}/members",
-            root_room_id
+            root_space_id
         ))
+        .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
     let members_after_leave_response =
@@ -512,7 +539,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
     let token = register_user(&app, "space_lifecycle_owner").await;
     let room_id = create_room(&app, &token, "Lifecycle Space Room").await;
 
-    create_space(
+    let create_json = create_space(
         &app,
         &token,
         &room_id,
@@ -526,10 +553,12 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
         }),
     )
     .await;
+    let space_id = create_json["space_id"].as_str().unwrap().to_string();
+    assert_ne!(space_id, room_id);
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/spaces/{}", room_id))
+        .uri(format!("/_matrix/client/v1/spaces/{}", space_id))
         .body(Body::empty())
         .unwrap();
     let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request)
@@ -541,6 +570,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
         .await
         .unwrap();
     let get_json: Value = serde_json::from_slice(&get_body).unwrap();
+    assert_eq!(get_json["space_id"], space_id);
     assert_eq!(get_json["room_id"], room_id);
     assert_eq!(get_json["name"], "Lifecycle Space");
     assert_eq!(get_json["is_public"], true);
@@ -559,11 +589,12 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
         .await
         .unwrap();
     let by_room_json: Value = serde_json::from_slice(&by_room_body).unwrap();
+    assert_eq!(by_room_json["space_id"], space_id);
     assert_eq!(by_room_json["room_id"], room_id);
 
     let update_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/spaces/{}", room_id))
+        .uri(format!("/_matrix/client/v3/spaces/{}", space_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -583,6 +614,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
         .await
         .unwrap();
     let update_json: Value = serde_json::from_slice(&update_body).unwrap();
+    assert_eq!(update_json["space_id"], space_id);
     assert_eq!(update_json["name"], "Lifecycle Space Updated");
     assert_eq!(update_json["topic"], "updated lifecycle query sample");
 
@@ -649,7 +681,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
 
     let delete_request = Request::builder()
         .method("DELETE")
-        .uri(format!("/_matrix/client/v3/spaces/{}", room_id))
+        .uri(format!("/_matrix/client/v3/spaces/{}", space_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -657,10 +689,9 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
         .await
         .unwrap();
     assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
-
     let get_after_delete_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/spaces/{}", room_id))
+        .uri(format!("/_matrix/client/v3/spaces/{}", space_id))
         .body(Body::empty())
         .unwrap();
     let get_after_delete_response =
@@ -668,4 +699,370 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
             .await
             .unwrap();
     assert_eq!(get_after_delete_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_private_space_read_routes_reject_anonymous_and_non_members() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let owner_token = register_user(&app, "space_read_guard_owner").await;
+    let outsider_token = register_user(&app, "space_read_guard_outsider").await;
+    let root_room_id = create_room(&app, &owner_token, "Private Read Guard Space").await;
+
+    let root_space = create_space(
+        &app,
+        &owner_token,
+        &root_room_id,
+        json!({
+            "room_id": root_room_id,
+            "name": "Private Read Guard Space",
+            "topic": "visibility guard",
+            "join_rule": "invite",
+            "visibility": "private",
+            "is_public": false
+        }),
+    )
+    .await;
+    let root_space_id = root_space["space_id"].as_str().unwrap().to_string();
+
+    for path in [
+        format!("/_matrix/client/v1/spaces/{}", root_space_id),
+        format!(
+            "/_matrix/client/v1/spaces/{}/summary/with_children",
+            root_space_id
+        ),
+        format!("/_matrix/client/v1/spaces/{}/members", root_space_id),
+        format!("/_matrix/client/v1/spaces/{}/hierarchy/v1", root_space_id),
+    ] {
+        let anonymous_request = Request::builder()
+            .method("GET")
+            .uri(&path)
+            .body(Body::empty())
+            .unwrap();
+        let anonymous_response =
+            ServiceExt::<Request<Body>>::oneshot(app.clone(), anonymous_request)
+                .await
+                .unwrap();
+        assert_eq!(anonymous_response.status(), StatusCode::UNAUTHORIZED);
+
+        let outsider_request = Request::builder()
+            .method("GET")
+            .uri(&path)
+            .header("Authorization", format!("Bearer {}", outsider_token))
+            .body(Body::empty())
+            .unwrap();
+        let outsider_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), outsider_request)
+            .await
+            .unwrap();
+        assert_eq!(outsider_response.status(), StatusCode::FORBIDDEN);
+    }
+}
+
+#[tokio::test]
+async fn test_space_statistics_only_returns_visible_spaces() {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let owner_token = register_user(&app, "space_stats_owner").await;
+    let outsider_token = register_user(&app, "space_stats_outsider").await;
+    let public_room_id = create_room(&app, &owner_token, "Stats Public Space").await;
+    let private_room_id = create_room(&app, &owner_token, "Stats Private Space").await;
+
+    create_space(
+        &app,
+        &owner_token,
+        &public_room_id,
+        json!({
+            "room_id": public_room_id,
+            "name": "Stats Public Space",
+            "join_rule": "public",
+            "visibility": "public",
+            "is_public": true
+        }),
+    )
+    .await;
+    create_space(
+        &app,
+        &owner_token,
+        &private_room_id,
+        json!({
+            "room_id": private_room_id,
+            "name": "Stats Private Space",
+            "join_rule": "invite",
+            "visibility": "private",
+            "is_public": false
+        }),
+    )
+    .await;
+
+    let public_space_id: String = sqlx::query_scalar("SELECT space_id FROM spaces WHERE room_id = $1")
+        .bind(&public_room_id)
+        .fetch_one(&*pool)
+        .await
+        .unwrap();
+    let private_space_id: String =
+        sqlx::query_scalar("SELECT space_id FROM spaces WHERE room_id = $1")
+            .bind(&private_room_id)
+            .fetch_one(&*pool)
+            .await
+            .unwrap();
+
+    for (space_id, name, is_public) in [
+        (public_space_id.as_str(), "Stats Public Space", true),
+        (private_space_id.as_str(), "Stats Private Space", false),
+    ] {
+        sqlx::query(
+            r#"
+            INSERT INTO space_statistics (space_id, name, is_public, child_room_count, member_count, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (space_id) DO UPDATE SET
+                name = EXCLUDED.name,
+                is_public = EXCLUDED.is_public,
+                child_room_count = EXCLUDED.child_room_count,
+                member_count = EXCLUDED.member_count,
+                updated_ts = EXCLUDED.updated_ts
+            "#,
+        )
+        .bind(space_id)
+        .bind(name)
+        .bind(is_public)
+        .bind(0_i64)
+        .bind(1_i64)
+        .bind(0_i64)
+        .bind(100_i64)
+        .execute(&*pool)
+        .await
+        .unwrap();
+    }
+
+    let anonymous_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/spaces/statistics")
+        .body(Body::empty())
+        .unwrap();
+    let anonymous_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), anonymous_request)
+        .await
+        .unwrap();
+    assert_eq!(anonymous_response.status(), StatusCode::OK);
+
+    let anonymous_body = axum::body::to_bytes(anonymous_response.into_body(), 8192)
+        .await
+        .unwrap();
+    let anonymous_json: Value = serde_json::from_slice(&anonymous_body).unwrap();
+    let anonymous_stats = anonymous_json.as_array().unwrap();
+    assert!(anonymous_stats
+        .iter()
+        .any(|entry| entry["name"] == "Stats Public Space"));
+    assert!(!anonymous_stats
+        .iter()
+        .any(|entry| entry["name"] == "Stats Private Space"));
+
+    let outsider_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/spaces/statistics")
+        .header("Authorization", format!("Bearer {}", outsider_token))
+        .body(Body::empty())
+        .unwrap();
+    let outsider_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), outsider_request)
+        .await
+        .unwrap();
+    assert_eq!(outsider_response.status(), StatusCode::OK);
+
+    let outsider_body = axum::body::to_bytes(outsider_response.into_body(), 8192)
+        .await
+        .unwrap();
+    let outsider_json: Value = serde_json::from_slice(&outsider_body).unwrap();
+    let outsider_stats = outsider_json.as_array().unwrap();
+    assert!(outsider_stats
+        .iter()
+        .any(|entry| entry["name"] == "Stats Public Space"));
+    assert!(!outsider_stats
+        .iter()
+        .any(|entry| entry["name"] == "Stats Private Space"));
+
+    let owner_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/spaces/statistics")
+        .header("Authorization", format!("Bearer {}", owner_token))
+        .body(Body::empty())
+        .unwrap();
+    let owner_response = ServiceExt::<Request<Body>>::oneshot(app, owner_request)
+        .await
+        .unwrap();
+    assert_eq!(owner_response.status(), StatusCode::OK);
+
+    let owner_body = axum::body::to_bytes(owner_response.into_body(), 8192)
+        .await
+        .unwrap();
+    let owner_json: Value = serde_json::from_slice(&owner_body).unwrap();
+    let owner_stats = owner_json.as_array().unwrap();
+    assert!(owner_stats
+        .iter()
+        .any(|entry| entry["name"] == "Stats Public Space"));
+    assert!(owner_stats
+        .iter()
+        .any(|entry| entry["name"] == "Stats Private Space"));
+}
+
+#[tokio::test]
+async fn test_create_space_route_rejects_non_creator_for_foreign_room() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let owner_token = register_user(&app, "space_foreign_room_owner").await;
+    let outsider_token = register_user(&app, "space_foreign_room_outsider").await;
+    let room_id = create_room(&app, &owner_token, "Foreign Room Space").await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/spaces")
+        .header("Authorization", format!("Bearer {}", outsider_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room_id": room_id,
+                "name": "Unauthorized Space",
+                "join_rule": "public",
+                "visibility": "public",
+                "is_public": true
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_space_shared_write_routes_reject_joined_non_creator() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let owner_token = register_user(&app, "space_write_owner").await;
+    let member_token = register_user(&app, "space_write_member").await;
+    let target_token = register_user(&app, "space_write_target").await;
+    let target_user_id = get_user_id(&app, &target_token).await;
+    let room_id = create_room(&app, &owner_token, "Shared Write Space").await;
+    let child_room_id = create_room(&app, &owner_token, "Shared Write Child").await;
+
+    let space = create_space(
+        &app,
+        &owner_token,
+        &room_id,
+        json!({
+            "room_id": room_id,
+            "name": "Shared Write Space",
+            "join_rule": "public",
+            "visibility": "public",
+            "is_public": true
+        }),
+    )
+    .await;
+    let space_id = space["space_id"].as_str().unwrap().to_string();
+
+    let join_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/spaces/{}/join", space_id))
+        .header("Authorization", format!("Bearer {}", member_token))
+        .body(Body::empty())
+        .unwrap();
+    let join_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), join_request)
+        .await
+        .unwrap();
+    assert_eq!(join_response.status(), StatusCode::OK);
+
+    add_child(&app, &owner_token, &room_id, &child_room_id, true).await;
+
+    let update_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/spaces/{}", space_id))
+        .header("Authorization", format!("Bearer {}", member_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "Member Mutated Space"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let update_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), update_request)
+        .await
+        .unwrap();
+    assert_eq!(update_response.status(), StatusCode::FORBIDDEN);
+
+    let add_child_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/spaces/{}/children", space_id))
+        .header("Authorization", format!("Bearer {}", member_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room_id": child_room_id,
+                "via_servers": ["localhost"],
+                "suggested": false
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let add_child_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), add_child_request)
+        .await
+        .unwrap();
+    assert_eq!(add_child_response.status(), StatusCode::FORBIDDEN);
+
+    let remove_child_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_matrix/client/v3/spaces/{}/children/{}",
+            space_id, child_room_id
+        ))
+        .header("Authorization", format!("Bearer {}", member_token))
+        .body(Body::empty())
+        .unwrap();
+    let remove_child_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), remove_child_request)
+            .await
+            .unwrap();
+    assert_eq!(remove_child_response.status(), StatusCode::FORBIDDEN);
+
+    let invite_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/spaces/{}/invite", space_id))
+        .header("Authorization", format!("Bearer {}", member_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "user_id": target_user_id
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let invite_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), invite_request)
+        .await
+        .unwrap();
+    assert_eq!(invite_response.status(), StatusCode::FORBIDDEN);
+
+    let owner_update_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/spaces/{}", space_id))
+        .header("Authorization", format!("Bearer {}", owner_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "Owner Mutated Space"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let owner_update_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), owner_update_request)
+            .await
+            .unwrap();
+    assert_eq!(owner_update_response.status(), StatusCode::OK);
 }

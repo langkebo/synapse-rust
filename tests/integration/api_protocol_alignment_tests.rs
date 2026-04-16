@@ -10,6 +10,8 @@ use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
+type RoomSummaryCounts = (i64, i64, Option<String>, Option<i64>, Option<i64>);
+
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
     let container = ServiceContainer::new_test_with_pool(pool.clone());
@@ -475,6 +477,7 @@ async fn test_space_state_and_children_form_a_matrix_style_closure() {
         .unwrap();
     let create_space_json: Value = serde_json::from_slice(&create_space_body).unwrap();
     let space_id = create_space_json["space_id"].as_str().unwrap().to_string();
+    assert_ne!(space_id, parent_room_id);
 
     let add_child_request = Request::builder()
         .method("POST")
@@ -545,6 +548,7 @@ async fn test_space_state_and_children_form_a_matrix_style_closure() {
     let children_request = Request::builder()
         .method("GET")
         .uri(format!("/_matrix/client/v3/spaces/{}/children", space_id))
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
     let children_response = ServiceExt::<Request<Body>>::oneshot(app, children_request)
@@ -776,7 +780,7 @@ async fn test_admin_send_server_notice_persists_notice_for_target_user() {
         "target user should be joined to the server notice room"
     );
 
-    let summary_counts: Option<(i64, i64, Option<String>, Option<i64>, Option<i64>)> = sqlx::query_as(
+    let summary_counts: Option<RoomSummaryCounts> = sqlx::query_as(
         "SELECT member_count, joined_member_count, last_event_id, last_event_ts, last_message_ts FROM room_summaries WHERE room_id = $1",
     )
     .bind(room_id)

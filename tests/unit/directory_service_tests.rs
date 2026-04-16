@@ -58,48 +58,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_set_canonical_alias() {
-        let service = DirectoryServiceImpl::new();
-
-        // Set canonical alias
-        service
-            .set_canonical_alias("!room:example.com", Some("#main:example.com"))
-            .await
-            .unwrap();
-
-        // Get canonical alias
-        let alias = service
-            .get_canonical_alias("!room:example.com")
-            .await
-            .unwrap();
-        assert_eq!(alias, Some("#main:example.com".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_clear_canonical_alias() {
-        let service = DirectoryServiceImpl::new();
-
-        // Set canonical alias
-        service
-            .set_canonical_alias("!room:example.com", Some("#main:example.com"))
-            .await
-            .unwrap();
-
-        // Clear canonical alias
-        service
-            .set_canonical_alias("!room:example.com", None)
-            .await
-            .unwrap();
-
-        // Should be None
-        let alias = service
-            .get_canonical_alias("!room:example.com")
-            .await
-            .unwrap();
-        assert_eq!(alias, None);
-    }
-
-    #[tokio::test]
     async fn test_get_public_rooms() {
         let service = DirectoryServiceImpl::new();
 

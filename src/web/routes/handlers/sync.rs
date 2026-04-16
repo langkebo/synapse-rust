@@ -5,7 +5,6 @@ use axum::{
     extract::{Json, Query, State},
     http::HeaderMap,
 };
-use serde::Serialize;
 use serde_json::Value;
 
 pub(crate) async fn sync(
@@ -98,13 +97,6 @@ pub(crate) async fn sync(
             Err(ApiError::internal("Sync operation timed out".to_string()))
         }
     }
-}
-
-#[derive(Serialize)]
-pub(crate) struct FilterResponse {
-    filter_id: String,
-    room: Option<Value>,
-    presence: Option<Value>,
 }
 
 pub(crate) async fn get_events(

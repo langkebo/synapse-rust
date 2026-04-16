@@ -163,7 +163,7 @@ pub(crate) async fn update_displayname(
         ));
     }
 
-    if user_id != auth_user.user_id && !auth_user.is_admin {
+    if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
@@ -205,7 +205,7 @@ pub(crate) async fn update_avatar(
         ));
     }
 
-    if user_id != auth_user.user_id && !auth_user.is_admin {
+    if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
@@ -372,19 +372,6 @@ pub(crate) async fn get_threepids(
     Ok(Json(json!({
         "threepids": threepids_list
     })))
-}
-
-#[derive(Debug, Deserialize)]
-struct AddThreepidRequest {
-    #[serde(rename = "threePidCreds")]
-    three_pid_creds: Option<ThreepidCreds>,
-    bind: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ThreepidCreds {
-    client_secret: Option<String>,
-    sid: Option<String>,
 }
 
 pub(crate) async fn add_threepid(

@@ -3,6 +3,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
+use std::sync::Arc;
 use tower::ServiceExt;
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -54,6 +55,48 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
+}
+
+async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": user_id }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn setup_test_app_with_services() -> Option<(axum::Router, synapse_rust::services::ServiceContainer)> {
+    use synapse_rust::cache::CacheManager;
+    use synapse_rust::services::ServiceContainer;
+    use synapse_rust::web::routes::state::AppState;
+
+    let pool = super::get_test_pool().await?;
+    let container = ServiceContainer::new_test_with_pool(pool);
+    let cache = Arc::new(CacheManager::new(Default::default()));
+    let state = AppState::new(container.clone(), cache);
+
+    Some((synapse_rust::web::create_router(state), container))
 }
 
 async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &str) -> String {
@@ -294,7 +337,7 @@ async fn test_account_data_contract_returns_not_found_for_missing_custom_type() 
 }
 
 #[tokio::test]
-async fn test_room_key_distribution_contract_returns_not_found_without_session() {
+async fn test_room_key_distribution_contract_rejects_client_access_without_session() {
     let Some(app) = super::setup_test_app().await else {
         return;
     };
@@ -322,8 +365,8 @@ async fn test_room_key_distribution_contract_returns_not_found_without_session()
                 .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
-            StatusCode::NOT_FOUND,
-            "M_NOT_FOUND",
+            StatusCode::FORBIDDEN,
+            "M_FORBIDDEN",
         )
         .await;
     }
@@ -339,6 +382,7 @@ async fn test_room_key_distribution_contract_rejects_non_members() {
     let attacker_username = format!("key_dist_attacker_{}", rand::random::<u32>());
     let (owner_token, _) = register_user(&app, &owner_username).await;
     let (attacker_token, _) = register_user(&app, &attacker_username).await;
+    let (admin_token, _) = super::get_admin_token(&app).await;
     let room_id = create_room(&app, &owner_token, "Key Distribution Access Control").await;
     let encoded_room_id = encode_room_id(&room_id);
 
@@ -356,7 +400,7 @@ async fn test_room_key_distribution_contract_rejects_non_members() {
             &app,
             Request::builder()
                 .method("GET")
-                .uri(path)
+                .uri(path.as_str())
                 .header("Authorization", format!("Bearer {}", attacker_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -364,6 +408,70 @@ async fn test_room_key_distribution_contract_rejects_non_members() {
             "M_FORBIDDEN",
         )
         .await;
+
+        assert_matrix_error(
+            &app,
+            Request::builder()
+                .method("GET")
+                .uri(path.as_str())
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .body(Body::empty())
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "M_FORBIDDEN",
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn test_room_key_distribution_contract_rejects_members_even_with_session() {
+    let Some((app, services)) = setup_test_app_with_services().await else {
+        return;
+    };
+
+    let owner_username = format!("key_dist_member_owner_{}", rand::random::<u32>());
+    let member_username = format!("key_dist_member_joined_{}", rand::random::<u32>());
+    let (owner_token, owner_user_id) = register_user(&app, &owner_username).await;
+    let (member_token, member_user_id) = register_user(&app, &member_username).await;
+    let room_id = create_room(&app, &owner_token, "Key Distribution Member Access").await;
+    invite_user(&app, &owner_token, &room_id, &member_user_id).await;
+    join_room(&app, &member_token, &room_id).await;
+
+    services
+        .megolm_service
+        .create_session(&room_id, &owner_user_id)
+        .await
+        .unwrap();
+
+    let encoded_room_id = encode_room_id(&room_id);
+    for (token, expected_status) in [
+        (&owner_token, StatusCode::FORBIDDEN),
+        (&member_token, StatusCode::FORBIDDEN),
+    ] {
+        for path in [
+            format!(
+                "/_matrix/client/r0/rooms/{}/keys/distribution",
+                encoded_room_id
+            ),
+            format!(
+                "/_matrix/client/v3/rooms/{}/keys/distribution",
+                encoded_room_id
+            ),
+        ] {
+            assert_matrix_error(
+                &app,
+                Request::builder()
+                    .method("GET")
+                    .uri(path.as_str())
+                    .header("Authorization", format!("Bearer {}", token))
+                    .body(Body::empty())
+                    .unwrap(),
+                expected_status,
+                "M_FORBIDDEN",
+            )
+            .await;
+        }
     }
 }
 
@@ -398,7 +506,7 @@ async fn test_change_password_uia_rejects_dummy_auth() {
 }
 
 #[tokio::test]
-async fn test_key_rotation_contract_rejects_non_admin_users() {
+async fn test_key_rotation_management_contract_rejects_client_access() {
     let Some(app) = super::setup_test_app().await else {
         return;
     };
@@ -407,6 +515,7 @@ async fn test_key_rotation_contract_rejects_non_admin_users() {
     let (token, _) = register_user(&app, &username).await;
 
     for (method, path) in [
+        ("GET", "/_matrix/client/v1/keys/rotation/status"),
         ("POST", "/_matrix/client/v1/keys/rotation/rotate"),
         ("PUT", "/_matrix/client/v1/keys/rotation/config"),
     ] {
@@ -429,31 +538,33 @@ async fn test_key_rotation_contract_rejects_non_admin_users() {
         )
         .await;
     }
-}
-
-#[tokio::test]
-async fn test_key_rotation_config_contract_returns_unrecognized_for_admin() {
-    let Some(app) = super::setup_test_app().await else {
-        return;
-    };
 
     let (admin_token, _) = super::get_admin_token(&app).await;
 
-    assert_matrix_error(
-        &app,
-        Request::builder()
-            .method("PUT")
-            .uri("/_matrix/client/v1/keys/rotation/config")
-            .header("Authorization", format!("Bearer {}", admin_token))
-            .header("Content-Type", "application/json")
-            .body(Body::from(
-                json!({ "enabled": true, "interval_days": 30 }).to_string(),
-            ))
-            .unwrap(),
-        StatusCode::BAD_REQUEST,
-        "M_UNRECOGNIZED",
-    )
-    .await;
+    for (method, path) in [
+        ("GET", "/_matrix/client/v1/keys/rotation/status"),
+        ("POST", "/_matrix/client/v1/keys/rotation/rotate"),
+        ("PUT", "/_matrix/client/v1/keys/rotation/config"),
+    ] {
+        let body = match method {
+            "PUT" => json!({ "enabled": true, "interval_days": 30 }).to_string(),
+            _ => "{}".to_string(),
+        };
+
+        assert_matrix_error(
+            &app,
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "M_FORBIDDEN",
+        )
+        .await;
+    }
 }
 
 #[tokio::test]
@@ -516,7 +627,7 @@ async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
 }
 
 #[tokio::test]
-async fn test_report_room_contract_returns_unrecognized() {
+async fn test_report_room_contract_returns_success_payload() {
     let Some(app) = super::setup_test_app().await else {
         return;
     };
@@ -525,8 +636,8 @@ async fn test_report_room_contract_returns_unrecognized() {
     let (token, _) = register_user(&app, &username).await;
     let room_id = create_room(&app, &token, "Room Report Contract").await;
 
-    assert_matrix_error(
-        &app,
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
         Request::builder()
             .method("POST")
             .uri(format!("/_matrix/client/v3/rooms/{}/report", room_id))
@@ -535,15 +646,23 @@ async fn test_report_room_contract_returns_unrecognized() {
             .body(Body::from(
                 json!({
                     "reason": "contract check",
-                    "description": "should be explicit unsupported"
+                    "description": "report submission should succeed"
                 })
                 .to_string(),
             ))
             .unwrap(),
-        StatusCode::BAD_REQUEST,
-        "M_UNRECOGNIZED",
     )
-    .await;
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["report_id"].is_number());
+    assert_eq!(json["room_id"], room_id);
+    assert_eq!(json["status"], "submitted");
 }
 
 #[tokio::test]

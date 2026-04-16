@@ -484,6 +484,7 @@ impl SamlService {
         };
 
         let canonicalized_info = Self::canonicalize_xml(&signed_info_xml);
+
         let computed_digest = {
             use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
@@ -497,9 +498,9 @@ impl SamlService {
             );
         }
 
-        let _ = (cert_der, sig_bytes);
-        tracing::info!("SAML signature structure verified (digest validated)");
+        Self::verify_rsa_signature(&cert_der, &sig_bytes, canonicalized_info.as_bytes())?;
 
+        tracing::info!("SAML signature verified (digest + RSA-SHA256)");
         Ok(())
     }
 
@@ -552,6 +553,51 @@ impl SamlService {
             result |= x ^ y;
         }
         result == 0
+    }
+
+    fn verify_rsa_signature(
+        cert_der: &[u8],
+        signature: &[u8],
+        signed_data: &[u8],
+    ) -> Result<(), String> {
+        use x509_cert::der::{Decode, Encode};
+
+        let cert_der_bytes = if cert_der.starts_with(b"-----BEGIN") {
+            let pem_str = std::str::from_utf8(cert_der).map_err(|e| format!("Invalid UTF-8: {}", e))?;
+            let b64_content = pem_str
+                .lines()
+                .filter(|line| !line.starts_with("-----"))
+                .collect::<Vec<_>>()
+                .join("");
+            base64::engine::general_purpose::STANDARD
+                .decode(&b64_content)
+                .map_err(|e| format!("Failed to decode PEM base64: {}", e))?
+        } else {
+            cert_der.to_vec()
+        };
+
+        let cert = match x509_cert::Certificate::from_der(&cert_der_bytes) {
+            Ok(c) => c,
+            Err(e) => return Err(format!("Failed to parse X.509 certificate: {}", e)),
+        };
+
+        let spki_der = match cert
+            .tbs_certificate
+            .subject_public_key_info
+            .to_der()
+        {
+            Ok(der) => der,
+            Err(e) => return Err(format!("Failed to encode SPKI: {}", e)),
+        };
+
+        let public_key = ring::signature::UnparsedPublicKey::new(
+            &ring::signature::RSA_PKCS1_2048_8192_SHA256,
+            &spki_der,
+        );
+
+        public_key
+            .verify(signed_data, signature)
+            .map_err(|e| format!("RSA-SHA256 signature verification failed: {:?}", e))
     }
 
     fn build_authn_request(&self, request_id: &str, sp_entity_id: &str, acs_url: &str) -> String {

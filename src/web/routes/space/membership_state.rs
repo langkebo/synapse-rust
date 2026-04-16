@@ -3,8 +3,9 @@ use super::*;
 pub(super) async fn get_space_members(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
+    auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_resolved_space(state, space_id, |state, space| async move {
+    with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
         let members = state
             .services
             .space_service
@@ -19,8 +20,9 @@ pub(super) async fn get_space_members(
 pub(super) async fn get_space_rooms(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
+    auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_resolved_space(state, space_id, |state, space| async move {
+    with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
         let children = state
             .services
             .space_service
@@ -30,7 +32,7 @@ pub(super) async fn get_space_rooms(
         let rooms: Vec<String> = children.into_iter().map(|child| child.room_id).collect();
 
         Ok(Json(serde_json::json!({
-            "space_id": space.room_id,
+            "space_id": space.space_id,
             "rooms": rooms,
         })))
     })
@@ -42,7 +44,7 @@ pub(super) async fn get_space_state(
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_resolved_space(state, space_id, |state, space| async move {
+    with_visible_space(state, space_id, auth_user, |state, space, auth_user| async move {
         let space_state = state
             .services
             .space_service

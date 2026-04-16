@@ -487,6 +487,17 @@ impl OpenClawStorage {
         }
     }
 
+    pub async fn get_message(&self, id: i64) -> Result<Option<AiMessage>, sqlx::Error> {
+        sqlx::query_as::<_, AiMessage>(
+            r#"
+            SELECT * FROM ai_messages WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&*self.db)
+        .await
+    }
+
     pub async fn delete_message(&self, id: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"

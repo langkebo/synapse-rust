@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::web::routes::{
-    account_compat::can_view_profile_for_requester, AppState, AuthenticatedUser,
+    account_compat::can_view_profile_for_requester, ensure_room_member, AppState,
+    AuthenticatedUser,
 };
 use axum::{
     extract::{Json, Path, Query, State},
@@ -553,17 +554,7 @@ async fn timestamp_to_event(
 
     let dir = params.get("dir").map(|v| v.as_str()).unwrap_or("f");
 
-    let member_check =
-        sqlx::query("SELECT 1 FROM room_memberships WHERE room_id = $1 AND user_id = $2")
-            .bind(&room_id)
-            .bind(&auth_user.user_id)
-            .fetch_optional(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-    if member_check.is_none() {
-        return Err(ApiError::forbidden("Not a member of this room".to_string()));
-    }
+    ensure_room_member(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
     let event = if dir == "b" {
         sqlx::query(
@@ -612,16 +603,7 @@ async fn get_event_context(
         .and_then(|v| v.parse().ok())
         .unwrap_or(10);
 
-    let is_member = state
-        .services
-        .member_storage
-        .is_member(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
-
-    if !is_member && !auth_user.is_admin {
-        return Err(ApiError::forbidden("Not a member of this room".to_string()));
-    }
+    ensure_room_member(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
     let target_event = state
         .services
@@ -1000,7 +982,7 @@ struct SearchRoomsRequest {
 
 async fn search_rooms(
     State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Json(body): Json<SearchRoomsRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.limit.unwrap_or(10).min(50) as i64;
@@ -1018,12 +1000,24 @@ async fn search_rooms(
         r#"
         SELECT room_id, name, topic, avatar_url, is_public
         FROM rooms
-        WHERE LOWER(name) LIKE $1 OR LOWER(topic) LIKE $1
+        WHERE
+            (LOWER(name) LIKE $1 OR LOWER(topic) LIKE $1)
+            AND (
+                is_public = true
+                OR EXISTS (
+                    SELECT 1
+                    FROM room_memberships
+                    WHERE room_memberships.room_id = rooms.room_id
+                      AND room_memberships.user_id = $2
+                      AND room_memberships.membership = 'join'
+                )
+            )
         ORDER BY name
-        LIMIT $2
+        LIMIT $3
         "#,
     )
     .bind(&search_pattern)
+    .bind(&auth_user.user_id)
     .bind(limit)
     .fetch_all(&*state.services.room_storage.pool)
     .await

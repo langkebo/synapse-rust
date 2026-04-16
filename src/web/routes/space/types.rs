@@ -149,7 +149,7 @@ pub struct SpaceResponse {
 impl From<crate::storage::space::Space> for SpaceResponse {
     fn from(space: crate::storage::space::Space) -> Self {
         Self {
-            space_id: space.room_id.clone(),
+            space_id: space.space_id,
             room_id: space.room_id,
             name: space.name,
             topic: space.topic,

@@ -1,7 +1,7 @@
 // Invite Blocklist Routes - MSC4380
 // Allows room admins to control who can be invited to a room
 
-use crate::web::routes::{ensure_room_member_or_admin, ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::{ensure_room_member, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     Json,
@@ -13,13 +13,42 @@ async fn ensure_invite_list_view_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member_or_admin(
+    ensure_room_member(
         state,
         auth_user,
         room_id,
         "You must be a member of this room to view invite restrictions",
     )
     .await
+}
+
+async fn ensure_invite_list_manage_access(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+) -> Result<(), ApiError> {
+    ensure_room_member(
+        state,
+        auth_user,
+        room_id,
+        "You must be a member of this room to manage invite restrictions",
+    )
+    .await?;
+
+    let is_admin = state
+        .services
+        .room_service
+        .is_room_creator(room_id, &auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check admin: {}", e)))?;
+
+    if !is_admin {
+        return Err(ApiError::forbidden(
+            "Only room admins can set invite blocklist".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Get room invite blocklist
@@ -51,19 +80,7 @@ pub async fn set_invite_blocklist(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    // Check if user is room admin
-    let is_admin = state
-        .services
-        .room_service
-        .is_room_creator(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check admin: {}", e)))?;
-
-    if !is_admin {
-        return Err(ApiError::forbidden(
-            "Only room admins can set invite blocklist".to_string(),
-        ));
-    }
+    ensure_invite_list_manage_access(&state, &auth_user, &room_id).await?;
 
     let user_ids: Vec<String> = body
         .get("user_ids")
@@ -118,19 +135,7 @@ pub async fn set_invite_allowlist(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    // Check if user is room admin
-    let is_admin = state
-        .services
-        .room_service
-        .is_room_creator(&room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check admin: {}", e)))?;
-
-    if !is_admin {
-        return Err(ApiError::forbidden(
-            "Only room admins can set invite allowlist".to_string(),
-        ));
-    }
+    ensure_invite_list_manage_access(&state, &auth_user, &room_id).await?;
 
     let user_ids: Vec<String> = body
         .get("user_ids")
