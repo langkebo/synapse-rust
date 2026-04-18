@@ -220,7 +220,51 @@ leak_alerts, ip_reputation, openclaw_connections
 	2	提供精简版 schema（仅核心 Matrix 功能）
 	3	添加模块化开关，按需创建表
 
-4.6 CORS 配置过于宽松
+4.6 `/sync` 在限流后端异常时仍然返回 500（新增）
+严重程度：🟡 中（P2） 当前状态：✅ 已修复
+问题描述：
+本轮在 `docker/deploy` 环境中注入 Redis 异常后，HTTP 限流中间件已经按 `fail_open_on_error=true` 放行，但 `/_matrix/client/v3/sync` 仍在路由处理器内再次直接调用令牌桶并把错误映射成 500：
+	•	运行日志出现 `Internal error: Sync rate limit failed: Cache error: Circuit breaker is open- IoError`
+	•	`api-integration_test.sh` 中 `Sync` 与 `Room Sync Filter` 失败
+	•	手工调用 `/_matrix/client/v3/sync` 返回 `{"errcode":"M_UNKNOWN","error":"An internal error occurred"}`
+代码定位：
+	•	`src/web/routes/handlers/sync.rs` 第 61-68 行直接调用 `rate_limit_token_bucket_take(...)`
+	•	失败时通过 `map_err(|e| ApiError::internal(...))?` 直接返回 500，而没有复用中间件的 fail-open 逻辑
+影响：
+	•	注册/登录链路在限流异常时已可放行，但 Sync 仍然 fail-closed
+	•	Redis 抖动、超时或断线恢复期间，客户端增量同步会直接报 500
+修复措施（已执行）：
+	1	`src/web/routes/handlers/sync.rs` 已复用 `fail_open_on_error` 配置
+	2	`sync.rate_limit` 分支已区分 “达到配额” 与 “后端异常”，后端异常时记录告警并放行请求
+	3	已抽取公共 `execute_sync(...)` 路径，避免放行分支与正常分支逻辑漂移
+验证结果：
+	1	已新增 `tests/integration/api_sync_isolation_rate_limit_tests.rs` 回归用例，覆盖 Redis/限流后端异常场景
+	2	执行 `cargo test --test integration api_sync_isolation_rate_limit_tests -- --nocapture` 通过
+	3	确认 `/sync` 在取桶失败时不再返回 500
+
+4.7 缓存失效链路构造 Redis URL 时丢失密码，导致 `NOAUTH`（新增）
+严重程度：🟡 中（P2） 当前状态：✅ 已修复
+问题描述：
+本轮恢复 Redis 后，应用持续打印：
+	•	`Rate limiter error, allowing request: Cache error: NOAUTH: Authentication required.`
+	•	`Failed to broadcast key invalidation: ... NOAUTH: Authentication required.`
+进一步检查代码发现，主缓存池 `RedisCache::new()` 会在连接串中带上密码，但 `CacheInvalidationManager` 使用的 `redis_url` 在构造时丢失了密码：
+	•	`src/cache/mod.rs` 第 184-186 行：主 Redis 连接串使用 `redis://:<password>@host:port`
+	•	`src/cache/mod.rs` 第 627 行：失效订阅/广播链路改成了不带密码的 `redis://host:port`
+	•	`src/cache/invalidation.rs` 第 177-178 行：订阅器直接用该无密码 URL 创建 `Client`
+影响：
+	•	Redis 开启认证时，缓存失效广播/订阅链路无法稳定工作
+	•	异常恢复后容易持续出现 `NOAUTH`、circuit breaker 打开、缓存退化与限流异常告警
+修复措施（已执行）：
+	1	已为 `RedisConfig` 增加统一的 `connection_url()` 构造方法
+	2	`src/cache/mod.rs`、`src/server.rs`、`src/common/task_queue.rs`、`src/common/config/manager.rs` 已改为统一复用该 URL，避免再次手工拼接丢失密码
+	3	缓存失效广播/订阅链路现在与主缓存池共享同一套带认证信息的 Redis URL
+验证结果：
+	1	保留原有 `test_config_redis_url` 单测，并确认通过
+	2	已新增 `cache_tests::cache_integration_tests::test_cache_manager_with_redis_keeps_password_in_invalidation_url`
+	3	执行 `cargo test --lib test_config_redis_url -- --nocapture` 与 `cargo test --test integration cache_tests::cache_integration_tests::test_cache_manager_with_redis_keeps_password_in_invalidation_url -- --exact --nocapture` 均通过
+
+4.8 CORS 配置过于宽松
 严重程度：🟡 中（P2） 当前状态：✅ 已修复
 修复措施（已执行）：
 	1	`docker/config/homeserver.yaml` 与 `docker/config/homeserver.local.yaml` 已改为显式来源列表

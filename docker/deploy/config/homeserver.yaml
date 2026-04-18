@@ -1,16 +1,16 @@
 server:
-  name: "${SERVER_NAME}"
+  name: "${SERVER_NAME:?SERVER_NAME is required}"
   host: "0.0.0.0"
   port: 8008
-  public_baseurl: "${PUBLIC_BASEURL}"
+  public_baseurl: "${PUBLIC_BASEURL:?PUBLIC_BASEURL is required}"
   signing_key_path: "/app/data/signing.key"
-  macaroon_secret_key: "${JWT_SECRET}"
-  form_secret: "${JWT_SECRET}"
-  server_name: "${SERVER_NAME}"
-  registration_shared_secret: "${REGISTRATION_SHARED_SECRET}"
+  macaroon_secret_key: "${MACAROON_SECRET:?MACAROON_SECRET is required}"
+  form_secret: "${FORM_SECRET:?FORM_SECRET is required}"
+  server_name: "${SERVER_NAME:?SERVER_NAME is required}"
+  registration_shared_secret: "${REGISTRATION_SHARED_SECRET:?REGISTRATION_SHARED_SECRET is required}"
   max_upload_size: 104857600
-  max_image_resolution: 8000000
-  enable_registration: true
+  max_image_resolution: 16000000
+  enable_registration: false
   enable_registration_captcha: false
   background_tasks_interval: 300
   expire_access_token: true
@@ -20,39 +20,12 @@ server:
   session_duration: 86400000
   warmup_pool: true
 
-rate_limit:
-  enabled: true
-  default:
-    per_second: 20
-    burst_size: 40
-  endpoints: []
-  ip_header_priority:
-    - "x-forwarded-for"
-    - "x-real-ip"
-    - "forwarded"
-  include_headers: true
-  exempt_paths:
-    - "/"
-    - "/_matrix/client/versions"
-  exempt_path_prefixes: []
-  endpoint_aliases: {}
-  fail_open_on_error: false
-  sync:
-    enabled: true
-    initial:
-      per_second: 2
-      burst_size: 4
-    incremental:
-      per_second: 20
-      burst_size: 40
-
 database:
   host: "postgres"
   port: 5432
-  username: "${POSTGRES_USER}"
-  password: "${POSTGRES_PASSWORD}"
-  name: "${POSTGRES_DB}"
-  # 默认值与 deploy/.env 保持一致，运行时可由 SYNAPSE__DATABASE__* 覆盖。
+  username: "${POSTGRES_USER:-postgres}"
+  password: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+  name: "${POSTGRES_DB:-synapse}"
   pool_size: 20
   max_size: 50
   min_idle: 10
@@ -61,14 +34,15 @@ database:
 redis:
   host: "redis"
   port: 6379
-  key_prefix: "synapse:"
+  password: "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
+  key_prefix: "${REDIS_KEY_PREFIX:-synapse:}"
   pool_size: 20
   enabled: true
   connection_timeout_ms: 5000
   command_timeout_ms: 3000
 
 logging:
-  level: "${RUST_LOG}"
+  level: "${RUST_LOG:-info}"
   format: "text"
 
 search:
@@ -78,34 +52,16 @@ search:
 federation:
   enabled: true
   allow_ingress: true
-  server_name: "${SERVER_NAME}"
+  server_name: "${SERVER_NAME:?SERVER_NAME is required}"
   federation_port: 8448
-  connection_pool_size: 100
+  connection_pool_size: 64
   max_transaction_payload: 10485760
-  signing_key: "${JWT_SECRET}"
-  key_id: "ed25519:local"
-  trusted_key_servers:
-    - server_name: "matrix.org"
-  key_refresh_interval: 86400
   suppress_key_server_warning: false
   signature_cache_ttl: 3600
   key_cache_ttl: 3600
-  key_rotation_grace_period_ms: 600000
-  key_fetch_max_concurrency: 32
-  key_fetch_timeout_ms: 5000
-  process_inbound_edus: true
-  inbound_edus_max_per_txn: 100
-  inbound_edu_max_concurrency: 32
-  inbound_edu_acquire_timeout_ms: 1000
-  inbound_edu_per_origin_max_concurrency: 8
-  process_inbound_presence_edus: true
-  inbound_presence_updates_max_per_txn: 50
-  inbound_presence_backoff_ms: 15000
-  join_max_concurrency: 16
-  join_acquire_timeout_ms: 2000
 
 security:
-  secret: "${JWT_SECRET}"
+  secret: "${SECRET_KEY:?SECRET_KEY is required}"
   expiry_time: 86400
   refresh_token_expiry: 604800
   argon2_m_cost: 65536
@@ -116,34 +72,25 @@ security:
   login_lockout_duration_seconds: 300
 
 registration:
-  enabled: true
+  enabled: false
   enable_registration_captcha: false
   session_duration: 86400000
 
 admin_registration:
   enabled: true
-  shared_secret: "${ADMIN_SHARED_SECRET}"
+  shared_secret: "${ADMIN_SHARED_SECRET:?ADMIN_SHARED_SECRET is required}"
   nonce_timeout_seconds: 60
-  allow_external_access: true
-
-worker:
-  enabled: false
-  instance_name: "master"
-  replication:
-    enabled: true
-    server_name: "${SERVER_NAME}"
-    http:
-      enabled: true
-      host: "127.0.0.1"
-      port: 9093
-      secret: "${JWT_SECRET}"
+  allow_external_access: false
+  production_only: true
 
 cors:
   allowed_origins:
     - "http://localhost:8008"
+    - "http://127.0.0.1:8008"
     - "http://localhost:80"
-    - "http://localhost:443"
-    - "http://localhost:28008"
+    - "http://127.0.0.1:80"
+    - "https://localhost:443"
+    - "https://127.0.0.1:443"
   allow_credentials: true
   allowed_methods:
     - "GET"
@@ -158,15 +105,6 @@ cors:
     - "Origin"
     - "X-Requested-With"
   max_age_seconds: 3600
-
-identity_server_url: "https://vector.im"
-
-voip:
-  turn_uris: []
-  turn_shared_secret: ""
-  turn_user_lifetime: "1h"
-  turn_allow_guests: true
-  stun_uris: []
 
 url_preview:
   enabled: false
@@ -191,7 +129,7 @@ retention:
   queue_retention_days: 7
 
 telemetry:
-  enabled: true
+  enabled: false
   service_name: "synapse-rust"
   service_version: "6.0.4"
   service_namespace: "matrix"
@@ -206,9 +144,6 @@ telemetry:
   max_queue_size: 2048
   max_export_batch_size: 512
   scheduled_delay_millis: 5000
-  resource_attributes:
-    deployment.environment: "production"
-    service.instance.id: "${HOSTNAME:-synapse-rust}"
 
 prometheus:
   enabled: true
@@ -216,6 +151,6 @@ prometheus:
   path: "/metrics"
   include_namespace: true
 
-app_service:
+worker:
   enabled: false
-  appservice: []
+  instance_name: "master"

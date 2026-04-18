@@ -1,4 +1,5 @@
 use crate::common::{generate_event_id, ApiError, ApiResult};
+use crate::federation::KeyRotationManager;
 use crate::federation::friend::FriendFederationClient;
 use crate::services::RoomService;
 use crate::storage::{CreateEventParams, EventStorage, FriendRoomStorage};
@@ -19,8 +20,12 @@ impl FriendRoomService {
         room_service: Arc<RoomService>,
         event_storage: EventStorage,
         server_name: String,
+        key_rotation_manager: Arc<KeyRotationManager>,
     ) -> Self {
-        let federation_client = Arc::new(FriendFederationClient::new(server_name.clone()));
+        let federation_client = Arc::new(FriendFederationClient::new(
+            server_name.clone(),
+            Some(key_rotation_manager),
+        ));
         Self {
             friend_storage,
             room_service,

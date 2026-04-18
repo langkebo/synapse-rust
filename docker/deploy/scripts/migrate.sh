@@ -62,8 +62,8 @@ check_db_connection() {
 run_migrations() {
     log_info "运行数据库迁移..."
     
-    # 使用 migrator 服务
-    compose run --rm --no-deps migrator migrate
+    # 使用 migrator 服务执行 migrate + validate
+    compose run --rm --no-deps migrator
     
     log_success "迁移完成"
 }

@@ -42,7 +42,8 @@ docker/deploy/
 ├── deploy.sh               # 一键部署脚本
 ├── README.md               # 本文档
 ├── config/
-│   └── homeserver.yaml     # Synapse 配置文件
+│   ├── homeserver.yaml     # Synapse 主配置文件
+│   └── rate_limit.yaml     # 限流热加载配置
 ├── nginx/
 │   ├── nginx.conf          # Nginx 主配置
 │   └── conf.d/
@@ -216,6 +217,8 @@ openssl rand -hex 32
 3. 应用通过 `SYNAPSE__` 前缀覆盖 `config/homeserver.yaml` 中的默认值
 
 如果不显式设置，`homeserver.yaml` 中的默认值与 `.env.example` 保持一致，不会再出现 Compose 与 YAML 各写一套的漂移。
+
+限流热加载配置通过 `config/rate_limit.yaml` 挂载到容器内的 `/app/config/rate_limit.yaml`。部署默认提供 `fail_open_on_error: true` 兜底，避免 Redis 或限流后端异常时把注册等链路误判成 `429`.
 
 ---
 

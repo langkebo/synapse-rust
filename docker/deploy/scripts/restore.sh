@@ -54,12 +54,14 @@ if [ ! -f "$BACKUP_FILE" ]; then
 fi
 
 # 确认恢复
-log_warning "此操作将覆盖现有数据!"
-read -p "确认要恢复吗? (yes/no): " confirm
+if [ "${RESTORE_FORCE:-false}" != "true" ]; then
+    log_warning "此操作将覆盖现有数据!"
+    read -r -p "确认要恢复吗? (yes/no): " confirm
 
-if [ "$confirm" != "yes" ]; then
-    log_info "操作已取消"
-    exit 0
+    if [ "$confirm" != "yes" ]; then
+        log_info "操作已取消"
+        exit 0
+    fi
 fi
 
 # 解压备份
@@ -84,7 +86,11 @@ restore_database() {
     compose stop synapse
     
     # 恢复数据库
-    compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" < "$backup_dir/database.sql"
+    if [ -f "$backup_dir/database.sql" ]; then
+        compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" < "$backup_dir/database.sql"
+    else
+        log_warning "数据库备份文件不存在，跳过数据库恢复"
+    fi
     
     log_success "数据库恢复完成"
 }
@@ -97,7 +103,11 @@ restore_media() {
     
     mkdir -p media
     rm -rf media/*
-    tar xzf "$backup_dir/media.tar.gz" -C media
+    if [ -f "$backup_dir/media.tar.gz" ]; then
+        tar xzf "$backup_dir/media.tar.gz" -C media
+    else
+        log_warning "媒体备份文件不存在，跳过媒体恢复"
+    fi
     
     log_success "媒体文件恢复完成"
 }
@@ -107,10 +117,12 @@ restore_config() {
     local backup_dir="$1"
     
     log_info "恢复配置文件..."
-    
-    cp "$backup_dir/.env" .env
-    cp -r "$backup_dir/config" ./
-    cp -r "$backup_dir/nginx" ./
+
+    [ -f "$backup_dir/.env" ] && cp "$backup_dir/.env" .env
+    [ -d "$backup_dir/config" ] && rm -rf config && cp -r "$backup_dir/config" ./
+    [ -d "$backup_dir/nginx" ] && rm -rf nginx && cp -r "$backup_dir/nginx" ./
+    [ -d "$backup_dir/scripts" ] && rm -rf scripts && cp -r "$backup_dir/scripts" ./
+    [ -f "$backup_dir/docker-compose.yml" ] && cp "$backup_dir/docker-compose.yml" ./
     
     log_success "配置文件恢复完成"
 }

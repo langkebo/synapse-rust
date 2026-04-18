@@ -963,7 +963,7 @@ impl SyncService {
             self.get_room_ephemeral_events_batch(&rooms_to_include),
             self.get_room_account_data_events_batch(user_id, &rooms_to_include),
             self.get_unread_counts_batch(&rooms_to_include, user_id),
-            self.get_presence_events(user_id, since_token),
+            async { self.get_presence_events(user_id, since_token) },
             self.get_account_data_events(user_id),
             self.get_to_device_events(user_id, device_id, since_token),
             self.get_device_lists(user_id, since_token),
@@ -1796,7 +1796,11 @@ impl SyncService {
         }
 
         let limited = events.len() as i64 > timeline_limit;
-        let mut events: Vec<RoomEvent> = events.iter().take(timeline_limit as usize).cloned().collect();
+        let mut events: Vec<RoomEvent> = events
+            .iter()
+            .take(timeline_limit as usize)
+            .cloned()
+            .collect();
         events.reverse();
         (events, limited)
     }
@@ -1892,7 +1896,7 @@ impl SyncService {
         Ok(result)
     }
 
-    async fn get_presence_events(
+    fn get_presence_events(
         &self,
         user_id: &str,
         _since: &Option<SyncToken>,
@@ -2656,22 +2660,6 @@ impl SyncService {
         }
 
         Ok(response)
-    }
-
-    pub async fn get_filter(
-        &self,
-        _user_id: &str,
-        _filter_id: &str,
-    ) -> ApiResult<serde_json::Value> {
-        Ok(json!({}))
-    }
-
-    pub async fn set_filter(
-        &self,
-        _user_id: &str,
-        _filter: &serde_json::Value,
-    ) -> ApiResult<String> {
-        Ok(format!("filter_{}", chrono::Utc::now().timestamp_millis()))
     }
 
     pub async fn get_events(

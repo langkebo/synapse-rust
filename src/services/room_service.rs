@@ -1484,10 +1484,6 @@ impl RoomService {
         Ok(())
     }
 
-    pub async fn get_suggested_room_version(&self) -> ApiResult<String> {
-        Ok("11".to_string())
-    }
-
     pub async fn is_room_upgrade_allowed(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
         let room = self
             .room_storage

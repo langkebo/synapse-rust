@@ -315,6 +315,7 @@ impl ServiceContainer {
                 room_service.clone(),
                 event_storage.clone(),
                 config.server.name.clone(),
+                Arc::new(key_rotation_manager.clone()),
             ),
         );
         let friend_federation = Arc::new(FriendFederation::new(friend_room_service.clone()));

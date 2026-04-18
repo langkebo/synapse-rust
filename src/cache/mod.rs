@@ -181,15 +181,7 @@ impl RedisCache {
     pub async fn new(
         config: &crate::common::config::RedisConfig,
     ) -> Result<Self, redis::RedisError> {
-        let conn_str = if let Some(password) = &config.password {
-            if !password.is_empty() {
-                format!("redis://:{}@{}:{}", password, config.host, config.port)
-            } else {
-                format!("redis://{}:{}", config.host, config.port)
-            }
-        } else {
-            format!("redis://{}:{}", config.host, config.port)
-        };
+        let conn_str = config.connection_url();
         let cfg = Config::from_url(conn_str);
 
         let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
@@ -624,7 +616,7 @@ impl CacheManager {
         match RedisCache::new(config).await {
             Ok(redis_cache) => {
                 let pool = redis_cache.pool.clone();
-                let redis_url = format!("redis://{}:{}", config.host, config.port);
+                let redis_url = config.connection_url();
                 let invalidation_config = CacheInvalidationConfig {
                     enabled: true,
                     channel_name: CACHE_INVALIDATION_CHANNEL.to_string(),
