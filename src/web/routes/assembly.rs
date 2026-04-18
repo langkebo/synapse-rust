@@ -281,6 +281,14 @@ fn create_account_compat_router() -> Router<AppState> {
     Router::new()
         .route("/account/whoami", get(whoami))
         .route("/account/password", post(change_password_uia))
+        .route(
+            "/account/password/email/requestToken",
+            post(request_password_email_verification),
+        )
+        .route(
+            "/account/password/email/submitToken",
+            post(submit_email_token),
+        )
         .route("/account/deactivate", post(deactivate_account))
         .route("/account/3pid", get(get_threepids).post(add_threepid))
         .route("/account/3pid/add", post(add_threepid))

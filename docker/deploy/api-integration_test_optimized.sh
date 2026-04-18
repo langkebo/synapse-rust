@@ -19,7 +19,7 @@ ORIGINAL_SCRIPT="${SCRIPT_DIR}/api-integration_test.sh"
 
 # 默认配置
 TEST_ENV="${TEST_ENV:-dev}"
-SERVER_URL="${SERVER_URL:-http://localhost:8008}"
+SERVER_URL="${SERVER_URL:-}"
 API_INTEGRATION_PROFILE="${API_INTEGRATION_PROFILE:-core}"
 RESULTS_DIR="${RESULTS_DIR:-$(pwd)/test-results}"
 LOG_FILE="${RESULTS_DIR}/test-execution.log"
@@ -37,6 +37,24 @@ TEST_PASS="${TEST_PASS:-Test@123}"
 ADMIN_USER="${ADMIN_USER:-admin}"
 ADMIN_PASS="${ADMIN_PASS:-Admin@123}"
 ADMIN_SHARED_SECRET="${ADMIN_SHARED_SECRET:-}"
+
+detect_server_url() {
+    if [ -n "$SERVER_URL" ]; then
+        return
+    fi
+
+    local candidate
+    for candidate in "http://localhost:28008" "http://localhost:8008"; do
+        if command curl -s --connect-timeout 2 --max-time 4 "$candidate/_matrix/client/versions" >/dev/null 2>&1; then
+            SERVER_URL="$candidate"
+            return
+        fi
+    done
+
+    SERVER_URL="http://localhost:28008"
+}
+
+detect_server_url
 
 # 颜色定义
 RED='\033[0;31m'

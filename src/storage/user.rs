@@ -180,6 +180,22 @@ impl UserStorage {
         .await
     }
 
+    pub async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>(
+            r#"
+            SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
+                   created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
+                   appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
+                   is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
+            FROM users
+            WHERE email = $1 AND COALESCE(is_deactivated, FALSE) = FALSE
+            "#,
+        )
+        .bind(email)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
     pub async fn get_user_by_identifier(
         &self,
         identifier: &str,

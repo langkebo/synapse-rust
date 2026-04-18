@@ -47,6 +47,7 @@ pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
         ));
 
     Router::new()
+        .route("/_synapse/admin/info", axum::routing::get(server::get_admin_info))
         .merge(protected)
         .merge(create_register_router(state.clone()))
 }

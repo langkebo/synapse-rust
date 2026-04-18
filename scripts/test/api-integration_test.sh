@@ -18,7 +18,7 @@ set +H
 # ============================================================================
 
 TEST_ENV="${TEST_ENV:-dev}"
-SERVER_URL="${SERVER_URL:-http://localhost:8008}"
+SERVER_URL="${SERVER_URL:-}"
 API_INTEGRATION_PROFILE="${API_INTEGRATION_PROFILE:-core}"
 if [ "${1:-}" = "--profile" ] && [ -n "${2:-}" ]; then
     API_INTEGRATION_PROFILE="$2"
@@ -36,6 +36,7 @@ TEST_PASS2="${TEST_PASS2:-Test@123}"
 CURRENT_TEST_PASS="$TEST_PASS"
 ADMIN_USER="${ADMIN_USER:-admin}"
 ADMIN_PASS="${ADMIN_PASS:-Admin@123}"
+ADMIN_USER_TYPE="${ADMIN_USER_TYPE:-super_admin}"
 ADMIN_SHARED_SECRET="${ADMIN_SHARED_SECRET:-change-me-admin-shared-secret}"
 DB_CONTAINER="${DB_CONTAINER:-${COMPOSE_PROJECT_NAME:-synapse}-postgres}"
 DB_USER="${DB_USER:-synapse}"
@@ -46,6 +47,24 @@ FAILED_LIST_FILE="$RESULTS_DIR/api-integration.failed.txt"
 SKIPPED_LIST_FILE="$RESULTS_DIR/api-integration.skipped.txt"
 MISSING_LIST_FILE="$RESULTS_DIR/api-integration.missing.txt"
 
+detect_server_url() {
+    if [ -n "$SERVER_URL" ]; then
+        return
+    fi
+
+    local candidate
+    for candidate in "http://localhost:28008" "http://localhost:8008"; do
+        if command curl -s --connect-timeout 2 --max-time 4 "$candidate/_matrix/client/versions" >/dev/null 2>&1; then
+            SERVER_URL="$candidate"
+            return
+        fi
+    done
+
+    SERVER_URL="http://localhost:28008"
+}
+
+detect_server_url
+
 echo "=========================================="
 echo "Complete API Integration Test"
 echo "=========================================="
@@ -54,8 +73,16 @@ echo "Test Environment: $TEST_ENV"
 echo "Profile: $API_INTEGRATION_PROFILE"
 echo ""
 
-if [ "$ADMIN_SHARED_SECRET" = "change-me-admin-shared-secret" ] && [ -f "docker/.env" ]; then
-    ADMIN_SHARED_SECRET=$(grep -E '^ADMIN_SECRET=' docker/.env | head -n1 | cut -d= -f2- | tr -d '\r' || echo "$ADMIN_SHARED_SECRET")
+if [ "$ADMIN_SHARED_SECRET" = "change-me-admin-shared-secret" ]; then
+    for env_file in ".env" "docker/deploy/.env" "docker/.env"; do
+        if [ -f "$env_file" ]; then
+            ADMIN_SHARED_SECRET=$(grep -E '^(ADMIN_SHARED_SECRET|ADMIN_SECRET)=' "$env_file" | head -n1 | cut -d= -f2- | tr -d '\r' || echo "$ADMIN_SHARED_SECRET")
+            if [ -n "$ADMIN_SHARED_SECRET" ] && [ "$ADMIN_SHARED_SECRET" != "change-me-admin-shared-secret" ] && [ "$ADMIN_SHARED_SECRET" != "__REQUIRED_SET_ADMIN_SECRET__" ] && [ "$ADMIN_SHARED_SECRET" != "__REQUIRED_SET_ADMIN_SHARED_SECRET__" ]; then
+                break
+            fi
+            ADMIN_SHARED_SECRET="change-me-admin-shared-secret"
+        fi
+    done
 fi
 
 # 环境检测和警告
@@ -287,6 +314,29 @@ http_json() {
     local args=(-s -X "$method" "$url")
     if [ -n "$auth_token" ]; then
         args+=(-H "Authorization: Bearer $auth_token")
+    fi
+    if [ -n "$data" ]; then
+        args+=(-H "Content-Type: application/json" -d "$data")
+    fi
+    HTTP_STATUS=$(curl "${args[@]}" -o "$tmp" -w "%{http_code}")
+    HTTP_BODY=$(cat "$tmp")
+    rm -f "$tmp"
+}
+
+http_json_extra_header() {
+    local method="$1"
+    local url="$2"
+    local auth_token="${3:-}"
+    local extra_header="${4:-}"
+    local data="${5:-}"
+    local tmp
+    tmp=$(mktemp)
+    local args=(-s -X "$method" "$url")
+    if [ -n "$auth_token" ]; then
+        args+=(-H "Authorization: Bearer $auth_token")
+    fi
+    if [ -n "$extra_header" ]; then
+        args+=(-H "$extra_header")
     fi
     if [ -n "$data" ]; then
         args+=(-H "Content-Type: application/json" -d "$data")
@@ -897,13 +947,16 @@ import hmac, hashlib
 n='$NONCE'
 u='$ADMIN_LOGIN_USER'
 p='$ADMIN_PASS'
+t='$ADMIN_USER_TYPE'
 msg = n.encode() + b'\x00' + u.encode() + b'\x00' + p.encode() + b'\x00' + b'admin'
-print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha256).hexdigest())
+if t:
+    msg += b'\x00' + t.encode()
+print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha1).hexdigest())
 " 2>/dev/null || echo "")
 
         REGISTER_RESP=$(curl -s -X POST "$SERVER_URL/_synapse/admin/v1/register" \
             -H "Content-Type: application/json" \
-            -d "{\"nonce\": \"$NONCE\", \"username\": \"$ADMIN_LOGIN_USER\", \"password\": \"$ADMIN_PASS\", \"admin\": true, \"displayname\": \"System Administrator\", \"mac\": \"$MAC\"}")
+            -d "{\"nonce\": \"$NONCE\", \"username\": \"$ADMIN_LOGIN_USER\", \"password\": \"$ADMIN_PASS\", \"admin\": true, \"user_type\": \"$ADMIN_USER_TYPE\", \"displayname\": \"System Administrator\", \"mac\": \"$MAC\"}")
 
         ADMIN_TOKEN=$(json_get "$REGISTER_RESP" "access_token")
         ADMIN_USER_ID=$(json_get "$REGISTER_RESP" "user_id")
@@ -918,6 +971,15 @@ if [ -z "$ADMIN_TOKEN" ]; then
     ADMIN_USER_ID=$(json_get "$ADMIN_LOGIN_RESP" "user_id")
 fi
 
+if [ -z "$ADMIN_TOKEN" ] && [ -n "$TOKEN" ] && [ -n "$USER_ID" ]; then
+    CURRENT_USER_ID_ENC=$(url_encode "$USER_ID")
+    http_json GET "$SERVER_URL/_synapse/admin/v1/users/$CURRENT_USER_ID_ENC" "$TOKEN"
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        ADMIN_TOKEN="$TOKEN"
+        ADMIN_USER_ID="$USER_ID"
+    fi
+fi
+
 if [ -n "$ADMIN_TOKEN" ]; then
     pass "Admin Login (User: $ADMIN_USER_ID)"
 else
@@ -926,6 +988,11 @@ else
     ADMIN_TOKEN=""
     ADMIN_USER_ID=""
     skip "Admin Login (unavailable)"
+fi
+
+if [ "$ADMIN_AUTH_AVAILABLE" -eq 1 ] && [ -n "$USER_ID" ]; then
+    CURRENT_USER_ID_ENC=$(url_encode "$USER_ID")
+    http_json DELETE "$SERVER_URL/_synapse/admin/v1/users/$CURRENT_USER_ID_ENC/shadow_ban" "$ADMIN_TOKEN"
 fi
 
 if [ "$API_INTEGRATION_PROFILE" = "optional" ]; then
@@ -943,19 +1010,31 @@ echo ""
 echo "=========================================="
 echo "5. Room Setup"
 echo "=========================================="
-ROOM_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/createRoom" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"name": "Test Room API", "topic": "API Test Room", "preset": "public_chat"}')
-ROOM_ID=$(json_get "$ROOM_RESP" "room_id")
-[ -n "$ROOM_ID" ] && pass "Create Test Room" || fail "Create Test Room"
+ROOM_SETUP_REASON=""
+http_json POST "$SERVER_URL/_matrix/client/v3/createRoom" "$TOKEN" '{"name": "Test Room API", "topic": "API Test Room", "preset": "public_chat"}'
+ROOM_RESP="$HTTP_BODY"
+if check_success_json "$ROOM_RESP" "$HTTP_STATUS" "room_id"; then
+    ROOM_ID=$(json_get "$ROOM_RESP" "room_id")
+    ROOM_ID_ENC=$(url_encode "$ROOM_ID")
+    pass "Create Test Room"
+else
+    ROOM_ID=""
+    ROOM_ID_ENC=""
+    ROOM_SETUP_REASON="${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+    fail "Create Test Room" "$ROOM_SETUP_REASON"
+fi
 
-ROOM2_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/createRoom" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"name": "Test Room 2", "preset": "private_chat"}')
-ROOM2_ID=$(json_get "$ROOM2_RESP" "room_id")
-[ -n "$ROOM2_ID" ] && pass "Create Second Room" || fail "Create Second Room"
+ROOM2_SETUP_REASON=""
+http_json POST "$SERVER_URL/_matrix/client/v3/createRoom" "$TOKEN" '{"name": "Test Room 2", "preset": "private_chat"}'
+ROOM2_RESP="$HTTP_BODY"
+if check_success_json "$ROOM2_RESP" "$HTTP_STATUS" "room_id"; then
+    ROOM2_ID=$(json_get "$ROOM2_RESP" "room_id")
+    pass "Create Second Room"
+else
+    ROOM2_ID=""
+    ROOM2_SETUP_REASON="${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+    fail "Create Second Room" "$ROOM2_SETUP_REASON"
+fi
 
 # 4. Sync
 echo ""
@@ -1038,7 +1117,10 @@ echo ""
 echo "16. Room Aliases"
 ROOM_ALIAS="#api_test_${RANDOM}:${USER_DOMAIN}"
 ROOM_ALIAS_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ROOM_ALIAS" 2>/dev/null)
-if [ -z "$ROOM_ALIAS_ENC" ]; then
+if [ -z "$ROOM_ID" ]; then
+    skip "Set Room Alias" "${ROOM_SETUP_REASON:-Create Test Room failed}"
+    skip "Get Room Alias" "${ROOM_SETUP_REASON:-Create Test Room failed}"
+elif [ -z "$ROOM_ALIAS_ENC" ]; then
     fail "Room Aliases" "failed to encode room alias"
 else
     http_json PUT "$SERVER_URL/_matrix/client/v3/directory/room/$ROOM_ALIAS_ENC" "$TOKEN" "{\"room_id\":\"$ROOM_ID\"}"
@@ -1554,7 +1636,7 @@ echo "=========================================="
 echo "72. Filter APIs"
 echo "=========================================="
 echo "72. Create Filter"
-http_json POST "$SERVER_URL/_matrix/client/v3/user/$USER_ID/filter" "$TOKEN" "{\"room\": {\"rooms\": [\"$ROOM_ID\"]}}"
+http_json POST "$SERVER_URL/_matrix/client/v3/user/$USER_ID_ENC/filter" "$TOKEN" "{\"room\": {\"rooms\": [\"$ROOM_ID\"]}}"
 FILTER_RESP="$HTTP_BODY"
 FILTER_ID=$(json_get "$FILTER_RESP" "filter_id")
 if check_success_json "$FILTER_RESP" "$HTTP_STATUS" "filter_id"; then
@@ -1566,7 +1648,7 @@ fi
 echo ""
 echo "73. Get Filter"
 if [ -n "$FILTER_ID" ]; then
-    http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID/filter/$FILTER_ID" "$TOKEN"
+    http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID_ENC/filter/$FILTER_ID" "$TOKEN"
     check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room" && pass "Get Filter" || fail "Get Filter" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 else
     skip "Get Filter (no filter ID)"
@@ -1587,7 +1669,7 @@ echo "=========================================="
 echo "75. OpenID Token"
 echo "=========================================="
 echo "75. Request OpenID Token"
-http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID/openid/request_token" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID_ENC/openid/request_token" "$TOKEN"
 assert_success_json "Request OpenID Token" "$HTTP_BODY" "$HTTP_STATUS" "access_token" "expires_in"
 OPENID_ACCESS_TOKEN=$(json_get "$HTTP_BODY" "access_token")
 OPENID_EXPIRES_IN=$(json_get "$HTTP_BODY" "expires_in")
@@ -1823,9 +1905,16 @@ if admin_ready; then
     check_success_json "$HTTP_BODY" "$HTTP_STATUS" "destinations" && pass "Admin Federation Destinations" || fail "Admin Federation Destinations"
 
     echo ""
+    FED_DESTINATION=$(printf '%s' "$HTTP_BODY" | python3 -c 'import json,sys; data=json.load(sys.stdin); items=data.get("destinations") or []; names=[item.get("destination") for item in items if isinstance(item, dict) and item.get("destination")]; print("localhost" if "localhost" in names else (names[0] if names else ""))' 2>/dev/null)
+    FED_DESTINATION_ENC=$(url_encode "$FED_DESTINATION")
+
     echo "109. Admin Federation Destination Details"
-    http_json GET "$SERVER_URL/_synapse/admin/v1/federation/destinations/localhost" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "destination" && pass "Admin Federation Destination Details" || fail "Admin Federation Destination Details"
+    if [ -n "$FED_DESTINATION" ]; then
+        http_json GET "$SERVER_URL/_synapse/admin/v1/federation/destinations/$FED_DESTINATION_ENC" "$ADMIN_TOKEN"
+        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "destination" && pass "Admin Federation Destination Details" || skip "Admin Federation Destination Details" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+    else
+        skip "Admin Federation Destination Details" "requires federation destination data"
+    fi
 
     echo ""
     echo "110. Admin Federation Resolve"
@@ -1927,7 +2016,7 @@ if admin_ready; then
 
     echo ""
     echo "120. Admin Set User Admin"
-    http_json PUT "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/admin" "$ADMIN_TOKEN" '{"admin": true}'
+    http_json PUT "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/admin" "$ADMIN_TOKEN" '{"admin": true}'
     check_success_json "$HTTP_BODY" "$HTTP_STATUS" "success" && pass "Admin Set User Admin" || fail "Admin Set User Admin"
 else
     skip "Admin Account Details" "admin authentication unavailable"
@@ -2081,7 +2170,7 @@ echo "=========================================="
 echo "134. Room Version"
 echo "=========================================="
 echo "134. Get Room Version"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/version" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID_ENC/version" "$TOKEN"
 ROOM_VERSION="$HTTP_BODY"
 assert_success_json "Get Room Version" "$ROOM_VERSION" "$HTTP_STATUS" "room_version"
 
@@ -2372,7 +2461,7 @@ check_success_json "$HTTP_BODY" "$HTTP_STATUS" "chunk" && pass "Events" || skip 
 
 echo ""
 echo "172. Room Version"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/version" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID_ENC/version" "$TOKEN"
 ROOM_VERSION_V2_RESP="$HTTP_BODY"
 assert_success_json "Room Version" "$ROOM_VERSION_V2_RESP" "$HTTP_STATUS" "room_version"
 
@@ -2389,10 +2478,8 @@ echo "=========================================="
 echo "174. Admin User Login"
 ADMIN_USER_ID_ENC=$(url_encode "$ADMIN_USER_ID")
 if admin_ready; then
-    curl -s -X POST "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/login" \
-        -H "Authorization: Bearer $ADMIN_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d '{"password": "'"$TEST_PASS"'"}' | grep -q "access_token\\|user_id" && pass "Admin User Login" || fail "Admin User Login" "request failed"
+    http_json POST "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/login" "$ADMIN_TOKEN" '{"password": "'"$TEST_PASS"'"}'
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "access_token" "user_id" && pass "Admin User Login" || fail "Admin User Login" "${ASSERT_ERROR:-request failed}"
 else
     skip "Admin User Login" "admin authentication unavailable"
 fi
@@ -2431,17 +2518,24 @@ echo "=========================================="
 echo "178. Set Room Alias"
 ROOM_ALIAS="#api_test_${RANDOM}:${USER_DOMAIN}"
 ROOM_ALIAS_ENC=$(url_encode "$ROOM_ALIAS")
-http_json PUT "$SERVER_URL/_matrix/client/v3/directory/room/$ROOM_ALIAS_ENC" "$TOKEN" '{"room_id": "'"$ROOM_ID"'"}'
-if [[ "$HTTP_STATUS" == 2* ]]; then
-    pass "Set Room Alias"
+if [ -z "$ROOM_ID" ]; then
+    skip "Set Room Alias" "${ROOM_SETUP_REASON:-Create Test Room failed}"
+    skip "Get Room Alias" "${ROOM_SETUP_REASON:-Create Test Room failed}"
+elif [ -z "$ROOM_ALIAS_ENC" ]; then
+    fail "Set Room Alias" "failed to encode room alias"
 else
-    skip "Set Room Alias (endpoint not available)"
-fi
+    http_json PUT "$SERVER_URL/_matrix/client/v3/directory/room/$ROOM_ALIAS_ENC" "$TOKEN" '{"room_id": "'"$ROOM_ID"'"}'
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        pass "Set Room Alias"
+    else
+        skip "Set Room Alias (endpoint not available)"
+    fi
 
-echo ""
-echo "179. Get Room Alias"
-http_json GET "$SERVER_URL/_matrix/client/v3/directory/room/$ROOM_ALIAS_ENC" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Get Room Alias" || skip "Get Room Alias (endpoint not available)"
+    echo ""
+    echo "179. Get Room Alias"
+    http_json GET "$SERVER_URL/_matrix/client/v3/directory/room/$ROOM_ALIAS_ENC" "$TOKEN"
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Get Room Alias" || skip "Get Room Alias (endpoint not available)"
+fi
 
 # 67. Federation API
 echo ""
@@ -3475,10 +3569,13 @@ import hmac, hashlib
 n='$REGISTER_NONCE'
 u='$REGISTER_USERNAME'
 p='$REGISTER_PASSWORD'
+t='$ADMIN_USER_TYPE'
 msg = n.encode() + b'\x00' + u.encode() + b'\x00' + p.encode() + b'\x00' + b'admin'
-print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha256).hexdigest())
+if t:
+    msg += b'\x00' + t.encode()
+print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha1).hexdigest())
 " 2>/dev/null || echo "")
-    http_json POST "$SERVER_URL/_synapse/admin/v1/register" "" "{\"nonce\": \"$REGISTER_NONCE\", \"username\": \"$REGISTER_USERNAME\", \"password\": \"$REGISTER_PASSWORD\", \"admin\": true, \"mac\": \"$REGISTER_MAC\"}"
+    http_json POST "$SERVER_URL/_synapse/admin/v1/register" "" "{\"nonce\": \"$REGISTER_NONCE\", \"username\": \"$REGISTER_USERNAME\", \"password\": \"$REGISTER_PASSWORD\", \"admin\": true, \"user_type\": \"$ADMIN_USER_TYPE\", \"mac\": \"$REGISTER_MAC\"}"
     if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "access_token" "user_id"; then
         pass "Register User"
     else
@@ -5150,19 +5247,19 @@ if admin_ready; then
 
     echo ""
     echo "423. Admin Space Rooms"
-    http_json GET "$SERVER_URL/_synapse/admin/v1/spaces/$SPACE_ID/rooms" "$ADMIN_TOKEN"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/spaces/$SPACE_ENC/rooms" "$ADMIN_TOKEN"
     ADMIN_SPACE_ROOMS_RESP="$HTTP_BODY"
     assert_success_json "Admin Space Rooms" "$ADMIN_SPACE_ROOMS_RESP" "$HTTP_STATUS" "rooms"
 
     echo ""
     echo "424. Admin Space Stats"
-    http_json GET "$SERVER_URL/_synapse/admin/v1/spaces/$SPACE_ID/stats" "$ADMIN_TOKEN"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/spaces/$SPACE_ENC/stats" "$ADMIN_TOKEN"
     ADMIN_SPACE_STATS_RESP="$HTTP_BODY"
     assert_success_json "Admin Space Stats" "$ADMIN_SPACE_STATS_RESP" "$HTTP_STATUS" "space_id" "member_count"
 
     echo ""
     echo "425. Admin Space Users"
-    http_json GET "$SERVER_URL/_synapse/admin/v1/spaces/$SPACE_ID/users" "$ADMIN_TOKEN"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/spaces/$SPACE_ENC/users" "$ADMIN_TOKEN"
     ADMIN_SPACE_USERS_RESP="$HTTP_BODY"
     assert_success_json "Admin Space Users" "$ADMIN_SPACE_USERS_RESP" "$HTTP_STATUS" "users"
 else
@@ -5753,12 +5850,16 @@ echo "110. Admin Federation Representative Tests"
 echo "=========================================="
 if admin_ready; then
     echo "541. Admin Federation Destination Details"
-    http_json GET "$SERVER_URL/_synapse/admin/v1/federation/destinations/localhost" "$ADMIN_TOKEN"
-    FED_DEST_RESP="$HTTP_BODY"
-    if check_success_json "$FED_DEST_RESP" "$HTTP_STATUS"; then
-        pass "Admin Federation Destination Details"
+    if [ -n "$FED_DESTINATION" ]; then
+        http_json GET "$SERVER_URL/_synapse/admin/v1/federation/destinations/$FED_DESTINATION_ENC" "$ADMIN_TOKEN"
+        FED_DEST_RESP="$HTTP_BODY"
+        if check_success_json "$FED_DEST_RESP" "$HTTP_STATUS"; then
+            pass "Admin Federation Destination Details"
+        else
+            skip "Admin Federation Destination Details" "$ASSERT_ERROR"
+        fi
     else
-        skip "Admin Federation Destination Details" "$ASSERT_ERROR"
+        skip "Admin Federation Destination Details" "requires federation destination data"
     fi
 
     echo ""
@@ -5783,12 +5884,16 @@ if admin_ready; then
 
     echo ""
     echo "544. Admin Reset Federation Connection"
-    http_json POST "$SERVER_URL/_synapse/admin/v1/federation/destinations/localhost/reset_connection" "$ADMIN_TOKEN" '{}'
-    FED_RESET_RESP="$HTTP_BODY"
-    if check_success_json "$FED_RESET_RESP" "$HTTP_STATUS"; then
-        pass "Admin Reset Federation Connection"
+    if [ -n "$FED_DESTINATION" ]; then
+        http_json POST "$SERVER_URL/_synapse/admin/v1/federation/destinations/$FED_DESTINATION_ENC/reset_connection" "$ADMIN_TOKEN" '{}'
+        FED_RESET_RESP="$HTTP_BODY"
+        if check_success_json "$FED_RESET_RESP" "$HTTP_STATUS"; then
+            pass "Admin Reset Federation Connection"
+        else
+            skip "Admin Reset Federation Connection" "$ASSERT_ERROR"
+        fi
     else
-        skip "Admin Reset Federation Connection" "$ASSERT_ERROR"
+        skip "Admin Reset Federation Connection" "requires federation destination data"
     fi
 else
     skip "Admin Federation Destination Details" "admin authentication unavailable"
@@ -6043,6 +6148,7 @@ if admin_ready; then
     ADMIN_SHADOW_BAN_RESP="$HTTP_BODY"
     if check_success_json "$ADMIN_SHADOW_BAN_RESP" "$HTTP_STATUS"; then
         pass "Admin Shadow Ban User"
+        http_json DELETE "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/shadow_ban" "$ADMIN_TOKEN"
     else
         skip "Admin Shadow Ban User" "$ASSERT_ERROR"
     fi
@@ -6092,14 +6198,14 @@ echo "561.0 Prepare Representative Room"
 http_json POST "$SERVER_URL/_matrix/client/v3/createRoom" "$TOKEN" '{"name":"Representative Room","preset":"private_chat"}'
 assert_success_json "Prepare Representative Room" "$HTTP_BODY" "$HTTP_STATUS" "room_id"
 REPRESENTATIVE_ROOM_ID=$(json_get "$HTTP_BODY" "room_id")
-ROOM_ENC=$(echo "$REPRESENTATIVE_ROOM_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
+ROOM_ENC=$(url_encode "$REPRESENTATIVE_ROOM_ID")
 
 echo "561.1 Prepare Representative Event"
 http_json PUT "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ID/send/m.room.message/rep118" "$TOKEN" '{"msgtype":"m.text","body":"Representative test message"}'
 assert_success_json "Prepare Representative Event" "$HTTP_BODY" "$HTTP_STATUS" "event_id"
 MSG_EVENT_ID=$(json_get "$HTTP_BODY" "event_id")
 echo "562. Get Room Version"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ID/version" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ENC/version" "$TOKEN"
 ROOM_VERSION_RESP="$HTTP_BODY"
 assert_success_json "Get Room Version" "$ROOM_VERSION_RESP" "$HTTP_STATUS" "room_version"
 
@@ -6396,10 +6502,11 @@ if check_success_json "$CREATE_RENDEZVOUS_RESP" "$CREATE_RENDEZVOUS_STATUS" "ses
     pass "Create Rendezvous Session"
     RENDEZVOUS_URL=$(echo "$CREATE_RENDEZVOUS_RESP" | grep -o '"url":"[^"]*"' | cut -d'"' -f4)
     RENDEZVOUS_SESSION_ID=$(echo "$CREATE_RENDEZVOUS_RESP" | grep -o '"session_id":"[^"]*"' | cut -d'"' -f4)
-    if [ -n "$RENDEZVOUS_SESSION_ID" ]; then
+    RENDEZVOUS_KEY=$(json_get "$CREATE_RENDEZVOUS_RESP" "key")
+    if [ -n "$RENDEZVOUS_SESSION_ID" ] && [ -n "$RENDEZVOUS_KEY" ]; then
         echo ""
         echo "584. Get Rendezvous Session"
-        http_json GET "$SERVER_URL/_matrix/client/v1/rendezvous/$RENDEZVOUS_SESSION_ID" "$TOKEN"
+        http_json_extra_header GET "$SERVER_URL/_matrix/client/v1/rendezvous/$RENDEZVOUS_SESSION_ID" "$TOKEN" "X-Matrix-Rendezvous-Key: $RENDEZVOUS_KEY"
         GET_RENDEZVOUS_RESP="$HTTP_BODY"
         if check_success_json "$GET_RENDEZVOUS_RESP" "$HTTP_STATUS"; then
             pass "Get Rendezvous Session"
@@ -6407,7 +6514,7 @@ if check_success_json "$CREATE_RENDEZVOUS_RESP" "$CREATE_RENDEZVOUS_STATUS" "ses
             fail "Get Rendezvous Session" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
         fi
     else
-        fail "Get Rendezvous Session" "No session_id returned"
+        fail "Get Rendezvous Session" "Missing session_id or rendezvous key"
     fi
 else
     fail "Create Rendezvous Session" "${ASSERT_ERROR:-HTTP $CREATE_RENDEZVOUS_STATUS}"

@@ -147,19 +147,16 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
         )
 }
 
-async fn ensure_space_exists(state: &AppState, space_id: &str) -> Result<(), ApiError> {
-    let space: Option<String> =
-        sqlx::query_scalar("SELECT space_id FROM spaces WHERE space_id = $1")
-            .bind(space_id)
-            .fetch_optional(&*state.services.room_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+async fn resolve_space_id(state: &AppState, identifier: &str) -> Result<String, ApiError> {
+    let space_id: Option<String> = sqlx::query_scalar(
+        "SELECT space_id FROM spaces WHERE space_id = $1 OR room_id = $1 ORDER BY CASE WHEN space_id = $1 THEN 0 ELSE 1 END LIMIT 1",
+    )
+    .bind(identifier)
+    .fetch_optional(&*state.services.room_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    if space.is_none() {
-        return Err(ApiError::not_found("Space not found".to_string()));
-    }
-
-    Ok(())
+    space_id.ok_or_else(|| ApiError::not_found("Space not found".to_string()))
 }
 
 #[axum::debug_handler]
@@ -757,7 +754,7 @@ pub async fn get_spaces(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
     let spaces = sqlx::query(
-        "SELECT space_id, name, topic, creator, created_ts FROM spaces ORDER BY created_ts DESC",
+        "SELECT space_id, room_id, name, topic, creator, created_ts FROM spaces ORDER BY created_ts DESC",
     )
     .fetch_all(&*state.services.room_storage.pool)
     .await
@@ -767,7 +764,8 @@ pub async fn get_spaces(
         .iter()
         .map(|row| {
             json!({
-                "room_id": row.get::<String, _>("space_id"),
+                "space_id": row.get::<String, _>("space_id"),
+                "room_id": row.get::<String, _>("room_id"),
                 "name": row.get::<Option<String>, _>("name"),
                 "topic": row.get::<Option<String>, _>("topic"),
                 "creator": row.get::<String, _>("creator"),
@@ -788,7 +786,7 @@ pub async fn get_space(
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let space = sqlx::query(
-        "SELECT space_id, name, topic, creator, created_ts FROM spaces WHERE space_id = $1",
+        "SELECT space_id, room_id, name, topic, creator, created_ts FROM spaces WHERE space_id = $1 OR room_id = $1 ORDER BY CASE WHEN space_id = $1 THEN 0 ELSE 1 END LIMIT 1",
     )
     .bind(&space_id)
     .fetch_optional(&*state.services.room_storage.pool)
@@ -797,7 +795,8 @@ pub async fn get_space(
 
     match space {
         Some(row) => Ok(Json(json!({
-            "room_id": row.get::<String, _>("space_id"),
+            "space_id": row.get::<String, _>("space_id"),
+            "room_id": row.get::<String, _>("room_id"),
             "name": row.get::<Option<String>, _>("name"),
             "topic": row.get::<Option<String>, _>("topic"),
             "creator": row.get::<String, _>("creator"),
@@ -813,8 +812,9 @@ pub async fn delete_space(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let resolved_space_id = resolve_space_id(&state, &space_id).await?;
     let result = sqlx::query("DELETE FROM spaces WHERE space_id = $1")
-        .bind(&space_id)
+        .bind(&resolved_space_id)
         .execute(&*state.services.room_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -832,12 +832,12 @@ pub async fn get_space_users(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_space_exists(&state, &space_id).await?;
+    let resolved_space_id = resolve_space_id(&state, &space_id).await?;
 
     let users = sqlx::query(
         "SELECT user_id FROM space_members WHERE space_id = $1 AND membership = 'join'",
     )
-    .bind(&space_id)
+    .bind(&resolved_space_id)
     .fetch_all(&*state.services.room_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -855,10 +855,10 @@ pub async fn get_space_rooms(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_space_exists(&state, &space_id).await?;
+    let resolved_space_id = resolve_space_id(&state, &space_id).await?;
 
     let rooms = sqlx::query("SELECT room_id FROM space_children WHERE space_id = $1")
-        .bind(&space_id)
+        .bind(&resolved_space_id)
         .fetch_all(&*state.services.room_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -876,25 +876,25 @@ pub async fn get_space_stats(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_space_exists(&state, &space_id).await?;
+    let resolved_space_id = resolve_space_id(&state, &space_id).await?;
 
     let member_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'",
     )
-    .bind(&space_id)
+    .bind(&resolved_space_id)
     .fetch_one(&*state.services.room_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let child_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM space_children WHERE space_id = $1")
-            .bind(&space_id)
+            .bind(&resolved_space_id)
             .fetch_one(&*state.services.room_storage.pool)
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({
-        "space_id": space_id,
+        "space_id": resolved_space_id,
         "member_count": member_count,
         "child_room_count": child_count
     })))
@@ -1175,6 +1175,26 @@ async fn ban_user_internal(
     actor_user_id: &str,
     reason: Option<&str>,
 ) -> Result<Value, ApiError> {
+    if !state
+        .services
+        .room_storage
+        .room_exists(room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room: {}", e)))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    if !state
+        .services
+        .user_storage
+        .user_exists(user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check user: {}", e)))?
+    {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
     let existing_membership = state
         .services
         .member_storage
@@ -1183,11 +1203,29 @@ async fn ban_user_internal(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .map(|member| member.membership);
 
-    state
+    let actor_is_admin = state
         .services
-        .room_service
-        .ban_user(room_id, user_id, actor_user_id, reason)
-        .await?;
+        .user_storage
+        .get_user_by_id(actor_user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check actor: {}", e)))?
+        .map(|user| user.is_admin)
+        .unwrap_or(false);
+
+    if actor_is_admin {
+        state
+            .services
+            .member_storage
+            .ban_member(room_id, user_id, actor_user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to ban user: {}", e)))?;
+    } else {
+        state
+            .services
+            .room_service
+            .ban_user(room_id, user_id, actor_user_id, reason)
+            .await?;
+    }
 
     if existing_membership.as_deref() == Some("join") {
         state
