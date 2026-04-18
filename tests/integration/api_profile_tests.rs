@@ -4,7 +4,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
-use synapse_rust::cache::CacheManager;
+use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
@@ -13,21 +13,23 @@ async fn setup_test_app() -> Option<axum::Router> {
     super::setup_test_app().await
 }
 
-async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
+{
     let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone());
-    let cache = std::sync::Arc::new(CacheManager::new(Default::default()));
-    let state = AppState::new(container, cache);
+    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone());
+    let state = AppState::new(container, cache.clone());
 
-    Some((synapse_rust::web::create_router(state), pool))
+    Some((synapse_rust::web::create_router(state), pool, cache))
 }
 
-async fn promote_to_admin(pool: &sqlx::PgPool, user_id: &str) {
+async fn promote_to_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &str) {
     sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
         .bind(user_id)
         .execute(pool)
         .await
         .expect("failed to promote user to admin");
+    cache.delete(&format!("user:admin:{}", user_id)).await;
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -373,7 +375,7 @@ async fn test_account_routes_work_across_r0_and_v3() {
 
 #[tokio::test]
 async fn test_private_profile_subfields_follow_profile_visibility() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -481,7 +483,7 @@ async fn test_private_profile_subfields_follow_profile_visibility() {
 
 #[tokio::test]
 async fn test_admin_cannot_update_another_users_profile_via_client_api() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -489,7 +491,7 @@ async fn test_admin_cannot_update_another_users_profile_via_client_api() {
         register_user(&app, &format!("profile_admin_{}", rand::random::<u32>())).await;
     let (_target_token, target_user_id) =
         register_user(&app, &format!("profile_target_{}", rand::random::<u32>())).await;
-    promote_to_admin(&pool, &admin_user_id).await;
+    promote_to_admin(&pool, &cache, &admin_user_id).await;
 
     let request = Request::builder()
         .method("PUT")
@@ -499,7 +501,9 @@ async fn test_admin_cannot_update_another_users_profile_via_client_api() {
         ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({ "displayname": "admin overwrite" }).to_string()))
+        .body(Body::from(
+            json!({ "displayname": "admin overwrite" }).to_string(),
+        ))
         .unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app, request)
@@ -511,7 +515,7 @@ async fn test_admin_cannot_update_another_users_profile_via_client_api() {
 
 #[tokio::test]
 async fn test_user_directory_profile_respects_profile_visibility() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -582,7 +586,7 @@ async fn test_user_directory_profile_respects_profile_visibility() {
 
 #[tokio::test]
 async fn test_user_directory_search_and_list_respect_profile_visibility() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -668,7 +672,7 @@ async fn test_user_directory_search_and_list_respect_profile_visibility() {
 
 #[tokio::test]
 async fn test_client_search_users_respects_profile_visibility() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -766,7 +770,7 @@ async fn test_client_search_users_respects_profile_visibility() {
 
 #[tokio::test]
 async fn test_search_recipients_respects_profile_visibility() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 

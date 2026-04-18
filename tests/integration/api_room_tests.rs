@@ -155,25 +155,26 @@ fn create_test_config() -> Config {
 }
 
 async fn setup_test_app() -> Option<axum::Router> {
-    let (app, _pool) = setup_test_app_with_pool().await?;
+    let (app, _pool, _cache) = setup_test_app_with_pool().await?;
     Some(app)
 }
 
-async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
     let pool = super::get_test_pool().await?;
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let config = create_test_config();
     let container = ServiceContainer::new(&pool, cache.clone(), config, None);
-    let state = AppState::new(container, cache);
-    Some((create_router(state), pool))
+    let state = AppState::new(container, cache.clone());
+    Some((create_router(state), pool, cache))
 }
 
-async fn promote_to_admin(pool: &sqlx::PgPool, user_id: &str) {
+async fn promote_to_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &str) {
     sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
         .bind(user_id)
         .execute(pool)
         .await
         .expect("failed to promote user to admin");
+    cache.delete(&format!("user:admin:{}", user_id)).await;
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> Option<String> {
@@ -287,7 +288,7 @@ async fn send_message_event(
 
 #[tokio::test]
 async fn test_user_rooms_rejects_admin_access_to_other_users_scope() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -298,7 +299,7 @@ async fn test_user_rooms_rejects_admin_access_to_other_users_scope() {
 
     let owner_token = register_user(&app, &owner_name).await.expect("owner should register");
     let admin_token = register_user(&app, &admin_name).await.expect("admin should register");
-    promote_to_admin(&pool, &admin_user_id).await;
+    promote_to_admin(&pool, &cache, &admin_user_id).await;
 
     let room_id = create_room(&app, &owner_token, "owner room")
         .await
@@ -1089,7 +1090,7 @@ async fn test_room_moderation() {
 
 #[tokio::test]
 async fn test_room_write_routes_reject_admin_non_member() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -1108,7 +1109,7 @@ async fn test_room_write_routes_reject_admin_non_member() {
     let admin_token = register_user(&app, &admin_name)
         .await
         .expect("admin should register");
-    promote_to_admin(&pool, &admin_user_id).await;
+    promote_to_admin(&pool, &cache, &admin_user_id).await;
 
     let room_id = create_room(&app, &owner_token, "Admin Non-Member Write Guard Room")
         .await
@@ -1662,7 +1663,7 @@ async fn test_redact_requires_current_room_membership_even_for_sender() {
 
 #[tokio::test]
 async fn test_room_visibility_route_rejects_admin_non_creator() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -1677,7 +1678,7 @@ async fn test_room_visibility_route_rejects_admin_non_creator() {
     let admin_token = register_user(&app, &admin_name)
         .await
         .expect("admin should register");
-    promote_to_admin(&pool, &admin_user_id).await;
+    promote_to_admin(&pool, &cache, &admin_user_id).await;
 
     let room_id = create_room(&app, &owner_token, "Visibility Guard Room")
         .await
@@ -2332,7 +2333,7 @@ async fn test_relations_routes_work_across_v1_and_r0() {
 
 #[tokio::test]
 async fn test_report_room_v3_uses_report_rate_limits_contract_and_returns_expected_payload() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -3160,7 +3161,7 @@ async fn test_room_messages_route_accepts_sync_prev_batch_token() {
 
 #[tokio::test]
 async fn test_room_timeline_route_rejects_non_member() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -3178,7 +3179,7 @@ async fn test_room_timeline_route_rejects_non_member() {
     let Some(admin_token) = register_user(&app, &admin_username).await else {
         return;
     };
-    promote_to_admin(&pool, &format!("@{}:localhost", admin_username)).await;
+    promote_to_admin(&pool, &cache, &format!("@{}:localhost", admin_username)).await;
 
     let Some(room_id) = create_room(&app, &alice_token, "Timeline Protected Room").await else {
         return;
@@ -3216,7 +3217,7 @@ async fn test_room_timeline_route_rejects_non_member() {
 
 #[tokio::test]
 async fn test_room_messages_route_rejects_non_member() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -3234,7 +3235,7 @@ async fn test_room_messages_route_rejects_non_member() {
     let Some(admin_token) = register_user(&app, &admin_username).await else {
         return;
     };
-    promote_to_admin(&pool, &format!("@{}:localhost", admin_username)).await;
+    promote_to_admin(&pool, &cache, &format!("@{}:localhost", admin_username)).await;
 
     let Some(room_id) = create_room(&app, &alice_token, "Messages Protected Room").await else {
         return;
@@ -3271,7 +3272,7 @@ async fn test_room_messages_route_rejects_non_member() {
 
 #[tokio::test]
 async fn test_room_state_route_rejects_non_member() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -3289,7 +3290,7 @@ async fn test_room_state_route_rejects_non_member() {
     let Some(admin_token) = register_user(&app, &admin_username).await else {
         return;
     };
-    promote_to_admin(&pool, &format!("@{}:localhost", admin_username)).await;
+    promote_to_admin(&pool, &cache, &format!("@{}:localhost", admin_username)).await;
 
     let Some(room_id) = create_room(&app, &alice_token, "State Protected Room").await else {
         return;
@@ -3320,7 +3321,7 @@ async fn test_room_state_route_rejects_non_member() {
 
 #[tokio::test]
 async fn test_room_unread_count_route_returns_counts_from_summary() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 

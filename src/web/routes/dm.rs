@@ -105,6 +105,20 @@ fn remove_room_from_direct_map(direct_map: &mut Map<String, Value>, room_id: &st
     });
 }
 
+fn get_room_direct_users(direct_map: &Map<String, Value>, room_id: &str) -> Vec<String> {
+    direct_map
+        .iter()
+        .filter_map(|(user_id, value)| {
+            value
+                .as_array()
+                .and_then(|rooms| {
+                    rooms.iter().any(|room| room.as_str() == Some(room_id)).then_some(user_id)
+                })
+                .cloned()
+        })
+        .collect()
+}
+
 fn parse_dm_users(value: &Value) -> Result<Vec<String>, ApiError> {
     let parsed = match value {
         Value::Array(users) => users
@@ -267,6 +281,7 @@ pub async fn update_dm_room(
     Json(body): Json<UpdateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let mut direct_map = load_direct_map(&state, &auth_user.user_id).await?;
+    let now = chrono::Utc::now().timestamp_millis();
 
     if let Some(users) = body.users {
         let users = parse_dm_users(&users)?;
@@ -294,10 +309,18 @@ pub async fn update_dm_room(
             save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
         } else {
             save_direct_map(&state, &auth_user.user_id, &content).await?;
+            direct_map = content;
         }
     }
 
-    Ok(Json(json!({})))
+    let users = get_room_direct_users(&direct_map, &room_id);
+
+    Ok(Json(json!({
+        "room_id": room_id,
+        "users": users,
+        "direct_map": direct_map,
+        "updated_ts": now
+    })))
 }
 
 pub async fn check_room_dm(
@@ -438,5 +461,27 @@ mod tests {
         assert!(object_parsed.contains(&"@bob:example.com".to_string()));
         assert!(parse_dm_users(&json!("invalid")).is_err());
         assert!(parse_dm_users(&json!([])).is_err());
+    }
+
+    #[test]
+    fn test_get_room_direct_users_returns_matching_entries() {
+        let direct_map = serde_json::from_value::<Map<String, Value>>(json!({
+            "@bob:example.com": ["!room1:example.com", "!room2:example.com"],
+            "@carol:example.com": ["!room2:example.com"]
+        }))
+        .unwrap();
+
+        let room1_users = get_room_direct_users(&direct_map, "!room1:example.com");
+        assert_eq!(room1_users, vec!["@bob:example.com".to_string()]);
+
+        let mut room2_users = get_room_direct_users(&direct_map, "!room2:example.com");
+        room2_users.sort();
+        assert_eq!(
+            room2_users,
+            vec![
+                "@bob:example.com".to_string(),
+                "@carol:example.com".to_string()
+            ]
+        );
     }
 }

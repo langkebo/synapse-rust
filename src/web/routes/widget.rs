@@ -436,18 +436,11 @@ async fn ensure_room_widget_manage_access(
     )
     .await?;
 
-    let is_creator = state
+    state
         .services
-        .room_service
-        .is_room_creator(room_id, &auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room creator: {}", e)))?;
-
-    if !is_creator {
-        return Err(ApiError::forbidden(
-            "Only room admins can manage room widgets".to_string(),
-        ));
-    }
+        .auth_service
+        .verify_room_moderator(room_id, &auth_user.user_id)
+        .await?;
 
     Ok(())
 }

@@ -174,6 +174,42 @@ async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
     assert_eq!(response.status(), StatusCode::OK);
 }
 
+async fn set_room_power_levels(
+    app: &axum::Router,
+    token: &str,
+    room_id: &str,
+    owner_user_id: &str,
+    moderator_user_id: &str,
+) {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/r0/rooms/{}/state/m.room.power_levels",
+            room_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "users": {
+                    owner_user_id: 100,
+                    moderator_user_id: 50
+                },
+                "users_default": 0,
+                "events_default": 0,
+                "state_default": 50,
+                "invite": 0
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
 #[tokio::test]
 async fn test_create_widget_succeeds_for_existing_room() {
     let Some(app) = setup_test_app().await else {
@@ -294,6 +330,61 @@ async fn test_create_widget_rejects_joined_non_creator() {
 
     let json = read_json(response).await;
     assert_eq!(json["errcode"], "M_FORBIDDEN");
+}
+
+#[tokio::test]
+async fn test_create_widget_allows_joined_room_moderator() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (owner_token, owner_user_id) = register_user_with_id(
+        &app,
+        &format!("widget_mod_owner_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (moderator_token, moderator_user_id) = register_user_with_id(
+        &app,
+        &format!("widget_mod_member_{}", rand::random::<u32>()),
+    )
+    .await;
+    let room_id = create_room(&app, &owner_token).await;
+
+    invite_user(&app, &owner_token, &room_id, &moderator_user_id).await;
+    join_room(&app, &moderator_token, &room_id).await;
+    set_room_power_levels(
+        &app,
+        &owner_token,
+        &room_id,
+        &owner_user_id,
+        &moderator_user_id,
+    )
+    .await;
+
+    let create_widget_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v1/widgets")
+        .header("Authorization", format!("Bearer {}", moderator_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "room_id": room_id,
+                "widget_type": "m.custom",
+                "url": "https://example.com/mod-widget",
+                "name": "Moderator Widget"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, create_widget_request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let json = read_json(response).await;
+    assert_eq!(json["widget"]["room_id"], room_id);
+    assert_eq!(json["widget"]["name"], "Moderator Widget");
 }
 
 #[tokio::test]

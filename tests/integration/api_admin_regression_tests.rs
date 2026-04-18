@@ -19,21 +19,22 @@ fn test_mutex() -> &'static tokio::sync::Mutex<()> {
     TEST_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
-async fn setup_test_app() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+async fn setup_test_app() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
     let pool = synapse_rust::test_utils::prepare_isolated_test_pool()
         .await
         .ok()?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone());
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let state = AppState::new(container, cache);
-    Some((create_router(state), pool))
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone());
+    let state = AppState::new(container, cache.clone());
+    Some((create_router(state), pool, cache))
 }
 
-async fn setup_test_app_with_saml() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+async fn setup_test_app_with_saml() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
     let pool = synapse_rust::test_utils::prepare_isolated_test_pool()
         .await
         .ok()?;
-    let mut container = ServiceContainer::new_test_with_pool(pool.clone());
+    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let mut container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone());
     container.config.saml.enabled = true;
     container.config.saml.metadata_url = None;
     container.config.saml.metadata_xml = Some(
@@ -58,9 +59,8 @@ async fn setup_test_app_with_saml() -> Option<(axum::Router, Arc<sqlx::PgPool>)>
         container.server_name.clone(),
     ));
 
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let state = AppState::new(container, cache);
-    Some((create_router(state), pool))
+    let state = AppState::new(container, cache.clone());
+    Some((create_router(state), pool, cache))
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> Option<(String, String)> {
@@ -112,6 +112,10 @@ async fn promote_to_admin_with_role(pool: &sqlx::PgPool, user_id: &str, role: &s
         .execute(pool)
         .await
         .expect("failed to promote user to admin with role");
+}
+
+async fn invalidate_admin_cache(cache: &CacheManager, user_id: &str) {
+    cache.delete(&format!("user:admin:{}", user_id)).await;
 }
 
 async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
@@ -167,7 +171,7 @@ async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
 #[tokio::test]
 async fn test_public_register_ignores_admin_flag() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, _cache)) = setup_test_app().await else {
         eprintln!("Skipping test because test database is unavailable");
         return;
     };
@@ -245,7 +249,7 @@ async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &s
 #[tokio::test]
 async fn test_admin_room_event_reads_from_events_table() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -254,7 +258,7 @@ async fn test_admin_room_event_reads_from_events_table() {
             .await
             .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let room_id = create_room(&app, &admin_token, "Admin Room Event").await;
     let first_event_id = send_message(&app, &admin_token, &room_id, "admin-room-event-1").await;
     let second_event_id = send_message(&app, &admin_token, &room_id, "admin-room-event-2").await;
@@ -286,7 +290,7 @@ async fn test_admin_room_event_reads_from_events_table() {
 #[tokio::test]
 async fn test_admin_room_reports_follow_current_event_report_schema() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -297,7 +301,7 @@ async fn test_admin_room_reports_follow_current_event_report_schema() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let room_id = create_room(&app, &admin_token, "Admin Room Report").await;
     let event_id = send_message(&app, &admin_token, &room_id, "admin-room-report-1").await;
     let now = chrono::Utc::now().timestamp_millis();
@@ -364,7 +368,7 @@ async fn test_admin_room_reports_follow_current_event_report_schema() {
 #[tokio::test]
 async fn test_admin_room_collection_queries_require_existing_room() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -375,7 +379,7 @@ async fn test_admin_room_collection_queries_require_existing_room() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let missing_room_id = format!("missing-room-{}", rand::random::<u32>());
 
     for uri in [
@@ -434,7 +438,7 @@ async fn test_admin_room_collection_queries_require_existing_room() {
 #[tokio::test]
 async fn test_admin_room_member_delete_requires_existing_targets() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -445,7 +449,7 @@ async fn test_admin_room_member_delete_requires_existing_targets() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let (_, managed_user_id) =
         register_user(&app, &format!("managed_member_{}", rand::random::<u32>()))
             .await
@@ -487,7 +491,7 @@ async fn test_admin_room_member_delete_requires_existing_targets() {
 #[tokio::test]
 async fn test_admin_space_collection_queries_require_existing_space() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -498,7 +502,7 @@ async fn test_admin_space_collection_queries_require_existing_space() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let missing_space_id = format!("missing-space-{}", rand::random::<u32>());
 
     for uri in [
@@ -606,7 +610,7 @@ async fn test_admin_space_collection_queries_require_existing_space() {
 #[tokio::test]
 async fn test_admin_audit_endpoints_remain_available_when_schema_audit_table_missing() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -615,7 +619,7 @@ async fn test_admin_audit_endpoints_remain_available_when_schema_audit_table_mis
             .await
             .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let (_, target_user_id) =
         register_user(&app, &format!("audit_target_{}", rand::random::<u32>()))
             .await
@@ -659,7 +663,7 @@ async fn test_admin_audit_endpoints_remain_available_when_schema_audit_table_mis
 #[tokio::test]
 async fn test_admin_room_token_sync_returns_sliding_sync_state() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -668,7 +672,7 @@ async fn test_admin_room_token_sync_returns_sliding_sync_state() {
             .await
             .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let room_id = create_room(&app, &admin_token, "Admin Room Token Sync").await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let conn_id = Some("admin-room-token-sync-conn");
@@ -729,7 +733,7 @@ async fn test_admin_room_token_sync_returns_sliding_sync_state() {
 #[tokio::test]
 async fn test_module_admin_endpoints_require_admin_role() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -738,7 +742,7 @@ async fn test_module_admin_endpoints_require_admin_role() {
             .await
             .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, user_id) =
         register_user(&app, &format!("module_target_{}", rand::random::<u32>()))
             .await
@@ -826,7 +830,7 @@ async fn test_module_admin_endpoints_require_admin_role() {
 #[tokio::test]
 async fn test_cas_admin_endpoints_require_admin_role() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -835,7 +839,7 @@ async fn test_cas_admin_endpoints_require_admin_role() {
             .await
             .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, user_id) = register_user(&app, &format!("cas_user_{}", rand::random::<u32>()))
         .await
         .expect("failed to register regular user");
@@ -884,7 +888,7 @@ async fn test_cas_admin_endpoints_require_admin_role() {
 #[tokio::test]
 async fn test_legacy_cas_admin_aliases_remain_admin_protected() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -893,7 +897,7 @@ async fn test_legacy_cas_admin_aliases_remain_admin_protected() {
             .await
             .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, user_id) =
         register_user(&app, &format!("cas_legacy_user_{}", rand::random::<u32>()))
             .await
@@ -966,7 +970,7 @@ async fn test_legacy_cas_admin_aliases_remain_admin_protected() {
 #[tokio::test]
 async fn test_additional_admin_routes_require_admin_role() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -975,7 +979,7 @@ async fn test_additional_admin_routes_require_admin_role() {
             .await
             .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, _) = register_user(&app, &format!("extra_user_{}", rand::random::<u32>()))
         .await
         .expect("failed to register regular user");
@@ -1036,7 +1040,7 @@ async fn test_additional_admin_routes_require_admin_role() {
 #[tokio::test]
 async fn test_saml_admin_metadata_refresh_requires_admin_middleware() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app_with_saml().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_saml().await else {
         return;
     };
 
@@ -1045,7 +1049,7 @@ async fn test_saml_admin_metadata_refresh_requires_admin_middleware() {
             .await
             .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, _) = register_user(&app, &format!("saml_user_{}", rand::random::<u32>()))
         .await
         .expect("failed to register regular user");
@@ -1086,7 +1090,7 @@ async fn test_saml_admin_metadata_refresh_requires_admin_middleware() {
 #[tokio::test]
 async fn test_moderation_report_score_rejects_client_admin_write() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -1097,7 +1101,7 @@ async fn test_moderation_report_score_rejects_client_admin_write() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, _) = register_user(
         &app,
         &format!("report_score_user_{}", rand::random::<u32>()),
@@ -1156,7 +1160,7 @@ async fn test_moderation_report_score_rejects_client_admin_write() {
 #[tokio::test]
 async fn test_room_alias_management_requires_room_creator() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -1168,7 +1172,7 @@ async fn test_room_alias_management_requires_room_creator() {
             .await
             .expect("failed to register admin");
     promote_to_admin(&pool, &admin_user_id).await;
-    let (member_token, member_user_id) =
+    invalidate_admin_cache(&cache, &admin_user_id).await;    let (member_token, member_user_id) =
         register_user(&app, &format!("alias_member_{}", rand::random::<u32>()))
             .await
             .expect("failed to register joined member");
@@ -1329,7 +1333,7 @@ async fn test_room_alias_management_requires_room_creator() {
 #[tokio::test]
 async fn test_room_summary_internal_write_routes_require_admin() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -1341,7 +1345,7 @@ async fn test_room_summary_internal_write_routes_require_admin() {
             .await
             .expect("failed to register admin");
     promote_to_admin(&pool, &admin_user_id).await;
-    let (user_token, _) = register_user(&app, &format!("summary_user_{}", rand::random::<u32>()))
+    invalidate_admin_cache(&cache, &admin_user_id).await;    let (user_token, _) = register_user(&app, &format!("summary_user_{}", rand::random::<u32>()))
         .await
         .expect("failed to register regular user");
 
@@ -1422,7 +1426,7 @@ async fn test_room_summary_internal_write_routes_require_admin() {
 #[tokio::test]
 async fn test_account_validity_post_enforces_unauth_user_admin_states() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -1433,7 +1437,7 @@ async fn test_account_validity_post_enforces_unauth_user_admin_states() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, _) = register_user(
         &app,
         &format!("account_validity_user_{}", rand::random::<u32>()),
@@ -1502,7 +1506,7 @@ async fn test_account_validity_post_enforces_unauth_user_admin_states() {
 #[tokio::test]
 async fn test_account_validity_write_endpoints_require_existing_user() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -1513,7 +1517,7 @@ async fn test_account_validity_write_endpoints_require_existing_user() {
     .await
     .expect("failed to register super admin user");
     promote_to_admin_with_role(&pool, &admin_user_id, "super_admin").await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let missing_user_id = format!(
         "@missing_account_validity_{}:localhost",
         rand::random::<u32>()
@@ -1590,7 +1594,7 @@ async fn test_account_validity_write_endpoints_require_existing_user() {
 #[tokio::test]
 async fn test_admin_batch_create_users_reports_conflicts_as_failed() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -1601,7 +1605,7 @@ async fn test_admin_batch_create_users_reports_conflicts_as_failed() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let existing_username = format!("batch_existing_{}", rand::random::<u32>());
     register_user(&app, &existing_username)
         .await
@@ -1655,7 +1659,7 @@ async fn test_admin_batch_create_users_reports_conflicts_as_failed() {
 #[tokio::test]
 async fn test_user_admin_cannot_grant_admin_via_set_admin() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -1664,7 +1668,7 @@ async fn test_user_admin_cannot_grant_admin_via_set_admin() {
             .await
             .expect("failed to register user admin");
     promote_to_admin_with_role(&pool, &user_admin_id, "user_admin").await;
-
+    invalidate_admin_cache(&cache, &user_admin_id).await;
     let (_, target_user_id) =
         register_user(&app, &format!("target_user_{}", rand::random::<u32>()))
             .await
@@ -1701,7 +1705,7 @@ async fn test_user_admin_cannot_grant_admin_via_set_admin() {
 #[tokio::test]
 async fn test_user_admin_cannot_assign_admin_fields_via_user_update_v2() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -1710,7 +1714,7 @@ async fn test_user_admin_cannot_assign_admin_fields_via_user_update_v2() {
             .await
             .expect("failed to register user admin");
     promote_to_admin_with_role(&pool, &user_admin_id, "user_admin").await;
-
+    invalidate_admin_cache(&cache, &user_admin_id).await;
     let (_, target_user_id) = register_user(&app, &format!("target_v2_{}", rand::random::<u32>()))
         .await
         .expect("failed to register target user");
@@ -1754,7 +1758,7 @@ async fn test_user_admin_cannot_assign_admin_fields_via_user_update_v2() {
 #[tokio::test]
 async fn test_super_admin_can_grant_admin_via_set_admin() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -1763,7 +1767,7 @@ async fn test_super_admin_can_grant_admin_via_set_admin() {
             .await
             .expect("failed to register super admin");
     promote_to_admin_with_role(&pool, &super_admin_id, "super_admin").await;
-
+    invalidate_admin_cache(&cache, &super_admin_id).await;
     let (_, target_user_id) =
         register_user(&app, &format!("target_promote_{}", rand::random::<u32>()))
             .await
@@ -1800,7 +1804,7 @@ async fn test_super_admin_can_grant_admin_via_set_admin() {
 #[tokio::test]
 async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -1809,7 +1813,7 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
             .await
             .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, _) =
         register_user(&app, &format!("appservice_user_{}", rand::random::<u32>()))
             .await
@@ -1958,7 +1962,7 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
 #[tokio::test]
 async fn test_scattered_admin_routes_apply_request_id_middleware() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -1969,7 +1973,7 @@ async fn test_scattered_admin_routes_apply_request_id_middleware() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let request_id = "req-scattered-admin-route";
     let request = Request::builder()
         .uri("/_synapse/admin/v1/appservices")
@@ -1995,7 +1999,7 @@ async fn test_scattered_admin_routes_apply_request_id_middleware() {
 #[tokio::test]
 async fn test_external_service_update_enforces_unauth_user_admin_states() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -2006,7 +2010,7 @@ async fn test_external_service_update_enforces_unauth_user_admin_states() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, _) = register_user(
         &app,
         &format!("external_service_update_user_{}", rand::random::<u32>()),
@@ -2102,7 +2106,7 @@ async fn test_external_service_update_enforces_unauth_user_admin_states() {
 #[tokio::test]
 async fn test_external_service_delete_enforces_unauth_user_admin_states() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -2113,7 +2117,7 @@ async fn test_external_service_delete_enforces_unauth_user_admin_states() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, _) = register_user(
         &app,
         &format!("external_service_delete_user_{}", rand::random::<u32>()),
@@ -2188,7 +2192,7 @@ async fn test_external_service_delete_enforces_unauth_user_admin_states() {
 #[tokio::test]
 async fn test_external_webhook_requires_persisted_service_token() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -2199,7 +2203,7 @@ async fn test_external_webhook_requires_persisted_service_token() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let service_id = format!("webhook_regression_{}", rand::random::<u32>());
     let register_body = json!({
         "service_type": "webhook",
@@ -2259,7 +2263,7 @@ async fn test_external_webhook_requires_persisted_service_token() {
 #[tokio::test]
 async fn test_external_webhook_hmac_uses_updated_persisted_secret() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -2270,7 +2274,7 @@ async fn test_external_webhook_hmac_uses_updated_persisted_secret() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let service_id = format!("webhook_hmac_{}", rand::random::<u32>());
     let as_id = format!("generic_webhook_{}", service_id);
     let register_body = json!({
@@ -2365,7 +2369,7 @@ async fn test_external_webhook_hmac_uses_updated_persisted_secret() {
 #[tokio::test]
 async fn test_external_webhook_accepts_payload_embedded_signature() {
     let _guard = test_mutex().lock().await;
-    let Some((app, pool)) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app().await else {
         return;
     };
 
@@ -2379,7 +2383,7 @@ async fn test_external_webhook_accepts_payload_embedded_signature() {
     .await
     .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
-
+    invalidate_admin_cache(&cache, &admin_user_id).await;
     let service_id = format!("webhook_payload_sig_{}", rand::random::<u32>());
     let register_body = json!({
         "service_type": "webhook",

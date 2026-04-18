@@ -65,8 +65,8 @@ pub mod worker;
 pub use crate::common::ApiError;
 pub(crate) use account_compat::{
     add_threepid, change_password_uia, deactivate_account, delete_threepid, get_avatar_url,
-    get_displayname, get_profile, get_threepids, unbind_threepid, update_avatar,
-    update_displayname, whoami,
+    get_displayname, get_profile, get_threepids, request_password_email_verification,
+    unbind_threepid, update_avatar, update_displayname, whoami,
 };
 pub use account_data::create_account_data_router;
 pub use admin::create_admin_module_router;
@@ -96,29 +96,28 @@ pub(crate) use extractors::extract_token_from_headers;
 pub use extractors::{
     AdminUser, AuthExtractor, AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser,
 };
-pub(crate) use room_access::{
-    ensure_room_member, is_joined_room_member, is_joined_room_member_or_creator,
-};
 pub use feature_flags::create_feature_flags_router;
 pub use federation::create_federation_router;
 pub use friend_room::create_friend_router;
 pub use guest::create_guest_router;
 pub(crate) use handlers::room::{
-    ban_user, claim_room_keys, create_room, forget_room, forward_room_keys, get_event_keys,
-    get_joined_members, get_joined_rooms, get_membership_events, get_messages, get_my_rooms,
-    get_power_levels, get_receipts, get_retention_policy, get_room_account_data,
-    get_room_capabilities, get_room_encrypted_events, get_room_event_url, get_room_info,
-    get_room_invites, get_room_key_count, get_room_keys, get_room_keys_version, get_room_members,
-    get_room_members_recent, get_room_membership, get_room_message_queue, get_room_metadata,
-    get_room_notifications, get_room_spaces, get_room_state, get_room_sync, get_room_thread,
-    get_room_thread_by_id, get_room_timeline, get_room_turn_server, get_room_unread_count,
-    get_room_version, get_room_visibility, get_single_event, get_state_by_type, get_state_event,
+    ban_user, claim_room_keys, convert_room_event, create_room, forget_room, forward_room_keys,
+    get_event_keys, get_joined_members, get_joined_rooms, get_membership_events, get_messages,
+    get_my_rooms, get_power_levels, get_receipts, get_retention_policy, get_room_account_data,
+    get_room_capabilities, get_room_encrypted_events, get_room_event_perspective,
+    get_room_event_url, get_room_external_ids, get_room_info, get_room_invites, get_room_key_count,
+    get_room_keys, get_room_keys_version, get_room_members, get_room_members_recent,
+    get_room_membership, get_room_message_queue, get_room_metadata, get_room_notifications,
+    get_room_rendered, get_room_service_types, get_room_spaces, get_room_state, get_room_sync,
+    get_room_thread, get_room_thread_by_id, get_room_timeline, get_room_turn_server,
+    get_room_unread_count, get_room_user_fragments, get_room_vault_data, get_room_version,
+    get_room_visibility, get_single_event, get_state_by_type, get_state_event,
     get_state_event_empty_key, get_user_rooms, invite_user, invite_user_by_room, join_room,
     join_room_by_id_or_alias, kick_user, knock_room, leave_room, put_state_event,
     put_state_event_empty_key, put_state_event_no_key, redact_event, room_initial_sync,
     search_room_messages, send_message, send_receipt, send_state_event, set_read_markers,
-    set_room_account_data, set_room_visibility, sign_room_event, unban_user, upgrade_room,
-    verify_room_event,
+    set_room_account_data, set_room_vault_data, set_room_visibility, sign_room_event,
+    translate_room_event, unban_user, upgrade_room, verify_room_event,
 };
 pub use handlers::{
     get_capabilities, get_client_versions, get_server_version, get_well_known_client,
@@ -142,6 +141,9 @@ pub use reactions::create_reactions_router;
 pub use relations::create_relations_router;
 pub use rendezvous::create_rendezvous_router;
 pub use room::create_room_router;
+pub(crate) use room_access::{
+    ensure_room_member, is_joined_room_member, is_joined_room_member_or_creator,
+};
 pub use room_summary::create_room_summary_router;
 pub use saml::create_saml_router;
 pub use sliding_sync::create_sliding_sync_router;
@@ -306,6 +308,8 @@ mod account_router_tests {
         let shared_paths = [
             "/account/whoami",
             "/account/password",
+            "/account/password/email/requestToken",
+            "/account/password/email/submitToken",
             "/account/deactivate",
             "/account/3pid",
             "/profile/{user_id}",
@@ -313,7 +317,7 @@ mod account_router_tests {
             "/profile/{user_id}/avatar_url",
         ];
 
-        assert_eq!(shared_paths.len(), 7);
+        assert_eq!(shared_paths.len(), 9);
         assert!(shared_paths.iter().all(|path| path.starts_with('/')));
     }
 

@@ -124,13 +124,13 @@ pub async fn require_test_pool() -> Arc<sqlx::PgPool> {
 pub fn clear_test_cache() {}
 
 pub async fn setup_test_app() -> Option<axum::Router> {
-    use synapse_rust::cache::CacheManager;
+    use synapse_rust::cache::{CacheConfig, CacheManager};
     use synapse_rust::services::ServiceContainer;
     use synapse_rust::web::routes::state::AppState;
 
     let pool = get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool);
-    let cache = std::sync::Arc::new(CacheManager::new(Default::default()));
+    let cache = std::sync::Arc::new(CacheManager::new(CacheConfig::default()));
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone());
     let state = AppState::new(container, cache);
 
     Some(synapse_rust::web::create_router(state))

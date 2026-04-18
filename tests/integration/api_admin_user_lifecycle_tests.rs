@@ -11,32 +11,34 @@ use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
-async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>)> {
+async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>, Arc<CacheManager>)> {
     let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone());
-    let pool = container.user_storage.pool.clone();
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let state = AppState::new(container, cache);
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone());
+    let pool = container.user_storage.pool.clone();
+    let state = AppState::new(container, cache.clone());
 
-    Some((create_router(state), pool))
+    Some((create_router(state), pool, cache))
 }
 
-async fn get_super_admin_token(app: &axum::Router, pool: &PgPool) -> String {
+async fn get_super_admin_token(app: &axum::Router, pool: &PgPool, cache: &CacheManager) -> String {
     let (token, username) = super::get_admin_token(app).await;
-    sqlx::query("UPDATE users SET user_type = 'super_admin' WHERE username = $1")
+    sqlx::query("UPDATE users SET user_type = 'super_admin', is_admin = TRUE WHERE username = $1")
         .bind(&username)
         .execute(pool)
         .await
         .expect("failed to promote admin test user to super_admin");
+    let user_id = format!("@{}:localhost", username);
+    cache.delete(&format!("user:admin:{}", user_id)).await;
     token
 }
 
 #[tokio::test]
 async fn test_admin_user_stats_reflect_real_counts() {
-    let Some((app, pool)) = setup_test_context().await else {
+    let Some((app, pool, cache)) = setup_test_context().await else {
         return;
     };
-    let admin_token = get_super_admin_token(&app, &pool).await;
+    let admin_token = get_super_admin_token(&app, &pool, &cache).await;
 
     let baseline_request = Request::builder()
         .uri("/_synapse/admin/v1/user_stats")
@@ -125,10 +127,10 @@ async fn test_admin_user_stats_reflect_real_counts() {
 /// 测试用户管理完整生命周期：注册 → 查询 → 封禁 → 解封 → 删除
 #[tokio::test]
 async fn test_admin_user_lifecycle_management() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_context().await else {
         return;
     };
-    let (admin_token, _) = super::get_admin_token(&app).await;
+    let admin_token = get_super_admin_token(&app, &pool, &cache).await;
 
     // 1. 创建测试用户
     let username = format!("testuser_{}", rand::random::<u32>());

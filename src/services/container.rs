@@ -28,6 +28,7 @@ use std::{env, path::Path};
 #[derive(Clone)]
 pub struct ServiceContainer {
     pub user_storage: UserStorage,
+    pub threepid_storage: ThreepidStorage,
     pub device_storage: DeviceStorage,
     pub token_storage: AccessTokenStorage,
     pub room_storage: RoomStorage,
@@ -178,6 +179,7 @@ impl ServiceContainer {
         let secure_backup_service = crate::e2ee::secure_backup::SecureBackupService::new(pool);
         let to_device_storage = crate::e2ee::to_device::ToDeviceStorage::new(pool);
         let user_storage = UserStorage::new(pool, cache.clone());
+        let threepid_storage = ThreepidStorage::new(pool);
         let to_device_service =
             ToDeviceService::new(to_device_storage).with_user_storage(user_storage.clone());
         let verification_storage = crate::e2ee::verification::VerificationStorage::new(pool);
@@ -482,6 +484,7 @@ impl ServiceContainer {
 
         Self {
             user_storage,
+            threepid_storage,
             device_storage: DeviceStorage::new(pool),
             token_storage: AccessTokenStorage::new(pool),
             room_storage,
@@ -612,6 +615,14 @@ impl ServiceContainer {
         let config = build_test_config();
         Self::new(&pool, cache, config, None)
     }
+
+    pub fn new_test_with_pool_and_cache(
+        pool: Arc<sqlx::PgPool>,
+        cache: Arc<CacheManager>,
+    ) -> Self {
+        let config = build_test_config();
+        Self::new(&pool, cache, config, None)
+    }
 }
 
 fn build_test_config() -> Config {
@@ -726,7 +737,7 @@ fn build_test_config() -> Config {
             admin_mfa_required: false,
             admin_mfa_shared_secret: String::new(),
             admin_mfa_allowed_drift_steps: 1,
-            admin_rbac_enabled: true,
+            admin_rbac_enabled: false,
         },
         search: SearchConfig {
             enabled: false,

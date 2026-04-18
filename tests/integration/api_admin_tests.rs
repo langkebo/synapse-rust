@@ -10,16 +10,17 @@ use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
-async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
+{
     let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone());
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let state = AppState::new(container, cache);
-    Some((create_router(state), pool))
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone());
+    let state = AppState::new(container, cache.clone());
+    Some((create_router(state), pool, cache))
 }
 
 async fn setup_test_app() -> Option<axum::Router> {
-    let (app, _) = setup_test_app_with_pool().await?;
+    let (app, _, _) = setup_test_app_with_pool().await?;
     Some(app)
 }
 
@@ -27,13 +28,15 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
     super::get_admin_token(app).await
 }
 
-async fn promote_admin_role(pool: &sqlx::PgPool, username: &str, role: &str) {
+async fn promote_admin_role(pool: &sqlx::PgPool, cache: &CacheManager, username: &str, role: &str) {
     sqlx::query("UPDATE users SET is_admin = TRUE, user_type = $2 WHERE username = $1")
         .bind(username)
         .bind(role)
         .execute(pool)
         .await
         .expect("failed to promote admin role");
+    let user_id = format!("@{}:localhost", username);
+    cache.delete(&format!("user:admin:{}", user_id)).await;
 }
 
 async fn create_test_user(app: &axum::Router) -> String {
@@ -390,7 +393,7 @@ async fn test_worker_admin_routes_reject_regular_user_but_allow_authenticated_cl
 
 #[tokio::test]
 async fn test_promoting_existing_user_in_db_does_not_upgrade_existing_token_to_admin() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -684,7 +687,7 @@ async fn test_admin_get_room_returns_room_details_after_create_room() {
 
 #[tokio::test]
 async fn test_admin_room_listing_requires_existing_room() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -732,7 +735,7 @@ async fn test_admin_room_listing_requires_existing_room() {
 
 #[tokio::test]
 async fn test_admin_room_listing_private_removes_directory_entry() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -771,10 +774,9 @@ async fn test_admin_room_listing_private_removes_directory_entry() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let set_public_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), set_public_request)
-            .await
-            .unwrap();
+    let set_public_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_public_request)
+        .await
+        .unwrap();
     assert_eq!(set_public_response.status(), StatusCode::OK);
 
     let in_directory_after_publish: bool =
@@ -811,7 +813,7 @@ async fn test_admin_room_listing_private_removes_directory_entry() {
 
 #[tokio::test]
 async fn test_admin_room_block_writes_require_existing_room() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -940,12 +942,12 @@ async fn test_admin_room_make_admin_accepts_put_and_updates_power_levels() {
 
 #[tokio::test]
 async fn test_admin_room_member_management_supports_path_and_body_routes() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
     let (admin_token, admin_username) = get_admin_token(&app).await;
-    promote_admin_role(&pool, &admin_username, "super_admin").await;
+    promote_admin_role(&pool, &cache, &admin_username, "super_admin").await;
     let user_token = create_test_user(&app).await;
 
     let whoami_request = Request::builder()
@@ -1066,11 +1068,12 @@ async fn test_admin_room_member_management_supports_path_and_body_routes() {
 
 #[tokio::test]
 async fn test_admin_device_management_supports_delete_compat_routes() {
-    let Some(app) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    promote_admin_role(&pool, &cache, &admin_username, "super_admin").await;
     let user_token = create_test_user(&app).await;
 
     let whoami_request = Request::builder()
@@ -1208,7 +1211,7 @@ async fn test_admin_shadow_ban_requires_existing_user() {
 
 #[tokio::test]
 async fn test_admin_rate_limit_writes_require_existing_user() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -1328,7 +1331,7 @@ async fn test_admin_rate_limit_writes_require_existing_user() {
 
 #[tokio::test]
 async fn test_admin_retention_policy_preserves_expire_on_clients() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -1464,7 +1467,7 @@ async fn test_admin_retention_policy_preserves_expire_on_clients() {
 
 #[tokio::test]
 async fn test_admin_room_retention_policy_requires_existing_room() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -1531,7 +1534,7 @@ async fn test_admin_room_retention_policy_requires_existing_room() {
 
 #[tokio::test]
 async fn test_admin_retention_run_requires_existing_room() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -1588,7 +1591,7 @@ async fn test_admin_retention_run_requires_existing_room() {
 
 #[tokio::test]
 async fn test_admin_user_notification_write_requires_existing_user() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -1696,7 +1699,7 @@ async fn test_admin_user_notification_write_requires_existing_user() {
 
 #[tokio::test]
 async fn test_admin_notification_specific_targets_require_existing_users() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -1805,7 +1808,7 @@ async fn test_admin_notification_specific_targets_require_existing_users() {
 
 #[tokio::test]
 async fn test_admin_user_presence_queries_require_existing_user() {
-    let Some((app, _pool)) = setup_test_app_with_pool().await else {
+    let Some((app, _pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -1937,7 +1940,7 @@ async fn test_admin_user_presence_queries_require_existing_user() {
 
 #[tokio::test]
 async fn test_admin_delete_user_media_requires_existing_user() {
-    let Some((app, _pool)) = setup_test_app_with_pool().await else {
+    let Some((app, _pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -2054,7 +2057,7 @@ async fn test_admin_delete_user_media_requires_existing_user() {
 
 #[tokio::test]
 async fn test_admin_delete_user_pusher_requires_existing_user() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -2193,7 +2196,7 @@ async fn test_admin_delete_user_pusher_requires_existing_user() {
 
 #[tokio::test]
 async fn test_admin_user_token_routes_require_existing_user() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
 

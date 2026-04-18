@@ -11,8 +11,8 @@ use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::e2ee::{DeviceKeys, KeyUploadRequest};
 use synapse_rust::federation::signing::canonical_federation_request_bytes;
 use synapse_rust::services::ServiceContainer;
-use synapse_rust::storage::{CreateOpenIdTokenRequest, OpenIdTokenStorage};
 use synapse_rust::storage::space::{AddChildRequest, CreateSpaceRequest};
+use synapse_rust::storage::{CreateOpenIdTokenRequest, OpenIdTokenStorage};
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
@@ -83,12 +83,7 @@ fn signed_request(
         .unwrap()
 }
 
-async fn insert_join_membership(
-    state: &AppState,
-    room_id: &str,
-    user_id: &str,
-    joined_ts: i64,
-) {
+async fn insert_join_membership(state: &AppState, room_id: &str, user_id: &str, joined_ts: i64) {
     sqlx::query(
         r#"
         INSERT INTO room_memberships (room_id, user_id, membership, joined_ts)
@@ -345,12 +340,12 @@ async fn test_federation_exchange_third_party_invite_rejects_sender_domain_misma
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_NOT_FOUND");
+    assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
 
 #[tokio::test]
@@ -400,12 +395,12 @@ async fn test_federation_thirdparty_invite_rejects_sender_domain_mismatch() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_NOT_FOUND");
+    assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
 
 #[tokio::test]
@@ -788,7 +783,10 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
         .clone()
         .oneshot(signed_request(
             "GET",
-            &format!("/_matrix/federation/v1/state/{}?event_id=$power-shape", room_id),
+            &format!(
+                "/_matrix/federation/v1/state/{}?event_id=$power-shape",
+                room_id
+            ),
             server_name,
             key_id,
             &signing_key,
@@ -1048,12 +1046,10 @@ async fn test_federation_state_endpoints_reject_event_ids_from_other_rooms() {
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["errcode"], "M_BAD_JSON");
-        assert!(
-            json["error"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("Event does not belong to this room")
-        );
+        assert!(json["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Event does not belong to this room"));
     }
 }
 
@@ -2743,7 +2739,7 @@ async fn test_federation_openid_userinfo_rejects_deactivated_user_token() {
 }
 
 #[tokio::test]
-async fn test_federation_query_auth_returns_not_found_instead_of_placeholder_success() {
+async fn test_federation_query_auth_returns_minimal_success_payload() {
     let server_name = "test.example.com";
     let key_id = "ed25519:1";
     let signing_key_seed = [36u8; 32];
@@ -2767,12 +2763,12 @@ async fn test_federation_query_auth_returns_not_found_instead_of_placeholder_suc
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_NOT_FOUND");
+    assert!(json["auth_chain"].is_array());
 }
 
 #[tokio::test]
@@ -2963,6 +2959,106 @@ async fn test_federation_send_join_v2_rejects_sender_domain_mismatch() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
+}
+
+#[tokio::test]
+async fn test_federation_send_join_v2_persists_join_event() {
+    let server_name = "test.example.com";
+    let key_id = "ed25519:1";
+    let signing_key_seed = [16u8; 32];
+    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
+
+    let Some((app, state)) =
+        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    else {
+        return;
+    };
+
+    let room_id = format!("!joinpersist:{}", server_name);
+    let creator = format!("@creator:{}", server_name);
+    let existing_member = format!("@member:{}", server_name);
+    let joiner = format!("@joiner:{}", server_name);
+    state
+        .services
+        .user_storage
+        .create_user(&creator, "creator", None, false)
+        .await
+        .unwrap();
+    state
+        .services
+        .user_storage
+        .create_user(&existing_member, "member", None, false)
+        .await
+        .unwrap();
+    state
+        .services
+        .user_storage
+        .create_user(&joiner, "joiner", None, false)
+        .await
+        .unwrap();
+    create_shared_room_for_users(&state, &room_id, &creator, &existing_member).await;
+
+    let event_id = "$joinpersist";
+    let origin_server_ts = 1_717_171_717_000_i64;
+    let content = json!({
+        "event_id": event_id,
+        "room_id": room_id,
+        "type": "m.room.member",
+        "sender": joiner,
+        "state_key": joiner,
+        "origin": server_name,
+        "origin_server_ts": origin_server_ts,
+        "content": {
+            "membership": "join",
+            "displayname": "Federated Joiner"
+        }
+    });
+
+    let response = app
+        .oneshot(signed_request(
+            "PUT",
+            &format!("/_matrix/federation/v2/send_join/{}/{}", room_id, event_id),
+            server_name,
+            key_id,
+            &signing_key,
+            Some(&content),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["event_id"], event_id);
+    assert_eq!(json["room_id"], room_id);
+
+    let stored_event = state
+        .services
+        .event_storage
+        .get_event(event_id)
+        .await
+        .unwrap()
+        .expect("join event should be persisted");
+    assert_eq!(stored_event.room_id, room_id);
+    assert_eq!(stored_event.user_id, joiner);
+    assert_eq!(stored_event.origin_server_ts, origin_server_ts);
+    assert_eq!(stored_event.content["membership"], "join");
+
+    let stored_member = state
+        .services
+        .member_storage
+        .get_room_member(&room_id, &joiner)
+        .await
+        .unwrap()
+        .expect("joined member should be recorded");
+    assert_eq!(stored_member.membership, "join");
+    assert_eq!(
+        stored_member.display_name.as_deref(),
+        Some("Federated Joiner")
+    );
 }
 
 #[tokio::test]

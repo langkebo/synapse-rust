@@ -10,7 +10,6 @@ use sqlx::Row;
 
 pub fn create_server_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_synapse/admin/info", get(get_admin_info))
         .route("/_synapse/admin/v1/server_version", get(get_server_version))
         .route(
             "/_synapse/admin/v1/purge_media_cache",

@@ -161,6 +161,38 @@ impl ThreepidStorage {
         Ok(threepid)
     }
 
+    pub async fn get_verified_threepid_by_address(
+        &self,
+        medium: &str,
+        address: &str,
+    ) -> Result<Option<UserThreepid>, ApiError> {
+        let threepid = sqlx::query_as::<_, UserThreepid>(
+            r#"
+            SELECT
+                id,
+                user_id,
+                medium,
+                address,
+                validated_ts AS validated_at,
+                added_ts,
+                is_verified,
+                verification_token,
+                verification_expires_ts AS verification_expires_at
+            FROM user_threepids
+            WHERE medium = $1 AND address = $2 AND is_verified = TRUE
+            "#,
+        )
+        .bind(medium)
+        .bind(address)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| {
+            ApiError::internal(format!("Failed to get verified threepid by address: {}", e))
+        })?;
+
+        Ok(threepid)
+    }
+
     pub async fn verify_threepid(
         &self,
         user_id: &str,

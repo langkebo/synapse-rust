@@ -100,6 +100,23 @@ pub(crate) async fn request_email_verification(
     State(state): State<AppState>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    request_email_verification_with_submit_path(
+        &state,
+        &body,
+        "/_matrix/client/r0/register/email/submitToken",
+        None,
+        "register",
+    )
+    .await
+}
+
+pub(crate) async fn request_email_verification_with_submit_path(
+    state: &AppState,
+    body: &Value,
+    submit_path: &str,
+    user_id: Option<&str>,
+    purpose: &str,
+) -> Result<Json<Value>, ApiError> {
     let email = body
         .get("email")
         .and_then(|v| v.as_str())
@@ -117,12 +134,10 @@ pub(crate) async fn request_email_verification(
         ));
     }
 
-    let client_secret = body.get("client_secret").and_then(|v| v.as_str());
-    if client_secret.is_none() {
-        return Err(ApiError::bad_request(
-            "client_secret is required".to_string(),
-        ));
-    }
+    let client_secret = body
+        .get("client_secret")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("client_secret is required".to_string()))?;
 
     let _send_attempt = body
         .get("send_attempt")
@@ -140,12 +155,15 @@ pub(crate) async fn request_email_verification(
             )
         })?;
 
-    let session_data = body.get("client_secret").cloned();
+    let session_data = serde_json::json!({
+        "client_secret": client_secret,
+        "purpose": purpose,
+    });
 
     let token_id = state
         .services
         .email_verification_storage
-        .create_verification_token(email, &token, 3600, None, session_data)
+        .create_verification_token(email, &token, 3600, user_id, Some(session_data))
         .await
         .map_err(|e| {
             ::tracing::error!("Failed to store email verification token: {}", e);
@@ -157,8 +175,8 @@ pub(crate) async fn request_email_verification(
     let sid = format!("{}", token_id);
 
     let submit_url = format!(
-        "https://{}:{}/_matrix/client/r0/register/email/submitToken",
-        state.services.config.server.host, state.services.config.server.port
+        "https://{}:{}{}",
+        state.services.config.server.host, state.services.config.server.port, submit_path
     );
 
     ::tracing::info!(
@@ -172,6 +190,14 @@ pub(crate) async fn request_email_verification(
         "submit_url": submit_url,
         "expires_in": 3600
     })))
+}
+
+pub(crate) fn session_client_secret(session_data: Option<&Value>) -> Option<&str> {
+    match session_data {
+        Some(Value::String(secret)) => Some(secret.as_str()),
+        Some(Value::Object(map)) => map.get("client_secret").and_then(|v| v.as_str()),
+        _ => None,
+    }
 }
 
 pub(crate) async fn submit_email_token(
@@ -219,7 +245,7 @@ pub(crate) async fn submit_email_token(
         ));
     }
 
-    if verification_token.expires_at < chrono::Utc::now().timestamp() {
+    if verification_token.expires_at < chrono::Utc::now() {
         return Err(ApiError::bad_request(
             "Verification token has expired".to_string(),
         ));
@@ -231,9 +257,7 @@ pub(crate) async fn submit_email_token(
         ));
     }
 
-    if verification_token.session_data != Some(serde_json::Value::String(client_secret.to_string()))
-        && verification_token.session_data.as_ref().map(|v| v.as_str()) != Some(Some(client_secret))
-    {
+    if session_client_secret(verification_token.session_data.as_ref()) != Some(client_secret) {
         return Err(ApiError::bad_request("Client secret mismatch".to_string()));
     }
 

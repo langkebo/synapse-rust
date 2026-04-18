@@ -5,19 +5,23 @@ fn validate_password_change_request(
     has_password: bool,
     user_matches: bool,
 ) -> Result<(), String> {
-    if auth_type != "m.login.password" {
-        return Err(format!(
-            "m.login.password authentication required, got: {}",
-            auth_type
-        ));
-    }
+    match auth_type {
+        "m.login.password" => {
+            if !has_password {
+                return Err("Password required for m.login.password".to_string());
+            }
 
-    if !has_password {
-        return Err("Password required for m.login.password".to_string());
-    }
-
-    if !user_matches {
-        return Err("User mismatch".to_string());
+            if !user_matches {
+                return Err("User mismatch".to_string());
+            }
+        }
+        "m.login.email.identity" => {}
+        _ => {
+            return Err(format!(
+                "m.login.password or m.login.email.identity authentication required, got: {}",
+                auth_type
+            ));
+        }
     }
 
     Ok(())
@@ -33,6 +37,12 @@ fn test_password_change_requires_m_login_password() {
 #[test]
 fn test_password_change_accepts_m_login_password() {
     let result = validate_password_change_request("m.login.password", true, true);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_password_change_accepts_m_login_email_identity() {
+    let result = validate_password_change_request("m.login.email.identity", false, false);
     assert!(result.is_ok());
 }
 
@@ -430,7 +440,6 @@ fn test_password_change_rejects_all_non_password_auth_types() {
         "m.login.dummy",
         "m.login.recaptcha",
         "m.login.sso",
-        "m.login.email.identity",
     ];
 
     for auth_type in invalid_auth_types {

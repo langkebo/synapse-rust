@@ -745,7 +745,7 @@ mod tests {
     async fn execute_report_rate_limits_migration(
         pool: &Pool<Postgres>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(REPORT_RATE_LIMITS_MIGRATION_SQL)
+        sqlx::raw_sql(REPORT_RATE_LIMITS_MIGRATION_SQL)
             .execute(pool)
             .await?;
         Ok(())

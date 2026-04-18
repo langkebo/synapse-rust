@@ -13,20 +13,25 @@ async fn setup_test_app() -> Option<axum::Router> {
     super::setup_test_app().await
 }
 
-async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
+{
     let pool = super::get_test_pool().await?;
-    let container = synapse_rust::services::ServiceContainer::new_test_with_pool(pool.clone());
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let state = synapse_rust::web::routes::state::AppState::new(container, cache);
-    Some((synapse_rust::web::create_router(state), pool))
+    let container = synapse_rust::services::ServiceContainer::new_test_with_pool_and_cache(
+        pool.clone(),
+        cache.clone(),
+    );
+    let state = synapse_rust::web::routes::state::AppState::new(container, cache.clone());
+    Some((synapse_rust::web::create_router(state), pool, cache))
 }
 
-async fn promote_to_admin(pool: &sqlx::PgPool, user_id: &str) {
+async fn promote_to_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &str) {
     sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
         .bind(user_id)
         .execute(pool)
         .await
         .expect("failed to promote user to admin");
+    cache.delete(&format!("user:admin:{}", user_id)).await;
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -428,15 +433,21 @@ async fn test_presence_read_rejects_other_user() {
 
 #[tokio::test]
 async fn test_presence_admin_cannot_read_another_users_status() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
-    let (owner_token, owner_user_id) =
-        register_user(&app, &format!("presence_admin_owner_{}", rand::random::<u32>())).await;
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("presence_admin_actor_{}", rand::random::<u32>())).await;
-    promote_to_admin(&pool, &admin_user_id).await;
+    let (owner_token, owner_user_id) = register_user(
+        &app,
+        &format!("presence_admin_owner_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (admin_token, admin_user_id) = register_user(
+        &app,
+        &format!("presence_admin_actor_{}", rand::random::<u32>()),
+    )
+    .await;
+    promote_to_admin(&pool, &cache, &admin_user_id).await;
 
     let set_request = Request::builder()
         .method("PUT")
@@ -565,14 +576,23 @@ async fn test_presence_list_filters_users_without_shared_rooms() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (alice_token, alice_user_id) =
-        register_user(&app, &format!("presence_filter_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_user_id) =
-        register_user(&app, &format!("presence_filter_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, alice_user_id) = register_user(
+        &app,
+        &format!("presence_filter_alice_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (bob_token, bob_user_id) = register_user(
+        &app,
+        &format!("presence_filter_bob_{}", rand::random::<u32>()),
+    )
+    .await;
 
     let set_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/presence/{}/status", bob_user_id))
+        .uri(format!(
+            "/_matrix/client/v3/presence/{}/status",
+            bob_user_id
+        ))
         .header("Authorization", format!("Bearer {}", bob_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -610,10 +630,15 @@ async fn test_presence_list_filters_users_without_shared_rooms() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let presences = json["presences"].as_array().unwrap();
-    assert!(!presences.iter().any(|entry| entry["user_id"] == bob_user_id));
+    assert!(!presences
+        .iter()
+        .any(|entry| entry["user_id"] == bob_user_id));
 
     let list_request = Request::builder()
-        .uri(format!("/_matrix/client/v3/presence/list/{}", alice_user_id))
+        .uri(format!(
+            "/_matrix/client/v3/presence/list/{}",
+            alice_user_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
@@ -627,7 +652,9 @@ async fn test_presence_list_filters_users_without_shared_rooms() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let presences = json["presences"].as_array().unwrap();
-    assert!(!presences.iter().any(|entry| entry["user_id"] == bob_user_id));
+    assert!(!presences
+        .iter()
+        .any(|entry| entry["user_id"] == bob_user_id));
 }
 
 #[tokio::test]
@@ -635,10 +662,16 @@ async fn test_presence_list_allows_users_with_shared_rooms() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (alice_token, alice_user_id) =
-        register_user(&app, &format!("presence_shared_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_user_id) =
-        register_user(&app, &format!("presence_shared_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, alice_user_id) = register_user(
+        &app,
+        &format!("presence_shared_alice_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (bob_token, bob_user_id) = register_user(
+        &app,
+        &format!("presence_shared_bob_{}", rand::random::<u32>()),
+    )
+    .await;
 
     let room_id = create_room(&app, &alice_token, "Presence Shared Room").await;
     invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
@@ -646,7 +679,10 @@ async fn test_presence_list_allows_users_with_shared_rooms() {
 
     let set_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/presence/{}/status", bob_user_id))
+        .uri(format!(
+            "/_matrix/client/v3/presence/{}/status",
+            bob_user_id
+        ))
         .header("Authorization", format!("Bearer {}", bob_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -684,10 +720,15 @@ async fn test_presence_list_allows_users_with_shared_rooms() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let presences = json["presences"].as_array().unwrap();
-    assert!(presences.iter().any(|entry| entry["user_id"] == bob_user_id));
+    assert!(presences
+        .iter()
+        .any(|entry| entry["user_id"] == bob_user_id));
 
     let list_request = Request::builder()
-        .uri(format!("/_matrix/client/v3/presence/list/{}", alice_user_id))
+        .uri(format!(
+            "/_matrix/client/v3/presence/list/{}",
+            alice_user_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
@@ -701,18 +742,26 @@ async fn test_presence_list_allows_users_with_shared_rooms() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let presences = json["presences"].as_array().unwrap();
-    assert!(presences.iter().any(|entry| entry["user_id"] == bob_user_id));
+    assert!(presences
+        .iter()
+        .any(|entry| entry["user_id"] == bob_user_id));
 }
 
 #[tokio::test]
 async fn test_presence_list_hides_stale_unauthorized_subscriptions() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
         return;
     };
-    let (alice_token, alice_user_id) =
-        register_user(&app, &format!("presence_stale_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_user_id) =
-        register_user(&app, &format!("presence_stale_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, alice_user_id) = register_user(
+        &app,
+        &format!("presence_stale_alice_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (bob_token, bob_user_id) = register_user(
+        &app,
+        &format!("presence_stale_bob_{}", rand::random::<u32>()),
+    )
+    .await;
 
     let presence = PresenceStorage::new(
         pool.clone(),
@@ -725,7 +774,10 @@ async fn test_presence_list_hides_stale_unauthorized_subscriptions() {
 
     let set_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/presence/{}/status", bob_user_id))
+        .uri(format!(
+            "/_matrix/client/v3/presence/{}/status",
+            bob_user_id
+        ))
         .header("Authorization", format!("Bearer {}", bob_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -742,7 +794,10 @@ async fn test_presence_list_hides_stale_unauthorized_subscriptions() {
     assert_eq!(set_response.status(), StatusCode::OK);
 
     let list_request = Request::builder()
-        .uri(format!("/_matrix/client/v3/presence/list/{}", alice_user_id))
+        .uri(format!(
+            "/_matrix/client/v3/presence/list/{}",
+            alice_user_id
+        ))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
@@ -756,7 +811,9 @@ async fn test_presence_list_hides_stale_unauthorized_subscriptions() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let presences = json["presences"].as_array().unwrap();
-    assert!(!presences.iter().any(|entry| entry["user_id"] == bob_user_id));
+    assert!(!presences
+        .iter()
+        .any(|entry| entry["user_id"] == bob_user_id));
 }
 
 #[tokio::test]

@@ -12,16 +12,16 @@ use tower::ServiceExt;
 
 type RoomSummaryCounts = (i64, i64, Option<String>, Option<i64>, Option<i64>);
 
-async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
     let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone());
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let state = AppState::new(container, cache);
-    Some((create_router(state), pool))
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone());
+    let state = AppState::new(container, cache.clone());
+    Some((create_router(state), pool, cache))
 }
 
 async fn setup_test_app() -> Option<axum::Router> {
-    let (app, _) = setup_test_app_with_pool().await?;
+    let (app, _, _) = setup_test_app_with_pool().await?;
     Some(app)
 }
 
@@ -56,12 +56,13 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     )
 }
 
-async fn promote_to_super_admin(pool: &sqlx::PgPool, user_id: &str) {
+async fn promote_to_super_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &str) {
     sqlx::query("UPDATE users SET is_admin = TRUE, user_type = 'super_admin' WHERE user_id = $1")
         .bind(user_id)
         .execute(pool)
         .await
         .expect("failed to promote user to super_admin");
+    cache.delete(&format!("user:admin:{}", user_id)).await;
 }
 
 async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
@@ -709,13 +710,13 @@ async fn test_admin_pusher_query_requires_existing_user_and_returns_created_push
 
 #[tokio::test]
 async fn test_admin_send_server_notice_persists_notice_for_target_user() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
     let (_, user_id) = register_user(&app, "server_notice_target").await;
     let (admin_token, admin_user_id) = register_user(&app, "server_notice_admin").await;
-    promote_to_super_admin(&pool, &admin_user_id).await;
+    promote_to_super_admin(&pool, &cache, &admin_user_id).await;
 
     let send_notice_request = Request::builder()
         .method("POST")
@@ -839,13 +840,13 @@ async fn test_admin_send_server_notice_persists_notice_for_target_user() {
 
 #[tokio::test]
 async fn test_admin_delete_server_notice_cleans_room_artifacts() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
     let (_, user_id) = register_user(&app, "server_notice_delete_target").await;
     let (admin_token, admin_user_id) = register_user(&app, "server_notice_delete_admin").await;
-    promote_to_super_admin(&pool, &admin_user_id).await;
+    promote_to_super_admin(&pool, &cache, &admin_user_id).await;
 
     let send_notice_request = Request::builder()
         .method("POST")
