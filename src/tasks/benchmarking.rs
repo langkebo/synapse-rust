@@ -31,21 +31,15 @@ pub enum TrendType {
 }
 
 pub struct PerformanceAnalyzer {
-    #[allow(dead_code)]
-    baselines: Vec<PerformanceBaseline>,
     recent_metrics: VecDeque<PerformanceMetrics>,
     max_samples: usize,
-    #[allow(dead_code)]
-    window_size: Duration,
 }
 
 impl PerformanceAnalyzer {
-    pub fn new(window_size: Duration, max_samples: usize) -> Self {
+    pub fn new(_window_size: Duration, max_samples: usize) -> Self {
         Self {
-            baselines: Vec::new(),
             recent_metrics: VecDeque::with_capacity(max_samples),
             max_samples,
-            window_size,
         }
     }
 
@@ -339,7 +333,6 @@ mod tests {
         let analyzer = PerformanceAnalyzer::new(Duration::from_secs(60), 100);
 
         assert_eq!(analyzer.max_samples, 100);
-        assert!(analyzer.baselines.is_empty());
         assert!(analyzer.recent_metrics.is_empty());
     }
 

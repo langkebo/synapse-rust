@@ -5,15 +5,14 @@ use async_trait::async_trait;
 
 pub struct S3Backend {
     config: S3Config,
-    #[allow(dead_code)]
-    client: Option<()>,
+    _client: Option<()>,
 }
 
 impl S3Backend {
     pub fn new(config: S3Config) -> Self {
         Self {
             config,
-            client: None,
+            _client: None,
         }
     }
 

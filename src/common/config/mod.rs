@@ -1374,6 +1374,18 @@ pub struct RedisConfig {
     pub circuit_breaker: CircuitBreakerConfig,
 }
 
+impl RedisConfig {
+    pub fn connection_url(&self) -> String {
+        if let Some(password) = &self.password {
+            if !password.is_empty() {
+                return format!("redis://:{}@{}:{}", password, self.host, self.port);
+            }
+        }
+
+        format!("redis://{}:{}", self.host, self.port)
+    }
+}
+
 /// 熔断器配置
 #[derive(Debug, Clone, Deserialize)]
 pub struct CircuitBreakerConfig {
@@ -2233,15 +2245,7 @@ impl Config {
     }
 
     pub fn redis_url(&self) -> String {
-        if let Some(password) = &self.redis.password {
-            if !password.is_empty() {
-                return format!(
-                    "redis://:{}@{}:{}",
-                    password, self.redis.host, self.redis.port
-                );
-            }
-        }
-        format!("redis://{}:{}", self.redis.host, self.redis.port)
+        self.redis.connection_url()
     }
 }
 

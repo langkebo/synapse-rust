@@ -628,24 +628,6 @@ mod tests {
     use super::*;
     use chrono::{Duration, Utc};
 
-    #[allow(dead_code)]
-    fn create_test_request() -> CreateNotificationRequest {
-        CreateNotificationRequest {
-            title: "Test Notification".to_string(),
-            content: "This is a test notification".to_string(),
-            notification_type: Some("info".to_string()),
-            priority: Some(0),
-            target_audience: Some("all".to_string()),
-            target_user_ids: None,
-            starts_at: None,
-            expires_at: None,
-            is_dismissable: Some(true),
-            action_url: None,
-            action_text: None,
-            created_by: Some("admin".to_string()),
-        }
-    }
-
     #[test]
     fn test_create_notification_request_defaults() {
         let req = CreateNotificationRequest {

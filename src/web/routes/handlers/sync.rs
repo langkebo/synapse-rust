@@ -28,6 +28,10 @@ pub(crate) async fn sync(
         .rate_limit_config_manager
         .as_ref()
         .map(|m| m.get_config());
+    let fail_open_on_error = file_config
+        .as_ref()
+        .map(|c| c.fail_open_on_error)
+        .unwrap_or(state.services.config.rate_limit.fail_open_on_error);
     let sync_rate_limit_enabled = file_config
         .as_ref()
         .map(|c| c.sync.enabled)
@@ -58,17 +62,70 @@ pub(crate) async fn sync(
             "ratelimit:sync:{}:{}:{}",
             user_id, device_id_for_ratelimit, kind
         );
-        let decision = state
+        let decision = match state
             .cache
             .rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size)
             .await
-            .map_err(|e| ApiError::internal(format!("Sync rate limit failed: {}", e)))?;
+        {
+            Ok(decision) => decision,
+            Err(error) => {
+                if fail_open_on_error {
+                    tracing::warn!(
+                        user_id = %user_id,
+                        device_id = %device_id_for_ratelimit,
+                        kind,
+                        error = %error,
+                        "Sync rate limiter failed; allowing request"
+                    );
+                } else {
+                    return Err(ApiError::internal(format!(
+                        "Sync rate limit failed: {}",
+                        error
+                    )));
+                }
+                // Allow the request to proceed when the rate limit backend is unavailable.
+                return execute_sync(
+                    state,
+                    user_id,
+                    device_id,
+                    timeout,
+                    full_state,
+                    set_presence,
+                    filter,
+                    since,
+                )
+                .await;
+            }
+        };
         if !decision.allowed {
             let retry_after_ms = decision.retry_after_seconds.saturating_mul(1000);
             return Err(ApiError::rate_limited_with_retry(retry_after_ms));
         }
     }
 
+    execute_sync(
+        state,
+        user_id,
+        device_id,
+        timeout,
+        full_state,
+        set_presence,
+        filter,
+        since,
+    )
+    .await
+}
+
+async fn execute_sync(
+    state: AppState,
+    user_id: String,
+    device_id: Option<String>,
+    timeout: u64,
+    full_state: bool,
+    set_presence: &str,
+    filter: Option<&str>,
+    since: Option<&str>,
+) -> Result<Json<Value>, ApiError> {
     let sync_result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
         state

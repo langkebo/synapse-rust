@@ -5,7 +5,7 @@
 # 此脚本用于生成高强度的随机密码和密钥，并自动更新 .env 文件
 # =============================================================================
 
-set -e
+set -euo pipefail
 
 # 颜色定义
 RED='\033[0;31m'
@@ -41,7 +41,7 @@ generate_hex_key() {
     if command -v openssl &> /dev/null; then
         openssl rand -hex $((length / 2))
     else
-        cat /dev/urandom | head -c $((length / 2)) | xxd -p
+        head -c $((length / 2)) /dev/urandom | xxd -p
     fi
 }
 
@@ -51,7 +51,7 @@ generate_password() {
     if command -v openssl &> /dev/null; then
         openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c $length
     else
-        cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c $length
+        tr -dc 'A-Za-z0-9' < /dev/urandom | head -c $length
     fi
 }
 
@@ -60,7 +60,52 @@ generate_jwt_secret() {
     if command -v openssl &> /dev/null; then
         openssl rand -base64 64 | tr -d '\n'
     else
-        cat /dev/urandom | head -c 64 | base64 | tr -d '\n'
+        head -c 64 /dev/urandom | base64 | tr -d '\n'
+    fi
+}
+
+generate_missing_or_all() {
+    local force_generate="${1:-false}"
+
+    [ -f "$ENV_FILE" ] || {
+        log_error ".env 文件不存在: $ENV_FILE"
+        return 1
+    }
+
+    maybe_set_secret "POSTGRES_PASSWORD" "$(generate_password 32)" "$force_generate"
+    maybe_set_secret "REDIS_PASSWORD" "$(generate_password 32)" "$force_generate"
+    maybe_set_secret "ADMIN_SHARED_SECRET" "$(generate_hex_key 64)" "$force_generate"
+    maybe_set_secret "JWT_SECRET" "$(generate_jwt_secret)" "$force_generate"
+    maybe_set_secret "REGISTRATION_SHARED_SECRET" "$(generate_hex_key 64)" "$force_generate"
+    maybe_set_secret "SECRET_KEY" "$(generate_hex_key 64)" "$force_generate"
+    maybe_set_secret "MACAROON_SECRET" "$(generate_hex_key 64)" "$force_generate"
+    maybe_set_secret "FORM_SECRET" "$(generate_hex_key 64)" "$force_generate"
+}
+
+current_env_value() {
+    local key=$1
+    if grep -q "^${key}=" "$ENV_FILE"; then
+        grep "^${key}=" "$ENV_FILE" | tail -n 1 | cut -d'=' -f2-
+    fi
+}
+
+placeholder_or_empty() {
+    local value=${1:-}
+    [ -z "$value" ] || [[ "$value" == __REQUIRED_* ]] || [[ "$value" == *"change-me"* ]] || [[ "$value" == *"your-"* ]]
+}
+
+maybe_set_secret() {
+    local key=$1
+    local new_value=$2
+    local force_generate=${3:-false}
+    local old_value
+    old_value="$(current_env_value "$key")"
+
+    if [ "$force_generate" = "true" ] || placeholder_or_empty "$old_value"; then
+        update_env_file "$key" "$new_value"
+        log_info "$key: 已生成"
+    else
+        log_info "$key: 已存在，跳过"
     fi
 }
 
@@ -90,53 +135,15 @@ update_env_file() {
 
 # 生成所有密钥
 generate_all_secrets() {
-    log_info "生成安全密钥和密码..."
-    
-    # PostgreSQL 密码
-    POSTGRES_PASSWORD=$(generate_password 32)
-    log_info "POSTGRES_PASSWORD: 已生成 (${#POSTGRES_PASSWORD} 字符)"
+    log_info "生成并覆盖所有安全密钥和密码..."
+    generate_missing_or_all true
+    log_success ".env 文件已更新"
+}
 
-    # Redis 密码
-    REDIS_PASSWORD=$(generate_password 32)
-    log_info "REDIS_PASSWORD: 已生成 (${#REDIS_PASSWORD} 字符)"
-    
-    # 管理员共享密钥
-    ADMIN_SHARED_SECRET=$(generate_hex_key 64)
-    log_info "ADMIN_SHARED_SECRET: 已生成 (${#ADMIN_SHARED_SECRET} 字符)"
-    
-    # JWT 密钥
-    JWT_SECRET=$(generate_jwt_secret)
-    log_info "JWT_SECRET: 已生成 (${#JWT_SECRET} 字符)"
-    
-    # 注册共享密钥
-    REGISTRATION_SHARED_SECRET=$(generate_hex_key 64)
-    log_info "REGISTRATION_SHARED_SECRET: 已生成 (${#REGISTRATION_SHARED_SECRET} 字符)"
-    
-    # 输出结果
-    echo ""
-    echo "=========================================="
-    echo "  生成的密钥和密码"
-    echo "=========================================="
-    echo ""
-    echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}"
-    echo "REDIS_PASSWORD=${REDIS_PASSWORD}"
-    echo "ADMIN_SHARED_SECRET=${ADMIN_SHARED_SECRET}"
-    echo "JWT_SECRET=${JWT_SECRET}"
-    echo "REGISTRATION_SHARED_SECRET=${REGISTRATION_SHARED_SECRET}"
-    echo ""
-    
-    # 更新 .env 文件
-    if [ -f "$ENV_FILE" ]; then
-        log_info "更新 .env 文件..."
-        update_env_file "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD"
-        update_env_file "REDIS_PASSWORD" "$REDIS_PASSWORD"
-        update_env_file "ADMIN_SHARED_SECRET" "$ADMIN_SHARED_SECRET"
-        update_env_file "JWT_SECRET" "$JWT_SECRET"
-        update_env_file "REGISTRATION_SHARED_SECRET" "$REGISTRATION_SHARED_SECRET"
-        log_success ".env 文件已更新"
-    else
-        log_warning ".env 文件不存在，跳过更新"
-    fi
+generate_missing_secrets() {
+    log_info "补齐缺失的安全密钥和密码..."
+    generate_missing_or_all false
+    log_success ".env 文件已更新"
 }
 
 # 生成单个密钥
@@ -158,9 +165,12 @@ generate_single_secret() {
         "registration")
             generate_hex_key 64
             ;;
+        "secret"|"macaroon"|"form")
+            generate_hex_key 64
+            ;;
         *)
             log_error "未知密钥类型: $type"
-            echo "可用类型: postgres, redis, admin, jwt, registration"
+            echo "可用类型: postgres, redis, admin, jwt, registration, secret, macaroon, form"
             return 1
             ;;
     esac
@@ -172,11 +182,15 @@ show_help() {
     echo ""
     echo "命令:"
     echo "  all       生成所有密钥并更新 .env 文件 (默认)"
+    echo "  missing   仅补齐缺失或占位符密钥"
     echo "  postgres  生成 PostgreSQL 密码"
     echo "  redis     生成 Redis 密码"
     echo "  admin     生成管理员共享密钥"
     echo "  jwt       生成 JWT 密钥"
     echo "  registration 生成注册共享密钥"
+    echo "  secret    生成应用安全密钥"
+    echo "  macaroon  生成 macaroon 密钥"
+    echo "  form      生成表单密钥"
     echo "  help      显示此帮助信息"
     echo ""
     echo "示例:"
@@ -192,7 +206,10 @@ main() {
         all)
             generate_all_secrets
             ;;
-        postgres|redis|admin|jwt|registration)
+        missing)
+            generate_missing_secrets
+            ;;
+        postgres|redis|admin|jwt|registration|secret|macaroon|form)
             local secret=$(generate_single_secret "$command")
             echo "$secret"
             
@@ -206,6 +223,12 @@ main() {
                 env_key="ADMIN_SHARED_SECRET"
             elif [ "$command" = "registration" ]; then
                 env_key="REGISTRATION_SHARED_SECRET"
+            elif [ "$command" = "secret" ]; then
+                env_key="SECRET_KEY"
+            elif [ "$command" = "macaroon" ]; then
+                env_key="MACAROON_SECRET"
+            elif [ "$command" = "form" ]; then
+                env_key="FORM_SECRET"
             fi
             
             if [ -f "$ENV_FILE" ]; then
