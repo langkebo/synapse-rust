@@ -66,14 +66,14 @@ impl AdminRegistrationService {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
             loop {
                 interval.tick().await;
-                if let Err(e) = self.cleanup_expired_nonces().await {
+                if let Err(e) = self.cleanup_expired_nonces() {
                     ::tracing::error!("Failed to cleanup expired nonces: {}", e);
                 }
             }
         });
     }
 
-    async fn cleanup_expired_nonces(&self) -> Result<(), String> {
+    fn cleanup_expired_nonces(&self) -> Result<(), String> {
         let cutoff_ts = Utc::now().timestamp() - (self.config.nonce_timeout_seconds as i64 * 2);
 
         let keys = self.cache.get_keys_with_prefix("admin:register:nonce:");

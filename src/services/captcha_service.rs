@@ -253,9 +253,8 @@ impl CaptchaService {
         match captcha.captcha_type.as_str() {
             "email" => {
                 self.send_email(&captcha.target, template.subject.as_deref(), &content)
-                    .await
             }
-            "sms" => self.send_sms(&captcha.target, &content).await,
+            "sms" => self.send_sms(&captcha.target, &content),
             "image" => Ok(()),
             _ => Err(ApiError::bad_request("Invalid captcha type")),
         }
@@ -273,7 +272,7 @@ impl CaptchaService {
         content
     }
 
-    async fn send_email(
+    fn send_email(
         &self,
         to: &str,
         _subject: Option<&str>,
@@ -284,7 +283,7 @@ impl CaptchaService {
         Ok(())
     }
 
-    async fn send_sms(&self, to: &str, content: &str) -> Result<(), ApiError> {
+    fn send_sms(&self, to: &str, content: &str) -> Result<(), ApiError> {
         info!("Sending SMS to {}: {:?}", to, content);
 
         Ok(())

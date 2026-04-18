@@ -1,291 +1,376 @@
 #!/bin/bash
 # =============================================================================
-# synapse-rust 一键部署脚本
-# =============================================================================
-# 使用方法:
-#   1. 复制 .env.example 为 .env
-#   2. 修改 .env 中的配置项
-#   3. 运行 ./deploy.sh
+# synapse-rust 一键重建与部署脚本
 # =============================================================================
 
-set -euo pipefail
+set -Eeuo pipefail
 
-# 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# 日志函数
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+DEPLOY_ROOT="$SCRIPT_DIR"
+LOG_DIR="$DEPLOY_ROOT/logs"
+TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+LOG_FILE="$LOG_DIR/deploy_${TIMESTAMP}.log"
+
+ROLLBACK_BACKUP=""
+ROLLBACK_IMAGE_TAG=""
+ROLLBACK_ENABLED=true
+DEPLOYMENT_PHASE="initialization"
+ROLLBACK_IN_PROGRESS=false
+
+cd "$DEPLOY_ROOT"
+
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $*"
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo -e "${GREEN}[SUCCESS]${NC} $*"
 }
 
 log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${YELLOW}[WARNING]${NC} $*"
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[ERROR]${NC} $*" >&2
 }
 
-# 获取脚本所在目录
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
 compose() {
-    if command -v docker-compose &> /dev/null; then
+    if command -v docker-compose >/dev/null 2>&1; then
         docker-compose "$@"
     else
         docker compose "$@"
     fi
 }
 
-# 显示横幅
+setup_logging() {
+    mkdir -p "$LOG_DIR"
+    exec > >(tee -a "$LOG_FILE") 2>&1
+}
+
+on_error() {
+    local line_no="$1"
+    local exit_code="${2:-1}"
+    log_error "部署失败: phase=${DEPLOYMENT_PHASE}, line=${line_no}, exit_code=${exit_code}"
+    if [ "$ROLLBACK_ENABLED" = "true" ] && [ "$ROLLBACK_IN_PROGRESS" = "false" ]; then
+        rollback_deployment || true
+    fi
+    exit "$exit_code"
+}
+
+trap 'on_error "$LINENO" "$?"' ERR
+
 show_banner() {
     echo ""
     echo "=========================================="
-    echo "  synapse-rust Docker 部署脚本"
+    echo "  synapse-rust Docker 重建部署脚本"
     echo "=========================================="
+    echo "  日志文件: $LOG_FILE"
     echo ""
 }
 
-# 检查依赖
+retry() {
+    local attempts="$1"
+    local delay="$2"
+    shift 2
+
+    local try=1
+    until "$@"; do
+        if [ "$try" -ge "$attempts" ]; then
+            return 1
+        fi
+        log_warning "命令失败，${delay}s 后进行第 $((try + 1))/$attempts 次重试: $*"
+        sleep "$delay"
+        try=$((try + 1))
+    done
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || {
+        log_error "缺少依赖命令: $1"
+        exit 1
+    }
+}
+
+load_env() {
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+    ROLLBACK_ENABLED="${ROLLBACK_ON_FAILURE:-true}"
+}
+
+is_placeholder() {
+    local value="${1:-}"
+    [ -z "$value" ] || [[ "$value" == __REQUIRED_* ]] || [[ "$value" == *"your-"* ]] || [[ "$value" == *"change-me"* ]]
+}
+
 check_dependencies() {
+    DEPLOYMENT_PHASE="dependency-check"
     log_info "检查依赖..."
-    
-    local missing_deps=()
-    
-    if ! command -v docker &> /dev/null; then
-        missing_deps+=("docker")
-    fi
-    
-    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-        missing_deps+=("docker-compose")
-    fi
-    
-    if [ ${#missing_deps[@]} -ne 0 ]; then
-        log_error "缺少以下依赖: ${missing_deps[*]}"
-        log_info "请安装 Docker 和 Docker Compose 后重试"
+
+    require_command docker
+    require_command curl
+    require_command tar
+    require_command awk
+    require_command grep
+
+    if ! command -v docker-compose >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1; then
+        log_error "缺少 Docker Compose"
         exit 1
     fi
-    
+
+    docker info >/dev/null
     log_success "依赖检查通过"
 }
 
-# 检查环境变量文件
 check_env_file() {
+    DEPLOYMENT_PHASE="environment-check"
     log_info "检查环境变量配置..."
-    
+
     if [ ! -f ".env" ]; then
-        log_warning ".env 文件不存在"
-        
-        if [ -f ".env.example" ]; then
-            log_info "从 .env.example 创建 .env 文件..."
-            cp .env.example .env
-            
-            # 自动生成安全密钥
-            log_info "自动生成安全密钥..."
-            if [ -f "scripts/generate-secrets.sh" ]; then
-                chmod +x scripts/generate-secrets.sh
-                ./scripts/generate-secrets.sh all > /dev/null
-                log_success "安全密钥已自动生成并写入 .env 文件"
-            else
-                log_warning "密钥生成脚本不存在，请手动配置密钥"
-            fi
-            
-            log_warning "请编辑 .env 文件配置您的服务器信息后重新运行"
-            log_info "必须修改的配置项:"
-            log_info "  - SERVER_NAME: 您的服务器名称"
-            log_info "  - PUBLIC_BASEURL: 公开访问 URL"
-            log_info "  (密钥已自动生成，无需修改)"
-            exit 1
-        else
-            log_error ".env.example 文件不存在，请检查部署包完整性"
-            exit 1
-        fi
+        cp .env.example .env
+        log_warning "已从 .env.example 创建 .env"
     fi
-    
-    # 加载环境变量
-    source .env
-    
-    # 检查必要的环境变量
-    local required_vars=("SERVER_NAME" "PUBLIC_BASEURL" "POSTGRES_PASSWORD" "REDIS_PASSWORD" "ADMIN_SHARED_SECRET" "JWT_SECRET" "REGISTRATION_SHARED_SECRET")
+
+    chmod +x scripts/generate-secrets.sh
+    ./scripts/generate-secrets.sh missing >/dev/null
+
+    load_env
+
+    local required_vars=(
+        SERVER_NAME
+        PUBLIC_BASEURL
+        POSTGRES_PASSWORD
+        REDIS_PASSWORD
+        ADMIN_SHARED_SECRET
+        JWT_SECRET
+        REGISTRATION_SHARED_SECRET
+        SECRET_KEY
+        MACAROON_SECRET
+        FORM_SECRET
+    )
     local missing_vars=()
-    
+    local var
+
     for var in "${required_vars[@]}"; do
-        if [ -z "${!var}" ] || [[ "${!var}" == *"your-"* ]] || [[ "${!var}" == *"change-me"* ]]; then
+        if is_placeholder "${!var:-}"; then
             missing_vars+=("$var")
         fi
     done
-    
+
     if [ ${#missing_vars[@]} -ne 0 ]; then
         log_error "以下环境变量需要配置: ${missing_vars[*]}"
-        
-        # 提供自动生成密钥的选项
-        local secret_vars=("POSTGRES_PASSWORD" "REDIS_PASSWORD" "ADMIN_SHARED_SECRET" "JWT_SECRET" "REGISTRATION_SHARED_SECRET")
-        local need_generate=false
-        
-        for var in "${secret_vars[@]}"; do
-            if [[ " ${missing_vars[*]} " =~ " ${var} " ]]; then
-                need_generate=true
-                break
-            fi
-        done
-        
-        if [ "$need_generate" = true ]; then
-            log_info "检测到密钥未配置，是否自动生成? (y/n)"
-            read -r answer
-            if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
-                log_info "生成安全密钥..."
-                ./scripts/generate-secrets.sh all > /dev/null
-                source .env
-                log_success "密钥已生成，请重新检查配置"
-            fi
-        fi
-        
-        log_info "请编辑 .env 文件后重新运行"
         exit 1
     fi
-    
+
+    if [ "${ENABLE_SSL:-false}" = "true" ]; then
+        [ -f "ssl/${SSL_CERT:-cert.pem}" ] || {
+            log_error "启用 SSL 时必须提供证书: ssl/${SSL_CERT:-cert.pem}"
+            exit 1
+        }
+        [ -f "ssl/${SSL_KEY:-key.pem}" ] || {
+            log_error "启用 SSL 时必须提供私钥: ssl/${SSL_KEY:-key.pem}"
+            exit 1
+        }
+    fi
+
+    compose config >/dev/null
     log_success "环境变量配置检查通过"
 }
 
-# 创建必要的目录
 create_directories() {
-    log_info "创建必要的目录..."
-    
-    mkdir -p ssl
-    mkdir -p migrations
-    mkdir -p media
-    
-    log_success "目录创建完成"
-}
-
-# 复制迁移文件
-copy_migrations() {
-    log_info "检查数据库迁移文件..."
-    
-    # 检查 migrations 目录是否为空
-    if [ -z "$(ls -A migrations 2>/dev/null)" ]; then
-        log_warning "migrations 目录为空"
-        log_info "请确保 Docker 镜像包含迁移文件，或手动复制迁移文件到 migrations 目录"
-    else
-        log_success "迁移文件已就绪 ($(ls migrations | wc -l) 个文件)"
-    fi
-}
-
-# 准备 Docker 镜像
-prepare_images() {
-    log_info "检查 Docker 镜像..."
-    
-    if docker image inspect synapse-rust:local &> /dev/null; then
-        log_success "本地镜像 synapse-rust:local 已存在"
-    elif docker image inspect vmuser232922/mysynapse:latest &> /dev/null; then
-        log_info "从 Docker Hub 镜像创建本地标签..."
-        docker tag vmuser232922/mysynapse:latest synapse-rust:local
-        log_success "镜像标签创建完成"
-    else
-        log_warning "未找到本地镜像 synapse-rust:local"
-        log_info "尝试从 Docker Hub 拉取 vmuser232922/mysynapse:latest..."
-        if docker pull vmuser232922/mysynapse:latest 2>/dev/null; then
-            docker tag vmuser232922/mysynapse:latest synapse-rust:local
-            log_success "镜像拉取并标记完成"
-        else
-            log_error "无法获取 Docker 镜像"
-            log_info "请先构建镜像:"
-            log_info "  cd /path/to/synapse-rust && docker build -f docker/Dockerfile --platform linux/amd64 -t synapse-rust:local ."
-            log_info "或从 Docker Hub 拉取:"
-            log_info "  docker pull vmuser232922/mysynapse:latest && docker tag vmuser232922/mysynapse:latest synapse-rust:local"
-            exit 1
-        fi
-    fi
-    
-    log_info "拉取基础服务镜像..."
-    compose pull postgres redis nginx 2>/dev/null || true
-    
-    log_success "镜像准备完成"
-}
-
-# 停止现有容器
-stop_containers() {
-    log_info "停止现有容器..."
-    
-    compose down --remove-orphans 2>/dev/null || true
-    
-    log_success "容器已停止"
-}
-
-# 启动服务
-start_services() {
-    log_info "启动服务..."
-    
-    # 首先启动数据库
-    compose up -d postgres redis
-    
-    log_info "等待数据库就绪..."
-    sleep 10
-    
-    # 检查数据库健康状态
-    local max_retries=30
-    local retry=0
-    
-    while [ $retry -lt $max_retries ]; do
-        if compose exec -T postgres pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" > /dev/null 2>&1; then
-            log_success "数据库已就绪"
-            break
-        fi
-        retry=$((retry + 1))
-        sleep 2
-    done
-    
-    if [ $retry -eq $max_retries ]; then
-        log_error "数据库启动超时"
+    DEPLOYMENT_PHASE="directory-setup"
+    log_info "创建必要目录..."
+    mkdir -p ssl media logs backups config
+    [ -d migrations ] || {
+        log_error "migrations 目录不存在"
         exit 1
+    }
+    [ -f config/homeserver.yaml ] || {
+        log_error "缺少配置文件: config/homeserver.yaml"
+        exit 1
+    }
+    [ -f config/rate_limit.yaml ] || {
+        log_error "缺少配置文件: config/rate_limit.yaml"
+        exit 1
+    }
+    [ -f config/postgres.conf ] || {
+        log_error "缺少配置文件: config/postgres.conf"
+        exit 1
+    }
+    log_success "目录与配置文件检查完成"
+}
+
+backup_current_state() {
+    DEPLOYMENT_PHASE="backup"
+    log_info "为回滚创建备份..."
+
+    if docker image inspect synapse-rust:local >/dev/null 2>&1; then
+        ROLLBACK_IMAGE_TAG="synapse-rust:rollback-${TIMESTAMP}"
+        docker tag synapse-rust:local "$ROLLBACK_IMAGE_TAG"
+        log_info "已保存旧镜像标签: $ROLLBACK_IMAGE_TAG"
     fi
-    
+
+    if compose ps --status running 2>/dev/null | grep -Eq 'postgres|redis|synapse|nginx'; then
+        chmod +x scripts/backup.sh
+        local backup_output
+        backup_output="$(./scripts/backup.sh)"
+        echo "$backup_output"
+        ROLLBACK_BACKUP="$(echo "$backup_output" | awk -F': ' '/备份文件:/ {print $2}' | tail -n 1)"
+        if [ -n "$ROLLBACK_BACKUP" ] && [ -f "$ROLLBACK_BACKUP" ]; then
+            log_success "已创建回滚备份: $ROLLBACK_BACKUP"
+        fi
+    else
+        log_info "未检测到运行中的旧部署，跳过数据备份"
+    fi
+}
+
+clear_project_caches() {
+    DEPLOYMENT_PHASE="cache-clean"
+    log_info "清理项目缓存与 Docker 构建缓存..."
+
+    (cd "$PROJECT_ROOT" && cargo clean)
+    if command -v npm >/dev/null 2>&1; then
+        npm cache clean --force || true
+    fi
+    if command -v yarn >/dev/null 2>&1; then
+        yarn cache clean || true
+    fi
+    if command -v pnpm >/dev/null 2>&1; then
+        pnpm store prune || true
+    fi
+
+    docker builder prune -af >/dev/null
+    docker buildx prune -af >/dev/null 2>&1 || true
+
+    log_success "缓存清理完成"
+}
+
+rebuild_project() {
+    DEPLOYMENT_PHASE="project-build"
+    log_info "重新编译项目..."
+    (cd "$PROJECT_ROOT" && cargo build --release --locked --bin synapse-rust --bin healthcheck)
+    log_success "项目编译完成"
+}
+
+remove_existing_deployment() {
+    DEPLOYMENT_PHASE="remove-old-deployment"
+    log_info "停止并删除旧容器与关联镜像..."
+
+    compose down --remove-orphans || true
+    docker rm -f synapse-postgres synapse-redis synapse-migrator synapse-app synapse-nginx >/dev/null 2>&1 || true
+    docker image rm -f synapse-rust:local synapse-rust-tools:local vmuser232922/mysynapse:latest >/dev/null 2>&1 || true
+
+    log_success "旧部署资源清理完成"
+}
+
+build_images() {
+    DEPLOYMENT_PHASE="docker-build"
+    log_info "构建新的 Docker 镜像..."
+    compose build --no-cache synapse
+    docker image inspect synapse-rust:local >/dev/null
+    log_success "Docker 镜像构建完成"
+}
+
+wait_for_container_health() {
+    local container_name="$1"
+    local max_retries="${2:-30}"
+    local delay="${3:-5}"
+    local attempt=1
+    local status
+
+    while [ "$attempt" -le "$max_retries" ]; do
+        status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name" 2>/dev/null || true)"
+        case "$status" in
+            healthy|running)
+                log_success "$container_name 状态正常: $status"
+                return 0
+                ;;
+            unhealthy|exited|dead)
+                log_error "$container_name 状态异常: $status"
+                docker logs "$container_name" --tail 200 || true
+                return 1
+                ;;
+        esac
+        log_info "等待 $container_name 就绪... ($attempt/$max_retries, 当前: ${status:-unknown})"
+        sleep "$delay"
+        attempt=$((attempt + 1))
+    done
+
+    log_error "$container_name 在限定时间内未就绪"
+    docker logs "$container_name" --tail 200 || true
+    return 1
+}
+
+run_migrations() {
+    DEPLOYMENT_PHASE="database-migrate"
     log_info "执行数据库迁移..."
-    compose run --rm --no-deps migrator
-    compose run --rm --no-deps --entrypoint /bin/sh migrator /scripts/container-migrate.sh validate
-    log_success "数据库迁移和校验完成"
-    
-    # 启动主应用
+    retry 3 5 compose run --rm --no-deps migrator
+    log_success "数据库迁移与校验完成"
+}
+
+start_services() {
+    DEPLOYMENT_PHASE="service-start"
+    log_info "启动基础服务..."
+
+    compose up -d postgres redis
+    wait_for_container_health synapse-postgres "${HEALTHCHECK_RETRIES:-30}" "${HEALTHCHECK_INTERVAL:-5}"
+    wait_for_container_health synapse-redis "${HEALTHCHECK_RETRIES:-30}" "${HEALTHCHECK_INTERVAL:-5}"
+
+    run_migrations
+
     log_info "启动 Synapse 应用..."
     compose up -d synapse
-    
-    # 等待应用就绪
-    log_info "等待应用启动..."
-    sleep 5
-    
-    local app_retries=30
-    local app_retry=0
-    
-    while [ $app_retry -lt $app_retries ]; do
-        if curl -sf "http://localhost:${SYNAPSE_PORT:-8008}/health" > /dev/null 2>&1; then
-            log_success "Synapse 应用已就绪"
-            break
-        fi
-        app_retry=$((app_retry + 1))
-        sleep 2
-    done
-    
-    if [ $app_retry -eq $app_retries ]; then
-        log_warning "应用健康检查超时，请检查日志"
-    fi
-    
-    # 启动 Nginx
+    wait_for_container_health synapse-app "${HEALTHCHECK_RETRIES:-30}" "${HEALTHCHECK_INTERVAL:-5}"
+
     log_info "启动 Nginx..."
     compose up -d nginx
-    
+    wait_for_container_health synapse-nginx "${HEALTHCHECK_RETRIES:-30}" "${HEALTHCHECK_INTERVAL:-5}"
+
     log_success "所有服务已启动"
 }
 
-# 显示服务状态
+verify_database() {
+    DEPLOYMENT_PHASE="verify-database"
+    log_info "验证数据库连接..."
+    compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" -c "SELECT 1;" >/dev/null
+    log_success "数据库连接正常"
+}
+
+verify_health_endpoints() {
+    DEPLOYMENT_PHASE="verify-health"
+    log_info "验证健康检查接口..."
+
+    curl -fsS "http://localhost:${SYNAPSE_PORT:-8008}/health" >/dev/null
+    curl -fsS "http://localhost:${HTTP_PORT:-80}/health" >/dev/null
+    curl -fsS "http://localhost:${SYNAPSE_PORT:-8008}/_matrix/client/versions" >/dev/null
+
+    log_success "健康检查与 API 基础接口验证通过"
+}
+
+verify_logs_clean() {
+    DEPLOYMENT_PHASE="verify-logs"
+    log_info "检查容器日志中是否存在 ERROR/WARNING..."
+
+    local log_dump
+    log_dump="$(compose logs --no-color --tail=400 2>&1 || true)"
+    if echo "$log_dump" | grep -Eiq '\b(ERROR|WARN(ING)?)\b'; then
+        log_error "检测到 ERROR/WARNING 日志:"
+        echo "$log_dump" | grep -Ein '\b(ERROR|WARN(ING)?)\b' || true
+        return 1
+    fi
+
+    log_success "未发现 ERROR/WARNING 级别日志"
+}
+
 show_status() {
     echo ""
     log_info "服务状态:"
@@ -293,46 +378,58 @@ show_status() {
     echo ""
 }
 
-# 显示访问信息
+rollback_deployment() {
+    DEPLOYMENT_PHASE="rollback"
+    ROLLBACK_IN_PROGRESS=true
+    log_warning "开始执行回滚..."
+
+    compose down --remove-orphans >/dev/null 2>&1 || true
+
+    if [ -n "$ROLLBACK_IMAGE_TAG" ] && docker image inspect "$ROLLBACK_IMAGE_TAG" >/dev/null 2>&1; then
+        docker tag "$ROLLBACK_IMAGE_TAG" synapse-rust:local || true
+    fi
+
+    if [ -n "$ROLLBACK_BACKUP" ] && [ -f "$ROLLBACK_BACKUP" ]; then
+        chmod +x scripts/restore.sh
+        RESTORE_FORCE=true ./scripts/restore.sh "$ROLLBACK_BACKUP" || true
+        log_warning "已尝试恢复到备份状态"
+    else
+        log_warning "没有可用备份，跳过数据回滚"
+    fi
+}
+
 show_access_info() {
     echo ""
     echo "=========================================="
-    echo "  部署完成!"
+    echo "  部署完成"
     echo "=========================================="
-    echo ""
     echo "服务器名称: ${SERVER_NAME}"
     echo "公开 URL: ${PUBLIC_BASEURL}"
-    echo ""
-    echo "访问地址:"
-    echo "  HTTP:  http://localhost:${HTTP_PORT:-80}"
-    echo "  HTTPS: https://localhost:${HTTPS_PORT:-443}"
-    echo "  API:   ${PUBLIC_BASEURL}/_matrix/client/versions"
-    echo ""
-    echo "管理命令:"
-    echo "  查看日志:   docker compose logs -f synapse"
-    echo "  停止服务:   docker compose down"
-    echo "  重启服务:   docker compose restart"
-    echo "  查看状态:   docker compose ps"
-    echo ""
-    echo "注册管理员:"
-    echo "  使用 ADMIN_SHARED_SECRET 注册管理员账户"
-    echo "  参考文档: https://matrix.org/docs/guides/admins"
+    echo "HTTP 健康检查:  http://localhost:${HTTP_PORT:-80}/health"
+    echo "应用健康检查:   http://localhost:${SYNAPSE_PORT:-8008}/health"
+    echo "API 检查:       http://localhost:${SYNAPSE_PORT:-8008}/_matrix/client/versions"
+    echo "部署日志:       ${LOG_FILE}"
     echo ""
 }
 
-# 主函数
 main() {
+    setup_logging
     show_banner
     check_dependencies
     check_env_file
     create_directories
-    copy_migrations
-    prepare_images
-    stop_containers
+    backup_current_state
+    clear_project_caches
+    rebuild_project
+    remove_existing_deployment
+    build_images
     start_services
+    verify_database
+    verify_health_endpoints
+    verify_logs_clean
     show_status
     show_access_info
+    log_success "重建、优化部署与验证全部完成"
 }
 
-# 运行主函数
 main "$@"

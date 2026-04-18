@@ -2,9 +2,10 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use deadpool_redis::{Config as RedisPoolConfig, Runtime};
 use serde_json::json;
 use std::sync::Arc;
-use synapse_rust::cache::CacheManager;
+use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::RateLimitRule;
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
@@ -22,6 +23,31 @@ async fn setup_test_app_with_sync_isolation_rate_limit(
     container.config.rate_limit.sync.incremental = incremental;
 
     let cache = Arc::new(CacheManager::new(Default::default()));
+    let state = AppState::new(container, cache);
+    Some(synapse_rust::web::create_router(state))
+}
+
+async fn setup_test_app_with_broken_sync_rate_limit_backend(
+    initial: RateLimitRule,
+    incremental: RateLimitRule,
+) -> Option<axum::Router> {
+    let pool = super::get_test_pool().await?;
+    let redis_pool = RedisPoolConfig::from_url("redis://127.0.0.1:1")
+        .create_pool(Some(Runtime::Tokio1))
+        .expect("failed to create Redis pool for broken backend test");
+    let cache = Arc::new(CacheManager::with_redis_pool_and_url(
+        redis_pool,
+        CacheConfig::default(),
+        "redis://127.0.0.1:1",
+    ));
+
+    let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone());
+    container.config.rate_limit.enabled = false;
+    container.config.rate_limit.fail_open_on_error = true;
+    container.config.rate_limit.sync.enabled = true;
+    container.config.rate_limit.sync.initial = initial;
+    container.config.rate_limit.sync.incremental = incremental;
+
     let state = AppState::new(container, cache);
     Some(synapse_rust::web::create_router(state))
 }
@@ -118,4 +144,42 @@ async fn test_sync_initial_vs_incremental_rate_limit_isolated() {
         .await
         .unwrap();
     assert!(response.status().is_success());
+}
+
+#[tokio::test]
+async fn test_sync_rate_limit_backend_errors_fail_open() {
+    let initial = RateLimitRule {
+        per_second: 1,
+        burst_size: 1,
+    };
+    let incremental = RateLimitRule {
+        per_second: 1,
+        burst_size: 1,
+    };
+
+    let Some(app) = setup_test_app_with_broken_sync_rate_limit_backend(initial, incremental).await
+    else {
+        return;
+    };
+    let token = register_user_and_get_token(&app).await;
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/sync")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(super::with_local_connect_info(request))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 64)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json.get("next_batch").is_some());
 }

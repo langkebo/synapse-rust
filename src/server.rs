@@ -35,10 +35,8 @@ pub struct SynapseServer {
     media_path: std::path::PathBuf,
     scheduled_tasks: Arc<ScheduledTasks>,
     metrics_collector: Arc<TaskMetricsCollector>,
-    #[allow(dead_code)]
-    rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
-    #[allow(dead_code)]
-    config_watcher_handle: Option<tokio::task::JoinHandle<()>>,
+    _rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
+    _config_watcher_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 use crate::common::task_queue::RedisTaskQueue;
@@ -137,7 +135,7 @@ impl SynapseServer {
                 config.redis.port
             );
 
-            let conn_str = format!("redis://{}:{}", config.redis.host, config.redis.port);
+            let conn_str = config.redis.connection_url();
             let redis_cfg = deadpool_redis::Config::from_url(&conn_str);
             let redis_pool = redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
 
@@ -300,8 +298,8 @@ impl SynapseServer {
             media_path,
             scheduled_tasks,
             metrics_collector,
-            rate_limit_config_manager,
-            config_watcher_handle,
+            _rate_limit_config_manager: rate_limit_config_manager,
+            _config_watcher_handle: config_watcher_handle,
         })
     }
 

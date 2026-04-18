@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_is_admin ON users(is_admin);
+CREATE INDEX IF NOT EXISTS idx_users_created_ts ON users(created_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_users_must_change_password ON users(must_change_password) WHERE must_change_password = TRUE;
 CREATE INDEX IF NOT EXISTS idx_users_password_expires ON users(password_expires_at) WHERE password_expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_users_locked ON users(locked_until) WHERE locked_until IS NOT NULL;
@@ -2831,6 +2832,19 @@ CREATE TABLE IF NOT EXISTS device_lists_stream (
 );
 
 CREATE INDEX IF NOT EXISTS idx_device_lists_stream_user ON device_lists_stream(user_id);
+
+CREATE TABLE IF NOT EXISTS lazy_loaded_members (
+    user_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    member_user_id TEXT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL,
+    CONSTRAINT pk_lazy_loaded_members PRIMARY KEY (user_id, device_id, room_id, member_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lazy_loaded_members_lookup
+ON lazy_loaded_members(user_id, device_id, room_id);
 
 -- 用户过滤器持久化表
 CREATE TABLE IF NOT EXISTS user_filters (

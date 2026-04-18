@@ -145,72 +145,83 @@ const CORE_COLUMNS: &[(&str, &str)] = &[
     ("secure_backup_session_keys", "encrypted_key"),
 ];
 
-/// 必需索引定义 (索引名, 表名, 字段, 条件索引的 WHERE 子句)
-const REQUIRED_INDEXES: &[(&str, &str, &str, Option<&str>)] = &[
-    // events 表索引
-    ("idx_events_room_id", "events", "room_id", None),
-    ("idx_events_user_id", "events", "user_id", None),
-    (
-        "idx_events_origin_server_ts",
-        "events",
-        "origin_server_ts",
-        None,
-    ),
-    (
-        "idx_events_room_time",
-        "events",
-        "room_id, origin_server_ts",
-        None,
-    ),
-    // room_memberships 表索引
-    (
-        "idx_memberships_user_room",
-        "room_memberships",
-        "user_id, room_id",
-        None,
-    ),
-    (
-        "idx_memberships_user_membership",
-        "room_memberships",
-        "user_id, membership",
-        Some("membership = 'join'"),
-    ),
-    (
-        "idx_memberships_room_user",
-        "room_memberships",
-        "room_id, user_id",
-        None,
-    ),
-    // users 表索引
-    ("idx_users_username", "users", "username", None),
-    ("idx_users_created_ts", "users", "created_ts", None),
-    // devices 表索引
-    ("idx_devices_user_id", "devices", "user_id", None),
-    // presence 表索引
-    (
-        "idx_presence_user_status",
-        "presence",
-        "user_id, presence",
-        None,
-    ),
-    // access_tokens 表索引
-    ("idx_access_tokens_user", "access_tokens", "user_id", None),
-    (
-        "idx_access_tokens_token_hash",
-        "access_tokens",
-        "token_hash",
-        None,
-    ),
-    // refresh_tokens 表索引
-    ("idx_refresh_tokens_user", "refresh_tokens", "user_id", None),
-    // user_threepids 表索引
-    ("idx_user_threepids_user", "user_threepids", "user_id", None),
-    (
-        "idx_user_threepids_medium_address",
-        "user_threepids",
-        "medium, address",
-        None,
-    ),
+struct RequiredIndex {
+    display_name: &'static str,
+    acceptable_names: &'static [&'static str],
+}
+
+/// 必需索引定义。
+///
+/// `acceptable_names` 允许兼容旧迁移和约束自动生成的唯一索引名，
+/// 避免数据库已经具备等价索引时仍然报“缺失索引”。
+const REQUIRED_INDEXES: &[RequiredIndex] = &[
+    RequiredIndex {
+        display_name: "idx_events_room_id",
+        acceptable_names: &["idx_events_room_id"],
+    },
+    RequiredIndex {
+        display_name: "idx_events_sender",
+        acceptable_names: &["idx_events_sender", "idx_events_user_id"],
+    },
+    RequiredIndex {
+        display_name: "idx_events_origin_server_ts",
+        acceptable_names: &["idx_events_origin_server_ts"],
+    },
+    RequiredIndex {
+        display_name: "idx_events_room_time",
+        acceptable_names: &["idx_events_room_time"],
+    },
+    RequiredIndex {
+        display_name: "idx_memberships_user_room",
+        acceptable_names: &["idx_memberships_user_room"],
+    },
+    RequiredIndex {
+        display_name: "idx_room_memberships_user_membership",
+        acceptable_names: &[
+            "idx_room_memberships_user_membership",
+            "idx_memberships_user_membership",
+        ],
+    },
+    RequiredIndex {
+        display_name: "uq_room_memberships_room_user",
+        acceptable_names: &["uq_room_memberships_room_user", "idx_memberships_room_user"],
+    },
+    RequiredIndex {
+        display_name: "uq_users_username",
+        acceptable_names: &["uq_users_username", "idx_users_username"],
+    },
+    RequiredIndex {
+        display_name: "idx_users_created_ts",
+        acceptable_names: &["idx_users_created_ts"],
+    },
+    RequiredIndex {
+        display_name: "idx_devices_user_id",
+        acceptable_names: &["idx_devices_user_id"],
+    },
+    RequiredIndex {
+        display_name: "idx_presence_user_status",
+        acceptable_names: &["idx_presence_user_status"],
+    },
+    RequiredIndex {
+        display_name: "idx_access_tokens_user_id",
+        acceptable_names: &["idx_access_tokens_user_id", "idx_access_tokens_user"],
+    },
+    RequiredIndex {
+        display_name: "idx_access_tokens_token_hash",
+        acceptable_names: &["idx_access_tokens_token_hash"],
+    },
+    RequiredIndex {
+        display_name: "idx_refresh_tokens_user_id",
+        acceptable_names: &["idx_refresh_tokens_user_id", "idx_refresh_tokens_user"],
+    },
+    RequiredIndex {
+        display_name: "idx_user_threepids_user",
+        acceptable_names: &["idx_user_threepids_user"],
+    },
+    RequiredIndex {
+        display_name: "idx_user_threepids_medium_address",
+        acceptable_names: &["idx_user_threepids_medium_address"],
+    },
 ];
 
 /// 健康检查结果
@@ -348,20 +359,20 @@ async fn check_missing_columns(
 /// 检查缺失的索引
 async fn check_missing_indexes(
     pool: &Pool<Postgres>,
-    expected_indexes: &[(&str, &str, &str, Option<&str>)],
+    expected_indexes: &[RequiredIndex],
 ) -> Result<Vec<String>, sqlx::Error> {
     let mut missing = Vec::new();
 
-    for (index_name, _table, _columns, _where) in expected_indexes {
+    for expected in expected_indexes {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM pg_indexes WHERE indexname = $1 AND schemaname = 'public'",
+            "SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = ANY($1)",
         )
-        .bind(index_name)
+        .bind(expected.acceptable_names)
         .fetch_one(pool)
         .await?;
 
         if count == 0 {
-            missing.push(index_name.to_string());
+            missing.push(expected.display_name.to_string());
         }
     }
 

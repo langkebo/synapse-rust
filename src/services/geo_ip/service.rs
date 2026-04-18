@@ -55,7 +55,7 @@ impl GeoIpService {
         }
 
         let result = match self.config.provider {
-            GeoIpProvider::MaxMind => self.lookup_maxmind(ip).await,
+            GeoIpProvider::MaxMind => self.lookup_maxmind(ip),
             GeoIpProvider::IpApi => self.lookup_ipapi(ip).await,
             GeoIpProvider::IpStack => self.lookup_ipstack(ip).await,
             GeoIpProvider::Disabled => Ok(GeoIpResult::default()),
@@ -69,7 +69,7 @@ impl GeoIpService {
         Ok(result)
     }
 
-    async fn lookup_maxmind(&self, _ip: &str) -> Result<GeoIpResult, ApiError> {
+    fn lookup_maxmind(&self, _ip: &str) -> Result<GeoIpResult, ApiError> {
         Ok(GeoIpResult {
             country: self.config.default_country.clone(),
             region: None,

@@ -17,8 +17,7 @@ pub struct OlmSessionManager {
 
 struct OlmSessionEntry {
     session: Session,
-    #[allow(dead_code)]
-    session_id: String,
+    _session_id: String,
     sender_key: String,
     dirty: bool,
 }
@@ -56,7 +55,7 @@ impl OlmSessionManager {
                         session_id.clone(),
                         OlmSessionEntry {
                             session,
-                            session_id: data.session_id,
+                            _session_id: data.session_id,
                             sender_key: data.sender_key,
                             dirty: false,
                         },
@@ -119,7 +118,7 @@ impl OlmSessionManager {
 
         let entry = OlmSessionEntry {
             session,
-            session_id: session_id.clone(),
+            _session_id: session_id.clone(),
             sender_key: their_identity_key.to_base64(),
             dirty: true,
         };
@@ -153,7 +152,7 @@ impl OlmSessionManager {
 
         let entry = OlmSessionEntry {
             session: result.session,
-            session_id: session_id.clone(),
+            _session_id: session_id.clone(),
             sender_key: their_identity_key.to_base64(),
             dirty: true,
         };

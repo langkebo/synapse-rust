@@ -1,17 +1,14 @@
 -- =============================================================================
 -- 数据库初始化脚本
 -- =============================================================================
--- 此脚本在 PostgreSQL 容器首次启动时执行
+-- 此脚本在 PostgreSQL 容器首次启动时执行，并运行在 POSTGRES_DB 指定的数据库中。
+-- 这里只做幂等且与数据库名无关的初始化，避免硬编码用户或库名。
 -- =============================================================================
 
--- 创建扩展
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
 
--- 确保数据库用户有正确的权限
-GRANT ALL PRIVILEGES ON DATABASE synapse TO postgres;
-
--- 创建 schema 版本表 (用于跟踪迁移状态)
 CREATE TABLE IF NOT EXISTS schema_migrations (
     id BIGSERIAL PRIMARY KEY,
     version TEXT NOT NULL,
@@ -27,7 +24,6 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 CREATE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version);
 
--- 记录初始化
-INSERT INTO schema_migrations (version, name, applied_ts, description) 
-VALUES ('0', 'init-db', EXTRACT(EPOCH FROM NOW()) * 1000, 'Database initialization') 
+INSERT INTO schema_migrations (version, name, applied_ts, description)
+VALUES ('0', 'init-db', EXTRACT(EPOCH FROM NOW()) * 1000, 'Database initialization')
 ON CONFLICT (version) DO NOTHING;

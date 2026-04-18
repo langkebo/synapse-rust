@@ -240,7 +240,7 @@ pub struct RedisTaskQueue {
 
 impl RedisTaskQueue {
     pub async fn new(config: &crate::common::config::RedisConfig) -> Result<Self, TaskQueueError> {
-        let conn_str = format!("redis://{}:{}", config.host, config.port);
+        let conn_str = config.connection_url();
         let cfg = Config::from_url(conn_str);
 
         let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {

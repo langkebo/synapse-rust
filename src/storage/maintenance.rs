@@ -92,14 +92,14 @@ impl DatabaseMaintenance {
         let mut reindexed = Vec::new();
 
         let indexes = vec![
-            "idx_users_username",
-            "idx_devices_user",
-            "idx_access_tokens_user",
-            "idx_refresh_tokens_user",
+            "uq_users_username",
+            "idx_devices_user_id",
+            "idx_access_tokens_user_id",
+            "idx_refresh_tokens_user_id",
             "idx_rooms_creator",
-            "idx_memberships_room",
-            "idx_memberships_user",
-            "idx_events_room",
+            "idx_room_memberships_room",
+            "idx_room_memberships_user",
+            "idx_events_room_id",
             "idx_events_sender",
         ];
 

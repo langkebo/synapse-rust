@@ -58,8 +58,7 @@ pub struct AlertState {
 }
 
 pub struct AlertManager {
-    #[allow(dead_code)]
-    config: AlertConfig,
+    _config: AlertConfig,
     rules: Vec<AlertRule>,
     triggered_alerts: Vec<AlertState>,
 }
@@ -67,7 +66,7 @@ pub struct AlertManager {
 impl AlertManager {
     pub fn new() -> Self {
         Self {
-            config: AlertConfig::default(),
+            _config: AlertConfig::default(),
             rules: Self::default_rules(),
             triggered_alerts: Vec::new(),
         }
@@ -292,7 +291,7 @@ mod tests {
     fn test_alert_manager_creation() {
         let manager = AlertManager::new();
 
-        assert!(manager.config.enabled);
+        assert!(manager._config.enabled);
         assert!(!manager.rules.is_empty());
         assert!(manager.triggered_alerts.is_empty());
     }
@@ -301,7 +300,7 @@ mod tests {
     fn test_alert_manager_default() {
         let manager = AlertManager::default();
 
-        assert!(manager.config.enabled);
+        assert!(manager._config.enabled);
     }
 
     #[test]

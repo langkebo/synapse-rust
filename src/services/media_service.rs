@@ -407,7 +407,7 @@ impl MediaService {
         Ok(generated)
     }
 
-    pub async fn get_thumbnail_configurations(&self) -> Vec<ThumbnailConfig> {
+    pub fn get_thumbnail_configurations(&self) -> Vec<ThumbnailConfig> {
         self.default_thumbnail_configs.clone()
     }
 
@@ -483,7 +483,7 @@ impl MediaService {
         }
     }
 
-    pub async fn preview_url(&self, url: &str, _ts: i64) -> ApiResult<serde_json::Value> {
+    pub fn preview_url(&self, url: &str, _ts: i64) -> ApiResult<serde_json::Value> {
         Ok(serde_json::json!({
             "url": url,
             "title": "URL Preview",
@@ -768,7 +768,7 @@ mod tests {
         let media_path = temp_dir.path().to_str().unwrap();
         let service = MediaService::new(media_path, None, "test.server");
 
-        let configs = service.get_thumbnail_configurations().await;
+        let configs = service.get_thumbnail_configurations();
         assert_eq!(configs.len(), 5);
     }
 
@@ -843,7 +843,7 @@ mod tests {
         let url = "https://example.com/test";
         let ts = 1234567890i64;
 
-        let result = service.preview_url(url, ts).await;
+        let result = service.preview_url(url, ts);
         assert!(result.is_ok());
         let json = result.unwrap();
         assert_eq!(json["url"], url);

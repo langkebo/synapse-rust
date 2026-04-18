@@ -437,7 +437,7 @@ async fn preview_url(
         .and_then(|v| v.as_i64())
         .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
-    match state.services.media_service.preview_url(url, ts).await {
+    match state.services.media_service.preview_url(url, ts) {
         Ok(preview) => Ok(Json(preview)),
         Err(e) => Ok(Json(json!({
             "url": url,

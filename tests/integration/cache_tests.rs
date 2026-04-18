@@ -6,6 +6,7 @@ mod cache_integration_tests {
         InvalidationType, CACHE_INVALIDATION_CHANNEL, DEFAULT_LOCAL_CACHE_TTL_SECS,
         DEFAULT_REDIS_CACHE_TTL_SECS,
     };
+    use synapse_rust::common::config::{CircuitBreakerConfig, RedisConfig};
     use tokio::runtime::Runtime;
 
     fn create_test_claims() -> Claims {
@@ -158,6 +159,36 @@ mod cache_integration_tests {
         assert_eq!(config.redis_cache_ttl_secs, 7200);
         assert_eq!(config.instance_id, "custom-instance");
         assert_eq!(config.redis_url, "redis://custom:6379");
+    }
+
+    #[test]
+    fn test_cache_manager_with_redis_keeps_password_in_invalidation_url() {
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            let redis_config = RedisConfig {
+                host: "redis.example.com".to_string(),
+                port: 6380,
+                password: Some("secret".to_string()),
+                key_prefix: "test:".to_string(),
+                pool_size: 5,
+                enabled: true,
+                connection_timeout_ms: 100,
+                command_timeout_ms: 100,
+                circuit_breaker: CircuitBreakerConfig::default(),
+            };
+
+            let manager = CacheManager::with_redis(&redis_config, CacheConfig::default())
+                .await
+                .expect("cache manager should build Redis-backed config lazily");
+
+            let invalidation_manager = manager
+                .invalidation_manager()
+                .expect("Redis-backed cache should configure invalidation");
+            assert_eq!(
+                invalidation_manager.config().redis_url,
+                "redis://:secret@redis.example.com:6380"
+            );
+        });
     }
 
     #[test]

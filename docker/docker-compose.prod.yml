@@ -122,6 +122,7 @@ services:
       - ./.env
     environment:
       SYNAPSE_CONFIG_PATH: /app/config/homeserver.yaml
+      RATE_LIMIT_CONFIG_PATH: /app/config/rate_limit.yaml
       DB_USER: ${DB_USER:-synapse}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       DB_NAME: ${DB_NAME:-synapse}
@@ -133,6 +134,7 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./config/homeserver.yaml:/app/config/homeserver.yaml:ro
+      - ./config/rate_limit.yaml:/app/config/rate_limit.yaml:ro
     ports:
       - "${SYNAPSE_PORT:-28008}:8008"
       - "${FEDERATION_PORT:-28448}:8448"
