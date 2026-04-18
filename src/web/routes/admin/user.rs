@@ -469,14 +469,14 @@ pub async fn login_as_user(
     let token = state
         .services
         .auth_service
-        .generate_access_token(&user.username, &device_id, is_admin)
+        .generate_access_token(&user.user_id, &device_id, is_admin)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))?;
 
     Ok(Json(json!({
         "access_token": token,
         "device_id": device_id,
-        "user_id": user.username
+        "user_id": user.user_id
     })))
 }
 

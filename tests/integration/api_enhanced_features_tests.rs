@@ -255,7 +255,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
 }
 
 #[test]
-fn test_client_config_endpoint_returns_explicit_unsupported_error() {
+fn test_client_config_endpoint_returns_config() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let app = match setup_test_app().await {
@@ -270,13 +270,13 @@ fn test_client_config_endpoint_returns_explicit_unsupported_error() {
         let response = ServiceExt::<Request<Body>>::oneshot(app, request)
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), 1024)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["errcode"], "M_UNRECOGNIZED");
+        assert!(json.get("homeserver").is_some());
     });
 }
 

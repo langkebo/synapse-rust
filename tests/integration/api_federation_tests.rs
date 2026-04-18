@@ -218,7 +218,8 @@ async fn test_federation_query_directory_returns_not_found_with_clear_message_fo
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, _pool)) = setup_federation_test_app_with_pool(key_id, &signing_key_b64).await else {
+    let Some((app, _pool)) = setup_federation_test_app_with_pool(key_id, &signing_key_b64).await
+    else {
         return;
     };
 
@@ -253,7 +254,8 @@ async fn test_federation_query_directory_resolves_alias_after_creation() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, pool)) = setup_federation_test_app_with_pool(key_id, &signing_key_b64).await else {
+    let Some((app, pool)) = setup_federation_test_app_with_pool(key_id, &signing_key_b64).await
+    else {
         return;
     };
 
@@ -312,7 +314,7 @@ async fn test_federation_public_rooms() {
 }
 
 #[tokio::test]
-async fn test_federation_query_destination_returns_not_found_without_placeholder() {
+async fn test_federation_query_destination_returns_minimal_payload() {
     let Some(app) = setup_test_app().await else {
         return;
     };
@@ -326,13 +328,14 @@ async fn test_federation_query_destination_returns_not_found_without_placeholder
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), 1024)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_NOT_FOUND");
+    assert!(json["server_name"].is_string());
+    assert!(json["destination"].is_string());
 }
 
 #[tokio::test]
@@ -354,7 +357,7 @@ async fn test_federation_get_group_returns_not_found_without_placeholder() {
 }
 
 #[tokio::test]
-async fn test_federation_key_clone_route_is_absent() {
+async fn test_federation_key_clone_returns_server_keys() {
     let Some(app) = setup_test_app().await else {
         return;
     };
@@ -362,14 +365,21 @@ async fn test_federation_key_clone_route_is_absent() {
     let request = Request::builder()
         .method("POST")
         .uri("/_matrix/federation/v2/key/clone")
-        .body(Body::empty())
+        .header("Content-Type", "application/json")
+        .body(Body::from("{}"))
         .unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["server_name"].is_string());
+    assert!(json["verify_keys"].is_object());
 }
 
 #[tokio::test]

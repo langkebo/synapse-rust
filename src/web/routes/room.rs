@@ -1,19 +1,22 @@
+use crate::web::routes::handlers::room::{get_room_device, get_room_reduced_events};
 use crate::web::routes::{
-    ban_user, claim_room_keys, create_room, forget_room, forward_room_keys, get_event_keys,
-    get_joined_members, get_membership_events, get_messages, get_power_levels, get_receipts,
-    get_retention_policy, get_room_account_data, get_room_aliases, get_room_capabilities,
-    get_room_encrypted_events, get_room_event_url, get_room_info, get_room_invites,
-    get_room_key_count, get_room_keys, get_room_keys_version, get_room_members,
-    get_room_members_recent, get_room_membership, get_room_message_queue, get_room_metadata,
-    get_room_notifications, get_room_spaces, get_room_state, get_room_sync, get_room_thread,
-    get_room_thread_by_id, get_room_timeline, get_room_turn_server, get_room_unread_count,
-    get_room_version, get_single_event, get_state_by_type, get_state_event,
-    get_state_event_empty_key, get_user_rooms, invite_blocklist, invite_user, invite_user_by_room,
-    join_room, join_room_by_id_or_alias, kick_user, knock_room, leave_room, pinned,
-    put_state_event, put_state_event_empty_key, put_state_event_no_key, redact_event,
-    room_initial_sync, search_room_messages, send_message, send_receipt, send_state_event,
-    set_read_markers, set_room_account_data, sign_room_event, sticky_event, unban_user,
-    verify_room_event, AppState,
+    ban_user, claim_room_keys, convert_room_event, create_room, forget_room, forward_room_keys,
+    get_event_keys, get_joined_members, get_membership_events, get_messages, get_power_levels,
+    get_receipts, get_retention_policy, get_room_account_data, get_room_aliases,
+    get_room_capabilities, get_room_encrypted_events, get_room_event_perspective,
+    get_room_event_url, get_room_external_ids, get_room_info, get_room_invites, get_room_key_count,
+    get_room_keys, get_room_keys_version, get_room_members, get_room_members_recent,
+    get_room_membership, get_room_message_queue, get_room_metadata, get_room_notifications,
+    get_room_rendered, get_room_service_types, get_room_spaces, get_room_state, get_room_sync,
+    get_room_thread, get_room_thread_by_id, get_room_timeline, get_room_turn_server,
+    get_room_unread_count, get_room_user_fragments, get_room_vault_data, get_room_version,
+    get_single_event, get_state_by_type, get_state_event, get_state_event_empty_key,
+    get_user_rooms, invite_blocklist, invite_user, invite_user_by_room, join_room,
+    join_room_by_id_or_alias, kick_user, knock_room, leave_room, pinned, put_state_event,
+    put_state_event_empty_key, put_state_event_no_key, redact_event, room_initial_sync,
+    search_room_messages, send_message, send_receipt, send_state_event, set_read_markers,
+    set_room_account_data, set_room_vault_data, sign_room_event, sticky_event,
+    translate_room_event, unban_user, verify_room_event, AppState,
 };
 use axum::{
     routing::{delete, get, post, put},
@@ -132,6 +135,10 @@ fn create_room_v3_router() -> Router<AppState> {
         )
         .route("/rooms/{room_id}/turn_server", get(get_room_turn_server))
         .route("/rooms/{room_id}/metadata", get(get_room_metadata))
+        .route(
+            "/rooms/{room_id}/vault_data",
+            get(get_room_vault_data).put(set_room_vault_data),
+        )
         .route("/rooms/{room_id}/retention", get(get_retention_policy))
         .route("/rooms/{room_id}/spaces", get(get_room_spaces))
         .route(
@@ -139,8 +146,35 @@ fn create_room_v3_router() -> Router<AppState> {
             get(get_room_encrypted_events),
         )
         .route(
+            "/rooms/{room_id}/reduced_events",
+            get(get_room_reduced_events),
+        )
+        .route("/rooms/{room_id}/device/{device_id}", get(get_room_device))
+        .route("/rooms/{room_id}/rendered/", get(get_room_rendered))
+        .route("/rooms/{room_id}/external_ids", get(get_room_external_ids))
+        .route(
+            "/rooms/{room_id}/event_perspective",
+            get(get_room_event_perspective),
+        )
+        .route(
+            "/rooms/{room_id}/fragments/{user_id}",
+            get(get_room_user_fragments),
+        )
+        .route(
+            "/rooms/{room_id}/service_types",
+            get(get_room_service_types),
+        )
+        .route(
             "/rooms/{room_id}/event/{event_id}/url",
             get(get_room_event_url),
+        )
+        .route(
+            "/rooms/{room_id}/translate/{event_id}",
+            post(translate_room_event),
+        )
+        .route(
+            "/rooms/{room_id}/convert/{event_id}",
+            post(convert_room_event),
         )
         .route("/rooms/{room_id}/sign/{event_id}", put(sign_room_event))
         .route(

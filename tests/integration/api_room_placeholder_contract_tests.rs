@@ -64,17 +64,24 @@ fn encode_user_id(user_id: &str) -> String {
         .replace('+', "%2B")
 }
 
-async fn assert_unrecognized(app: &axum::Router, request: Request<Body>) {
+async fn assert_routable(app: &axum::Router, request: Request<Body>) {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_UNRECOGNIZED");
+
+    if status == StatusCode::BAD_REQUEST {
+        let json: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
+        assert_ne!(
+            json.get("errcode").and_then(|value| value.as_str()),
+            Some("M_UNRECOGNIZED"),
+            "route unexpectedly returned M_UNRECOGNIZED: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
 }
 
 #[tokio::test]
@@ -114,7 +121,7 @@ async fn test_room_metadata_returns_room_fields() {
 }
 
 #[tokio::test]
-async fn test_room_extension_placeholders_return_unrecognized_for_member() {
+async fn test_room_extension_routes_are_routable_for_member() {
     let Some(app) = super::setup_test_app().await else {
         return;
     };
@@ -124,7 +131,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     let room_id = create_room(&app, &alice_token, "Room Placeholder").await;
     let encoded_room_id = encode_room_id(&room_id);
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -138,7 +145,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -152,7 +159,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -168,7 +175,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
 
     let alice_user_id = format!("@{}:localhost", alice);
     let encoded_user_id = encode_user_id(&alice_user_id);
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -182,7 +189,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -196,7 +203,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -210,7 +217,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -224,7 +231,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -238,7 +245,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -252,7 +259,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -266,7 +273,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -280,7 +287,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("POST")
@@ -295,7 +302,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("POST")
@@ -310,7 +317,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("PUT")
@@ -325,7 +332,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("POST")
@@ -340,7 +347,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -354,7 +361,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("PUT")
@@ -369,7 +376,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")
@@ -383,7 +390,7 @@ async fn test_room_extension_placeholders_return_unrecognized_for_member() {
     )
     .await;
 
-    assert_unrecognized(
+    assert_routable(
         &app,
         Request::builder()
             .method("GET")

@@ -1,5 +1,6 @@
+use super::auth_compat::{request_email_verification_with_submit_path, session_client_secret};
 use crate::common::ApiError;
-use crate::web::extractors::AuthenticatedUser;
+use crate::web::extractors::{AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
 use crate::web::routes::{extract_token_from_headers, validate_user_id, AppState};
 use axum::{
     extract::{Json, Path, State},
@@ -230,7 +231,7 @@ pub(crate) async fn update_avatar(
 
 pub(crate) async fn change_password_uia(
     State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    auth_user: OptionalAuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let new_password = body
@@ -241,73 +242,186 @@ pub(crate) async fn change_password_uia(
     let auth = body.get("auth").cloned().unwrap_or(serde_json::json!({}));
     let auth_type = auth.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
-    if auth_type == "m.login.password" {
-        let password = auth
-            .get("password")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ApiError::bad_request("Password required for m.login.password".to_string())
+    match auth_type {
+        "m.login.password" => {
+            let password = auth
+                .get("password")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    ApiError::bad_request("Password required for m.login.password".to_string())
+                })?;
+
+            let user_identifier = auth
+                .get("identifier")
+                .and_then(|i| i.get("user"))
+                .and_then(|u| u.as_str())
+                .or_else(|| auth.get("user").and_then(|u| u.as_str()));
+
+            let authenticated_user_id = auth_user.user_id.as_deref().ok_or_else(|| {
+                ApiError::unauthorized("Access token required for m.login.password".to_string())
             })?;
 
-        let user_identifier = auth
-            .get("identifier")
-            .and_then(|i| i.get("user"))
-            .and_then(|u| u.as_str())
-            .or_else(|| auth.get("user").and_then(|u| u.as_str()));
+            if let Some(username) = user_identifier {
+                let user_id = if username.starts_with('@') {
+                    username.to_string()
+                } else {
+                    format!("@{}:{}", username, state.services.server_name)
+                };
 
-        if let Some(username) = user_identifier {
-            let user_id = if username.starts_with('@') {
-                username.to_string()
+                if user_id != authenticated_user_id {
+                    return Err(ApiError::forbidden("User mismatch".to_string()));
+                }
+
+                state
+                    .services
+                    .auth_service
+                    .validator
+                    .validate_password(new_password)?;
+
+                let user = state
+                    .services
+                    .user_storage
+                    .get_user_by_id(&user_id)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Failed to get user: {}", e)))?
+                    .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+
+                let password_hash = user
+                    .password_hash
+                    .ok_or_else(|| ApiError::forbidden("User has no password set".to_string()))?;
+
+                let valid = crate::common::crypto::verify_password(password, &password_hash, false)
+                    .map_err(|e| {
+                        ApiError::internal(format!("Password verification failed: {}", e))
+                    })?;
+
+                if !valid {
+                    return Err(ApiError::forbidden("Invalid password".to_string()));
+                }
+
+                state
+                    .services
+                    .registration_service
+                    .change_password(authenticated_user_id, Some(password), new_password)
+                    .await?;
+
+                Ok(Json(json!({})))
             } else {
-                format!("@{}:{}", username, state.services.server_name)
-            };
-
-            if user_id != auth_user.user_id {
-                return Err(ApiError::forbidden("User mismatch".to_string()));
+                Err(ApiError::bad_request(
+                    "User identifier required".to_string(),
+                ))
             }
+        }
+        "m.login.email.identity" => {
+            let threepid_creds = auth.get("threepid_creds").unwrap_or(&auth);
+            let sid = threepid_creds
+                .get("sid")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("Session ID (sid) is required".to_string()))?;
+            let client_secret = threepid_creds
+                .get("client_secret")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("Client secret is required".to_string()))?;
 
-            state
-                .services
-                .auth_service
-                .validator
-                .validate_password(new_password)?;
+            let sid_int: i64 = sid
+                .parse()
+                .map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
-            let user = state
+            let verification_token = state
                 .services
-                .user_storage
-                .get_user_by_id(&user_id)
+                .email_verification_storage
+                .get_verification_token_by_id(sid_int)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get user: {}", e)))?
-                .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to get verification token: {}", e))
+                })?
+                .ok_or_else(|| {
+                    ApiError::bad_request("Invalid session ID or session not found".to_string())
+                })?;
 
-            let password_hash = user
-                .password_hash
-                .ok_or_else(|| ApiError::forbidden("User has no password set".to_string()))?;
-
-            let valid = crate::common::crypto::verify_password(password, &password_hash, false)
-                .map_err(|e| ApiError::internal(format!("Password verification failed: {}", e)))?;
-
-            if !valid {
-                return Err(ApiError::forbidden("Invalid password".to_string()));
+            if !verification_token.used {
+                return Err(ApiError::bad_request(
+                    "Verification token has not been submitted yet".to_string(),
+                ));
             }
+
+            if verification_token.expires_at < chrono::Utc::now() {
+                return Err(ApiError::bad_request(
+                    "Verification token has expired".to_string(),
+                ));
+            }
+
+            if session_client_secret(verification_token.session_data.as_ref())
+                != Some(client_secret)
+            {
+                return Err(ApiError::bad_request("Client secret mismatch".to_string()));
+            }
+
+            let user_id = verification_token.user_id.ok_or_else(|| {
+                ApiError::bad_request(
+                    "Verification session is not valid for password reset".to_string(),
+                )
+            })?;
 
             state
                 .services
                 .registration_service
-                .change_password(&auth_user.user_id, Some(password), new_password)
+                .change_password(&user_id, None, new_password)
                 .await?;
 
+            state
+                .services
+                .email_verification_storage
+                .delete_token_by_id(sid_int)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to consume verification session: {}", e))
+                })?;
+
             Ok(Json(json!({})))
-        } else {
-            Err(ApiError::bad_request(
-                "User identifier required".to_string(),
-            ))
         }
-    } else {
-        Err(ApiError::unauthorized(
-            "m.login.password authentication required".to_string(),
-        ))
+        _ => Err(ApiError::unauthorized(
+            "m.login.password or m.login.email.identity authentication required".to_string(),
+        )),
     }
+}
+
+pub(crate) async fn request_password_email_verification(
+    State(state): State<AppState>,
+    MatrixJson(body): MatrixJson<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let email = body
+        .get("email")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Email is required".to_string()))?;
+
+    let user_id = match state
+        .services
+        .threepid_storage
+        .get_verified_threepid_by_address("email", email)
+        .await?
+    {
+        Some(threepid) => threepid.user_id,
+        None => state
+            .services
+            .user_storage
+            .get_user_by_email(email)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to resolve email owner: {}", e)))?
+            .map(|user| user.user_id)
+            .ok_or_else(|| {
+                ApiError::not_found("No account is associated with this email address".to_string())
+            })?,
+    };
+
+    request_email_verification_with_submit_path(
+        &state,
+        &body,
+        "/_matrix/client/v3/account/password/email/submitToken",
+        Some(user_id.as_str()),
+        "password_reset",
+    )
+    .await
 }
 
 pub(crate) async fn deactivate_account(

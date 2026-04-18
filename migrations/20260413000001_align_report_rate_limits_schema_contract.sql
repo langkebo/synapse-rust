@@ -19,13 +19,13 @@ BEGIN
     IF EXISTS (
         SELECT 1
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND table_name = 'report_rate_limits'
           AND column_name = 'blocked_until'
     ) AND NOT EXISTS (
         SELECT 1
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND table_name = 'report_rate_limits'
           AND column_name = 'blocked_until_at'
     ) THEN
@@ -35,13 +35,13 @@ BEGIN
     IF EXISTS (
         SELECT 1
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND table_name = 'report_rate_limits'
           AND column_name = 'blocked_until_ts'
     ) AND NOT EXISTS (
         SELECT 1
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND table_name = 'report_rate_limits'
           AND column_name = 'blocked_until_at'
     ) THEN
@@ -51,13 +51,13 @@ BEGIN
     IF EXISTS (
         SELECT 1
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND table_name = 'report_rate_limits'
           AND column_name = 'last_report_ts'
     ) AND NOT EXISTS (
         SELECT 1
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND table_name = 'report_rate_limits'
           AND column_name = 'last_report_at'
     ) THEN
@@ -67,7 +67,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND table_name = 'report_rate_limits'
           AND column_name = 'blocked_until_at'
     ) THEN
@@ -77,7 +77,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND table_name = 'report_rate_limits'
           AND column_name = 'block_reason'
     ) THEN
@@ -87,7 +87,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND table_name = 'report_rate_limits'
           AND column_name = 'last_report_at'
     ) THEN
@@ -97,7 +97,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND table_name = 'report_rate_limits'
           AND column_name = 'updated_ts'
     ) THEN

@@ -793,12 +793,17 @@ pub async fn shadow_ban_middleware(
     next: axum::middleware::Next,
 ) -> Response {
     let method = request.method().clone();
+    let path = request.uri().path().to_string();
     let is_write = matches!(
         method,
         Method::POST | Method::PUT | Method::DELETE | Method::PATCH
     );
 
     if !is_write {
+        return next.run(request).await;
+    }
+
+    if is_shadow_ban_exempt_path(&path) {
         return next.run(request).await;
     }
 
@@ -810,11 +815,10 @@ pub async fn shadow_ban_middleware(
     match state.services.auth_service.validate_token(&token).await {
         Ok((_, _, _, is_shadow_banned, is_guest)) => {
             if is_shadow_banned {
-                let path = request.uri().path().to_string();
                 ::tracing::warn!(
                     target: "security_audit",
                     event = "shadow_banned_write_blocked",
-                    path = path,
+                    path = path.as_str(),
                     method = method.to_string(),
                     "Shadow-banned user attempted write operation - silently dropping"
                 );
@@ -835,7 +839,6 @@ pub async fn shadow_ban_middleware(
             }
 
             if is_guest {
-                let path = request.uri().path().to_string();
                 let guest_blocked_paths = [
                     "/createRoom",
                     "/invite",
@@ -872,6 +875,10 @@ pub async fn shadow_ban_middleware(
         }
         Err(_) => next.run(request).await,
     }
+}
+
+fn is_shadow_ban_exempt_path(path: &str) -> bool {
+    path.starts_with("/_synapse/admin/")
 }
 
 pub async fn admin_auth_middleware(
@@ -1709,6 +1716,20 @@ mod tests {
             crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, "/other/path");
         assert_eq!(id, "/other/path");
         assert_eq!(rule.per_second, config.default.per_second);
+    }
+
+    #[test]
+    fn test_shadow_ban_exempts_admin_routes() {
+        assert!(is_shadow_ban_exempt_path(
+            "/_synapse/admin/v1/users/%40testuser1%3Alocalhost/shadow_ban"
+        ));
+        assert!(is_shadow_ban_exempt_path("/_synapse/admin/v1/users"));
+    }
+
+    #[test]
+    fn test_shadow_ban_does_not_exempt_client_routes() {
+        assert!(!is_shadow_ban_exempt_path("/_matrix/client/v3/createRoom"));
+        assert!(!is_shadow_ban_exempt_path("/_matrix/client/v1/rendezvous"));
     }
 
     #[test]

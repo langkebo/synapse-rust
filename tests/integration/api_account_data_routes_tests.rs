@@ -12,26 +12,27 @@ use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
     let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool);
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone());
     let state = AppState::new(container, cache);
     Some(create_router(state))
 }
 
-async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
     let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone());
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let state = AppState::new(container, cache);
-    Some((create_router(state), pool))
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone());
+    let state = AppState::new(container, cache.clone());
+    Some((create_router(state), pool, cache))
 }
 
-async fn promote_to_admin(pool: &sqlx::PgPool, user_id: &str) {
+async fn promote_to_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &str) {
     sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
         .bind(user_id)
         .execute(pool)
         .await
         .expect("failed to promote user to admin");
+    cache.delete(&format!("user:admin:{}", user_id)).await;
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -476,7 +477,7 @@ async fn test_tags_routes_work_across_v3_and_r0() {
 
 #[tokio::test]
 async fn test_tags_routes_reject_admin_access_to_other_users_data() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
@@ -484,7 +485,7 @@ async fn test_tags_routes_reject_admin_access_to_other_users_data() {
         register_user(&app, &format!("tags_owner_{}", rand::random::<u32>())).await;
     let (admin_token, admin_user_id) =
         register_user(&app, &format!("tags_admin_{}", rand::random::<u32>())).await;
-    promote_to_admin(&pool, &admin_user_id).await;
+    promote_to_admin(&pool, &cache, &admin_user_id).await;
 
     let room_id = "!tags-admin-room:localhost";
     let owner_put = Request::builder()

@@ -275,7 +275,7 @@ fn test_no_migration_for_argon2_hash() {
 
         let id = unique_id();
         let username = format!("argon2_user_{}", id);
-        let password = "argon2_password";
+        let password = "Argon2_password123";
         let user_id = format!("@{}:localhost", username);
 
         let (user, _, _, _) = auth

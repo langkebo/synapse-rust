@@ -9,14 +9,15 @@ mod cache_integration_tests {
     use tokio::runtime::Runtime;
 
     fn create_test_claims() -> Claims {
+        let now = chrono::Utc::now().timestamp();
         Claims {
             sub: "test_subject".to_string(),
             user_id: "@test:example.com".to_string(),
             jti: "test-jti-cache-integration".to_string(),
             admin: false,
             device_id: Some("DEVICE123".to_string()),
-            exp: 1234567890,
-            iat: 1234567890,
+            exp: now + 3600,
+            iat: now,
         }
     }
 

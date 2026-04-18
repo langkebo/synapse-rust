@@ -1,3 +1,4 @@
+use chrono::{DateTime, Duration, Utc};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
@@ -7,8 +8,8 @@ pub struct EmailVerificationToken {
     pub user_id: Option<String>,
     pub email: String,
     pub token: String,
-    pub expires_at: i64,
-    pub created_ts: i64,
+    pub expires_at: DateTime<Utc>,
+    pub created_ts: DateTime<Utc>,
     pub used: bool,
     pub session_data: Option<serde_json::Value>,
 }
@@ -31,8 +32,8 @@ impl EmailVerificationStorage {
         user_id: Option<&str>,
         session_data: Option<serde_json::Value>,
     ) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
-        let expires_at = now + expires_in_seconds;
+        let now = Utc::now();
+        let expires_at = now + Duration::seconds(expires_in_seconds);
         let created_ts = now;
 
         let row = sqlx::query_as::<_, TokenIdRow>(
@@ -59,7 +60,7 @@ impl EmailVerificationStorage {
         email: &str,
         token: &str,
     ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
+        let now = Utc::now();
 
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
             r#"
@@ -107,8 +108,20 @@ impl EmailVerificationStorage {
         Ok(token_record)
     }
 
+    pub async fn delete_token_by_id(&self, token_id: i64) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            DELETE FROM email_verification_tokens WHERE id = $1
+            "#,
+        )
+        .bind(token_id)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
+        let now = Utc::now();
         let result = sqlx::query(
             r#"
             DELETE FROM email_verification_tokens WHERE expires_at < $1
@@ -124,7 +137,7 @@ impl EmailVerificationStorage {
         &self,
         email: &str,
     ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
+        let now = Utc::now();
 
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
             r#"
@@ -160,8 +173,8 @@ mod tests {
             user_id: Some("@test:example.com".to_string()),
             email: "test@example.com".to_string(),
             token: "abc123".to_string(),
-            expires_at: 1234567890,
-            created_ts: 1234560000,
+            expires_at: Utc::now(),
+            created_ts: Utc::now(),
             used: false,
             session_data: None,
         };
@@ -178,8 +191,8 @@ mod tests {
             user_id: Some("@user:example.com".to_string()),
             email: "user@example.com".to_string(),
             token: "token456".to_string(),
-            expires_at: 1234567890,
-            created_ts: 1234560000,
+            expires_at: Utc::now(),
+            created_ts: Utc::now(),
             used: false,
             session_data: Some(serde_json::json!({"key": "value"})),
         };
@@ -188,14 +201,14 @@ mod tests {
 
     #[test]
     fn test_email_verification_token_expired() {
-        let current_ts = chrono::Utc::now().timestamp();
+        let current_ts = Utc::now();
         let token = EmailVerificationToken {
             id: 3,
             user_id: Some("@expired:example.com".to_string()),
             email: "expired@example.com".to_string(),
             token: "expired_token".to_string(),
-            expires_at: current_ts - 3600,
-            created_ts: current_ts - 7200,
+            expires_at: current_ts - Duration::seconds(3600),
+            created_ts: current_ts - Duration::seconds(7200),
             used: false,
             session_data: None,
         };
@@ -209,11 +222,75 @@ mod tests {
             user_id: Some("@used:example.com".to_string()),
             email: "used@example.com".to_string(),
             token: "used_token".to_string(),
-            expires_at: 1234567890,
-            created_ts: 1234560000,
+            expires_at: Utc::now(),
+            created_ts: Utc::now(),
             used: true,
             session_data: None,
         };
         assert!(token.used);
+    }
+
+    #[tokio::test]
+    async fn test_delete_token_by_id_removes_verification_session() {
+        let pool = match crate::test_utils::prepare_empty_isolated_test_pool().await {
+            Ok(pool) => pool,
+            Err(error) => {
+                eprintln!(
+                    "Skipping email verification delete-token test because test database is unavailable: {}",
+                    error
+                );
+                return;
+            }
+        };
+
+        sqlx::query(
+            r#"
+            CREATE TABLE email_verification_tokens (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT,
+                email TEXT NOT NULL,
+                token TEXT NOT NULL,
+                expires_at TIMESTAMPTZ NOT NULL,
+                created_ts TIMESTAMPTZ NOT NULL,
+                used BOOLEAN NOT NULL DEFAULT FALSE,
+                session_data JSONB
+            )
+            "#,
+        )
+        .execute(&*pool)
+        .await
+        .expect("Failed to create email_verification_tokens table");
+
+        let storage = EmailVerificationStorage::new(&pool);
+        let token_id = storage
+            .create_verification_token(
+                "delete-me@example.com",
+                "test-token",
+                3600,
+                Some("@delete-me:example.com"),
+                Some(serde_json::json!({
+                    "client_secret": "secret",
+                    "purpose": "password_reset"
+                })),
+            )
+            .await
+            .expect("Failed to create verification token");
+
+        let before_delete = storage
+            .get_verification_token_by_id(token_id)
+            .await
+            .expect("Failed to fetch verification token before delete");
+        assert!(before_delete.is_some());
+
+        storage
+            .delete_token_by_id(token_id)
+            .await
+            .expect("Failed to delete verification token");
+
+        let after_delete = storage
+            .get_verification_token_by_id(token_id)
+            .await
+            .expect("Failed to fetch verification token after delete");
+        assert!(after_delete.is_none());
     }
 }
