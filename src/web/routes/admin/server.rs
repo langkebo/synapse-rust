@@ -33,7 +33,9 @@ pub fn create_server_router(_state: AppState) -> Router<AppState> {
 }
 
 #[axum::debug_handler]
-pub async fn get_admin_info(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+pub async fn get_admin_info(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
         "server_name": state.services.config.server.name,
         "server_version": env!("CARGO_PKG_VERSION"),

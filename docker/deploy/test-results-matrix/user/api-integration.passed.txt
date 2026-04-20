@@ -1,0 +1,512 @@
+Health endpoint
+Versions endpoint
+Login (User: @testuser2:localhost)
+Ensure Second User (@testuser2:localhost)	already exists
+Second User Login	@testuser2:localhost
+Second Device Login	api-integration-device2-22354
+Admin Login	using ordinary user token for negative admin authorization checks
+Capabilities
+Create Test Room
+Create Second Room
+Sync
+Room Sync Filter
+Get Profile
+Update Displayname
+Get Avatar URL
+Set Avatar URL
+Get Room State
+Send Message
+Room Messages
+Joined Members
+Set Room Alias
+Get Room Alias
+Set Room Topic
+Redact Event
+Media Config
+Media Upload	mxc://localhost/ar5YoAF62okOSC4GLfPW3GEAMowdXpGh
+Media Download
+Media Thumbnail
+VoIP Config
+Set User Account Data
+Get User Account Data
+Set Room Account Data
+Get Room Account Data
+Add Room Tag
+Get Room Tags
+Remove Room Tag
+Update Presence
+Get Presence
+Presence Subscribe
+List Presences
+Invite User
+Join Room
+Leave Room
+Get Membership
+List Devices
+Get Device
+Update Device
+Upload Keys
+Query Keys
+Claim Keys
+Public Rooms
+User Directory
+Room Summary
+Room Summary Stats
+Room Summary Members
+Room Summary State
+WhoAmI
+Search Rooms
+Admin List Users	access denied as expected for role user
+Admin User Details	access denied as expected for role user
+Admin User Sessions	access denied as expected for role user
+Admin User Stats	access denied as expected for role user
+Admin User Devices	access denied as expected for role user
+Admin List Rooms	access denied as expected for role user
+Admin Room Details	access denied as expected for role user
+Admin Room Members	access denied as expected for role user
+Admin Room Messages	access denied as expected for role user
+Admin Room Block	access denied as expected for role user
+Admin Room Unblock	access denied as expected for role user
+Create Space
+Public Spaces
+User Spaces
+Space Members
+Space State
+Space Children
+Get Threads
+Create Filter
+Get Filter
+Get 3PID Bindings
+Request OpenID Token
+Well-Known Client
+Well-Known Server
+Server Version
+Create DM	!Jpv_QHDR-VkbHtv_bC2gfCfX:localhost
+Get Direct Rooms
+Update Direct Room
+Room Summary
+Room Summary Members
+Room Summary State
+Room Summary Stats
+Admin Room Stats	access denied as expected for role user
+Admin Room Block Status	access denied as expected for role user
+Admin Room Search	access denied as expected for role user
+Admin Room Listings	access denied as expected for role user
+Admin Room State	access denied as expected for role user
+Well-Known OIDC
+OIDC Discovery
+Get Invite Blocklist
+Set Invite Blocklist
+Get Invite Allowlist
+Set Invite Allowlist
+Joined Rooms
+My Rooms
+Server Version (r0)
+Set User Account Data (r0)
+Get User Account Data (r0)
+Set Room Account Data (r0)
+List Devices (r0)
+Admin Federation Destinations	access denied as expected for role user
+Admin Federation Resolve	access denied as expected for role user
+List Registration Tokens	access denied as expected for role user
+Get Active Registration Tokens	access denied as expected for role user
+Get Push Rules
+Get Push Rules Global
+Get Key Backup Versions
+Admin Account Details	access denied as expected for role user
+Admin User Rooms	access denied as expected for role user
+Admin Set User Admin	access denied as expected for role user
+List Pushers	access denied as expected for role user
+Get Presence
+Set Presence
+Get Presence List
+Get Key Verification Request
+Get Room Key Request
+Get Thirdparty Protocols
+Get Thirdparty Protocol
+Get Client Well-Known
+Get Server Well-Known
+Get Capabilities
+Get Room Version
+Admin List Rooms	access denied as expected for role user
+Admin Room Details	access denied as expected for role user
+Admin Room Members	access denied as expected for role user
+Admin Room State	access denied as expected for role user
+Admin Room Messages	access denied as expected for role user
+Admin Block Room	access denied as expected for role user
+Admin List Users	access denied as expected for role user
+Admin User Details	access denied as expected for role user
+Admin User Stats	access denied as expected for role user
+Ensure Deactivate Target (@deactivate_probe_user:localhost)	already exists
+Admin User Deactivate	access denied as expected for role user
+List Devices v3
+Get Device
+Update Device
+Get Keys Changes
+Claim Keys
+Query Keys
+Get Friends
+Incoming Friend Requests
+Refresh Token
+Admin Shutdown Room	access denied as expected for role user
+Admin Room Make Admin	access denied as expected for role user
+Admin Federation Blacklist	access denied as expected for role user
+Admin Federation Cache Clear	access denied as expected for role user
+Admin Reset Connection	access denied as expected for role user
+Search v3
+Search Rooms
+Room Context
+Room Hierarchy
+Create Key Backup
+Get Key Backup
+Send To Device
+OpenID Userinfo
+Events
+Room Version
+VoIP TURN Server
+Admin User Login	access denied as expected for role user
+Admin User Logout	access denied as expected for role user
+Admin User Devices	access denied as expected for role user
+Admin Batch Users	access denied as expected for role user
+Set Room Alias
+Get Room Alias
+Federation Version
+Federation Backfill
+Federation Get Event
+Federation Event Auth
+Federation Get Joining Rules
+Federation Keys Query
+Federation Keys Claim
+Federation Keys Upload
+Federation Make Join
+Federation Make Leave
+Federation Public Rooms
+Federation Query Directory
+Federation Query Profile
+Federation Room Auth
+Federation State
+Federation State IDs
+Admin Create Registration Token Negative	access denied as expected for role user
+Media Config v3
+Media Config r0
+Media Upload r0
+Media Config v1
+Room Summary
+Room Summary Heroes
+Room Summary Stats Recalculate
+Room Summary Sync
+Room Summary Unread Clear
+Room Hierarchy
+Space Hierarchy
+Timestamp to Event
+User Threads
+List Background Updates	access denied as expected for role user
+List Event Reports	access denied as expected for role user
+Room Forward Extremities	access denied as expected for role user
+Keys Query
+Keys Claim
+Keys Changes
+Keys Upload Signature
+Get Key Changes
+Create Key Backup Version
+Get Key Backup Version
+Delete Key Backup Version
+Room Keys Backup
+Get Room Keys Backup
+Get Room Key
+Delete Room Key
+Start Key Verification
+Get Key Verification Request
+Accept Key Verification
+Complete Key Verification
+Cancel Key Verification
+Create Room Key Request
+Get Room Key Requests
+Delete Room Key Request
+Get Thread v1
+Get User Threads
+Thread Search
+Get Thread ID
+Get State Event
+Room Typing
+Room Read Markers
+List User Sessions	access denied as expected for role user
+Admin Room State	access denied as expected for role user
+Admin Room Members	access denied as expected for role user
+Well-Known Client
+Well-Known Server
+Identity Store Invite
+Identity Get Published Keys
+Get Friends
+Get Incoming Friend Requests
+Get Outgoing Friend Requests
+Send Friend Request
+Admin List Users	access denied as expected for role user
+Admin Get User	access denied as expected for role user
+Admin List User Tokens	access denied as expected for role user
+Admin List Rooms	access denied as expected for role user
+Admin Get Room	access denied as expected for role user
+Server Version
+Get Capabilities
+Admin Room Event	access denied as expected for role user
+Admin Room Token Sync	access denied as expected for role user
+Get Receipts
+Get Space Rooms
+Send Server Notice	access denied as expected for role user
+Admin Stats Users	access denied as expected for role user
+Admin Stats Rooms	access denied as expected for role user
+Report Event
+Get Room Tags
+Search User Directory
+User Directory Profile
+Create Room Key Share Request
+Get Room Key Share Requests
+Admin Delete Devices	access denied as expected for role user
+Get Client Config
+Admin List Room Aliases	access denied as expected for role user
+Get Room Invites
+Get Rate Limit	access denied as expected for role user
+Admin Version	access denied as expected for role user
+Get Presence
+Set Presence
+Create Friend Group	group_1776671234541_df26ce48-c9cb-4fdc-bfe0-960e72825eb3
+List Friend Groups
+Get Vault Data
+Set Vault Data
+Get Pushers	access denied as expected for role user
+Get Retention Policy
+Get Room Key Backward
+Get Event Thread
+Get Auto-Discovery
+Create Filter
+Get Room Rendered
+Evict User	access denied as expected for role user
+Get Group Details
+Get State v2
+Search Messages
+Get Room Reports	access denied as expected for role user
+Get Replacement Event
+Claim Keys
+Get Global Tags
+Get Presence Bulk
+Send Room Message
+Send Room Event
+Redact Event
+Upgrade Room
+Get Room Tombstone
+Get Room External IDs
+Get Event Relations
+Get Aggregation Groups
+Send Event
+Update Device List
+Forward Keys
+Room Search v1
+Room Initial Sync
+Get Event Perspective
+Get Turn Server
+Set Room Account Data
+Get Membership
+Get All Devices	access denied as expected for role user
+Get Statistics	access denied as expected for role user
+Get Media Quota	access denied as expected for role user
+Check Auth	access denied as expected for role user
+Get Capabilities
+Get Version Info	access denied as expected for role user
+Get Room Capabilities
+Get User Fragments
+Get Service Types
+Federation Discovery
+Sync v1
+Upload Keys v1
+Add Room Tag
+Remove Room Tag
+Get Event Keys
+Claim Room Keys
+Get Keys Version
+Get Message Queue
+Get Joined Members
+Get Registration Token	access denied as expected for role user
+Get Room Shares	access denied as expected for role user
+Get User Count	access denied as expected for role user
+Get Room Count	access denied as expected for role user
+Get Pending Joins	access denied as expected for role user
+Start Typing
+Stop Typing
+Post Receipt
+Get Read Markers
+Get Room Key Count
+Get Group Friends
+Get User Groups
+Get User Appservice
+Report Event
+Translate Event
+Get Event URL
+Convert Event
+Sign Event
+Verify Event
+Get Room Device
+Get Room Keys v1
+Get Timeline
+Get Unread Count
+Sync Room
+Get Room State v1
+Get Room State Event
+Get Members
+Get Members Recent
+Get Messages
+Report Room Event
+Get Room Visibility
+Get Room Users
+Search Room v3
+Get Media Config
+Media Upload v3
+Search Users Directory
+Create Room v3
+Prepare Room v3 Invite
+Prepare Room v3 Join
+Invite User
+Join Room
+Leave Room
+Register User v3
+Rename Friend Group
+Resolve Alias
+Get Metadata
+Get Encrypted Events
+Get Reduced Events
+Get Room Account Data
+Get User Tags
+Get Presence v1
+Get Profile
+Set Profile
+Join Room v3
+Leave Room v3
+Search v3
+Get User Filter
+Forward Room Keys
+Report Room v3
+Upload Signatures
+Admin List Spaces	access denied as expected for role user
+Admin Space Rooms	access denied as expected for role user
+Admin Space Stats	access denied as expected for role user
+Admin Space Users	access denied as expected for role user
+Space Public
+Space Room Parents
+Space Search
+Space Statistics
+Space User
+Space Children v3
+Space Hierarchy v1
+Space Summary with Children
+Space Tree Path
+Keys Changes r0
+Keys Claim r0
+Keys Device Signing Upload
+Keys Query r0
+Keys Signatures Upload r0
+Keys Upload r0
+SendToDevice r0
+Device Trust
+Device Trust by ID
+Device Verification Request
+Device Verification Respond
+Device Verification Status
+Keys Backup Secure
+Keys Backup Secure by ID
+Keys Backup Secure Keys
+Keys Backup Secure Restore
+Keys Backup Secure Verify
+Keys Changes v3
+Keys Claim v3
+Keys Device Signing Upload v3
+Keys Query v3
+Keys Signatures Upload v3
+Keys Upload v3
+Security Summary
+SendToDevice v3
+Room Keys Version Create
+Room Keys Version Get
+Room Keys Keys Get
+Room Keys Keys Room Get
+Room Keys Keys Room Session Get
+Room Keys Keys Room Session Put
+Room Keys Backup Get
+Room Keys Backup Put
+Room Keys Version Delete
+Get All User Account Data (r0)
+Get All User Account Data (v3)
+Space Room Parents
+Space Statistics
+Space Search
+Space Tree Path
+Space Hierarchy v1
+Space Summary with Children
+Federation User Devices
+Federation v1
+Federation Version
+Federation OpenID UserInfo
+Federation PublicRooms
+Federation Query Directory
+Federation Query Profile
+Federation Query Destination
+Federation Query Auth
+Federation Thirdparty Invite
+Federation Keys Query
+Federation Keys Claim
+Federation Keys Upload
+Federation Timestamp to Event
+Federation v2 Invite
+Federation v2 Send Join
+Federation v2 Send Leave
+Federation v2 Key Clone
+Federation v2 Query	M_NOT_FOUND: Remote server key 'test_key' for 'test_server' not found
+Federation v2 Server
+Federation v2 User Keys Query
+Federation Make Join
+Federation Make Leave
+Federation Exchange Third Party Invite
+Federation Knock
+Admin Add Federation Blacklist	access denied as expected for role user
+Admin Remove Federation Blacklist	access denied as expected for role user
+Admin Delete Room	access denied as expected for role user
+Admin Room Member Add	access denied as expected for role user
+Admin Room Ban User	access denied as expected for role user
+Admin Room Kick User	access denied as expected for role user
+Admin List Spaces	access denied as expected for role user
+Admin Set Room Public	access denied as expected for role user
+Admin Purge History	access denied as expected for role user
+Admin Set User Admin	access denied as expected for role user
+Admin Delete User Device	access denied as expected for role user
+Admin Create Registration Token	access denied as expected for role user
+Admin Send Server Notice	access denied as expected for role user
+Admin List Pushers	access denied as expected for role user
+Admin Shadow Ban User	access denied as expected for role user
+Admin Set Retention Policy	access denied as expected for role user
+Admin List Audit Events	access denied as expected for role user
+Prepare Representative Room
+Prepare Representative Event
+Get Room Version
+Get Room Thread
+Get Room Reactions
+Get Invite Blocklist
+Set Invite Blocklist
+Get Event Keys
+Get Room Context
+Get Room Hierarchy
+Report Event
+Federation State
+Federation State IDs
+Federation Backfill
+Federation User Devices
+Federation OpenID Userinfo
+List Thirdparty Protocols
+Get Thirdparty Protocol
+Create Widget
+Widget Config
+Get Feature Flags	access denied as expected for role user
+Jitsi Config
+App Service Query
+List App Services	access denied as expected for role user
+Create Rendezvous Session
+Get Rendezvous Session
+Horizontal: Delete Other User Device
+Horizontal: Update Other User Profile

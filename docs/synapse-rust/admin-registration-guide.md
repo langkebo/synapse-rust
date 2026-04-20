@@ -24,7 +24,7 @@
    
    HMAC 计算格式：
    ```
-   HMAC-SHA256(shared_secret, nonce + "\0" + username + "\0" + password + "\0" + "admin"/"notadmin" + ("\0" + user_type if user_type exists))
+   HMAC-SHA256(shared_secret, nonce + "\0" + username + "\0" + password + "\0" + "admin\0\0\0"/"notadmin" + ("\0" + user_type if user_type exists))
    ```
 
    Python 示例：
@@ -46,7 +46,7 @@
    message += b'\x00'
    message += password.encode('utf-8')
    message += b'\x00'
-   message += b'admin' if admin else b'notadmin'
+   message += b'admin\x00\x00\x00' if admin else b'notadmin'
    
    # 只有当user_type存在时才添加
    if user_type:
@@ -103,16 +103,16 @@ admin_registration:
 
 ## 自动化脚本
 
-项目提供了自动化注册脚本：`scripts/register_admin.py`
+部署目录提供了自动化注册脚本：`docker/deploy/register_admin.py`
 
 使用方法：
 ```bash
-python3 scripts/register_admin.py
+python3 docker/deploy/register_admin.py
 ```
 
 脚本会自动完成以下步骤：
 1. 获取 nonce
-2. 计算 HMAC-SHA256
+2. 计算 HMAC-SHA1
 3. 注册管理员账号
 4. 显示注册结果
 

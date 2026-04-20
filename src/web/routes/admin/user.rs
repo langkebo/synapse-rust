@@ -168,15 +168,8 @@ async fn resolve_user(state: &AppState, identifier: &str) -> Result<User, ApiErr
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))
 }
 
-fn ensure_super_admin_for_privilege_change(admin: &AdminUser) -> Result<(), ApiError> {
-    if admin.role != "super_admin" {
-        return Err(ApiError::forbidden(
-            "Only super_admin can modify admin privileges or admin roles".to_string(),
-        ));
-    }
-
-    Ok(())
-}
+// Moved to admin/mod.rs
+use super::ensure_super_admin_for_privilege_change;
 
 #[axum::debug_handler]
 pub async fn get_users(

@@ -55,6 +55,7 @@ mod typing_service_tests;
 mod voice_service_tests;
 
 mod security_critical_tests;
+mod security_signature_check_tests;
 
 #[cfg(test)]
 mod coverage_tests;

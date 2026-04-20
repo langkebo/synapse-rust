@@ -546,3 +546,52 @@ async fn test_admin_federation_routes_require_admin() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn test_admin_federation_sensitive_routes_require_super_admin() {
+    let Some((app, _pool)) = setup_test_context().await else {
+        return;
+    };
+    let (admin_token, _username) = super::get_admin_token(&app).await;
+    let server_name = format!("sensitive-fed-{}.example.com", rand::random::<u32>());
+
+    let resolve_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/federation/resolve")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "server_name": server_name }).to_string(),
+        ))
+        .unwrap();
+    let resolve_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), resolve_request)
+        .await
+        .unwrap();
+    assert_eq!(resolve_response.status(), StatusCode::FORBIDDEN);
+
+    let blacklist_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_synapse/admin/v1/federation/blacklist/{}",
+            server_name
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let blacklist_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), blacklist_request)
+        .await
+        .unwrap();
+    assert_eq!(blacklist_response.status(), StatusCode::FORBIDDEN);
+
+    let clear_cache_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/federation/cache/clear")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let clear_cache_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), clear_cache_request)
+            .await
+            .unwrap();
+    assert_eq!(clear_cache_response.status(), StatusCode::FORBIDDEN);
+}

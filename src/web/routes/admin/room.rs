@@ -553,11 +553,12 @@ pub async fn unblock_room(
 
 #[axum::debug_handler]
 pub async fn make_room_admin(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(room_id): Path<String>,
     Json(body): Json<MakeRoomAdminRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    super::ensure_super_admin_for_privilege_change(&admin)?;
     if !state
         .services
         .room_storage
@@ -708,10 +709,11 @@ pub async fn purge_room(
 
 #[axum::debug_handler]
 pub async fn shutdown_room(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    super::ensure_super_admin_for_privilege_change(&admin)?;
     let room_id = body
         .get("room_id")
         .and_then(|v| v.as_str())

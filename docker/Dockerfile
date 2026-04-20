@@ -1,15 +1,18 @@
 ARG RUST_VERSION=1.93
 ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12
+# Stage 1: Builder
 FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 
 WORKDIR /workspace
 
+# 环境变量优化
 ENV CARGO_INCREMENTAL=0 \
     CARGO_NET_RETRY=10 \
     CARGO_HTTP_CHECK_REVOKE=false \
     CARGO_TERM_COLOR=always \
-    CARGO_PROFILE_RELEASE_LTO=true \
-    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
+    # 稍微放宽 LTO 和 Codegen Units 以加快编译速度，同时保持较好的性能
+    CARGO_PROFILE_RELEASE_LTO=thin \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
     CARGO_PROFILE_RELEASE_STRIP=symbols \
     RUSTFLAGS="-C link-arg=-Wl,--gc-sections -C link-arg=-Wl,-z,relro,-z,now"
 
@@ -22,13 +25,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# 依赖缓存机制：先复制依赖配置文件
 COPY Cargo.toml Cargo.lock ./
+
+# 创建骨架项目以预先编译依赖
+RUN mkdir src && echo "fn main() {}" > src/main.rs && \
+    mkdir -p src/bin && echo "fn main() {}" > src/bin/healthcheck.rs && \
+    cargo build --release --locked --bin synapse-rust --bin healthcheck && \
+    rm -rf src/
+
+# 复制真正的源码
 COPY src ./src
 COPY migrations ./migrations
 COPY benches ./benches
 COPY docker/db_migrate.sh docker/container-migrate.sh docker/healthcheck.sh ./docker/
 
-RUN cargo build --release --locked --bin synapse-rust --bin healthcheck && \
+# 编译真正的二进制文件
+# 注意：touch src/main.rs 确保 cargo 意识到源码已更新
+RUN touch src/main.rs src/bin/healthcheck.rs && \
+    cargo build --release --locked --bin synapse-rust --bin healthcheck && \
     install -Dm755 target/release/synapse-rust /out/app/synapse-rust && \
     install -Dm755 target/release/healthcheck /out/app/healthcheck && \
     install -Dm755 docker/db_migrate.sh /out/app/scripts/db_migrate.sh && \

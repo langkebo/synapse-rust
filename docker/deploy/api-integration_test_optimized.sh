@@ -21,7 +21,7 @@ ORIGINAL_SCRIPT="${SCRIPT_DIR}/api-integration_test.sh"
 TEST_ENV="${TEST_ENV:-dev}"
 SERVER_URL="${SERVER_URL:-}"
 API_INTEGRATION_PROFILE="${API_INTEGRATION_PROFILE:-core}"
-RESULTS_DIR="${RESULTS_DIR:-$(pwd)/test-results}"
+RESULTS_DIR="${OUTPUT_DIR:-${RESULTS_DIR:-$(pwd)/test-results}}"
 LOG_FILE="${RESULTS_DIR}/test-execution.log"
 
 # 性能配置
@@ -80,7 +80,8 @@ RETRIED=0
 log() {
     local level="$1"
     shift
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S.%3N')
+    local timestamp
+    timestamp=$(python3 -c "from datetime import datetime; print(datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])")
     local message="$*"
     echo -e "${timestamp} [${level}] ${message}" | tee -a "$LOG_FILE"
 }
@@ -105,9 +106,13 @@ log_test() {
     log "TEST" "${CYAN}$*${NC}"
 }
 
+get_now_ms() {
+    python3 -c "import time; print(int(time.time() * 1000))"
+}
+
 # 初始化
 init() {
-    START_TIME=$(date +%s%3N)
+    START_TIME=$(get_now_ms)
     
     mkdir -p "$RESULTS_DIR"
     
@@ -230,11 +235,11 @@ record_result() {
 
 # 测试计时器
 start_test_timer() {
-    TEST_START_TIME=$(date +%s%3N)
+    TEST_START_TIME=$(get_now_ms)
 }
 
 end_test_timer() {
-    local end_time=$(date +%s%3N)
+    local end_time=$(get_now_ms)
     echo $((end_time - TEST_START_TIME))
 }
 
@@ -323,7 +328,8 @@ register_admin() {
         return 1
     fi
     
-    local nonce_url="$SERVER_URL/_synapse/admin/v1/register"
+    local nonce_url="$SERVER_URL/_synapse/admin/v1/register/nonce"
+    local register_url="$SERVER_URL/_synapse/admin/v1/register"
     start_test_timer
     
     http_json_with_retry GET "$nonce_url" ""
@@ -340,11 +346,13 @@ register_admin() {
         return 1
     fi
     
-    local mac=$(printf '%s\0%s\0%s\0%s' "$nonce" "$ADMIN_USER" "$ADMIN_PASS" "admin" | openssl dgst -sha256 -hmac "$ADMIN_SHARED_SECRET" -binary | base64 | tr -d '\n')
+    # 计算 HMAC-SHA256 (十六进制格式)
+    # 消息格式: nonce + \0 + username + \0 + password + \0 + admin\0\0\0
+    local mac=$(printf '%s\0%s\0%s\0admin\0\0\0' "$nonce" "$ADMIN_USER" "$ADMIN_PASS" | openssl dgst -sha256 -hmac "$ADMIN_SHARED_SECRET" | awk '{print $NF}')
     
     local register_data="{\"nonce\":\"$nonce\",\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\",\"admin\":true,\"mac\":\"$mac\"}"
     
-    http_json_with_retry POST "$nonce_url" "" "$register_data"
+    http_json_with_retry POST "$register_url" "" "$register_data"
     local duration=$(end_test_timer)
     
     if [[ "$HTTP_STATUS" == 2* ]]; then
@@ -408,15 +416,17 @@ ensure_test_user() {
     fi
     
     if [ -n "$ADMIN_SHARED_SECRET" ]; then
-        local nonce_url="$SERVER_URL/_synapse/admin/v1/register"
+        local nonce_url="$SERVER_URL/_synapse/admin/v1/register/nonce"
+        local register_url="$SERVER_URL/_synapse/admin/v1/register"
         http_json_with_retry GET "$nonce_url" ""
         
         if [[ "$HTTP_STATUS" == 2* ]]; then
             local nonce=$(json_get "$HTTP_BODY" "nonce")
-            local mac=$(printf '%s\0%s\0%s\0%s' "$nonce" "$TEST_USER" "$TEST_PASS" "false" | openssl dgst -sha256 -hmac "$ADMIN_SHARED_SECRET" -binary | base64 | tr -d '\n')
+            # 计算 HMAC-SHA256 (十六进制格式)
+            local mac=$(printf '%s\0%s\0%s\0notadmin' "$nonce" "$TEST_USER" "$TEST_PASS" | openssl dgst -sha256 -hmac "$ADMIN_SHARED_SECRET" | awk '{print $NF}')
             
             start_test_timer
-            http_json_with_retry POST "$nonce_url" "" "{\"nonce\":\"$nonce\",\"username\":\"$TEST_USER\",\"password\":\"$TEST_PASS\",\"admin\":false,\"mac\":\"$mac\"}"
+            http_json_with_retry POST "$register_url" "" "{\"nonce\":\"$nonce\",\"username\":\"$TEST_USER\",\"password\":\"$TEST_PASS\",\"admin\":false,\"mac\":\"$mac\"}"
             local duration=$(end_test_timer)
             
             if [[ "$HTTP_STATUS" == 2* ]]; then
@@ -471,7 +481,8 @@ run_original_tests() {
 
 # 汇总结果
 finalize() {
-    local end_time=$(date +%s%3N)
+    local end_time
+    end_time=$(get_now_ms)
     local total_duration=$(( (end_time - START_TIME) / 1000 ))
     
     echo ""

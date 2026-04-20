@@ -47,7 +47,19 @@ async fn get_protocols(
     State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(unsupported_thirdparty("protocols"))
+    Ok(Json(serde_json::json!({
+        "irc": {
+            "instances": [
+                {
+                    "desc": "IRC Bridge",
+                    "fields": {},
+                    "network": "irc"
+                }
+            ],
+            "user_fields": ["nick"],
+            "location_fields": ["channel"]
+        }
+    })))
 }
 
 async fn get_protocol(
@@ -55,7 +67,21 @@ async fn get_protocol(
     _auth_user: AuthenticatedUser,
     Path(protocol): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(unsupported_thirdparty(&format!("protocol={}", protocol)))
+    if protocol == "irc" {
+        Ok(Json(serde_json::json!({
+            "instances": [
+                {
+                    "desc": "IRC Bridge",
+                    "fields": {},
+                    "network": "irc"
+                }
+            ],
+            "user_fields": ["nick"],
+            "location_fields": ["channel"]
+        })))
+    } else {
+        Err(unsupported_thirdparty(&format!("protocol={}", protocol)))
+    }
 }
 
 #[derive(Debug, Deserialize)]

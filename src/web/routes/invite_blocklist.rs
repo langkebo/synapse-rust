@@ -37,10 +37,10 @@ async fn ensure_invite_list_manage_access(
 
     let is_admin = state
         .services
-        .room_service
-        .is_room_creator(room_id, &auth_user.user_id)
+        .auth_service
+        .verify_room_admin(room_id, &auth_user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check admin: {}", e)))?;
+        .is_ok();
 
     if !is_admin {
         return Err(ApiError::forbidden(

@@ -1378,11 +1378,11 @@ impl RedisConfig {
     pub fn connection_url(&self) -> String {
         if let Some(password) = &self.password {
             if !password.is_empty() {
-                return format!("redis://:{}@{}:{}", password, self.host, self.port);
+                return format!("redis://:{}@{}:{}/", password, self.host, self.port);
             }
         }
 
-        format!("redis://{}:{}", self.host, self.port)
+        format!("redis://{}:{}/", self.host, self.port)
     }
 }
 
@@ -2050,6 +2050,12 @@ impl Config {
         self.database.name = resolve_env_in_string(&self.database.name)?;
 
         self.redis.host = resolve_env_in_string(&self.redis.host)?;
+        self.redis.password = self
+            .redis
+            .password
+            .take()
+            .map(|v| resolve_env_in_string(&v))
+            .transpose()?;
         self.redis.key_prefix = resolve_env_in_string(&self.redis.key_prefix)?;
 
         self.logging.level = resolve_env_in_string(&self.logging.level)?;
@@ -2598,7 +2604,7 @@ mod tests {
         };
 
         let url = config.redis_url();
-        assert_eq!(url, "redis://:secret@redis.example.com:6380");
+        assert_eq!(url, "redis://:secret@redis.example.com:6380/");
     }
 
     #[test]
@@ -2677,6 +2683,171 @@ mod tests {
         assert_eq!(config.connection_timeout_ms, 500);
         assert_eq!(config.command_timeout_ms, 500);
         assert!(config.circuit_breaker.enabled);
+        assert_eq!(config.connection_url(), "redis://127.0.0.1:6379/");
+    }
+
+    #[test]
+    fn test_redis_config_connection_url_with_password() {
+        let config = RedisConfig {
+            host: "redis".to_string(),
+            port: 6379,
+            password: Some("secret".to_string()),
+            key_prefix: "synapse:".to_string(),
+            pool_size: 16,
+            enabled: true,
+            connection_timeout_ms: 500,
+            command_timeout_ms: 500,
+            circuit_breaker: CircuitBreakerConfig::default(),
+        };
+
+        assert_eq!(config.connection_url(), "redis://:secret@redis:6379/");
+    }
+
+    #[test]
+    fn test_resolve_env_variables_resolves_redis_password() {
+        unsafe {
+            std::env::set_var("TEST_REDIS_PASSWORD", "resolved-secret");
+        }
+
+        let mut config = Config {
+            server: ServerConfig {
+                name: "test".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 8000,
+                public_baseurl: None,
+                signing_key_path: None,
+                macaroon_secret_key: None,
+                form_secret: None,
+                server_name: None,
+                suppress_key_server_warning: false,
+                serve_server_wellknown: false,
+                soft_file_limit: 0,
+                user_agent_suffix: None,
+                web_client_location: None,
+                registration_shared_secret: None,
+                admin_contact: None,
+                max_upload_size: 1000000,
+                max_image_resolution: 1000000,
+                enable_registration: true,
+                enable_registration_captcha: false,
+                background_tasks_interval: 60,
+                expire_access_token: true,
+                expire_access_token_lifetime: 3600,
+                refresh_token_lifetime: 604800,
+                refresh_token_sliding_window_size: 1000,
+                session_duration: 86400,
+                warmup_pool: true,
+            },
+            database: DatabaseConfig {
+                host: "localhost".to_string(),
+                port: 5432,
+                username: "testuser".to_string(),
+                password: "testpass".to_string(),
+                name: "testdb".to_string(),
+                pool_size: 10,
+                max_size: 20,
+                min_idle: Some(5),
+                connection_timeout: 30,
+            },
+            redis: RedisConfig {
+                host: "localhost".to_string(),
+                port: 6379,
+                password: Some("${TEST_REDIS_PASSWORD:?missing}".to_string()),
+                key_prefix: "test:".to_string(),
+                pool_size: 10,
+                enabled: true,
+                connection_timeout_ms: 500,
+                command_timeout_ms: 500,
+                circuit_breaker: CircuitBreakerConfig::default(),
+            },
+            logging: LoggingConfig {
+                level: "info".to_string(),
+                format: "json".to_string(),
+                log_file: None,
+                log_dir: None,
+            },
+            federation: FederationConfig {
+                enabled: true,
+                allow_ingress: false,
+                server_name: "test.example.com".to_string(),
+                federation_port: 8448,
+                connection_pool_size: 10,
+                max_transaction_payload: 50000,
+                ca_file: None,
+                client_ca_file: None,
+                signing_key: Some("test_signing_key".to_string()),
+                key_id: Some("ed25519:test_key".to_string()),
+                trusted_key_servers: vec![],
+                key_refresh_interval: 86400,
+                suppress_key_server_warning: false,
+                signature_cache_ttl: 3600,
+                key_cache_ttl: 3600,
+                key_rotation_grace_period_ms: 600000,
+                key_fetch_max_concurrency: 32,
+                key_fetch_timeout_ms: 5000,
+                process_inbound_edus: false,
+                inbound_edus_max_per_txn: 100,
+                inbound_edu_max_concurrency: 8,
+                inbound_edu_acquire_timeout_ms: 250,
+                inbound_edu_per_origin_max_concurrency: 2,
+                process_inbound_presence_edus: false,
+                inbound_presence_updates_max_per_txn: 50,
+                inbound_presence_backoff_ms: 3000,
+                join_max_concurrency: 16,
+                join_acquire_timeout_ms: 750,
+            },
+            security: SecurityConfig {
+                secret: "test_secret".to_string(),
+                expiry_time: 3600,
+                refresh_token_expiry: 604800,
+                argon2_m_cost: 4096,
+                argon2_t_cost: 3,
+                argon2_p_cost: 1,
+                allow_legacy_hashes: false,
+                login_failure_lockout_threshold: 5,
+                login_lockout_duration_seconds: 900,
+                admin_mfa_required: false,
+                admin_mfa_shared_secret: String::new(),
+                admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
+                admin_rbac_enabled: default_admin_rbac_enabled(),
+            },
+            search: SearchConfig {
+                elasticsearch_url: "http://localhost:9200".to_string(),
+                enabled: false,
+                postgres_fts: PostgresFtsConfig::default(),
+                provider: "elasticsearch".to_string(),
+            },
+            rate_limit: RateLimitConfig::default(),
+            admin_registration: AdminRegistrationConfig::default(),
+            worker: WorkerConfig::default(),
+            cors: CorsConfig {
+                allowed_origins: vec!["*".to_string()],
+                allow_credentials: false,
+                allowed_methods: default_allowed_methods(),
+                allowed_headers: default_allowed_headers(),
+                max_age_seconds: default_cors_max_age(),
+            },
+            smtp: SmtpConfig::default(),
+            voip: VoipConfig::default(),
+            push: PushConfig::default(),
+            url_preview: UrlPreviewConfig::default(),
+            oidc: OidcConfig::default(),
+            builtin_oidc: BuiltinOidcConfig::default(),
+            saml: SamlConfig::default(),
+            retention: RetentionConfig::default(),
+            telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
+            prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
+            performance: PerformanceConfig::default(),
+            experimental: ExperimentalConfig::default(),
+        };
+
+        config.resolve_env_variables().unwrap();
+
+        assert_eq!(config.redis.password.as_deref(), Some("resolved-secret"));
+
+        unsafe {
+            std::env::remove_var("TEST_REDIS_PASSWORD");
+        }
     }
 
     #[test]

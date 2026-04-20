@@ -307,6 +307,10 @@ apply_pending_migrations() {
     baseline_file="$(latest_baseline_file)"
     local pending=0
 
+    local migration_list
+    migration_list="$(mktemp "${TMPDIR:-/tmp}/db_migrate.XXXXXX")"
+    find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' | sort > "$migration_list"
+
     while IFS= read -r file; do
         local filename
         filename="$(basename "$file")"
@@ -322,7 +326,9 @@ apply_pending_migrations() {
 
         pending=$((pending + 1))
         apply_sql_file "$file"
-    done < <(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' | sort)
+    done < "$migration_list"
+
+    rm -f "$migration_list"
 
     if [ "$pending" -eq 0 ]; then
         log_success "没有待处理的迁移"
