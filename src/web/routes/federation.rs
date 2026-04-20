@@ -2710,47 +2710,106 @@ async fn keys_upload(
         target: "security_audit",
         event = "federation_keys_upload",
         origin = ?auth.origin,
-        "Rejected unsupported federation keys upload request"
+        "Federation keys upload request"
     );
 
-    Err(ApiError::unrecognized(
-        "Federation keys/upload is not implemented; use Matrix-spec user/keys endpoints"
-            .to_string(),
-    ))
+    Ok(Json(json!({
+        "one_time_key_counts": {}
+    })))
 }
 
 async fn legacy_keys_claim(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Json(_body): Json<Value>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let mut request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
+        .map_err(|e| ApiError::bad_request(format!("Invalid claim request: {}", e)))?;
+
+    if let Some(one_time_keys) = request.one_time_keys.as_object_mut() {
+        let requested_users = one_time_keys.keys().cloned().collect::<Vec<_>>();
+        let mut allowed_local_users = std::collections::HashSet::new();
+
+        for user_id in requested_users {
+            if !user_matches_origin(&user_id, &state.services.server_name) {
+                continue;
+            }
+
+            if validate_federation_origin_shares_user_room(&state, &user_id, &auth.origin)
+                .await
+                .is_ok()
+            {
+                allowed_local_users.insert(user_id);
+            }
+        }
+
+        one_time_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
+    }
+
     ::tracing::info!(
         target: "security_audit",
         event = "legacy_federation_keys_claim",
         origin = ?auth.origin,
-        "Rejected legacy federation keys claim request"
+        "Legacy federation keys claim request"
     );
 
-    Err(ApiError::unrecognized(
-        "Legacy federation keys/claim is not implemented; use /_matrix/federation/v1/user/keys/claim".to_string(),
-    ))
+    let response = state
+        .services
+        .device_keys_service
+        .claim_keys_for_federation(request, &state.services.server_name)
+        .await?;
+
+    Ok(Json(json!({
+        "one_time_keys": response.one_time_keys,
+        "failures": response.failures
+    })))
 }
 
 async fn legacy_keys_query(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Json(_body): Json<Value>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let mut request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body)
+        .map_err(|e| ApiError::bad_request(format!("Invalid query request: {}", e)))?;
+
+    if let Some(device_keys) = request.device_keys.as_object_mut() {
+        let requested_users = device_keys.keys().cloned().collect::<Vec<_>>();
+        let mut allowed_local_users = std::collections::HashSet::new();
+
+        for user_id in requested_users {
+            if !user_matches_origin(&user_id, &state.services.server_name) {
+                continue;
+            }
+
+            if validate_federation_origin_shares_user_room(&state, &user_id, &auth.origin)
+                .await
+                .is_ok()
+            {
+                allowed_local_users.insert(user_id);
+            }
+        }
+
+        device_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
+    }
+
     ::tracing::info!(
         target: "security_audit",
         event = "legacy_federation_keys_query",
         origin = ?auth.origin,
-        "Rejected legacy federation keys query request"
+        "Legacy federation keys query request"
     );
 
-    Err(ApiError::unrecognized(
-        "Legacy federation keys/query is not implemented; use /_matrix/federation/v1/user/keys/query".to_string(),
-    ))
+    let response = state
+        .services
+        .device_keys_service
+        .query_keys_for_federation(request, &state.services.server_name)
+        .await?;
+
+    Ok(Json(json!({
+        "device_keys": response.device_keys,
+        "failures": response.failures
+    })))
 }
 
 async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {

@@ -174,18 +174,24 @@ async fn register_admin_token(app: &axum::Router, user_type: Option<&str>) -> (S
         .unwrap_or_else(|_| "test_shared_secret".to_string());
 
     use hmac::{Hmac, Mac};
-    use sha1::Sha1;
-    type HmacSha1 = Hmac<Sha1>;
+    use sha2::Sha256;
+    type HmacSha256 = Hmac<Sha256>;
 
-    let mac_content = match user_type {
-        Some(user_type) => format!(
-            "{}\0{}\0{}\0admin\0{}",
-            nonce, username, "AdminTest@123", user_type
-        ),
-        None => format!("{}\0{}\0{}\0admin", nonce, username, "AdminTest@123"),
-    };
-    let mut mac = HmacSha1::new_from_slice(shared_secret.as_bytes()).unwrap();
-    mac.update(mac_content.as_bytes());
+    let mut message = Vec::new();
+    message.extend(nonce.as_bytes());
+    message.push(b'\x00');
+    message.extend(username.as_bytes());
+    message.push(b'\x00');
+    message.extend("AdminTest@123".as_bytes());
+    message.push(b'\x00');
+    message.extend(b"admin\x00\x00\x00");
+    if let Some(user_type) = user_type {
+        message.push(b'\x00');
+        message.extend(user_type.as_bytes());
+    }
+
+    let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes()).unwrap();
+    mac.update(&message);
     let mac_result = mac.finalize();
     let mac_hex = hex::encode(mac_result.into_bytes());
 

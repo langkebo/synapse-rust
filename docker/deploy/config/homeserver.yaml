@@ -10,7 +10,7 @@ server:
   registration_shared_secret: "${REGISTRATION_SHARED_SECRET:?REGISTRATION_SHARED_SECRET is required}"
   max_upload_size: 104857600
   max_image_resolution: 16000000
-  enable_registration: false
+  enable_registration: true
   enable_registration_captcha: false
   background_tasks_interval: 300
   expire_access_token: true
@@ -72,7 +72,7 @@ security:
   login_lockout_duration_seconds: 300
 
 registration:
-  enabled: false
+  enabled: true
   enable_registration_captcha: false
   session_duration: 86400000
 

@@ -1,0 +1,1 @@
+Rust Synapse Version	SECURITY VULNERABILITY: Unexpected success for role user (requires super_admin)

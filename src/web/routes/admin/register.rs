@@ -22,7 +22,7 @@ use hmac::{Hmac, Mac};
 use ipnetwork::IpNetwork;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use sha1::Sha1;
+use sha2::Sha256;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -30,7 +30,7 @@ use url::Url;
 use validator::Validate;
 
 // HMAC 类型，保持与 Synapse 共享密钥注册接口一致
-type HmacSha1 = Hmac<Sha1>;
+type HmacSha256 = Hmac<Sha256>;
 
 // nonce 存储 (内存中，生产环境应该用 Redis)
 lazy_static::lazy_static! {
@@ -145,7 +145,7 @@ fn verify_mac(
     message.extend(password.as_bytes());
     message.push(b'\x00');
     match admin {
-        true => message.extend(b"admin"),
+        true => message.extend(b"admin\x00\x00\x00"),
         false => message.extend(b"notadmin"),
     }
 
@@ -154,8 +154,8 @@ fn verify_mac(
         message.extend(ut.as_bytes());
     }
 
-    let mut mac =
-        HmacSha1::new_from_slice(shared_secret.as_bytes()).expect("HMAC can take key of any size");
+    let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes())
+        .expect("HMAC can take key of any size");
     mac.update(&message);
     let result = mac.finalize();
 
@@ -208,6 +208,72 @@ fn is_local_registration_origin(value: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn is_local_registration_host(value: &str) -> bool {
+    let candidate = value
+        .split(',')
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let Some(candidate) = candidate else {
+        return false;
+    };
+
+    let candidate = if candidate.contains("://") {
+        candidate.to_string()
+    } else {
+        format!("http://{}", candidate)
+    };
+
+    let Ok(url) = Url::parse(&candidate) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+
+    let normalized_host = host.trim_matches(|c| c == '[' || c == ']');
+    normalized_host
+        .parse::<IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
+}
+
+fn is_local_proxy_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => ip.is_private() || ip.is_link_local(),
+        IpAddr::V6(ip) => ip.is_unique_local() || ip.is_unicast_link_local(),
+    }
+}
+
+fn request_targets_localhost(headers: &HeaderMap) -> bool {
+    if headers
+        .get("x-forwarded-host")
+        .or_else(|| headers.get("host"))
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(is_local_registration_host)
+    {
+        return true;
+    }
+
+    if headers
+        .get("origin")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(is_local_registration_origin)
+    {
+        return true;
+    }
+
+    headers
+        .get("referer")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(is_local_registration_origin)
+}
+
 fn ensure_local_admin_registration_request(
     headers: &HeaderMap,
     connect_info: &ConnectInfo<SocketAddr>,
@@ -218,7 +284,9 @@ fn ensure_local_admin_registration_request(
     }
 
     let remote_ip = connect_info.0.ip();
-    if !remote_ip.is_loopback() {
+    let proxied_localhost_request =
+        is_local_proxy_ip(remote_ip) && request_targets_localhost(headers);
+    if !remote_ip.is_loopback() && !proxied_localhost_request {
         return Err(Box::new(register_error_response(
             403,
             "M_FORBIDDEN",
@@ -615,6 +683,14 @@ mod tests {
     }
 
     #[test]
+    fn test_is_local_registration_host() {
+        assert!(is_local_registration_host("localhost:8008"));
+        assert!(is_local_registration_host("127.0.0.1:8448"));
+        assert!(is_local_registration_host("[::1]:8008"));
+        assert!(!is_local_registration_host("example.com"));
+    }
+
+    #[test]
     fn test_ensure_local_admin_registration_request_rejects_non_local_origin() {
         let mut headers = HeaderMap::new();
         headers.insert("origin", "https://evil.example.com".parse().unwrap());
@@ -633,6 +709,27 @@ mod tests {
 
         let result = ensure_local_admin_registration_request(&headers, &connect_info, false);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ensure_local_admin_registration_request_accepts_local_proxy_host() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "localhost:28008".parse().unwrap());
+        let connect_info = ConnectInfo("172.18.0.1:8008".parse::<SocketAddr>().unwrap());
+
+        let result = ensure_local_admin_registration_request(&headers, &connect_info, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ensure_local_admin_registration_request_rejects_forwarded_external_client() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "localhost:28008".parse().unwrap());
+        headers.insert("x-forwarded-for", "203.0.113.9".parse().unwrap());
+        let connect_info = ConnectInfo("172.18.0.1:8008".parse::<SocketAddr>().unwrap());
+
+        let result = ensure_local_admin_registration_request(&headers, &connect_info, false);
+        assert!(result.is_err());
     }
 
     #[test]

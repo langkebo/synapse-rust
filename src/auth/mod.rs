@@ -1440,6 +1440,25 @@ impl AuthService {
         Ok(())
     }
 
+    pub async fn verify_room_admin(
+        &self,
+        room_id: &str,
+        user_id: &str,
+    ) -> ApiResult<()> {
+        let power_level = self.get_user_power_level(room_id, user_id).await?;
+
+        // 默认 admin 需要 100，除非 power_levels 中有特殊定义
+        let required_level = 100;
+
+        if power_level < required_level {
+            return Err(ApiError::forbidden(
+                "Room admin permission required".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     pub async fn can_kick_user(
         &self,
         room_id: &str,

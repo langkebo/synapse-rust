@@ -7,6 +7,17 @@ use axum::{
 };
 use serde_json::Value;
 
+struct SyncParams<'a> {
+    state: AppState,
+    user_id: String,
+    device_id: Option<String>,
+    timeout: u64,
+    full_state: bool,
+    set_presence: &'a str,
+    filter: Option<&'a str>,
+    since: Option<&'a str>,
+}
+
 pub(crate) async fn sync(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -77,24 +88,17 @@ pub(crate) async fn sync(
                         error = %error,
                         "Sync rate limiter failed; allowing request"
                     );
+                    crate::cache::RateLimitDecision {
+                        allowed: true,
+                        retry_after_seconds: 0,
+                        remaining: burst_size,
+                    }
                 } else {
                     return Err(ApiError::internal(format!(
                         "Sync rate limit failed: {}",
                         error
                     )));
                 }
-                // Allow the request to proceed when the rate limit backend is unavailable.
-                return execute_sync(
-                    state,
-                    user_id,
-                    device_id,
-                    timeout,
-                    full_state,
-                    set_presence,
-                    filter,
-                    since,
-                )
-                .await;
             }
         };
         if !decision.allowed {
@@ -103,7 +107,7 @@ pub(crate) async fn sync(
         }
     }
 
-    execute_sync(
+    execute_sync(SyncParams {
         state,
         user_id,
         device_id,
@@ -112,33 +116,25 @@ pub(crate) async fn sync(
         set_presence,
         filter,
         since,
-    )
+    })
     .await
 }
 
-async fn execute_sync(
-    state: AppState,
-    user_id: String,
-    device_id: Option<String>,
-    timeout: u64,
-    full_state: bool,
-    set_presence: &str,
-    filter: Option<&str>,
-    since: Option<&str>,
-) -> Result<Json<Value>, ApiError> {
+async fn execute_sync(params: SyncParams<'_>) -> Result<Json<Value>, ApiError> {
     let sync_result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
-        state
+        params
+            .state
             .services
             .sync_service
             .sync_with_request(SyncServiceRequest {
-                user_id: &user_id,
-                device_id: device_id.as_deref(),
-                timeout,
-                full_state,
-                set_presence,
-                filter_id: filter,
-                since,
+                user_id: &params.user_id,
+                device_id: params.device_id.as_deref(),
+                timeout: params.timeout,
+                full_state: params.full_state,
+                set_presence: params.set_presence,
+                filter_id: params.filter,
+                since: params.since,
             }),
     )
     .await;
@@ -146,11 +142,11 @@ async fn execute_sync(
     match sync_result {
         Ok(Ok(result)) => Ok(Json(result)),
         Ok(Err(e)) => {
-            ::tracing::error!("Sync error for user {}: {}", user_id, e);
+            ::tracing::error!("Sync error for user {}: {}", params.user_id, e);
             Err(e)
         }
         Err(_) => {
-            ::tracing::error!("Sync timeout for user {}", user_id);
+            ::tracing::error!("Sync timeout for user {}", params.user_id);
             Err(ApiError::internal("Sync operation timed out".to_string()))
         }
     }

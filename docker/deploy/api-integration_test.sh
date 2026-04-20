@@ -39,6 +39,7 @@ CURRENT_TEST_PASS="$TEST_PASS"
 ADMIN_USER="${ADMIN_USER:-admin}"
 ADMIN_PASS="${ADMIN_PASS:-Admin@123}"
 ADMIN_USER_TYPE="${ADMIN_USER_TYPE:-super_admin}"
+TEST_ROLE="${TEST_ROLE:-super_admin}"
 ADMIN_SHARED_SECRET="${ADMIN_SHARED_SECRET:-change-me-admin-shared-secret}"
 DB_CONTAINER="${DB_CONTAINER:-${COMPOSE_PROJECT_NAME:-synapse}-postgres}"
 DB_USER="${DB_USER:-postgres}"
@@ -48,8 +49,78 @@ PASSED_LIST_FILE="$RESULTS_DIR/api-integration.passed.txt"
 FAILED_LIST_FILE="$RESULTS_DIR/api-integration.failed.txt"
 SKIPPED_LIST_FILE="$RESULTS_DIR/api-integration.skipped.txt"
 MISSING_LIST_FILE="$RESULTS_DIR/api-integration.missing.txt"
+RESPONSES_JSONL_FILE="$RESULTS_DIR/api-integration.responses.jsonl"
 HTTP_CONNECT_TIMEOUT="${HTTP_CONNECT_TIMEOUT:-5}"
 HTTP_MAX_TIME="${HTTP_MAX_TIME:-20}"
+CASE_HTTP_CAPTURE_ACTIVE=0
+HTTP_REQUEST_METHOD=""
+HTTP_REQUEST_URL=""
+
+reset_http_capture() {
+    CASE_HTTP_CAPTURE_ACTIVE=0
+    HTTP_REQUEST_METHOD=""
+    HTTP_REQUEST_URL=""
+}
+
+compact_body_excerpt() {
+    python3 - "$1" <<'PY' 2>/dev/null
+import json
+import sys
+
+raw = sys.argv[1] if len(sys.argv) > 1 else ""
+if not raw:
+    print("")
+    raise SystemExit(0)
+
+try:
+    value = json.loads(raw)
+    text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+except Exception:
+    text = raw.replace("\n", "\\n")
+
+limit = 1200
+if len(text) > limit:
+    text = text[:limit] + "...(truncated)"
+print(text)
+PY
+}
+
+record_case_result() {
+    local name="$1"
+    local outcome="$2"
+    local reason="${3:-}"
+    local status=""
+    local method=""
+    local url=""
+    local body_excerpt=""
+
+    if [ "${CASE_HTTP_CAPTURE_ACTIVE:-0}" -eq 1 ]; then
+        status="${HTTP_STATUS:-}"
+        method="${HTTP_REQUEST_METHOD:-}"
+        url="${HTTP_REQUEST_URL:-}"
+        body_excerpt="$(compact_body_excerpt "${HTTP_BODY:-}")"
+    fi
+
+    python3 - "$RESPONSES_JSONL_FILE" "$TEST_ROLE" "$name" "$outcome" "$reason" "$status" "$method" "$url" "$body_excerpt" <<'PY' 2>/dev/null || true
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+record = {
+    "role": sys.argv[2],
+    "case": sys.argv[3],
+    "outcome": sys.argv[4],
+    "reason": sys.argv[5],
+    "http_status": sys.argv[6],
+    "http_method": sys.argv[7],
+    "url": sys.argv[8],
+    "body_excerpt": sys.argv[9],
+}
+with path.open("a", encoding="utf-8") as fh:
+    fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+PY
+}
 
 curl() {
     command curl --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" "$@"
@@ -77,6 +148,9 @@ http_json_extra_header() {
     local auth_token="${3:-}"
     local extra_header="${4:-}"
     local data="${5:-}"
+    CASE_HTTP_CAPTURE_ACTIVE=1
+    HTTP_REQUEST_METHOD="$method"
+    HTTP_REQUEST_URL="$url"
     local tmp
     tmp=$(mktemp)
     local args=(-s -X "$method" "$url")
@@ -89,7 +163,7 @@ http_json_extra_header() {
     if [ -n "$data" ]; then
         args+=(-H "Content-Type: application/json" -d "$data")
     fi
-    HTTP_STATUS=$(curl "${args[@]}" -o "$tmp" -w "%{http_code}")
+    HTTP_STATUS=$(curl --connect-timeout 10 --max-time 30 "${args[@]}" -o "$tmp" -w "%{http_code}")
     HTTP_BODY=$(cat "$tmp")
     rm -f "$tmp"
 }
@@ -163,15 +237,28 @@ mkdir -p "$RESULTS_DIR"
 : > "$FAILED_LIST_FILE"
 : > "$SKIPPED_LIST_FILE"
 : > "$MISSING_LIST_FILE"
+: > "$RESPONSES_JSONL_FILE"
 
 pass() {
     local name="$1"
     local reason="${2:-}"
+    
+    # 权限检查：如果该用例需要更高权限但当前角色通过了，且不是预期的拒绝，则记录风险
+    local required
+    required=$(required_role_for_case "$name")
+    if [ -n "$required" ] && ! role_satisfies_requirement "$required" && [ -z "$reason" ]; then
+        # 如果没有 reason 说明是真正的成功，这在普通用户角色下是垂直越权
+        fail "$name" "SECURITY VULNERABILITY: Unexpected success for role $TEST_ROLE (requires $required)"
+        return
+    fi
+
+    record_case_result "$name" "pass" "$reason"
+    reset_http_capture
     if [ -n "$reason" ]; then
-        echo "✓ PASS: $name - $reason"
+        echo -e "\033[0;32m✓ PASS: $name - $reason\033[0m"
         printf '%s\t%s\n' "$name" "$reason" >> "$PASSED_LIST_FILE"
     else
-        echo "✓ PASS: $name"
+        echo -e "\033[0;32m✓ PASS: $name\033[0m"
         printf '%s\n' "$name" >> "$PASSED_LIST_FILE"
     fi
     ((PASSED++)) || true
@@ -179,20 +266,65 @@ pass() {
 
 fail() {
     local name="$1"
-    local reason="${2:-}"
+    local reason="${2:-${ASSERT_ERROR:-}}"
+    
+    # 记录原始 HTTP 状态以供分析
+    local current_status="${HTTP_STATUS:-}"
+
+    if is_expected_admin_denial "$name" "$reason"; then
+        pass "$name" "access denied as expected for role $TEST_ROLE"
+        return
+    fi
+    
+    # 如果是安全漏洞，使用红色高亮
+    if [[ "$reason" == *"SECURITY VULNERABILITY"* ]]; then
+        echo -e "\033[0;41m\033[1;37m!!! $reason !!!\033[0m"
+    fi
+
+    record_case_result "$name" "fail" "$reason"
+    reset_http_capture
     if [ -n "$reason" ]; then
-        echo "✗ FAIL: $name - $reason"
+        echo -e "\033[0;31m✗ FAIL: $name - $reason\033[0m"
         printf '%s\t%s\n' "$name" "$reason" >> "$FAILED_LIST_FILE"
     else
-        echo "✗ FAIL: $name"
+        echo -e "\033[0;31m✗ FAIL: $name\033[0m"
         printf '%s\n' "$name" >> "$FAILED_LIST_FILE"
     fi
     ((FAILED++)) || true
 }
 
+# 增强型 HTTP JSON 断言
+# 用法: assert_http_json "用例名" "METHOD" "URL" "TOKEN" "DATA" "EXPECTED_STATUS"
+assert_http_json() {
+    local name="$1"
+    local method="$2"
+    local url="$3"
+    local token="${4:-}"
+    local data="${5:-}"
+    local expected_status="${6:-200}"
+
+    http_json "$method" "$url" "$token" "$data"
+    
+    if [ "$HTTP_STATUS" = "$expected_status" ]; then
+        pass "$name"
+        return 0
+    else
+        # 检查是否是预期的权限拒绝
+        if is_expected_admin_denial "$name" "HTTP $HTTP_STATUS"; then
+             pass "$name" "access denied as expected for role $TEST_ROLE"
+             return 0
+        fi
+        
+        fail "$name" "Expected HTTP $expected_status but got $HTTP_STATUS (Body: ${HTTP_BODY:-empty})"
+        return 1
+    fi
+}
+
 missing() {
     local name="$1"
     local reason="${2:-}"
+    record_case_result "$name" "missing" "$reason"
+    reset_http_capture
     if [ -n "$reason" ]; then
         echo "! MISSING: $name - $reason"
         printf '%s\t%s\n' "$name" "$reason" >> "$MISSING_LIST_FILE"
@@ -302,6 +434,12 @@ skip() {
         fi
         return 0
     fi
+    if is_expected_admin_denial "$name" "$reason"; then
+        pass "$name" "access denied as expected for role $TEST_ROLE"
+        return 0
+    fi
+    record_case_result "$name" "skip" "$reason"
+    reset_http_capture
     if [ -n "$reason" ]; then
         echo "⊘ SKIP: $name - $reason"
         printf '%s\t%s\n' "$name" "$reason" >> "$SKIPPED_LIST_FILE"
@@ -340,6 +478,9 @@ http_json() {
     local url="$2"
     local auth_token="${3:-}"
     local data="${4:-}"
+    CASE_HTTP_CAPTURE_ACTIVE=1
+    HTTP_REQUEST_METHOD="$method"
+    HTTP_REQUEST_URL="$url"
     local tmp
     tmp=$(mktemp)
     local args=(-s -X "$method" "$url")
@@ -515,6 +656,9 @@ federation_http_json() {
     local method="$2"
     local url="$3"
     local data="${4:-}"
+    CASE_HTTP_CAPTURE_ACTIVE=1
+    HTTP_REQUEST_METHOD="$method"
+    HTTP_REQUEST_URL="$url"
 
     if ! federation_prepare_signing; then
         if [ "${FEDERATION_SIGNING_BATCH_SKIPPED:-0}" = "1" ]; then
@@ -719,6 +863,178 @@ admin_ready() {
     [ "$ADMIN_AUTH_AVAILABLE" -eq 1 ] && [ -n "$ADMIN_TOKEN" ]
 }
 
+verify_admin_token_role() {
+    local required_role="$1"
+    local admin_user_id_enc
+
+    if [ -z "${ADMIN_TOKEN:-}" ] || [ -z "${ADMIN_USER_ID:-}" ]; then
+        return 1
+    fi
+
+    admin_user_id_enc=$(url_encode "$ADMIN_USER_ID")
+    http_json GET "$SERVER_URL/_synapse/admin/v1/users/$admin_user_id_enc" "$ADMIN_TOKEN"
+    if [[ "$HTTP_STATUS" != 2* ]]; then
+        return 1
+    fi
+
+    if [ "$required_role" = "super_admin" ]; then
+        [ "$(json_get "$HTTP_BODY" "user_type")" = "super_admin" ]
+    else
+        return 0
+    fi
+}
+
+try_password_admin_login() {
+    local username="$1"
+    local password="$2"
+    local required_role="$3"
+    local login_resp=""
+
+    [ -n "$username" ] || return 1
+    [ -n "$password" ] || return 1
+
+    login_resp=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/login" \
+        -H "Content-Type: application/json" \
+        -d "{\"type\": \"m.login.password\", \"user\": \"$(normalize_login_user "$username")\", \"password\": \"$password\"}")
+
+    ADMIN_TOKEN=$(json_get "$login_resp" "access_token")
+    ADMIN_USER_ID=$(json_get "$login_resp" "user_id")
+
+    if [ -z "$ADMIN_TOKEN" ] || [ -z "$ADMIN_USER_ID" ]; then
+        ADMIN_TOKEN=""
+        ADMIN_USER_ID=""
+        return 1
+    fi
+
+    if verify_admin_token_role "$required_role"; then
+        return 0
+    fi
+
+    ADMIN_TOKEN=""
+    ADMIN_USER_ID=""
+    return 1
+}
+
+restore_admin_session() {
+    local required_role="$1"
+
+    try_password_admin_login "$ADMIN_USER" "$ADMIN_PASS" "$required_role" && return 0
+
+    if [ "$required_role" = "super_admin" ]; then
+        try_password_admin_login "${SUPER_ADMIN_TEST_USER:-sec_super_admin}" "${SUPER_ADMIN_TEST_PASS:-Test@123}" "$required_role" && return 0
+    fi
+
+    return 1
+}
+
+required_role_for_case() {
+    local name="$1"
+    case "$name" in
+        "Admin Register")
+            echo ""
+            ;;
+        "Admin Federation Resolve"|\
+        "Admin Federation Rewrite"|\
+        "Admin Set User Admin"|\
+        "Admin Shutdown Room"|\
+        "Admin Federation Blacklist"|\
+        "Admin Add Federation Blacklist"|\
+        "Admin Remove Federation Blacklist"|\
+        "Admin Federation Cache Clear"|\
+        "Admin User Login"|\
+        "Admin User Logout"|\
+        "Admin Delete Devices"|\
+        "Server Notices"|\
+        "Admin Room Make Admin"|\
+        "Admin Purge History"|\
+        "Admin Reset Connection"|\
+        "Admin User Deactivate"|\
+        "Admin Deactivate"|\
+        "Deactivate User"|\
+        "Admin Delete User"|\
+        "Invalidate User Session"|\
+        "Admin Session Invalidate"|\
+        "Send Server Notice"|\
+        "Admin Send Server Notice"|\
+        "Rust Synapse Version"|\
+        "Admin Set Retention Policy"|\
+        "Admin Create Registration Token")
+            echo "super_admin"
+            ;;
+        "Admin "*|\
+        "List Registration Tokens"|\
+        "Get Active Registration Tokens"|\
+        "List Pushers"|\
+        "Get Pushers"|\
+        "List Background Updates"|\
+        "List Event Reports"|\
+        "List User Sessions"|\
+        "Get All Devices"|\
+        "Get Statistics"|\
+        "Get Media Quota"|\
+        "Evict User"|\
+        "Get Rate Limit"|\
+        "Get Registration Token"|\
+        "Get Room Count"|\
+        "Get Room Shares"|\
+        "Get Room Reports"|\
+        "Get User Count"|\
+        "Get Pending Joins"|\
+        "Room Forward Extremities"|\
+        "Check Auth"|\
+        "Get Version Info"|\
+        "Get Feature Flags"|\
+        "List App Services")
+            echo "admin"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+role_satisfies_requirement() {
+    local required="$1"
+    case "$TEST_ROLE" in
+        super_admin)
+            [ -n "$required" ]
+            ;;
+        admin)
+            [ "$required" = "admin" ]
+            ;;
+        user|normal_user|ordinary_user)
+            return 1
+            ;;
+        *)
+            [ "$required" = "super_admin" ]
+            ;;
+    esac
+}
+
+is_expected_admin_denial() {
+    local name="$1"
+    local reason="$2"
+    local required
+    required=$(required_role_for_case "$name")
+    if [ -z "$required" ]; then
+        return 1
+    fi
+
+    case "$reason" in
+        "HTTP 401"|"HTTP 403"|*M_FORBIDDEN*|*M_UNAUTHORIZED*)
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    if role_satisfies_requirement "$required"; then
+        return 1
+    fi
+
+    return 0
+}
+
 print_result_file() {
     local title="$1"
     local file_path="$2"
@@ -763,6 +1079,7 @@ finalize() {
     echo " - Failed list: $FAILED_LIST_FILE"
     echo " - Missing list: $MISSING_LIST_FILE"
     echo " - Skipped list: $SKIPPED_LIST_FILE"
+    echo " - Response evidence: $RESPONSES_JSONL_FILE"
     echo ""
 
     print_result_file "Failed Cases" "$FAILED_LIST_FILE"
@@ -795,7 +1112,7 @@ run_optional_profile() {
     echo "Admin Federation Rewrite"
     if admin_ready; then
         http_json POST "$SERVER_URL/_synapse/admin/v1/federation/rewrite" "$ADMIN_TOKEN" '{"from": "localhost", "to": "localhost"}'
-        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rewritten" && pass "Admin Federation Rewrite" || skip "Admin Federation Rewrite (requires federation destination data)"
+        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rewritten" && pass "Admin Federation Rewrite" || skip "Admin Federation Rewrite" "requires federation destination data"
     else
         skip "Admin Federation Rewrite" "admin authentication unavailable"
     fi
@@ -873,7 +1190,7 @@ echo "3. Authentication"
 echo "=========================================="
 LOGIN_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/login" \
     -H "Content-Type: application/json" \
-    -d "{\"type\": \"m.login.password\", \"user\": \"$TEST_USER\", \"password\": \"$CURRENT_TEST_PASS\"}")
+    -d "{\"type\": \"m.login.password\", \"user\": \"$TEST_USER\", \"password\": \"$CURRENT_TEST_PASS\", \"refresh_token\": true}")
 USER_ID=$(json_get "$LOGIN_RESP" "user_id")
 DEVICE_ID=$(json_get "$LOGIN_RESP" "device_id")
 TOKEN=$(json_get "$LOGIN_RESP" "access_token")
@@ -939,10 +1256,7 @@ if [ -z "$TOKEN" ]; then
     CURRENT_TEST_PASS="$TEST_PASS"
 
     if [ -n "$TOKEN" ]; then
-        echo "⊘ AUTO-RECOVERED: User recreated, setting admin flag..."
-        if destructive; then
-            db_sql "UPDATE users SET is_admin = true WHERE username = '$TEST_USER';"
-        fi
+        echo "⊘ AUTO-RECOVERED: User recreated without privilege escalation"
         pass "Login (User: $USER_ID) [AUTO-RECOVERED]"
     else
         fail "Login failed"
@@ -962,6 +1276,8 @@ else
     err=$(json_err_summary "$HTTP_BODY")
     if echo "$err" | grep -q "M_USER_IN_USE"; then
         pass "Ensure Second User ($TARGET_USER_ID)" "already exists"
+    elif echo "$err" | grep -q "Registration is disabled"; then
+        skip "Ensure Second User ($TARGET_USER_ID)" "registration disabled; using pre-provisioned account"
     else
         fail "Ensure Second User ($TARGET_USER_ID)" "${err:-HTTP $HTTP_STATUS}"
     fi
@@ -998,51 +1314,82 @@ echo "3.1 Admin Authentication"
 ADMIN_TOKEN=""
 ADMIN_USER_ID=""
 ADMIN_LOGIN_RESP=""
+ADMIN_REQUIRED_ROLE="admin"
 
-if [ -n "$ADMIN_SHARED_SECRET" ] && [ "$ADMIN_SHARED_SECRET" != "change-me-admin-shared-secret" ]; then
-    NONCE=$(curl -s "$SERVER_URL/_synapse/admin/v1/register/nonce" | python3 -c "import sys,json; print(json.load(sys.stdin).get('nonce',''))" 2>/dev/null || echo "")
-    if [ -n "$NONCE" ]; then
-        ADMIN_LOGIN_USER="${ADMIN_REG_USER:-admin_test_$(date +%s)_$$_$RANDOM}"
-        MAC=$(python3 -c "
+if [ "$TEST_ROLE" = "super_admin" ]; then
+    ADMIN_REQUIRED_ROLE="super_admin"
+fi
+
+case "$TEST_ROLE" in
+    user|normal_user|ordinary_user)
+        ADMIN_TOKEN="$TOKEN"
+        ADMIN_USER_ID="$USER_ID"
+        ;;
+    *)
+        if [ -n "$ADMIN_SHARED_SECRET" ] && [ "$ADMIN_SHARED_SECRET" != "change-me-admin-shared-secret" ]; then
+            NONCE=$(curl -s "$SERVER_URL/_synapse/admin/v1/register/nonce" | python3 -c "import sys,json; print(json.load(sys.stdin).get('nonce',''))" 2>/dev/null || echo "")
+            if [ -n "$NONCE" ]; then
+                ADMIN_LOGIN_USER="${ADMIN_REG_USER:-admin_test_$(date +%s)_$$_$RANDOM}"
+                MAC=$(python3 -c "
 import hmac, hashlib
 n='$NONCE'
 u='$ADMIN_LOGIN_USER'
 p='$ADMIN_PASS'
 t='$ADMIN_USER_TYPE'
-msg = n.encode() + b'\x00' + u.encode() + b'\x00' + p.encode() + b'\x00' + b'admin'
+msg = n.encode() + b'\x00' + u.encode() + b'\x00' + p.encode() + b'\x00' + b'admin\x00\x00\x00'
 if t:
     msg += b'\x00' + t.encode()
-print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha1).hexdigest())
+print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha256).hexdigest())
 " 2>/dev/null || echo "")
 
-        REGISTER_RESP=$(curl -s -X POST "$SERVER_URL/_synapse/admin/v1/register" \
-            -H "Content-Type: application/json" \
-            -d "{\"nonce\": \"$NONCE\", \"username\": \"$ADMIN_LOGIN_USER\", \"password\": \"$ADMIN_PASS\", \"admin\": true, \"user_type\": \"$ADMIN_USER_TYPE\", \"displayname\": \"System Administrator\", \"mac\": \"$MAC\"}")
+                REGISTER_RESP=$(curl -s -X POST "$SERVER_URL/_synapse/admin/v1/register" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"nonce\": \"$NONCE\", \"username\": \"$ADMIN_LOGIN_USER\", \"password\": \"$ADMIN_PASS\", \"admin\": true, \"user_type\": \"$ADMIN_USER_TYPE\", \"displayname\": \"System Administrator\", \"mac\": \"$MAC\"}")
 
-        ADMIN_TOKEN=$(json_get "$REGISTER_RESP" "access_token")
-        ADMIN_USER_ID=$(json_get "$REGISTER_RESP" "user_id")
-    fi
-fi
+                ADMIN_TOKEN=$(json_get "$REGISTER_RESP" "access_token")
+                ADMIN_USER_ID=$(json_get "$REGISTER_RESP" "user_id")
+            fi
+        fi
 
-if [ -z "$ADMIN_TOKEN" ]; then
-    ADMIN_LOGIN_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/login" \
-        -H "Content-Type: application/json" \
-        -d "{\"type\": \"m.login.password\", \"user\": \"$(normalize_login_user "$ADMIN_USER")\", \"password\": \"$ADMIN_PASS\"}")
-    ADMIN_TOKEN=$(json_get "$ADMIN_LOGIN_RESP" "access_token")
-    ADMIN_USER_ID=$(json_get "$ADMIN_LOGIN_RESP" "user_id")
-fi
+        if [ -z "$ADMIN_TOKEN" ] && ! try_password_admin_login "$ADMIN_USER" "$ADMIN_PASS" "$ADMIN_REQUIRED_ROLE"; then
+            if [ "$ADMIN_REQUIRED_ROLE" = "super_admin" ]; then
+                try_password_admin_login "${SUPER_ADMIN_TEST_USER:-sec_super_admin}" "${SUPER_ADMIN_TEST_PASS:-Test@123}" "$ADMIN_REQUIRED_ROLE" || true
+            fi
+        fi
 
-if [ -z "$ADMIN_TOKEN" ] && [ -n "$TOKEN" ] && [ -n "$USER_ID" ]; then
-    CURRENT_USER_ID_ENC=$(url_encode "$USER_ID")
-    http_json GET "$SERVER_URL/_synapse/admin/v1/users/$CURRENT_USER_ID_ENC" "$TOKEN"
-    if [[ "$HTTP_STATUS" == 2* ]]; then
-        ADMIN_TOKEN="$TOKEN"
-        ADMIN_USER_ID="$USER_ID"
+        if [ -z "$ADMIN_TOKEN" ] && [ "$TEST_ROLE" != "super_admin" ] && [ -n "$TOKEN" ] && [ -n "$USER_ID" ]; then
+            CURRENT_USER_ID_ENC=$(url_encode "$USER_ID")
+            http_json GET "$SERVER_URL/_synapse/admin/v1/users/$CURRENT_USER_ID_ENC" "$TOKEN"
+            if [[ "$HTTP_STATUS" == 2* ]]; then
+                ADMIN_TOKEN="$TOKEN"
+                ADMIN_USER_ID="$USER_ID"
+            fi
+        fi
+        ;;
+esac
+
+if [ -n "$ADMIN_TOKEN" ] && ! verify_admin_token_role "$ADMIN_REQUIRED_ROLE"; then
+    if [[ "$TEST_ROLE" == "user" || "$TEST_ROLE" == "normal_user" || "$TEST_ROLE" == "ordinary_user" ]]; then
+        echo "ℹ INFO: using unprivileged token for negative admin tests"
+        # 即使不是真正的管理员，也标记为可用，以便执行负面测试
+        ADMIN_AUTH_AVAILABLE=1
+    else
+        if [ "$ADMIN_REQUIRED_ROLE" = "super_admin" ]; then
+            echo "⊘ WARNING: acquired admin token is not super_admin"
+        else
+            echo "⊘ WARNING: failed to verify admin token role"
+        fi
+        ADMIN_TOKEN=""
+        ADMIN_USER_ID=""
     fi
 fi
 
 if [ -n "$ADMIN_TOKEN" ]; then
-    pass "Admin Login (User: $ADMIN_USER_ID)"
+    if [ "$TEST_ROLE" = "user" ] || [ "$TEST_ROLE" = "normal_user" ] || [ "$TEST_ROLE" = "ordinary_user" ]; then
+        pass "Admin Login" "using ordinary user token for negative admin authorization checks"
+    else
+        pass "Admin Login"
+    fi
 else
     echo "⊘ WARNING: Admin login unavailable, Admin API tests may fail"
     ADMIN_AUTH_AVAILABLE=0
@@ -1058,7 +1405,6 @@ fi
 
 if [ "$API_INTEGRATION_PROFILE" = "optional" ]; then
     run_optional_profile
-    finalize
 fi
 
 echo ""
@@ -1197,25 +1543,15 @@ assert_success_json "Set Room Topic" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "18. Redact Event"
-MSG_RESP=$(curl -s -X PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/send/m.room.message/redact_test_msg" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"msgtype":"m.text","body":"test message for redact"}')
-REDACT_EVENT_ID=$(echo "$MSG_RESP" | grep -o '"event_id":"[^"]*"' | cut -d'"' -f4)
+http_json PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/send/m.room.message/redact_test_msg" "$TOKEN" '{"msgtype":"m.text","body":"test message for redact"}'
+REDACT_EVENT_ID=$(json_get "$HTTP_BODY" "event_id")
 if [ -n "$REDACT_EVENT_ID" ]; then
     REDACT_EVENT_ID_ENC=$(url_encode "$REDACT_EVENT_ID")
-    REDACT_ENCODED=$(echo "$REDACT_EVENT_ID" | sed 's/\$/%24/g' | sed 's/\!/%21/g' | sed 's/:/%3A/g')
-    REDACT_RESP=$(curl -s -X PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/redact/$REDACT_ENCODED/redact_test_msg" \
-        -H "Authorization: Bearer $TOKEN" \
-        -H "Content-Type: application/json" \
-        -d '{"reason": "test redacted"}')
-    if echo "$REDACT_RESP" | grep -q "event_id"; then
-        pass "Redact Event"
-    else
-        fail "Redact Event"
-    fi
+    # Matrix event IDs often contain $, ! which need encoding. url_encode handles this.
+    http_json PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/redact/$REDACT_EVENT_ID_ENC/redact_txn_1" "$TOKEN" '{"reason": "test redacted"}'
+    assert_success_json "Redact Event" "$HTTP_BODY" "$HTTP_STATUS" "event_id"
 else
-    skip "Redact Event (no event to redact)"
+    skip "Redact Event" "failed to send message to redact: $(json_err_summary "$HTTP_BODY")"
 fi
 
 # 7. Media
@@ -1244,15 +1580,24 @@ with open(sys.argv[1], "wb") as f:
     f.write(png)
 PY
 if [ -f "$PNG_FILE" ] && [ -s "$PNG_FILE" ]; then
-    MEDIA_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/media/v3/upload" \
+    # Use curl directly but capture status and body
+    MEDIA_TMP=$(mktemp)
+    MEDIA_STATUS=$(curl -s -X POST "$SERVER_URL/_matrix/media/v3/upload" \
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: image/png" \
-        --data-binary "@$PNG_FILE")
-    MEDIA_URI=$(echo "$MEDIA_RESP" | grep -o '"content_uri":"[^"]*"' | cut -d'"' -f4)
-    if echo "$MEDIA_RESP" | grep -q "content_uri"; then
-        pass "Media Upload"
+        --data-binary "@$PNG_FILE" -o "$MEDIA_TMP" -w "%{http_code}")
+    MEDIA_RESP=$(cat "$MEDIA_TMP")
+    rm -f "$MEDIA_TMP"
+    
+    if [[ "$MEDIA_STATUS" == 2* ]]; then
+        MEDIA_URI=$(json_get "$MEDIA_RESP" "content_uri")
+        if [ -n "$MEDIA_URI" ]; then
+            pass "Media Upload" "$MEDIA_URI"
+        else
+            fail "Media Upload" "missing content_uri"
+        fi
     else
-        fail "Media Upload"
+        fail "Media Upload" "HTTP $MEDIA_STATUS: $(json_err_summary "$MEDIA_RESP")"
     fi
 else
     fail "Media Upload" "PNG file not generated"
@@ -1393,12 +1738,15 @@ curl -s -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM2_ID/leave" \
 
 echo ""
 echo "37. Get Membership"
-MEMBERSHIP_RESP=$(curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/membership/$USER_ID" \
-    -H "Authorization: Bearer $TOKEN")
-if echo "$MEMBERSHIP_RESP" | grep -q "chunk\|membership"; then
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/membership/$USER_ID" "$TOKEN"
+if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "membership"; then
     pass "Get Membership"
 else
-    skip "Get Membership (not implemented)"
+    if last_body_is_unrecognized; then
+        missing "Get Membership" "M_UNRECOGNIZED"
+    else
+        fail "Get Membership" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+    fi
 fi
 
 # 12. Devices
@@ -1766,29 +2114,47 @@ echo "=========================================="
 echo "81. DM APIs"
 echo "=========================================="
 echo "81. Create DM"
-DM_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/create_dm" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"user_id": "'"$USER_ID"'"}')
-DM_ROOM_ID=$(echo "$DM_RESP" | grep -o '"room_id":"[^"]*"' | cut -d'"' -f4)
-echo "$DM_RESP" | grep -q "room_id" && pass "Create DM" || skip "Create DM (not implemented)"
+http_json POST "$SERVER_URL/_matrix/client/v3/createRoom" "$TOKEN" "{\"is_direct\": true, \"invite\": [\"$TARGET_USER_ID\"]}"
+DM_ROOM_ID=$(json_get "$HTTP_BODY" "room_id")
+if [ -n "$DM_ROOM_ID" ]; then
+    pass "Create DM" "$DM_ROOM_ID"
+else
+    if last_body_is_unrecognized; then
+        missing "Create DM" "M_UNRECOGNIZED"
+    else
+        fail "Create DM" "$(json_err_summary "$HTTP_BODY")"
+    fi
+fi
 
 echo ""
 echo "82. Get Direct Rooms"
 http_json GET "$SERVER_URL/_matrix/client/v3/direct" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rooms" && pass "Get Direct Rooms" || skip "Get Direct Rooms (not implemented)"
+if [[ "$HTTP_STATUS" == 2* ]]; then
+    pass "Get Direct Rooms"
+else
+    if last_body_is_unrecognized; then
+        missing "Get Direct Rooms" "M_UNRECOGNIZED"
+    else
+        fail "Get Direct Rooms" "HTTP $HTTP_STATUS"
+    fi
+fi
 
 echo ""
 echo "83. Update Direct Room"
 if [ -n "$DM_ROOM_ID" ]; then
-    DM_ENC=$(echo "$DM_ROOM_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
-    UPDATE_RESP=$(curl -s -X PUT "$SERVER_URL/_matrix/client/v3/direct/$DM_ENC" \
-        -H "Authorization: Bearer $TOKEN" \
-        -H "Content-Type: application/json" \
-        -d '{"users": ["'"$USER_ID"'"]}')
-    echo "$UPDATE_RESP" | grep -q "^{}$" && pass "Update Direct Room" || skip "Update Direct Room (not implemented)"
+    DM_ENC=$(url_encode "$DM_ROOM_ID")
+    http_json PUT "$SERVER_URL/_matrix/client/v3/direct/$DM_ENC" "$TOKEN" "{\"users\": [\"$USER_ID\"]}"
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        pass "Update Direct Room"
+    else
+        if last_body_is_unrecognized; then
+            missing "Update Direct Room" "M_UNRECOGNIZED"
+        else
+            fail "Update Direct Room" "HTTP $HTTP_STATUS"
+        fi
+    fi
 else
-    skip "Update Direct Room (no DM room)"
+    skip "Update Direct Room" "no DM room created"
 fi
 
 # 29. Room Summary APIs
@@ -1841,7 +2207,17 @@ if admin_ready; then
     echo ""
     echo "90. Admin Room Search"
     http_json POST "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/search" "$ADMIN_TOKEN" '{"search_term": "test"}'
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "results" && pass "Admin Room Search" || skip "Admin Room Search (not implemented)"
+    if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "results"; then
+        pass "Admin Room Search"
+    elif is_expected_admin_denial "Admin Room Search" "HTTP $HTTP_STATUS"; then
+        pass "Admin Room Search" "access denied as expected for role $TEST_ROLE"
+    else
+        if last_body_is_unrecognized; then
+            missing "Admin Room Search" "M_UNRECOGNIZED"
+        else
+            fail "Admin Room Search" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+        fi
+    fi
 
     echo ""
     echo "91. Admin Room Listings"
@@ -1989,7 +2365,13 @@ if admin_ready; then
     echo "111. Admin Federation Rewrite"
     if [ "$API_INTEGRATION_PROFILE" = "full" ]; then
         http_json POST "$SERVER_URL/_synapse/admin/v1/federation/rewrite" "$ADMIN_TOKEN" '{"from": "localhost", "to": "localhost"}'
-        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rewritten" && pass "Admin Federation Rewrite" || skip "Admin Federation Rewrite (requires federation destination data)"
+        if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rewritten"; then
+            pass "Admin Federation Rewrite"
+        elif is_expected_admin_denial "Admin Federation Rewrite" "HTTP $HTTP_STATUS"; then
+            pass "Admin Federation Rewrite" "access denied as expected for role $TEST_ROLE"
+        else
+            skip "Admin Federation Rewrite" "requires federation destination data"
+        fi
     fi
 else
     skip "Admin Federation Destinations" "admin authentication unavailable"
@@ -2063,11 +2445,8 @@ if admin_ready; then
     echo ""
     echo "119. Admin User Password"
     if destructive; then
-        ADMIN_PASSWORD_RESP=$(curl -s -X POST "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/password" \
-            -H "Authorization: Bearer $ADMIN_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"new_password": "Test@123"}')
-        echo "$ADMIN_PASSWORD_RESP" | grep -q "success\|{}" && pass "Admin User Password" || fail "Admin User Password"
+    http_json POST "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/password" "$ADMIN_TOKEN" '{"new_password": "Test@123"}'
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" && pass "Admin User Password" || fail "Admin User Password" "${ASSERT_ERROR:-request failed}"
         LOGIN_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/login" -H "Content-Type: application/json" -d "{\"type\":\"m.login.password\",\"user\":\"$TEST_USER\",\"password\":\"$TEST_PASS\"}")
         TOKEN=$(json_get "$LOGIN_RESP" "access_token")
         DEVICE_ID=$(json_get "$LOGIN_RESP" "device_id")
@@ -2102,7 +2481,7 @@ if admin_ready; then
 
     echo ""
     echo "122. Get Pushers"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "pushers" && pass "Get Pushers" || skip "Get Pushers (requires existing pusher data)"
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "pushers" && pass "Get Pushers" || skip "Get Pushers" "requires existing pusher data"
 else
     skip "List Pushers" "admin authentication unavailable"
     skip "Get Pushers" "admin authentication unavailable"
@@ -2243,62 +2622,88 @@ echo ""
 echo "=========================================="
 echo "135. Admin Room Extended"
 echo "=========================================="
-echo "135. Admin List Rooms"
-http_json GET "$SERVER_URL/_synapse/admin/v1/rooms" "$ADMIN_TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rooms" && pass "Admin List Rooms" || fail "Admin List Rooms"
+if admin_ready; then
+    echo "135. Admin List Rooms"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/rooms" "$ADMIN_TOKEN"
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rooms" && pass "Admin List Rooms" || fail "Admin List Rooms"
 
-echo ""
-echo "136. Admin Room Details"
-http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID" "$ADMIN_TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Admin Room Details" || fail "Admin Room Details"
+    echo ""
+    echo "136. Admin Room Details"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID" "$ADMIN_TOKEN"
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Admin Room Details" || fail "Admin Room Details"
 
-echo ""
-echo "137. Admin Room Members"
-http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/members" "$ADMIN_TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "members" && pass "Admin Room Members" || fail "Admin Room Members"
+    echo ""
+    echo "137. Admin Room Members"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/members" "$ADMIN_TOKEN"
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "members" && pass "Admin Room Members" || fail "Admin Room Members"
 
-echo ""
-echo "138. Admin Room State"
-http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/state" "$ADMIN_TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "state" && pass "Admin Room State" || fail "Admin Room State"
+    echo ""
+    echo "138. Admin Room State"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/state" "$ADMIN_TOKEN"
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "state" && pass "Admin Room State" || fail "Admin Room State"
 
-echo ""
-echo "139. Admin Room Messages"
-http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/messages" "$ADMIN_TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "chunk" && pass "Admin Room Messages" || fail "Admin Room Messages"
+    echo ""
+    echo "139. Admin Room Messages"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/messages" "$ADMIN_TOKEN"
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "chunk" && pass "Admin Room Messages" || fail "Admin Room Messages"
 
-echo ""
-echo "140. Admin Block Room"
-http_json POST "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/block" "$ADMIN_TOKEN" '{"block": true}'
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "block" && pass "Admin Block Room" || fail "Admin Block Room"
+    echo ""
+    echo "140. Admin Block Room"
+    http_json POST "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/block" "$ADMIN_TOKEN" '{"block": true}'
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "block" && pass "Admin Block Room" || fail "Admin Block Room"
+else
+    skip "Admin List Rooms" "admin authentication unavailable"
+    skip "Admin Room Details" "admin authentication unavailable"
+    skip "Admin Room Members" "admin authentication unavailable"
+    skip "Admin Room State" "admin authentication unavailable"
+    skip "Admin Room Messages" "admin authentication unavailable"
+    skip "Admin Block Room" "admin authentication unavailable"
+fi
 
 # 50. Admin User Sessions
 echo ""
 echo "=========================================="
 echo "141. Admin User Sessions"
 echo "=========================================="
-ADMIN_USER_ID_ENC=$(url_encode "$ADMIN_USER_ID")
 USER_ID_ENC=$(url_encode "$USER_ID")
-echo "141. Admin List Users"
-http_json GET "$SERVER_URL/_synapse/admin/v1/users" "$ADMIN_TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "users" && pass "Admin List Users" || fail "Admin List Users"
+if admin_ready; then
+    ADMIN_USER_ID_ENC=$(url_encode "$ADMIN_USER_ID")
+    echo "141. Admin List Users"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/users" "$ADMIN_TOKEN"
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "users" && pass "Admin List Users" || fail "Admin List Users"
 
-echo ""
-echo "142. Admin User Details"
-http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC" "$ADMIN_TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "name" && pass "Admin User Details" || fail "Admin User Details"
+    echo ""
+    echo "142. Admin User Details"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC" "$ADMIN_TOKEN"
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "name" && pass "Admin User Details" || fail "Admin User Details"
 
-echo ""
-echo "143. Admin User Stats"
-http_json GET "$SERVER_URL/_synapse/admin/v1/user_stats" "$ADMIN_TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "total_users" && pass "Admin User Stats" || fail "Admin User Stats"
+    echo ""
+    echo "143. Admin User Stats"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/user_stats" "$ADMIN_TOKEN"
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "total_users" && pass "Admin User Stats" || fail "Admin User Stats"
+else
+    skip "Admin List Users" "admin authentication unavailable"
+    skip "Admin User Details" "admin authentication unavailable"
+    skip "Admin User Stats" "admin authentication unavailable"
+fi
 
 echo ""
 echo "144. Admin User Deactivate"
-curl -s -X PUT "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/deactivate" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"erase": false}' && pass "Admin User Deactivate" || skip "Admin User Deactivate (user not found)"
+DEACTIVATE_TEST_USER="deactivate_probe_${TEST_ROLE}"
+DEACTIVATE_USER_ID="@${DEACTIVATE_TEST_USER}:localhost"
+DEACTIVATE_USER_ID_ENC=$(url_encode "$DEACTIVATE_USER_ID")
+http_json POST "$SERVER_URL/_matrix/client/v3/register" "" "{\"auth\": {\"type\": \"m.login.dummy\"}, \"username\": \"$DEACTIVATE_TEST_USER\", \"password\": \"Test@123\"}"
+if [[ "$HTTP_STATUS" == 2* ]]; then
+    pass "Ensure Deactivate Target ($DEACTIVATE_USER_ID)"
+else
+    err=$(json_err_summary "$HTTP_BODY")
+    if echo "$err" | grep -q "M_USER_IN_USE"; then
+        pass "Ensure Deactivate Target ($DEACTIVATE_USER_ID)" "already exists"
+    else
+        skip "Ensure Deactivate Target ($DEACTIVATE_USER_ID)" "${err:-HTTP $HTTP_STATUS}"
+    fi
+fi
+assert_http_json "Admin User Deactivate" "POST" "$SERVER_URL/_synapse/admin/v1/users/$DEACTIVATE_USER_ID_ENC/deactivate" "$ADMIN_TOKEN" '{"erase": false}'
 
 # 51. Device Management
 echo ""
@@ -2385,10 +2790,14 @@ echo ""
 echo "=========================================="
 echo "158. Admin Room Actions"
 echo "=========================================="
-echo "158. Admin Shutdown Room"
-http_json POST "$SERVER_URL/_synapse/admin/v1/shutdown_room" "$ADMIN_TOKEN" '{"room_id": "'"$ROOM2_ID"'", "user_id": "'"$USER_ID"'"}'
-SHUTDOWN_RESP="$HTTP_BODY"
-assert_success_json "Admin Shutdown Room" "$SHUTDOWN_RESP" "$HTTP_STATUS"
+if admin_ready; then
+    echo "158. Admin Shutdown Room"
+    http_json POST "$SERVER_URL/_synapse/admin/v1/shutdown_room" "$ADMIN_TOKEN" '{"room_id": "'"$ROOM2_ID"'", "user_id": "'"$USER_ID"'"}'
+    SHUTDOWN_RESP="$HTTP_BODY"
+    assert_success_json "Admin Shutdown Room" "$SHUTDOWN_RESP" "$HTTP_STATUS"
+else
+    skip "Admin Shutdown Room" "admin authentication unavailable"
+fi
 
 echo ""
 echo "159. Admin Room Make Admin"
@@ -2404,23 +2813,34 @@ echo ""
 echo "=========================================="
 echo "160. Admin Federation"
 echo "=========================================="
-echo "160. Admin Federation Blacklist"
-http_json GET "$SERVER_URL/_synapse/admin/v1/federation/blacklist" "$ADMIN_TOKEN"
-FED_BLACKLIST_RESP="$HTTP_BODY"
-assert_success_json "Admin Federation Blacklist" "$FED_BLACKLIST_RESP" "$HTTP_STATUS" "blacklist"
+if admin_ready; then
+    echo "160. Admin Federation Blacklist"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/federation/blacklist" "$ADMIN_TOKEN"
+    FED_BLACKLIST_RESP="$HTTP_BODY"
+    assert_success_json "Admin Federation Blacklist" "$FED_BLACKLIST_RESP" "$HTTP_STATUS" "blacklist"
 
-echo ""
-echo "161. Admin Federation Cache Clear"
-http_json POST "$SERVER_URL/_synapse/admin/v1/federation/cache/clear" "$ADMIN_TOKEN" "{}"
-FED_CACHE_CLEAR_RESP="$HTTP_BODY"
-assert_success_json "Admin Federation Cache Clear" "$FED_CACHE_CLEAR_RESP" "$HTTP_STATUS"
+    echo ""
+    echo "161. Admin Federation Cache Clear"
+    http_json POST "$SERVER_URL/_synapse/admin/v1/federation/cache/clear" "$ADMIN_TOKEN" "{}"
+    FED_CACHE_CLEAR_RESP="$HTTP_BODY"
+    assert_success_json "Admin Federation Cache Clear" "$FED_CACHE_CLEAR_RESP" "$HTTP_STATUS"
+else
+    skip "Admin Federation Blacklist" "admin authentication unavailable"
+    skip "Admin Federation Cache Clear" "admin authentication unavailable"
+fi
 
 echo ""
 echo "162. Admin Reset Connection"
-curl -s -X POST "$SERVER_URL/_synapse/admin/v1/federation/destinations/cjystx.top/reset_connection" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{}' && pass "Admin Reset Connection" || skip "Admin Reset Connection (endpoint not available)"
+http_json POST "$SERVER_URL/_synapse/admin/v1/federation/destinations/cjystx.top/reset_connection" "$ADMIN_TOKEN" "{}"
+if [[ "$HTTP_STATUS" == 2* ]]; then
+    pass "Admin Reset Connection"
+elif is_expected_admin_denial "Admin Reset Connection" "HTTP $HTTP_STATUS"; then
+    pass "Admin Reset Connection" "access denied as expected for role $TEST_ROLE"
+elif [ "$HTTP_STATUS" = "404" ]; then
+    pass "Admin Reset Connection" "destination not found"
+else
+    fail "Admin Reset Connection" "Expected HTTP 200/404 but got $HTTP_STATUS (Body: ${HTTP_BODY:-empty})"
+fi
 
 # 58. Search Extended
 echo ""
@@ -2542,7 +2962,7 @@ echo "=========================================="
 echo "174. Admin User Login"
 ADMIN_USER_ID_ENC=$(url_encode "$ADMIN_USER_ID")
 if admin_ready; then
-    http_json POST "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/login" "$ADMIN_TOKEN" '{"password": "'"$TEST_PASS"'"}'
+    http_json POST "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/login" "$ADMIN_TOKEN" '{"password": "'"$ADMIN_PASS"'"}'
     check_success_json "$HTTP_BODY" "$HTTP_STATUS" "access_token" "user_id" && pass "Admin User Login" || fail "Admin User Login" "${ASSERT_ERROR:-request failed}"
 else
     skip "Admin User Login" "admin authentication unavailable"
@@ -2551,17 +2971,29 @@ fi
 echo ""
 echo "175. Admin User Logout"
 if admin_ready; then
-    curl -s -X POST "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/logout" \
-        -H "Authorization: Bearer $ADMIN_TOKEN" && pass "Admin User Logout" || fail "Admin User Logout" "request failed"
+    http_json POST "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/logout" "$ADMIN_TOKEN" '{}'
+    if check_success_json "$HTTP_BODY" "$HTTP_STATUS"; then
+        pass "Admin User Logout"
+        # Restore the admin session so later admin API checks are not polluted by the intentional logout.
+        if [[ "$TEST_ROLE" != "user" && "$TEST_ROLE" != "normal_user" && "$TEST_ROLE" != "ordinary_user" ]]; then
+            restore_admin_session "$ADMIN_REQUIRED_ROLE" || true
+        fi
+    else
+        fail "Admin User Logout" "${ASSERT_ERROR:-request failed}"
+    fi
 else
     skip "Admin User Logout" "admin authentication unavailable"
 fi
 
 echo ""
 echo "176. Admin User Devices"
-http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/devices" "$ADMIN_TOKEN"
-ADMIN_USER_DEVICES_RESP="$HTTP_BODY"
-assert_success_json "Admin User Devices" "$ADMIN_USER_DEVICES_RESP" "$HTTP_STATUS"
+if admin_ready; then
+    http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/devices" "$ADMIN_TOKEN"
+    ADMIN_USER_DEVICES_RESP="$HTTP_BODY"
+    assert_success_json "Admin User Devices" "$ADMIN_USER_DEVICES_RESP" "$HTTP_STATUS"
+else
+    skip "Admin User Devices" "admin authentication unavailable"
+fi
 
 # 65. Admin User Batch
 echo ""
@@ -2569,10 +3001,16 @@ echo "=========================================="
 echo "177. Admin User Batch"
 echo "=========================================="
 echo "177. Admin Batch Users"
-curl -s -X POST "$SERVER_URL/_synapse/admin/v1/users/batch" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"users": []}' && pass "Admin Batch Users" || skip "Admin Batch Users (endpoint not available)"
+if admin_ready; then
+    http_json POST "$SERVER_URL/_synapse/admin/v1/users/batch" "$ADMIN_TOKEN" '{"users": []}'
+    if [ "$HTTP_STATUS" = "404" ] && last_body_is_unrecognized; then
+        skip "Admin Batch Users (endpoint not available)"
+    else
+        check_success_json "$HTTP_BODY" "$HTTP_STATUS" && pass "Admin Batch Users" || fail "Admin Batch Users" "${ASSERT_ERROR:-request failed}"
+    fi
+else
+    skip "Admin Batch Users" "admin authentication unavailable"
+fi
 
 # 66. Room Alias Directory
 echo ""
@@ -2687,40 +3125,64 @@ fi
 
 echo ""
 echo "190. Federation Members"
-curl -s "$SERVER_URL/_matrix/federation/v1/members/$ROOM_ID" -H "Authorization: Bearer $TOKEN" && pass "Federation Members" || skip "Federation Members (endpoint not available)"
+http_json GET "$SERVER_URL/_matrix/federation/v1/members/$ROOM_ID" "$TOKEN"
+federation_smoke "Federation Members" "$HTTP_STATUS" "$HTTP_BODY"
 
 echo ""
 echo "191. Federation Public Rooms"
-http_json GET "$SERVER_URL/_matrix/federation/v1/publicRooms" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "chunk" && pass "Federation Public Rooms" || skip "Federation Public Rooms (endpoint not available)"
+http_json GET "$SERVER_URL/_matrix/federation/v1/publicRooms"
+federation_smoke "Federation Public Rooms" "$HTTP_STATUS" "$HTTP_BODY"
 
 echo ""
 echo "192. Federation Query Directory"
 refresh_room_test_context "fed_query" >/dev/null 2>&1 || true
 if [ -n "${ROOM_ALIAS_ENC:-}" ]; then
-    http_json GET "$SERVER_URL/_matrix/federation/v1/query/directory/room/$ROOM_ALIAS_ENC" ""
-    federation_smoke "Federation Query Directory" "$HTTP_STATUS" "$HTTP_BODY"
+    if federation_http_json "Federation Query Directory" GET "$SERVER_URL/_matrix/federation/v1/query/directory?room_alias=$ROOM_ALIAS_ENC"; then
+        federation_smoke "Federation Query Directory" "$HTTP_STATUS" "$HTTP_BODY"
+    fi
 else
     skip "Federation Query Directory" "missing room alias"
 fi
 
 echo ""
 echo "193. Federation Query Profile"
-curl -s "$SERVER_URL/_matrix/federation/v1/query/profile/$USER_ID" && pass "Federation Query Profile" || skip "Federation Query Profile (endpoint not available)"
+if federation_http_json "Federation Query Profile" GET "$SERVER_URL/_matrix/federation/v1/query/profile/$USER_ID"; then
+    federation_smoke "Federation Query Profile" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "194. Federation Room Auth"
-curl -s "$SERVER_URL/_matrix/federation/v1/room_auth/$ROOM_ID" -H "Authorization: Bearer $TOKEN" && pass "Federation Room Auth" || skip "Federation Room Auth (endpoint not available)"
+if federation_http_json "Federation Room Auth" GET "$SERVER_URL/_matrix/federation/v1/room_auth/$ROOM_ID"; then
+    federation_smoke "Federation Room Auth" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "195. Federation State"
-curl -s "$SERVER_URL/_matrix/federation/v1/state/$ROOM_ID" -H "Authorization: Bearer $TOKEN" && pass "Federation State" || skip "Federation State (endpoint not available)"
+if federation_http_json "Federation State" GET "$SERVER_URL/_matrix/federation/v1/state/$ROOM_ID"; then
+    federation_smoke "Federation State" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "196. Federation State IDs"
-curl -s "$SERVER_URL/_matrix/federation/v1/state_ids/$ROOM_ID" -H "Authorization: Bearer $TOKEN" && pass "Federation State IDs" || skip "Federation State IDs (endpoint not available)"
+if federation_http_json "Federation State IDs" GET "$SERVER_URL/_matrix/federation/v1/state_ids/$ROOM_ID"; then
+    federation_smoke "Federation State IDs" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
-# 68. Media API Extended
+echo ""
+echo "=========================================="
+echo "SECURITY: Admin RBAC Negative Tests"
+echo "=========================================="
+echo "N1. Admin try to create registration token (Super Admin only)"
+if [ "$TEST_ROLE" = "super_admin" ]; then
+    skip "Admin Create Registration Token Negative" "not applicable for super_admin role"
+else
+    http_json POST "$SERVER_URL/_synapse/admin/v1/registration_tokens" "$ADMIN_TOKEN" '{"uses_allowed": 1}'
+    if [ "$HTTP_STATUS" = "401" ] || [ "$HTTP_STATUS" = "403" ]; then
+        pass "Admin Create Registration Token Negative" "access denied as expected for role $TEST_ROLE"
+    else
+        fail "Admin Create Registration Token Negative" "Expected HTTP 401/403 but got $HTTP_STATUS (Body: ${HTTP_BODY:-empty})"
+    fi
+fi
 echo ""
 echo "=========================================="
 echo "197. Media API Extended"
@@ -2823,30 +3285,42 @@ echo ""
 echo "=========================================="
 echo "210. Admin Background Update"
 echo "=========================================="
-echo "210. List Background Updates"
-http_json GET "$SERVER_URL/_synapse/admin/v1/background_updates" "$ADMIN_TOKEN"
-BG_UPDATES_RESP="$HTTP_BODY"
-assert_success_json "List Background Updates" "$BG_UPDATES_RESP" "$HTTP_STATUS"
+if admin_ready; then
+    echo "210. List Background Updates"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/background_updates" "$ADMIN_TOKEN"
+    BG_UPDATES_RESP="$HTTP_BODY"
+    assert_success_json "List Background Updates" "$BG_UPDATES_RESP" "$HTTP_STATUS"
+else
+    skip "List Background Updates" "admin authentication unavailable"
+fi
 
 # 74. Admin Event Report
 echo ""
 echo "=========================================="
 echo "211. Admin Event Report"
 echo "=========================================="
-echo "211. List Event Reports"
-http_json GET "$SERVER_URL/_synapse/admin/v1/event_reports" "$ADMIN_TOKEN"
-EVENT_REPORTS_RESP="$HTTP_BODY"
-assert_success_json "List Event Reports" "$EVENT_REPORTS_RESP" "$HTTP_STATUS"
+if admin_ready; then
+    echo "211. List Event Reports"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/event_reports" "$ADMIN_TOKEN"
+    EVENT_REPORTS_RESP="$HTTP_BODY"
+    assert_success_json "List Event Reports" "$EVENT_REPORTS_RESP" "$HTTP_STATUS"
+else
+    skip "List Event Reports" "admin authentication unavailable"
+fi
 
 # 75. Admin Room Forward Extremities
 echo ""
 echo "=========================================="
 echo "212. Admin Room Forward Extremities"
 echo "=========================================="
-echo "212. Room Forward Extremities"
-http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/forward_extremities" "$ADMIN_TOKEN"
-FORWARD_EXTREM_RESP="$HTTP_BODY"
-assert_success_json "Room Forward Extremities" "$FORWARD_EXTREM_RESP" "$HTTP_STATUS" "forward_extremities"
+if admin_ready; then
+    echo "212. Room Forward Extremities"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/forward_extremities" "$ADMIN_TOKEN"
+    FORWARD_EXTREM_RESP="$HTTP_BODY"
+    assert_success_json "Room Forward Extremities" "$FORWARD_EXTREM_RESP" "$HTTP_STATUS" "forward_extremities"
+else
+    skip "Room Forward Extremities" "admin authentication unavailable"
+fi
 
 # 76. E2EE Keys Extended
 echo ""
@@ -3023,70 +3497,79 @@ echo ""
 echo "=========================================="
 echo "240. Admin User Sessions"
 echo "=========================================="
-echo "240. List User Sessions"
-http_json GET "$SERVER_URL/_synapse/admin/v1/user_sessions/$USER_ID" "$ADMIN_TOKEN"
-USER_SESSIONS_RESP="$HTTP_BODY"
-assert_success_json "List User Sessions" "$USER_SESSIONS_RESP" "$HTTP_STATUS"
+if admin_ready; then
+    echo "240. List User Sessions"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/user_sessions/$USER_ID" "$ADMIN_TOKEN"
+    USER_SESSIONS_RESP="$HTTP_BODY"
+    assert_success_json "List User Sessions" "$USER_SESSIONS_RESP" "$HTTP_STATUS"
 
-echo ""
-echo "241. Invalidate User Session"
-if destructive; then
-    http_json POST "$SERVER_URL/_synapse/admin/v1/user_sessions/$USER_ID/invalidate" "$ADMIN_TOKEN" "{}"
-    INVALIDATE_SESSIONS_RESP="$HTTP_BODY"
-    if assert_success_json "Invalidate User Session" "$INVALIDATE_SESSIONS_RESP" "$HTTP_STATUS" "invalidated"; then
-        http_json POST "$SERVER_URL/_matrix/client/v3/login" "" "{\"type\": \"m.login.password\", \"user\": \"$USER_ID\", \"password\": \"$CURRENT_TEST_PASS\"}"
-        if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "access_token"; then
-            TOKEN=$(json_get "$HTTP_BODY" "access_token")
-            REFRESH_TOKEN=$(json_get "$HTTP_BODY" "refresh_token")
-        else
-            fail "Re-Login After Invalidate" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
-        fi
-    fi
-else
-    skip "Invalidate User Session" "destructive test"
-fi
-
-echo ""
-echo "242. Reset User Password"
-if destructive; then
-    USER_ID_ENC=$(url_encode "$USER_ID")
-    http_json POST "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/password" "$ADMIN_TOKEN" "{\"new_password\": \"$TEST_PASS\"}"
-    RESET_USER_PASSWORD_RESP="$HTTP_BODY"
-    if assert_success_json "Reset User Password" "$RESET_USER_PASSWORD_RESP" "$HTTP_STATUS"; then
-        CURRENT_TEST_PASS="$TEST_PASS"
-    fi
-else
-    skip "Reset User Password" "destructive test"
-fi
-
-echo ""
-echo "243. Admin Deactivate User"
-if destructive; then
-    USER_ID_ENC=$(url_encode "$USER_ID")
-    http_json POST "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/deactivate" "$ADMIN_TOKEN" '{}'
-    if [[ "$HTTP_STATUS" == 2* ]]; then
-        pass "Deactivate User"
-        http_json PUT "$SERVER_URL/_synapse/admin/v2/users/$TEST_USER" "$ADMIN_TOKEN" "{\"password\":\"$CURRENT_TEST_PASS\",\"deactivated\":false}"
-        if [[ "$HTTP_STATUS" == 2* ]]; then
-            http_json POST "$SERVER_URL/_matrix/client/v3/login" "" "{\"type\": \"m.login.password\", \"user\": \"$TEST_USER\", \"password\": \"$CURRENT_TEST_PASS\"}"
-            REACTIVATE_TOKEN=$(json_get "$HTTP_BODY" "access_token")
-            if [ -n "$REACTIVATE_TOKEN" ]; then
-                TOKEN="$REACTIVATE_TOKEN"
-                USER_ID=$(json_get "$HTTP_BODY" "user_id")
+    echo ""
+    echo "241. Invalidate User Session"
+    if destructive; then
+        http_json POST "$SERVER_URL/_synapse/admin/v1/user_sessions/$USER_ID/invalidate" "$ADMIN_TOKEN" "{}"
+        INVALIDATE_SESSIONS_RESP="$HTTP_BODY"
+        if assert_success_json "Invalidate User Session" "$INVALIDATE_SESSIONS_RESP" "$HTTP_STATUS" "invalidated"; then
+            http_json POST "$SERVER_URL/_matrix/client/v3/login" "" "{\"type\": \"m.login.password\", \"user\": \"$USER_ID\", \"password\": \"$CURRENT_TEST_PASS\"}"
+            if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "access_token"; then
+                TOKEN=$(json_get "$HTTP_BODY" "access_token")
                 REFRESH_TOKEN=$(json_get "$HTTP_BODY" "refresh_token")
-                DEVICE_ID=$(json_get "$HTTP_BODY" "device_id")
-                pass "Restore User After Deactivate"
+            else
+                fail "Re-Login After Invalidate" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+            fi
+        fi
+    else
+        skip "Invalidate User Session" "destructive test"
+    fi
+
+    echo ""
+    echo "242. Reset User Password"
+    if destructive; then
+        USER_ID_ENC=$(url_encode "$USER_ID")
+        http_json POST "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/password" "$ADMIN_TOKEN" "{\"new_password\": \"$TEST_PASS\"}"
+        RESET_USER_PASSWORD_RESP="$HTTP_BODY"
+        if assert_success_json "Reset User Password" "$RESET_USER_PASSWORD_RESP" "$HTTP_STATUS"; then
+            CURRENT_TEST_PASS="$TEST_PASS"
+        fi
+    else
+        skip "Reset User Password" "destructive test"
+    fi
+
+    echo ""
+    echo "243. Admin Deactivate User"
+    if destructive; then
+        USER_ID_ENC=$(url_encode "$USER_ID")
+        http_json POST "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/deactivate" "$ADMIN_TOKEN" '{}'
+        if [[ "$HTTP_STATUS" == 2* ]]; then
+            pass "Admin Deactivate"
+            http_json PUT "$SERVER_URL/_synapse/admin/v2/users/$TEST_USER" "$ADMIN_TOKEN" "{\"password\":\"$CURRENT_TEST_PASS\",\"deactivated\":false}"
+            if [[ "$HTTP_STATUS" == 2* ]]; then
+                http_json POST "$SERVER_URL/_matrix/client/v3/login" "" "{\"type\": \"m.login.password\", \"user\": \"$TEST_USER\", \"password\": \"$CURRENT_TEST_PASS\"}"
+                REACTIVATE_TOKEN=$(json_get "$HTTP_BODY" "access_token")
+                if [ -n "$REACTIVATE_TOKEN" ]; then
+                    TOKEN="$REACTIVATE_TOKEN"
+                    USER_ID=$(json_get "$HTTP_BODY" "user_id")
+                    REFRESH_TOKEN=$(json_get "$HTTP_BODY" "refresh_token")
+                    DEVICE_ID=$(json_get "$HTTP_BODY" "device_id")
+                    pass "Restore User After Deactivate"
+                else
+                    fail "Restore User After Deactivate" "$(json_err_summary "$HTTP_BODY")"
+                fi
             else
                 fail "Restore User After Deactivate" "$(json_err_summary "$HTTP_BODY")"
             fi
+        elif is_expected_admin_denial "Admin Deactivate" "HTTP $HTTP_STATUS"; then
+            pass "Admin Deactivate" "access denied as expected for role $TEST_ROLE"
         else
-            fail "Restore User After Deactivate" "$(json_err_summary "$HTTP_BODY")"
+            skip "Admin Deactivate" "endpoint not available"
         fi
     else
-        skip "Admin Deactivate" "endpoint not available"
+        skip "Admin Deactivate" "destructive test"
     fi
 else
-    skip "Deactivate User" "destructive test"
+    skip "List User Sessions" "admin authentication unavailable"
+    skip "Invalidate User Session" "admin authentication unavailable"
+    skip "Reset User Password" "admin authentication unavailable"
+    skip "Deactivate User" "admin authentication unavailable"
 fi
 
 # 83. Admin Room Details Extended
@@ -3094,36 +3577,42 @@ echo ""
 echo "=========================================="
 echo "244. Admin Room Details Extended"
 echo "=========================================="
-echo "244. Admin Room State"
-http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/state" "$ADMIN_TOKEN"
-ADMIN_ROOM_STATE_RESP="$HTTP_BODY"
-assert_success_json "Admin Room State" "$ADMIN_ROOM_STATE_RESP" "$HTTP_STATUS"
+if admin_ready; then
+    echo "244. Admin Room State"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/state" "$ADMIN_TOKEN"
+    ADMIN_ROOM_STATE_RESP="$HTTP_BODY"
+    assert_success_json "Admin Room State" "$ADMIN_ROOM_STATE_RESP" "$HTTP_STATUS"
 
-echo ""
-echo "245. Admin Room Members"
-http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/members" "$ADMIN_TOKEN"
-ADMIN_ROOM_MEMBERS_RESP="$HTTP_BODY"
-assert_success_json "Admin Room Members" "$ADMIN_ROOM_MEMBERS_RESP" "$HTTP_STATUS"
+    echo ""
+    echo "245. Admin Room Members"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/members" "$ADMIN_TOKEN"
+    ADMIN_ROOM_MEMBERS_RESP="$HTTP_BODY"
+    assert_success_json "Admin Room Members" "$ADMIN_ROOM_MEMBERS_RESP" "$HTTP_STATUS"
 
-echo ""
-echo "246. Admin Room Delete"
-if ! destructive; then
-    skip "Admin Room Delete" "destructive test"
-else
-    http_json DELETE "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID" "$ADMIN_TOKEN" '{"new_room_id": null}'
-    if check_success_json "$HTTP_BODY" "$HTTP_STATUS"; then
-        pass "Admin Room Delete"
-        http_json POST "$SERVER_URL/_matrix/client/v3/createRoom" "$TOKEN" '{"name": "Test Room Post Admin Delete", "preset": "public_chat"}'
-        REPLACEMENT_ROOM_ID=$(json_get "$HTTP_BODY" "room_id")
-        if [ -n "$REPLACEMENT_ROOM_ID" ]; then
-            ROOM_ID="$REPLACEMENT_ROOM_ID"
-            pass "Recreate Test Room After Delete"
-        else
-            fail "Recreate Test Room After Delete" "$(json_err_summary "$HTTP_BODY")"
-        fi
+    echo ""
+    echo "246. Admin Room Delete"
+    if ! destructive; then
+        skip "Admin Room Delete" "destructive test"
     else
-        skip "Admin Room Delete" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+        http_json DELETE "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID" "$ADMIN_TOKEN" '{"new_room_id": null}'
+        if check_success_json "$HTTP_BODY" "$HTTP_STATUS"; then
+            pass "Admin Room Delete"
+            http_json POST "$SERVER_URL/_matrix/client/v3/createRoom" "$TOKEN" '{"name": "Test Room Post Admin Delete", "preset": "public_chat"}'
+            REPLACEMENT_ROOM_ID=$(json_get "$HTTP_BODY" "room_id")
+            if [ -n "$REPLACEMENT_ROOM_ID" ]; then
+                ROOM_ID="$REPLACEMENT_ROOM_ID"
+                pass "Recreate Test Room After Delete"
+            else
+                fail "Recreate Test Room After Delete" "$(json_err_summary "$HTTP_BODY")"
+            fi
+        else
+            skip "Admin Room Delete" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+        fi
     fi
+else
+    skip "Admin Room State" "admin authentication unavailable"
+    skip "Admin Room Members" "admin authentication unavailable"
+    skip "Admin Room Delete" "admin authentication unavailable"
 fi
 
 # 84. Well-Known Extended
@@ -3235,7 +3724,13 @@ check_success_json "$HTTP_BODY" "$HTTP_STATUS" "versions" && pass "Server Versio
 echo ""
 echo "261. Rust Synapse Version"
 http_json GET "$SERVER_URL/_synapse/admin/info" "$ADMIN_TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" && pass "Rust Synapse Version" || skip "Rust Synapse Version (endpoint not available)"
+if check_success_json "$HTTP_BODY" "$HTTP_STATUS"; then
+    pass "Rust Synapse Version"
+elif is_expected_admin_denial "Rust Synapse Version" "HTTP $HTTP_STATUS"; then
+    pass "Rust Synapse Version" "access denied as expected for role $TEST_ROLE"
+else
+    skip "Rust Synapse Version (endpoint not available)"
+fi
 
 # 90. Capabilities
 echo ""
@@ -3328,10 +3823,10 @@ if admin_ready; then
     if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "event_id" "room_id" "notice_id"; then
         pass "Send Server Notice"
     else
-        skip "Server Notices" "$ASSERT_ERROR"
+        skip "Send Server Notice" "$ASSERT_ERROR"
     fi
 else
-    skip "Server Notices" "admin authentication unavailable"
+    skip "Send Server Notice" "admin authentication unavailable"
 fi
 
 # 96. Admin Stats
@@ -3339,16 +3834,21 @@ echo ""
 echo "=========================================="
 echo "270. Admin Stats"
 echo "=========================================="
-echo "270. Admin Stats Users"
-http_json GET "$SERVER_URL/_synapse/admin/v1/statistics" "$ADMIN_TOKEN"
-ADMIN_STATS_USERS_RESP="$HTTP_BODY"
-assert_success_json "Admin Stats Users" "$ADMIN_STATS_USERS_RESP" "$HTTP_STATUS"
+if admin_ready; then
+    echo "270. Admin Stats Users"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/statistics" "$ADMIN_TOKEN"
+    ADMIN_STATS_USERS_RESP="$HTTP_BODY"
+    assert_success_json "Admin Stats Users" "$ADMIN_STATS_USERS_RESP" "$HTTP_STATUS"
 
-echo ""
-echo "271. Admin Stats Rooms"
-http_json GET "$SERVER_URL/_synapse/admin/v1/statistics" "$ADMIN_TOKEN"
-ADMIN_STATS_ROOMS_RESP="$HTTP_BODY"
-assert_success_json "Admin Stats Rooms" "$ADMIN_STATS_ROOMS_RESP" "$HTTP_STATUS"
+    echo ""
+    echo "271. Admin Stats Rooms"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/statistics" "$ADMIN_TOKEN"
+    ADMIN_STATS_ROOMS_RESP="$HTTP_BODY"
+    assert_success_json "Admin Stats Rooms" "$ADMIN_STATS_ROOMS_RESP" "$HTTP_STATUS"
+else
+    skip "Admin Stats Users" "admin authentication unavailable"
+    skip "Admin Stats Rooms" "admin authentication unavailable"
+fi
 
 # 97. Report Content
 echo ""
@@ -3497,8 +3997,10 @@ echo "283. Admin List Room Aliases"
 http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/aliases" "$ADMIN_TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Admin List Room Aliases"
+elif is_expected_admin_denial "Admin List Room Aliases" "HTTP $HTTP_STATUS"; then
+    pass "Admin List Room Aliases" "access denied as expected for role $TEST_ROLE"
 else
-    skip "Room Alias Admin (not found)"
+    skip "Admin List Room Aliases" "not found"
 fi
 
 # 106. Room Invite
@@ -3524,8 +4026,10 @@ ADMIN_USER_ID_ENC=$(url_encode "$ADMIN_USER_ID")
 http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/rate_limit" "$ADMIN_TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Rate Limit"
+elif is_expected_admin_denial "Get Rate Limit" "HTTP $HTTP_STATUS"; then
+    pass "Get Rate Limit" "access denied as expected for role $TEST_ROLE"
 else
-    skip "Get Rate Limit (not found)"
+    skip "Get Rate Limit" "not found"
 fi
 
 # 108. Admin Version
@@ -3537,8 +4041,10 @@ echo "286. Admin Version"
 http_json GET "$SERVER_URL/_synapse/admin/v1/server_version" "$ADMIN_TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Admin Version"
+elif is_expected_admin_denial "Admin Version" "HTTP $HTTP_STATUS"; then
+    pass "Admin Version" "access denied as expected for role $TEST_ROLE"
 else
-    skip "Admin Version (not found)"
+    skip "Admin Version" "not found"
 fi
 
 # 109. Presence Extended
@@ -3651,7 +4157,8 @@ echo "=========================================="
 echo "295. Admin Register"
 echo "=========================================="
 echo "295. Register User"
-REGISTER_NONCE=$(curl -s "$SERVER_URL/_synapse/admin/v1/register/nonce" | python3 -c "import sys,json; print(json.load(sys.stdin).get('nonce',''))" 2>/dev/null || echo "")
+http_json GET "$SERVER_URL/_synapse/admin/v1/register/nonce" ""
+REGISTER_NONCE=$(json_get "$HTTP_BODY" "nonce")
 if [ -n "$REGISTER_NONCE" ]; then
     REGISTER_USERNAME="admin_register_$(date +%s)_$$_${RANDOM}"
     REGISTER_PASSWORD="Password123!"
@@ -3664,7 +4171,7 @@ t='$ADMIN_USER_TYPE'
 msg = n.encode() + b'\x00' + u.encode() + b'\x00' + p.encode() + b'\x00' + b'admin'
 if t:
     msg += b'\x00' + t.encode()
-print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha1).hexdigest())
+print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha256).hexdigest())
 " 2>/dev/null || echo "")
     http_json POST "$SERVER_URL/_synapse/admin/v1/register" "" "{\"nonce\": \"$REGISTER_NONCE\", \"username\": \"$REGISTER_USERNAME\", \"password\": \"$REGISTER_PASSWORD\", \"admin\": true, \"user_type\": \"$ADMIN_USER_TYPE\", \"mac\": \"$REGISTER_MAC\"}"
     if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "access_token" "user_id"; then
@@ -3673,7 +4180,16 @@ print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha1).hexdigest())
         skip "Admin Register" "$ASSERT_ERROR"
     fi
 else
-    skip "Admin Register (not found)"
+    if [ -n "$HTTP_BODY" ] && json_is_valid "$HTTP_BODY"; then
+        ASSERT_ERROR="$(json_err_summary "$HTTP_BODY")"
+    else
+        ASSERT_ERROR=""
+    fi
+    if [ -n "$ASSERT_ERROR" ]; then
+        skip "Admin Register" "$ASSERT_ERROR"
+    else
+        skip "Admin Register (not found)"
+    fi
 fi
 
 # 115. Admin Reset Password
@@ -3773,8 +4289,10 @@ if [[ "$HTTP_STATUS" == 2* ]]; then
             -d '{"msgtype":"m.text","body":"test message after evict"}')
         MSG_EVENT_ID=$(echo "$MSG_RESP" | grep -o '"event_id":"[^"]*"' | cut -d'"' -f4)
     fi
+elif is_expected_admin_denial "Evict User" "HTTP $HTTP_STATUS"; then
+    pass "Evict User" "access denied as expected for role $TEST_ROLE"
 else
-    skip "Evict User (not found)"
+    skip "Evict User" "not found"
 fi
 
 # 122. Admin Group Extended
@@ -3827,10 +4345,10 @@ if admin_ready; then
     if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "reports" "total"; then
         pass "Get Room Reports"
     else
-        skip "Admin Room Report" "$ASSERT_ERROR"
+        skip "Get Room Reports" "$ASSERT_ERROR"
     fi
 else
-    skip "Admin Room Report" "admin authentication unavailable"
+    skip "Get Room Reports" "admin authentication unavailable"
 fi
 
 # 126. Room Replacement Event
@@ -4103,10 +4621,14 @@ echo "327. Room Membership"
 echo "=========================================="
 echo "327. Get Membership"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/membership/$USER_ID" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]]; then
+if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "membership"; then
     pass "Get Membership"
 else
-    skip "Room Membership (not found)"
+    if last_body_is_unrecognized; then
+        missing "Get Membership" "M_UNRECOGNIZED"
+    else
+        fail "Get Membership" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+    fi
 fi
 
 # 147. Admin Devices
@@ -4376,8 +4898,10 @@ echo "347. Get Registration Token"
 http_json GET "$SERVER_URL/_synapse/admin/v1/registration_tokens" "$ADMIN_TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Registration Token"
+elif is_expected_admin_denial "Get Registration Token" "HTTP $HTTP_STATUS"; then
+    pass "Get Registration Token" "access denied as expected for role $TEST_ROLE"
 else
-    skip "Registration Token (not found)"
+    skip "Get Registration Token" "not found"
 fi
 
 # 166. Admin Room Shares
@@ -4389,8 +4913,10 @@ echo "348. Get Room Shares"
 http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/members" "$ADMIN_TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Room Shares"
+elif is_expected_admin_denial "Get Room Shares" "HTTP $HTTP_STATUS"; then
+    pass "Get Room Shares" "access denied as expected for role $TEST_ROLE"
 else
-    skip "Get Room Shares (not found)"
+    skip "Get Room Shares" "not found"
 fi
 
 # 167. Admin User Count
@@ -4402,8 +4928,10 @@ echo "349. Get User Count"
 http_json GET "$SERVER_URL/_synapse/admin/v1/statistics" "$ADMIN_TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get User Count"
+elif is_expected_admin_denial "Get User Count" "HTTP $HTTP_STATUS"; then
+    pass "Get User Count" "access denied as expected for role $TEST_ROLE"
 else
-    skip "Get User Count (not found)"
+    skip "Get User Count" "not found"
 fi
 
 # 168. Admin Room Count
@@ -4415,8 +4943,10 @@ echo "350. Get Room Count"
 http_json GET "$SERVER_URL/_synapse/admin/v1/statistics" "$ADMIN_TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Room Count"
+elif is_expected_admin_denial "Get Room Count" "HTTP $HTTP_STATUS"; then
+    pass "Get Room Count" "access denied as expected for role $TEST_ROLE"
 else
-    skip "Get Room Count (not found)"
+    skip "Get Room Count" "not found"
 fi
 
 # 169. Admin Pending Joins
@@ -4428,8 +4958,10 @@ echo "351. Get Pending Joins"
 http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/members" "$ADMIN_TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Pending Joins"
+elif is_expected_admin_denial "Get Pending Joins" "HTTP $HTTP_STATUS"; then
+    pass "Get Pending Joins" "access denied as expected for role $TEST_ROLE"
 else
-    skip "Get Pending Joins (not found)"
+    skip "Get Pending Joins" "not found"
 fi
 
 # 170. Room Typing Extended
@@ -5007,6 +5539,8 @@ else
     err=$(json_err_summary "$HTTP_BODY")
     if echo "$err" | grep -q "M_USER_IN_USE"; then
         pass "Register User v3" "already exists"
+    elif echo "$err" | grep -q "Registration is disabled"; then
+        skip "Register User v3" "registration disabled by configuration"
     else
         fail "Register User v3" "${err:-HTTP $HTTP_STATUS}"
     fi
@@ -6173,7 +6707,7 @@ if admin_ready; then
             skip "Admin Delete User" "$ASSERT_ERROR"
         fi
     else
-        skip "Admin Delete User (destructive test)"
+        skip "Admin Delete User" "destructive test"
     fi
 
     echo ""
@@ -6364,14 +6898,14 @@ echo "561.0 Prepare Representative Room"
 http_json POST "$SERVER_URL/_matrix/client/v3/createRoom" "$TOKEN" '{"name":"Representative Room","preset":"private_chat"}'
 assert_success_json "Prepare Representative Room" "$HTTP_BODY" "$HTTP_STATUS" "room_id"
 REPRESENTATIVE_ROOM_ID=$(json_get "$HTTP_BODY" "room_id")
-ROOM_ENC=$(url_encode "$REPRESENTATIVE_ROOM_ID")
+REPRESENTATIVE_ROOM_ENC=$(url_encode "$REPRESENTATIVE_ROOM_ID")
 
 echo "561.1 Prepare Representative Event"
 http_json PUT "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ID/send/m.room.message/rep118" "$TOKEN" '{"msgtype":"m.text","body":"Representative test message"}'
 assert_success_json "Prepare Representative Event" "$HTTP_BODY" "$HTTP_STATUS" "event_id"
 MSG_EVENT_ID=$(json_get "$HTTP_BODY" "event_id")
 echo "562. Get Room Version"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ENC/version" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ENC/version" "$TOKEN"
 ROOM_VERSION_RESP="$HTTP_BODY"
 assert_success_json "Get Room Version" "$ROOM_VERSION_RESP" "$HTTP_STATUS" "room_version"
 
@@ -6411,8 +6945,7 @@ fi
 
 echo ""
 echo "565. Get Invite Blocklist"
-ROOM_ENC=$(echo "$ROOM_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ENC/invite_blocklist" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ENC/invite_blocklist" "$TOKEN"
 BLOCKLIST_RESP="$HTTP_BODY"
 if check_success_json "$BLOCKLIST_RESP" "$HTTP_STATUS"; then
     pass "Get Invite Blocklist"
@@ -6422,7 +6955,7 @@ fi
 
 echo ""
 echo "566. Set Invite Blocklist"
-http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ENC/invite_blocklist" "$TOKEN" '{"user_ids": ["'"$TARGET_USER_ID"'"]}'
+http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ENC/invite_blocklist" "$TOKEN" '{"user_ids": ["'"$TARGET_USER_ID"'"]}'
 SET_BLOCKLIST_RESP="$HTTP_BODY"
 if check_success_json "$SET_BLOCKLIST_RESP" "$HTTP_STATUS"; then
     pass "Set Invite Blocklist"
@@ -6637,8 +7170,7 @@ fi
 
 echo ""
 echo "580. Jitsi Config"
-ROOM_ENC=$(echo "$ROOM_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
-http_json GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ENC/widgets/jitsi/config" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/client/v1/rooms/$REPRESENTATIVE_ROOM_ENC/widgets/jitsi/config" "$TOKEN"
 JITSI_CONFIG_RESP="$HTTP_BODY"
 if check_success_json "$JITSI_CONFIG_RESP" "$HTTP_STATUS"; then
     pass "Jitsi Config"
@@ -6702,5 +7234,35 @@ else
 fi
 
 echo ""
+
+echo ""
+echo "=========================================="
+echo "SECURITY: Horizontal Escalation Tests"
+echo "=========================================="
+echo "H1. User A try to delete User B device"
+assert_http_json "Horizontal: Delete Other User Device" "DELETE" "$SERVER_URL/_matrix/client/v3/devices/some_other_device" "$TOKEN" "" "404"
+
+echo ""
+echo "H2. User A try to update Other User profile"
+assert_http_json "Horizontal: Update Other User Profile" "PUT" "$SERVER_URL/_matrix/client/v3/profile/@other:localhost/displayname" "$TOKEN" '{"displayname": "Hacked"}' "403"
+
+echo ""
+echo "H3. User A try to join private room without invite"
+if [ -n "$SECOND_USER_TOKEN" ] && [ -n "$SECOND_USER_ID" ]; then
+    http_json POST "$SERVER_URL/_matrix/client/v3/createRoom" "$SECOND_USER_TOKEN" '{"name":"Private Join Probe","preset":"private_chat"}'
+    JOIN_PROBE_ROOM_ID=$(json_get "$HTTP_BODY" "room_id")
+    if [ -n "$JOIN_PROBE_ROOM_ID" ]; then
+        http_json "POST" "$SERVER_URL/_matrix/client/v3/join/$JOIN_PROBE_ROOM_ID" "$TOKEN" "{}"
+        if [ "$HTTP_STATUS" = "403" ] || [ "$HTTP_STATUS" = "404" ]; then
+            pass "Horizontal: Join Private Room" "Status $HTTP_STATUS (Securely rejected)"
+        else
+            fail "Horizontal: Join Private Room" "Expected 403/404 but got $HTTP_STATUS"
+        fi
+    else
+        skip "Horizontal: Join Private Room" "failed to prepare second-user private room"
+    fi
+else
+    skip "Horizontal: Join Private Room" "second user token unavailable"
+fi
 
 finalize

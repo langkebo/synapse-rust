@@ -73,25 +73,6 @@ mod e2e_tests {
         status: String,
     }
 
-    #[derive(Debug, Serialize, Deserialize)]
-    #[allow(dead_code)]
-    struct GetFriendsResponse {
-        data: Option<FriendsData>,
-    }
-
-    #[derive(Debug, Serialize, Deserialize)]
-    #[allow(dead_code)]
-    struct FriendsData {
-        friends: Vec<FriendData>,
-    }
-
-    #[derive(Debug, Serialize, Deserialize)]
-    #[allow(dead_code)]
-    struct FriendData {
-        user_id: String,
-        dm_room_id: Option<String>,
-    }
-
     async fn json_ok<T: DeserializeOwned>(response: reqwest::Response, context: &str) -> T {
         let status = response.status();
         let bytes = response

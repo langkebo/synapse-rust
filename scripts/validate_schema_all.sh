@@ -50,14 +50,20 @@ db_resolve_docker_creds() {
     if [ -n "$DB_USER" ] && [ -n "$DB_NAME" ]; then
         return 0
     fi
-    read -r DB_USER DB_PASSWORD DB_NAME < <(
+    local db_creds
+    db_creds="$(
         python3 - <<'PY'
 import os
 from urllib.parse import urlparse
 u = urlparse(os.environ["DATABASE_URL"])
-print(u.username or "postgres", u.password or "", (u.path.lstrip("/") or "postgres"))
+print(u.username or "postgres")
+print(u.password or "")
+print(u.path.lstrip("/") or "postgres")
 PY
-    )
+    )"
+    DB_USER="$(printf '%s\n' "$db_creds" | sed -n '1p')"
+    DB_PASSWORD="$(printf '%s\n' "$db_creds" | sed -n '2p')"
+    DB_NAME="$(printf '%s\n' "$db_creds" | sed -n '3p')"
 }
 
 db_has_public_relations() {

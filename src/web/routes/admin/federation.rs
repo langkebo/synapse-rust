@@ -154,10 +154,11 @@ pub async fn get_destination(
 
 #[axum::debug_handler]
 pub async fn reset_connection(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    super::ensure_super_admin_for_privilege_change(&admin)?;
     let result = sqlx::query(
         "UPDATE federation_servers SET last_failed_connect_at = NULL, failure_count = 0 WHERE server_name = $1"
     )
@@ -277,6 +278,7 @@ pub async fn resolve_federation(
     State(state): State<AppState>,
     Json(body): Json<ResolveRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    super::ensure_super_admin_for_privilege_change(&admin)?;
     let server_name = &body.server_name;
 
     let is_blocked = state
@@ -322,9 +324,10 @@ pub async fn confirm_federation(
 
 #[axum::debug_handler]
 pub async fn get_blacklist(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
+    super::ensure_super_admin_for_privilege_change(&admin)?;
     let blacklist = sqlx::query(
         "SELECT server_name, added_ts, reason FROM federation_blacklist ORDER BY added_ts DESC",
     )
@@ -352,6 +355,7 @@ pub async fn add_to_blacklist(
     State(state): State<AppState>,
     Path(server_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    super::ensure_super_admin_for_privilege_change(&admin)?;
     let now = chrono::Utc::now().timestamp_millis();
 
     let result = sqlx::query(
@@ -375,10 +379,11 @@ pub async fn add_to_blacklist(
 
 #[axum::debug_handler]
 pub async fn remove_from_blacklist(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(server_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    super::ensure_super_admin_for_privilege_change(&admin)?;
     let result = sqlx::query("DELETE FROM federation_blacklist WHERE server_name = $1")
         .bind(&server_name)
         .execute(&*state.services.user_storage.pool)
@@ -437,9 +442,10 @@ pub async fn delete_federation_cache_entry(
 
 #[axum::debug_handler]
 pub async fn clear_federation_cache(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
+    super::ensure_super_admin_for_privilege_change(&admin)?;
     let result = sqlx::query("DELETE FROM federation_cache")
         .execute(&*state.services.user_storage.pool)
         .await

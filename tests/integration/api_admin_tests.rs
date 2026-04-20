@@ -87,6 +87,31 @@ fn encode_path_segment(value: &str) -> String {
         .replace('/', "%2F")
 }
 
+async fn get_current_user_id(app: &axum::Router, access_token: &str) -> String {
+    let request = Request::builder()
+        .uri("/_matrix/client/v3/account/whoami")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "whoami failed with status {}: {}",
+        status,
+        String::from_utf8_lossy(&body)
+    );
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["user_id"].as_str().unwrap().to_string()
+}
+
 async fn get_csrf_token(app: &axum::Router, access_token: &str) -> String {
     let request = Request::builder()
         .uri("/_synapse/admin/v1/telemetry/status")
@@ -270,7 +295,7 @@ async fn test_matrix_server_version_endpoint() {
 }
 
 #[tokio::test]
-async fn test_worker_admin_routes_reject_regular_user_but_allow_authenticated_claim() {
+async fn test_worker_admin_routes_require_admin_for_task_claims() {
     let Some(app) = setup_test_app().await else {
         return;
     };
@@ -386,6 +411,25 @@ async fn test_worker_admin_routes_reject_regular_user_but_allow_authenticated_cl
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(json["error"], "Admin access required");
+
+    let claim_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/worker/v1/tasks/claim/{}", worker_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), claim_request)
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 10240)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["assigned_worker_id"], worker_id);
     assert_eq!(json["status"], "running");
@@ -446,13 +490,94 @@ async fn test_promoting_existing_user_in_db_does_not_upgrade_existing_token_to_a
 }
 
 #[tokio::test]
+async fn test_admin_role_can_get_v2_user_details() {
+    let Some((app, _pool, _cache)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, _) = super::get_admin_token(&app).await;
+    let user_token = create_test_user(&app).await;
+    let target_user_id = get_current_user_id(&app, &user_token).await;
+    let encoded_user_id = encode_path_segment(&target_user_id);
+
+    let request = Request::builder()
+        .uri(format!("/_synapse/admin/v2/users/{}", encoded_user_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "expected admin role to read v2 user details, got {}: {}",
+        status,
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
+async fn test_denied_admin_requests_are_audited() {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let user_token = create_test_user(&app).await;
+    let actor_id = get_current_user_id(&app, &user_token).await;
+    let before_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE resource_type = 'admin_api' AND result = 'failure'")
+            .fetch_one(pool.as_ref())
+            .await
+            .expect("failed to count audit failures before request");
+
+    let request = Request::builder()
+        .uri("/_synapse/admin/v1/users")
+        .header("Authorization", format!("Bearer {}", user_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let after_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE resource_type = 'admin_api' AND result = 'failure'")
+            .fetch_one(pool.as_ref())
+            .await
+            .expect("failed to count audit failures after request");
+    assert_eq!(after_count, before_count + 1);
+
+    let latest = sqlx::query_as::<_, (String, String, String, String)>(
+        "SELECT actor_id, action, resource_id, result \
+         FROM audit_events \
+         WHERE resource_type = 'admin_api' \
+         ORDER BY created_ts DESC LIMIT 1",
+    )
+    .fetch_one(pool.as_ref())
+    .await
+    .expect("failed to fetch latest denied admin audit event");
+
+    assert_eq!(latest.0, actor_id);
+    assert_eq!(latest.1, "GET /_synapse/admin/v1/users");
+    assert_eq!(latest.2, "/_synapse/admin/v1/users");
+    assert_eq!(latest.3, "failure");
+}
+
+#[tokio::test]
 async fn test_worker_claim_route_is_atomic_over_http() {
     let Some(app) = setup_test_app().await else {
         return;
     };
 
     let (admin_token, _) = get_admin_token(&app).await;
-    let user_token = create_test_user(&app).await;
     let worker_one = format!("worker-a-{}", rand::random::<u32>());
     let worker_two = format!("worker-b-{}", rand::random::<u32>());
 
@@ -510,7 +635,7 @@ async fn test_worker_claim_route_is_atomic_over_http() {
             "/_synapse/worker/v1/tasks/{}/claim/{}",
             task_id, worker_one
         ))
-        .header("Authorization", format!("Bearer {}", user_token))
+        .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
     let request_two = Request::builder()
@@ -519,7 +644,7 @@ async fn test_worker_claim_route_is_atomic_over_http() {
             "/_synapse/worker/v1/tasks/{}/claim/{}",
             task_id, worker_two
         ))
-        .header("Authorization", format!("Bearer {}", user_token))
+        .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
 
@@ -867,11 +992,12 @@ async fn test_admin_room_block_writes_require_existing_room() {
 
 #[tokio::test]
 async fn test_admin_room_make_admin_accepts_put_and_updates_power_levels() {
-    let Some(app) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    promote_admin_role(&pool, &cache, &admin_username, "super_admin").await;
     let user_token = create_test_user(&app).await;
 
     let whoami_request = Request::builder()
@@ -1064,6 +1190,107 @@ async fn test_admin_room_member_management_supports_path_and_body_routes() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["kicked"], true);
+}
+
+#[tokio::test]
+async fn test_admin_sensitive_user_and_room_routes_require_super_admin() {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    promote_admin_role(&pool, &cache, &admin_username, "admin").await;
+
+    let user_token = create_test_user(&app).await;
+    let user_id = get_current_user_id(&app, &user_token).await;
+    let encoded_user_id = encode_path_segment(&user_id);
+
+    let create_room_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "name": "Sensitive Admin Guard Room" }).to_string(),
+        ))
+        .unwrap();
+    let create_room_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), create_room_request)
+            .await
+            .unwrap();
+    assert_eq!(create_room_response.status(), StatusCode::OK);
+
+    let create_room_body = axum::body::to_bytes(create_room_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let create_room_json: Value = serde_json::from_slice(&create_room_body).unwrap();
+    let room_id = create_room_json["room_id"]
+        .as_str()
+        .expect("room_id present")
+        .to_string();
+
+    let deactivate_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/deactivate",
+            encoded_user_id
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let deactivate_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), deactivate_request)
+            .await
+            .unwrap();
+    assert_eq!(deactivate_response.status(), StatusCode::FORBIDDEN);
+
+    let login_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/users/{}/login", encoded_user_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let login_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), login_request)
+        .await
+        .unwrap();
+    assert_eq!(login_response.status(), StatusCode::FORBIDDEN);
+
+    let logout_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/users/{}/logout", encoded_user_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let logout_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), logout_request)
+        .await
+        .unwrap();
+    assert_eq!(logout_response.status(), StatusCode::FORBIDDEN);
+
+    let make_admin_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_synapse/admin/v1/rooms/{}/make_admin", room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": user_id }).to_string()))
+        .unwrap();
+    let make_admin_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), make_admin_request)
+            .await
+            .unwrap();
+    assert_eq!(make_admin_response.status(), StatusCode::FORBIDDEN);
+
+    let shutdown_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/shutdown_room")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "room_id": room_id }).to_string()))
+        .unwrap();
+    let shutdown_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), shutdown_request)
+            .await
+            .unwrap();
+    assert_eq!(shutdown_response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

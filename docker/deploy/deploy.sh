@@ -17,6 +17,8 @@ DEPLOY_ROOT="$SCRIPT_DIR"
 LOG_DIR="$DEPLOY_ROOT/logs"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 LOG_FILE="$LOG_DIR/deploy_${TIMESTAMP}.log"
+LOG_PIPE=""
+LOG_TEE_PID=""
 
 ROLLBACK_BACKUP=""
 ROLLBACK_IMAGE_TAG=""
@@ -52,7 +54,32 @@ compose() {
 
 setup_logging() {
     mkdir -p "$LOG_DIR"
-    exec > >(tee -a "$LOG_FILE") 2>&1
+    touch "$LOG_FILE"
+
+    # Avoid bash process substitution so the script can run inside restricted sandboxes.
+    LOG_PIPE="$LOG_DIR/.deploy_${TIMESTAMP}.pipe"
+    rm -f "$LOG_PIPE"
+
+    if mkfifo "$LOG_PIPE"; then
+        exec 3>&1 4>&2
+        tee -a "$LOG_FILE" < "$LOG_PIPE" >&3 2>&4 &
+        LOG_TEE_PID="$!"
+        exec > "$LOG_PIPE" 2>&1
+    else
+        echo "无法创建日志管道，回退为仅写入日志文件: $LOG_FILE"
+        exec >> "$LOG_FILE" 2>&1
+    fi
+}
+
+cleanup_logging() {
+    if [ -n "$LOG_PIPE" ]; then
+        exec 1>&3 2>&4 || true
+        exec 3>&- 4>&- || true
+        rm -f "$LOG_PIPE" || true
+        if [ -n "$LOG_TEE_PID" ]; then
+            wait "$LOG_TEE_PID" 2>/dev/null || true
+        fi
+    fi
 }
 
 on_error() {
@@ -66,6 +93,7 @@ on_error() {
 }
 
 trap 'on_error "$LINENO" "$?"' ERR
+trap cleanup_logging EXIT
 
 show_banner() {
     echo ""

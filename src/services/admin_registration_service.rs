@@ -7,10 +7,10 @@ use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use sha1::Sha1;
+use sha2::Sha256;
 use std::sync::Arc;
 
-type HmacSha1 = Hmac<Sha1>;
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Clone)]
 pub struct AdminRegistrationService {
@@ -208,7 +208,7 @@ impl AdminRegistrationService {
             ));
         }
 
-        let mut mac = HmacSha1::new_from_slice(self.config.shared_secret.as_bytes())
+        let mut mac = HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
             .map_err(|_| ApiError::internal("Invalid shared secret".to_string()))?;
 
         mac.update(request.nonce.as_bytes());
@@ -219,7 +219,7 @@ impl AdminRegistrationService {
         mac.update(b"\0");
 
         if request.admin.unwrap_or(false) {
-            mac.update(b"admin");
+            mac.update(b"admin\x00\x00\x00");
         } else {
             mac.update(b"notadmin");
         }
@@ -235,7 +235,33 @@ impl AdminRegistrationService {
             .map(|b| format!("{:02x}", b))
             .collect::<String>();
 
-        if !constant_time_eq(&expected_hex, &request.mac) {
+        if request.admin.unwrap_or(false) {
+            // Support both padded and unpadded "admin" string for compatibility
+            if !constant_time_eq(&expected_hex, &request.mac) {
+                let mut mac_unpadded = HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
+                    .map_err(|_| ApiError::internal("Invalid shared secret".to_string()))?;
+                mac_unpadded.update(request.nonce.as_bytes());
+                mac_unpadded.update(b"\0");
+                mac_unpadded.update(request.username.as_bytes());
+                mac_unpadded.update(b"\0");
+                mac_unpadded.update(request.password.as_bytes());
+                mac_unpadded.update(b"\0");
+                mac_unpadded.update(b"admin");
+                if let Some(user_type) = &request.user_type {
+                    mac_unpadded.update(b"\0");
+                    mac_unpadded.update(user_type.as_bytes());
+                }
+                let expected_mac_unpadded = mac_unpadded.finalize().into_bytes();
+                let expected_hex_unpadded = expected_mac_unpadded
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>();
+                
+                if !constant_time_eq(&expected_hex_unpadded, &request.mac) {
+                    return Err(ApiError::forbidden("HMAC incorrect".to_string()));
+                }
+            }
+        } else if !constant_time_eq(&expected_hex, &request.mac) {
             return Err(ApiError::forbidden("HMAC incorrect".to_string()));
         }
 

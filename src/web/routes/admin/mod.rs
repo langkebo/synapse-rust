@@ -28,6 +28,17 @@ pub use server::create_server_router;
 pub use token::create_token_router;
 pub use user::create_user_router;
 
+pub(crate) fn ensure_super_admin_for_privilege_change(
+    admin: &crate::web::routes::AdminUser,
+) -> Result<(), crate::common::ApiError> {
+    if admin.role != "super_admin" {
+        return Err(crate::common::ApiError::forbidden(
+            "Only super_admin can perform this operation".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
     let protected = Router::new()
         .merge(create_audit_router(state.clone()))
@@ -47,7 +58,10 @@ pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
         ));
 
     Router::new()
-        .route("/_synapse/admin/info", axum::routing::get(server::get_admin_info))
+        .route(
+            "/_synapse/admin/info",
+            axum::routing::get(server::get_admin_info),
+        )
         .merge(protected)
         .merge(create_register_router(state.clone()))
 }

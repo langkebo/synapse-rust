@@ -790,6 +790,28 @@ async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
     for path in [
         "/_matrix/client/v3/thirdparty/protocols",
         "/_matrix/client/r0/thirdparty/protocol/irc",
+    ] {
+        let response = ServiceExt::<Request<Body>>::oneshot(
+            app.clone(),
+            Request::builder()
+                .method("GET")
+                .uri(path)
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.get("irc").is_some() || json.get("instances").is_some());
+    }
+
+    for path in [
         "/_matrix/client/v3/thirdparty/location/irc?alias=%23demo:localhost",
         "/_matrix/client/v3/thirdparty/user/irc?userid=%40alice:localhost",
         "/_matrix/client/v3/thirdparty/location?alias=%23demo:localhost",

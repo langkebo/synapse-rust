@@ -1,6 +1,5 @@
 [build]
-# 优化编译配置，减少内存使用
-jobs = 1
+# 移除 jobs = 1 以允许并行编译，显著提升构建速度
 incremental = true
 
 [profile.release]
