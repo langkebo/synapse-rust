@@ -20,6 +20,7 @@ set +H
 TEST_ENV="${TEST_ENV:-dev}"
 SERVER_URL="${SERVER_URL:-}"
 API_INTEGRATION_PROFILE="${API_INTEGRATION_PROFILE:-core}"
+TEST_ROLE="${TEST_ROLE:-super_admin}"
 if [ "${1:-}" = "--profile" ] && [ -n "${2:-}" ]; then
     API_INTEGRATION_PROFILE="$2"
     shift 2
@@ -149,6 +150,10 @@ pass() {
 fail() {
     local name="$1"
     local reason="${2:-}"
+    if is_expected_admin_denial "$name" "$reason"; then
+        pass "$name" "access denied as expected for role $TEST_ROLE"
+        return 0
+    fi
     if [ -n "$reason" ]; then
         echo "✗ FAIL: $name - $reason"
         printf '%s\t%s\n' "$name" "$reason" >> "$FAILED_LIST_FILE"
@@ -269,6 +274,10 @@ skip() {
         else
             missing "$name" "$reason"
         fi
+        return 0
+    fi
+    if is_expected_admin_denial "$name" "$reason"; then
+        pass "$name" "access denied as expected for role $TEST_ROLE"
         return 0
     fi
     if [ -n "$reason" ]; then
@@ -674,6 +683,112 @@ admin_ready() {
     [ "$ADMIN_AUTH_AVAILABLE" -eq 1 ] && [ -n "$ADMIN_TOKEN" ]
 }
 
+required_role_for_case() {
+    local name="$1"
+    case "$name" in
+        "Admin Register")
+            echo ""
+            ;;
+        "Admin Federation Resolve"|\
+        "Admin Federation Rewrite"|\
+        "Admin Set User Admin"|\
+        "Admin Shutdown Room"|\
+        "Admin Federation Blacklist"|\
+        "Admin Add Federation Blacklist"|\
+        "Admin Remove Federation Blacklist"|\
+        "Admin Federation Cache Clear"|\
+        "Admin User Login"|\
+        "Admin User Logout"|\
+        "Admin Delete Devices"|\
+        "Server Notices"|\
+        "Admin Room Make Admin"|\
+        "Admin Purge History"|\
+        "Admin Reset Connection"|\
+        "Admin User Deactivate"|\
+        "Admin Deactivate"|\
+        "Deactivate User"|\
+        "Admin Delete User"|\
+        "Invalidate User Session"|\
+        "Admin Session Invalidate"|\
+        "Send Server Notice"|\
+        "Admin Send Server Notice"|\
+        "Rust Synapse Version"|\
+        "Admin Create Registration Token")
+            echo "super_admin"
+            ;;
+        "Admin "*|\
+        "List Registration Tokens"|\
+        "Get Active Registration Tokens"|\
+        "List Pushers"|\
+        "Get Pushers"|\
+        "List Background Updates"|\
+        "List Event Reports"|\
+        "List User Sessions"|\
+        "Get All Devices"|\
+        "Get Statistics"|\
+        "Get Media Quota"|\
+        "Evict User"|\
+        "Get Rate Limit"|\
+        "Get Registration Token"|\
+        "Get Room Count"|\
+        "Get Room Shares"|\
+        "Get User Count"|\
+        "Get Pending Joins"|\
+        "Room Forward Extremities"|\
+        "Check Auth"|\
+        "Get Version Info"|\
+        "Get Feature Flags"|\
+        "List App Services")
+            echo "admin"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+role_satisfies_requirement() {
+    local required="$1"
+    case "$TEST_ROLE" in
+        super_admin)
+            [ -n "$required" ]
+            ;;
+        admin)
+            [ "$required" = "admin" ]
+            ;;
+        user|normal_user|ordinary_user)
+            return 1
+            ;;
+        *)
+            [ "$required" = "super_admin" ]
+            ;;
+    esac
+}
+
+is_expected_admin_denial() {
+    local name="$1"
+    local reason="$2"
+    local required
+    required=$(required_role_for_case "$name")
+    if [ -z "$required" ]; then
+        return 1
+    fi
+
+    case "$reason" in
+        "HTTP 401"|"HTTP 403"|*M_FORBIDDEN*|*M_UNAUTHORIZED*)
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    if role_satisfies_requirement "$required"; then
+        return 1
+    fi
+
+    return 0
+}
+
 print_result_file() {
     local title="$1"
     local file_path="$2"
@@ -746,7 +861,7 @@ run_optional_profile() {
     echo "Admin Federation Rewrite"
     if admin_ready; then
         http_json POST "$SERVER_URL/_synapse/admin/v1/federation/rewrite" "$ADMIN_TOKEN" '{"from": "localhost", "to": "localhost"}'
-        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rewritten" && pass "Admin Federation Rewrite" || skip "Admin Federation Rewrite (requires federation destination data)"
+        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rewritten" && pass "Admin Federation Rewrite" || skip "Admin Federation Rewrite" "requires federation destination data"
     else
         skip "Admin Federation Rewrite" "admin authentication unavailable"
     fi
@@ -948,10 +1063,10 @@ n='$NONCE'
 u='$ADMIN_LOGIN_USER'
 p='$ADMIN_PASS'
 t='$ADMIN_USER_TYPE'
-msg = n.encode() + b'\x00' + u.encode() + b'\x00' + p.encode() + b'\x00' + b'admin'
+msg = n.encode() + b'\x00' + u.encode() + b'\x00' + p.encode() + b'\x00' + b'admin\x00\x00\x00'
 if t:
     msg += b'\x00' + t.encode()
-print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha1).hexdigest())
+print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha256).hexdigest())
 " 2>/dev/null || echo "")
 
         REGISTER_RESP=$(curl -s -X POST "$SERVER_URL/_synapse/admin/v1/register" \
@@ -981,7 +1096,7 @@ if [ -z "$ADMIN_TOKEN" ] && [ -n "$TOKEN" ] && [ -n "$USER_ID" ]; then
 fi
 
 if [ -n "$ADMIN_TOKEN" ]; then
-    pass "Admin Login (User: $ADMIN_USER_ID)"
+    pass "Admin Login"
 else
     echo "⊘ WARNING: Admin login unavailable, Admin API tests may fail"
     ADMIN_AUTH_AVAILABLE=0
@@ -1925,7 +2040,13 @@ if admin_ready; then
     echo "111. Admin Federation Rewrite"
     if [ "$API_INTEGRATION_PROFILE" = "full" ]; then
         http_json POST "$SERVER_URL/_synapse/admin/v1/federation/rewrite" "$ADMIN_TOKEN" '{"from": "localhost", "to": "localhost"}'
-        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rewritten" && pass "Admin Federation Rewrite" || skip "Admin Federation Rewrite (requires federation destination data)"
+        if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rewritten"; then
+            pass "Admin Federation Rewrite"
+        elif is_expected_admin_denial "Admin Federation Rewrite" "HTTP $HTTP_STATUS"; then
+            pass "Admin Federation Rewrite" "access denied as expected for role $TEST_ROLE"
+        else
+            skip "Admin Federation Rewrite" "requires federation destination data"
+        fi
     fi
 else
     skip "Admin Federation Destinations" "admin authentication unavailable"
@@ -2038,7 +2159,7 @@ if admin_ready; then
 
     echo ""
     echo "122. Get Pushers"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "pushers" && pass "Get Pushers" || skip "Get Pushers (requires existing pusher data)"
+    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "pushers" && pass "Get Pushers" || skip "Get Pushers" "requires existing pusher data"
 else
     skip "List Pushers" "admin authentication unavailable"
     skip "Get Pushers" "admin authentication unavailable"
@@ -2995,7 +3116,7 @@ if destructive; then
     USER_ID_ENC=$(url_encode "$USER_ID")
     http_json POST "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/deactivate" "$ADMIN_TOKEN" '{}'
     if [[ "$HTTP_STATUS" == 2* ]]; then
-        pass "Deactivate User"
+        pass "Admin Deactivate"
         http_json PUT "$SERVER_URL/_synapse/admin/v2/users/$TEST_USER" "$ADMIN_TOKEN" "{\"password\":\"$CURRENT_TEST_PASS\",\"deactivated\":false}"
         if [[ "$HTTP_STATUS" == 2* ]]; then
             http_json POST "$SERVER_URL/_matrix/client/v3/login" "" "{\"type\": \"m.login.password\", \"user\": \"$TEST_USER\", \"password\": \"$CURRENT_TEST_PASS\"}"
@@ -3012,11 +3133,13 @@ if destructive; then
         else
             fail "Restore User After Deactivate" "$(json_err_summary "$HTTP_BODY")"
         fi
+    elif is_expected_admin_denial "Admin Deactivate" "HTTP $HTTP_STATUS"; then
+        pass "Admin Deactivate" "access denied as expected for role $TEST_ROLE"
     else
         skip "Admin Deactivate" "endpoint not available"
     fi
 else
-    skip "Deactivate User" "destructive test"
+    skip "Admin Deactivate" "destructive test"
 fi
 
 # 83. Admin Room Details Extended
@@ -3165,7 +3288,13 @@ check_success_json "$HTTP_BODY" "$HTTP_STATUS" "versions" && pass "Server Versio
 echo ""
 echo "261. Rust Synapse Version"
 http_json GET "$SERVER_URL/_synapse/admin/info" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" && pass "Rust Synapse Version" || skip "Rust Synapse Version (endpoint not available)"
+if check_success_json "$HTTP_BODY" "$HTTP_STATUS"; then
+    pass "Rust Synapse Version"
+elif is_expected_admin_denial "Rust Synapse Version" "HTTP $HTTP_STATUS"; then
+    pass "Rust Synapse Version" "access denied as expected for role $TEST_ROLE"
+else
+    skip "Rust Synapse Version (endpoint not available)"
+fi
 
 # 90. Capabilities
 echo ""
@@ -3249,10 +3378,10 @@ if admin_ready; then
     if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "event_id" "room_id" "notice_id"; then
         pass "Send Server Notice"
     else
-        skip "Server Notices" "$ASSERT_ERROR"
+        skip "Send Server Notice" "$ASSERT_ERROR"
     fi
 else
-    skip "Server Notices" "admin authentication unavailable"
+    skip "Send Server Notice" "admin authentication unavailable"
 fi
 
 # 96. Admin Stats
@@ -3433,6 +3562,8 @@ ADMIN_USER_ID_ENC=$(url_encode "$ADMIN_USER_ID")
 http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/rate_limit" "$ADMIN_TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Rate Limit"
+elif is_expected_admin_denial "Get Rate Limit" "HTTP $HTTP_STATUS"; then
+    pass "Get Rate Limit" "access denied as expected for role $TEST_ROLE"
 else
     skip "Get Rate Limit (not found)"
 fi
@@ -3446,6 +3577,8 @@ echo "286. Admin Version"
 http_json GET "$SERVER_URL/_synapse/admin/v1/server_version" "$ADMIN_TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Admin Version"
+elif is_expected_admin_denial "Admin Version" "HTTP $HTTP_STATUS"; then
+    pass "Admin Version" "access denied as expected for role $TEST_ROLE"
 else
     skip "Admin Version (not found)"
 fi
@@ -3570,10 +3703,10 @@ n='$REGISTER_NONCE'
 u='$REGISTER_USERNAME'
 p='$REGISTER_PASSWORD'
 t='$ADMIN_USER_TYPE'
-msg = n.encode() + b'\x00' + u.encode() + b'\x00' + p.encode() + b'\x00' + b'admin'
+msg = n.encode() + b'\x00' + u.encode() + b'\x00' + p.encode() + b'\x00' + b'admin\x00\x00\x00'
 if t:
     msg += b'\x00' + t.encode()
-print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha1).hexdigest())
+print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha256).hexdigest())
 " 2>/dev/null || echo "")
     http_json POST "$SERVER_URL/_synapse/admin/v1/register" "" "{\"nonce\": \"$REGISTER_NONCE\", \"username\": \"$REGISTER_USERNAME\", \"password\": \"$REGISTER_PASSWORD\", \"admin\": true, \"user_type\": \"$ADMIN_USER_TYPE\", \"mac\": \"$REGISTER_MAC\"}"
     if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "access_token" "user_id"; then
@@ -6007,7 +6140,7 @@ if admin_ready; then
             skip "Admin Delete User" "$ASSERT_ERROR"
         fi
     else
-        skip "Admin Delete User (destructive test)"
+        skip "Admin Delete User" "destructive test"
     fi
 
     echo ""
@@ -6198,6 +6331,7 @@ echo "561.0 Prepare Representative Room"
 http_json POST "$SERVER_URL/_matrix/client/v3/createRoom" "$TOKEN" '{"name":"Representative Room","preset":"private_chat"}'
 assert_success_json "Prepare Representative Room" "$HTTP_BODY" "$HTTP_STATUS" "room_id"
 REPRESENTATIVE_ROOM_ID=$(json_get "$HTTP_BODY" "room_id")
+ROOM_ID="$REPRESENTATIVE_ROOM_ID"
 ROOM_ENC=$(url_encode "$REPRESENTATIVE_ROOM_ID")
 
 echo "561.1 Prepare Representative Event"

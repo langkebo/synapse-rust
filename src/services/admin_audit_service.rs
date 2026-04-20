@@ -60,11 +60,13 @@ fn validate_request(request: &CreateAuditEventRequest) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("action is required"));
     }
 
-    if !request
-        .action
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':'))
-    {
+    if !request.action.chars().all(|c| {
+        c.is_ascii_alphanumeric()
+            || matches!(
+                c,
+                '.' | '_' | '-' | ':' | '/' | ' ' | '!' | '@' | '#' | '$' | '%'
+            )
+    }) {
         return Err(ApiError::bad_request("action contains invalid characters"));
     }
 
@@ -81,9 +83,9 @@ fn validate_request(request: &CreateAuditEventRequest) -> Result<(), ApiError> {
     }
 
     match request.result.as_str() {
-        "success" | "denied" | "failed" => Ok(()),
+        "success" | "denied" | "failed" | "failure" => Ok(()),
         _ => Err(ApiError::bad_request(
-            "result must be one of success, denied, failed",
+            "result must be one of success, denied, failed, failure",
         )),
     }
 }

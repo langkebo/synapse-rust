@@ -1,9 +1,10 @@
 use crate::common::config::SecurityConfig;
 use crate::common::ApiError;
-use crate::storage::User;
+use crate::storage::{CreateAuditEventRequest, User};
 use crate::web::routes::AppState;
 use axum::http::{HeaderMap, Method};
 use hmac::{Hmac, Mac};
+use serde_json::json;
 use sha1::Sha1;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -50,9 +51,57 @@ pub(crate) async fn authorize_admin_request(
 
     let normalized_path = normalize_admin_path(path);
     let role = normalize_admin_role(user.user_type.as_deref());
-    if state.services.config.security.admin_rbac_enabled
-        && !is_role_allowed(&role, method, &normalized_path)
+    let allowed = is_role_allowed(&role, method, &normalized_path);
+
+    let rbac_enabled = state.services.config.security.admin_rbac_enabled;
+    let rbac_allowed = !rbac_enabled || allowed;
+
+    ::tracing::info!(
+        target: "security_audit",
+        role = %role,
+        method = %method,
+        path = %normalized_path,
+        allowed = %allowed,
+        rbac_enabled = %rbac_enabled,
+        rbac_allowed = %rbac_allowed,
+        "RBAC check result"
+    );
+
+    // 记录审计日志
+    let request_id = headers
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let audit_request = CreateAuditEventRequest {
+        actor_id: user_id.clone(),
+        action: format!("admin.{}", method.as_str().to_lowercase()),
+        resource_type: "admin_api".to_string(),
+        resource_id: normalized_path.clone(),
+        result: if rbac_allowed {
+            "success".to_string()
+        } else {
+            "denied".to_string()
+        },
+        request_id,
+        details: Some(json!({
+            "role": role,
+            "path": path,
+            "method": method.as_str(),
+        })),
+    };
+
+    if let Err(e) = state
+        .services
+        .admin_audit_service
+        .create_event(audit_request)
+        .await
     {
+        ::tracing::error!(target: "security_audit", "Failed to create audit event: {}", e);
+    }
+
+    if !rbac_allowed {
         return Err(ApiError::forbidden(format!(
             "Admin role '{}' is not allowed to access this resource",
             role
@@ -155,14 +204,32 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
     }
 
     let is_read = matches!(*method, Method::GET | Method::HEAD);
+
+    // 敏感操作列表 (通常需要 super_admin)
+    let is_restricted_path = path.contains("/deactivate")
+        || path.contains("/login")
+        || path.contains("/logout")
+        || path.ends_with("/admin")
+        || path.contains("/shutdown")
+        || path.contains("/make_admin")
+        || path.contains("/federation/resolve")
+        || path.contains("/federation/blacklist")
+        || path.contains("/federation/cache/clear")
+        || path.contains("/registration_tokens");
+
     match role {
         "admin" => {
+            // admin 角色限制敏感操作，无论是否为读操作
+            if is_restricted_path {
+                return false;
+            }
+
             path.starts_with("/_synapse/admin/v1/users")
-                || path.starts_with("/_synapse/admin/v1/register")
-                || path.starts_with("/_synapse/admin/v1/registration_tokens")
+                || path.starts_with("/_synapse/admin/v2/users")
                 || path.starts_with("/_synapse/admin/v1/notifications")
                 || path.starts_with("/_synapse/admin/v1/media")
                 || path.starts_with("/_synapse/admin/v1/rooms")
+                || path.starts_with("/_synapse/worker/v1/")
                 || path.starts_with("/_synapse/room_summary/v1/")
                 || (is_read && path.starts_with("/_synapse/admin/v1/"))
         }
@@ -179,13 +246,74 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
                 || path.starts_with("/_synapse/admin/v1/server")
         }
         "user_admin" => {
+            // user_admin 限制敏感操作
+            if is_restricted_path {
+                return false;
+            }
+
             path.starts_with("/_synapse/admin/v1/users")
-                || path.starts_with("/_synapse/admin/v1/register")
-                || path.starts_with("/_synapse/admin/v1/registration_tokens")
+                || path.starts_with("/_synapse/admin/v2/users")
                 || path.starts_with("/_synapse/admin/v1/notifications")
         }
         "media_admin" => path.starts_with("/_synapse/admin/v1/media"),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn admin_role_restricted_endpoints_denied() {
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/users/@u:localhost/deactivate"
+        ));
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::PUT,
+            "/_synapse/admin/v1/users/@u:localhost/admin"
+        ));
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/federation/resolve"
+        ));
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/shutdown_room"
+        ));
+    }
+
+    #[test]
+    fn admin_role_non_sensitive_read_allowed() {
+        assert!(is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/v1/users"
+        ));
+        assert!(is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/v1/rooms"
+        ));
+    }
+
+    #[test]
+    fn super_admin_always_allowed() {
+        assert!(is_role_allowed(
+            "super_admin",
+            &Method::POST,
+            "/_synapse/admin/v1/users/@u:localhost/deactivate"
+        ));
+        assert!(is_role_allowed(
+            "super_admin",
+            &Method::POST,
+            "/_synapse/admin/v1/federation/cache/clear"
+        ));
     }
 }
 

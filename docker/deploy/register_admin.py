@@ -1,172 +1,170 @@
 #!/usr/bin/env python3
 """
-管理员账号注册脚本
-用于在 Synapse Rust 服务器上注册管理员账号
+管理员注册脚本
+
+根据 /Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/admin-registration-guide.md 实现
+HMAC-SHA256 消息格式使用字节拼接
 """
 
 import hmac
 import hashlib
-import requests
 import json
+import urllib.request
+import urllib.error
 import sys
 import os
 
+SERVER = os.environ.get("SYNAPSE_SERVER", "http://localhost:8008")
+USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+DISPLAYNAME = "System Administrator"
 
-def register_admin(server_url: str, shared_secret: str, username: str = "admin", password: str = "Admin@123"):
+SHARED_SECRET = os.environ.get("ADMIN_SHARED_SECRET", "")
+
+if not PASSWORD:
+    print("ERROR: ADMIN_PASSWORD environment variable must be set", file=sys.stderr)
+    sys.exit(1)
+if not SHARED_SECRET:
+    print("ERROR: ADMIN_SHARED_SECRET environment variable must be set", file=sys.stderr)
+    sys.exit(1)
+
+
+def get_nonce():
+    """获取 nonce"""
+    with urllib.request.urlopen(f"{SERVER}/_synapse/admin/v1/register/nonce") as resp:
+        return json.loads(resp.read())["nonce"]
+
+
+def calculate_mac(secret: str, nonce: str, username: str, password: str, admin: bool) -> str:
     """
-    注册管理员账号
-    
-    Args:
-        server_url: 服务器 URL
-        shared_secret: 管理员共享密钥
-        username: 用户名
-        password: 密码
-    
-    Returns:
-        dict: 注册结果
+    计算 HMAC-SHA256
+
+    格式: nonce\0username\0password\0admin/notadmin
+    注意: 使用字节拼接，不是字符串拼接
     """
-    nonce_url = f"{server_url}/_synapse/admin/v1/register/nonce"
+    message = bytearray()
+
+    # nonce
+    message.extend(nonce.encode('utf-8'))
+    message.extend(b'\x00')
+
+    # username
+    message.extend(username.encode('utf-8'))
+    message.extend(b'\x00')
+
+    # password
+    message.extend(password.encode('utf-8'))
+    message.extend(b'\x00')
+
+    # admin or notadmin
+    message.extend(b'admin\x00\x00\x00' if admin else b'notadmin')
+
+    # 计算 HMAC
+    key = secret.encode('utf-8')
+    mac = hmac.new(key, bytes(message), hashlib.sha256)
+    return mac.hexdigest()
+
+
+def register_admin():
+    """注册管理员"""
     try:
-        response = requests.get(nonce_url, timeout=10)
-        if response.status_code != 200:
-            print(f"获取 nonce 失败: HTTP {response.status_code}")
-            print(f"响应: {response.text}")
-            return None
-        
-        nonce_data = response.json()
-        nonce = nonce_data.get("nonce")
-        if not nonce:
-            print("获取 nonce 失败: nonce 为空")
-            return None
-        
-        print(f"获取 nonce 成功: {nonce[:20]}...")
-    except Exception as e:
-        print(f"获取 nonce 异常: {e}")
-        return None
-    
-    message = nonce.encode('utf-8')
-    message += b'\x00'
-    message += username.encode('utf-8')
-    message += b'\x00'
-    message += password.encode('utf-8')
-    message += b'\x00'
-    message += b'admin'
-    
-    key = shared_secret.encode('utf-8')
-    mac = hmac.new(key, message, hashlib.sha256)
-    mac_hex = mac.hexdigest()
-    
-    print(f"计算 MAC: {mac_hex[:20]}...")
-    
-    register_url = f"{server_url}/_synapse/admin/v1/register"
-    register_data = {
-        "nonce": nonce,
-        "username": username,
-        "password": password,
-        "admin": True,
-        "mac": mac_hex
-    }
-    
-    try:
-        response = requests.post(register_url, json=register_data, timeout=10)
-        result = response.json()
-        
-        if response.status_code == 200:
-            print("注册成功!")
-            print(f"用户ID: {result.get('user_id')}")
-            print(f"设备ID: {result.get('device_id')}")
-            token = result.get('access_token', '')
-            print(f"Access Token: {token[:30]}..." if token else "无 Access Token")
+        # 1. 获取 nonce
+        print(f"1. 获取 nonce from {SERVER}/_synapse/admin/v1/register/nonce")
+        nonce = get_nonce()
+        print(f"   Nonce: {nonce[:40]}...")
+
+        # 2. 计算 HMAC
+        print(f"2. 计算 HMAC-SHA256")
+        mac = calculate_mac(SHARED_SECRET, nonce, USERNAME, PASSWORD, admin=True)
+        print(f"   MAC: {mac}")
+
+        # 3. 注册
+        print(f"3. 注册管理员账号")
+        data = {
+            "nonce": nonce,
+            "username": USERNAME,
+            "password": PASSWORD,
+            "admin": True,
+            "displayname": DISPLAYNAME,
+            "mac": mac
+        }
+
+        req = urllib.request.Request(
+            f"{SERVER}/_synapse/admin/v1/register",
+            data=json.dumps(data).encode('utf-8'),
+            headers={"Content-Type": "application/json"}
+        )
+
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read())
+            print(f"\n✅ 注册成功!")
+            print(f"   User ID: {result.get('user_id')}")
+            print(f"   Access Token: {result.get('access_token', 'N/A')[:80]}...")
+            print(f"\n保存以下信息用于测试:")
+            print(f"   ADMIN_TOKEN='{result.get('access_token')}'")
+
+            # 保存到文件
+            with open("/tmp/admin_token.txt", "w") as f:
+                f.write(result.get('access_token', ''))
+            print(f"\n   Token 已保存到 /tmp/admin_token.txt")
+
             return result
-        else:
-            errcode = result.get("errcode", "UNKNOWN")
-            error = result.get("error", "Unknown error")
-            print(f"注册失败: {errcode}: {error}")
-            return None
+
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode()
+        print(f"\n❌ HTTP Error {e.code}: {error_body}")
+        return None
     except Exception as e:
-        print(f"注册异常: {e}")
+        print(f"\n❌ Error: {type(e).__name__}: {e}")
         return None
 
 
-def login(server_url: str, username: str, password: str):
-    """
-    用户登录
-    
-    Args:
-        server_url: 服务器 URL
-        username: 用户名
-        password: 密码
-    
-    Returns:
-        dict: 登录结果
-    """
-    login_url = f"{server_url}/_matrix/client/v3/login"
-    login_data = {
-        "type": "m.login.password",
-        "user": username,
-        "password": password
-    }
-    
+def test_admin_login():
+    """测试管理员登录"""
+    print(f"\n4. 测试管理员登录")
     try:
-        response = requests.post(login_url, json=login_data, timeout=10)
-        result = response.json()
-        
-        if response.status_code == 200:
-            print("登录成功!")
-            print(f"用户ID: {result.get('user_id')}")
-            print(f"设备ID: {result.get('device_id')}")
-            token = result.get('access_token', '')
-            print(f"Access Token: {token[:30]}..." if token else "无 Access Token")
+        data = {
+            "type": "m.login.password",
+            "user": USERNAME,
+            "password": PASSWORD,
+            "initial_device_display_name": "AdminTest"
+        }
+
+        req = urllib.request.Request(
+            f"{SERVER}/_matrix/client/v3/login",
+            data=json.dumps(data).encode('utf-8'),
+            headers={"Content-Type": "application/json"}
+        )
+
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read())
+            print(f"   ✅ 登录成功!")
+            print(f"   User ID: {result.get('user_id')}")
+            print(f"   Access Token: {result.get('access_token', 'N/A')[:60]}...")
             return result
-        else:
-            errcode = result.get("errcode", "UNKNOWN")
-            error = result.get("error", "Unknown error")
-            print(f"登录失败: {errcode}: {error}")
-            return None
-    except Exception as e:
-        print(f"登录异常: {e}")
+
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode()
+        print(f"   ❌ 登录失败: {error_body}")
         return None
-
-
-def main():
-    server_url = os.environ.get("SERVER_URL", "http://localhost:8008")
-    shared_secret = os.environ.get("ADMIN_SHARED_SECRET", "")
-    username = os.environ.get("ADMIN_USER", "admin")
-    password = os.environ.get("ADMIN_PASS", "Admin@123")
-    
-    env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-    if os.path.exists(env_file) and not shared_secret:
-        with open(env_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("ADMIN_SHARED_SECRET="):
-                    shared_secret = line.split("=", 1)[1]
-                    break
-    
-    if not shared_secret:
-        print("错误: 未配置 ADMIN_SHARED_SECRET")
-        sys.exit(1)
-    
-    print(f"服务器: {server_url}")
-    print(f"用户名: {username}")
-    print(f"共享密钥: {shared_secret[:10]}...")
-    print("")
-    
-    print("=== 尝试登录 ===")
-    login_result = login(server_url, username, password)
-    
-    if login_result:
-        print("\n管理员账号已存在且密码正确")
-        return 0
-    
-    print("\n=== 尝试注册 ===")
-    register_result = register_admin(server_url, shared_secret, username, password)
-    
-    if register_result:
-        return 0
-    
-    return 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    print("=" * 60)
+    print("管理员注册脚本")
+    print("=" * 60)
+    print(f"Server: {SERVER}")
+    print(f"Username: {USERNAME}")
+    print(f"Password: {PASSWORD}")
+    print("=" * 60)
+
+    result = register_admin()
+
+    if result:
+        test_admin_login()
+    else:
+        print("\n注册失败，请检查:")
+        print("1. 服务器是否运行")
+        print("2. shared_secret 是否正确")
+        print("3. HMAC 计算格式是否正确")
+        sys.exit(1)

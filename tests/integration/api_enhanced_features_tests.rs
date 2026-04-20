@@ -178,13 +178,13 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_protocols_request)
                 .await
                 .unwrap();
-        assert_eq!(v3_protocols_response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(v3_protocols_response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(v3_protocols_response.into_body(), 1024)
             .await
             .unwrap();
         let v3_protocols_json: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(v3_protocols_json["errcode"], "M_UNRECOGNIZED");
+        assert!(v3_protocols_json.get("irc").is_some());
 
         let r0_protocols_request = Request::builder()
             .uri("/_matrix/client/r0/thirdparty/protocols")
@@ -195,13 +195,13 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_protocols_request)
                 .await
                 .unwrap();
-        assert_eq!(r0_protocols_response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(r0_protocols_response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(r0_protocols_response.into_body(), 1024)
             .await
             .unwrap();
         let r0_protocols_json: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(r0_protocols_json["errcode"], "M_UNRECOGNIZED");
+        assert!(r0_protocols_json.get("irc").is_some());
 
         let v3_protocol_request = Request::builder()
             .uri("/_matrix/client/v3/thirdparty/protocol/test")

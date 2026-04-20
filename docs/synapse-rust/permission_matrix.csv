@@ -1,0 +1,471 @@
+Case,super_admin_status,super_admin_outcome,admin_status,admin_outcome,user_status,user_outcome
+Health endpoint,,pass,,pass,,pass
+Versions endpoint,200,pass,200,pass,200,pass
+Login (User: @testuser1:localhost),,pass,,pass,N/A,N/A
+Ensure Second User (@testuser2:localhost),409,pass,409,pass,409,pass
+Second User Login,200,pass,200,pass,200,pass
+Second Device Login,200,pass,200,pass,200,pass
+Admin Login,200,pass,200,pass,403,pass
+Capabilities,200,pass,200,pass,200,pass
+Create Test Room,200,pass,200,pass,200,pass
+Create Second Room,200,pass,200,pass,200,pass
+Sync,200,pass,200,pass,200,pass
+Room Sync Filter,200,pass,200,pass,200,pass
+Get Profile,200,pass,200,pass,200,pass
+Update Displayname,200,pass,200,pass,200,pass
+Get Avatar URL,200,pass,200,pass,200,pass
+Set Avatar URL,,pass,,pass,,pass
+Get Room State,200,pass,200,pass,200,pass
+Send Message,200,pass,200,pass,200,pass
+Room Messages,200,pass,200,pass,200,pass
+Joined Members,200,pass,200,pass,200,pass
+Set Room Alias,200,pass,200,pass,200,pass
+Get Room Alias,200,pass,200,pass,200,pass
+Set Room Topic,200,pass,200,pass,200,pass
+Redact Event,200,pass,200,pass,200,pass
+Media Config,200,pass,200,pass,200,pass
+Media Upload,,pass,,pass,,pass
+Media Download,,pass,,pass,,pass
+Media Thumbnail,,pass,,pass,,pass
+VoIP Config,200,pass,200,pass,200,pass
+Set User Account Data,,pass,,pass,,pass
+Get User Account Data,200,pass,200,pass,200,pass
+Set Room Account Data,200,pass,200,pass,200,pass
+Get Room Account Data,404,pass,404,pass,404,pass
+Add Room Tag,,pass,,pass,,pass
+Get Room Tags,200,pass,200,pass,200,pass
+Remove Room Tag,200,pass,200,pass,200,pass
+Update Presence,,pass,,pass,,pass
+Get Presence,200,pass,200,pass,200,pass
+Presence Subscribe,200,pass,200,pass,200,pass
+List Presences,200,pass,200,pass,200,pass
+Invite User,200,pass,200,pass,200,pass
+Join Room,200,pass,200,pass,200,pass
+Leave Room,200,pass,200,pass,200,pass
+Get Membership,200,pass,200,pass,200,pass
+List Devices,200,pass,200,pass,200,pass
+Get Device,200,pass,200,pass,200,pass
+Update Device,200,pass,200,pass,200,pass
+Delete Device,,skip,,skip,,skip
+Upload Keys,200,pass,200,pass,200,pass
+Query Keys,200,pass,200,pass,200,pass
+Claim Keys,200,pass,200,pass,200,pass
+Public Rooms,200,pass,200,pass,200,pass
+User Directory,200,pass,200,pass,200,pass
+Room Summary,200,pass,200,pass,200,pass
+Room Summary Stats,200,pass,200,pass,200,pass
+Room Summary Members,200,pass,200,pass,200,pass
+Room Summary State,200,pass,200,pass,200,pass
+WhoAmI,200,pass,200,pass,200,pass
+Search Rooms,,pass,,pass,,pass
+Admin List Users,200,pass,200,pass,403,pass
+Admin User Details,200,pass,200,pass,403,pass
+Admin User Sessions,200,pass,200,pass,403,pass
+Admin User Stats,200,pass,200,pass,403,pass
+Admin User Devices,200,pass,200,pass,403,pass
+Admin List Rooms,200,pass,200,pass,403,pass
+Admin Room Details,200,pass,200,pass,403,pass
+Admin Room Members,200,pass,200,pass,403,pass
+Admin Room Messages,200,pass,200,pass,403,pass
+Admin Room Block,200,pass,200,pass,403,pass
+Admin Room Unblock,200,pass,200,pass,403,pass
+Create Space,200,pass,200,pass,200,pass
+Public Spaces,200,pass,200,pass,200,pass
+User Spaces,200,pass,200,pass,200,pass
+Space Members,200,pass,200,pass,200,pass
+Space State,200,pass,200,pass,200,pass
+Space Children,200,pass,200,pass,200,pass
+Get Threads,200,pass,200,pass,200,pass
+Create Filter,200,pass,200,pass,200,pass
+Get Filter,200,pass,200,pass,200,pass
+Get 3PID Bindings,200,pass,200,pass,200,pass
+Request OpenID Token,200,pass,200,pass,200,pass
+Well-Known Client,200,pass,200,pass,200,pass
+Well-Known Server,200,pass,200,pass,200,pass
+Server Version,200,pass,200,pass,200,pass
+Create DM,200,pass,200,pass,200,pass
+Get Direct Rooms,200,pass,200,pass,200,pass
+Update Direct Room,200,pass,200,pass,200,pass
+Admin Room Stats,200,pass,200,pass,403,pass
+Admin Room Block Status,200,pass,200,pass,403,pass
+Admin Room Search,200,pass,200,pass,403,pass
+Admin Room Listings,200,pass,200,pass,403,pass
+Admin Room State,200,pass,200,pass,403,pass
+Well-Known OIDC,200,pass,200,pass,200,pass
+OIDC Discovery,200,pass,200,pass,200,pass
+Get Invite Blocklist,200,pass,200,pass,200,pass
+Set Invite Blocklist,200,pass,200,pass,200,pass
+Get Invite Allowlist,200,pass,200,pass,200,pass
+Set Invite Allowlist,200,pass,200,pass,200,pass
+Joined Rooms,200,pass,200,pass,200,pass
+My Rooms,200,pass,200,pass,200,pass
+Server Version (r0),200,pass,200,pass,200,pass
+Set User Account Data (r0),200,pass,200,pass,200,pass
+Get User Account Data (r0),200,pass,200,pass,200,pass
+Set Room Account Data (r0),200,pass,200,pass,200,pass
+List Devices (r0),200,pass,200,pass,200,pass
+Delete Devices (r0),,skip,,skip,,skip
+Admin Federation Destinations,200,pass,200,pass,403,pass
+Admin Federation Destination Details,,skip,,skip,,skip
+Admin Federation Resolve,200,pass,200,fail,403,pass
+List Registration Tokens,200,pass,200,pass,403,pass
+Get Active Registration Tokens,200,pass,200,pass,403,pass
+Get Push Rules,200,pass,200,pass,200,pass
+Get Push Rules Global,200,pass,200,pass,200,pass
+Get Key Backup Versions,200,pass,200,pass,200,pass
+Admin Account Details,200,pass,200,pass,403,pass
+Admin User Rooms,200,pass,200,pass,403,pass
+Admin User Password,,skip,,skip,,skip
+Admin Set User Admin,200,pass,403,pass,403,pass
+List Pushers,200,pass,200,pass,403,pass
+Get Pushers,200,pass,200,pass,403,pass
+Set Presence,200,pass,200,pass,200,pass
+Get Presence List,200,pass,200,pass,200,pass
+Get Key Verification Request,,pass,,pass,,pass
+Get Room Key Request,,pass,,pass,,pass
+Get Thread (no event id),,skip,,skip,,skip
+Get Thirdparty Protocols,200,pass,200,pass,200,pass
+Get Thirdparty Protocol,200,pass,200,pass,200,pass
+Get Client Well-Known,200,pass,200,pass,200,pass
+Get Server Well-Known,200,pass,200,pass,200,pass
+Get Capabilities,200,pass,200,pass,200,pass
+Get Room Version,200,pass,200,pass,200,pass
+Admin Block Room,200,pass,200,pass,403,pass
+Ensure Deactivate Target (@deactivate_probe_super_admin:localhost),409,pass,N/A,N/A,N/A,N/A
+Admin User Deactivate,200,pass,200,fail,403,pass
+List Devices v3,200,pass,200,pass,200,pass
+Get Keys Changes,200,pass,200,pass,200,pass
+Get Friends,,pass,,pass,,pass
+Friend Request,409,pass,409,pass,200,pass
+Incoming Friend Requests,200,pass,200,pass,200,pass
+Refresh Token,200,pass,200,pass,200,pass
+Admin Shutdown Room,200,pass,200,fail,403,pass
+Admin Room Make Admin,200,pass,200,fail,403,pass
+Admin Federation Blacklist,200,pass,200,fail,403,pass
+Admin Federation Cache Clear,200,pass,200,fail,403,pass
+Admin Reset Connection,404,pass,404,pass,403,pass
+Search v3,200,pass,200,pass,200,pass
+Room Context,,pass,,pass,,pass
+Room Hierarchy,,pass,,pass,,pass
+Create Key Backup,200,pass,200,pass,200,pass
+Get Key Backup,200,pass,200,pass,200,pass
+Send To Device,,pass,,pass,,pass
+OpenID Userinfo,200,pass,200,pass,200,pass
+Events,200,pass,200,pass,200,pass
+Room Version,200,pass,200,pass,200,pass
+VoIP TURN Server,200,pass,200,pass,200,pass
+Admin User Login,200,pass,200,fail,403,pass
+Admin User Logout,200,pass,200,fail,403,pass
+Admin Batch Users,200,pass,200,pass,403,pass
+Federation Version,200,pass,200,pass,200,pass
+Federation Backfill,200,pass,200,pass,200,pass
+Federation Get Event,200,pass,200,pass,200,pass
+Federation Event Auth,200,pass,200,pass,200,pass
+Federation Get Joining Rules,200,pass,200,pass,200,pass
+Federation Keys Query,400,pass,400,pass,400,pass
+Federation Keys Claim,400,pass,400,pass,400,pass
+Federation Keys Upload,400,pass,400,pass,400,pass
+Federation Make Join,200,pass,200,pass,200,pass
+Federation Make Leave,200,pass,200,pass,200,pass
+Federation Members,401,skip,401,skip,401,skip
+Federation Public Rooms,200,pass,200,pass,200,pass
+Federation Query Directory,200,pass,200,pass,200,pass
+Federation Query Profile,200,pass,200,pass,200,pass
+Federation Room Auth,403,skip,403,skip,403,skip
+Federation State,200,pass,200,pass,200,pass
+Federation State IDs,200,pass,200,pass,200,pass
+Admin Create Registration Token Negative,,skip,403,pass,403,pass
+Media Config v3,200,pass,200,pass,200,pass
+Media Config r0,200,pass,200,pass,200,pass
+Media Upload r0,,pass,,pass,,pass
+Media Config v1,200,pass,200,pass,200,pass
+Room Summary Heroes,,pass,,pass,,pass
+Room Summary Stats Recalculate,,pass,,pass,,pass
+Room Summary Sync,,pass,,pass,,pass
+Room Summary Unread Clear,,pass,,pass,,pass
+Space Hierarchy,200,pass,200,pass,200,pass
+Timestamp to Event,,pass,,pass,,pass
+User Threads,,pass,,pass,,pass
+List Background Updates,200,pass,200,pass,403,pass
+List Event Reports,200,pass,200,pass,403,pass
+Room Forward Extremities,200,pass,200,pass,403,pass
+Keys Query,,pass,,pass,,pass
+Keys Claim,,pass,,pass,,pass
+Keys Changes,,pass,,pass,,pass
+Keys Upload Signature,,pass,,pass,,pass
+Get Key Changes,,pass,,pass,,pass
+Create Key Backup Version,200,pass,200,pass,200,pass
+Get Key Backup Version,200,pass,200,pass,200,pass
+Delete Key Backup Version,,pass,,pass,,pass
+Room Keys Backup,,pass,,pass,,pass
+Get Room Keys Backup,,pass,,pass,,pass
+Get Room Key,,pass,,pass,,pass
+Delete Room Key,,pass,,pass,,pass
+Start Key Verification,,pass,,pass,,pass
+Accept Key Verification,,pass,,pass,,pass
+Complete Key Verification,,pass,,pass,,pass
+Cancel Key Verification,,pass,,pass,,pass
+Create Room Key Request,,pass,,pass,,pass
+Get Room Key Requests,,pass,,pass,,pass
+Delete Room Key Request,,pass,,pass,,pass
+Get Thread v1,,pass,,pass,,pass
+Get User Threads,,pass,,pass,,pass
+Thread Search,,pass,,pass,,pass
+Get Thread ID,,pass,,pass,,pass
+Get State Event,,pass,,pass,,pass
+Room Typing,,pass,,pass,,pass
+Room Read Markers,,pass,,pass,,pass
+List User Sessions,200,pass,200,pass,403,pass
+Invalidate User Session,,skip,,skip,,skip
+Reset User Password,,skip,,skip,,skip
+Admin Deactivate,,skip,,skip,,skip
+Admin Room Delete,,skip,,skip,,skip
+Identity Store Invite,,pass,,pass,,pass
+Identity Get Published Keys,,pass,,pass,,pass
+Get Incoming Friend Requests,,pass,,pass,,pass
+Get Outgoing Friend Requests,,pass,,pass,,pass
+Send Friend Request,,pass,,pass,,pass
+Admin Get User,200,pass,200,pass,403,pass
+Admin List User Tokens,200,pass,200,pass,403,pass
+Admin Get Room,200,pass,200,pass,403,pass
+Rust Synapse Version,200,pass,403,pass,403,pass
+Admin Room Event,200,pass,200,pass,403,pass
+Admin Room Token Sync,200,pass,200,pass,403,pass
+Get Receipts,200,pass,200,pass,200,pass
+Get Space Rooms,200,pass,200,pass,200,pass
+Send Server Notice,200,pass,403,pass,403,pass
+Admin Stats Users,200,pass,200,pass,403,pass
+Admin Stats Rooms,200,pass,200,pass,403,pass
+Report Event,200,pass,200,pass,200,pass
+Search User Directory,200,pass,200,pass,200,pass
+User Directory Profile,200,pass,200,pass,200,pass
+Create Room Key Share Request,200,pass,200,pass,200,pass
+Get Room Key Share Requests,200,pass,200,pass,200,pass
+Admin Delete Devices,200,pass,403,pass,403,pass
+Get Client Config,200,pass,200,pass,200,pass
+Admin List Room Aliases,200,pass,200,pass,403,pass
+Get Room Invites,200,pass,200,pass,200,pass
+Get Rate Limit,200,pass,200,pass,403,pass
+Admin Version,200,pass,200,pass,403,pass
+Create Friend Group,200,pass,200,pass,200,pass
+List Friend Groups,200,pass,200,pass,200,pass
+Get Vault Data,200,pass,200,pass,200,pass
+Set Vault Data,200,pass,200,pass,200,pass
+Get Retention Policy,200,pass,200,pass,200,pass
+Admin Register,400,skip,400,skip,400,skip
+Get Room Key Backward,200,pass,200,pass,200,pass
+Get Event Thread,200,pass,200,pass,200,pass
+Get Auto-Discovery,200,pass,200,pass,200,pass
+Get Room Rendered,200,pass,200,pass,200,pass
+Evict User,200,pass,200,pass,403,pass
+Get Group Details,200,pass,200,pass,200,pass
+Get State v2,200,pass,200,pass,200,pass
+Search Messages,200,pass,200,pass,200,pass
+Get Room Reports,200,pass,200,pass,403,pass
+Get Replacement Event,,pass,,pass,,pass
+Get Global Tags,200,pass,200,pass,200,pass
+Get Presence Bulk,200,pass,200,pass,200,pass
+Send Room Message,200,pass,200,pass,200,pass
+Send Room Event,200,pass,200,pass,200,pass
+Upgrade Room,200,pass,200,pass,200,pass
+Get Room Tombstone,200,pass,200,pass,200,pass
+Get Room External IDs,200,pass,200,pass,200,pass
+Get Event Relations,200,pass,200,pass,200,pass
+Get Aggregation Groups,200,pass,200,pass,200,pass
+Send Event,200,pass,200,pass,200,pass
+Update Device List,400,pass,400,pass,400,pass
+Forward Keys,200,pass,200,pass,200,pass
+Room Search v1,200,pass,200,pass,200,pass
+Room Initial Sync,200,pass,200,pass,200,pass
+Get Event Perspective,200,pass,200,pass,200,pass
+Get Turn Server,200,pass,200,pass,200,pass
+Get All Devices,200,pass,200,pass,403,pass
+Get Statistics,200,pass,200,pass,403,pass
+Get Media Quota,200,pass,200,pass,403,pass
+Check Auth,200,pass,200,pass,403,pass
+Get Version Info,200,pass,200,pass,403,pass
+Get Room Capabilities,200,pass,200,pass,200,pass
+Get User Fragments,200,pass,200,pass,200,pass
+Get Service Types,200,pass,200,pass,200,pass
+Federation Discovery,,pass,,pass,,pass
+Sync v1,200,pass,200,pass,200,pass
+Upload Keys v1,200,pass,200,pass,200,pass
+Get Event Keys,200,pass,200,pass,200,pass
+Claim Room Keys,200,pass,200,pass,200,pass
+Get Keys Version,200,pass,200,pass,200,pass
+Get Message Queue,200,pass,200,pass,200,pass
+Get Joined Members,200,pass,200,pass,200,pass
+Get Registration Token,200,pass,200,pass,403,pass
+Get Room Shares,200,pass,200,pass,403,pass
+Get User Count,200,pass,200,pass,403,pass
+Get Room Count,200,pass,200,pass,403,pass
+Get Pending Joins,200,pass,200,pass,403,pass
+Start Typing,200,pass,200,pass,200,pass
+Stop Typing,200,pass,200,pass,200,pass
+Post Receipt,200,pass,200,pass,200,pass
+Get Read Markers,200,pass,200,pass,200,pass
+Get Room Key Count,200,pass,200,pass,200,pass
+Get Group Friends,200,pass,200,pass,200,pass
+Get User Groups,200,pass,200,pass,200,pass
+Get User Appservice,200,pass,200,pass,200,pass
+Translate Event,200,pass,200,pass,200,pass
+Get Event URL,200,pass,200,pass,200,pass
+Convert Event,200,pass,200,pass,200,pass
+Sign Event,200,pass,200,pass,200,pass
+Verify Event,200,pass,200,pass,200,pass
+Get Room Device,200,pass,200,pass,200,pass
+Get Room Keys v1,200,pass,200,pass,200,pass
+Get Timeline,200,pass,200,pass,200,pass
+Get Unread Count,200,pass,200,pass,200,pass
+Sync Room,200,pass,200,pass,200,pass
+Get Room State v1,200,pass,200,pass,200,pass
+Get Room State Event,200,pass,200,pass,200,pass
+Get Members,200,pass,200,pass,200,pass
+Get Members Recent,200,pass,200,pass,200,pass
+Get Messages,200,pass,200,pass,200,pass
+Report Room Event,200,pass,200,pass,200,pass
+Get Room Visibility,200,pass,200,pass,200,pass
+Get Room Users,200,pass,200,pass,200,pass
+Search Room v3,200,pass,200,pass,200,pass
+Get Media Config,200,pass,200,pass,200,pass
+Media Upload v3,200,pass,200,pass,200,pass
+Search Users Directory,200,pass,200,pass,200,pass
+Create Room v3,200,pass,200,pass,200,pass
+Prepare Room v3 Invite,200,pass,200,pass,200,pass
+Prepare Room v3 Join,200,pass,200,pass,200,pass
+Kick User,200,pass,200,pass,200,pass
+Ban User,200,pass,200,pass,200,pass
+Unban User,200,pass,200,pass,200,pass
+Register User v3,200,pass,200,pass,200,pass
+Rename Friend Group,200,pass,200,pass,200,pass
+Resolve Alias,200,pass,200,pass,200,pass
+Get Metadata,200,pass,200,pass,200,pass
+Get Encrypted Events,200,pass,200,pass,200,pass
+Get Reduced Events,200,pass,200,pass,200,pass
+Get User Tags,200,pass,200,pass,200,pass
+Get Presence v1,200,pass,200,pass,200,pass
+Set Profile,200,pass,200,pass,200,pass
+Invite User v3,200,pass,200,pass,200,pass
+Join Room v3,200,pass,200,pass,200,pass
+Leave Room v3,200,pass,200,pass,200,pass
+Kick User v3,200,pass,200,pass,200,pass
+Ban User v3,200,pass,200,pass,200,pass
+Unban User v3,200,pass,200,pass,200,pass
+Get Permissions,200,pass,200,pass,200,pass
+Get Pinned Events,200,pass,200,pass,200,pass
+Get User Filter,200,pass,200,pass,200,pass
+Room Sync v3,200,pass,200,pass,200,pass
+Forward Room Keys,200,pass,200,pass,200,pass
+Report Room v3,200,pass,200,pass,200,pass
+Set State Key,200,pass,200,pass,200,pass
+Typing v3,200,pass,200,pass,200,pass
+Upload Signatures,200,pass,200,pass,200,pass
+Admin List Spaces,200,pass,200,pass,403,pass
+Admin Space Rooms,200,pass,200,pass,403,pass
+Admin Space Stats,200,pass,200,pass,403,pass
+Admin Space Users,200,pass,200,pass,403,pass
+Space Public,200,pass,200,pass,200,pass
+Space Room Parents,,pass,,pass,,pass
+Space Search,,pass,,pass,,pass
+Space Statistics,,pass,,pass,,pass
+Space User,,pass,,pass,,pass
+Space Children v3,,pass,,pass,,pass
+Space Hierarchy v1,200,pass,200,pass,200,pass
+Space Summary with Children,200,pass,200,pass,200,pass
+Space Tree Path,,pass,,pass,,pass
+Keys Changes r0,200,pass,200,pass,200,pass
+Keys Claim r0,200,pass,200,pass,200,pass
+Keys Device Signing Upload,200,pass,200,pass,200,pass
+Keys Query r0,200,pass,200,pass,200,pass
+Keys Signatures Upload r0,200,pass,200,pass,200,pass
+Keys Upload r0,200,pass,200,pass,200,pass
+Room Keys Distribution,200,pass,200,pass,200,pass
+SendToDevice r0,200,pass,200,pass,200,pass
+Device Trust,200,pass,200,pass,200,pass
+Device Trust by ID,200,pass,200,pass,404,pass
+Device Verification Request,200,pass,200,pass,200,pass
+Device Verification Respond,200,pass,200,pass,200,pass
+Device Verification Status,200,pass,200,pass,200,pass
+Keys Backup Secure,200,pass,200,pass,200,pass
+Keys Backup Secure by ID,200,pass,200,pass,200,pass
+Keys Backup Secure Keys,200,pass,200,pass,200,pass
+Keys Backup Secure Restore,200,pass,200,pass,200,pass
+Keys Backup Secure Verify,200,pass,200,pass,200,pass
+Keys Changes v3,200,pass,200,pass,200,pass
+Keys Claim v3,200,pass,200,pass,200,pass
+Keys Device Signing Upload v3,200,pass,200,pass,200,pass
+Keys Query v3,200,pass,200,pass,200,pass
+Keys Signatures Upload v3,200,pass,200,pass,200,pass
+Keys Upload v3,200,pass,200,pass,200,pass
+Room Keys Distribution v3,200,pass,200,pass,200,pass
+Security Summary,200,pass,200,pass,200,pass
+SendToDevice v3,200,pass,200,pass,200,pass
+Room Keys Version Create,,pass,,pass,,pass
+Room Keys Version Get,,pass,,pass,,pass
+Room Keys Keys Get,,pass,,pass,,pass
+Room Keys Keys Room Get,,pass,,pass,,pass
+Room Keys Keys Room Session Get,,pass,,pass,,pass
+Room Keys Keys Room Session Put,,pass,,pass,,pass
+Room Keys Backup Get,,pass,,pass,,pass
+Room Keys Backup Put,,pass,,pass,,pass
+Room Keys Version Delete,,pass,,pass,,pass
+Get All User Account Data (r0),200,pass,200,pass,200,pass
+Get All User Account Data (v3),200,pass,200,pass,200,pass
+Federation User Devices,200,pass,200,pass,200,pass
+Federation v1,200,pass,200,pass,200,pass
+Federation OpenID UserInfo,200,pass,200,pass,200,pass
+Federation PublicRooms,200,pass,200,pass,200,pass
+Federation Query Destination,200,pass,200,pass,200,pass
+Federation Query Auth,200,pass,200,pass,200,pass
+Federation Thirdparty Invite,200,pass,200,pass,200,pass
+Federation Timestamp to Event,200,pass,200,pass,200,pass
+Federation v2 Invite,200,pass,200,pass,200,pass
+Federation v2 Send Join,200,pass,200,pass,200,pass
+Federation v2 Send Leave,200,pass,200,pass,200,pass
+Federation v2 Key Clone,200,pass,200,pass,200,pass
+Federation v2 Query,404,pass,404,pass,404,pass
+Federation v2 Server,200,pass,200,pass,200,pass
+Federation v2 User Keys Query,200,pass,200,pass,200,pass
+Federation Hierarchy,401,skip,401,skip,401,skip
+Federation Exchange Third Party Invite,200,pass,200,pass,200,pass
+Federation Knock,200,pass,200,pass,200,pass
+Admin Add Federation Blacklist,200,pass,403,pass,403,pass
+Admin Remove Federation Blacklist,200,pass,403,pass,403,pass
+Admin Reset Federation Connection,,skip,,skip,,skip
+Admin Delete Room,200,pass,200,pass,403,pass
+Admin Room Member Add,200,pass,200,pass,403,pass
+Admin Room Ban User,200,pass,200,pass,403,pass
+Admin Room Kick User,200,pass,200,pass,403,pass
+Admin Set Room Public,200,pass,200,pass,403,pass
+Admin Purge History,200,pass,403,pass,403,pass
+Admin Delete User,,skip,,skip,,skip
+Admin Session Invalidate,,skip,,skip,,skip
+Admin Delete User Device,200,pass,200,pass,403,pass
+Admin Create Registration Token,200,pass,403,pass,403,pass
+Admin Send Server Notice,200,pass,403,pass,403,pass
+Admin List Pushers,200,pass,200,pass,403,pass
+Admin Shadow Ban User,200,pass,200,pass,403,pass
+Admin Set Retention Policy,200,pass,403,pass,403,pass
+Admin List Audit Events,200,pass,200,pass,403,pass
+Prepare Representative Room,200,pass,200,pass,200,pass
+Prepare Representative Event,200,pass,200,pass,200,pass
+Get Room Thread,200,pass,200,pass,200,pass
+Get Room Reactions,200,pass,200,pass,200,pass
+Get Room Context,200,pass,200,pass,200,pass
+Get Room Hierarchy,200,pass,200,pass,200,pass
+Federation OpenID Userinfo,200,pass,200,pass,200,pass
+List Thirdparty Protocols,200,pass,200,pass,200,pass
+Create Widget,200,pass,200,pass,200,pass
+Widget Config,200,pass,200,pass,200,pass
+Get Feature Flags,200,pass,200,pass,403,pass
+Jitsi Config,200,pass,200,pass,200,pass
+App Service Query,200,pass,200,pass,200,pass
+List App Services,200,pass,200,pass,403,pass
+Create Rendezvous Session,200,pass,200,pass,200,pass
+Get Rendezvous Session,200,pass,200,pass,200,pass
+Horizontal: Delete Other User Device,404,pass,404,pass,404,pass
+Horizontal: Update Other User Profile,403,pass,403,pass,403,pass
+Horizontal: Join Private Room,403,pass,403,pass,403,pass
+Ensure Deactivate Target (@deactivate_probe_admin:localhost),N/A,N/A,409,pass,N/A,N/A
+Login (User: @regularuser:localhost),N/A,N/A,N/A,N/A,,pass
+Ensure Deactivate Target (@deactivate_probe_user:localhost),N/A,N/A,N/A,N/A,409,pass

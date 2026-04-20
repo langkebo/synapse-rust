@@ -176,7 +176,10 @@ pub fn create_router(state: AppState) -> Router {
     if state.services.saml_service.is_enabled() {
         router = router.merge(create_saml_router(state.clone()));
     }
-    if state.services.oidc_service.is_some() {
+    if state.services.oidc_service.is_some()
+        || state.services.builtin_oidc_provider.is_some()
+        || state.services.saml_service.is_enabled()
+    {
         router = router.merge(create_oidc_router(state.clone()));
     } else {
         router = router.route(

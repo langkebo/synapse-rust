@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+pub const DEFAULT_PAGE_LIMIT: i64 = 20;
+pub const MAX_PAGE_LIMIT: i64 = 100;
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Pagination {
     #[serde(default)]
@@ -13,7 +16,7 @@ pub struct Pagination {
 }
 
 fn default_limit() -> Option<i64> {
-    Some(20)
+    Some(DEFAULT_PAGE_LIMIT)
 }
 
 impl Pagination {
@@ -34,7 +37,9 @@ impl Pagination {
     }
 
     pub fn effective_limit(&self) -> i64 {
-        self.limit.unwrap_or(20).clamp(1, 100)
+        self.limit
+            .unwrap_or(DEFAULT_PAGE_LIMIT)
+            .clamp(1, MAX_PAGE_LIMIT)
     }
 }
 
@@ -47,12 +52,14 @@ pub struct OffsetPagination {
 }
 
 fn default_offset_limit() -> Option<i64> {
-    Some(20)
+    Some(DEFAULT_PAGE_LIMIT)
 }
 
 impl OffsetPagination {
     pub fn effective_limit(&self) -> i64 {
-        self.limit.unwrap_or(20).clamp(1, 100)
+        self.limit
+            .unwrap_or(DEFAULT_PAGE_LIMIT)
+            .clamp(1, MAX_PAGE_LIMIT)
     }
 
     pub fn effective_offset(&self) -> i64 {

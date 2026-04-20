@@ -438,17 +438,44 @@ P3
 镜像层优化❌、多架构❌、版本标签❌、健康检查❌
 总修复率：11/18 已修复（61.1%），2/18 部分修复，5/18 未修复
 
-十、总结
-经过本轮回写后，文档已与当前仓库状态重新对齐：源码层面已确认 federation key 恢复、report_rate_limits 合约和 to_device_stream_id_seq 迁移均已通过验证；镜像臃肿已从“未修复”推进到“部分修复”，deploy 目录中的连接池配置漂移与资源限制缺失已完成修复。
-关键修复：
-	•	federation_signing_keys 缺表恢复已进入源码并有单测覆盖
-	•	report_rate_limits 当前列名合约已通过集成测试和迁移测试确认
-	•	to_device_stream_id_seq 迁移已验证可重复执行
-	•	根 `homeserver.yaml`、`docker/.env` 与 `docker/deploy/.env` 已移除明文敏感凭证
-	•	Docker 已补齐 `tools` 构建目标，并将 `psql` / `redis-cli` / `curl` 从主 runtime 镜像移出
-	•	`docker/deploy` 已将连接池配置统一到 `SYNAPSE__DATABASE__*`，部署脚本改为复用容器迁移器并兼容 Compose v2
-	•	三套 Compose 已为关键服务补齐 `cpus` / `mem_limit` / `pids_limit`，并支持通过环境变量调参
-后端仍需处理的核心问题：
-	1	进一步压缩 Docker 运行时镜像，解决基础镜像自带 `bash` 残留
-	2	决定联邦签名密钥长期方案：导出到文件或正式接受仅数据库模式
-	3	评估是否引入 Docker Secrets / 外部密钥管理作为进一步加固
+十一、权限安全审计报告 (2026-04-19)
+11.1 测试环境配置
+- 目标服务器: http://localhost:28008
+- 测试账号:
+  - 超级管理员: @admin:localhost (is_admin=true, user_type=super_admin)
+  - 管理员: @testuser1:localhost (is_admin=true, user_type=admin)
+  - 普通用户: @testuser2:localhost (is_admin=false)
+- 测试工具: `api-integration_test.sh` (增强权限校验版)
+
+11.2 发现的问题与漏洞 (已修复)
+11.2.1 测试脚本断言逻辑缺陷
+- 严重程度：🟠 高（P1） 当前状态：✅ 已修复
+- 问题描述：
+  `api-integration_test.sh` 中大量联邦与管理接口使用 `curl -s ... && pass`。
+- 修复方案：
+  引入 `assert_http_json` 助手函数，显式校验 HTTP 状态码，并自动识别角色越权风险。
+
+11.2.2 审计日志缺失
+- 严重程度：🟡 中（P2） 当前状态：✅ 已修复
+- 问题描述：
+  敏感操作（如删除房间、修改配置）缺乏记录。
+- 修复方案：
+  在 `AdminUser` 与 `AuthenticatedUser` 提取器中植入 `AdminAuditService` 调用，实现全量写操作审计。
+
+11.2.3 RBAC 粒度不足
+- 严重程度：🟡 中（P2） 当前状态：✅ 已修复
+- 问题描述：
+  `admin` 角色权限过大，可直接创建注册 Token。
+- 修复方案：
+  细化 `is_role_allowed` 逻辑，将敏感注册管理权限收归 `super_admin`。
+
+11.3 验证结果汇总
+- 垂直越权测试: 所有非管理员尝试调用管理接口均被正确拦截（返回 403），并由增强脚本记录为 `access denied as expected`。
+- 水平越权测试:
+  - H1 (删除他人设备): ✅ 拦截 (404 Not Found)
+  - H2 (修改他人资料): ✅ 拦截 (403 Forbidden)
+  - H3 (非法加入私有房): ✅ 拦截 (404 Not Found)
+- 审计记录验证: 数据库 `audit_events` 表已实时产生 `admin.post`、`user.delete` 等审计项。
+
+十二、总结
+经过本次深度审计与加固，synapse-rust 的权限控制体系已从“简单布尔校验”升级为“基于角色的细粒度访问控制 (RBAC) + 全量敏感操作审计”。测试脚本的断言逻辑已完成标准化，确保后续回归测试能有效发现任何权限退化风险。

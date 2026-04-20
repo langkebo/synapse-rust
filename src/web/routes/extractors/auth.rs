@@ -1,10 +1,12 @@
 use crate::common::ApiError;
+use crate::storage::CreateAuditEventRequest;
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::authorize_admin_request;
 use axum::{
     extract::FromRequestParts,
-    http::{request::Parts, HeaderMap},
+    http::{request::Parts, HeaderMap, Method},
 };
+use serde_json::json;
 
 #[derive(Clone)]
 pub struct AuthenticatedUser {
@@ -43,12 +45,49 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let token_result = extract_token_from_headers(&parts.headers);
         let state = state.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+        let headers = parts.headers.clone();
 
         async move {
             let token = token_result?;
             let result = state.services.auth_service.validate_token(&token).await;
             match result {
                 Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
+                    // 对敏感写操作记录审计日志 (非管理员路径)
+                    if matches!(method, Method::POST | Method::PUT | Method::DELETE)
+                        && !path.starts_with("/_synapse/admin")
+                    {
+                        let request_id = headers
+                            .get("x-request-id")
+                            .and_then(|v| v.to_str().ok())
+                            .unwrap_or("unknown")
+                            .to_string();
+
+                        let audit_request = CreateAuditEventRequest {
+                            actor_id: user_id.clone(),
+                            action: format!("user.{}", method.as_str().to_lowercase()),
+                            resource_type: "client_api".to_string(),
+                            resource_id: path.clone(),
+                            result: "success".to_string(), // 在提取器中目前只能记录尝试/成功，真正的执行结果在 handler
+                            request_id,
+                            details: Some(json!({
+                                "path": path,
+                                "method": method.as_str(),
+                                "is_admin": is_admin,
+                            })),
+                        };
+
+                        if let Err(e) = state
+                            .services
+                            .admin_audit_service
+                            .create_event(audit_request)
+                            .await
+                        {
+                            ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
+                        }
+                    }
+
                     Ok(AuthenticatedUser {
                         user_id,
                         device_id,

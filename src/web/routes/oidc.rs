@@ -8,7 +8,8 @@ use crate::services::builtin_oidc_provider::{
 use crate::services::oidc_service::OidcService;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
-    extract::State,
+    extract::{Query, State},
+    response::Redirect,
     routing::{get, post},
     Json, Router,
 };
@@ -110,8 +111,75 @@ fn validate_state_pkce_binding(auth_session: &OidcAuthSession) -> Result<(), Api
     Ok(())
 }
 
+#[derive(Debug, Deserialize)]
+struct SsoRedirectQuery {
+    #[serde(rename = "redirectUrl")]
+    redirect_url: Option<String>,
+    #[serde(rename = "redirect_url")]
+    redirect_url_compat: Option<String>,
+}
+
+fn resolve_sso_redirect_url(state: &AppState, query: &SsoRedirectQuery) -> String {
+    query
+        .redirect_url
+        .clone()
+        .or_else(|| query.redirect_url_compat.clone())
+        .unwrap_or_else(|| {
+            format!(
+                "{}/_matrix/client/v3/oidc/callback",
+                state.services.config.server.get_public_baseurl()
+            )
+        })
+}
+
+async fn sso_redirect(
+    State(state): State<AppState>,
+    Query(query): Query<SsoRedirectQuery>,
+) -> Result<Redirect, ApiError> {
+    let redirect_uri = resolve_sso_redirect_url(&state, &query);
+
+    if let Some(oidc_service) = state.services.oidc_service.as_ref() {
+        let state_value = OidcService::generate_state();
+        let nonce_value = OidcService::generate_state();
+        let (code_verifier, code_challenge) = OidcService::generate_pkce();
+
+        store_oidc_auth_session(
+            &state_value,
+            &nonce_value,
+            &code_verifier,
+            &code_challenge,
+            "S256",
+            &redirect_uri,
+        )?;
+
+        let authorization_url = oidc_service.get_authorization_url(
+            &state_value,
+            &redirect_uri,
+            Some(&code_challenge),
+            Some("S256"),
+        )?;
+
+        return Ok(Redirect::temporary(&authorization_url));
+    }
+
+    if state.services.saml_service.is_enabled() {
+        let auth_request = state
+            .services
+            .saml_service
+            .get_auth_redirect(Some(&redirect_uri))
+            .await?;
+        return Ok(Redirect::temporary(&auth_request.redirect_url));
+    }
+
+    Err(ApiError::bad_request("SSO is not enabled".to_string()))
+}
+
 pub fn create_oidc_router(state: AppState) -> Router<AppState> {
     Router::new()
+        .route("/_matrix/client/v3/login/sso/redirect", get(sso_redirect))
+        .route("/_matrix/client/r0/login/sso/redirect", get(sso_redirect))
+        .route("/_matrix/client/v3/login/sso/userinfo", get(oidc_userinfo))
+        .route("/_matrix/client/r0/login/sso/userinfo", get(oidc_userinfo))
         // v3 路径
         .route("/_matrix/client/v3/oidc/userinfo", get(oidc_userinfo))
         .route("/_matrix/client/v3/oidc/token", post(oidc_token))

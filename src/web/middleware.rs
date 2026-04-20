@@ -2,6 +2,7 @@ use crate::cache::*;
 use crate::common::ApiError;
 use crate::storage::CreateAuditEventRequest;
 use crate::web::routes::admin::audit::resolve_request_id;
+use crate::web::routes::extract_token_from_headers;
 use crate::web::utils::admin_auth::authorize_admin_request;
 use crate::web::utils::{encoding::decode_base64_32, ip::extract_client_ip};
 use axum::extract::State;
@@ -901,7 +902,50 @@ pub async fn admin_auth_middleware(
 
     let admin = match authorize_admin_request(&headers, &method, &path, &state).await {
         Ok(admin) => admin,
-        Err(err) => return err.into_response(),
+        Err(err) => {
+            let response = err.into_response();
+            let status = response.status().as_u16();
+            let (actor_id, device_id, authenticated_admin) =
+                match extract_token_from_headers(&headers) {
+                    Ok(token) => match state.services.auth_service.validate_token(&token).await {
+                        Ok((user_id, device_id, is_admin, _, _)) => {
+                            (user_id, device_id, Some(is_admin))
+                        }
+                        Err(_) => ("anonymous".to_string(), None, None),
+                    },
+                    Err(_) => ("anonymous".to_string(), None, None),
+                };
+
+            if let Err(error) = state
+                .services
+                .admin_audit_service
+                .create_event(CreateAuditEventRequest {
+                    actor_id,
+                    action: format!("{} {}", method, path),
+                    resource_type: "admin_api".to_string(),
+                    resource_id: path.clone(),
+                    result: "failure".to_string(),
+                    request_id: request_id.clone(),
+                    details: Some(json!({
+                        "method": method.as_str(),
+                        "path": path,
+                        "status": status,
+                        "client_ip": client_ip,
+                        "authenticated_admin": authenticated_admin,
+                        "device_id": device_id,
+                    })),
+                })
+                .await
+            {
+                tracing::warn!(
+                    target: "admin_auth",
+                    %error,
+                    "Failed to persist denied admin audit event"
+                );
+            }
+
+            return response;
+        }
     };
 
     let mut response = next.run(request).await;
@@ -1123,7 +1167,10 @@ struct XMatrixAuthParams {
 
 fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams> {
     let header_value = header_value.trim();
-    let header_value = header_value.strip_prefix("X-Matrix ")?;
+    if !header_value.to_ascii_lowercase().starts_with("x-matrix") {
+        return None;
+    }
+    let header_value = header_value["x-matrix".len()..].trim();
 
     let mut origin: Option<String> = None;
     let mut key: Option<String> = None;
@@ -1132,7 +1179,12 @@ fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams>
 
     for part in header_value.split(',') {
         let part = part.trim();
-        let (k, v) = part.split_once('=')?;
+        if part.is_empty() {
+            continue;
+        }
+        let Some((k, v)) = part.split_once('=') else {
+            continue;
+        };
         let k = k.trim();
         let mut v = v.trim();
         if v.starts_with('"') && v.ends_with('"') && v.len() >= 2 {

@@ -14,7 +14,7 @@ use crate::web::middleware::replication_http_auth_middleware;
 use crate::web::routes::response_helpers::{
     created_json_from, json_from, json_vec_from, require_found, status_json,
 };
-use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
+use crate::web::routes::{AdminUser, AppState};
 use crate::worker::types::*;
 
 #[derive(Debug, Deserialize)]
@@ -347,7 +347,7 @@ pub async fn get_pending_tasks(
 pub async fn claim_next_task(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
-    _auth_user: AuthenticatedUser,
+    _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let task = state
         .services
@@ -361,7 +361,7 @@ pub async fn claim_next_task(
 pub async fn claim_task(
     State(state): State<AppState>,
     Path((task_id, worker_id)): Path<(String, String)>,
-    _auth_user: AuthenticatedUser,
+    _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     state
         .services
@@ -541,7 +541,11 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
             "/_synapse/worker/v1/statistics/types",
             get(get_type_statistics),
         )
-        .route("/_synapse/worker/v1/select/{task_type}", get(select_worker));
+        .route("/_synapse/worker/v1/select/{task_type}", get(select_worker))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ));
 
     let worker_router = Router::new()
         .route(
