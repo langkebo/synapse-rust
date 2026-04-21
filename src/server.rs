@@ -331,6 +331,7 @@ impl SynapseServer {
         ::tracing::info!("Starting scheduled database monitoring and maintenance tasks...");
         self.scheduled_tasks.start_all().await;
 
+        #[cfg(feature = "beacons")]
         let beacon_service = self.app_state.services.beacon_service.clone();
         let retention_service = self.app_state.services.retention_service.clone();
         let retention_config = self.app_state.services.config.retention.clone();
@@ -355,10 +356,20 @@ impl SynapseServer {
             loop {
                 interval_timer.tick().await;
                 if retention_config.lifecycle_cleanup_enabled {
-                    retention_service
-                        .run_data_lifecycle_cycle(&beacon_service, &retention_config)
-                        .await;
+                    #[cfg(feature = "beacons")]
+                    {
+                        retention_service
+                            .run_data_lifecycle_cycle(&beacon_service, &retention_config)
+                            .await;
+                    }
+                    #[cfg(not(feature = "beacons"))]
+                    {
+                        retention_service
+                            .run_data_lifecycle_cycle_no_beacons(&retention_config)
+                            .await;
+                    }
                 } else {
+                    #[cfg(feature = "beacons")]
                     match beacon_service.cleanup_expired_beacons().await {
                         Ok(count) => {
                             if count > 0 {

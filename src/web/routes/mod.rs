@@ -181,10 +181,15 @@ pub use validators::{
 pub use verification_routes::create_verification_router;
 #[cfg(feature = "voice-extended")]
 pub use voice::create_voice_router;
+#[cfg(feature = "voip-tracking")]
 pub use voip::call_answer;
+#[cfg(feature = "voip-tracking")]
 pub use voip::call_candidates;
+#[cfg(feature = "voip-tracking")]
 pub use voip::call_hangup;
+#[cfg(feature = "voip-tracking")]
 pub use voip::call_invite;
+#[cfg(feature = "voip-tracking")]
 pub use voip::get_call_session;
 pub use voip::get_turn_credentials_guest;
 pub use voip::get_turn_server;
