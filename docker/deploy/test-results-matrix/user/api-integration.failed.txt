@@ -1,3 +1,0 @@
-Friend Request	M_BAD_JSON: Cannot send friend request to yourself
-Rust Synapse Version	SECURITY VULNERABILITY: Unexpected success for role user (requires super_admin)
-Horizontal: Join Private Room	Expected 403/404 but got 200

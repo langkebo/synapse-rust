@@ -7,12 +7,32 @@ authors = ["Synapse Rust Team"]
 description = "Matrix Homeserver implemented in Rust"
 
 [features]
-default = ["server"]
+default = ["server", "all-extensions"]
 server = ["dep:axum", "dep:tower-http"]
 openclaw-routes = []
 runtime-ddl = []
 performance-tests = []
 test-utils = []
+
+# Non-core feature modules (can be disabled to produce a minimal build)
+friends = []
+voice-extended = []
+saml-sso = []
+cas-sso = []
+beacons = []
+voip-tracking = []
+widgets = []
+server-notifications = []
+burn-after-read = []
+privacy-ext = []
+external-services = []
+
+# Meta-feature: enable all extensions (default for backwards compatibility)
+all-extensions = [
+    "openclaw-routes", "friends", "voice-extended", "saml-sso", "cas-sso",
+    "beacons", "voip-tracking", "widgets", "server-notifications",
+    "burn-after-read", "privacy-ext", "external-services"
+]
 
 [dependencies]
 tokio = { version = "1.49", features = ["full", "test-util"] }
